@@ -6,12 +6,12 @@
 #   make release        build release cây desktop OS hiện tại
 #
 # Build/release RÕ theo từng nền tảng (sau này thêm nền tảng nào thì thêm cặp mới):
-#   make build-windows   / release-windows   client desktop Windows (chỉ chạy trên Windows)
+#   make build-windows   / release-windows   app Windows: native (CMake) + WinUI3 (dotnet)
 #   make build-macos     / release-macos     app macOS — cả hai vai (cần macOS + Xcode)
 #   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
 #   make build-ios       / release-ios       app iOS cho Simulator (cần macOS + Xcode)
 #
-#   make run            chạy client desktop (mới có Windows), ARGS="notepad.exe --loopback"
+#   make run            build + chạy Deskhub.exe (WinUI3, mới có Windows), ARGS="--share ..."
 #   make run-macos      build + mở app macOS (cần macOS + Xcode)
 #   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
 #   make run-ios        build + cài + mở app iOS trên Simulator (cần macOS + Xcode)
@@ -52,6 +52,14 @@ COV_TESTS  := out\build\coverage\core\core_tests.exe
 COV_RAW    := out\build\coverage\core_tests.profraw
 COV_DATA   := out\build\coverage\core_tests.profdata
 GRADLEW    := cd client\android && .\gradlew.bat
+# App Windows = 2 lớp: CMake dựng deskhub_native.dll, dotnet/MSBuild dựng Deskhub.exe
+# (giống client/android: cpp/ qua CMake, java/ qua Gradle). Đường ra của .csproj gồm
+# cả TFM lẫn RID nên ghim ở đây; đổi TargetFramework trong .csproj thì sửa WINUI_TFM.
+# Build luôn truyền -p:Platform=x64 để ra bin\x64\... — cùng chỗ Visual Studio ghi,
+# khỏi lệch (dotnet build không có Platform sẽ ghi vào bin\Debug\...).
+WINUI_PROJ := client\windows\csharp\Deskhub.csproj
+WINUI_TFM  := net9.0-windows10.0.19041.0
+WINUI_EXE  := client\windows\csharp\bin\x64\Debug\$(WINUI_TFM)\win-x64\Deskhub.exe
 ADB        := $(if $(ANDROID_HOME),$(ANDROID_HOME)\platform-tools\adb.exe,$(LOCALAPPDATA)\Android\Sdk\platform-tools\adb.exe)
 else
 # --- macOS/Ubuntu: cmake/ninja/clang(gcc) lấy thẳng từ PATH (scripts/bootstrap.sh cài).
@@ -87,11 +95,16 @@ release:
 	@$(DEVCMD) cmake --preset x64-release && cmake --build --preset x64-release
 
 # --- Build/release từng nền tảng --------------------------------------------
-# Windows: chính là cây CMake desktop ở trên — đặt tên rõ để đối xứng với các
-# nền tảng khác; trên máy không phải Windows thì báo lỗi thay vì build nhầm core.
+# Windows: cây CMake desktop ở trên (ra deskhub_native.dll) RỒI dotnet build lớp
+# WinUI3 (ra Deskhub.exe — app Windows duy nhất kể từ M4b). .csproj tự chép DLL
+# native theo cấu hình: Release lấy preset x64-release, còn lại lấy x64-debug.
+# Trên máy không phải Windows thì báo lỗi thay vì build nhầm core.
 ifeq ($(OS),Windows_NT)
 build-windows: debug
+	@$(DEVCMD) dotnet build $(WINUI_PROJ) -c Debug -p:Platform=x64
+
 release-windows: release
+	@$(DEVCMD) dotnet build $(WINUI_PROJ) -c Release -p:Platform=x64
 else
 build-windows release-windows:
 	@echo "make $@: run on a Windows machine (desktop client is Windows-only for now)"; exit 1
@@ -140,10 +153,10 @@ build-ios release-ios:
 	@echo "make $@: needs macOS + Xcode"; exit 1
 endif
 
-# Desktop (Windows): client.exe chứa cả vai host lẫn client.
+# Desktop (Windows): Deskhub.exe (WinUI3) chứa cả vai host lẫn client.
 ifeq ($(OS),Windows_NT)
-run: debug
-	out\build\x64-debug\client\windows\client.exe $(ARGS)
+run: build-windows
+	$(WINUI_EXE) $(ARGS)
 else
 run:
 	@echo "make run: desktop client is Windows-only for now (see docs/05-roadmap.md)"; exit 1
