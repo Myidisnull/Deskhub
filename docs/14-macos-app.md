@@ -139,20 +139,38 @@ Một cửa sổ, năm màn, hai nhánh:
 
 ```
 home ──► connect ──► sourcePicker ──► stream      (vai CLIENT)
-     └─► share   ──► session                      (vai HOST)
+     └─► share                                    (vai HOST)
 ```
 
-- **`HomeView`** — chọn vai. Không nhớ lựa chọn lần trước: chọn nhầm vai trên một app
-  điều khiển từ xa khó chịu hơn nhiều so với bấm thêm một nút.
-- **`ConnectView` / `SourcePickerView` / `StreamView`** — đối ứng ba màn của iOS.
-  `StreamView` **không có thanh phím tắt** như iOS: macOS có bàn phím thật nên
-  `RemoteView` gửi thẳng Esc/Tab/F-key. Ngoại lệ duy nhất là F9 (phím thoát hiểm).
-- **`ShareView`** — chọn nguồn (tick nhiều cái, GĐ6), cổng/fps/bitrate, công tắc cho
-  điều khiển. Banner quyền nằm **trên cùng** và nút Start bị khoá khi thiếu Screen
-  Recording — thà chặn rõ ràng còn hơn để người dùng nhận một thất bại không giải
-  thích được.
-- **`SessionView`** — đối ứng `ui/SessionWindow.cpp` bên Windows: hiện **địa chỉ +
-  cổng** để đọc cho máy kia, số liệu sống từng nguồn, và thêm/bớt nguồn giữa phiên.
+Giao diện dựng theo **hệ thiết kế Deskhub** (dự án thiết kế `Deskhub App.html`), cùng
+bộ token và cùng năm màn desktop với bản Windows ở `client/windows/csharp`. Vỏ cửa sổ
+là **thanh rail 74px** bên trái (Machines / Connect / Share + nút sáng-tối + nút EN-VI)
+trên một nền có **một** nguồn sáng cobalt.
+
+- **`DesignTokens.swift`** — bảng màu/cỡ chữ/bo góc, khớp từng con số với
+  `client/windows/csharp/Themes/Tokens.xaml`. Sáng/tối đi qua `NSColor` động +
+  `preferredColorScheme`, không có bộ đổi màu tự viết.
+- **`DesignText / DesignButtons / DesignSurfaces / DesignControls / DesignRows /
+  DesignLayout`** — các thành phần (nút bốn biến thể, ô tick, thẻ máy, dòng nguồn,
+  HUD, panel, khung màn). Tự viết thay vì dùng control mặc định: control của AppKit
+  lấy **màu nhấn của hệ điều hành**, mà cả hệ này xoay quanh đúng một màu tín hiệu.
+- **`HomeView`** — hai ô lớn (Connect / Share) + **Recent connections**
+  (`Recents.swift`, lưu trong `UserDefaults`).
+- **`ConnectView`** — ô địa chỉ hero cao 66px là trung tâm màn hình, ba panel chú thích
+  bên dưới, ô **View only** ở thanh dưới (chặn ở `SessionModel`, không ở view).
+- **`SourcePickerView` / `StreamView`** — chọn nguồn, rồi xem. `StreamView` **không có
+  thanh phím tắt** như iOS: macOS có bàn phím thật nên `RemoteView` gửi thẳng
+  Esc/Tab/F-key. Ngoại lệ duy nhất là F9 (phím thoát hiểm cho khoá chuột). Màn xem
+  **không có rail** và **luôn nền đen**, kể cả ở giao diện sáng.
+- **`ShareView`** — **gộp** màn chọn nguồn và màn phiên (trước đây là `ShareView` +
+  `SessionView`), đúng như bản thiết kế và bản Windows: địa chỉ để đọc cho máy kia, số
+  liệu sống, và danh sách nguồn có **ô tick sống** — tick giữa phiên là thêm/bớt nguồn
+  ngay, không phải dừng rồi share lại (bắt đầu lại sẽ ngắt người đang xem). Banner
+  quyền nằm **trên cùng** và nút Share bị khoá khi thiếu Screen Recording.
+- **`Strings.swift` + `AppState.swift`** — bảng chữ EN/VI đổi ngay tại chỗ bằng nút ở
+  chân rail, chép từ `i18n.jsx` và giữ đồng bộ với `Strings.cs` bên Windows. Không dùng
+  `NSLocalizedString`: cơ chế của Apple chọn ngôn ngữ theo cài đặt **hệ điều hành** và
+  cần khởi động lại app.
 
 Điều phối vẫn là "không View nào gọi thẳng hàm C": mọi lối đi qua `DeskhubClient.swift`
 / `DeskhubAgent.swift`.
@@ -214,9 +232,10 @@ hành cần Developer ID + notarize.
 Frameworks link: VideoToolbox, CoreMedia, AVFoundation, CoreVideo, **ScreenCaptureKit**,
 CoreGraphics, ApplicationServices, AppKit.
 
-**Chạy thử hai máy:** máy A bấm **Share this Mac** → chọn cửa sổ/màn hình → **Start
-sharing** → đọc địa chỉ trên `SessionView`. Máy B (macOS hoặc Windows) gõ địa chỉ đó
-vào **Connect**. Qua Internet: bật Tailscale hai đầu, dùng IP `100.x.y.z`.
+**Chạy thử hai máy:** máy A bấm **Share this Mac** → tick cửa sổ/màn hình → **Share** →
+đọc địa chỉ ngay trên màn đó (panel "Enter on the other machine"). Máy B (macOS hoặc
+Windows) gõ địa chỉ đó vào **Connect**. Qua Internet: bật Tailscale hai đầu, dùng IP
+`100.x.y.z`.
 
 ## 6b. Quy ước ngôn ngữ
 
@@ -245,6 +264,15 @@ Con số để đo lời hứa "thêm một nền tảng = chỉ viết lớp ba
 - **e2e đo lúc enqueue**, chưa phải lúc frame lên màn hình — kế thừa nguyên caveat của
   nhánh `AVSampleBufferDisplayLayer` (`12-ios-client.md` §2). Muốn chính xác hơn thì
   chuyển sang `VTDecompressionSession`.
+- **Chưa dò host trong mạng (GĐ9).** Màn chính của bản thiết kế có mục **"Found on your
+  networks"**; bản Windows dựng được vì tầng C++ bên đó đã có `net/Discovery.cpp` và
+  `AgentLoop` đã gắn `deskhub::Beacon`. Tầng C++ của macOS chưa có cả hai, nên mục đó
+  **cố tình không được vẽ**: một danh sách "đang quét…" rỗng vĩnh viễn nói với người
+  dùng rằng mạng của họ không có máy nào, trong khi sự thật là app này chưa biết hỏi.
+- **Panel "máy đang xem" không có tên/địa chỉ người xem và không có RTT.** Giao thức
+  không mang những thứ đó về phía host, và host không đo RTT (chỉ client đo). Panel
+  hiện đúng thứ nó biết — có ai đang xem chưa, fps/bitrate gửi đi, nhịp thu hình — và
+  biểu đồ vẽ **nhịp gửi** thay cho độ trễ.
 - **Chưa có mã hoá** (GĐ6 của `05-roadmap.md`) — như mọi nền tảng khác.
 - **Chưa notarize**: người tải bản CI về phải tự bỏ quarantine.
 - **Anti-cheat kernel** chặn được input tổng hợp trên macOS y như trên Windows. Đây là

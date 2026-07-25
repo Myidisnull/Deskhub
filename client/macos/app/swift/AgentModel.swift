@@ -37,6 +37,11 @@ final class AgentModel {
     var addresses: [String] = []
     var activePort: UInt16 = 0
 
+    // Đếm nhịp poll. ShareView vẽ một biểu đồ nhịp gửi và cần MỘT MẪU MỖI NHỊP, kể cả
+    // khi con số không đổi — theo dõi chính con số đó thì đường biểu đồ đứng hình đúng
+    // lúc luồng chạy ổn định nhất, tức là nói ngược hẳn sự thật.
+    var tick: UInt64 = 0
+
     // Quyền. Đọc lại mỗi lần vào màn hình vì người dùng có thể vừa bật trong
     // System Settings mà không khởi động lại app.
     var hasScreenRecording = false
@@ -154,6 +159,7 @@ final class AgentModel {
         statusLine = DeskhubAgent.statusLine()
         rows = DeskhubAgent.status()
         activePort = DeskhubAgent.port
+        tick &+= 1
         // Thread Recv có thể tự dừng (lỗi socket) — UI phải theo, không thì người
         // dùng ngồi nhìn một màn hình phiên đã chết.
         if !DeskhubAgent.isRunning {

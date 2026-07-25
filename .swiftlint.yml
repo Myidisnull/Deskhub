@@ -5,7 +5,13 @@
 #     bắt lỗi ngược chiều nhau.
 #   - identifier_name: cho phép tên 2 ký tự — vk/nx/ny là thuật ngữ wire/input dùng
 #     xuyên suốt core C++ (KeyMap.h, Wire.h), đổi tên phía Swift chỉ gây lệch từ vựng.
+#   - type_name: cho phép tên 2 ký tự — `DS` là tên hệ thiết kế tự đặt cho chính nó
+#     (`const DS = ...` trong parts.jsx của dự án thiết kế) và nó đứng trước MỌI token
+#     màu/cỡ chữ trong app macOS; đặt tên dài hơn chỉ làm mỗi dòng dài thêm mà không
+#     nói thêm gì.
 disabled_rules:
   - trailing_comma
 identifier_name:
+  min_length: 2
+type_name:
   min_length: 2

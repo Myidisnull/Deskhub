@@ -29,6 +29,21 @@ final class SessionModel {
     // Khoá chuột (chế độ tương đối) — bật/tắt bằng F9, đối ứng client Windows.
     var mouseLocked = false
 
+    // "Chỉ xem" — ô tick ở màn Kết nối của bản thiết kế. Chặn Ở ĐÂY chứ không ở view:
+    // input đi ra từ bốn chỗ khác nhau trong RemoteView (phím, phím bổ trợ, chuột,
+    // con lăn), và một cái quên kiểm tra là cả lựa chọn này thành vô nghĩa mà không ai
+    // biết. Chặn ở cửa duy nhất xuống C++ thì không có đường nào lọt.
+    var viewOnly: Bool = UserDefaults.standard.bool(forKey: "viewOnly") {
+        didSet {
+            UserDefaults.standard.set(viewOnly, forKey: "viewOnly")
+            // Bật giữa phiên trong lúc đang giữ phím = kẹt phím ở máy kia.
+            if viewOnly { DeskhubClient.releaseAllInput() }
+        }
+    }
+
+    // Dãy RTT cho biểu đồ ở HUD màn xem, bóc từ dòng số liệu (xem parseRtt).
+    var rttTrace: [Double] = []
+
     private var pollTimer: Timer?
     private var lastPasteboardChange = NSPasteboard.general.changeCount
 
@@ -50,6 +65,7 @@ final class SessionModel {
     func startStream(sourceId: UInt8) {
         endReason = ""
         statusLine = ""
+        rttTrace = []
         phase = .connecting
         mouseLocked = false
         // Chụp mốc clipboard NGAY khi vào phiên: không thì thứ đang nằm sẵn trong
@@ -69,7 +85,12 @@ final class SessionModel {
 
     // MARK: - Chuyển tiếp input (StreamView/RemoteView gọi)
 
+    //
+    // Mọi hàm ở đây đi qua cùng một cửa `viewOnly`. releaseAllInput là NGOẠI LỆ có
+    // chủ ý: nó chỉ nhả thứ đang bị giữ, nên chặn nó lại mới là chuyện gây kẹt phím.
+
     func key(vk: Int32, scan: Int32, down: Bool) {
+        guard !viewOnly else { return }
         DeskhubClient.key(vk: vk, scan: scan, down: down)
     }
 
@@ -78,18 +99,22 @@ final class SessionModel {
     }
 
     func mouseMove(nx: Int32, ny: Int32) {
+        guard !viewOnly else { return }
         DeskhubClient.mouseMove(nx: nx, ny: ny)
     }
 
     func mouseMoveRel(dx: Int32, dy: Int32) {
+        guard !viewOnly else { return }
         DeskhubClient.mouseMoveRel(dx: dx, dy: dy)
     }
 
     func mouseButton(_ button: MouseButton, down: Bool) {
+        guard !viewOnly else { return }
         DeskhubClient.mouseButton(button, down: down)
     }
 
     func mouseWheel(_ delta: Int32) {
+        guard !viewOnly else { return }
         DeskhubClient.mouseWheel(delta)
     }
 
@@ -113,6 +138,10 @@ final class SessionModel {
         statusLine = DeskhubClient.statusLine()
         videoWidth = DeskhubClient.videoWidth()
         videoHeight = DeskhubClient.videoHeight()
+        if let rtt = Self.parseRtt(statusLine) {
+            rttTrace.append(rtt)
+            if rttTrace.count > 60 { rttTrace.removeFirst(rttTrace.count - 60) }
+        }
         syncClipboard()
 
         if phase == .ended {
@@ -142,5 +171,16 @@ final class SessionModel {
         if let text = pb.string(forType: .string), !text.isEmpty {
             DeskhubClient.setClipboard(text)
         }
+    }
+
+    // Bóc "RTT 4 ms" ra khỏi dòng số liệu mà ClientLoop dựng sẵn, thay vì mở thêm một
+    // hàm C thứ hai chỉ để trả về đúng con số đó. Dòng ấy được dựng ở MỘT chỗ
+    // (ClientLoop.cpp) và bản Windows cũng bóc RTT ra khỏi cùng chuỗi đó — hai client
+    // đọc cùng một nguồn thì không có cách nào lệch nhau.
+    private static func parseRtt(_ line: String) -> Double? {
+        guard let range = line.range(of: "RTT ") else { return nil }
+        let rest = line[range.upperBound...]
+        let digits = rest.prefix { $0.isNumber || $0 == "." }
+        return Double(digits)
     }
 }

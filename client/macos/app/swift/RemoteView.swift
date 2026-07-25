@@ -133,7 +133,10 @@ final class RemoteVideoView: NSView {
 
     // MARK: - Khoá chuột (chế độ tương đối)
 
-    func setMouseLocked(_ on: Bool) {
+    // `notify` = false khi lệnh đến TỪ SwiftUI (updateNSView áp lại trạng thái model):
+    // bắn callback ngược lại lúc đó là ghi vào @State giữa lượt cập nhật view, thứ
+    // SwiftUI cảnh báo và có thể làm vòng vẽ lại không dừng.
+    func setMouseLocked(_ on: Bool, notify: Bool = true) {
         guard mouseLocked != on else { return }
         mouseLocked = on
         if on {
@@ -145,7 +148,7 @@ final class RemoteVideoView: NSView {
             CGAssociateMouseAndMouseCursorPosition(1)
             NSCursor.unhide()
         }
-        onLockChanged?(on)
+        if notify { onLockChanged?(on) }
     }
 
     // MARK: - Bàn phím
@@ -260,6 +263,10 @@ final class RemoteVideoView: NSView {
 struct RemoteView: NSViewRepresentable {
     let model: SessionModel
     let videoSize: CGSize
+    /// Nút "tỉ lệ" trên HUD: vừa cửa sổ (viền đen hai bên) ↔ lấp đầy (cắt mép).
+    var fill: Bool = false
+    /// Trạng thái khoá chuột do HUD điều khiển. F9 vẫn là đường thoát hiểm ở trong view.
+    var mouseLocked: Bool = false
     let onLayerReady: (AVSampleBufferDisplayLayer?) -> Void
     let onLockChanged: (Bool) -> Void
 
@@ -268,6 +275,7 @@ struct RemoteView: NSViewRepresentable {
         view.model = model
         view.videoSize = videoSize
         view.onLockChanged = onLockChanged
+        view.displayLayer?.videoGravity = fill ? .resizeAspectFill : .resizeAspect
         onLayerReady(view.displayLayer)
         // Giao bàn phím cho view ngay khi nó xuất hiện, khỏi bắt người dùng bấm một
         // cái vô nghĩa vào khung hình trước khi gõ được.
@@ -277,6 +285,8 @@ struct RemoteView: NSViewRepresentable {
 
     func updateNSView(_ nsView: RemoteVideoView, context _: Context) {
         nsView.videoSize = videoSize
+        nsView.displayLayer?.videoGravity = fill ? .resizeAspectFill : .resizeAspect
+        nsView.setMouseLocked(mouseLocked, notify: false)
     }
 
     // Layer phải được thu hồi TRƯỚC khi view bị hủy — thread Decode còn enqueue vào

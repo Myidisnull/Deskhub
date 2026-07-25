@@ -1,10 +1,21 @@
 // =============================================================================
-// SourcePickerView.swift — chọn cửa sổ muốn xem (vai CLIENT).
-//                          Đối ứng SourcePickerView bên iOS và
-//                          client/windows/ui/SourcePickerDialog.
+// SourcePickerView.swift — màn 03 "Chọn thứ muốn xem" (vai CLIENT).
+//                          Dựng theo `DesktopPick` trong desktop.jsx; đối ứng
+//                          client/windows/csharp/Views/PickPage.xaml.
 //
-// Chỉ hiện khi host chia sẻ NHIỀU HƠN một nguồn — một nguồn thì ConnectView vào
-// thẳng màn xem, khỏi bắt người dùng bấm một cái không có lựa chọn nào.
+// MÀN NÀY XEN GIỮA CONNECT VÀ VIEWER
+//   Host chia sẻ nhiều cửa sổ/màn hình cùng lúc, mỗi cái một sourceId. Không có màn
+//   này thì client luôn xem nguồn 0 và không có đường nào tới các nguồn còn lại.
+//
+// MỘT LẦN MỘT NGUỒN
+//   Bản thiết kế ghi rõ trong chính chuỗi `pickHint`: "One at a time — picking another
+//   switches the stream." Tầng C++ của macOS cũng đúng như vậy — dh_start nhận MỘT
+//   sourceId. Nên ở đây ô tick hành xử như radio: chọn cái mới là bỏ cái cũ.
+//
+// HOST IM LẶNG KHÔNG PHẢI LÀ LỖI
+//   Host đời trước GĐ6 không biết LIST_SOURCES. Lúc đó màn này KHÔNG hiện ra — ConnectView
+//   đi thẳng sang màn xem với nguồn 0, đúng hành vi cũ. Người dùng không được thấy một
+//   màn trống và một lời báo lỗi cho chuyện họ không làm gì sai.
 // =============================================================================
 import SwiftUI
 
@@ -13,40 +24,70 @@ struct SourcePickerView: View {
     @Bindable var model: SessionModel
     let sources: [Source]
 
+    @State private var picked: UInt8?
+
+    private var selectedId: UInt8 { picked ?? sources.first?.id ?? 0 }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Select a source to view")
-                    .font(.headline)
-                Spacer()
-                Button("Back") { route = .connect }
-            }
-            .padding()
+        ScreenBody {
+            ScreenHeader(
+                eyebrow: tr("clientMode"),
+                title: tr("pickTitle"),
+                aside: model.address
+            )
 
-            Divider()
-
-            List(sources) { source in
-                Button {
-                    model.startStream(sourceId: source.id)
-                    route = .stream
-                } label: {
-                    HStack {
-                        Image(systemName: "macwindow")
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(source.name)
-                            Text("\(source.width)×\(source.height)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(label: tr("sharedByHost")) {
+                    StatusDot(live: !sources.isEmpty)
+                    MonoText(text: String(
+                        format: tr("publishedCountFmt"),
+                        sources.count,
+                        sources.isEmpty ? 0 : 1
+                    ))
                 }
-                .buttonStyle(.plain)
+
+                if sources.isEmpty {
+                    MonoText(text: tr("noSourcesShared"))
+                } else {
+                    EvenGrid(columns: 2, spacing: 10) {
+                        ForEach(sources) { source in
+                            SourceRow(
+                                name: source.name,
+                                detail: "\(source.width)×\(source.height)",
+                                // Giao thức không nói nguồn là cửa sổ hay màn hình ở
+                                // phía client (DHSourceInfo chỉ có tên + kích thước),
+                                // nên đừng đoán: dùng chung một biểu tượng cửa sổ thay
+                                // vì gán bừa "display" cho thứ có thể là một cửa sổ.
+                                isDisplay: false,
+                                selected: source.id == selectedId,
+                                state: source.id == selectedId ? tr("streaming") : tr("idle"),
+                                tone: source.id == selectedId ? .live : .neutral,
+                                rowToggles: true,
+                                onToggle: { _ in picked = source.id }
+                            )
+                        }
+                    }
+                }
+
+                MonoText(text: tr("pickHint"))
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        } bar: {
+            Toggle(isOn: Binding(get: { !model.viewOnly }, set: { model.viewOnly = !$0 })) {
+                Text(tr("allowInput"))
+            }
+            .toggleStyle(DSCheckboxStyle())
+            Spacer()
+            Button(tr("back")) { route = .connect }
+                .buttonStyle(DSButtonStyle(variant: .secondary))
+            Button {
+                model.startStream(sourceId: selectedId)
+                route = .stream
+            } label: {
+                Label(tr("startViewing"), systemImage: "video")
+            }
+            .buttonStyle(DSButtonStyle(variant: .primary, size: .lg))
+            .disabled(sources.isEmpty)
         }
     }
 }

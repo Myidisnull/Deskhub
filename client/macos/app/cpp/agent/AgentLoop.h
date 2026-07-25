@@ -14,7 +14,7 @@
 //   Ở đây UI là SwiftUI trên main thread, không thể bị chặn — nên AgentLoop::Start()
 //   dựng thread Recv rồi TRẢ VỀ NGAY, và UI hỏi trạng thái qua Status()/StatusLine()
 //   theo nhịp 500ms. Cửa sổ quản lý phiên (SessionWindow.cpp bên Windows) vì thế
-//   không có bản macOS: nó là màn hình SwiftUI SessionView, và mọi lệnh của người
+//   không có bản macOS: nó là màn hình SwiftUI ShareView, và mọi lệnh của người
 //   dùng đi qua AddSource/RemoveSource/Stop.
 //
 // GĐ6: NHIỀU NGUỒN, MỘT CỔNG
@@ -100,7 +100,7 @@ public:
     // Chụp một lần lúc Start — card mạng hiếm khi đổi giữa phiên.
     std::vector<std::string> LocalAddresses();
 
-    // Thêm/bớt nguồn GIỮA PHIÊN (nút Add / Stop selected trên SessionView). Cả hai
+    // Thêm/bớt nguồn GIỮA PHIÊN (ô tick sống trên ShareView). Cả hai
     // chỉ đặt lệnh vào hộp thư; thread Recv thi hành ở vòng kế tiếp — cùng mô hình
     // SessionWindow::TakeAdds/TakeRemoves bên Windows.
     void AddSource(const AgentSource& s);

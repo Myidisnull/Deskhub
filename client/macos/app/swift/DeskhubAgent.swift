@@ -20,7 +20,7 @@ struct ShareSource: Identifiable, Hashable, Sendable {
     var id: String { "\(isDisplay ? "d" : "w")\(rawId)" }
 }
 
-// Trạng thái một nguồn đang chia sẻ, cho SessionView vẽ.
+// Trạng thái một nguồn đang chia sẻ, cho ShareView vẽ.
 struct AgentSourceStatus: Identifiable, Sendable {
     let id: UInt8
     let name: String
