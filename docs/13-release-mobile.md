@@ -13,6 +13,7 @@ workflow) → bản mới tự lên TestFlight + Play internal.
 | Version hiển thị (x.y.z, chung 2 nền tảng) | file `VERSION` ở gốc repo |
 | Build number / versionCode | tự tăng theo `github.run_number` |
 | Store listing (description, keywords…) | file txt trong `client/<os>/fastlane/metadata/` |
+| Cert + profile iOS | fastlane match — repo private `Deskhub_certificate` |
 | Khoá/chứng chỉ/API key | GitHub Secrets (bảng dưới) |
 
 Workflow:
@@ -37,9 +38,51 @@ Lưu ý: bundle ID app tạo trên App Store Connect phải khớp `app_identifi
 trong `client/ios/fastlane/Appfile` (hiện là `com.ios.deskhub`) — lệch thì sửa
 Appfile theo cái đã đăng ký.
 
-Ký app: pipeline dùng **cloud signing** (`-allowProvisioningUpdates` + API
-key) — xcodebuild tự tạo/tải certificate + provisioning profile, KHÔNG phải
-import cert vào runner. Không cần làm gì thêm ở bước này.
+## Bước 1b — iOS: certificate/profile bằng fastlane match
+
+Cert + provisioning profile do **fastlane match** quản: lưu MÃ HOÁ trong git
+repo riêng (`Deskhub_certificate`), mọi máy và CI dùng chung một bộ —
+không còn cloud signing tự sinh cert.
+
+1. Repo cert đã init local ở `/Users/manh/Project/self/Deskhub_certificate`.
+   Tạo một repo **private** trên GitHub (vd `Deskhub_certificate`) rồi add
+   remote:
+
+   ```sh
+   cd /Users/manh/Project/self/Deskhub_certificate
+   git remote add origin git@github.com:manhpham90vn/Deskhub_certificate.git
+   ```
+
+2. Tạo cert + profile lần đầu (chạy từ repo CHÍNH, cần fastlane:
+   `brew install fastlane` — match tự clone repo cert qua `git_url` trong
+   Matchfile, không phải cd vào repo cert):
+
+   ```sh
+   cd client/ios
+   export ASC_KEY_ID=...        # Key ID của API key (bước 1)
+   export ASC_ISSUER_ID=...     # Issuer ID (bước 1)
+   # chỉ cần giữ file .p8 — encode base64 thẳng từ file:
+   export ASC_KEY_CONTENT=$(base64 -i ~/path/toi/AuthKey_XXXX.p8 | tr -d '\n')
+   export MATCH_PASSWORD=...    # tự đặt passphrase — nhớ kỹ, CI cũng dùng
+   fastlane ios certificates
+   ```
+
+   match sẽ tạo cert Apple Distribution + profile `match AppStore
+   com.ios.deskhub`, mã hoá bằng `MATCH_PASSWORD` rồi commit vào repo cert
+   (repo cert sẽ có cấu trúc `certs/` + `profiles/`). Xong thì
+   `git push -u origin main` trong repo cert.
+
+3. Cho CI đọc repo cert: tạo **fine-grained PAT** (GitHub → Settings →
+   Developer settings → Personal access tokens) chỉ cấp quyền **Contents:
+   Read** trên repo `Deskhub_certificate`, rồi encode:
+
+   ```sh
+   echo -n "<user>:<PAT>" | base64
+   ```
+
+Lưu ý: API key ASC chỉ cần quyền **App Manager** — match tự tạo cert/profile
+qua API. Cert hết hạn (1 năm) thì chạy lại `fastlane ios certificates`; CI chỉ
+đọc (`readonly`), không bao giờ tự tạo/thu hồi cert.
 
 ## Bước 2 — Android: keystore ký release
 
@@ -124,6 +167,9 @@ Các job trong deploy.yml/metadata.yml đã khai `environment: stg` để đọc
 | `ASC_KEY_ID` | Key ID (bước 1) |
 | `ASC_ISSUER_ID` | Issuer ID (bước 1) |
 | `ASC_KEY_CONTENT` | file .p8 đã base64 (bước 1) |
+| `MATCH_GIT_URL` | `https://github.com/manhpham90vn/Deskhub_certificate.git` (bước 1b) |
+| `MATCH_PASSWORD` | passphrase mã hoá cert (bước 1b) |
+| `MATCH_GIT_BASIC_AUTHORIZATION` | `<user>:<PAT>` đã base64 (bước 1b) |
 | `ANDROID_KEYSTORE_BASE64` | keystore đã base64 (bước 2) |
 | `KEYSTORE_PASSWORD` | mật khẩu store (bước 2) |
 | `KEY_ALIAS` | alias, vd `deskhub` (bước 2) |

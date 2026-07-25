@@ -15,6 +15,12 @@ name: deploy
 #     ASC_KEY_ID       — Key ID của API key
 #     ASC_ISSUER_ID    — Issuer ID (đầu trang Keys)
 #     ASC_KEY_CONTENT  — nội dung file .p8, base64 một dòng: base64 -i AuthKey_XXX.p8
+#   iOS ký bằng fastlane match (cert lưu trong repo Deskhub_certificate):
+#     MATCH_GIT_URL    — remote HTTPS của repo cert, vd
+#                        https://github.com/manhpham90vn/Deskhub_certificate.git
+#     MATCH_PASSWORD   — passphrase mã hoá cert (đặt khi chạy match lần đầu)
+#     MATCH_GIT_BASIC_AUTHORIZATION — base64 của "<user>:<PAT đọc được repo cert>":
+#                        echo -n "user:ghp_xxx" | base64
 #   Android:
 #     ANDROID_KEYSTORE_BASE64 — keystore ký release, base64: base64 -i release.keystore
 #     KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD — thông số keystore ở trên
@@ -28,8 +34,9 @@ on:
 jobs:
   # ---------------------------------------------------------------------------
   # iOS -> TestFlight. Runner macOS có sẵn Xcode + fastlane + cmake (script phase
-  # "Build libcore.a (CMake)" của Deskhub.xcodeproj cần cmake). Ký bằng cloud
-  # signing qua API key — không phải cài cert/profile thủ công vào runner.
+  # "Build libcore.a (CMake)" của Deskhub.xcodeproj cần cmake). Ký bằng fastlane
+  # match: cert + profile tải readonly từ repo Deskhub_certificate (setup_ci
+  # trong Fastfile tự tạo keychain tạm cho runner).
   # ---------------------------------------------------------------------------
   ios:
     runs-on: macos-latest
@@ -43,6 +50,9 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: fastlane ios release
 

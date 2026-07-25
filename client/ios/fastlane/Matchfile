@@ -1,0 +1,16 @@
+# Cấu hình fastlane match — cert + provisioning profile lưu mã hoá trong git repo
+# riêng (private), mọi máy (local + CI) dùng chung một bộ, không còn cloud
+# signing tự tạo.
+#
+#   - Local: clone qua SSH (git_url dưới) — cần SSH key có quyền đọc/ghi repo
+#   - CI   : đặt secret MATCH_GIT_URL = URL HTTPS của repo này + secret
+#            MATCH_GIT_BASIC_AUTHORIZATION (base64 "<user>:<PAT>") để clone
+#   - MATCH_PASSWORD: passphrase mã hoá cert trong repo — cần cả local lẫn CI
+#
+# Tạo/gia hạn cert (chạy local, cần ASC_KEY_ID/ASC_ISSUER_ID/ASC_KEY_CONTENT
+# và MATCH_PASSWORD trong env):  cd client/ios && fastlane ios certificates
+git_url(ENV["MATCH_GIT_URL"] || "git@github.com:manhpham90vn/Deskhub_certificate.git")
+storage_mode("git")
+git_branch("main")
+type("appstore")
+# app_identifier + team_id lấy từ Appfile
