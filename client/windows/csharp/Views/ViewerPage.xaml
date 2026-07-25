@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ViewerPage — khớp docs/imgs Screenshot ...11.01.40 (Mac Viewer): thanh trên có số
+  liệu (fps/Mbps/loss/RTT/e2e) + nút Disconnect, dưới là video trong SwapChainPanel.
+  Video do native vẽ vào swapchain (PanelRenderer); trang này chỉ gắn swapchain, giữ
+  tỷ lệ khung, và chuyển chuột/phím xuống C API.
+-->
+<Page
+    x:Class="Deskhub.Views.ViewerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="Black">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Thanh số liệu + Disconnect -->
+        <Grid Grid.Row="0" Background="{StaticResource PageBackgroundBrush}" Padding="16,8">
+            <TextBlock x:Name="StatsText" Text="Connecting…" FontFamily="Consolas" FontSize="13"
+                       Foreground="{StaticResource SecondaryTextBrush}" VerticalAlignment="Center" />
+            <Button Content="Disconnect" Click="OnDisconnectClick"
+                    HorizontalAlignment="Right" CornerRadius="8" Height="30" Padding="14,0" />
+        </Grid>
+
+        <!-- Vùng video: SwapChainPanel căn giữa, đặt kích thước theo tỷ lệ video -->
+        <Grid Grid.Row="1" x:Name="VideoContainer" Background="Black"
+              SizeChanged="OnContainerSizeChanged">
+            <SwapChainPanel x:Name="VideoPanel"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            PointerMoved="OnPointerMoved"
+                            PointerPressed="OnPointerPressed"
+                            PointerReleased="OnPointerReleased"
+                            PointerWheelChanged="OnPointerWheel" />
+        </Grid>
+    </Grid>
+</Page>

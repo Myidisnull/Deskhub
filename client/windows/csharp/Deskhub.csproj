@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deskhub — frontend WinUI3 (C#) của app Windows. Lớp native (pipeline + C API) nằm ở
+    ../cpp, do CMake dựng thành deskhub_native.dll. Project này CHỈ là giao diện; nó gọi
+    xuống DLL qua P/Invoke (Interop/NativeMethods.cs). Tách toolchain giống client/android
+    (Gradle cho java/, CMake cho cpp/) — ở đây MSBuild cho csharp/, CMake cho cpp/.
+
+    UNPACKAGED + SELF-CONTAINED: chạy như exe thường trong một thư mục (không cần cài MSIX,
+    không cần cài Windows App SDK runtime) — đúng với lựa chọn "chấp nhận thư mục/zip".
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Deskhub</RootNamespace>
+    <AssemblyName>Deskhub</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- None = chạy unpackaged (exe trần), Windows App SDK tự khởi tạo bootstrap. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <DefaultLanguage>en-US</DefaultLanguage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Phiên bản có thể cần chỉnh theo máy: nếu restore lỗi, dùng bản Microsoft.WindowsAppSDK
+         1.7.x mới nhất và Microsoft.Windows.SDK.BuildTools tương ứng (VS sẽ gợi ý). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250606001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4188" />
+  </ItemGroup>
+
+  <!--
+    Chép deskhub_native.dll (do CMake dựng ở out/build/x64-debug/...) sang cạnh Deskhub.exe
+    để DllImport tìm thấy. Đường dẫn mặc định trỏ tới preset x64-debug; đổi qua
+    -p:DeskhubNativeDll=... nếu build Release. Không thấy DLL thì bỏ qua (build UI vẫn chạy,
+    chỉ là chạy app sẽ báo thiếu DLL) — nhắc dựng cpp trước: xem README.md.
+  -->
+  <PropertyGroup>
+    <DeskhubNativeDll>$(MSBuildThisFileDirectory)..\..\..\out\build\x64-debug\client\windows\cpp\deskhub_native.dll</DeskhubNativeDll>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(DeskhubNativeDll)')">
+    <None Include="$(DeskhubNativeDll)">
+      <Link>deskhub_native.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

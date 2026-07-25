@@ -45,7 +45,9 @@
 #include "DiagLog.h"
 #include "ElevatedShare.h"
 #include "ui/MainMenuWindow.h"
+#include "ui/SessionWindow.h" // AgentControl kiểu Win32 cho nhánh nâng quyền
 #include "capture/WindowCapture.h"
+#include "deskhub/wire/Wire.h" // kMaxSources
 
 #include <shellapi.h>
 #include <vector>
@@ -78,7 +80,10 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         if (elevatedShare) {
             // Instance này LÀ phiên host thật (đã tự mở file log riêng ở trên nhờ
             // pid trong tên file, không đè log của instance gốc).
-            RunAgent(sources, opt);
+            SessionWindow session;
+            session.Start(opt.port, deskhub::kMaxSources);
+            RunAgent(sources, opt, session);
+            session.Stop();
             return RunMainMenuWindow();
         }
     }

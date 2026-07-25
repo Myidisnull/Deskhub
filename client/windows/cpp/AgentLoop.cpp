@@ -65,7 +65,7 @@
 #include "deskhubp/Clock.h"
 #include "net/UdpSocket.h"
 #include "capture/WindowCapture.h"
-#include "ui/SessionWindow.h"
+#include "AgentControl.h"
 #include "Diag.h"
 
 #include "deskhub/control/BitrateController.h"
@@ -225,7 +225,7 @@ struct SourcePipeline {
 //      cả phiên xuống theo.
 //   5. Dựng HostSession + InputInjector cho từng nguồn còn sống.
 //   6. Vòng Recv — phần thân chính, chạy tới khi kết thúc.
-int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
+int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, AgentControl& ctl) {
     g_ctrlC.store(false);
     SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
@@ -313,13 +313,10 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
     // Đây là tham số `minBps` của BitrateController — nó không bao giờ tụt quá đây.
     const uint32_t minBitrate = 1'000'000u;
 
-    // Cửa sổ quản lý phiên: hiện danh sách nguồn đang share, nhận lệnh Add /
-    // Stop selected / Stop sharing từ người dùng. Chạy trên thread UI riêng,
-    // nói chuyện với vòng Recv qua hộp thư — xem ui/SessionWindow.h. Mở NGAY từ
-    // đây để người dùng có thứ để nhìn trong lúc đợi frame đầu (màn hình chính
-    // đã bị ẩn trước khi vào RunAgent).
-    SessionWindow ui;
-    ui.Start(boundPort, deskhub::kMaxSources);
+    // Frontend quản lý phiên (SessionWindow Win32 hoặc HeadlessAgentControl do C#
+    // điều khiển) do NGƯỜI GỌI cấp và đã mở sẵn — RunAgent chỉ nói chuyện qua `ctl`.
+    // Báo cổng thật vừa bind để frontend hiện "Sharing on UDP port N".
+    ctl.OnBound(boundPort);
 
     std::vector<std::unique_ptr<SourcePipeline>> pipes;
 
@@ -536,7 +533,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
     for (auto& up : pipes) startPipeline(up.get());
 
     // --- Đợi frame đầu của từng nguồn để biết kích thước (offer trong HELLO_ACK) ---
-    for (int i = 0; i < 1000 && !g_ctrlC.load() && !ui.stopRequested(); ++i) {
+    for (int i = 0; i < 1000 && !g_ctrlC.load() && !ctl.stopRequested(); ++i) {
         bool allKnown = true;
         for (auto& p : pipes)
             if (!p->failed.load() && !p->srcW.load() && !p->capture.Closed()) allKnown = false;
@@ -708,7 +705,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
             r.label = FromUtf8(pr.first->name) + L"  (starting...)";
             rows.push_back(std::move(r));
         }
-        ui.SetRows(std::move(rows));
+        ctl.SetRows(std::move(rows));
     };
     publishRows();
 
@@ -752,11 +749,11 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
 
     for (;;) {
         if (g_ctrlC.load()) break;
-        if (ui.stopRequested()) break; // nút Stop sharing / đóng cửa sổ phiên
+        if (ctl.stopRequested()) break; // nút Stop sharing / đóng cửa sổ phiên
 
         // --- Lệnh từ cửa sổ phiên: thêm nguồn (nút Add) ---
         bool rosterChanged = false;
-        for (AgentSource& s : ui.TakeAdds()) {
+        for (AgentSource& s : ctl.TakeAdds()) {
             // Trần kMaxSources tính trên nguồn CÒN SỐNG + đang chờ, không phải
             // tổng đã từng share — tắt bớt rồi thêm lại thoải mái.
             size_t aliveCnt = pendingAdds.size();
@@ -781,7 +778,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
         }
 
         // --- Lệnh từ cửa sổ phiên: tắt bớt nguồn (nút Stop selected) ---
-        for (uint8_t id : ui.TakeRemoves()) {
+        for (uint8_t id : ctl.TakeRemoves()) {
             for (auto& up : pipes) {
                 if (up->sourceId != id || up->shutdownDone) continue;
                 std::printf("[Agent][%s] Stopped from the session window.\n",
@@ -824,7 +821,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
         bool anyAlive = !pendingAdds.empty();
         for (SourcePipeline* p : live)
             if (!p->failed.load() && !p->capture.Closed()) anyAlive = true;
-        if (!anyAlive && !ui.active()) break;
+        if (!anyAlive && !ctl.active()) break;
 
         NetAddr from;
         const int n = sock.RecvFrom(buf, sizeof(buf), from);
@@ -1037,7 +1034,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt) {
         totalFrames += up->framesSent.load();
         totalMB += up->bytesSent.load() / 1e6;
     }
-    ui.Stop();
+    // Không đóng `ctl` ở đây — người gọi sở hữu nó (SessionWindow.Stop / dh_agent_stop).
     std::printf("[Agent] Stopped. Total: %llu frames sent, %.2f MB.\n",
         (unsigned long long)totalFrames, totalMB);
     SetConsoleCtrlHandler(CtrlHandler, FALSE);

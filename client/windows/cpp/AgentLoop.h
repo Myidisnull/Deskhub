@@ -47,7 +47,11 @@ struct AgentSource {
     std::string name;
 };
 
-// Chạy agent phục vụ `sources` (danh sách ban đầu — thêm/bớt giữa phiên qua cửa
-// sổ quản lý) tới khi người dùng kết thúc phiên / Ctrl+C / lỗi.
-// Trả về exit code cho main.
-int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt);
+// Điều khiển phiên đang chạy (SessionWindow hoặc HeadlessAgentControl). RunAgent gọi
+// vào đây để lấy lệnh thêm/bớt nguồn + tín hiệu dừng, và đẩy ngược danh sách nguồn.
+struct AgentControl;
+
+// Chạy agent phục vụ `sources` (danh sách ban đầu — thêm/bớt giữa phiên qua `ctl`)
+// tới khi người dùng kết thúc phiên / Ctrl+C / lỗi. CHẶN cho tới lúc đó.
+// `ctl` do NGƯỜI GỌI sở hữu và phải sống trọn lời gọi này. Trả về exit code.
+int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, AgentControl& ctl);

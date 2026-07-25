@@ -47,9 +47,11 @@
 #include "ElevatedShare.h"
 #include "net/Firewall.h"
 #include "net/NetInfo.h"
+#include "ui/SessionWindow.h" // AgentControl kiểu Win32 truyền cho RunAgent
 #include "ui/SourcePickerDialog.h"
 #include "net/UdpSocket.h"
 #include "ui/WindowPickerDialog.h"
+#include "deskhub/wire/Wire.h" // kMaxSources
 
 namespace {
 
@@ -161,7 +163,12 @@ void DoShare(MenuState& st) {
     }
 
     ShowWindow(st.hwnd, SW_HIDE);
-    RunAgent(sources, ao);
+    // RunAgent nay nhận AgentControl; client.exe cấp cửa sổ phiên Win32. Mở trước,
+    // đóng sau khi phiên kết thúc (RunAgent không còn tự sở hữu vòng đời này).
+    SessionWindow session;
+    session.Start(ao.port, deskhub::kMaxSources);
+    RunAgent(sources, ao, session);
+    session.Stop();
     ShowWindow(st.hwnd, SW_SHOW);
     SetForegroundWindow(st.hwnd);
 }

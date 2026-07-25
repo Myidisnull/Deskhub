@@ -37,10 +37,13 @@
 #include <thread>
 #include <vector>
 
+#include "AgentControl.h"  // interface RunAgent điều khiển phiên
 #include "AgentLoop.h"     // AgentSource
 #include "ui/SessionRow.h" // SessionSourceRow — dùng chung với ViewerWindow phía client
 
-class SessionWindow {
+// Bản cài đặt AgentControl bằng cửa sổ Win32 (dùng bởi client.exe cũ). Các method
+// active/stopRequested/SetRows/TakeAdds/TakeRemoves chính là các override của interface.
+class SessionWindow : public AgentControl {
 public:
     SessionWindow() = default;
     ~SessionWindow() {
@@ -58,24 +61,24 @@ public:
 
     // True khi cửa sổ đang sống. False = tạo cửa sổ hỏng hoặc đã Stop —
     // vòng Recv dựa vào đây để rơi về hành vi cũ (hết nguồn là hết phiên).
-    bool active() const {
+    bool active() const override {
         return active_.load(std::memory_order_acquire);
     }
 
     // Người dùng bấm Stop sharing / đóng cửa sổ — vòng Recv thấy là kết thúc phiên.
-    bool stopRequested() const {
+    bool stopRequested() const override {
         return stopReq_.load(std::memory_order_acquire);
     }
 
     // Vòng Recv đẩy danh sách nguồn hiện tại. So sánh với lần trước, chỉ đánh
     // dấu dirty khi khác — gọi mỗi giây cũng không làm listbox nhấp nháy.
-    void SetRows(std::vector<SessionSourceRow> rows);
+    void SetRows(std::vector<SessionSourceRow> rows) override;
 
     // Vòng Recv rút các nguồn người dùng vừa chọn thêm (nút Add).
-    std::vector<AgentSource> TakeAdds();
+    std::vector<AgentSource> TakeAdds() override;
 
     // Vòng Recv rút các sourceId người dùng vừa yêu cầu tắt (nút Stop selected).
-    std::vector<uint8_t> TakeRemoves();
+    std::vector<uint8_t> TakeRemoves() override;
 
 private:
     void ThreadMain();
