@@ -30,6 +30,16 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      # Push tag -> luôn `none`: chỉ đẩy internal (lên trong vài phút, không qua
+      # review đầy đủ). Closed track phải qua review từng bản nên chỉ promote khi
+      # bấm tay. Một versionCode nằm được trên cả internal lẫn closed cùng lúc —
+      # promote không gỡ bản khỏi internal.
+      promote_track:
+        description: 'Promote thêm sang track closed (ngoài internal)'
+        type: choice
+        default: none
+        options: [none, alpha]
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -104,6 +114,8 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           PLAY_JSON_KEY: ${{ secrets.PLAY_JSON_KEY }}
           BUILD_NUMBER: ${{ github.run_number }}
+          # Rỗng khi push tag (context `inputs` trống) hoặc khi chọn `none`.
+          PLAY_PROMOTE_TRACK: ${{ inputs.promote_track != 'none' && inputs.promote_track || '' }}
         run: fastlane android release
 
       - name: Upload aab artifact

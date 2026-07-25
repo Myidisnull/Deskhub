@@ -14,7 +14,9 @@ chạy khắp mọi nơi** — từ Windows tới iPhone tới tab Chrome — kh
 |-----------|-------------|-------------|---------------|
 | **~3.5 ms** capture→hiển thị<br>(loopback, đo trên RTX 5070 Ti) | **Zero-copy VRAM**, HW encode+decode, 60 fps | **3 host + 6 client** từ một `core/` | **Một app / OS** — cắm là chạy |
 
-> **Mới:** iOS client đã chạy — xem video từ host Windows trên iPhone/iPad qua LAN hoặc Tailscale.
+> **Mới:** client **iOS và Android đã đủ cả video lẫn điều khiển** — trackpad ảo + bàn phím ảo,
+> điều khiển thật máy Windows từ điện thoại qua LAN hoặc Tailscale. Đang mở test công khai:
+> [Tham gia test bản mobile](#-tham-gia-test-bản-mobile).
 
 ## 💡 Dùng để làm gì
 
@@ -34,12 +36,58 @@ bản cài sẵn ở [Releases](https://github.com/manhpham90vn/Deskhub/releases
 | Nền tảng | Host | Client | Tình trạng |
 |----------|:----:|:------:|-----------|
 | **Windows** | ✅ | ✅ | **Chạy thật 2 máy LAN + qua Tailscale** (Internet/NAT) — video + điều khiển |
-| **Android** | — | 🔶 | Stream video chạy (emulator ~33 fps); chưa gửi input |
-| **iOS** | — | 🔶 | Stream video chạy (SwiftUI + VideoToolbox); chưa gửi input |
+| **Android** | — | ✅ | **Video + điều khiển** (trackpad ảo, bàn phím ảo, phím tắt) — đang test trên Google Play |
+| **iOS** | — | ✅ | **Video + điều khiển** (trackpad ảo, bàn phím ảo) — đang test qua TestFlight |
 | **Web** | — | 📐 | Thiết kế xong, chưa code |
 | **macOS · Ubuntu** | ⬜ | ⬜ | Chưa bắt đầu |
 
 Chi tiết giai đoạn + lộ trình từng nền tảng: [`docs/05-roadmap.md`](docs/05-roadmap.md).
+
+## 📱 Tham gia test bản mobile
+
+Bản Android và iOS đều **mở cho tất cả mọi người** thử. Cả hai đã chạy đủ tính năng client:
+xem hình từ máy Windows và **điều khiển thật** — kéo trên màn hình như trackpad để di chuột,
+chạm để click, bật bàn phím ảo để gõ. Rất mong phản hồi về độ mượt / độ trễ trên thiết bị và
+đường mạng thật của bạn.
+
+### 🤖 Android — Google Play
+
+Đang chạy **closed testing**, cần 3 bước:
+
+**Bước 1 — vào Google Group.** Bắt buộc: Play chỉ cho cài app với tài khoản nằm trong nhóm tester.
+
+➡️ **[groups.google.com/g/deskhub-test](https://groups.google.com/g/deskhub-test)** → bấm **Join group**
+
+**Bước 2 — nhận quyền tester.**
+
+➡️ **[play.google.com/apps/testing/com.manhpham.deskhub](https://play.google.com/apps/testing/com.manhpham.deskhub)** → bấm **Become a tester**
+
+**Bước 3 — cài app.** Bấm luôn nút *Download it on Google Play* ngay trên trang ở bước 2, hoặc mở:
+
+➡️ **[play.google.com/store/apps/details?id=com.manhpham.deskhub](https://play.google.com/store/apps/details?id=com.manhpham.deskhub)**
+
+Vài lưu ý để khỏi mất thời gian:
+
+- Dùng **đúng tài khoản Google đang đăng nhập Play Store trên điện thoại** ở cả ba bước. Sai
+  tài khoản thì bước 3 sẽ báo không tìm thấy ứng dụng.
+- Sau bước 2, Play cần **vài phút** để đồng bộ — chưa thấy app thì chờ rồi tải lại trang.
+- Nếu tiện, mong bạn **giữ app trên máy ít nhất 14 ngày**: Google yêu cầu đủ 12 tester duy trì
+  liên tục 14 ngày thì app mới được mở bản công khai.
+
+### 🍎 iOS — TestFlight
+
+Chỉ một bước: cài [TestFlight](https://apps.apple.com/app/testflight/id899247664) từ App Store
+rồi mở link mời.
+
+➡️ **[testflight.apple.com/join/7qY7wgpd](https://testflight.apple.com/join/7qY7wgpd)**
+
+> ⏳ Link đang chờ Apple duyệt bản public — trong lúc này có thể báo "This beta isn't accepting
+> any new testers". Thử lại sau vài ngày giúp mình nhé.
+
+### 💬 Góp ý
+
+Gặp lỗi hay có góp ý: mở [issue](https://github.com/manhpham90vn/Deskhub/issues) — kèm tên máy
+và phiên bản OS thì càng tốt.
 
 ## 🎯 Mục tiêu nền tảng
 
@@ -69,8 +117,8 @@ core/            lõi dùng chung MỌI nền tảng (protocol, C++20 thuần, k
                  wire/ → transport/ (FEC) → session/ + input/ + control/
 platform/        lớp mỏng bọc header OS (Clock.h) — cái core không được chạm
 client/windows/  app Windows — một exe, cả hai vai (host + client)   ✅ bản tham chiếu
-client/android/  app Android — client-only (Kotlin + core C++)        🔶
-client/ios/      app iOS — client-only (SwiftUI + core C++)          🔶
+client/android/  app Android — client-only (Kotlin + core C++)        ✅
+client/ios/      app iOS — client-only (SwiftUI + core C++)          ✅
 client/<macos|linux|web>/   các nền tảng còn lại                     ⬜ / 📐 thiết kế
 docs/            tài liệu thiết kế (bắt đầu từ docs/README.md)
 ```
@@ -131,6 +179,13 @@ Input bật sẵn: gõ phím / di chuột trên cửa sổ preview của client 
   khi cửa sổ đó đang foreground (cố ý — nếu không, người điều khiển từ xa sẽ gõ nhầm vào
   ứng dụng khác của bạn).
 - Game/app chạy quyền admin → chạy host **as administrator**, không thì input bị UIPI chặn.
+
+**Trên iOS/Android** khung hình hoạt động như một trackpad, con trỏ luôn bị kẹp trong khung video:
+
+- **Rê ngón** — di con trỏ. **Chạm** — click trái. **Chạm hai lần** — click phải.
+- **Giữ rồi kéo** — giữ chuột trái và rê (kéo cửa sổ, bôi đen), nhấc tay là nhả.
+- Nút **Keys** bật bàn phím ảo để gõ; hàng nút trên header có sẵn `Esc` / `Tab` / `Enter` / `F9`
+  (bàn phím ảo không có những phím này).
 
 ## 📚 Tài liệu
 

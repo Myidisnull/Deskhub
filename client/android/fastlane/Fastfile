@@ -15,6 +15,10 @@
 #       — keystore ký release (build.gradle.kts đọc trực tiếp từ env này;
 #         thiếu thì gradle rơi về unsigned và Play sẽ từ chối)
 #   PLAY_JSON_KEY — nội dung JSON service account có quyền upload trên Play Console
+#
+# Env tuỳ chọn khi release:
+#   PLAY_PROMOTE_TRACK — tên track closed muốn đẩy kèm (vd "alpha"). Để trống
+#       (mặc định) thì chỉ đẩy internal. Xem chú thích ở lane :release.
 # =============================================================================
 default_platform(:android)
 
@@ -22,15 +26,23 @@ PACKAGE_NAME = CredentialsManager::AppfileConfig.try_fetch_value(:package_name)
 APP_VERSION = File.read(File.expand_path("../../../VERSION", __dir__)).strip
 
 platform :android do
+  # PLAY_PROMOTE_TRACK: đẩy thêm bản vừa upload sang track closed (vd "alpha").
+  # Một versionCode được phép nằm trên nhiều track cùng lúc — supply promote chỉ
+  # THÊM release vào track đích, không gỡ khỏi internal (uploader.rb promote_track).
+  # Mặc định để trống: push tag chỉ đẩy internal (lên trong vài phút, không qua
+  # review đầy đủ). Closed/open thì mỗi bản phải qua review nên chỉ promote khi
+  # thật sự cần — CI bật qua input của workflow_dispatch.
   desc "Build AAB Release (ký bằng keystore từ env) và upload Play internal"
   lane :release do
+    version_code = ENV.fetch("BUILD_NUMBER", "1")
+
     gradle(
       task: "bundle",
       build_type: "Release",
       properties: {
         "applicationId" => PACKAGE_NAME,
         "versionName" => APP_VERSION,
-        "versionCode" => ENV.fetch("BUILD_NUMBER", "1"),
+        "versionCode" => version_code,
       }
     )
 
@@ -42,6 +54,27 @@ platform :android do
       skip_upload_metadata: true,
       skip_upload_images: true,
       skip_upload_screenshots: true
+    )
+
+    promote_track = ENV.fetch("PLAY_PROMOTE_TRACK", "").strip
+    next if promote_track.empty?
+
+    # skip_upload_aab BẮT BUỘC: supply chỉ đi nhánh promote khi edit không có
+    # binary mới (uploader.rb perform_upload). Có AAB trong edit thì nó gọi
+    # update_track và bỏ qua track_promote_to.
+    UI.message("Promote versionCode #{version_code}: internal -> #{promote_track}")
+    upload_to_play_store(
+      package_name: PACKAGE_NAME,
+      json_key_data: ENV.fetch("PLAY_JSON_KEY"),
+      track: "internal",
+      version_code: version_code.to_i,
+      track_promote_to: promote_track,
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true
     )
   end
 
