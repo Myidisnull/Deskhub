@@ -158,16 +158,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXSourcesBuildPhase section */
-		CC1620B73011D2F4006CCD14 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXSourcesBuildPhase section */
-
 /* Begin PBXShellScriptBuildPhase section */
 		CCSH000100000001006CCD14 /* Build libcore.a (CMake) */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -189,6 +179,16 @@
 			shellScript = "# libcore.a build bằng CMake — core/CMakeLists.txt là nguồn sự thật duy nhất về\n# danh sách source của core, Xcode không giữ bản chép tay nữa (từng sót file khi\n# core thêm .cpp mới). Chạy lại mỗi build (alwaysOutOfDate): cmake tự incremental.\nset -euo pipefail\n# Xcode không kế thừa PATH của shell — thêm chỗ brew đặt cmake (bootstrap.sh cài).\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/macos-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../../core\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$MACOSX_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" -j \"$(sysctl -n hw.ncpu)\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CC1620B73011D2F4006CCD14 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		CC1620C43011D2F5006CCD14 /* Debug */ = {
@@ -325,11 +325,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "app/Deskhub.entitlements";
+				CODE_SIGN_ENTITLEMENTS = app/Deskhub.entitlements;
 				CODE_SIGN_IDENTITY = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UPJRMYQ38F;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -345,7 +347,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "-lcore";
-				PRODUCT_BUNDLE_IDENTIFIER = com.manhpham.deskhub.macos;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.deskhub;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -359,11 +361,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "app/Deskhub.entitlements";
+				CODE_SIGN_ENTITLEMENTS = app/Deskhub.entitlements;
 				CODE_SIGN_IDENTITY = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UPJRMYQ38F;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -379,7 +383,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "-lcore";
-				PRODUCT_BUNDLE_IDENTIFIER = com.manhpham.deskhub.macos;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.deskhub;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
