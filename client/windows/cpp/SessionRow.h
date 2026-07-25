@@ -1,12 +1,10 @@
 #pragma once
 // =============================================================================
-// SessionRow.h — một dòng trong danh sách nguồn của cửa sổ quản lý phiên.
+// SessionRow.h — một dòng trong danh sách nguồn đang chia sẻ (phía host).
 //
-// Dùng chung cho HAI cửa sổ đối xứng nhau:
-//   ui/SessionWindow.h — phía host: các nguồn đang ĐƯỢC chia sẻ.
-//   ui/ViewerWindow.h  — phía client: các nguồn đang XEM.
-// Cả hai đều nhận danh sách qua SetRows(vector<SessionSourceRow>) từ vòng lặp
-// chính của vai tương ứng (AgentLoop / ClientLoop).
+// Là kiểu dữ liệu AgentControl::SetRows dùng để đẩy danh sách nguồn ra frontend
+// (HeadlessAgentControl → C# hiện ở màn Sharing status). Trước đây dùng chung với
+// lớp UI Win32 (SessionWindow/ViewerWindow, đã gỡ ở M4b); nay chỉ còn AgentControl.
 // =============================================================================
 #include <cstdint>
 #include <string>

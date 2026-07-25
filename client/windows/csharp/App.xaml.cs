@@ -1,3 +1,4 @@
+using System;
 using Microsoft.UI.Xaml;
 
 namespace Deskhub;
@@ -18,7 +19,10 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
+        // Instance vừa được UAC nâng quyền mang theo phiên share qua dòng lệnh → vào
+        // thẳng SharingStatusPage, khỏi bắt chọn nguồn lần hai (xem ElevationHelper).
+        var startupShare = ElevationHelper.ParseArgs(Environment.GetCommandLineArgs());
+        _window = new MainWindow(startupShare);
         _window.Activate();
     }
 }

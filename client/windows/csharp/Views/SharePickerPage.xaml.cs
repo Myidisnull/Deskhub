@@ -53,9 +53,19 @@ public sealed partial class SharePickerPage : Page
         uint fps = uint.TryParse(FpsBox.SelectedItem as string, out var f) ? f : 60;
         uint bitrate = ParseLeadingUint(BitrateBox.SelectedItem as string, 20);
         bool allow = AllowControl.IsChecked == true;
+        var req = new ShareRequest(w.Hwnd, w.DisplayTitle, port, fps, bitrate, allow);
 
-        Frame.Navigate(typeof(SharingStatusPage),
-            new ShareRequest(w.Hwnd, w.DisplayTitle, port, fps, bitrate, allow));
+        // Bật điều khiển / thiếu rule firewall + chưa admin → bung UAC, chạy lại elevated.
+        // Người dùng đồng ý: instance mới tiếp quản, đóng instance này. Huỷ UAC: chạy
+        // tiếp quyền thường (input tới app admin có thể không ăn — xem ElevatedShare).
+        if (Deskhub.ElevationHelper.NeedsElevation(allow)
+            && Deskhub.ElevationHelper.TryRelaunchElevated(req))
+        {
+            Application.Current.Exit();
+            return;
+        }
+
+        Frame.Navigate(typeof(SharingStatusPage), req);
     }
 
     // "20 Mbps" -> 20. Trả `fallback` nếu không đọc được số đầu chuỗi.

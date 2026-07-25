@@ -43,7 +43,11 @@
     chỉ là chạy app sẽ báo thiếu DLL) — nhắc dựng cpp trước: xem README.md.
   -->
   <PropertyGroup>
-    <DeskhubNativeDll>$(MSBuildThisFileDirectory)..\..\..\out\build\x64-debug\client\windows\cpp\deskhub_native.dll</DeskhubNativeDll>
+    <!-- Preset CMake khớp cấu hình: Release build lấy DLL Release, còn lại lấy Debug.
+         Đổi tay bằng -p:DeskhubNativeDll=... nếu build native ở nơi khác. -->
+    <DeskhubCmakePreset Condition="'$(Configuration)' == 'Release'">x64-release</DeskhubCmakePreset>
+    <DeskhubCmakePreset Condition="'$(DeskhubCmakePreset)' == ''">x64-debug</DeskhubCmakePreset>
+    <DeskhubNativeDll>$(MSBuildThisFileDirectory)..\..\..\out\build\$(DeskhubCmakePreset)\client\windows\cpp\deskhub_native.dll</DeskhubNativeDll>
   </PropertyGroup>
   <ItemGroup Condition="Exists('$(DeskhubNativeDll)')">
     <None Include="$(DeskhubNativeDll)">

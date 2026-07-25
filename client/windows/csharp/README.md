@@ -49,8 +49,16 @@ dotnet build -c Debug -p:DeskhubNativeDll=<đường dẫn tới deskhub_native.
 | Sharing status | ảnh #4 | ✅ M2 | IP + list nguồn + Stop + Add source |
 | Viewer + stats | ảnh #5 | ✅ M3 | video vào SwapChainPanel, chuột/phím, thanh số liệu |
 
-**Còn lại — M4**: chuyển UAC elevation (bơm input tới app admin) lên C#, và
-`dotnet publish -c Release -r win-x64` self-contained rồi nén thư mục output.
+**M4a ✅ — UAC + đóng gói**: `ElevationHelper` bung UAC khi bật điều khiển / thiếu rule
+firewall (chạy lại `Deskhub.exe` elevated, bàn giao phiên share qua dòng lệnh
+`--share ...`; instance mới vào thẳng Sharing status). Đóng gói bằng `publish.ps1`.
+
+**M4b ✅ — đã dọn**: xoá `cpp/ui` + `client.exe` + `ClientLoop`/`Renderer`/`InputCapture`
+(chỉ client.exe cũ dùng). Vai client nay chỉ còn đường headless `ClientApi`+`PanelRenderer`
+(hết code lặp). `cpp/` chỉ còn native pipeline + 3 file C API. **Deskhub.exe là app Windows duy nhất.**
+
+Toàn bộ migration Win32→WinUI3 đã hoàn tất và build XANH (native + C#); app khởi động chạy
+được. Chỉ còn kiểm thử runtime luồng stream 2 máy (Share ↔ Connect) là việc của người dùng.
 
 > ⚠️ Phần C# CHƯA build/chạy thử được ở máy dev (không có .NET SDK ở đó). Native
 > (`../cpp`) đã build + verify bằng CMake. Hai chỗ cần chú ý khi bạn build bằng VS:
@@ -61,8 +69,17 @@ dotnet build -c Debug -p:DeskhubNativeDll=<đường dẫn tới deskhub_native.
 Lớp native (`../cpp`) vẫn build ra `client.exe` cũ (Win32) để còn đường lui trong lúc
 chuyển. Khi WinUI3 phủ hết vai trò, sẽ gỡ `client.exe` + `cpp/ui`.
 
-## Đóng gói (M4)
+## Đóng gói
 
 App ở chế độ **unpackaged + self-contained** (`WindowsPackageType=None`,
 `WindowsAppSDKSelfContained=true`): xuất ra một thư mục chạy được (không cài MSIX,
-không cài runtime). `dotnet publish -c Release -r win-x64` rồi nén thư mục output.
+không cài runtime). Chạy script (trong Developer PowerShell for VS):
+
+```powershell
+cd client/windows/csharp
+./publish.ps1
+```
+
+Script build native Release, `dotnet publish -c Release -r win-x64 --self-contained`,
+rồi nén thành `Deskhub-win-x64.zip`. `.csproj` tự chọn DLL native theo cấu hình
+(Release → `x64-release`, còn lại → `x64-debug`).

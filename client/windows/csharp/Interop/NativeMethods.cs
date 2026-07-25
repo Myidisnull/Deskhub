@@ -40,6 +40,15 @@ internal static class NativeMethods
 
     public static int ApiVersion() => dh_api_version();
 
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    private static extern int dh_is_elevated();
+
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    private static extern int dh_host_firewall_rule_present();
+
+    public static bool IsElevated() => dh_is_elevated() != 0;
+    public static bool FirewallRulePresent() => dh_host_firewall_rule_present() != 0;
+
     public static List<LocalIp> ListLocalIps()
     {
         var result = new List<LocalIp>();

@@ -1,3 +1,4 @@
+using Deskhub.Interop;
 using Deskhub.Views;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -12,7 +13,7 @@ namespace Deskhub;
 // =============================================================================
 public sealed partial class MainWindow : Window
 {
-    public MainWindow()
+    public MainWindow(ShareRequest? startupShare = null)
     {
         InitializeComponent();
 
@@ -29,7 +30,11 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 720));
         CenterOnScreen();
 
-        RootFrame.Navigate(typeof(HomePage));
+        // Bàn giao từ instance elevated → vào thẳng màn đang-share; còn lại mở Home.
+        if (startupShare is not null)
+            RootFrame.Navigate(typeof(SharingStatusPage), startupShare);
+        else
+            RootFrame.Navigate(typeof(HomePage));
     }
 
     private void CenterOnScreen()

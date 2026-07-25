@@ -15,6 +15,8 @@
 
 #include "net/NetInfo.h"
 #include "capture/WindowFinder.h"
+#include "ElevatedShare.h" // IsProcessElevated
+#include "net/Firewall.h"  // HostFirewallRulePresent
 
 namespace {
 
@@ -57,4 +59,12 @@ DH_API int DH_CALL dh_list_windows(DhWindowCallback cb, void* user) {
 
 DH_API int DH_CALL dh_api_version(void) {
     return 1;
+}
+
+DH_API int DH_CALL dh_is_elevated(void) {
+    return IsProcessElevated() ? 1 : 0;
+}
+
+DH_API int DH_CALL dh_host_firewall_rule_present(void) {
+    return HostFirewallRulePresent() ? 1 : 0;
 }

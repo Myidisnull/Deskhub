@@ -56,6 +56,13 @@ DH_API int DH_CALL dh_list_windows(DhWindowCallback cb, void* user);
 // Số phiên bản API, để C# kiểm tra DLL khớp lúc nạp. Tăng khi đổi/ thêm chữ ký hàm.
 DH_API int DH_CALL dh_api_version(void);
 
+// --- Hỗ trợ quyết định nâng quyền (M4) ---
+// 1 nếu tiến trình đang chạy elevated (admin). C# dùng để biết có cần bung UAC không.
+DH_API int DH_CALL dh_is_elevated(void);
+// 1 nếu rule inbound firewall của Deskhub đã có (đọc firewall, chạy được quyền thường).
+// Không có rule + bật điều khiển = lý do cần nâng quyền lúc bắt đầu share.
+DH_API int DH_CALL dh_host_firewall_rule_present(void);
+
 // =============================================================================
 // VAI HOST (M2) — chạy một phiên chia sẻ headless, do C# điều khiển.
 //

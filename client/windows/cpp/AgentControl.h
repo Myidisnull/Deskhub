@@ -23,8 +23,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "AgentLoop.h"     // AgentSource
-#include "ui/SessionRow.h" // SessionSourceRow
+#include "AgentLoop.h"  // AgentSource
+#include "SessionRow.h" // SessionSourceRow
 
 struct AgentControl {
     virtual ~AgentControl() = default;
