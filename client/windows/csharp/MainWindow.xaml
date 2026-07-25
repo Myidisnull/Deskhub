@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Deskhub.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Deskhub">
+
+    <!-- Frame chứa mọi màn; điều hướng bằng RootFrame.Navigate(typeof(Page)). Nền tối
+         phủ toàn cửa sổ để không lóe trắng khi chuyển màn. -->
+    <Grid Background="{StaticResource PageBackgroundBrush}">
+        <Frame x:Name="RootFrame" />
+    </Grid>
+</Window>

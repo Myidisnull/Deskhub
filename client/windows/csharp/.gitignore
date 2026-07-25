@@ -1,0 +1,5 @@
+# Sản phẩm build MSBuild của frontend WinUI3 — không commit.
+bin/
+obj/
+*.user
+Generated Files/

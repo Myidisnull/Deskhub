@@ -19,7 +19,10 @@ enable_testing()
 add_subdirectory(core)
 add_subdirectory(platform)
 if(WIN32)
-    add_subdirectory(client/windows)
+    # client/windows/cpp = lớp native (pipeline + C API deskhub_native.dll). Lớp
+    # frontend client/windows/csharp (WinUI3) do MSBuild dựng, KHÔNG nằm ở đây —
+    # giống client/android có cpp/ (CMake/NDK) tách khỏi java/ (Gradle).
+    add_subdirectory(client/windows/cpp)
 endif()
 # client/android KHÔNG nằm ở đây: nó do Gradle/NDK dựng (client/android/, xem
 # docs/08-android-client.md), và CMakeLists của nó tự add_subdirectory(core).
