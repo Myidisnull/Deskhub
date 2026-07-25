@@ -21,7 +21,7 @@ render/input + transport). **Thêm một nền tảng = chỉ viết backend, kh
 | Nền tảng | Vai Agent (host) | Vai Client | App | Trạng thái |
 |----------|:---------------:|:----------:|-----|-----------|
 | Windows | ✅ | ✅ | một exe, cả hai vai | **Chạy thật 2 máy LAN + Tailscale** (Internet/NAT) |
-| macOS | ✅ | ✅ | một app, cả hai vai | ⬜ chưa bắt đầu |
+| macOS | ✅ | ✅ | một app, cả hai vai | 🔶 **cả hai vai đã triển khai** (SCK + VideoToolbox + CGEvent); chưa kiểm chứng 2 máy thật |
 | Ubuntu/Linux | ✅ | ✅ | một app, cả hai vai | ⬜ chưa bắt đầu |
 | Android | ❌ (không host được) | ✅ | app client-only | 🔶 stream video chạy (emulator ~33fps); chưa gửi input, số đo e2e còn sai |
 | iOS | ❌ | ✅ | app client-only | 🔶 stream video chạy (SwiftUI + VideoToolbox); chưa gửi input |
@@ -56,7 +56,8 @@ host-transport/  binding transport phía host, DÙNG CHUNG mọi desktop OS (UDP
                  msquic) — không thuần như core; xem 11 §2. (Thư mục chốt khi code.)
 client/windows/  app Windows — một exe, CẢ HAI vai (agent + client)   ✅ bản tham chiếu
                  net/ capture/ encode/ decode/ input/ ui/
-client/macos/    app macOS — một app, cả hai vai                       ⬜
+client/macos/    app macOS — một app, cả hai vai (SwiftUI + core C++)   🔶
+                 cpp/{client,agent,net,input}/ + swift/
 client/linux/    app Ubuntu — một app, cả hai vai                      ⬜
 client/android/  app Android — client-only (UI Kotlin + core C++)      🔶
 client/ios/      app iOS — client-only (SwiftUI + core C++)             🔶
@@ -72,10 +73,10 @@ cmake --preset x64-debug && cmake --build --preset x64-debug
 → out/build/x64-debug/core/core_tests.exe   (hoặc: make test)
 ```
 
-Android build bằng Gradle (`client/android/`, xem `08-android-client.md`). iOS build bằng
-Xcode project (`client/ios/`, xem `12-ios-client.md`). macOS/Linux/Web: toolchain riêng khi
-bắt đầu (mac: Xcode/CMake · Linux: CMake/GCC · Web: Emscripten cho `core.wasm` + bundler
-cho trang).
+Android build bằng Gradle (`client/android/`, xem `08-android-client.md`). iOS và macOS
+build bằng Xcode project (`client/ios/` — `12-ios-client.md`; `client/macos/` —
+`14-macos-app.md`, hoặc `make build-macos`). Linux/Web: toolchain riêng khi bắt đầu
+(Linux: CMake/GCC · Web: Emscripten cho `core.wasm` + bundler cho trang).
 
 ## Mục lục
 
@@ -94,6 +95,7 @@ cho trang).
 | [11-platform-transport.md](11-platform-transport.md) | **Nền tảng & transport: ma trận agent/client, backend theo OS, chiến lược UDP/QUIC** (cross-cutting) |
 | [12-ios-client.md](12-ios-client.md) | Client iOS (SwiftUI + VideoToolbox, core C++) — **đã triển khai** (stream video) |
 | [13-release-mobile.md](13-release-mobile.md) | Phát hành mobile: fastlane + GitHub Actions, hướng dẫn cấu hình secrets/store một lần |
+| [14-macos-app.md](14-macos-app.md) | App macOS — **cả hai vai** (SwiftUI + ScreenCaptureKit + VideoToolbox + CGEvent) |
 
 ## Trạng thái
 
@@ -103,7 +105,8 @@ GĐ2 loopback (~3.5 ms) ✅ · GĐ3 transport ✅ (M3 2 máy LAN ✅) · GĐ4 in
 app thật trên 2 máy) · GĐ5 ổn định (RECONFIG/FEC/bitrate) ✅ · GĐ6 nhiều nguồn 🔶.
 Còn lại: giả lập mất gói (GĐ5 M4), đo trễ input game & kiểm chứng nhiều nguồn 2 máy (GĐ6).
 
-**Các nền tảng khác:** Android 🔶 (**stream video chạy trên emulator ~33fps**; chưa gửi
-input, số đo e2e còn sai — 08 §5/§6) · iOS 🔶 (**stream video chạy** — SwiftUI +
-VideoToolbox; chưa gửi input — 12) · Web 📐 (thiết kế xong, chưa code — 10) ·
-macOS / Ubuntu ⬜ (chưa bắt đầu).
+**Các nền tảng khác:** macOS 🔶 (**cả hai vai đã triển khai** — ScreenCaptureKit +
+VideoToolbox + CGEvent, build sạch Debug/Release; chưa kiểm chứng 2 máy thật — 14 §8) ·
+Android 🔶 (**stream video chạy trên emulator ~33fps**; chưa gửi input, số đo e2e còn sai
+— 08 §5/§6) · iOS 🔶 (**stream video chạy** — SwiftUI + VideoToolbox; chưa gửi input — 12)
+· Web 📐 (thiết kế xong, chưa code — 10) · Ubuntu ⬜ (chưa bắt đầu).

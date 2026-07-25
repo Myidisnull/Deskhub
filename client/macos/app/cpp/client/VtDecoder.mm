@@ -1,23 +1,25 @@
 // =============================================================================
-// VtDecoder.mm — cài đặt giải mã + hiển thị bằng VideoToolbox / AVSampleBufferDisplayLayer.
+// VtDecoder.mm — cài đặt giải mã + hiển thị bằng VideoToolbox /
+//                AVSampleBufferDisplayLayer (bản macOS, chép từ iOS).
 //
 // BỐ CỤC
 //   ParseAnnexB()    — cắt một frame Annex-B thành danh sách NAL (con trỏ + kiểu).
 //   RebuildFormat()  — dựng CMVideoFormatDescription từ SPS/PPS khi chúng đổi.
 //   Decode()         — chuyển Annex-B→AVCC, đóng CMSampleBuffer, enqueue vào layer.
 //
-// QUY ƯỚC XỬ LÝ LỖI (khớp MediaCodecDecoder)
+// QUY ƯỚC XỬ LÝ LỖI (khớp bản iOS/Android)
 //   Decode() trả false nghĩa là "hỏng, dựng lại đi" (layer failed / dựng buffer
 //   lỗi). Trả true mà không hiển thị gì là bình thường: frame trước IDR đầu tiên
 //   chưa có SPS/PPS nên bị bỏ — Reassembler vốn đã chờ IDR.
 //
-// LIÊN QUAN: VtDecoder.h (mô hình + lý do thiết kế), ClientLoop.cpp (luồng Decode)
+// LIÊN QUAN: client/VtDecoder.h (mô hình + lý do thiết kế),
+//            client/ClientLoop.cpp (luồng Decode)
 // =============================================================================
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <VideoToolbox/VideoToolbox.h>
 
-#include "VtDecoder.h"
+#include "client/VtDecoder.h"
 
 #include <cstring>
 #include <vector>
@@ -203,9 +205,8 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
 
     AVSampleBufferDisplayLayer* l = (__bridge AVSampleBufferDisplayLayer*)layer_;
 
-    // Layer vào trạng thái lỗi (thường sau khi app từ nền quay lại) -> flush rồi báo
-    // lỗi để ClientLoop dựng lại decoder và xin IDR. Đây là nếp riêng của iOS so với
-    // Android (docs/12 §4).
+    // Layer vào trạng thái lỗi (thường sau khi máy ngủ dậy, hoặc GPU đổi lúc cắm/rút
+    // màn hình ngoài) -> flush rồi báo lỗi để ClientLoop dựng lại decoder và xin IDR.
     if (l.status == AVQueuedSampleBufferRenderingStatusFailed) {
         // %s + UTF8String, KHÔNG phải %@: LOGW là fprintf (Log.h), không phải NSLog —
         // %@ ở đây in ra rác và có thể làm hỏng stack.

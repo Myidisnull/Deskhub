@@ -27,12 +27,15 @@ một agent OS mới; `SessionManager` + phần packetize của Transport nằm 
 
 ### 1b. Backend theo OS
 
-| | Windows (tham chiếu ✅) | macOS | Ubuntu |
-|--|-------------------------|-------|--------|
-| Capture | WGC (`Direct3D11CaptureFramePool`) | ScreenCaptureKit | PipeWire (Wayland) / X11 |
-| Encode | NVENC → AMF/QSV → MF | VideoToolbox | VAAPI / NVENC |
+| | Windows (tham chiếu ✅) | macOS (🔶) | Ubuntu |
+|--|-------------------------|------------|--------|
+| Capture | WGC (`Direct3D11CaptureFramePool`) | ScreenCaptureKit (`SCStream`) | PipeWire (Wayland) / X11 |
+| Encode | NVENC → AMF/QSV → MF | VideoToolbox (`VTCompressionSession`) | VAAPI / NVENC |
 | Inject | `SendInput` (+ ViGEm/Interception) | CGEvent (Quartz Event Services) | uinput / XTest |
-| Device/texture | D3D11 (VRAM) | Metal (IOSurface) | VA-API surface / DMA-BUF |
+| Device/texture | D3D11 (VRAM) | CVPixelBuffer (IOSurface, NV12) | VA-API surface / DMA-BUF |
+
+Bản macOS đã triển khai — chi tiết ba backend + những chỗ macOS phát sinh so với WGC/NVENC/
+SendInput: `14-macos-app.md` §2.
 
 Chi tiết ba backend Windows ở §2 (capture), §3 (encode), §5 (inject) — đọc như **bản tham
 chiếu**; mac/Ubuntu thay đúng cột tương ứng, giữ nguyên interface `IVideoEncoder` (§3) và

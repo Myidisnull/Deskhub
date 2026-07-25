@@ -14,10 +14,10 @@ Lộ trình có **hai chiều**:
 | Nền tảng | Agent | Client | Trạng thái | Doc |
 |----------|:-----:|:------:|-----------|-----|
 | Windows | ✅ | ✅ | **Chạy thật 2 máy LAN + Tailscale** (Internet/NAT); GĐ0–GĐ6 | 02 / 03 |
+| macOS | 🔶 | 🔶 | **Cả hai vai đã triển khai** (SCK + VideoToolbox + CGEvent), build sạch; chưa kiểm chứng 2 máy thật | 14 |
 | Android | — | 🔶 | Stream video chạy (emulator ~33fps); chưa gửi input | 08 |
 | iOS | — | 🔶 | Stream video chạy (SwiftUI + VideoToolbox); chưa gửi input | 12 |
 | Web | — | 📐 | Thiết kế xong, chưa code | 10 |
-| macOS | ⬜ | ⬜ | Chưa bắt đầu — backend ở 02 §1b / 03 §1b | — |
 | Ubuntu | ⬜ | ⬜ | Chưa bắt đầu | — |
 
 Ma trận + vì sao agent chỉ desktop: `11-platform-transport.md`. Các GĐ dưới đây là **chiều

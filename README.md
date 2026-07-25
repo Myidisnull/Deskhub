@@ -38,8 +38,9 @@ bản cài sẵn ở [Releases](https://github.com/manhpham90vn/Deskhub/releases
 | **Windows** | ✅ | ✅ | **Chạy thật 2 máy LAN + qua Tailscale** (Internet/NAT) — video + điều khiển |
 | **Android** | — | ✅ | **Video + điều khiển** (trackpad ảo, bàn phím ảo, phím tắt) — đang test trên Google Play |
 | **iOS** | — | ✅ | **Video + điều khiển** (trackpad ảo, bàn phím ảo) — đang test qua TestFlight |
+| **macOS** | 🔶 | 🔶 | **Cả hai vai đã triển khai** (ScreenCaptureKit + VideoToolbox + CGEvent) — chưa kiểm chứng 2 máy thật |
 | **Web** | — | 📐 | Thiết kế xong, chưa code |
-| **macOS · Ubuntu** | ⬜ | ⬜ | Chưa bắt đầu |
+| **Ubuntu** | ⬜ | ⬜ | Chưa bắt đầu |
 
 Chi tiết giai đoạn + lộ trình từng nền tảng: [`docs/05-roadmap.md`](docs/05-roadmap.md).
 
@@ -128,10 +129,13 @@ docs/            tài liệu thiết kế (bắt đầu từ docs/README.md)
 - Windows 10 1903+ x64, Visual Studio 2022+ (workload C++, kèm sẵn CMake + Ninja).
 - GPU NVIDIA khuyến nghị (NVENC); không có thì tự rơi về Media Foundation.
 
+Máy macOS (cho app macOS): macOS 14+ và Xcode 26+. App macOS cần quyền **Screen Recording**
+(để chia sẻ) và **Accessibility** (để cho điều khiển) — xem `docs/14-macos-app.md` §5.
+
 Cài toàn bộ dependency tự động (idempotent), mọi OS: `make bootstrap` — gồm cả Android
 SDK/NDK và tool format (ktlint/swiftformat ghim version về `tools/`). Makefile chạy được
-trên cả Windows/macOS/Ubuntu; trên macOS/Ubuntu hiện build được `core` + `make test`/
-`make lint`/`make coverage` (client desktop chưa có).
+trên cả Windows/macOS/Ubuntu; trên Ubuntu hiện build được `core` + `make test`/
+`make lint`/`make coverage` (client desktop Linux chưa có).
 
 ## 🚀 Tải & chạy
 
@@ -153,8 +157,10 @@ make build-android # build APK debug (Gradle + NDK, không cần máy/emulator)
 make run-android # build + cài + mở app Android (máy/emulator trong `adb devices`)
 make build-ios  # build app iOS cho Simulator (cần macOS + Xcode)
 make run-ios    # build + cài + mở app iOS trên Simulator (cần macOS + Xcode)
+make build-macos # build app macOS — MỘT app chứa cả hai vai (cần macOS + Xcode)
+make run-macos   # build + mở app macOS
 make release-windows  # bản release theo nền tảng; tương tự: release-android (APK
-                      # chưa ký), release-ios (Simulator)
+                      # chưa ký), release-ios (Simulator), release-macos
 ```
 
 Lệnh khác: `make release` · `make test` (core_tests — offline, không cần mạng/GPU). Cách

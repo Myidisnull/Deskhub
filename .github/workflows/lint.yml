@@ -4,8 +4,8 @@ name: lint
 #   codestyle    — clang-format (C++) + ktlint (Kotlin) + swiftformat (Swift) qua
 #                  scripts/codestyle.sh --check: ĐÚNG script dev chạy local (make lint)
 #                  nên CI và máy dev không bao giờ lệch luật
-#   swiftlint    — SwiftLint --strict cho client/ios (lint sâu riêng của Swift,
-#                  ngoài phạm vi codestyle)
+#   swiftlint    — SwiftLint --strict cho client/ios + client/macos (lint sâu riêng
+#                  của Swift, ngoài phạm vi codestyle)
 #   android-lint — Android Lint (gradlew lint) trên module app
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
         run: brew install swiftlint
 
       - name: SwiftLint check
-        run: swiftlint lint --strict client/ios/app/swift
+        run: swiftlint lint --strict client/ios/app/swift client/macos/app/swift
 
   android-lint:
     runs-on: ubuntu-latest

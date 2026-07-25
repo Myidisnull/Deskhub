@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Deskhub.entitlements — quyền của app macOS.
+
+  VÌ SAO TẮT APP SANDBOX
+    Vai HOST cần ba thứ mà sandbox chặn tuyệt đối hoặc chặn một phần:
+      1. CGEventPost vào ứng dụng KHÁC (bơm chuột/phím) — cần Accessibility, và
+         Accessibility không cấp cho tiến trình sandboxed.
+      2. NSEvent global monitor (cơ chế "host thắng") — cùng lý do.
+      3. Bind một cổng UDP CỐ ĐỊNH để máy kia gọi tới.
+    Đây cũng là lý do các app điều khiển từ xa (AnyDesk, TeamViewer) đều phát hành
+    ngoài Mac App Store. Vai client một mình thì sandbox được, nhưng dự án là MỘT app
+    chứa cả hai vai (docs/01 §1) nên phải theo mẫu số chung.
+
+  network.client/server vẫn khai báo dù không sandbox: chúng vô hại, và giữ lại thì
+  ngày nào tách riêng một bản client sandboxed sẽ không phải nhớ lại mình cần gì.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

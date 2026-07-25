@@ -90,8 +90,8 @@ if [ "$ONLY" = all ] || [ "$ONLY" = swift ]; then
         fi
     fi
     # swiftformat tự quét thư mục theo .swiftformat ở gốc repo; đếm file chỉ để in.
-    echo "[swiftformat] $(git ls-files 'client/ios/*' | grep -c '\.swift$') files ($SWIFTFORMAT)"
-    SF_ARGS="client/ios"
+    echo "[swiftformat] $(git ls-files 'client/ios/*' 'client/macos/*' | grep -c '\.swift$') files ($SWIFTFORMAT)"
+    SF_ARGS="client/ios client/macos"
     if [ "$CHECK" = 1 ]; then SF_ARGS="--lint $SF_ARGS"; fi
     if "$SWIFTFORMAT" $SF_ARGS; then
         echo "  OK"

@@ -53,7 +53,7 @@ Trên **desktop, một app chứa cả hai vai** (kiểu AnyDesk); trên **mobil
 | **Lõi** | `core/` (C++20) — **dùng chung tất cả**, biên dịch native hoặc WASM | ← | ← | ← | ← | ← (WASM) |
 
 Chi tiết vai: `02-agent.md`, `03-client.md`. Chi tiết nền tảng & transport:
-`11-platform-transport.md`.
+`11-platform-transport.md`. Bản macOS (cả hai vai): `14-macos-app.md`.
 
 ## 2. Pipeline dữ liệu chi tiết (đường video)
 

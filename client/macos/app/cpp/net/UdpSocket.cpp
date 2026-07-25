@@ -1,5 +1,5 @@
 // =============================================================================
-// UdpSocket.cpp — cài đặt bằng BSD socket, bản iOS (CHÉP từ Android).
+// UdpSocket.cpp — cài đặt bằng BSD socket, bản macOS (CHÉP từ iOS).
 //
 // BỐ CỤC
 //   NetAddr::ToString / ParseNetAddr — chuyển đổi địa chỉ ↔ chuỗi, không đụng socket.
@@ -15,13 +15,14 @@
 //   Đây là ranh giới duy nhất trong app có htonl/ntohl. NetAddr luôn giữ host byte
 //   order; mọi lần chạm vào sockaddr_in đều kèm một phép đổi.
 //
-// KHÁC BIỆT SO VỚI BẢN ANDROID
-//   Không có. iOS và Android đều POSIX — file này chép nguyên. iOS đòi thêm quyền
-//   Local Network (Info.plist NSLocalNetworkUsageDescription) để gói UDP nội mạng
-//   được ra vào, nhưng đó là chuyện của app bundle, không phải của socket.
+// KHÁC BIỆT SO VỚI BẢN iOS
+//   Không có ở tầng mã. Khác ở tầng app bundle: macOS 15+ cũng đòi quyền Local
+//   Network (Info.plist NSLocalNetworkUsageDescription) như iOS, và vai HOST còn
+//   bind một cổng CỐ ĐỊNH (Open(port) khác 0) — điều iOS không làm được vì sandbox.
+//   Cả hai là chuyện của app bundle/người gọi, không phải của socket.
 //
 // LIÊN QUAN: net/UdpSocket.h (API + lý do thiết kế),
-//            client/android/.../net/UdpSocket.cpp (bản song song)
+//            client/ios/.../net/UdpSocket.cpp (bản song song)
 // =============================================================================
 #include "net/UdpSocket.h"
 
@@ -95,8 +96,8 @@ bool UdpSocket::Open(uint16_t localPort) {
     int rcvbuf = 4 * 1024 * 1024;
     setsockopt(s, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
-    // INADDR_ANY: nghe trên mọi giao diện mạng. iPhone/iPad hay có nhiều đường ra
-    // cùng lúc (Wi-Fi, di động) và ta không biết trước host nằm ở nhánh nào.
+    // INADDR_ANY: nghe trên mọi giao diện mạng. Mac hay có nhiều đường ra cùng lúc
+    // (Wi-Fi, Ethernet, Tailscale) và ta không biết trước đầu kia nằm ở nhánh nào.
     sockaddr_in local{};
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = htonl(INADDR_ANY);

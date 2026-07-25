@@ -28,11 +28,11 @@ việc phải viết cho một client mới; `JitterBuffer`/`Reassembler`/`Sessi
 
 ### 1b. Backend theo nền tảng
 
-| | Windows (tham chiếu ✅) | macOS | Ubuntu | Android (🔶) | iOS (🔶) | Web (📐) |
-|--|-------------------------|-------|--------|-------------|-----|---------|
+| | Windows (tham chiếu ✅) | macOS (🔶) | Ubuntu | Android (🔶) | iOS (🔶) | Web (📐) |
+|--|-------------------------|------------|--------|-------------|-----|---------|
 | Decode | MF (D3D11VA) | VideoToolbox | VAAPI | MediaCodec | VideoToolbox | WebCodecs |
-| Render | D3D11 | Metal | OpenGL/Vulkan | Surface (Compose) | Metal | canvas/WebGL |
-| Input | Raw Input | — | — | touch | touch | Pointer Lock + KeyboardEvent |
+| Render | D3D11 | `AVSampleBufferDisplayLayer` | OpenGL/Vulkan | Surface (Compose) | Metal | canvas/WebGL |
+| Input | Raw Input | NSEvent (+ khoá chuột F9) | — | touch | touch | Pointer Lock + KeyboardEvent |
 | Transport | UDP (winsock) | UDP (BSD) | UDP (BSD) | UDP (BSD) | UDP (BSD) | **QUIC/WebTransport** |
 | Lõi | `core/` native | ← | ← | ← native | ← | ← **WASM** |
 
@@ -134,8 +134,10 @@ mới = viết **decode + render + input** theo API nền tảng đó + lớp tr
 Trạng thái & thiết kế từng nền tảng:
 
 - **Windows** ✅ — bản tham chiếu (doc này, §2–§9).
+- **macOS** 🔶 — `14-macos-app.md` (SwiftUI + VideoToolbox; app chứa cả vai host).
+- **iOS** 🔶 — `12-ios-client.md` (SwiftUI + VideoToolbox, client-only).
 - **Android** 🔶 — `08-android-client.md` (Kotlin + core C++ qua JNI).
 - **Web** 📐 — `10-web-client.md` (WebTransport + WebCodecs, core WASM).
-- **macOS / Ubuntu / iOS** ⬜ — chưa bắt đầu; backend ở §1b, giao thức + core dùng lại.
+- **Ubuntu** ⬜ — chưa bắt đầu; backend ở §1b, giao thức + core dùng lại.
 
 Ma trận đầy đủ (ai làm client/agent, vì sao) + chiến lược transport: `11-platform-transport.md`.

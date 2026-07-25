@@ -7,10 +7,12 @@
 #
 # Build/release RÕ theo từng nền tảng (sau này thêm nền tảng nào thì thêm cặp mới):
 #   make build-windows   / release-windows   client desktop Windows (chỉ chạy trên Windows)
+#   make build-macos     / release-macos     app macOS — cả hai vai (cần macOS + Xcode)
 #   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
 #   make build-ios       / release-ios       app iOS cho Simulator (cần macOS + Xcode)
 #
 #   make run            chạy client desktop (mới có Windows), ARGS="notepad.exe --loopback"
+#   make run-macos      build + mở app macOS (cần macOS + Xcode)
 #   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
 #   make run-ios        build + cài + mở app iOS trên Simulator (cần macOS + Xcode)
 #   make test         build core_tests rồi chạy (offline, không cần client/GPU)
@@ -22,7 +24,7 @@
 #   make lint           kiểm tra style cả 3, không sửa (dùng trước khi push cho khớp CI)
 #   make format-cpp     / lint-cpp      chỉ C++ (clang-format: core/ platform/ client/)
 #   make format-kotlin  / lint-kotlin   chỉ Kotlin (ktlint: client/android)
-#   make format-swift   / lint-swift    chỉ Swift (swiftformat: client/ios)
+#   make format-swift   / lint-swift    chỉ Swift (swiftformat: client/ios + client/macos)
 #
 #   make clean
 
@@ -104,6 +106,25 @@ build-android:
 
 release-android:
 	$(GRADLEW) assembleRelease
+
+# macOS: MỘT app chứa cả vai host lẫn vai client (kiểu AnyDesk), build bằng
+# xcodebuild. Sản phẩm ra out/build/macos/<Config>/app.app. Ký ad-hoc (CODE_SIGN_IDENTITY
+# = "-") nên chạy được ngay trên máy dev; bản phát hành cần Developer ID + notarize.
+# LƯU Ý khi chạy thử: app cần quyền Screen Recording (vai host) và Accessibility (cho
+# điều khiển từ xa) — xem docs/14-macos-app.md §5.
+ifeq ($(UNAME),Darwin)
+build-macos:
+	xcodebuild -project client/macos/Deskhub.xcodeproj -target app -configuration Debug SYMROOT=$(CURDIR)/out/build/macos build
+
+release-macos:
+	xcodebuild -project client/macos/Deskhub.xcodeproj -target app -configuration Release SYMROOT=$(CURDIR)/out/build/macos build
+
+run-macos: build-macos
+	open out/build/macos/Debug/app.app
+else
+build-macos release-macos run-macos:
+	@echo "make $@: needs macOS + Xcode"; exit 1
+endif
 
 # iOS: build cho Simulator bằng xcodebuild (target `app`, không cần scheme/signing).
 # Sản phẩm ra out/build/ios/<Config>-iphonesimulator/app.app. Chỉ chạy trên macOS.
@@ -218,5 +239,6 @@ else
 endif
 
 .PHONY: all bootstrap debug release build-windows release-windows build-android release-android \
-        build-ios release-ios run run-android run-ios test test-ctest coverage \
+        build-ios release-ios build-macos release-macos run run-android run-ios run-macos \
+        test test-ctest coverage \
         format format-cpp format-kotlin format-swift lint lint-cpp lint-kotlin lint-swift clean

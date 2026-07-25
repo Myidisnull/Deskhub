@@ -82,8 +82,8 @@ Vai **client** thì mọi nền tảng đều làm được (chỉ cần nhận 
 
 Cộng điểm khái niệm: host là "máy đang chạy ứng dụng cần điều khiển" — đó là PC.
 
-**Kết luận:** host = **desktop** (Windows nay; macOS/Linux sau). iOS/Android/web là nền tảng
-**client-only**. (Nếu sau này thêm mục tiêu "chỉ chia sẻ màn hình để xem, không điều khiển"
+**Kết luận:** host = **desktop** (Windows và macOS nay; Linux sau). iOS/Android/web là nền
+tảng **client-only**. (Nếu sau này thêm mục tiêu "chỉ chia sẻ màn hình để xem, không điều khiển"
 thì Android/iOS có thể làm host view-only — nhưng **web vẫn không**, vì không listen được —
 và đó là một tính năng khác, không phải hướng hiện tại.)
 
@@ -92,8 +92,8 @@ và đó là một tính năng khác, không phải hướng hiện tại.)
 Thêm một host OS mới cần đúng ba mảnh **OS-specific mà một host UDP native trên OS đó đằng
 nào cũng phải viết**:
 
-| Mảng host | Windows (đang có) | macOS | Linux |
-|-----------|-------------------|-------|-------|
+| Mảng host | Windows (đang có) | macOS (đang có) | Linux |
+|-----------|-------------------|-----------------|-------|
 | Capture | WGC | ScreenCaptureKit | PipeWire / X11 |
 | Encode | NVENC / MF | VideoToolbox | VAAPI / NVENC |
 | Inject input | `SendInput` | CGEvent | uinput / XTest |
@@ -101,12 +101,13 @@ nào cũng phải viết**:
 | Lõi giao thức | `core/` (dùng chung) | ← | ← |
 
 Nói cách khác: **thêm một host OS mới = viết capture + encode + inject cho OS đó**; transport
-(cả UDP lẫn WebTransport) và toàn bộ `core/` dùng lại.
+(cả UDP lẫn WebTransport) và toàn bộ `core/` dùng lại. Bản macOS đã làm đúng như vậy và đo
+được: xem `14-macos-app.md` §7 (cái gì dùng lại, cái gì phải viết).
 
 ## 5. Chiến lược transport: hybrid UDP + QUIC
 
-**Quyết định (2026-07-22, "hướng A"): HYBRID.** UDP cho **native** (Windows/Android, và
-macOS/iOS/Linux sau), QUIC/WebTransport **chỉ** cho **web** — nền tảng duy nhất không mở được
+**Quyết định (2026-07-22, "hướng A"): HYBRID.** UDP cho **native** (Windows/macOS/iOS/
+Android, và Linux sau), QUIC/WebTransport **chỉ** cho **web** — nền tảng duy nhất không mở được
 raw UDP. **Không** thống nhất mọi client về QUIC. Cả hai binding cùng bơm vào một
 `HostSession` qua `IHostTransport` (§2), core không đổi.
 
@@ -128,7 +129,8 @@ QUIC, nên hybrid không phát sinh việc thừa: mỗi bên dùng đúng trans
 |--------|-----------|--------|
 | Windows | UDP | winsock (`SIO_UDP_CONNRESET`…) |
 | Android | UDP | BSD/POSIX — đã có |
-| macOS / iOS / Linux (sau) | UDP | BSD/POSIX — **dùng lại `UdpSocket` của Android** |
+| macOS / iOS | UDP | BSD/POSIX — **dùng lại `UdpSocket` của Android** (đã làm: `client/ios`, `client/macos`) |
+| Linux (sau) | UDP | BSD/POSIX — cùng file |
 | Web | **QUIC/WebTransport** | — trình duyệt không mở raw UDP |
 
 Native mac/iOS/Linux đều POSIX nên **không phát sinh transport mới** — chỉ Windows khác

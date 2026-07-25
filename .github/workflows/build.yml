@@ -5,8 +5,9 @@ name: build
 # được ngay); muốn bản release đã ký thì thêm keystore + signingConfig sau.
 #
 # Nguyên tắc: nơi nào chạy được thì CI gọi ĐÚNG lệnh dev dùng local (make test-ctest,
-# make coverage, make build-android, make build-ios) — CI đồng thời là nơi kiểm tra
-# nhánh macOS/Ubuntu của Makefile mà máy dev Windows không tự chạy được.
+# make coverage, make build-android, make build-ios, make release-macos) — CI đồng
+# thời là nơi kiểm tra nhánh macOS/Ubuntu của Makefile mà máy dev Windows không tự
+# chạy được.
 on:
   push:
     branches: [main]
@@ -149,11 +150,36 @@ jobs:
         run: make build-ios
 
   # ---------------------------------------------------------------------------
+  # macOS: MỘT app chứa cả hai vai (host + client). Build Release, ký ad-hoc —
+  # runner không có Developer ID nên artifact chạy được sau khi người tải tự bỏ
+  # quarantine; bản notarize cần secret (để sau, như apk đã ký).
+  # Đây cũng là nơi duy nhất CI biên dịch nhánh ScreenCaptureKit/VideoToolbox/CGEvent.
+  # ---------------------------------------------------------------------------
+  macos:
+    needs: core-tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build macOS app (make release-macos)
+        run: make release-macos
+
+      - name: Zip app bundle
+        run: ditto -c -k --keepParent out/build/macos/Release/app.app deskhub-macos.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: deskhub-macos
+          path: deskhub-macos.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Release: chỉ chạy khi push tag v*. Gom artifact của windows + android rồi đính
   # vào một GitHub Release. Tên file mang tag để tải về khỏi nhầm phiên bản.
   # ---------------------------------------------------------------------------
   release:
-    needs: [windows, android]
+    needs: [windows, android, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -167,8 +193,9 @@ jobs:
       - name: Rename with tag
         run: |
           mkdir -p out
-          cp dist/deskhub-windows/client.exe   "out/deskhub-${GITHUB_REF_NAME}.exe"
-          cp dist/deskhub-android/app-debug.apk "out/deskhub-${GITHUB_REF_NAME}.apk"
+          cp dist/deskhub-windows/client.exe    "out/deskhub-${GITHUB_REF_NAME}.exe"
+          cp dist/deskhub-android/app-debug.apk  "out/deskhub-${GITHUB_REF_NAME}.apk"
+          cp dist/deskhub-macos/deskhub-macos.zip "out/deskhub-${GITHUB_REF_NAME}-macos.zip"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -176,3 +203,4 @@ jobs:
           files: |
             out/deskhub-${{ github.ref_name }}.exe
             out/deskhub-${{ github.ref_name }}.apk
+            out/deskhub-${{ github.ref_name }}-macos.zip
