@@ -53,6 +53,65 @@ DH_API int DH_CALL dh_list_local_ips(DhIpCallback cb, void* user);
 // `cb` cho từng cửa sổ. Trả về số cửa sổ. cb có thể NULL để chỉ đếm.
 DH_API int DH_CALL dh_list_windows(DhWindowCallback cb, void* user);
 
+// Callback cho mỗi màn hình chia sẻ được. `monitor` là HMONITOR đóng gói thành
+// uint64 — đưa xuống dh_agent_start ở trường `monitor` của DhAgentSource.
+typedef void(DH_CALL* DhDisplayCallback)(uint64_t monitor, const char* nameUtf8,
+    uint32_t width, uint32_t height, int primary, void* user);
+
+// Liệt kê màn hình đang gắn (màn hình chính đứng đầu). Trả về số màn hình.
+// Màn chia sẻ hiện CẢ cửa sổ lẫn màn hình, nên giao diện gọi cả hàm này và
+// dh_list_windows rồi trộn hai danh sách.
+DH_API int DH_CALL dh_list_displays(DhDisplayCallback cb, void* user);
+
+// =============================================================================
+// DÒ HOST TRONG MẠNG (GĐ9) — nuôi danh sách "tìm thấy trong mạng của bạn".
+//
+// ⚠️ dh_discover_scan CHẶN tới ~timeoutMs. PHẢI gọi ngoài UI thread (C# bọc trong
+// Task.Run). Giao diện muốn danh sách cập nhật liên tục thì gọi lại theo vòng —
+// mỗi lượt là một ảnh chụp độc lập, không có trạng thái nào phải dọn.
+//
+// Chỉ thấy máy CÙNG mạng nội bộ: DISCOVER đi broadcast, mà broadcast không qua
+// router. Máy qua Tailscale vẫn phải gõ địa chỉ tay — giới hạn của thiết kế, xem
+// docs/04-protocol.md §3d.
+// =============================================================================
+
+// Một máy tìm thấy. `address` là "ip:port" đưa thẳng vào ô địa chỉ được.
+// `sourceCount` = số nguồn máy đó đang chia sẻ; `busy` = 1 nếu đã có client khác;
+// `acceptsInput` = 0 nghĩa là kết nối vào sẽ chỉ xem được.
+typedef void(DH_CALL* DhHostFoundCallback)(uint32_t hostId, const char* nameUtf8,
+    const char* addressUtf8, uint32_t rttMs, int sourceCount, int acceptsInput,
+    int busy, void* user);
+
+// Quét một lượt. `port` = cổng host nghe (0 = 47777), `timeoutMs` = cửa sổ chờ trả
+// lời (0 = 1200). Gọi `cb` cho từng máy tìm được (máy chạy hàm này bị loại ra).
+// Trả về số máy. 0 = không thấy ai — KHÔNG phải lỗi.
+DH_API int DH_CALL dh_discover_scan(uint16_t port, uint32_t timeoutMs,
+    DhHostFoundCallback cb, void* user);
+
+// =============================================================================
+// HỎI HOST ĐANG CHIA SẺ GÌ (GĐ6) — nuôi màn "Chọn thứ muốn xem".
+//
+// dh_discover_scan chỉ trả về SỐ LƯỢNG nguồn (nó nằm trong ANNOUNCE). Muốn có TÊN
+// và kích thước từng nguồn thì phải hỏi riêng đúng máy đó bằng LIST_SOURCES —
+// broadcast không mang nổi ngần ấy chữ, và người dùng chỉ cần danh sách của đúng
+// một máy họ vừa chọn.
+//
+// ⚠️ CHẶN tới ~3 giây (phát lại vì UDP mất gói). PHẢI gọi ngoài UI thread.
+//
+// TRẢ 0 KHÔNG PHẢI LÀ LỖI. Host đời trước GĐ6 không biết LIST_SOURCES và sẽ im
+// lặng. Giao diện lúc đó đi thẳng vào nguồn 0 — đúng hành vi cũ, không báo hỏng.
+// =============================================================================
+
+// Một nguồn host đang chia sẻ. `sourceId` là thứ đưa vào dh_client_start.
+// `isDisplay` = 1 nghĩa là CẢ MÀN HÌNH (hệ quả riêng tư khác hẳn một cửa sổ).
+typedef void(DH_CALL* DhSourceFoundCallback)(uint8_t sourceId, const char* nameUtf8,
+    int width, int height, int isDisplay, void* user);
+
+// Hỏi `addrUtf8` ("ip:port", cổng mặc định 47777) đang chia sẻ những gì. Gọi `cb`
+// cho từng nguồn. Trả về số nguồn, hoặc 0 nếu host im lặng / không phải host GĐ6.
+DH_API int DH_CALL dh_client_list_sources(const char* addrUtf8,
+    DhSourceFoundCallback cb, void* user);
+
 // Số phiên bản API, để C# kiểm tra DLL khớp lúc nạp. Tăng khi đổi/ thêm chữ ký hàm.
 DH_API int DH_CALL dh_api_version(void);
 
@@ -83,14 +142,29 @@ typedef struct DhAgentOptions {
     uint16_t port;
     uint32_t fps;
     uint32_t bitrateMbps;
-    int allowInput; // 1 = cho client điều khiển
+    int allowInput;     // 1 = cho client điều khiển
+    int shareClipboard; // 1 = đồng bộ clipboard (GĐ9; mặc định phải là 0)
 } DhAgentOptions;
 
 // Một dòng nguồn đang chia sẻ (ánh xạ từ SessionSourceRow) để C# hiện danh sách.
+//
+// `label` là chuỗi ghép sẵn tiếng Anh, giữ lại cho log. Giao diện dùng các trường
+// RỜI phía dưới: nó hiện được hai ngôn ngữ và vẽ mỗi mẩu ở một chỗ (tên đậm, độ
+// phân giải mono, huy hiệu trạng thái riêng), không ghép lại thành câu bao giờ.
 typedef struct DhAgentRow {
     uint8_t sourceId;
     const char* label; // UTF-8, ví dụ "Code — Deskhub  (1920x1080, viewer connected)"
     int pending;       // 1 = đang khởi động (chưa lên hình)
+
+    const char* name; // UTF-8, tên nguồn không hậu tố
+    uint32_t width;   // 0 khi pending (chưa biết kích thước)
+    uint32_t height;
+    int isDisplay; // 1 = cả màn hình, 0 = một cửa sổ
+    int viewerConnected;
+    const char* viewerAddr; // "ip:port" của client đang xem, "" nếu không có
+    uint32_t fps;           // đang gửi, cửa sổ 1 giây gần nhất
+    uint32_t kbps;
+    uint32_t rttMs; // từ FEEDBACK của client; 0 = chưa có số
 } DhAgentRow;
 
 typedef void(DH_CALL* DhAgentRowsCallback)(const DhAgentRow* rows, int count, void* user);

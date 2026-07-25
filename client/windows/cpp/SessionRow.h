@@ -14,7 +14,21 @@ struct SessionSourceRow {
     std::wstring label;   // "tên (WxH, ...)" / "tên (starting...)"
     bool pending = false; // true = đang chờ (frame đầu / đàm phán), chưa chạy hẳn
 
-    bool operator==(const SessionSourceRow& o) const {
-        return sourceId == o.sourceId && pending == o.pending && label == o.label;
-    }
+    // --- Các trường CÓ CẤU TRÚC (GĐ9) ---
+    // `label` là một chuỗi đã ghép sẵn bằng tiếng Anh. Giao diện mới hiện được hai
+    // ngôn ngữ và vẽ mỗi mẩu thông tin ở một chỗ khác nhau (tên đậm, độ phân giải
+    // mono, huy hiệu trạng thái riêng) — nên nó cần từng mẩu RỜI, không phải một
+    // câu. Giữ `label` lại vì nó vẫn là cách hiển thị gọn cho log và cho bản dựng cũ.
+    std::wstring name; // tên nguồn, không hậu tố
+    uint32_t width = 0, height = 0;
+    bool isDisplay = false; // cả màn hình (khác: một cửa sổ)
+    bool viewerConnected = false;
+    std::string viewerAddr; // "ip:port" của client đang xem, rỗng nếu không có
+    uint32_t fps = 0;       // đang gửi, cửa sổ 1 giây gần nhất
+    uint32_t kbps = 0;
+    uint32_t rttMs = 0; // từ FEEDBACK của client; 0 = chưa có số
+
+    // So sánh để SetRows bỏ qua khi không đổi. Bao luôn các trường số: chúng đổi
+    // mỗi giây và chính là thứ giao diện cần vẽ lại.
+    bool operator==(const SessionSourceRow& o) const = default;
 };

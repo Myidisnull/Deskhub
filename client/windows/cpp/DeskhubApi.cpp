@@ -14,8 +14,10 @@
 #include <string>
 
 #include "net/NetInfo.h"
+#include "capture/DisplayFinder.h"
 #include "capture/WindowFinder.h"
 #include "ElevatedShare.h" // IsProcessElevated
+#include "net/Discovery.h" // ScanForHosts (GĐ9)
 #include "net/Firewall.h"  // HostFirewallRulePresent
 
 namespace {
@@ -57,8 +59,36 @@ DH_API int DH_CALL dh_list_windows(DhWindowCallback cb, void* user) {
     return int(wins.size());
 }
 
+DH_API int DH_CALL dh_list_displays(DhDisplayCallback cb, void* user) {
+    const auto displays = ListDisplays();
+    if (cb) {
+        for (const auto& d : displays) {
+            const std::string name = ToUtf8(d.name);
+            cb(uint64_t(reinterpret_cast<uintptr_t>(d.monitor)), name.c_str(),
+                d.width, d.height, d.primary ? 1 : 0, user);
+        }
+    }
+    return int(displays.size());
+}
+
+DH_API int DH_CALL dh_discover_scan(uint16_t port, uint32_t timeoutMs,
+    DhHostFoundCallback cb, void* user) {
+    const auto found = ScanForHosts(port, timeoutMs ? timeoutMs : 1200);
+    if (cb) {
+        for (const auto& m : found) {
+            cb(m.hostId, m.name.c_str(), m.address.c_str(), m.rttMs, m.sourceCount,
+                m.acceptsInput ? 1 : 0, m.busy ? 1 : 0, user);
+        }
+    }
+    return int(found.size());
+}
+
 DH_API int DH_CALL dh_api_version(void) {
-    return 1;
+    // 2 (GĐ9): thêm dh_list_displays, dh_discover_scan, số liệu có cấu trúc trong
+    // DhAgentRow, và trường shareClipboard trong DhAgentOptions.
+    // 3 (GĐ6 phía client): thêm dh_client_list_sources — client hỏi được host đang
+    // chia sẻ những nguồn nào, thay vì luôn xem nguồn 0.
+    return 3;
 }
 
 DH_API int DH_CALL dh_is_elevated(void) {

@@ -32,8 +32,11 @@ int main() {
     std::printf("--- input ---\n");
     RunInputTests();
 
-    std::printf("--- control: bitrate + link stats ---\n");
+    std::printf("--- control: bitrate + link stats + latency ---\n");
     RunControlTests();
+
+    std::printf("--- discovery: beacon + host registry ---\n");
+    RunDiscoveryTests();
 
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");

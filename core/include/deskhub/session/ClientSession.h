@@ -69,6 +69,11 @@ struct NegotiatedParams {
     uint8_t fps = 60;
     uint32_t bitrateBps = 0;
     uint64_t timebaseUs = 0; // đồng hồ host tại thời điểm HELLO_ACK
+    // Host có nhận điều khiển không (GĐ9). false = phiên chỉ-xem: giao diện phải
+    // giấu nút khoá chuột và bàn phím ảo đi, thay vì để người dùng gõ vào khoảng
+    // không. Host bản cũ không gửi cờ này và luôn được hiểu là true (xem Wire.h).
+    bool inputAccepted = true;
+    bool clipboardEnabled = false; // host có đồng bộ clipboard không
 };
 
 struct ClientCallbacks {

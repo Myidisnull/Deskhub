@@ -103,6 +103,34 @@ public:
         offer_ = p;
     }
 
+    // Ô "Allow keyboard and mouse" ở màn hình chia sẻ. Tắt = chỉ chia sẻ hình.
+    //
+    // Chính sách này nằm ở ĐÂY chứ không phải ở caller vì hai lý do. Một: nó phải đi
+    // vào HELLO_ACK để client biết mà không vẽ bàn phím ảo cho một phiên chỉ-xem —
+    // mà chỉ HostSession mới dựng HELLO_ACK. Hai: nó là một luật về GIAO THỨC ("gói
+    // INPUT_EVENT bị bỏ"), và mỗi nền tảng tự cài lại một luật giao thức là cách chắc
+    // chắn nhất để chúng lệch nhau — đúng lý do core tồn tại.
+    //
+    // Đổi được GIỮA phiên: client đang kết nối sẽ thấy input của nó ngừng ăn. Không
+    // có thông điệp nào báo việc đó ở v1; caller muốn client biết ngay thì ngắt phiên.
+    void SetInputAllowed(bool on) {
+        inputAllowed_.store(on, std::memory_order_relaxed);
+    }
+    bool inputAllowed() const {
+        return inputAllowed_.load(std::memory_order_relaxed);
+    }
+
+    // Đồng bộ clipboard. MẶC ĐỊNH TẮT, và cố ý tắt: clipboard hay chứa mật khẩu và
+    // mã OTP, nên "bật vì đằng nào cũng tiện" là một quyết định người dùng phải tự
+    // đưa ra ("the clipboard stays off until you turn it on"). Tắt thì mảnh
+    // CLIPBOARD đến bị bỏ và SendClipboard không gửi gì.
+    void SetClipboardEnabled(bool on) {
+        clipboardEnabled_.store(on, std::memory_order_relaxed);
+    }
+    bool clipboardEnabled() const {
+        return clipboardEnabled_.load(std::memory_order_relaxed);
+    }
+
     // Trả true nếu gói hợp lệ và thuộc phiên hiện tại (caller cập nhật peer addr).
     bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs);
     void Tick(uint64_t nowUs);
@@ -134,6 +162,9 @@ private:
     uint32_t clipUpdateId_ = 0; // updateId của lần SendClipboard kế tiếp
     std::atomic<State> state_{State::Idle};
     std::atomic<uint32_t> sessionId_{0};
+    // Atomic vì giao diện đặt chúng từ thread của nó trong khi thread Recv đang đọc.
+    std::atomic<bool> inputAllowed_{true};
+    std::atomic<bool> clipboardEnabled_{false};
     uint32_t clientId_ = 0;
     uint64_t lastRecvUs_ = 0;
     uint8_t buf_[kMaxDatagram] = {}; // chỉ dùng trên thread Recv

@@ -59,8 +59,8 @@ size_t BuildEmpty(std::span<uint8_t> out, MsgType type, uint32_t sessionId) {
     return WriteCommon(out, type, 0, Chan::Control, sessionId, 0);
 }
 
-// Cắt tên nguồn về ≤ limit byte NHƯNG lùi tới ranh giới ký tự UTF-8 — cắt giữa một
-// ký tự nhiều byte sẽ hiện ra ô vuông ở danh sách nguồn phía client.
+// Cắt tên nguồn/tên máy về ≤ limit byte NHƯNG lùi tới ranh giới ký tự UTF-8 — cắt
+// giữa một ký tự nhiều byte sẽ hiện ra ô vuông ở danh sách nguồn phía client.
 size_t Utf8TruncLen(const std::string& s, size_t limit) {
     if (s.size() <= limit) return s.size();
     size_t n = limit;
@@ -112,7 +112,9 @@ size_t BuildListSources(std::span<uint8_t> out) {
 // lượt một tính tổng kích thước để WriteCommon kiểm tra biên, lượt hai mới ghi thật.
 //
 // Định dạng: count(1) rồi count bản ghi
-//            [ sourceId(1) width(2) height(2) nameLen(1) name(nameLen) ].
+//            [ sourceId(1) width(2) height(2) kind(1) nameLen(1) name(nameLen) ].
+// Byte `kind` thêm ở GĐ9 và được báo bằng cờ kSourceListFlagKind trong header chung;
+// host cũ không đặt cờ và ghi bản ghi 6 byte không có nó (xem ParseSourceList).
 // sessionId = 0: client hỏi danh sách TRƯỚC khi có phiên (nó cần danh sách để chọn
 // nguồn rồi mới gửi HELLO kèm sourceId).
 size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources) {
@@ -120,9 +122,10 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
     // Đếm trước để biết tổng kích thước: WriteCommon cần payloadSize ngay từ đầu.
     size_t payload = 1;
     for (size_t i = 0; i < n; ++i) {
-        payload += 6 + Utf8TruncLen(sources[i].name, kMaxSourceNameBytes);
+        payload += 7 + Utf8TruncLen(sources[i].name, kMaxSourceNameBytes);
     }
-    const size_t total = WriteCommon(out, MsgType::SourceList, 0, Chan::Control, 0, payload);
+    const size_t total = WriteCommon(out, MsgType::SourceList, kSourceListFlagKind,
+        Chan::Control, 0, payload);
     if (!total) return 0;
 
     // Lượt hai: ghi thật. `p` chạy tiến dần vì bản ghi có độ dài thay đổi, không
@@ -137,6 +140,7 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
         p += 2;
         PutU16(p, s.height);
         p += 2;
+        *p++ = uint8_t(s.kind);
         *p++ = uint8_t(nameLen);
         if (nameLen) std::memcpy(p, s.name.data(), nameLen);
         p += nameLen;
@@ -144,12 +148,43 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
     return total;
 }
 
+// DISCOVER: gói quảng bá rỗng nghĩa, chỉ mang số hiệu lượt quét. sessionId = 0 —
+// nó đi tới MỌI máy trong dải broadcast, phần lớn trong số đó không có phiên nào
+// với ta cả.
+size_t BuildDiscover(std::span<uint8_t> out, uint32_t probeId) {
+    constexpr size_t kPayload = 4;
+    const size_t total = WriteCommon(out, MsgType::Discover, 0, Chan::Control, 0, kPayload);
+    if (!total) return 0;
+    PutU32(out.data() + kCommonHeaderSize, probeId);
+    return total;
+}
+
+// ANNOUNCE: host tự giới thiệu. Cùng kiểu payload dài thay đổi như SOURCE_LIST nên
+// cũng phải tính độ dài tên TRƯỚC khi gọi WriteCommon.
+//   probeId(4) hostId(4) port(2) flags(1) sourceCount(1) nameLen(1) name(nameLen)
+size_t BuildAnnounce(std::span<uint8_t> out, const HostAnnounce& m) {
+    const size_t nameLen = Utf8TruncLen(m.name, kMaxHostNameBytes);
+    const size_t total = WriteCommon(out, MsgType::Announce, 0, Chan::Control, 0,
+        13 + nameLen);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.probeId);
+    PutU32(p + 4, m.hostId);
+    PutU16(p + 8, m.port);
+    p[10] = m.flags;
+    p[11] = m.sourceCount;
+    p[12] = uint8_t(nameLen);
+    if (nameLen) std::memcpy(p + 13, m.name.data(), nameLen);
+    return total;
+}
+
 // HELLO_ACK: host chốt tham số phiên (hoặc từ chối bằng codec = Rejected).
 // sessionId nằm trong PAYLOAD chứ không phải header, vì lúc gửi gói này client
 // chưa biết số phiên nên không thể đối chiếu trường header.
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
-    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8)
-    constexpr size_t kPayload = 22;
+    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8) flags(2)
+    // flags nối vào ĐUÔI: client cũ đọc 22 byte đầu rồi thôi, không vỡ.
+    constexpr size_t kPayload = 24;
     const size_t total = WriteCommon(out, MsgType::HelloAck, 0, Chan::Control, 0, kPayload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
@@ -160,6 +195,7 @@ size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
     p[9] = m.fps;
     PutU32(p + 10, m.bitrateBps);
     PutU64(p + 14, m.timebaseUs);
+    PutU16(p + 22, m.flags);
     return total;
 }
 
@@ -381,27 +417,64 @@ std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {
 // nó là con số không tin được: kẹp về sức chứa của `out` trước, rồi vẫn kiểm tra
 // biên ở từng bản ghi — một gói khai count=200 với payload 10 byte không được phép
 // làm gì hơn là trả về danh sách rỗng.
-size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> out) {
+size_t ParseSourceList(const CommonHeader& h, std::span<const uint8_t> payload,
+    std::span<SourceInfo> out) {
     if (payload.empty()) return 0;
+    // Cờ header quyết định bản ghi có byte `kind` hay không. Host cũ (GĐ6) không đặt
+    // cờ → bản ghi 6 byte, mọi nguồn hiểu là cửa sổ. Đó là suy đoán ĐÚNG với bản cũ:
+    // chia sẻ cả màn hình cũng có ở GĐ6 nhưng danh sách không phân biệt được, và đoán
+    // "cửa sổ" chỉ làm hiện sai biểu tượng chứ không làm sai hành vi nào.
+    const bool hasKind = (h.flags & kSourceListFlagKind) != 0;
+    const size_t rec = hasKind ? 7 : 6; // phần cố định của một bản ghi
+    const size_t kindOff = 5;           // chỉ đọc khi hasKind
+    const size_t lenOff = hasKind ? 6 : 5;
+
     size_t count = payload[0];
     if (count > out.size()) count = out.size();
 
     size_t off = 1;
     size_t written = 0;
     for (size_t i = 0; i < count; ++i) {
-        if (off + 6 > payload.size()) break; // gói cụt — trả về những gì đọc được
+        if (off + rec > payload.size()) break; // gói cụt — trả về những gì đọc được
         const uint8_t* p = payload.data() + off;
-        const size_t nameLen = p[5];
-        if (off + 6 + nameLen > payload.size()) break;
+        const size_t nameLen = p[lenOff];
+        if (off + rec + nameLen > payload.size()) break;
         SourceInfo s;
         s.sourceId = p[0];
         s.width = GetU16(p + 1);
         s.height = GetU16(p + 3);
-        s.name.assign(reinterpret_cast<const char*>(p + 6), nameLen);
+        // Giá trị kind lạ (bản sau thêm loại mới) hiểu là cửa sổ — biểu tượng sai còn
+        // hơn danh sách rỗng.
+        s.kind = (hasKind && p[kindOff] == uint8_t(SourceKind::Display))
+                     ? SourceKind::Display
+                     : SourceKind::Window;
+        s.name.assign(reinterpret_cast<const char*>(p + rec), nameLen);
         out[written++] = std::move(s);
-        off += 6 + nameLen;
+        off += rec + nameLen;
     }
     return written;
+}
+
+std::optional<uint32_t> ParseDiscover(std::span<const uint8_t> payload) {
+    if (payload.size() < 4) return std::nullopt;
+    return GetU32(payload.data());
+}
+
+std::optional<HostAnnounce> ParseAnnounce(std::span<const uint8_t> payload) {
+    if (payload.size() < 13) return std::nullopt;
+    const uint8_t* p = payload.data();
+    const size_t nameLen = p[12];
+    // nameLen do bên kia khai — gói khai 200 byte tên với payload 20 byte là gói
+    // hỏng hoặc dựng ác ý, không được phép đọc quá biên.
+    if (payload.size() < 13 + nameLen) return std::nullopt;
+    HostAnnounce m;
+    m.probeId = GetU32(p);
+    m.hostId = GetU32(p + 4);
+    m.port = GetU16(p + 8);
+    m.flags = p[10];
+    m.sourceCount = p[11];
+    m.name.assign(reinterpret_cast<const char*>(p + 13), nameLen);
+    return m;
 }
 
 std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
@@ -415,6 +488,9 @@ std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
     m.fps = p[9];
     m.bitrateBps = GetU32(p + 10);
     m.timebaseUs = GetU64(p + 14);
+    // Host cũ dừng ở 22 byte. Mặc định là "nhận input" vì bản cũ luôn nhận — hiểu
+    // ngược lại sẽ tắt điều khiển với mọi host chưa cập nhật (xem Wire.h).
+    m.flags = payload.size() >= 24 ? GetU16(p + 22) : kAckFlagInputAccepted;
     return m;
 }
 

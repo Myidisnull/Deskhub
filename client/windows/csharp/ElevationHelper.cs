@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using Deskhub.Interop;
@@ -58,6 +59,12 @@ public static class ElevationHelper
 
     // Đọc ShareRequest do instance thường bàn giao qua dòng lệnh. null nếu không phải
     // dạng bàn giao (chạy bình thường → mở Home).
+    //
+    // Định dạng: --share <port> <fps> <bitrate> <control> <clipboard> <base64(json-ish)>
+    // Mảnh cuối là danh sách nguồn: "hwnd:monitor:base64(tên)" nối bằng '|', rồi cả
+    // chuỗi đó lại base64 một lần nữa. Nghe rườm rà, nhưng tên cửa sổ chứa được dấu
+    // cách, dấu ngoặc kép và ký tự Unicode — bất kỳ cách nào ít lớp hơn đều vỡ ở đúng
+    // những tiêu đề mà người ta hay chia sẻ ("Tài liệu — Word").
     public static ShareRequest? ParseArgs(string[] args)
     {
         for (int i = 0; i + 6 < args.Length; i++)
@@ -65,13 +72,24 @@ public static class ElevationHelper
             if (args[i] != "--share") continue;
             try
             {
-                ulong hwnd = ulong.Parse(args[i + 1]);
-                ushort port = ushort.Parse(args[i + 2]);
-                uint fps = uint.Parse(args[i + 3]);
-                uint bitrate = uint.Parse(args[i + 4]);
-                bool control = args[i + 5] == "1";
-                string name = Encoding.UTF8.GetString(Convert.FromBase64String(args[i + 6]));
-                return new ShareRequest(hwnd, name, port, fps, bitrate, control);
+                ushort port = ushort.Parse(args[i + 1]);
+                uint fps = uint.Parse(args[i + 2]);
+                uint bitrate = uint.Parse(args[i + 3]);
+                bool control = args[i + 4] == "1";
+                bool clipboard = args[i + 5] == "1";
+
+                var sources = new List<ShareSource>();
+                string packed = Encoding.UTF8.GetString(Convert.FromBase64String(args[i + 6]));
+                foreach (var part in packed.Split('|', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var f = part.Split(':');
+                    if (f.Length != 3) continue;
+                    sources.Add(new ShareSource(
+                        ulong.Parse(f[0]), ulong.Parse(f[1]),
+                        Encoding.UTF8.GetString(Convert.FromBase64String(f[2]))));
+                }
+                if (sources.Count == 0) return null;
+                return new ShareRequest(sources, port, fps, bitrate, control, clipboard);
             }
             catch
             {
@@ -81,10 +99,16 @@ public static class ElevationHelper
         return null;
     }
 
-    // Tên đưa qua base64(UTF-8) để không vỡ dòng lệnh vì dấu cách / ký tự Unicode.
     private static string BuildArgs(ShareRequest r)
     {
-        string nameB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(r.Name));
-        return $"--share {r.Hwnd} {r.Port} {r.Fps} {r.BitrateMbps} {(r.AllowControl ? 1 : 0)} {nameB64}";
+        var parts = new List<string>(r.Sources.Count);
+        foreach (var s in r.Sources)
+        {
+            string nameB64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(s.Name));
+            parts.Add($"{s.Hwnd}:{s.Monitor}:{nameB64}");
+        }
+        string packed = Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join('|', parts)));
+        return $"--share {r.Port} {r.Fps} {r.BitrateMbps} " +
+               $"{(r.AllowControl ? 1 : 0)} {(r.ShareClipboard ? 1 : 0)} {packed}";
     }
 }

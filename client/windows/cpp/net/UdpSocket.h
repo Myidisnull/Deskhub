@@ -75,6 +75,11 @@ public:
     // Timeout cho RecvFrom (ms). 0 = blocking vô hạn.
     bool SetRecvTimeout(uint32_t ms);
 
+    // Cho phép gửi tới địa chỉ broadcast (GĐ9, dò host trong LAN). Winsock TỪ CHỐI
+    // sendto tới địa chỉ broadcast bằng WSAEACCES nếu chưa bật cờ này — và lỗi đó
+    // trông y hệt "mạng chặn", rất tốn thời gian để tìm ra.
+    bool SetBroadcast(bool on);
+
     bool SendTo(const NetAddr& to, const uint8_t* data, size_t len);
 
     // >0: số byte nhận; 0: timeout; <0: lỗi thật sự.

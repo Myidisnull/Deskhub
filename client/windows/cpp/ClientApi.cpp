@@ -31,6 +31,7 @@
 #include "capture/GpuSelect.h"
 #include "decode/IVideoDecoder.h"
 #include "decode/PanelRenderer.h"
+#include "net/SourceQuery.h"
 #include "net/UdpSocket.h"
 #include "deskhubp/Clock.h"
 
@@ -398,4 +399,30 @@ DH_API void DH_CALL dh_client_stop(DhClientHandle* h) {
     h->quit.store(true);
     if (h->thread.joinable()) h->thread.join();
     delete h;
+}
+
+// -----------------------------------------------------------------------------
+// Danh mục nguồn (GĐ6). Đứng ngoài DhClientHandle vì nó chạy TRƯỚC khi có phiên:
+// socket riêng, không sessionId, không thread — xem net/SourceQuery.h.
+//
+// Đẩy qua callback thay vì trả mảng: cùng khuôn với dh_discover_scan /
+// dh_list_windows, nên phía C# tái dùng đúng một kiểu marshal cho cả ba.
+// -----------------------------------------------------------------------------
+DH_API int DH_CALL dh_client_list_sources(const char* addrUtf8,
+    DhSourceFoundCallback cb, void* user) {
+    if (!addrUtf8 || !*addrUtf8) return 0;
+
+    NetAddr server{};
+    if (!ParseNetAddr(addrUtf8, 47777, server)) return 0;
+
+    std::vector<deskhub::SourceInfo> sources;
+    if (!QuerySources(server, sources)) return 0;
+
+    if (cb) {
+        for (const auto& s : sources) {
+            cb(s.sourceId, s.name.c_str(), int(s.width), int(s.height),
+                s.kind == deskhub::SourceKind::Display ? 1 : 0, user);
+        }
+    }
+    return int(sources.size());
 }

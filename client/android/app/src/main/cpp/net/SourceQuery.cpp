@@ -66,7 +66,7 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) 
 
         // Đệm tạm cỡ cố định trên stack; ParseSourceList tự kẹp theo sức chứa này.
         deskhub::SourceInfo tmp[deskhub::kMaxSources];
-        const size_t cnt = deskhub::ParseSourceList(deskhub::PayloadOf(span), tmp);
+        const size_t cnt = deskhub::ParseSourceList(*h, deskhub::PayloadOf(span), tmp);
         for (size_t i = 0; i < cnt; ++i) out.push_back(std::move(tmp[i]));
         LOGI("[Sources] Host is sharing %zu source(s).", out.size());
         return true;

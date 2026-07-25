@@ -63,6 +63,13 @@ struct LinkWindow {
     uint64_t latePackets = 0;
     double lateMsAvg = 0.0;
     uint64_t lateMsMax = 0;
+
+    // Trễ đầu-cuối ƯỚC LƯỢNG: host chụp → client hiện (xem ClockSync về giới hạn của
+    // phép ước lượng này). Overlay hiện avg; max là con số nói lên cảm giác giật, vì
+    // một frame trễ 200 ms giữa một giây trung bình 11 ms vẫn thấy rõ bằng mắt.
+    double e2eMsAvg = 0.0;
+    uint32_t e2eMsMax = 0;
+    uint32_t e2eSamples = 0; // 0 = giây này chưa hiện được frame nào → đừng vẽ số
 };
 
 class LinkStats {
@@ -75,6 +82,15 @@ public:
         return nowUs - lastUs_ >= windowUs_;
     }
 
+    // Một frame vừa hiện lên màn hình, trễ `e2eUs` (lấy từ ClockSync::E2eUs). Gom
+    // vào cửa sổ đang chạy; Close() quy ra avg/max rồi xoá.
+    //
+    // Đi qua đây thay vì thêm tham số cho Close() vì e2e sinh ra ở NƠI KHÁC và với
+    // NHỊP KHÁC: mỗi frame một lần trên luồng hiển thị, trong khi Close() gọi mỗi
+    // giây một lần từ luồng thống kê. Bắt caller tự cộng dồn rồi truyền vào là bắt
+    // sáu client viết lại cùng ba dòng đó.
+    void AddE2e(uint32_t e2eUs);
+
     // Đóng cửa sổ và mở cửa sổ mới tại nowUs. `videoBytes` / `renderedFrames` là
     // số đếm được TRONG cửa sổ này (client tự reset bộ đếm của nó sau khi gọi).
     LinkWindow Close(const Reassembler::Stats& cur, uint64_t videoBytes,
@@ -84,6 +100,9 @@ private:
     Reassembler::Stats prev_{};
     uint64_t lastUs_;
     uint64_t windowUs_;
+    uint64_t e2eSumUs_ = 0; // cộng dồn trong cửa sổ, Close() xoá
+    uint32_t e2eMaxUs_ = 0;
+    uint32_t e2eCount_ = 0;
 };
 
 // Dựng gói Feedback từ cửa sổ vừa đóng. Client gửi cả khi lossPct == 0: host cần

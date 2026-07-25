@@ -39,6 +39,9 @@ struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
     bool allowInput = true; // GD4: cho client điều khiển
+    // GĐ9: đồng bộ clipboard, MẶC ĐỊNH TẮT. Clipboard hay chứa mật khẩu và mã OTP
+    // nên "bật vì đằng nào cũng tiện" là quyết định người dùng phải tự đưa ra.
+    bool shareClipboard = false;
 };
 
 // Một nguồn được chia sẻ. `name` là tên hiện ở danh sách phía client (UTF-8).

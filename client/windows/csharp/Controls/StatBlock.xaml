@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  StatBlock — nhãn nhỏ ở trên, con số to ở dưới, đơn vị nhạt bên cạnh.
+  ("sending / 58 / fps", "round trip / 4 / ms", "udp / 47777")
+
+  Con số dùng phông HIỂN THỊ chứ không phải phông mono, dù mọi số khác trong app đều
+  mono: đây là số để LIẾC, không phải để đọc từng chữ. Phông hiển thị ở cỡ 34 dễ bắt
+  hơn nhiều, và các cột số này không cần thẳng hàng với nhau như trong một bảng.
+-->
+<UserControl
+    x:Class="Deskhub.Controls.StatBlock"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel Spacing="4">
+        <TextBlock x:Name="LabelText" Style="{StaticResource EyebrowDimText}" Text="label" />
+        <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Bottom">
+            <TextBlock x:Name="ValueText"
+                       FontFamily="{StaticResource FontDisplay}"
+                       FontSize="{StaticResource TextStat}"
+                       FontWeight="Bold"
+                       CharacterSpacing="-30"
+                       LineHeight="34"
+                       TextLineBounds="Tight"
+                       Foreground="{ThemeResource TextPrimaryBrush}"
+                       Text="0" />
+            <TextBlock x:Name="UnitText"
+                       Style="{StaticResource MonoText}"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,0,3"
+                       Text="" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

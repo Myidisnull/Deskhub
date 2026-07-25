@@ -36,6 +36,14 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4188" />
   </ItemGroup>
 
+  <!-- Biểu tượng app hiện ở đầu thanh rail (bản thiết kế: logo trên cùng, các mục điều
+       hướng bên dưới). Chép từ docs/appicon-1024.png. -->
+  <ItemGroup>
+    <Content Include="Assets\appicon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <!--
     Chép deskhub_native.dll (do CMake dựng ở out/build/x64-debug/...) sang cạnh Deskhub.exe
     để DllImport tìm thấy. Đường dẫn mặc định trỏ tới preset x64-debug; đổi qua

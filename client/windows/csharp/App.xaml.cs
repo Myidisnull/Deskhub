@@ -19,8 +19,12 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Nạp tuỳ chọn giao diện TRƯỚC khi dựng cửa sổ: đổi chủ đề sau khi cửa sổ đã
+        // hiện lên sẽ thấy một nháy màu.
+        AppState.Load();
+
         // Instance vừa được UAC nâng quyền mang theo phiên share qua dòng lệnh → vào
-        // thẳng SharingStatusPage, khỏi bắt chọn nguồn lần hai (xem ElevationHelper).
+        // thẳng màn chia sẻ, khỏi bắt chọn nguồn lần hai (xem ElevationHelper).
         var startupShare = ElevationHelper.ParseArgs(Environment.GetCommandLineArgs());
         _window = new MainWindow(startupShare);
         _window.Activate();

@@ -89,7 +89,11 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
         case MsgType::InputEvent:
             // Chỉ nhận input khi đang STREAMING: trước đó host chưa biết client là ai.
             if (state() != State::Streaming || h->sessionId != sessionId()) return false;
+            // Gói vẫn NUÔI TIMEOUT dù bị bỏ: một phiên chỉ-xem mà người dùng ngồi rê
+            // chuột suốt vẫn là một phiên sống, và HELLO_ACK đã nói trước với client
+            // rằng input không được nhận (kAckFlagInputAccepted).
             lastRecvUs_ = nowUs;
+            if (!inputAllowed()) return true;
             input_.HandlePacket(payload, cb_.onInput);
             return true;
         case MsgType::SetFocus: {
@@ -127,6 +131,9 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             const auto c = ParseClipboardChunk(payload);
             if (!c) return false;
             lastRecvUs_ = nowUs;
+            // Tắt đồng bộ clipboard = bỏ mảnh, KHÔNG ghép dở dang. Ghép rồi mới bỏ
+            // ở bước áp dụng thì văn bản của người ta vẫn nằm trong bộ nhớ máy này.
+            if (!clipboardEnabled()) return true;
             // Push trả văn bản đúng một lần khi đủ mảnh — mảnh trùng/lẻ là nullopt.
             if (auto text = clip_.Push(*c); text && cb_.onClipboard)
                 cb_.onClipboard(std::move(*text));
@@ -153,6 +160,7 @@ void HostSession::Tick(uint64_t nowUs) {
 // best-effort với ClientSession::SendClipboard (xem ghi chú ở đó).
 void HostSession::SendClipboard(std::string_view utf8) {
     if (state() != State::Streaming || !cb_.send) return;
+    if (!clipboardEnabled()) return;
     if (utf8.empty() || utf8.size() > kMaxClipboardBytes) return;
     const uint32_t id = ++clipUpdateId_;
     const size_t count = (utf8.size() + kMaxClipboardChunk - 1) / kMaxClipboardChunk;
@@ -176,6 +184,10 @@ void HostSession::SendHelloAck(uint64_t nowUs) {
     a.fps = offer_.fps;
     a.bitrateBps = offer_.bitrateBps;
     a.timebaseUs = nowUs; // mốc đồng hồ host để client ước lượng trễ e2e (§7)
+    // Nói trước cho client biết phiên này được phép làm gì, để nó khỏi vẽ bàn phím ảo
+    // và nút khoá chuột cho một phiên chỉ-xem (xem kAckFlag* trong Wire.h).
+    a.flags = uint16_t((inputAllowed() ? kAckFlagInputAccepted : 0) |
+                       (clipboardEnabled() ? kAckFlagClipboard : 0));
     const size_t n = BuildHelloAck(buf_, a);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }

@@ -575,6 +575,9 @@ void TestClipboardAssembler() {
 void TestClipboardThroughSession() {
     std::printf("[session] clipboard flows both ways, multi-chunk, gated...\n");
     Rig r;
+    // Clipboard MẶC ĐỊNH TẮT (GĐ9) — người dùng phải tự bật. Ca kiểm tra chính cái
+    // mặc định đó nằm ở TestPolicyGates; ở đây bật lên để soi đường truyền dữ liệu.
+    r.host.SetClipboardEnabled(true);
 
     // Trước khi STREAMING: không gửi gì lên dây.
     r.cli.SendClipboard("early");
@@ -623,6 +626,79 @@ void TestSessionsSurviveGarbage() {
         "client unaffected by garbage datagrams");
 }
 
+// GĐ9: hai chính sách của host — cho điều khiển, và đồng bộ clipboard — được NÓI cho
+// client biết trong HELLO_ACK và được ÉP ở host. Cả hai vế đều cần: nói mà không ép
+// thì một client sửa đổi vẫn điều khiển được; ép mà không nói thì giao diện vẽ bàn
+// phím ảo cho một phiên chỉ-xem.
+void TestPolicyGates() {
+    std::printf("[session] host policy: view-only sessions, clipboard off by default...\n");
+    {
+        Rig r;
+        r.host.SetInputAllowed(false);
+        NegotiatedParams seen{};
+        // Rig::CliCb bỏ tham số của onReady; ở đây cần nó nên tự nối lại.
+        r.Handshake();
+        seen = r.cli.params();
+        Check(!seen.inputAccepted, "HELLO_ACK tells the client this session is view-only");
+        Check(!seen.clipboardEnabled, "...and that the clipboard is off");
+
+        // Client không gửi input đi nữa — rê chuột sinh hàng trăm event mỗi giây và
+        // tất cả sẽ chỉ đi tranh băng thông với luồng video.
+        r.w.toHost.clear();
+        for (int i = 0; i < 5; ++i)
+            r.cli.QueueInput(InputEvent{InputType::Key, uint64_t(i), 65, 30, 1, 0});
+        r.now += 20'000;
+        r.cli.Tick(r.now);
+        Check(CountType(r.w.toHost, MsgType::InputEvent) == 0,
+            "a view-only client stops sending input");
+    }
+    {
+        // Ép ở phía host: một client không tôn trọng cờ vẫn không điều khiển được.
+        Rig r;
+        r.host.SetInputAllowed(false);
+        r.Handshake();
+        uint8_t buf[kMaxDatagram];
+        const InputEvent ev{InputType::Key, 1, 65, 30, 1, 0};
+        const size_t n = BuildInputEvents(buf, r.cli.sessionId(), 0,
+            std::span<const InputEvent>(&ev, 1));
+        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+            "the packet is still valid traffic (it feeds the session timeout)");
+        Check(r.hostInput.empty(), "...but no input reaches the injector");
+
+        // Bật lại giữa phiên là có tác dụng ngay.
+        r.host.SetInputAllowed(true);
+        const size_t n2 = BuildInputEvents(buf, r.cli.sessionId(), 1,
+            std::span<const InputEvent>(&ev, 1));
+        r.host.HandlePacket(std::span<const uint8_t>(buf, n2), r.now);
+        Check(r.hostInput.size() == 1, "turning it back on takes effect immediately");
+    }
+    {
+        // Clipboard tắt mặc định: mảnh đến bị bỏ, KHÔNG ghép rồi mới bỏ — ghép xong
+        // là văn bản của người ta đã nằm trong bộ nhớ máy này.
+        Rig r;
+        Check(!r.host.clipboardEnabled(), "clipboard is off until the user turns it on");
+        r.Handshake();
+        Check(r.cli.params().inputAccepted, "input is on by default, clipboard is not");
+
+        r.cli.SendClipboard("hunter2");
+        Check(CountType(r.w.toHost, MsgType::Clipboard) == 0,
+            "the client does not even send it");
+
+        // Và nếu một client cũ vẫn gửi, host bỏ.
+        uint8_t buf[kMaxDatagram];
+        const uint8_t d[] = {'h', 'i'};
+        const size_t n = BuildClipboardChunk(buf, r.cli.sessionId(), 1, 0, 1,
+            std::span<const uint8_t>(d, 2));
+        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+            "the chunk is valid traffic");
+        Check(r.hostClipCalls == 0, "...but it is dropped, not assembled");
+
+        r.host.SendClipboard("secret");
+        Check(CountType(r.w.toClient, MsgType::Clipboard) == 0,
+            "and the host does not send its own clipboard either");
+    }
+}
+
 } // namespace
 
 void RunSessionTests() {
@@ -637,5 +713,6 @@ void RunSessionTests() {
     TestFocusRepeatsAndKeyframeCancel();
     TestClipboardAssembler();
     TestClipboardThroughSession();
+    TestPolicyGates();
     TestSessionsSurviveGarbage();
 }

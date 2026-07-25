@@ -1,60 +1,156 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
-  HomePage — màn chính, khớp docs/imgs Screenshot ...11.00.45 (Mac Home):
-  icon thiết bị + "Deskhub" + phụ đề, rồi hai card Connect / Share this PC.
+  HomePage — màn chính. Dựng theo `DesktopHome` trong desktop.jsx:
+    tiêu đề → hai ô lớn (Kết nối / Chia sẻ) → "Kết nối gần đây" → "Tìm thấy trong mạng"
+    → thanh hành động dưới cùng.
+
+  HAI DANH SÁCH, KHÔNG PHẢI MỘT
+    "Gần đây" là thứ NGƯỜI DÙNG đã chọn; "tìm thấy trong mạng" là thứ MÁY tìm ra. Gộp
+    lại thì máy vừa quét được sẽ chen lên trước máy người ta vẫn dùng hằng ngày, và
+    danh sách đổi thứ tự sau mỗi lượt quét.
 -->
 <Page
     x:Class="Deskhub.Views.HomePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Background="{StaticResource PageBackgroundBrush}">
+    xmlns:c="using:Deskhub.Controls">
 
-    <Grid Padding="40" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="760">
-        <StackPanel Spacing="14" HorizontalAlignment="Stretch">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-            <!-- Biểu tượng + tên + phụ đề -->
-            <FontIcon FontFamily="{StaticResource IconFont}" Glyph="&#xE770;"
-                      FontSize="64" Foreground="{StaticResource SecondaryTextBrush}"
-                      HorizontalAlignment="Center" Margin="0,0,0,8" />
-            <TextBlock Text="Deskhub" Style="{StaticResource TitleTextStyle}" FontSize="36" />
-            <TextBlock Text="Low-latency remote desktop" Style="{StaticResource SubtitleTextStyle}"
-                       Margin="0,0,0,24" />
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+            <StackPanel Margin="56,34,48,26" Spacing="26">
 
-            <!-- Hai card cạnh nhau, co giãn đều -->
-            <Grid ColumnSpacing="20">
+                <!-- Tiêu đề màn -->
+                <StackPanel Spacing="12">
+                    <TextBlock x:Name="Eyebrow" Style="{StaticResource EyebrowText}" Text="MACHINES" />
+                    <Grid>
+                        <TextBlock x:Name="Title" Style="{StaticResource TitleText}"
+                                   Text="Take your desk with you" />
+                        <TextBlock x:Name="Aside" Style="{StaticResource MonoText}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                   Margin="0,0,0,4" Text="one app · host and client" />
+                    </Grid>
+                </StackPanel>
+
+                <!-- Hai ô lớn: hai việc duy nhất app này làm -->
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <c:Tile x:Name="TileConnect" Grid.Column="0" Style="{StaticResource TileButton}"
+                            Glyph="&#xE714;" Click="OnConnectTile" />
+
+                    <c:Tile x:Name="TileShare" Grid.Column="1" Style="{StaticResource TileButton}"
+                            Glyph="&#xE8C8;" Click="OnShareTile" />
+                </Grid>
+
+                <!-- Kết nối gần đây -->
+                <StackPanel Spacing="14">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="RecentLabel" Grid.Column="0" VerticalAlignment="Center"
+                                   Style="{StaticResource EyebrowDimText}" Text="RECENT CONNECTIONS" />
+                        <Rectangle Grid.Column="1" Height="1" VerticalAlignment="Center"
+                                   Fill="{ThemeResource BorderHairlineBrush}" />
+                        <Button x:Name="ForgetButton" Grid.Column="2" Click="OnForgetAll"
+                                Style="{StaticResource SecondaryButtonSm}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE74D;" FontSize="13" />
+                                <TextBlock x:Name="ForgetText" Text="Forget all" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <ItemsControl x:Name="RecentList">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <c:WrapPanel ItemWidth="248" ItemHeight="104" Gap="16" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <TextBlock x:Name="RecentEmpty" Style="{StaticResource MonoText}"
+                               Visibility="Collapsed"
+                               Text="Machines you connect to show up here." />
+                </StackPanel>
+
+                <!-- Tìm thấy trong mạng -->
+                <StackPanel Spacing="14">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="FoundLabel" Grid.Column="0" VerticalAlignment="Center"
+                                   Style="{StaticResource EyebrowDimText}" Text="FOUND ON YOUR NETWORKS" />
+                        <Rectangle Grid.Column="1" Height="1" VerticalAlignment="Center"
+                                   Fill="{ThemeResource BorderHairlineBrush}" />
+                        <ProgressRing x:Name="ScanRing" Grid.Column="2" Width="14" Height="14"
+                                      IsActive="True" VerticalAlignment="Center"
+                                      Foreground="{ThemeResource AccentBrush}" Margin="0,0,8,0" />
+                        <TextBlock x:Name="ScanText" Grid.Column="3" VerticalAlignment="Center"
+                                   Style="{StaticResource MonoText}" Margin="0,0,10,0"
+                                   Text="scanning wi-fi · ethernet · tailscale" />
+                        <Button x:Name="RescanButton" Grid.Column="4" Click="OnRescan"
+                                Style="{StaticResource SecondaryButtonSm}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="13" />
+                                <TextBlock x:Name="RescanText" Text="Rescan" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <ItemsControl x:Name="FoundList">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <c:WrapPanel ItemWidth="382" ItemHeight="70" Gap="12" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Thanh hành động dưới cùng -->
+        <Border Grid.Row="1" Background="{ThemeResource GlassBrush}"
+                BorderBrush="{ThemeResource BorderHairlineBrush}" BorderThickness="0,1,0,0"
+                Padding="56,18">
+            <Grid ColumnSpacing="14">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-
-                <Button Grid.Column="0" Style="{StaticResource CardButtonStyle}"
-                        Height="200" Click="OnConnectClick">
-                    <StackPanel Spacing="10" HorizontalAlignment="Center">
-                        <FontIcon FontFamily="{StaticResource IconFont}" Glyph="&#xE714;"
-                                  FontSize="34" Foreground="{StaticResource PrimaryTextBrush}" />
-                        <TextBlock Text="Connect" FontSize="18" FontWeight="SemiBold"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   HorizontalAlignment="Center" />
-                        <TextBlock Text="View and control another computer"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   FontSize="13" TextAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock x:Name="StatusLine" Grid.Column="0" VerticalAlignment="Center"
+                           Style="{StaticResource MonoText}" Text="" />
+                <Button x:Name="ShareBarButton" Grid.Column="1" Click="OnShareTile"
+                        Style="{StaticResource SecondaryButton}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8C8;" FontSize="15" />
+                        <TextBlock x:Name="ShareBarText" Text="Share this PC" />
                     </StackPanel>
                 </Button>
-
-                <Button Grid.Column="1" Style="{StaticResource CardButtonStyle}"
-                        Height="200" Click="OnShareClick">
-                    <StackPanel Spacing="10" HorizontalAlignment="Center">
-                        <FontIcon FontFamily="{StaticResource IconFont}" Glyph="&#xE8C8;"
-                                  FontSize="34" Foreground="{StaticResource PrimaryTextBrush}" />
-                        <TextBlock Text="Share this PC" FontSize="18" FontWeight="SemiBold"
-                                   Foreground="{StaticResource PrimaryTextBrush}"
-                                   HorizontalAlignment="Center" />
-                        <TextBlock Text="Let someone else view and control it"
-                                   Foreground="{StaticResource SecondaryTextBrush}"
-                                   FontSize="13" TextAlignment="Center" TextWrapping="Wrap" />
+                <Button x:Name="ConnectBarButton" Grid.Column="2" Click="OnConnectTile"
+                        Style="{StaticResource PrimaryButton}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE714;" FontSize="15" />
+                        <TextBlock x:Name="ConnectBarText" Text="Connect" />
                     </StackPanel>
                 </Button>
             </Grid>
-        </StackPanel>
+        </Border>
     </Grid>
 </Page>

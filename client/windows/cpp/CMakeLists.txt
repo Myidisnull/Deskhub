@@ -28,9 +28,13 @@ add_library(deskhub_win_core STATIC
     net/UdpSocket.cpp
     net/NetInfo.cpp
     net/Firewall.cpp
+    net/HostIdent.cpp
+    net/Discovery.cpp
+    net/SourceQuery.cpp
 
     capture/WindowCapture.cpp
     capture/WindowFinder.cpp
+    capture/DisplayFinder.cpp
     capture/GpuSelect.cpp
     capture/BmpWriter.cpp
 

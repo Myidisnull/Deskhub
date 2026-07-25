@@ -66,6 +66,8 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             params_.fps = m->fps;
             params_.bitrateBps = m->bitrateBps;
             params_.timebaseUs = m->timebaseUs;
+            params_.inputAccepted = (m->flags & kAckFlagInputAccepted) != 0;
+            params_.clipboardEnabled = (m->flags & kAckFlagClipboard) != 0;
             state_ = State::Starting;
             lastRecvUs_ = nowUs;
             lastSentUs_ = nowUs;
@@ -106,6 +108,8 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             const auto c = ParseClipboardChunk(payload);
             if (!c) return false;
             lastRecvUs_ = nowUs;
+            // Host không bật đồng bộ clipboard → bỏ mảnh, không ghép (xem HostSession).
+            if (!params_.clipboardEnabled) return true;
             // Push trả văn bản đúng một lần khi đủ mảnh — mảnh trùng/lẻ là nullopt.
             if (auto text = clip_.Push(*c); text && cb_.onClipboard)
                 cb_.onClipboard(std::move(*text));
@@ -131,6 +135,10 @@ void ClientSession::NotifyVideoPacket(uint64_t nowUs) {
 
 void ClientSession::QueueInput(const InputEvent& e) {
     if (state_ != State::Streaming) return; // chưa có phiên → không có chỗ gửi
+    // Host đã nói trong HELLO_ACK là nó không nhận input. Gửi vẫn sẽ bị nó bỏ, nên
+    // chặn ngay tại đây: rê chuột sinh ra hàng trăm event mỗi giây và tất cả sẽ đi
+    // tranh băng thông với luồng video mà không đổi lại được gì.
+    if (!params_.inputAccepted) return;
     input_.SetSessionId(sessionId_);
     input_.Queue(e);
 }
@@ -226,6 +234,7 @@ void ClientSession::SendInvalidateRef(uint32_t frameId) {
 // phát lại: mất mảnh thì bản copy này bỏ, người dùng copy tiếp là có bản mới.
 void ClientSession::SendClipboard(std::string_view utf8) {
     if (state_ != State::Streaming || !cb_.send) return;
+    if (!params_.clipboardEnabled) return;
     if (utf8.empty() || utf8.size() > kMaxClipboardBytes) return;
     const uint32_t id = ++clipUpdateId_;
     const size_t count = (utf8.size() + kMaxClipboardChunk - 1) / kMaxClipboardChunk;

@@ -41,19 +41,37 @@ public:
         : rowsCb_(rowsCb), boundCb_(boundCb), user_(user) {}
 
     // --- Phía RunAgent (thread Recv) gọi ---
-    bool active() const override { return !stop_.load(std::memory_order_acquire); }
-    bool stopRequested() const override { return stop_.load(std::memory_order_acquire); }
+    bool active() const override {
+        return !stop_.load(std::memory_order_acquire);
+    }
+    bool stopRequested() const override {
+        return stop_.load(std::memory_order_acquire);
+    }
 
     void SetRows(std::vector<SessionSourceRow> rows) override {
         if (!rowsCb_) return;
-        // Chuỗi UTF-8 phải sống tới hết lời gọi callback -> giữ trong `labels`.
-        std::vector<std::string> labels;
+        // Mọi chuỗi UTF-8 phải sống tới HẾT lời gọi callback, mà DhAgentRow chỉ giữ
+        // con trỏ — nên các vector dưới đây phải được khai báo ở đây và reserve TRƯỚC
+        // khi lấy .c_str(). Thiếu reserve thì push_back sẽ cấp lại bộ nhớ và mọi con
+        // trỏ đã lấy thành con trỏ treo.
+        std::vector<std::string> labels, names, viewers;
         labels.reserve(rows.size());
-        for (const auto& r : rows) labels.push_back(ToUtf8(r.label));
+        names.reserve(rows.size());
+        viewers.reserve(rows.size());
+        for (const auto& r : rows) {
+            labels.push_back(ToUtf8(r.label));
+            names.push_back(ToUtf8(r.name));
+            viewers.push_back(r.viewerAddr);
+        }
+
         std::vector<DhAgentRow> crows;
         crows.reserve(rows.size());
-        for (size_t i = 0; i < rows.size(); ++i)
-            crows.push_back(DhAgentRow{rows[i].sourceId, labels[i].c_str(), rows[i].pending ? 1 : 0});
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const auto& r = rows[i];
+            crows.push_back(DhAgentRow{r.sourceId, labels[i].c_str(), r.pending ? 1 : 0,
+                names[i].c_str(), r.width, r.height, r.isDisplay ? 1 : 0,
+                r.viewerConnected ? 1 : 0, viewers[i].c_str(), r.fps, r.kbps, r.rttMs});
+        }
         rowsCb_(crows.data(), int(crows.size()), user_);
     }
 
@@ -70,7 +88,9 @@ public:
     }
 
     // --- Phía C API (thread UI của C#) gọi ---
-    void RequestStop() { stop_.store(true, std::memory_order_release); }
+    void RequestStop() {
+        stop_.store(true, std::memory_order_release);
+    }
     void QueueAdd(AgentSource s) {
         std::lock_guard<std::mutex> lk(m_);
         adds_.push_back(std::move(s));
@@ -86,8 +106,8 @@ private:
     void* user_;
     std::atomic<bool> stop_{false};
     std::mutex m_;
-    std::vector<AgentSource> adds_;   // C# ghi, RunAgent rút
-    std::vector<uint8_t> removes_;    // C# ghi, RunAgent rút
+    std::vector<AgentSource> adds_; // C# ghi, RunAgent rút
+    std::vector<uint8_t> removes_;  // C# ghi, RunAgent rút
 };
 
 AgentSource ToAgentSource(const DhAgentSource& s) {
@@ -125,6 +145,7 @@ DH_API DhAgentHandle* DH_CALL dh_agent_start(const DhAgentSource* sources, int c
     ao.fps = opt->fps;
     ao.bitrateMbps = opt->bitrateMbps;
     ao.allowInput = opt->allowInput != 0;
+    ao.shareClipboard = opt->shareClipboard != 0;
 
     h->thread = std::thread([h, ao] {
         // WGC cần WinRT (MTA) trên chính thread tạo WindowCapture — đây là thread đó.

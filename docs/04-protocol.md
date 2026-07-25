@@ -47,6 +47,8 @@ Sau header 8 byte là payload tùy `Type`.
 | 0x04 | STOP / BYE | control | cả hai | có |
 | 0x05 | LIST_SOURCES | control | C→A | có (retry 500ms) |
 | 0x06 | SOURCE_LIST | control | A→C | không |
+| 0x07 | DISCOVER | control | C→A (broadcast) | không (quét lặp) |
+| 0x08 | ANNOUNCE | control | A→C | không |
 | 0x10 | VIDEO_PACKET | video | A→C | không |
 | 0x11 | FEC_PACKET | video | A→C | không (parity) |
 | 0x20 | INPUT_EVENT | input | C→A | tin cậy nhẹ (retry key) |
@@ -105,8 +107,17 @@ SOURCE_LIST:
 
 ```
 count(u8), rồi count lần:
-  sourceId(u8) | width(u16) | height(u16) | nameLen(u8) | name (UTF-8, ≤64 byte)
+  sourceId(u8) | width(u16) | height(u16) | kind(u8) | nameLen(u8) | name (UTF-8, ≤64 byte)
 ```
+
+`kind`: 0 = cửa sổ, 1 = cả màn hình. Client vẽ biểu tượng khác nhau cho hai loại, và
+hệ quả riêng tư của chúng cũng khác hẳn nhau, nên nó không thể đoán từ tên.
+
+**Byte `kind` thêm ở GĐ9 và được báo bằng cờ `kSourceListFlagKind` (bit0) trong header
+chung.** Host GĐ6 không đặt cờ và ghi bản ghi 6 byte không có `kind`; `ParseSourceList`
+nhận `CommonHeader` để chọn layout, và hiểu bản ghi cũ là "cửa sổ". Đánh dấu ở header
+chứ không đoán theo độ dài payload — tên nguồn dài ngắn tuỳ ý nên độ dài gói không suy
+ra được layout.
 
 Tên bị cắt ở `kMaxSourceNameBytes` nhưng **lùi tới ranh giới ký tự UTF-8** — cắt giữa
 một ký tự nhiều byte sẽ hiện ô vuông ở danh sách phía client. Trần `kMaxSources` = 8
@@ -116,6 +127,44 @@ nhiều hơn thì GPU không kham nổi).
 Client phát lại LIST_SOURCES mỗi 500ms trong ~3s. Host không trả lời (sai IP, firewall,
 hoặc bản cũ không biết message này) thì client cứ thử nguồn 0 — lỗi kết nối cụ thể từ
 `ClientSession` hữu ích hơn nhiều so với một hộp thoại "không thấy host".
+
+Host **luôn trả lời**, kể cả khi chưa chia sẻ nguồn nào (danh sách rỗng): im lặng bị
+client hiểu là "bản cũ / mất gói" và nó ngồi thử lại hết 3 giây, trong khi sự thật là
+host đang bật nhưng người dùng chưa tick nguồn nào.
+
+## 3d. Dò host trong mạng LAN (GĐ9)
+
+Client tìm ra host mà không cần gõ địa chỉ: **DISCOVER (0x07)** đi broadcast tới cổng
+host, mọi host nghe được trả **ANNOUNCE (0x08)** về **chính nơi gửi**. Đây là thứ nuôi
+danh sách "máy tìm thấy trong mạng" và con số "N máy kết nối được" trên màn hình chính.
+
+```
+DISCOVER  probeId(u32)                                   sessionId = 0
+ANNOUNCE  probeId(u32) | hostId(u32) | port(u16) | flags(u8) | sourceCount(u8)
+          | nameLen(u8) | name (UTF-8, ≤48 byte)          sessionId = 0
+```
+
+| Trường | Ý nghĩa |
+|--------|---------|
+| probeId | Số hiệu lượt quét do client sinh, host **dội lại nguyên văn**. Client bỏ ANNOUNCE mang probeId của lượt trước — RTT tính từ mốc cũ là một con số bịa, mà đó chính là con số hiện trên thẻ máy. |
+| hostId | Ổn định **theo máy**, không theo lần chạy. Khoá gộp: một máy cắm cả Wi-Fi lẫn Ethernet trả lời hai lần từ hai IP, và hai dòng cho cùng một máy là sai. |
+| port | Cổng host đang **nghe** — không suy được từ cổng nguồn của gói trả lời. |
+| flags | bit0 = nhận input, bit1 = đang bận (đã có client). Client vẽ thẻ máy xám thay vì để người dùng bấm vào rồi mới ăn HELLO_ACK từ chối. |
+
+**Vì sao không mDNS/Bonjour:** nó buộc mỗi nền tảng kéo theo một thư viện khác nhau
+(dnssd trên Apple, NsdManager trên Android, avahi trên Ubuntu) và trên Android/iOS còn
+cần quyền riêng — trong khi cả sáu client đã có sẵn một socket UDP và một bộ giải mã
+gói dùng chung.
+
+**Không có server danh bạ, và cũng không thể có:** ANNOUNCE chỉ đi trong phạm vi
+broadcast của mạng nội bộ. Máy ngoài LAN (Tailscale) vẫn phải gõ địa chỉ tay — đó
+đúng là cam kết "kết nối trực tiếp, không qua server trung gian".
+
+**Phía core:** `Beacon` (host) dựng câu trả lời cho DISCOVER / LIST_SOURCES / PING dò;
+`HostRegistry` (client) gộp ANNOUNCE thành danh sách một-dòng-một-máy, sắp thứ tự cố
+định, và cho hết hạn sau 6 giây im lặng. Beacon **không tự gửi** — nó chỉ dựng byte,
+caller `sendto()` về địa chỉ nguồn, vì các gói này đến từ địa chỉ bất kỳ chứ không phải
+peer của phiên.
 
 ## 4. Handshake (thiết lập phiên)
 
@@ -149,8 +198,27 @@ Client                                   Agent
 | fps | u8 | FPS đã chọn. |
 | bitrateBps | u32 | Bitrate khởi đầu. |
 | timebaseUs | u64 | Gốc thời gian Agent (để quy đổi timestamp). |
+| flags | u16 | bit0 = host nhận INPUT_EVENT, bit1 = host đồng bộ clipboard. Thêm ở GĐ9. |
 
 Nếu không giao được codec → HELLO_ACK với `codec=0xFF` (từ chối).
+
+**`flags` nối vào ĐUÔI payload** (offset 22, payload 22 → 24 byte) nên client bản cũ
+đọc 22 byte đầu rồi thôi, không vỡ. Ngược lại, client mới gặp host cũ (payload 22 byte)
+mặc định `flags = bit0` — host cũ **luôn** nhận input, hiểu ngược lại sẽ vô hiệu hoá
+điều khiển với mọi bản chưa cập nhật.
+
+Vì sao phải nói ra: nếu không, client vẽ nút khoá chuột và bàn phím ảo cho một phiên
+chỉ-xem, người dùng gõ vào khoảng không mà không hiểu vì sao. Hai cờ này được **ép ở
+host** (`HostSession` bỏ INPUT_EVENT / mảnh CLIPBOARD khi tắt) **và** được client tôn
+trọng (`ClientSession::QueueInput` không xếp hàng gì khi phiên là chỉ-xem — rê chuột
+sinh hàng trăm event mỗi giây, tất cả sẽ chỉ đi tranh băng thông với luồng video). Cần
+cả hai vế: nói mà không ép thì một client sửa đổi vẫn điều khiển được; ép mà không nói
+thì giao diện nói dối người dùng.
+
+**Clipboard mặc định TẮT.** Clipboard hay chứa mật khẩu và mã OTP, nên "bật vì đằng nào
+cũng tiện" là một quyết định người dùng phải tự đưa ra. Tắt thì mảnh CLIPBOARD đến bị
+**bỏ, không ghép** — ghép xong rồi mới bỏ ở bước áp dụng thì văn bản của người ta vẫn
+đã nằm trong bộ nhớ máy này.
 
 ## 5. Kênh video (VIDEO_PACKET, 0x10)
 
@@ -277,6 +345,16 @@ event key-up gây "kẹt phím". Chính sách v1 (đã hiện thực):
 
 Ping định kỳ (vd. mỗi 1s) để đo RTT, phát hiện mất kết nối.
 
+**PING với `sessionId = 0` là ping DÒ ĐƯỜNG (GĐ9)**, không thuộc phiên nào: client dùng
+nó để biết một máy đã lưu còn sống không và cách bao xa — hai con số hiện trên mỗi thẻ
+máy ở màn hình chính, và trên bảng "kiểm tra đường truyền" trước khi bấm Connect. Host
+trả PONG `sessionId = 0`, dội nguyên văn payload.
+
+Ping dò do `Beacon` trả lời chứ **không phải** `HostSession`, và điều đó quan trọng:
+gói này **không được nuôi timeout** của phiên đang chạy (một máy lạ trong mạng dò đường
+không được phép giữ cho một phiên đã chết sống thêm) và **không được đổi địa chỉ peer**
+(caller chỉ cập nhật peer theo gói mà `HostSession::HandlePacket` trả `true`).
+
 ### FEEDBACK (0x32) — client báo tình trạng đường truyền
 | Trường | Kiểu | Ý nghĩa |
 |--------|------|---------|
@@ -292,6 +370,35 @@ như luôn là hàng đợi router đầy, nới nhanh ngay sau đó chỉ làm 
 
 Client gửi FEEDBACK **kể cả khi 0% mất gói**: im lặng bị Agent hiểu là mất kết nối chứ
 không phải đường thông, và Agent cần tín hiệu sạch mới dám nới bitrate lên lại.
+
+### Trễ đầu-cuối: `timebaseUs` dùng để làm gì (GĐ9)
+
+Overlay hiện "e2e 11 ms" — từ lúc host **chụp** một frame tới lúc client **hiện** nó.
+Host đóng dấu thời gian chụp vào `VideoHeader.timestampUs` bằng đồng hồ **của nó**,
+client đọc đồng hồ của mình lúc hiện; trừ thẳng hai số này cho ra một con số vô nghĩa
+(thường là vài giờ — hai máy khởi động cách nhau vài giờ).
+
+`HelloAck.timebaseUs` là mốc để bắt đầu quy đổi, nhưng một mình nó chưa đủ: gói ACK
+cũng mất một quãng đường mới tới nơi, và ta không tách được "đồng hồ lệch bao nhiêu"
+khỏi "gói đi mất bao lâu". `core/control/ClockSync` giải bằng **bộ lọc cực tiểu + nửa
+RTT**: với mỗi frame, `(giờ client lúc nhận − dấu thời gian host)` = độ lệch đồng hồ +
+độ trễ một chiều của riêng frame đó; số hạng thứ hai luôn ≥ 0 nên **cực tiểu** của cả
+dãy là ước lượng tốt nhất cho "độ lệch đồng hồ + độ trễ một chiều nhỏ nhất". Lấy cực
+tiểu đó làm gốc rồi cộng lại `rtt/2` cho chính cái độ trễ vừa bị trừ mất — không cộng
+lại thì frame nhanh nhất luôn báo 0 ms, một con số đẹp và sai.
+
+Cực tiểu chỉ giữ trong một cửa sổ 10 giây rồi thay bằng cực tiểu của cửa sổ kế: cực
+tiểu tích luỹ từ đầu phiên chỉ có thể **giảm**, mà đồng hồ hai máy trôi lệch nhau hàng
+chục mili-giây mỗi giờ — giữ mãi thì e2e báo cao dần một cách giả tạo.
+
+> ⚠️ Đây là **ước lượng**, không phải phép đo. Nó giả định đường đi và đường về đối
+> xứng. Đường bất đối xứng — hay gặp trên Wi-Fi và Tailscale — làm con số lệch đúng
+> bằng phần bất đối xứng đó. Đo thật cần đồng bộ đồng hồ hai máy (PTP/NTP), ngoài
+> phạm vi v1.
+
+`LinkStats::AddE2e` gom theo cửa sổ 1 giây (avg + **max**, vì một frame trễ 200 ms giữa
+một giây trung bình 11 ms vẫn thấy rõ bằng mắt), `LatencyTrace` giữ 60 mẫu cách nhau
+320 ms cho biểu đồ đường.
 
 ### REQUEST_KEYFRAME (0x33)
 Rỗng payload (hoặc kèm `frameId` cuối nhận tốt). Agent gọi `encoder.RequestKeyframe()`.

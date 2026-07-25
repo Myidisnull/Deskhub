@@ -33,6 +33,29 @@ internal static class NativeMethods
     [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
     private static extern int dh_list_windows(WindowCallback cb, IntPtr user);
 
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate void DisplayCallback(ulong monitor, IntPtr namePtr, uint width,
+        uint height, int primary, IntPtr user);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    private static extern int dh_list_displays(DisplayCallback cb, IntPtr user);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate void HostFoundCallback(uint hostId, IntPtr namePtr, IntPtr addrPtr,
+        uint rttMs, int sourceCount, int acceptsInput, int busy, IntPtr user);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    private static extern int dh_discover_scan(ushort port, uint timeoutMs,
+        HostFoundCallback cb, IntPtr user);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate void SourceFoundCallback(byte sourceId, IntPtr namePtr,
+        int width, int height, int isDisplay, IntPtr user);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    private static extern int dh_client_list_sources(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string addr, SourceFoundCallback cb, IntPtr user);
+
     [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
     private static extern int dh_api_version();
 
@@ -75,6 +98,49 @@ internal static class NativeMethods
         return result;
     }
 
+    public static List<CaptureDisplay> ListDisplays()
+    {
+        var result = new List<CaptureDisplay>();
+        DisplayCallback cb = (monitor, namePtr, w, h, primary, _) =>
+            result.Add(new CaptureDisplay(monitor,
+                Marshal.PtrToStringUTF8(namePtr) ?? string.Empty, w, h, primary != 0));
+        dh_list_displays(cb, IntPtr.Zero);
+        GC.KeepAlive(cb);
+        return result;
+    }
+
+    // ⚠️ CHẶN tới ~timeoutMs — gọi trong Task.Run, không bao giờ trên UI thread.
+    // Mỗi lần gọi là một lượt quét độc lập; danh sách "đang cập nhật" của giao diện là
+    // vòng lặp gọi lại hàm này, không phải một luồng nền phải dọn dẹp.
+    public static List<FoundHost> Scan(ushort port, uint timeoutMs)
+    {
+        var result = new List<FoundHost>();
+        HostFoundCallback cb = (hostId, namePtr, addrPtr, rtt, sources, input, busy, _) =>
+            result.Add(new FoundHost(hostId,
+                Marshal.PtrToStringUTF8(namePtr) ?? string.Empty,
+                Marshal.PtrToStringUTF8(addrPtr) ?? string.Empty,
+                rtt, sources, input != 0, busy != 0));
+        dh_discover_scan(port, timeoutMs, cb, IntPtr.Zero);
+        GC.KeepAlive(cb);
+        return result;
+    }
+
+    // ⚠️ CHẶN tới ~3 giây — gọi trong Task.Run, không bao giờ trên UI thread.
+    //
+    // DANH SÁCH RỖNG KHÔNG PHẢI LÀ LỖI. Host đời trước GĐ6 không biết LIST_SOURCES và
+    // sẽ im lặng suốt 3 giây. Người gọi hiểu là "chỉ có một nguồn" rồi đi thẳng vào
+    // nguồn 0 — đúng hành vi trước khi có màn chọn nguồn.
+    public static List<HostSource> ListSources(string address)
+    {
+        var result = new List<HostSource>();
+        SourceFoundCallback cb = (id, namePtr, w, h, isDisplay, _) =>
+            result.Add(new HostSource(id,
+                Marshal.PtrToStringUTF8(namePtr) ?? string.Empty, w, h, isDisplay != 0));
+        dh_client_list_sources(address, cb, IntPtr.Zero);
+        GC.KeepAlive(cb);
+        return result;
+    }
+
     // --- Vai HOST (M2) — xem cpp/DeskhubApi.h §VAI HOST ----------------------------
 
     [StructLayout(LayoutKind.Sequential)]
@@ -92,14 +158,28 @@ internal static class NativeMethods
         public uint Fps;
         public uint BitrateMbps;
         public int AllowInput;
+        public int ShareClipboard;
     }
 
+    // Layout PHẢI khớp từng trường với DhAgentRow trong cpp/DeskhubApi.h. Sai một
+    // trường ở đây không gây lỗi biên dịch — nó đọc lệch bộ nhớ lúc chạy, thường hiện
+    // ra thành chuỗi rác hoặc sập trong PtrToStringUTF8.
     [StructLayout(LayoutKind.Sequential)]
     internal struct DhAgentRow
     {
         public byte SourceId;
         public IntPtr Label; // char* UTF-8, đọc bằng Marshal.PtrToStringUTF8
         public int Pending;
+
+        public IntPtr Name;
+        public uint Width;
+        public uint Height;
+        public int IsDisplay;
+        public int ViewerConnected;
+        public IntPtr ViewerAddr;
+        public uint Fps;
+        public uint Kbps;
+        public uint RttMs;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -175,12 +255,35 @@ public interface ISwapChainPanelNative
 // Một địa chỉ IPv4 của máy này (tên adapter + IP), cho màn "Share this PC".
 public readonly record struct LocalIp(string AdapterName, string Ip);
 
-// Một cửa sổ chia sẻ được, cho màn SharePicker. Hwnd giữ lại để đưa xuống lúc bắt đầu
-// share ở M2.
+// Một cửa sổ chia sẻ được, cho danh sách nguồn ở màn chia sẻ.
 public readonly record struct CaptureWindow(
     ulong Hwnd, string ExeName, string Title, uint Width, uint Height, bool Minimized)
 {
-    // Nhãn hiển thị: ưu tiên tiêu đề, kèm độ phân giải như ảnh Mac ("Code — Deskhub").
     public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? ExeName : Title;
     public string Resolution => $"{Width}×{Height}";
 }
+
+// Một màn hình chia sẻ được. Màn chia sẻ hiện cả cửa sổ lẫn màn hình trong CÙNG một
+// danh sách — hệ quả riêng tư của hai loại khác nhau nên chúng phải phân biệt được
+// bằng mắt, nhưng chúng là cùng một loại lựa chọn với người dùng.
+public readonly record struct CaptureDisplay(
+    ulong Monitor, string Name, uint Width, uint Height, bool Primary)
+{
+    public string Resolution => $"{Width}×{Height}";
+}
+
+// Một nguồn host đang chia sẻ, cho màn "Chọn thứ muốn xem". `SourceId` là thứ đưa
+// vào ViewerSession.Start — không phải chỉ số trong danh sách: host cấp id tăng dần
+// và KHÔNG tái dùng id của nguồn đã tắt, nên hai thứ đó lệch nhau ngay khi người bên
+// kia bỏ chia sẻ một cửa sổ.
+public readonly record struct HostSource(
+    byte SourceId, string Name, int Width, int Height, bool IsDisplay)
+{
+    public string Resolution => $"{Width}×{Height}";
+}
+
+// Một máy tìm thấy trong mạng (GĐ9). `Busy` = đã có client khác;
+// `AcceptsInput` = false nghĩa là kết nối vào sẽ chỉ xem được.
+public readonly record struct FoundHost(
+    uint HostId, string Name, string Address, uint RttMs, int SourceCount,
+    bool AcceptsInput, bool Busy);

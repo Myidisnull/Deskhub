@@ -74,3 +74,52 @@ std::vector<AdapterAddr> ListLocalIPv4() {
     });
     return out;
 }
+
+// Cùng khuôn duyệt như trên, chỉ khác chỗ lấy thêm OnLinkPrefixLength để suy ra
+// mặt nạ mạng. Chép vòng lặp thay vì gộp hai hàm: gộp lại sẽ phải trả về một struct
+// mang cả hai thứ và bắt mọi người gọi ListLocalIPv4 (đường nóng của màn chia sẻ)
+// gánh thêm một trường nó không dùng.
+std::vector<BroadcastAddr> ListLocalBroadcasts() {
+    std::vector<BroadcastAddr> out;
+
+    ULONG size = 16 * 1024;
+    std::vector<uint8_t> buf;
+    bool ok = false;
+    for (int tries = 0; tries < 3 && !ok; ++tries) {
+        buf.resize(size);
+        const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                            GAA_FLAG_SKIP_DNS_SERVER;
+        const ULONG r = GetAdaptersAddresses(AF_INET, flags, nullptr,
+            (IP_ADAPTER_ADDRESSES*)buf.data(), &size);
+        if (r == NO_ERROR)
+            ok = true;
+        else if (r != ERROR_BUFFER_OVERFLOW)
+            return out;
+    }
+    if (!ok) return out;
+
+    for (auto* a = (IP_ADAPTER_ADDRESSES*)buf.data(); a; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp) continue;
+        if (a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+        for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
+            if (!u->Address.lpSockaddr || u->Address.lpSockaddr->sa_family != AF_INET) continue;
+            const auto* sin = (const sockaddr_in*)u->Address.lpSockaddr;
+            const uint32_t ip = ntohl(sin->sin_addr.s_addr);
+            if ((ip >> 16) == 0xA9FE) continue; // 169.254.x.x APIPA — không có mạng thật
+
+            // /31 và /32 không có địa chỉ broadcast (Tailscale cấp /32). Bỏ qua chứ
+            // không tự bịa: ip|~mask với prefix 32 ra chính ip, gửi vào đó là tự gửi
+            // cho mình và mỗi lượt quét lại thấy chính máy này.
+            const ULONG prefix = u->OnLinkPrefixLength;
+            if (prefix >= 31 || prefix == 0) continue;
+            const uint32_t mask = prefix == 0 ? 0 : (0xFFFFFFFFu << (32 - prefix));
+
+            BroadcastAddr b;
+            b.name = a->FriendlyName ? a->FriendlyName : L"?";
+            b.ipHost = ip;
+            b.broadcastHost = ip | ~mask;
+            out.push_back(std::move(b));
+        }
+    }
+    return out;
+}

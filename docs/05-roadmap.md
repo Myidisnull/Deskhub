@@ -275,6 +275,72 @@ Chạy self-test: `make test` (hoặc `out\build\x64-debug\core\core_tests.exe`)
 - ⬜ Audio (Opus + WASAPI loopback).
 - ⬜ Adaptive resolution; multi-client.
 
+## Giai đoạn 9 — Nền core cho giao diện đã thiết kế 🔶 core XONG, chờ nối từng nền tảng
+
+Bản thiết kế giao diện (desktop + mobile + landing) đòi bốn thứ mà `core/` chưa có.
+Phần core của cả bốn đã làm và có test; phần còn lại là socket và giao diện của **từng**
+nền tảng, nên nó nằm ở cột "chờ nối" chứ không phải "chưa làm".
+
+- ✅ **Dò host trong mạng LAN** — DISCOVER/ANNOUNCE (`04-protocol.md` §3d).
+  `discovery/Beacon` (host trả lời) + `discovery/HostRegistry` (client gộp một-dòng-
+  một-máy, sắp thứ tự cố định, hết hạn sau 6 giây im lặng).
+  ⬜ Còn lại mỗi nền tảng: socket broadcast phát DISCOVER, và dịch `sockaddr` → chuỗi
+  `"ip:port"` để đưa vào `HostRegistry::OnAnnounce`.
+- ✅ **Ping dò đường ngoài phiên** (`PING sessionId=0`) — nuôi cặp số sống/độ trễ trên
+  mỗi thẻ máy đã lưu, và bảng "kiểm tra đường truyền" trước khi bấm Connect. Do
+  `Beacon` trả lời, cố ý **không** nuôi timeout phiên và **không** đổi địa chỉ peer.
+- ✅ **Trễ đầu-cuối đo được** — `control/ClockSync` (bộ lọc cực tiểu + nửa RTT, xem
+  §7), `LinkStats::AddE2e` (avg + max theo cửa sổ 1 giây), `control/LatencyTrace`
+  (60 mẫu × 320 ms cho biểu đồ đường). Trước đó `HelloAck::timebaseUs` được gửi từ
+  GĐ3 nhưng **chưa ai dùng** — overlay chỉ có fps/kbps/mất gói/RTT.
+  ⬜ Còn lại mỗi client: gọi `OnFrame`/`AddE2e` ở đường render và vẽ số.
+- ✅ **Chính sách host nói cho client biết** — `HELLO_ACK.flags`: nhận input chưa, đồng
+  bộ clipboard chưa. Trước đó `allowInput` chỉ là biến cục bộ của từng `AgentLoop`,
+  client không có cách nào biết phiên là chỉ-xem → nó vẫn vẽ nút khoá chuột và bàn
+  phím ảo. Nay ép ở `HostSession` (một luật giao thức, một chỗ cài) và client tôn
+  trọng ở `ClientSession::QueueInput`.
+  - **Clipboard đổi thành mặc định TẮT** — trước đây luôn bật.
+  ⬜ Còn lại mỗi nền tảng: `AgentLoop` gọi `SetInputAllowed`/`SetClipboardEnabled`
+  thay cho cờ cục bộ; giao diện ẩn phần điều khiển khi `params().inputAccepted` sai.
+- ✅ **`SourceInfo.kind`** (cửa sổ / cả màn hình) trên dây — danh sách nguồn phía client
+  phân biệt được hai loại. Báo bằng cờ header nên host GĐ6 vẫn đọc được (§3b).
+
+**File thêm ở GĐ9 (core):** `discovery/Beacon.h/.cpp`, `discovery/HostRegistry.h/.cpp`,
+`control/ClockSync.h/.cpp`, `control/LatencyTrace.h/.cpp`; sửa: `wire/Wire`
+(DISCOVER/ANNOUNCE, `SourceKind`, `HelloAck::flags`), `session/HostSession` (hai cổng
+chính sách), `session/ClientSession` (`NegotiatedParams::inputAccepted`), `control/LinkStats`.
+Test: `tests/discovery/DiscoveryTests.cpp` + bổ sung ở wire/session/control.
+
+### Windows: agent + client theo bản thiết kế ✅ CHẠY THẬT (một máy)
+
+Nền tảng đầu tiên nối xong GĐ9. Giao diện dựng lại theo dự án thiết kế
+(`desktop.jsx` / `parts.jsx` / `i18n.jsx` / `theme-light.css`).
+
+- ✅ **native**: `capture/DisplayFinder` (liệt kê màn hình — trước đây chỉ có cửa sổ),
+  `net/Discovery` (quét LAN, dựng trên `deskhub::HostRegistry`), `net/HostIdent`
+  (hostId ổn định theo máy), `deskhub::Beacon` nối vào vòng Recv của `AgentLoop`,
+  `SessionSourceRow` có trường CÓ CẤU TRÚC (fps/kbps/rtt/viewer/kind) thay cho một
+  chuỗi ghép sẵn. C API lên **v2**: `dh_list_displays`, `dh_discover_scan`,
+  `DhAgentRow` mở rộng, `DhAgentOptions.shareClipboard`.
+- ✅ **giao diện**: `Themes/Tokens.xaml` (token sáng+tối, dịch 1-1 từ `_ds/tokens/`),
+  `Themes/Controls.xaml` (4 biến thể nút, chip, panel, hàng, pill), `AppState` +
+  `Strings` (EN/VI đổi ngay tại chỗ), `Controls/` (Sparkline, StatusDot, StatBlock,
+  WrapPanel, MachineCard, SourceRow, AddressRow).
+- ✅ **màn hình**: vỏ rail 74px (3 mục + nút sáng/tối + chip EN/VI) và bốn màn
+  Home / Connect / Share / Viewer. **SharePickerPage + SharingStatusPage gộp thành
+  một `SharePage`** — bản thiết kế đặt chọn nguồn và tình trạng phiên trên cùng một
+  màn, và đó là quyết định đúng: tick thêm/bớt nguồn giữa phiên không ngắt người xem.
+- ✅ **Kiểm chứng chạy thật**: app khởi động, đổi sáng/tối và EN/VI ăn ngay, màn chia
+  sẻ liệt kê đúng màn hình + cửa sổ thật (kể cả tiêu đề tiếng Việt) và cả ba địa chỉ
+  (Tailscale / Ethernet / vEthernet).
+- ⬜ **Còn lại**: chạy thật 2 máy — dò LAN, thẻ máy sống/độ trễ, panel "máy đang xem",
+  và HUD trễ đầu-cuối mới chỉ chạy đúng trên một máy.
+- ⬜ macOS/Android/iOS chưa nối GĐ9 (core đã sẵn, phần còn lại là socket + giao diện).
+
+⚠️ **Bẫy đã mất thời gian, ghi lại để khỏi vấp lần hai**: hai dấu gạch ngang liền nhau
+trong chú thích XAML (ví dụ khi trích tên biến CSS) là XML KHÔNG hợp lệ, và
+XamlCompiler chết lặng — không số dòng, không thông báo, chỉ `exited with code 1`.
+
 ## Bảng phụ thuộc
 
 ```

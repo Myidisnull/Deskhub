@@ -10,3 +10,4 @@ void RunRetransmitCacheTests();
 void RunSessionTests();
 void RunInputTests();
 void RunControlTests();
+void RunDiscoveryTests();

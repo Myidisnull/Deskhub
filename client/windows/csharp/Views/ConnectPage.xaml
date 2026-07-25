@@ -1,45 +1,165 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
-  ConnectPage — khớp docs/imgs Screenshot ...11.00.52 (Mac Connect): icon, tiêu đề,
-  ô nhập IP, nút Connect xanh, dòng gợi ý, và link Back.
+  ConnectPage — dựng theo `DesktopConnect` trong desktop.jsx.
+
+  Ô ĐỊA CHỈ LÀ TRUNG TÂM MÀN HÌNH, KHÔNG PHẢI MỘT DÒNG TRONG FORM
+    Cao 66px, chữ 22px, căn giữa theo chiều dọc. Màn này có đúng một việc, và bản
+    thiết kế nói điều đó bằng kích thước. Ba panel bên dưới là nội dung TRẢ LỜI câu
+    "tôi lấy địa chỉ ở đâu" — chúng đứng dưới vì chúng là chú thích, không phải bước.
 -->
 <Page
     x:Class="Deskhub.Views.ConnectPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Background="{StaticResource PageBackgroundBrush}">
+    xmlns:c="using:Deskhub.Controls">
 
-    <Grid Padding="40">
-        <StackPanel Spacing="16" VerticalAlignment="Center" HorizontalAlignment="Center"
-                    MaxWidth="440" Width="440">
+    <!-- 140ms, cùng đường cong với mọi chuyển trạng thái khác (tokens/motion.css).
+         WinUI không có CubicBezierEase như WPF; KeySpline của SplineDoubleKeyFrame là
+         cách khai báo đúng cái đường cong đó. -->
+    <Page.Resources>
+        <Storyboard x:Key="FocusRingIn">
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="FocusRing"
+                                           Storyboard.TargetProperty="Opacity">
+                <SplineDoubleKeyFrame KeyTime="0:0:0.14" Value="1">
+                    <SplineDoubleKeyFrame.KeySpline>
+                        <KeySpline ControlPoint1="0.4,0" ControlPoint2="0.2,1" />
+                    </SplineDoubleKeyFrame.KeySpline>
+                </SplineDoubleKeyFrame>
+            </DoubleAnimationUsingKeyFrames>
+        </Storyboard>
+        <Storyboard x:Key="FocusRingOut">
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="FocusRing"
+                                           Storyboard.TargetProperty="Opacity">
+                <SplineDoubleKeyFrame KeyTime="0:0:0.14" Value="0">
+                    <SplineDoubleKeyFrame.KeySpline>
+                        <KeySpline ControlPoint1="0.4,0" ControlPoint2="0.2,1" />
+                    </SplineDoubleKeyFrame.KeySpline>
+                </SplineDoubleKeyFrame>
+            </DoubleAnimationUsingKeyFrames>
+        </Storyboard>
+    </Page.Resources>
 
-            <FontIcon FontFamily="{StaticResource IconFont}" Glyph="&#xE714;"
-                      FontSize="48" Foreground="{StaticResource SecondaryTextBrush}"
-                      HorizontalAlignment="Center" Margin="0,0,0,4" />
-            <TextBlock Text="Connect to a computer" Style="{StaticResource TitleTextStyle}"
-                       FontSize="24" Margin="0,0,0,8" />
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-            <TextBox x:Name="AddressBox" Text="192.168.1.2"
-                     PlaceholderText="IP address or IP:port"
-                     Background="{StaticResource FieldBackgroundBrush}"
-                     BorderBrush="{StaticResource CardBorderBrush}"
-                     Foreground="{StaticResource PrimaryTextBrush}"
-                     CornerRadius="8" Padding="12,10" FontSize="15"
-                     KeyDown="OnAddressKeyDown" />
+        <StackPanel Grid.Row="0" Margin="56,34,56,26" Spacing="26">
 
-            <Button Content="Connect" Click="OnConnectClick"
-                    Style="{StaticResource AccentButtonStyle}"
-                    HorizontalAlignment="Stretch" Height="42" FontSize="15"
-                    CornerRadius="8" />
+            <StackPanel Spacing="12">
+                <TextBlock x:Name="Eyebrow" Style="{StaticResource EyebrowText}" Text="CLIENT MODE" />
+                <TextBlock x:Name="Title" Style="{StaticResource DisplayText}"
+                           Text="Connect to a machine" />
+            </StackPanel>
 
-            <TextBlock Text="The other machine must be sharing (Share this PC, or client.exe / Deskhub on the other side)."
-                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"
-                       TextWrapping="Wrap" TextAlignment="Center" Margin="0,4,0,0" />
+            <!-- Ô địa chỉ: MỘT hàng có viền chứa [biểu tượng][ô nhập][nút], đúng như
+                 `TextField size="hero" action={...}` của bản thiết kế. Nút nằm TRONG
+                 ô chứ không đứng cạnh — nó là hành động của chính ô đó, và đặt vào
+                 trong thì mắt đọc cả cụm là một việc duy nhất. -->
+            <StackPanel VerticalAlignment="Center" Spacing="16" MaxWidth="760"
+                        HorizontalAlignment="Left">
+                <!-- Ba lớp chồng nhau, KHÔNG phải một Border đổi màu:
+                       quầng mint  ← glow-accent, chỉ hiện khi ô có tiêu điểm
+                       ô địa chỉ   ← viền tóc, luôn có
+                       vòng mint   ← nằm trên, mờ dần 140ms
 
-            <InfoBar x:Name="Info" IsOpen="False" IsClosable="True" Margin="0,8,0,0" />
+                     Đổi thẳng BorderBrush của ô thì viền NHẢY một cái sang mint. Muốn
+                     nó chuyển mượt thì phải có hai màu cùng tồn tại để hoà vào nhau —
+                     mà một Border chỉ có MỘT BorderBrush. Chưa kể brush lấy từ
+                     Application.Current.Resources luôn là brush của chủ đề lúc khởi
+                     động, nên đổi sáng/tối xong viền tiêu điểm sẽ sai màu. -->
+                <Grid Width="700" HorizontalAlignment="Left">
+                <c:AccentGlow x:Name="FieldGlow" Radius="16"
+                              GlowColor="{ThemeResource GlowAccentColor}"
+                              GlowOpacity="{ThemeResource GlowAccentOpacity}" />
+                <Border x:Name="AddressField" Style="{StaticResource HeroFieldBorder}">
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Grid.Column="0" FontFamily="Segoe Fluent Icons" Glyph="&#xE756;"
+                                  FontSize="19" VerticalAlignment="Center"
+                                  Foreground="{ThemeResource AccentBrush}" />
+                        <TextBox x:Name="AddressBox" Grid.Column="1"
+                                 Style="{StaticResource BareTextBox}"
+                                 FontFamily="{StaticResource FontMono}" FontSize="22"
+                                 VerticalAlignment="Center"
+                                 GotFocus="OnAddressFocus" LostFocus="OnAddressBlur"
+                                 KeyDown="OnAddressKeyDown" />
+                        <Button x:Name="GoButton" Grid.Column="2" Click="OnConnect"
+                                Style="{StaticResource PrimaryButton}" VerticalAlignment="Center">
+                            <TextBlock x:Name="GoText" Text="Connect" />
+                        </Button>
+                    </Grid>
+                </Border>
+                <Border x:Name="FocusRing" IsHitTestVisible="False" Opacity="0"
+                        BorderBrush="{ThemeResource BorderActiveBrush}" BorderThickness="1"
+                        CornerRadius="{StaticResource RadiusLg}" />
+                </Grid>
+                <TextBlock x:Name="Hint" Style="{StaticResource MonoText}"
+                           Text="The other machine must be sharing." />
+                <TextBlock x:Name="Error" Style="{StaticResource MonoText}"
+                           Foreground="{ThemeResource StatusErrorBrush}"
+                           Visibility="Collapsed" TextWrapping="Wrap" MaxWidth="560" />
+            </StackPanel>
 
-            <HyperlinkButton Content="Back" Click="OnBackClick"
-                             HorizontalAlignment="Center" Margin="0,12,0,0" />
+            <!-- Ba panel chú thích -->
+            <Grid ColumnSpacing="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource PanelBorder}">
+                    <StackPanel Spacing="12">
+                        <TextBlock x:Name="P1Label" Style="{StaticResource EyebrowDimText}"
+                                   Text="ON THE OTHER MACHINE" />
+                        <TextBlock x:Name="P1Title" Style="{StaticResource LabelText}"
+                                   TextWrapping="Wrap" Text="Open Deskhub and start sharing" />
+                        <TextBlock x:Name="P1Body" Style="{StaticResource MonoText}"
+                                   TextWrapping="Wrap" Text="Share this PC" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
+                    <StackPanel Spacing="12">
+                        <TextBlock x:Name="P2Label" Style="{StaticResource EyebrowDimText}"
+                                   Text="WHERE THE ADDRESS IS" />
+                        <TextBlock x:Name="P2Title" Style="{StaticResource LabelText}"
+                                   TextWrapping="Wrap" Text="It is printed on the share screen" />
+                        <TextBlock x:Name="P2Body" Style="{StaticResource MonoText}"
+                                   TextWrapping="Wrap" Text="one per interface" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource PanelBorder}">
+                    <StackPanel Spacing="12">
+                        <TextBlock x:Name="P3Label" Style="{StaticResource EyebrowDimText}"
+                                   Text="PORT" />
+                        <c:StatBlock x:Name="PortStat" Label="udp" Value="47777" />
+                        <TextBlock x:Name="P3Body" Style="{StaticResource MonoText}"
+                                   TextWrapping="Wrap" Text="changeable on the share screen" />
+                    </StackPanel>
+                </Border>
+            </Grid>
         </StackPanel>
+
+        <!-- Thanh dưới: lựa chọn CHỈ XEM đứng cạnh nút đi -->
+        <Border Grid.Row="1" Background="{ThemeResource GlassBrush}"
+                BorderBrush="{ThemeResource BorderHairlineBrush}" BorderThickness="0,1,0,0"
+                Padding="56,18">
+            <Grid>
+                <CheckBox x:Name="ViewOnly" Style="{StaticResource DhCheckBox}"
+                          HorizontalAlignment="Left" />
+                <Button x:Name="ConnectBarButton" Click="OnConnect"
+                        Style="{StaticResource PrimaryButtonLg}" HorizontalAlignment="Right">
+                    <TextBlock x:Name="ConnectBarText" Text="Connect" />
+                </Button>
+            </Grid>
+        </Border>
     </Grid>
 </Page>

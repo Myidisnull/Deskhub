@@ -61,31 +61,34 @@ void TestSourceListWire() {
     const std::string kViet = "Cua so \xE1\xBA\xA1\xE1\xBA\xA1";
 
     std::vector<SourceInfo> in;
-    in.push_back(SourceInfo{0, 1920, 1080, "Screen 1 (primary)"});
-    in.push_back(SourceInfo{1, 1689, 1392, "Notepad"});
-    in.push_back(SourceInfo{7, 800, 600, kViet});
+    in.push_back(SourceInfo{0, 1920, 1080, SourceKind::Display, "Screen 1 (primary)"});
+    in.push_back(SourceInfo{1, 1689, 1392, SourceKind::Window, "Notepad"});
+    in.push_back(SourceInfo{7, 800, 600, SourceKind::Window, kViet});
 
     size_t n = BuildSourceList(buf, in);
     Check(n > 0 && n <= kMaxDatagram, "SOURCE_LIST fits one datagram");
     auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
     Check(ch && ch->type == MsgType::SourceList, "SOURCE_LIST header");
+    Check(ch && (ch->flags & kSourceListFlagKind), "new layout is flagged in the header");
 
     SourceInfo out[kMaxSources];
-    size_t cnt = ParseSourceList(PayloadOf(std::span<const uint8_t>(buf, n)), out);
+    size_t cnt = ParseSourceList(*ch, PayloadOf(std::span<const uint8_t>(buf, n)), out);
     Check(cnt == in.size(), "SOURCE_LIST count");
     bool same = cnt == in.size();
     for (size_t i = 0; same && i < cnt; ++i)
         same = out[i].sourceId == in[i].sourceId && out[i].width == in[i].width &&
-               out[i].height == in[i].height && out[i].name == in[i].name;
-    Check(same, "SOURCE_LIST entries survive round-trip (including UTF-8 names)");
+               out[i].height == in[i].height && out[i].kind == in[i].kind &&
+               out[i].name == in[i].name;
+    Check(same, "SOURCE_LIST entries survive round-trip (including UTF-8 names and kind)");
 
     // Tên dài bị cắt, nhưng phải cắt ở ranh giới ký tự UTF-8 chứ không giữa chừng.
     std::vector<SourceInfo> longName;
     std::string vn;
     while (vn.size() < kMaxSourceNameBytes + 20) vn += "\xE1\xBA\xA1";
-    longName.push_back(SourceInfo{3, 640, 480, vn});
+    longName.push_back(SourceInfo{3, 640, 480, SourceKind::Window, vn});
     n = BuildSourceList(buf, longName);
-    cnt = ParseSourceList(PayloadOf(std::span<const uint8_t>(buf, n)), out);
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    cnt = ParseSourceList(*ch, PayloadOf(std::span<const uint8_t>(buf, n)), out);
     Check(cnt == 1, "long-name SOURCE_LIST parses");
     if (cnt == 1) {
         Check(out[0].name.size() <= kMaxSourceNameBytes, "long name truncated to limit");
@@ -220,7 +223,12 @@ void TestWireCoverage() {
     Check(!ParseReconfig(std::span<const uint8_t>(buf, 7)).has_value(), "short RECONFIG");
     Check(!ParseSetFocus(std::span<const uint8_t>(buf, 0)).has_value(), "empty SET_FOCUS");
     SourceInfo so[kMaxSources];
-    Check(ParseSourceList(std::span<const uint8_t>(buf, 0), so) == 0, "empty SOURCE_LIST -> 0");
+    const CommonHeader slh{kProtocolVersion, MsgType::SourceList, kSourceListFlagKind,
+        Chan::Control, 0};
+    Check(ParseSourceList(slh, std::span<const uint8_t>(buf, 0), so) == 0,
+        "empty SOURCE_LIST -> 0");
+    Check(!ParseDiscover(std::span<const uint8_t>(buf, 3)).has_value(), "short DISCOVER");
+    Check(!ParseAnnounce(std::span<const uint8_t>(buf, 12)).has_value(), "short ANNOUNCE");
 
     // Khứ hồi các control chưa test ở chỗ khác.
     size_t n = BuildFeedback(buf, 7, Feedback{10, 5, 33, 1234});
@@ -343,24 +351,113 @@ void TestSourceListTruncation() {
     uint8_t buf[kMaxDatagram];
     std::vector<SourceInfo> in;
     for (int i = 0; i < 12; ++i)
-        in.push_back(SourceInfo{uint8_t(i), 100, 100, "S" + std::to_string(i)});
+        in.push_back(SourceInfo{uint8_t(i), 100, 100, SourceKind::Window,
+            "S" + std::to_string(i)});
     const size_t n = BuildSourceList(buf, in);
     SourceInfo out[kMaxSources];
+    const auto hdr = ParseCommonHeader(std::span<const uint8_t>(buf, n));
     const auto full = PayloadOf(std::span<const uint8_t>(buf, n));
-    Check(ParseSourceList(full, out) == kMaxSources, "12 sources truncated to kMaxSources on build");
+    Check(ParseSourceList(*hdr, full, out) == kMaxSources,
+        "12 sources truncated to kMaxSources on build");
 
     // Cắt cụt datagram giữa bản ghi cuối: parse dừng ở ranh giới bản ghi lành.
-    Check(ParseSourceList(full.first(full.size() - 3), out) == kMaxSources - 1,
+    Check(ParseSourceList(*hdr, full.first(full.size() - 3), out) == kMaxSources - 1,
         "truncated tail record dropped, earlier ones kept");
 
     // count khai 200 nhưng payload chỉ chứa đúng 1 bản ghi.
     {
-        Datagram d(1 + 6 + 2, 0);
+        Datagram d(1 + 7 + 2, 0);
         d[0] = 200; // count khai điêu
         d[1] = 3;   // sourceId
-        d[6] = 2;   // nameLen, 2 byte tên phía sau
-        Check(ParseSourceList(d, out) == 1, "over-declared count clamped to what the payload holds");
+        d[7] = 2;   // nameLen, 2 byte tên phía sau
+        Check(ParseSourceList(*hdr, d, out) == 1,
+            "over-declared count clamped to what the payload holds");
     }
+
+    // Host bản GĐ6 không đặt cờ và ghi bản ghi 6 byte không có `kind`. Đọc theo
+    // layout mới sẽ lệch một byte ở MỌI bản ghi — cờ header là thứ ngăn chuyện đó.
+    {
+        const CommonHeader old{kProtocolVersion, MsgType::SourceList, 0, Chan::Control, 0};
+        Datagram d{1, /*rec*/ 4, 0x07, 0x80, 0x04, 0x38, 3, 'a', 'b', 'c'};
+        Check(ParseSourceList(old, d, out) == 1, "a pre-kind SOURCE_LIST still parses");
+        Check(out[0].sourceId == 4 && out[0].width == 0x0780 && out[0].height == 0x0438,
+            "...with its fields in the right places");
+        Check(out[0].name == "abc", "...and its name intact");
+        Check(out[0].kind == SourceKind::Window, "...defaulting to window");
+    }
+}
+
+// DISCOVER/ANNOUNCE (GĐ9): dò host trong mạng LAN.
+void TestDiscoveryWire() {
+    std::printf("[wire] DISCOVER/ANNOUNCE round-trip...\n");
+    uint8_t buf[kMaxDatagram];
+
+    size_t n = BuildDiscover(buf, 0xFEEDFACE);
+    auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && ch->type == MsgType::Discover && ch->sessionId == 0,
+        "DISCOVER header, sessionId 0 (it goes to every machine on the wire)");
+    Check(ParseDiscover(PayloadOf(std::span<const uint8_t>(buf, n))) == 0xFEEDFACE,
+        "probeId round-trip");
+
+    HostAnnounce a;
+    a.probeId = 0xFEEDFACE;
+    a.hostId = 0x01020304;
+    a.port = 47777;
+    a.flags = kAnnounceFlagAcceptsInput | kAnnounceFlagBusy;
+    a.sourceCount = 3;
+    a.name = "Studio Mac";
+    n = BuildAnnounce(buf, a);
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && ch->type == MsgType::Announce, "ANNOUNCE header");
+    const auto got = ParseAnnounce(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(got && got->probeId == a.probeId && got->hostId == a.hostId &&
+              got->port == a.port && got->flags == a.flags &&
+              got->sourceCount == a.sourceCount && got->name == a.name,
+        "ANNOUNCE round-trip");
+
+    // Tên máy dài cắt ở ranh giới UTF-8, như tên nguồn.
+    a.name.clear();
+    while (a.name.size() < kMaxHostNameBytes + 12) a.name += "\xE1\xBA\xA1";
+    n = BuildAnnounce(buf, a);
+    const auto trunc = ParseAnnounce(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(trunc && trunc->name.size() <= kMaxHostNameBytes, "long machine name truncated");
+    Check(trunc && trunc->name.size() % 3 == 0, "...on a UTF-8 boundary");
+
+    // nameLen khai lớn hơn payload: không được đọc tràn.
+    {
+        Datagram d(13 + 2, 0);
+        d[12] = 200; // nameLen khai điêu
+        Check(!ParseAnnounce(d).has_value(), "over-declared name length is rejected");
+    }
+}
+
+// HELLO_ACK cõng thêm cờ ở ĐUÔI payload (GĐ9) — client bản cũ đọc 22 byte đầu.
+void TestHelloAckFlags() {
+    std::printf("[wire] HELLO_ACK flags: tail-appended, old clients unaffected...\n");
+    uint8_t buf[kMaxDatagram];
+
+    HelloAck a{};
+    a.sessionId = 0x1234;
+    a.codec = Codec::H264;
+    a.width = 2560;
+    a.height = 1600;
+    a.fps = 60;
+    a.bitrateBps = 20'000'000;
+    a.timebaseUs = 0x1122334455667788ull;
+    a.flags = kAckFlagClipboard; // cố ý KHÔNG có kAckFlagInputAccepted
+    const size_t n = BuildHelloAck(buf, a);
+    const auto pl = PayloadOf(std::span<const uint8_t>(buf, n));
+    const auto got = ParseHelloAck(pl);
+    Check(got && got->flags == kAckFlagClipboard, "flags round-trip");
+    Check(got && (got->flags & kAckFlagInputAccepted) == 0, "a view-only session says so");
+    Check(got && got->timebaseUs == a.timebaseUs, "the fields before flags are untouched");
+
+    // Host bản cũ dừng ở 22 byte. Mặc định phải là "nhận input": hiểu ngược lại sẽ
+    // tắt điều khiển với mọi host chưa cập nhật.
+    const auto old = ParseHelloAck(pl.first(22));
+    Check(old.has_value(), "a 22-byte HELLO_ACK still parses");
+    Check(old && (old->flags & kAckFlagInputAccepted) != 0,
+        "a host too old to send flags is assumed to accept input");
 }
 
 // CLIPBOARD (GĐ8): khứ hồi một mảnh + các đường lỗi build/parse.
@@ -431,8 +528,10 @@ void TestParseGarbage() {
         ParseSetFocus(pl);
         ParseInvalidateRef(pl);
         ParseClipboardChunk(pl);
+        ParseDiscover(pl);
+        ParseAnnounce(pl);
         SourceInfo so[kMaxSources];
-        ParseSourceList(pl, so);
+        if (h) ParseSourceList(*h, pl, so);
         uint32_t fid = 0;
         uint16_t idx[kMaxNackIndices];
         ParseNack(pl, fid, idx);
@@ -458,6 +557,8 @@ void RunWireTests() {
     TestWireCoverage();
     TestFecWireErrors();
     TestSourceListTruncation();
+    TestDiscoveryWire();
+    TestHelloAckFlags();
     TestClipboardWire();
     TestParseGarbage();
 }

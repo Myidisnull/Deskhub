@@ -1,0 +1,100 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PickPage — màn 03 "Chọn thứ muốn xem", dựng theo `DesktopPick` trong desktop.jsx.
+
+  MÀN NÀY XEN GIỮA CONNECT VÀ VIEWER
+    Host chia sẻ nhiều cửa sổ/màn hình cùng lúc, mỗi cái một sourceId. Trước khi có
+    màn này, client luôn xem nguồn 0 — không có đường nào tới các nguồn còn lại.
+
+  TICK ĐƯỢC NHIỀU
+    Mỗi cặp (client, nguồn) là một PHIÊN ĐỘC LẬP với sessionId riêng (xem Wire.h),
+    nên xem nhiều nguồn cùng lúc không cần thêm gì trên dây — mở thêm phiên là xong.
+
+  HOST IM LẶNG KHÔNG PHẢI LÀ LỖI
+    Host đời trước GĐ6 không biết LIST_SOURCES. Lúc đó màn này KHÔNG hiện ra: nó tự
+    đi thẳng sang Viewer với nguồn 0, đúng hành vi cũ. Người dùng không được thấy một
+    màn trống và một lời báo lỗi cho chuyện họ không làm gì sai.
+-->
+<Page
+    x:Class="Deskhub.Views.PickPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:c="using:Deskhub.Controls">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+            <StackPanel Margin="56,34,56,26" Spacing="26">
+
+                <StackPanel Spacing="12">
+                    <TextBlock x:Name="Eyebrow" Style="{StaticResource EyebrowText}" Text="CLIENT MODE" />
+                    <Grid>
+                        <TextBlock x:Name="Title" Style="{StaticResource TitleText}"
+                                   Text="Choose what to view" />
+                        <TextBlock x:Name="Aside" Style="{StaticResource MonoText}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                   Margin="0,0,0,4" Text="" />
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Spacing="14">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="SharedLabel" Grid.Column="0" VerticalAlignment="Center"
+                                   Style="{StaticResource EyebrowDimText}" Text="SHARED BY THE HOST" />
+                        <Rectangle Grid.Column="1" Height="1" VerticalAlignment="Center"
+                                   Fill="{ThemeResource BorderHairlineBrush}" />
+                        <c:StatusDot x:Name="LiveDot" Grid.Column="2" IsLive="False" />
+                        <TextBlock x:Name="CountText" Grid.Column="3" VerticalAlignment="Center"
+                                   Style="{StaticResource MonoText}" Margin="8,0,0,0" Text="" />
+                    </Grid>
+
+                    <ItemsControl x:Name="SourceList">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <c:WrapPanel ItemWidth="470" ItemHeight="62" Gap="10" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+
+                    <TextBlock x:Name="Hint" Style="{StaticResource MonoText}" TextWrapping="Wrap"
+                               Text="" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" Background="{ThemeResource GlassBrush}"
+                BorderBrush="{ThemeResource BorderHairlineBrush}" BorderThickness="0,1,0,0"
+                Padding="56,18">
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <CheckBox x:Name="AllowInput" Grid.Column="0" Style="{StaticResource DhCheckBox}"
+                          VerticalAlignment="Center" />
+                <Button x:Name="BackButton" Grid.Column="1" Click="OnBack"
+                        Style="{StaticResource SecondaryButton}">
+                    <TextBlock x:Name="BackText" Text="Back" />
+                </Button>
+                <Button x:Name="StartButton" Grid.Column="2" Click="OnStart"
+                        Style="{StaticResource PrimaryButtonLg}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE714;" FontSize="16" />
+                        <TextBlock x:Name="StartText" Text="Start viewing" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

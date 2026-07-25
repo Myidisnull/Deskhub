@@ -1,0 +1,203 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SharePage — dựng theo `DesktopShare` trong desktop.jsx. Gộp hai màn cũ
+  (SharePickerPage + SharingStatusPage) thành MỘT.
+
+  VÌ SAO GỘP
+    Bản thiết kế vẽ chọn nguồn và tình trạng phiên trên cùng một màn, và đó là quyết
+    định đúng: trong lúc đang chia sẻ, việc người ta hay làm nhất là THÊM hoặc BỎ một
+    nguồn. Tách hai màn thì thao tác đó thành "quay lại → chọn lại → bắt đầu lại", và
+    bắt đầu lại sẽ ngắt phiên của người đang xem.
+
+    Nên danh sách nguồn ở đây có ô tick sống: tick thêm một cửa sổ là nó vào phiên
+    đang chạy, bỏ tick là nó ra — máy bên kia không rớt kết nối.
+
+  ĐỊA CHỈ ĐỌC ĐƯỢC
+    Panel "nhập ở máy bên kia" dùng cỡ chữ mono LỚN. Đây là con số người ta phải đọc
+    to cho người ở phòng khác, hoặc gõ lại bằng tay trên điện thoại.
+-->
+<Page
+    x:Class="Deskhub.Views.SharePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:c="using:Deskhub.Controls">
+
+    <!--
+      Cả phần nội dung nằm trong MỘT ScrollViewer, thanh hành động ghim ở dưới.
+      Màn này có nhiều nội dung nhất (địa chỉ + máy đang xem + danh sách nguồn) và số
+      lượng nguồn thì không đoán trước được — chia thành nhiều hàng co giãn sẽ cắt cụt
+      thanh hành động ngay khi máy có vài màn hình và nhiều cửa sổ mở.
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+      <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+        <StackPanel>
+
+        <!-- Tiêu đề -->
+        <StackPanel Margin="56,28,56,0" Spacing="12">
+            <TextBlock x:Name="Eyebrow" Style="{StaticResource EyebrowText}" Text="HOST MODE" />
+            <Grid>
+                <TextBlock x:Name="Title" Style="{StaticResource TitleText}" Text="Share this PC" />
+                <TextBlock x:Name="Aside" Style="{StaticResource MonoText}"
+                           HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,4"
+                           Text="Everything you don't tick stays private." />
+            </Grid>
+        </StackPanel>
+
+        <!-- Địa chỉ + máy đang xem -->
+        <Grid Margin="56,20,56,0" ColumnSpacing="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource PanelBorder}">
+                <StackPanel Spacing="12">
+                    <TextBlock x:Name="AddrLabel" Style="{StaticResource EyebrowDimText}"
+                               Text="ENTER ON THE OTHER MACHINE" />
+                    <StackPanel x:Name="AddressList" Spacing="8" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Style="{StaticResource PanelBorder}">
+                <StackPanel Spacing="14">
+                    <TextBlock x:Name="ViewerLabel" Style="{StaticResource EyebrowDimText}"
+                               Text="CONNECTED VIEWER" />
+
+                    <!-- Chưa ai xem -->
+                    <StackPanel x:Name="NoViewerBox" Spacing="6">
+                        <TextBlock x:Name="NoViewerTitle" Style="{StaticResource LabelText}"
+                                   Text="No one is watching yet" />
+                        <TextBlock x:Name="NoViewerHint" Style="{StaticResource MonoText}"
+                                   TextWrapping="Wrap"
+                                   Text="Give an address above to the other machine." />
+                    </StackPanel>
+
+                    <!-- Có người xem -->
+                    <StackPanel x:Name="ViewerBox" Spacing="14" Visibility="Collapsed">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <c:StatusDot Grid.Column="0" IsLive="True" />
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock x:Name="ViewerName" Style="{StaticResource RowTitleText}"
+                                           Text="" />
+                                <TextBlock x:Name="ViewerMeta" Style="{StaticResource MonoText}"
+                                           Text="" />
+                            </StackPanel>
+                            <Button x:Name="DisconnectButton" Grid.Column="2" Click="OnStopAll"
+                                    Style="{StaticResource DangerButtonSm}">
+                                <TextBlock x:Name="DisconnectText" Text="Disconnect" />
+                            </Button>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="26">
+                            <c:StatBlock x:Name="StatFps" Label="sending" Value="0" Unit="fps" Accent="True" />
+                            <c:StatBlock x:Name="StatBitrate" Label="bitrate" Value="0" Unit="Mbps" />
+                            <c:StatBlock x:Name="StatRtt" Label="round trip" Value="—" Unit="ms" />
+                        </StackPanel>
+                        <c:Sparkline x:Name="Trace" Height="30"
+                                     Stroke="{ThemeResource AccentBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Danh sách nguồn -->
+        <StackPanel Margin="56,20,56,20">
+            <Grid ColumnSpacing="12" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="SourcesLabel" Grid.Column="0" VerticalAlignment="Center"
+                           Style="{StaticResource EyebrowDimText}" Text="WINDOWS AND DISPLAYS" />
+                <Rectangle Grid.Column="1" Height="1" VerticalAlignment="Center"
+                           Fill="{ThemeResource BorderHairlineBrush}" />
+                <TextBlock x:Name="SharedCount" Grid.Column="2" VerticalAlignment="Center"
+                           Style="{StaticResource MonoText}" Margin="0,0,10,0" Text="" />
+                <Button x:Name="RefreshButton" Grid.Column="3" Click="OnRefresh"
+                        Style="{StaticResource SecondaryButtonSm}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="13" />
+                        <TextBlock x:Name="RefreshText" Text="Refresh" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <ItemsControl x:Name="SourceList">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <c:WrapPanel ItemWidth="470" ItemHeight="62" Gap="10" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+            <TextBlock x:Name="SourcesEmpty" Style="{StaticResource MonoText}"
+                       Visibility="Collapsed" Text="No window or display found." />
+        </StackPanel>
+
+        </StackPanel>
+      </ScrollViewer>
+
+        <!-- Thanh dưới: tham số phiên + hành động -->
+        <Border Grid.Row="1" Background="{ThemeResource GlassBrush}"
+                BorderBrush="{ThemeResource BorderHairlineBrush}" BorderThickness="0,1,0,0"
+                Padding="56,16">
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <TextBlock Style="{StaticResource MonoText}" VerticalAlignment="Center" Text="fps" />
+                <ComboBox x:Name="FpsBox" Style="{StaticResource DhComboBox}" SelectedIndex="1">
+                    <x:String>30</x:String>
+                    <x:String>60</x:String>
+                    <x:String>120</x:String>
+                </ComboBox>
+
+                <TextBlock Style="{StaticResource MonoText}" VerticalAlignment="Center" Text="bitrate" />
+                <ComboBox x:Name="BitrateBox" Style="{StaticResource DhComboBox}" SelectedIndex="1" MinWidth="112">
+                    <x:String>8 Mbps</x:String>
+                    <x:String>20 Mbps</x:String>
+                    <x:String>40 Mbps</x:String>
+                </ComboBox>
+
+                <TextBlock x:Name="PortLabel" Style="{StaticResource MonoText}"
+                           VerticalAlignment="Center" Text="port" />
+                <ComboBox x:Name="PortBox" Style="{StaticResource DhComboBox}" SelectedIndex="0" MinWidth="94">
+                    <x:String>47777</x:String>
+                    <x:String>47778</x:String>
+                    <x:String>52000</x:String>
+                </ComboBox>
+
+                <Border Width="18" />
+
+                <CheckBox x:Name="AllowInput" Style="{StaticResource DhCheckBox}" IsChecked="True" />
+
+                <Border Width="6" />
+
+                <!-- Hai mức dừng, đúng như bản thiết kế xếp cạnh nhau:
+                       Dừng     — tắt phiên, GIỮ nguyên các tick. Bấm "Chia sẻ" lại là
+                                  chạy tiếp với đúng bộ nguồn đó.
+                       Dừng hết — tắt phiên VÀ bỏ hết tick, về màn trắng.
+                     Chỉ cái thứ hai mang màu danger vì chỉ nó làm mất công người ta đã
+                     bỏ ra để chọn nguồn. -->
+                <Button x:Name="StopButton" Click="OnStop" Style="{StaticResource SecondaryButton}"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="StopText" Text="Stop" />
+                </Button>
+                <Button x:Name="StopAllButton" Click="OnStopAll" Style="{StaticResource DangerButton}"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="StopAllText" Text="Stop all" />
+                </Button>
+                <Button x:Name="ShareButton" Click="OnShare" Style="{StaticResource PrimaryButtonLg}">
+                    <TextBlock x:Name="ShareText" Text="Share" />
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Page>

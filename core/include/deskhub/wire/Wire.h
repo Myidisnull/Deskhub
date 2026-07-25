@@ -98,6 +98,26 @@ inline constexpr size_t kMaxClipboardChunk =
 // dán nhầm, mà mỗi lần copy phát ~56 datagram liền nhau đã là cả một cụm burst.
 inline constexpr size_t kMaxClipboardBytes = 64 * 1024;
 
+// DÒ HOST TRÊN MẠNG (GĐ9): màn hình "Add source" của client hiện danh sách máy tìm
+// thấy kèm con quay "scanning…", và màn hình chính đếm "N machines reachable" — cả
+// hai đòi client TÌM RA host mà không phải gõ địa chỉ. DISCOVER đi broadcast tới
+// cổng host; mọi host nghe được trả ANNOUNCE về CHÍNH nơi gửi.
+//
+// Vì sao không dùng mDNS/Bonjour: nó buộc mỗi nền tảng kéo theo một thư viện khác
+// nhau (dnssd trên Apple, NsdManager trên Android, avahi trên Ubuntu) và trên
+// Android/iOS còn cần quyền riêng — trong khi cả sáu client đã có sẵn một socket
+// UDP và một bộ giải mã gói dùng chung. Một cặp thông điệp 2 chiều rẻ hơn nhiều.
+//
+// Không có server danh bạ ở đây, và cũng không thể có: ANNOUNCE chỉ đi được trong
+// phạm vi broadcast của mạng nội bộ. Đó đúng là cam kết "kết nối trực tiếp, không
+// qua server trung gian" — máy ngoài LAN (Tailscale) vẫn phải gõ địa chỉ tay.
+inline constexpr size_t kMaxHostNameBytes = 48; // tên máy, UTF-8, cắt bớt
+
+// Cờ trong ANNOUNCE. Client dùng để vẽ thẻ máy TRƯỚC khi kết nối: máy đang bận thì
+// hiện xám thay vì để người dùng bấm vào rồi mới ăn HELLO_ACK từ chối.
+inline constexpr uint8_t kAnnounceFlagAcceptsInput = 1u << 0; // host cho điều khiển
+inline constexpr uint8_t kAnnounceFlagBusy = 1u << 1;         // đã có client khác
+
 enum class Chan : uint8_t { Control = 0,
     Video = 1,
     Input = 2,
@@ -110,6 +130,8 @@ enum class MsgType : uint8_t {
     Bye = 0x04,
     ListSources = 0x05, // GĐ6: client hỏi host đang chia sẻ những cửa sổ nào
     SourceList = 0x06,  // GĐ6: host trả danh sách
+    Discover = 0x07,    // GĐ9: client phát quảng bá "có host nào ở đây không?"
+    Announce = 0x08,    // GĐ9: host tự giới thiệu về đúng nơi vừa hỏi
     VideoPacket = 0x10,
     FecPacket = 0x11,  // GĐ5: parity XOR cho một nhóm gói video
     InputEvent = 0x20, // GĐ4
@@ -153,11 +175,38 @@ struct CommonHeader {
 inline constexpr size_t kMaxSources = 8;
 inline constexpr size_t kMaxSourceNameBytes = 64; // tiêu đề cửa sổ, UTF-8, cắt bớt
 
+// Nguồn là CẢ MÀN HÌNH hay MỘT CỬA SỔ. Người dùng phân biệt hai thứ này bằng biểu
+// tượng trong danh sách chọn nguồn, và hệ quả về quyền riêng tư của chúng khác hẳn
+// nhau ("chụp theo từng cửa sổ, không phải cả màn hình") — nên nó phải đi trên dây,
+// không thể đoán từ tên. Host cũng đã phân biệt sẵn ở tầng capture: nguồn màn hình
+// bỏ chốt foreground khi bơm input, nguồn cửa sổ thì không (xem docs/05 GĐ6).
+enum class SourceKind : uint8_t { Window = 0,
+    Display = 1 };
+
 struct SourceInfo {
     uint8_t sourceId = 0;
     uint16_t width = 0;
     uint16_t height = 0;
-    std::string name; // tiêu đề cửa sổ (UTF-8), chỉ để hiển thị
+    SourceKind kind = SourceKind::Window;
+    std::string name; // tiêu đề cửa sổ / tên màn hình (UTF-8), chỉ để hiển thị
+};
+
+// Cờ trong header chung của SOURCE_LIST: bản ghi có thêm byte `kind`. Host cũ không
+// đặt cờ này và gửi bản ghi 6 byte kiểu cũ — ParseSourceList đọc được cả hai. Đánh
+// dấu ở header thay vì đoán theo độ dài payload vì tên nguồn dài ngắn tuỳ ý, độ dài
+// gói không suy ra được layout.
+inline constexpr uint8_t kSourceListFlagKind = 1u << 0;
+
+// Host tự giới thiệu trong ANNOUNCE. `probeId` dội lại nguyên văn từ DISCOVER để
+// client bỏ được câu trả lời của lượt quét trước (nó vẫn lết về sau khi người dùng
+// đã bấm quét lại).
+struct HostAnnounce {
+    uint32_t probeId = 0;
+    uint32_t hostId = 0; // ổn định theo máy — khoá gộp khi host có nhiều card mạng
+    uint16_t port = 0;   // cổng nghe của host (client không đoán từ cổng gửi)
+    uint8_t flags = 0;   // kAnnounceFlag*
+    uint8_t sourceCount = 0;
+    std::string name; // tên máy (UTF-8), chỉ để hiển thị
 };
 
 struct Hello {
@@ -170,6 +219,13 @@ struct Hello {
     uint8_t sourceId; // nguồn muốn xem (lấy từ SOURCE_LIST; 0 = nguồn đầu tiên)
 };
 
+// Cờ trong HELLO_ACK: host nói cho client biết phiên này ĐƯỢC PHÉP làm gì. Không có
+// chúng thì client vẽ nút khoá chuột và bàn phím ảo cho một phiên chỉ-xem, người dùng
+// gõ vào khoảng không mà không hiểu vì sao — "có thể chỉ chia sẻ hình, từ chối điều
+// khiển" là một lời hứa ở trang giới thiệu, nên nó phải hiện được trên giao diện.
+inline constexpr uint16_t kAckFlagInputAccepted = 1u << 0; // host nhận INPUT_EVENT
+inline constexpr uint16_t kAckFlagClipboard = 1u << 1;     // host đồng bộ clipboard
+
 struct HelloAck {
     uint32_t sessionId;
     Codec codec; // Rejected (0xFF) = từ chối
@@ -178,6 +234,10 @@ struct HelloAck {
     uint8_t fps;
     uint32_t bitrateBps;
     uint64_t timebaseUs;
+    // Thêm ở GĐ9, nối vào ĐUÔI payload nên host cũ (gói 22 byte) vẫn đọc được.
+    // Thiếu trường này ParseHelloAck mặc định kAckFlagInputAccepted: host cũ luôn
+    // nhận input, hiểu ngược lại sẽ vô hiệu hoá điều khiển với mọi bản cũ.
+    uint16_t flags = kAckFlagInputAccepted;
 };
 
 struct PingPong {
@@ -279,6 +339,10 @@ size_t BuildStart(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildListSources(std::span<uint8_t> out);
 // Cắt bớt ở kMaxSources nguồn / kMaxSourceNameBytes byte tên để chắc chắn vừa 1 datagram.
 size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources);
+// DISCOVER: `probeId` do client sinh cho mỗi lượt quét, host dội lại trong ANNOUNCE.
+size_t BuildDiscover(std::span<uint8_t> out, uint32_t probeId);
+// Cắt tên máy ở kMaxHostNameBytes (lùi tới ranh giới ký tự UTF-8).
+size_t BuildAnnounce(std::span<uint8_t> out, const HostAnnounce& m);
 size_t BuildBye(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildPing(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);
 size_t BuildPong(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);
@@ -315,7 +379,13 @@ std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram);
 
 std::optional<Hello> ParseHello(std::span<const uint8_t> payload);
 // Giải mã SOURCE_LIST vào `out` (đủ chỗ cho kMaxSources). Trả số nguồn đã ghi.
-size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> out);
+// Cần header vì cờ kSourceListFlagKind ở đó quyết định bản ghi 6 hay 7 byte —
+// giống ParseVideoPacket/ParseFecPacket, cùng lý do: layout phụ thuộc cờ header.
+size_t ParseSourceList(const CommonHeader& h, std::span<const uint8_t> payload,
+    std::span<SourceInfo> out);
+// DISCOVER: trả probeId. nullopt nếu payload ngắn.
+std::optional<uint32_t> ParseDiscover(std::span<const uint8_t> payload);
+std::optional<HostAnnounce> ParseAnnounce(std::span<const uint8_t> payload);
 std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload);
 std::optional<PingPong> ParsePingPong(std::span<const uint8_t> payload);
 std::optional<Feedback> ParseFeedback(std::span<const uint8_t> payload);

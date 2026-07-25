@@ -877,6 +877,10 @@ void AgentLoop::Impl::RecvLoop() {
                     si.sourceId = p->sourceId;
                     si.width = uint16_t(p->srcW.load());
                     si.height = uint16_t(p->srcH.load());
+                    // Cả màn hình hay một cửa sổ — client vẽ biểu tượng khác nhau,
+                    // và hệ quả riêng tư của hai thứ này khác hẳn nhau.
+                    si.kind = p->target.isDisplay ? deskhub::SourceKind::Display
+                                                  : deskhub::SourceKind::Window;
                     si.name = p->name;
                     infos.push_back(std::move(si));
                 }

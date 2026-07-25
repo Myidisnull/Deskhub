@@ -11,6 +11,7 @@ project(DeskhubCore LANGUAGES CXX)
 #   session/   — handshake + vòng đời phiên hai phía (host/client)
 #   input/     — chuỗi sự kiện chuột/phím có thứ tự trên nền transport
 #   control/   — policy điều tiết: bitrate/FEC phía host, gom số liệu phía client
+#   discovery/ — hỏi-đáp một nhịp TRƯỚC khi có phiên: dò host, liệt kê nguồn, ping dò
 add_library(core STATIC
     src/wire/Wire.cpp
 
@@ -27,6 +28,11 @@ add_library(core STATIC
 
     src/control/BitrateController.cpp
     src/control/LinkStats.cpp
+    src/control/ClockSync.cpp
+    src/control/LatencyTrace.cpp
+
+    src/discovery/Beacon.cpp
+    src/discovery/HostRegistry.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -64,6 +70,8 @@ if(DESKHUB_CORE_TESTS)
         tests/input/InputTests.cpp
 
         tests/control/ControlTests.cpp
+
+        tests/discovery/DiscoveryTests.cpp
     )
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)
