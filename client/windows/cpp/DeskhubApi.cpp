@@ -88,7 +88,10 @@ DH_API int DH_CALL dh_api_version(void) {
     // DhAgentRow, và trường shareClipboard trong DhAgentOptions.
     // 3 (GĐ6 phía client): thêm dh_client_list_sources — client hỏi được host đang
     // chia sẻ những nguồn nào, thay vì luôn xem nguồn 0.
-    return 3;
+    // 4: DhAgentRow thêm hwnd/monitor (khớp dòng theo handle thay vì tên),
+    // dh_agent_start thêm stoppedCb (báo phiên host tự chết), thêm
+    // dh_client_mouse_move_rel (khoá chuột gửi delta) + dh_client_input_accepted.
+    return 4;
 }
 
 DH_API int DH_CALL dh_is_elevated(void) {

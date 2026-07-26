@@ -547,6 +547,12 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     };
 
     p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
+    // Chính sách GĐ9 nằm ở core: HostSession vừa BỎ gói INPUT_EVENT/CLIPBOARD khi
+    // tắt, vừa nói cho client biết qua HELLO_ACK (cờ inputAccepted/clipboardEnabled)
+    // để nó khỏi vẽ nút khoá chuột cho một phiên chỉ-xem. Thiếu hai dòng này thì
+    // host macOS chào sai cờ và clipboard chết im lặng (mặc định của core là TẮT).
+    p->session->SetInputAllowed(opt.allowInput);
+    p->session->SetClipboardEnabled(opt.shareClipboard);
     p->netReady.store(true, std::memory_order_release);
 }
 

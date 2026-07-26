@@ -78,11 +78,13 @@ nonisolated enum DeskhubAgent {
         port: UInt16,
         fps: UInt32,
         bitrateMbps: UInt32,
-        allowInput: Bool
+        allowInput: Bool,
+        shareClipboard: Bool
     ) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
-            dha_start(ptr.baseAddress, Int32(ptr.count), port, fps, bitrateMbps, allowInput)
+            dha_start(ptr.baseAddress, Int32(ptr.count), port, fps, bitrateMbps, allowInput,
+                      shareClipboard)
         }
     }
 

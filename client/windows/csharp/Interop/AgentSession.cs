@@ -11,9 +11,14 @@ namespace Deskhub.Interop;
 public readonly record struct AgentRow(
     byte SourceId, string Label, bool Pending,
     string Name, uint Width, uint Height, bool IsDisplay,
-    bool ViewerConnected, string ViewerAddr, uint Fps, uint Kbps, uint RttMs)
+    bool ViewerConnected, string ViewerAddr, uint Fps, uint Kbps, uint RttMs,
+    ulong Hwnd, ulong Monitor)
 {
     public string Resolution => Width > 0 && Height > 0 ? $"{Width}×{Height}" : "";
+
+    // Khoá khớp với SourceItem.Key: HWND/HMONITOR ổn định suốt đời cửa sổ, khác hẳn
+    // tên — hai cửa sổ trùng tiêu đề là chuyện thường.
+    public ulong Key => IsDisplay ? Monitor : Hwnd;
 }
 
 // Một nguồn để chia sẻ: ĐÚNG MỘT trong Hwnd/Monitor khác 0.
@@ -42,16 +47,21 @@ public sealed class AgentSession : IDisposable
     // Phải giữ tham chiếu để GC không thu hồi trong lúc native còn gọi ngược.
     private readonly NativeMethods.DhAgentRowsCallback _rowsCb;
     private readonly NativeMethods.DhAgentBoundCallback _boundCb;
+    private readonly NativeMethods.DhAgentStoppedCallback _stoppedCb;
 
     // Danh sách nguồn hiện tại (từ vòng Recv). Chạy trên thread nền.
     public event Action<IReadOnlyList<AgentRow>>? RowsChanged;
     // Cổng UDP thật đã bind (có thể khác cổng yêu cầu). Chạy trên thread nền.
     public event Action<ushort>? Bound;
+    // Phiên TỰ kết thúc (không mở được cổng/GPU, lỗi socket...) — KHÔNG bắn khi
+    // Dispose. Chạy trên thread nền; handler phải marshal về UI rồi mới Dispose.
+    public event Action<string>? Stopped;
 
     private AgentSession()
     {
         _rowsCb = OnRows;
         _boundCb = OnBound;
+        _stoppedCb = OnStopped;
     }
 
     public static AgentSession? Start(ShareRequest req)
@@ -78,7 +88,7 @@ public sealed class AgentSession : IDisposable
             ShareClipboard = req.ShareClipboard ? 1 : 0,
         };
         s._handle = NativeMethods.dh_agent_start(sources, sources.Length, in opt,
-            s._rowsCb, s._boundCb, IntPtr.Zero);
+            s._rowsCb, s._boundCb, s._stoppedCb, IntPtr.Zero);
         return s._handle == IntPtr.Zero ? null : s;
     }
 
@@ -107,12 +117,16 @@ public sealed class AgentSession : IDisposable
                 r.Width, r.Height, r.IsDisplay != 0,
                 r.ViewerConnected != 0,
                 Marshal.PtrToStringUTF8(r.ViewerAddr) ?? string.Empty,
-                r.Fps, r.Kbps, r.RttMs));
+                r.Fps, r.Kbps, r.RttMs,
+                r.Hwnd, r.Monitor));
         }
         RowsChanged?.Invoke(list);
     }
 
     private void OnBound(ushort port, IntPtr user) => Bound?.Invoke(port);
+
+    private void OnStopped(IntPtr reason, IntPtr user)
+        => Stopped?.Invoke(Marshal.PtrToStringUTF8(reason) ?? "stopped");
 
     public void Dispose()
     {

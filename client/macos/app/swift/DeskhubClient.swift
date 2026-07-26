@@ -116,6 +116,12 @@ nonisolated enum DeskhubClient {
         Phase(rawValue: Int(dh_phase().rawValue)) ?? .idle
     }
 
+    // GĐ9: host có nhận điều khiển không (cờ trong HELLO_ACK). Đáng tin sau khi
+    // phiên đã đàm phán; trước đó luôn true.
+    static func inputAccepted() -> Bool {
+        dh_input_accepted()
+    }
+
     static func statusLine() -> String {
         String(cString: dh_status_line())
     }

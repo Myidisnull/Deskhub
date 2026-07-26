@@ -110,8 +110,9 @@ public sealed partial class ConnectPage : Page
 // (xem Wire.h). Trước đây chỗ này ghi cứng 0 nên client luôn xem đúng nguồn đầu
 // tiên — không có đường nào tới các nguồn còn lại. Mặc định vẫn là 0 để mọi chỗ gọi
 // cũ giữ nguyên hành vi.
-// `Sources` chỉ khác null khi người dùng tick NHIỀU nguồn ở màn chọn: mỗi cặp
-// (client, nguồn) là một phiên độc lập nên xem song song không cần gì thêm trên dây.
+// `Sources` chỉ khác null khi người dùng tick NHIỀU nguồn ở màn chọn: ViewerPage mở
+// MỘT phiên tại một thời điểm và hiện dãy nút chuyển nhanh giữa các nguồn đã tick
+// (mỗi cặp (client, nguồn) là một phiên độc lập nên chuyển nguồn = thay phiên).
 // Một nguồn thì để null và dùng SourceId — đường một-nguồn là đường chạy 99% thời
 // gian, không nên bắt nó đi qua nhánh danh sách.
 public sealed record ViewerRequest(string Address, bool SendInput, byte SourceId = 0,

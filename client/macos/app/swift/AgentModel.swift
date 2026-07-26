@@ -22,6 +22,8 @@ final class AgentModel {
     var fps: Int = UserDefaults.standard.object(forKey: "shareFps") as? Int ?? 60
     var bitrateMbps: Int = UserDefaults.standard.object(forKey: "shareBitrate") as? Int ?? 20
     var allowInput: Bool = UserDefaults.standard.object(forKey: "shareAllowInput") as? Bool ?? true
+    // GĐ9: clipboard MẶC ĐỊNH TẮT — hay chứa mật khẩu/OTP, người dùng phải tự bật.
+    var shareClipboard: Bool = UserDefaults.standard.object(forKey: "shareClipboard") as? Bool ?? false
 
     // Danh sách nguồn chia sẻ được + lựa chọn của người dùng.
     var available: [ShareSource] = []
@@ -91,11 +93,13 @@ final class AgentModel {
         UserDefaults.standard.set(fps, forKey: "shareFps")
         UserDefaults.standard.set(bitrateMbps, forKey: "shareBitrate")
         UserDefaults.standard.set(allowInput, forKey: "shareAllowInput")
+        UserDefaults.standard.set(shareClipboard, forKey: "shareClipboard")
 
         let portNum = UInt16(port) ?? 47777
         let fpsNum = UInt32(fps)
         let bitrateNum = UInt32(bitrateMbps)
         let input = allowInput
+        let clipboard = shareClipboard
 
         let ok = await Task.detached {
             DeskhubAgent.start(
@@ -103,7 +107,8 @@ final class AgentModel {
                 port: portNum,
                 fps: fpsNum,
                 bitrateMbps: bitrateNum,
-                allowInput: input
+                allowInput: input,
+                shareClipboard: clipboard
             )
         }.value
 

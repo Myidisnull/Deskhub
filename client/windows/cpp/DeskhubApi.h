@@ -165,16 +165,28 @@ typedef struct DhAgentRow {
     uint32_t fps;           // đang gửi, cửa sổ 1 giây gần nhất
     uint32_t kbps;
     uint32_t rttMs; // từ FEEDBACK của client; 0 = chưa có số
+
+    // Handle HĐH của nguồn (đúng giá trị C# đưa xuống lúc start/add), để C# khớp
+    // dòng ↔ mục danh sách theo KHOÁ ổn định. Khớp theo tên là sai: hai cửa sổ
+    // trùng tiêu đề ("Untitled - Notepad" x2) là chuyện thường ngày.
+    uint64_t hwnd;    // 0 nếu nguồn là màn hình
+    uint64_t monitor; // 0 nếu nguồn là cửa sổ
 } DhAgentRow;
 
 typedef void(DH_CALL* DhAgentRowsCallback)(const DhAgentRow* rows, int count, void* user);
 typedef void(DH_CALL* DhAgentBoundCallback)(uint16_t port, void* user);
+// Phiên host TỰ kết thúc (không qua dh_agent_stop): không mở được cổng/GPU, không
+// nguồn nào dùng được, lỗi socket giữa chừng... `reasonUtf8` là chuỗi tĩnh ngắn.
+// Chạy trên thread nền của phiên — KHÔNG được gọi dh_agent_stop đồng bộ trong
+// callback này (nó join chính thread đó); C# marshal về UI thread rồi mới dọn.
+typedef void(DH_CALL* DhAgentStoppedCallback)(const char* reasonUtf8, void* user);
 
 // Bắt đầu phiên host phục vụ `sources` (count ≥ 1). Trả handle, hoặc NULL nếu tham số
-// sai. Giải phóng bằng dh_agent_stop.
+// sai. Trả handle khác NULL KHÔNG có nghĩa phiên đã chạy — khởi động thật diễn ra
+// trên thread nền; hỏng ở đó thì stoppedCb báo về. Giải phóng bằng dh_agent_stop.
 DH_API DhAgentHandle* DH_CALL dh_agent_start(const DhAgentSource* sources, int count,
     const DhAgentOptions* opt, DhAgentRowsCallback rowsCb, DhAgentBoundCallback boundCb,
-    void* user);
+    DhAgentStoppedCallback stoppedCb, void* user);
 
 // Thêm một cửa sổ vào phiên đang chạy (nút "Add source").
 DH_API void DH_CALL dh_agent_add_window(DhAgentHandle* h, uint64_t hwnd, const char* name);
@@ -216,9 +228,17 @@ DH_API DhClientHandle* DH_CALL dh_client_start(const char* addrUtf8, uint8_t sou
 // Con trỏ IDXGISwapChain1 để C# gắn vào SwapChainPanel. NULL nếu chưa sẵn sàng.
 DH_API void* DH_CALL dh_client_swapchain(DhClientHandle* h);
 
+// GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng tin
+// sau khi sizeCb đầu tiên bắn (phiên đã đàm phán); trước đó trả 1. C# dùng để giấu
+// nút khoá chuột ở phiên mà host chỉ cho xem.
+DH_API int DH_CALL dh_client_input_accepted(DhClientHandle* h);
+
 // --- Input (chỉ có tác dụng khi sendInput=1) ---
 // Chuột di chuyển: toạ độ chuẩn hoá 0..65535 trong khung video.
 DH_API void DH_CALL dh_client_mouse_move(DhClientHandle* h, uint16_t nx, uint16_t ny);
+// Chuột di chuyển TƯƠNG ĐỐI (chế độ khoá chuột F9): delta thô theo pixel. Host bơm
+// bằng MOUSEEVENTF_MOVE nên game đọc được — khác đường tuyệt đối ở trên.
+DH_API void DH_CALL dh_client_mouse_move_rel(DhClientHandle* h, int dx, int dy);
 // Nút chuột: button 0=trái,1=phải,2=giữa; down=1 nhấn, 0 nhả.
 DH_API void DH_CALL dh_client_mouse_button(DhClientHandle* h, int button, int down);
 // Lăn chuột: delta bội số của 120 (một nấc = 120).

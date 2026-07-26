@@ -94,16 +94,21 @@ void ReleaseRules(INetFwRules* rules, INetFwPolicy2* policy) {
     if (policy) policy->Release();
 }
 
-// 0 = không có rule tên kRuleName; 1 = có nhưng thiếu profile (Public/Private) nên
-// cần làm lại; 2 = có và phủ đủ ba profile.
-int InspectOwnRule(INetFwRules* rules) {
+// 0 = không có rule tên kRuleName; 1 = có nhưng thiếu profile (Public/Private) hoặc
+// trỏ exe KHÁC (app đã đổi chỗ sau update/publish — rule cũ không mở gì cho exe mới)
+// nên cần làm lại; 2 = có, phủ đủ ba profile và trỏ đúng exe này.
+int InspectOwnRule(INetFwRules* rules, const std::wstring& exe) {
     BSTR name = SysAllocString(kRuleName);
     if (!name) return 0;
     INetFwRule* rule = nullptr;
     int state = 0;
     if (SUCCEEDED(rules->Item(name, &rule)) && rule) {
+        BSTR app = nullptr;
+        rule->get_ApplicationName(&app);
+        const bool appOk = PathEq(app, exe);
+        if (app) SysFreeString(app);
         long prof = 0;
-        if (SUCCEEDED(rule->get_Profiles(&prof)) &&
+        if (appOk && SUCCEEDED(rule->get_Profiles(&prof)) &&
             (prof & kWantProfiles) == kWantProfiles)
             state = 2;
         else
@@ -200,14 +205,16 @@ bool AddOwnRule(INetFwRules* rules, const std::wstring& exe) {
 } // namespace
 
 bool HostFirewallRulePresent() {
+    const std::wstring exe = SelfPath();
+    if (exe.empty()) return false;
     ComScope com;
     if (!com.ok()) return false;
     INetFwPolicy2* policy = nullptr;
     INetFwRules* rules = OpenRules(&policy);
     if (!rules) return false;
-    const int state = InspectOwnRule(rules);
+    const int state = InspectOwnRule(rules, exe);
     ReleaseRules(rules, policy);
-    return state == 2; // chỉ coi là "có" khi đã phủ đủ ba profile
+    return state == 2; // chỉ coi là "có" khi đủ ba profile VÀ trỏ đúng exe này
 }
 
 bool EnsureHostFirewallRule() {
@@ -226,8 +233,8 @@ bool EnsureHostFirewallRule() {
         return false;
     }
 
-    // Đã có rule đúng (đủ ba profile) thì thôi — khỏi cần quyền admin cho lần này.
-    if (InspectOwnRule(rules) == 2) {
+    // Đã có rule đúng (đủ ba profile, đúng exe) thì thôi — khỏi cần admin lần này.
+    if (InspectOwnRule(rules, exe) == 2) {
         ReleaseRules(rules, policy);
         return true;
     }
@@ -239,7 +246,7 @@ bool EnsureHostFirewallRule() {
     AddOwnRule(rules, exe);
 
     // Kiểm chứng lại: chỉ báo thành công khi rule THẬT SỰ đã nằm trong danh sách.
-    const bool ok = InspectOwnRule(rules) == 2;
+    const bool ok = InspectOwnRule(rules, exe) == 2;
     ReleaseRules(rules, policy);
     return ok;
 }

@@ -94,6 +94,13 @@ public:
         return phase_.load(std::memory_order_acquire);
     }
 
+    // GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng
+    // tin sau khi đã đàm phán (phase Connecting → Streaming); trước đó luôn true.
+    // UI dùng để giấu nút khoá chuột ở phiên mà host chỉ cho xem.
+    bool InputAccepted() const {
+        return inputAccepted_.load(std::memory_order_relaxed);
+    }
+
     // Dòng số liệu cho overlay (fps/kbps/RTT/e2e), cập nhật 1s/lần. Chuỗi rỗng khi
     // chưa có số liệu. Có khóa vì UI thread đọc còn thread Net ghi.
     std::string StatusLine();
@@ -174,6 +181,7 @@ private:
 
     // Tham số đàm phán được (thread Net ghi, thread Decode đọc).
     std::atomic<uint32_t> negW_{0}, negH_{0};
+    std::atomic<bool> inputAccepted_{true};   // GĐ9, ghi ở onReady (thread Net)
     std::atomic<bool> rebuildDecoder_{false}; // RECONFIG -> dựng lại decoder
 
     // Layer: bắt tay theo thế hệ. Main tăng winGen_, Decode ack bằng winAckGen_.

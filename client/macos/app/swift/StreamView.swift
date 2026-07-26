@@ -118,7 +118,7 @@ struct StreamView: View {
             }
             .buttonStyle(DSIconButtonStyle(side: 34, radius: DS.radiusPill, active: model.mouseLocked))
             .help(tr(model.mouseLocked ? "mouseLocked" : "mouseFree"))
-            .disabled(model.viewOnly)
+            .disabled(model.viewOnly || !model.hostAcceptsInput)
 
             Button { fill.toggle() } label: {
                 Image(systemName: fill ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -129,9 +129,14 @@ struct StreamView: View {
             HudDivider()
 
             // Nhãn nói rõ CÁCH thoát, không chỉ trạng thái: người dùng khoá chuột xong
-            // không còn con trỏ để bấm lại nút này.
-            Chip(text: tr(model.viewOnly ? "viewOnly" : (model.mouseLocked ? "mouseLocked" : "mouseFree")),
-                 active: model.mouseLocked)
+            // không còn con trỏ để bấm lại nút này. Host không nhận điều khiển (GĐ9)
+            // thì cũng phải NÓI ra — "gõ không ăn" im lặng nhìn y hệt lỗi mạng.
+            Chip(text: tr(model.viewOnly
+                     ? "viewOnly"
+                     : (!model.hostAcceptsInput
+                         ? "viewOnlySession"
+                         : (model.mouseLocked ? "mouseLocked" : "mouseFree"))),
+            active: model.mouseLocked)
 
             HudDivider()
 

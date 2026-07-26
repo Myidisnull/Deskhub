@@ -20,14 +20,14 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define PR_CHECK(expr, msg)                                           \
-    do {                                                              \
-        HRESULT _hr = (expr);                                         \
-        if (FAILED(_hr)) {                                            \
+#define PR_CHECK(expr, msg)                                            \
+    do {                                                               \
+        HRESULT _hr = (expr);                                          \
+        if (FAILED(_hr)) {                                             \
             std::printf("[PanelRenderer] %s failed: 0x%08lX\n", (msg), \
-                (unsigned long)_hr);                                  \
-            return false;                                             \
-        }                                                             \
+                (unsigned long)_hr);                                   \
+            return false;                                              \
+        }                                                              \
     } while (0)
 
 struct PanelRenderer::Impl {
@@ -42,8 +42,8 @@ struct PanelRenderer::Impl {
     ComPtr<ID3D11VideoProcessorOutputView> outView;
     std::map<std::pair<ID3D11Texture2D*, UINT>, ComPtr<ID3D11VideoProcessorInputView>> inViews;
     std::mutex renderMutex;
-    uint32_t bbW = 0, bbH = 0;         // cỡ backbuffer hiện tại (= cỡ video)
-    uint32_t vpSrcW = 0, vpSrcH = 0;   // cỡ nguồn mà VP đang phục vụ
+    uint32_t bbW = 0, bbH = 0;       // cỡ backbuffer hiện tại (= cỡ video)
+    uint32_t vpSrcW = 0, vpSrcH = 0; // cỡ nguồn mà VP đang phục vụ
 
     bool Init(ID3D11Device* dev, uint32_t initialW, uint32_t initialH) {
         device = dev;

@@ -238,16 +238,19 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
 
     if (sources.empty()) {
         std::printf("[Agent] No source selected.\n");
+        ctl.OnFailed("no source selected");
         return 1;
     }
     if (sources.size() > deskhub::kMaxSources) {
         std::printf("[Agent] At most %zu sources can be shared at once.\n", deskhub::kMaxSources);
+        ctl.OnFailed("too many sources");
         return 1;
     }
 
     GpuChoice gpu;
     if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, gpu)) {
         std::printf("[Agent] Failed to create D3D11 device.\n");
+        ctl.OnFailed("gpu init failed");
         return 1;
     }
     std::wprintf(L"[Agent] GPU: %ls [%ls]\n", gpu.description.c_str(), GpuVendorName(gpu.vendor));
@@ -277,14 +280,13 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             if (!sock.lastBindAddrInUse()) break; // lỗi khác cổng-bận -> dừng, Open đã in
         }
         if (!opened) {
-            wchar_t m[512];
-            swprintf(m, 512,
-                L"Cannot start sharing: no free UDP port found from %u to %u.\n\n"
-                L"Several Deskhub hosts may still be running. Close their "
-                L"\"Deskhub - sharing\" windows (or end client.exe in Task "
-                L"Manager) and try again.",
+            // Không MessageBox: hàm này chạy trên thread nền của C API — popup Win32
+            // thô sẽ nấp sau cửa sổ WinUI3. Báo qua OnFailed để giao diện tự hiện lỗi.
+            std::printf(
+                "[Agent] Cannot start sharing: no free UDP port found from %u to %u. "
+                "Several Deskhub hosts may still be running.\n",
                 unsigned(opt.port), unsigned(opt.port) + kPortTries - 1);
-            MessageBoxW(nullptr, m, L"Deskhub", MB_OK | MB_ICONWARNING);
+            ctl.OnFailed("no free udp port");
             return 1;
         }
     }
@@ -562,6 +564,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     }
     if (live.empty()) {
         std::printf("[Agent] No usable source — stopping.\n");
+        ctl.OnFailed("no usable source");
         return 1;
     }
 
@@ -751,6 +754,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             r.fps = p->uiFps.load(std::memory_order_relaxed);
             r.kbps = p->uiKbps.load(std::memory_order_relaxed);
             r.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
+            r.hwnd = uint64_t(uintptr_t(p->target.hwnd));
+            r.monitor = uint64_t(uintptr_t(p->target.monitor));
             rows.push_back(std::move(r));
 
             deskhub::SourceInfo si;
@@ -771,6 +776,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             r.label = FromUtf8(pr.first->name) + L"  (starting...)";
             r.name = FromUtf8(pr.first->name);
             r.isDisplay = pr.first->target.monitor != nullptr;
+            r.hwnd = uint64_t(uintptr_t(pr.first->target.hwnd));
+            r.monitor = uint64_t(uintptr_t(pr.first->target.monitor));
             rows.push_back(std::move(r));
         }
         // Beacon trả lời trên CÙNG thread Recv này nên cập nhật thẳng, không khoá.
@@ -899,6 +906,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         const uint64_t now = NowUs();
         if (n < 0) {
             std::printf("[Agent] Socket error — stopping.\n");
+            ctl.OnFailed("socket error");
             anyFailed = true;
             break;
         }

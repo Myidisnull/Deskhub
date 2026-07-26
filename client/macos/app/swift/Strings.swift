@@ -106,6 +106,7 @@ enum Strings {
         "windowsAndDisplays": "Windows and displays",
         "refresh": "Refresh",
         "allowInput": "Allow mouse and keyboard",
+        "shareClipboard": "Share clipboard",
         "stop": "Stop",
         "stopAll": "Stop all",
         "share": "Share",
@@ -130,6 +131,7 @@ enum Strings {
         // Viewer
         "mouseLocked": "Mouse locked — press F9 to release",
         "mouseFree": "Press F9 to lock the mouse",
+        "viewOnlySession": "view only — this host does not accept input",
         "end": "End",
         "connecting": "connecting…",
         "sessionEnded": "Session ended",
@@ -198,6 +200,7 @@ enum Strings {
         "windowsAndDisplays": "Cửa sổ và màn hình",
         "refresh": "Làm mới",
         "allowInput": "Cho phép chuột và bàn phím",
+        "shareClipboard": "Đồng bộ clipboard",
         "stop": "Dừng",
         "stopAll": "Dừng hết",
         "share": "Chia sẻ",
@@ -220,6 +223,7 @@ enum Strings {
 
         "mouseLocked": "Đã khoá chuột — bấm F9 để thả",
         "mouseFree": "Bấm F9 để khoá chuột",
+        "viewOnlySession": "chỉ xem — máy kia không nhận điều khiển",
         "end": "Kết thúc",
         "connecting": "đang kết nối…",
         "sessionEnded": "Phiên đã kết thúc",

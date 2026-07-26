@@ -180,6 +180,10 @@ internal static class NativeMethods
         public uint Fps;
         public uint Kbps;
         public uint RttMs;
+
+        // Handle HĐH của nguồn — khoá khớp dòng ↔ SourceItem (tên trùng nhau được).
+        public ulong Hwnd;
+        public ulong Monitor;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -188,13 +192,20 @@ internal static class NativeMethods
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     internal delegate void DhAgentBoundCallback(ushort port, IntPtr user);
 
+    // Phiên host TỰ kết thúc (không qua dh_agent_stop). Chạy trên thread nền của
+    // native — KHÔNG được Dispose đồng bộ trong callback (nó join chính thread đó);
+    // marshal về UI thread trước.
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    internal delegate void DhAgentStoppedCallback(IntPtr reasonUtf8, IntPtr user);
+
     // Mảng struct có trường string LPUTF8Str: marshaler tự chuyển UTF-8 cho từng phần
     // tử. Native copy name vào std::string TRONG lời gọi (đồng bộ) nên chuỗi tạm được
     // giải phóng sau đó là an toàn.
     [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
     internal static extern IntPtr dh_agent_start(
         [In] DhAgentSource[] sources, int count, in DhAgentOptions opt,
-        DhAgentRowsCallback rowsCb, DhAgentBoundCallback boundCb, IntPtr user);
+        DhAgentRowsCallback rowsCb, DhAgentBoundCallback boundCb,
+        DhAgentStoppedCallback stoppedCb, IntPtr user);
 
     [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
     internal static extern void dh_agent_add_window(IntPtr h, ulong hwnd,
@@ -228,6 +239,12 @@ internal static class NativeMethods
 
     [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
     internal static extern void dh_client_mouse_move(IntPtr h, ushort nx, ushort ny);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    internal static extern void dh_client_mouse_move_rel(IntPtr h, int dx, int dy);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+    internal static extern int dh_client_input_accepted(IntPtr h);
 
     [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
     internal static extern void dh_client_mouse_button(IntPtr h, int button, int down);

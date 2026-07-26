@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "capture/GpuSelect.h"
+#include "ClipboardSync.h"
 #include "decode/IVideoDecoder.h"
 #include "decode/PanelRenderer.h"
 #include "net/SourceQuery.h"
@@ -55,6 +56,11 @@ struct DhClientHandle {
 
     std::atomic<bool> quit{false};
     std::atomic<bool> failed{false};
+    std::atomic<bool> userStop{false};            // dh_client_stop chủ động dừng
+    std::atomic<const char*> failReason{nullptr}; // chuỗi TĨNH mô tả đường chết
+    // GĐ9: cờ inputAccepted từ HELLO_ACK. Ghi ở onReady (thread Recv), C# đọc qua
+    // dh_client_input_accepted (thread UI) sau khi sizeCb bắn.
+    std::atomic<int> inputAccepted{1};
 
     std::mutex inputMutex;
     std::vector<deskhub::InputEvent> inputQueue; // C# ghi, thread Recv rút
@@ -130,6 +136,7 @@ void DhClientHandle::Run() {
                 dc.fps = decFps.load(std::memory_order_relaxed);
                 decoder = CreateDecoder(gpu.device.Get(), dc, onDecoded);
                 if (!decoder) {
+                    failReason.store("decoder init failed");
                     failed.store(true);
                     break;
                 }
@@ -141,11 +148,25 @@ void DhClientHandle::Run() {
         CoUninitialize();
     });
 
+    // GĐ8/GĐ9 clipboard phía viewer, hai chiều — cùng khuôn mailbox với AgentLoop:
+    // copy ở máy này -> hộp thư -> vòng Recv gửi qua phiên; host copy -> onClipboard
+    // -> đặt vào clipboard máy này. Chỉ chạy khi host BẬT (params().clipboardEnabled).
+    std::mutex clipMu;
+    std::string clipPendingText;
+    bool clipPending = false;
+    ClipboardSync clipSync;
+    clipSync.Start([&clipMu, &clipPendingText, &clipPending](const std::string& utf8) {
+        std::lock_guard<std::mutex> lk(clipMu);
+        clipPendingText = utf8;
+        clipPending = true;
+    });
+
     deskhub::ClientCallbacks cb;
     cb.send = [&](std::span<const uint8_t> d) { sock.SendTo(server, d.data(), d.size()); };
     cb.onReady = [&](const deskhub::NegotiatedParams& np) {
         ackDeltaUs.store(int64_t(NowUs()) - int64_t(np.timebaseUs), std::memory_order_relaxed);
         negotiated = true;
+        inputAccepted.store(np.inputAccepted ? 1 : 0, std::memory_order_relaxed);
         decW.store(np.width, std::memory_order_relaxed);
         decH.store(np.height, std::memory_order_relaxed);
         decFps.store(np.fps ? np.fps : 60, std::memory_order_relaxed);
@@ -163,11 +184,15 @@ void DhClientHandle::Run() {
         while ((!cur || rttUs < cur) &&
                !minRttUs.compare_exchange_weak(cur, rttUs, std::memory_order_relaxed)) {}
     };
+    bool closedNotified = false; // chỉ đọc/ghi trên thread Run (session gọi callback tại đây)
     cb.onDisconnect = [&](const char* reason) {
+        closedNotified = true;
         if (closedCb) closedCb(reason ? reason : "disconnected", user);
         quit.store(true);
     };
-    cb.onClipboard = [](std::string) {}; // GĐ8 clipboard: chưa nối ở viewer WinUI3
+    // Host vừa copy văn bản -> đặt vào clipboard máy này. ClipboardSync tự khử echo
+    // theo nội dung nên không có vòng lặp hai máy ném qua lại.
+    cb.onClipboard = [&clipSync](std::string text) { clipSync.SetRemoteText(text); };
 
     deskhub::ClientSession session(cb);
 
@@ -190,6 +215,7 @@ void DhClientHandle::Run() {
         const int n = sock.RecvFrom(buf, sizeof(buf), from);
         const uint64_t now = NowUs();
         if (n < 0) {
+            failReason.store("socket error");
             failed.store(true);
             break;
         }
@@ -271,6 +297,20 @@ void DhClientHandle::Run() {
             for (const auto& e : batch) session.QueueInput(e);
         }
 
+        // Clipboard máy này vừa đổi -> gửi cho host. Gác theo cờ host chào trong
+        // HELLO_ACK: host tắt clipboard thì đằng nào cũng bỏ, đừng tốn gói.
+        if (session.params().clipboardEnabled) {
+            std::string t;
+            {
+                std::lock_guard<std::mutex> lk(clipMu);
+                if (clipPending) {
+                    t = std::move(clipPendingText);
+                    clipPending = false;
+                }
+            }
+            if (!t.empty()) session.SendClipboard(t);
+        }
+
         session.SetFocused(true); // panel đang xem = luôn "focus" nguồn này
         session.Tick(now);
         if (session.state() == deskhub::ClientSession::State::Dead) break;
@@ -300,6 +340,13 @@ void DhClientHandle::Run() {
 
     session.SendBye();
     quit.store(true);
+
+    // MỌI đường chết không do dh_client_stop đều phải báo về C#, kể cả đường native
+    // (decoder hỏng, lỗi socket, phiên Dead) — thiếu là ViewerPage đứng hình vĩnh viễn.
+    if (!closedNotified && !userStop.load()) {
+        const char* r = failReason.load();
+        if (closedCb) closedCb(r ? r : "connection lost", user);
+    }
     CoUninitialize();
 }
 
@@ -312,6 +359,16 @@ deskhub::InputEvent MakeMove(uint16_t nx, uint16_t ny) {
     e.a = nx;
     e.b = ny;
     e.absolute = 1;
+    return e;
+}
+
+deskhub::InputEvent MakeMoveRel(int dx, int dy) {
+    deskhub::InputEvent e;
+    e.type = deskhub::InputType::MouseMove;
+    e.timestampUs = NowUs();
+    e.a = dx;
+    e.b = dy;
+    e.absolute = 0; // host bơm MOUSEEVENTF_MOVE (delta thô) — đường game đọc được
     return e;
 }
 
@@ -362,6 +419,14 @@ DH_API void DH_CALL dh_client_mouse_move(DhClientHandle* h, uint16_t nx, uint16_
     if (h) h->PushInput(MakeMove(nx, ny));
 }
 
+DH_API void DH_CALL dh_client_mouse_move_rel(DhClientHandle* h, int dx, int dy) {
+    if (h) h->PushInput(MakeMoveRel(dx, dy));
+}
+
+DH_API int DH_CALL dh_client_input_accepted(DhClientHandle* h) {
+    return h ? h->inputAccepted.load(std::memory_order_relaxed) : 1;
+}
+
 DH_API void DH_CALL dh_client_mouse_button(DhClientHandle* h, int button, int down) {
     if (!h) return;
     deskhub::InputEvent e;
@@ -396,6 +461,7 @@ DH_API void DH_CALL dh_client_key(DhClientHandle* h, int vk, int scan, int down)
 
 DH_API void DH_CALL dh_client_stop(DhClientHandle* h) {
     if (!h) return;
+    h->userStop.store(true); // dừng chủ động: đừng bắn closedCb ngược vào C# đang thoát
     h->quit.store(true);
     if (h->thread.joinable()) h->thread.join();
     delete h;

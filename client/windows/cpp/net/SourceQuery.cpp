@@ -39,17 +39,20 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) 
     if (!sock.Open(0)) return false;
     sock.SetRecvTimeout(kRecvTimeoutMs);
 
-    uint8_t buf[deskhub::kMaxDatagram];
-    const size_t qn = deskhub::BuildListSources(buf);
+    // Đệm gửi và đệm nhận TÁCH RIÊNG: gói lạc nhận vào giữa chừng mà ghi đè lên
+    // query thì mọi lần phát lại sau sẽ gửi rác thay vì LIST_SOURCES.
+    uint8_t query[deskhub::kMaxDatagram];
+    const size_t qn = deskhub::BuildListSources(query);
     if (!qn) return false;
 
+    uint8_t buf[deskhub::kMaxDatagram];
     const uint64_t startUs = NowUs();
     uint64_t lastSendUs = 0;
     while (NowUs() - startUs < kQueryTimeoutUs) {
         const uint64_t now = NowUs();
         if (now - lastSendUs >= kResendUs) {
             lastSendUs = now;
-            sock.SendTo(server, buf, qn);
+            sock.SendTo(server, query, qn);
         }
 
         NetAddr from{};

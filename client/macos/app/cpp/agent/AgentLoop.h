@@ -42,7 +42,8 @@ struct AgentOptions {
     uint16_t port = 47777;
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
-    bool allowInput = true; // GĐ4: cho client điều khiển máy này
+    bool allowInput = true;      // GĐ4: cho client điều khiển máy này
+    bool shareClipboard = false; // GĐ9: đồng bộ clipboard — MẶC ĐỊNH TẮT, người dùng tự bật
 };
 
 // Một nguồn được chia sẻ. `name` là tên hiện ở danh sách phía client (UTF-8).

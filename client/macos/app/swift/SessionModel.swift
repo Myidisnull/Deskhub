@@ -29,6 +29,11 @@ final class SessionModel {
     // Khoá chuột (chế độ tương đối) — bật/tắt bằng F9, đối ứng client Windows.
     var mouseLocked = false
 
+    // GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK, poll qua
+    // facade). false = phiên chỉ-xem từ phía host — khác `viewOnly` là lựa chọn của
+    // người dùng máy này; UI phải NÓI ra để "gõ không ăn" không giống lỗi mạng.
+    private(set) var hostAcceptsInput = true
+
     // "Chỉ xem" — ô tick ở màn Kết nối của bản thiết kế. Chặn Ở ĐÂY chứ không ở view:
     // input đi ra từ bốn chỗ khác nhau trong RemoteView (phím, phím bổ trợ, chuột,
     // con lăn), và một cái quên kiểm tra là cả lựa chọn này thành vô nghĩa mà không ai
@@ -68,6 +73,7 @@ final class SessionModel {
         rttTrace = []
         phase = .connecting
         mouseLocked = false
+        hostAcceptsInput = true // chỉ biết thật sau HELLO_ACK — poll cập nhật
         // Chụp mốc clipboard NGAY khi vào phiên: không thì thứ đang nằm sẵn trong
         // clipboard bị coi là "vừa copy" và bắn sang host ngay lập tức.
         lastPasteboardChange = NSPasteboard.general.changeCount
@@ -86,11 +92,15 @@ final class SessionModel {
     // MARK: - Chuyển tiếp input (StreamView/RemoteView gọi)
 
     //
-    // Mọi hàm ở đây đi qua cùng một cửa `viewOnly`. releaseAllInput là NGOẠI LỆ có
-    // chủ ý: nó chỉ nhả thứ đang bị giữ, nên chặn nó lại mới là chuyện gây kẹt phím.
+    // Mọi hàm ở đây đi qua cùng một cửa `inputBlocked`. releaseAllInput là NGOẠI LỆ
+    // có chủ ý: nó chỉ nhả thứ đang bị giữ, nên chặn nó lại mới là chuyện gây kẹt phím.
+
+    // Hai đường tới "chỉ xem": người dùng tự chọn (viewOnly), hoặc host không nhận
+    // điều khiển (GĐ9 — hostAcceptsInput). Cửa duy nhất, không có đường nào lọt.
+    private var inputBlocked: Bool { viewOnly || !hostAcceptsInput }
 
     func key(vk: Int32, scan: Int32, down: Bool) {
-        guard !viewOnly else { return }
+        guard !inputBlocked else { return }
         DeskhubClient.key(vk: vk, scan: scan, down: down)
     }
 
@@ -99,22 +109,22 @@ final class SessionModel {
     }
 
     func mouseMove(nx: Int32, ny: Int32) {
-        guard !viewOnly else { return }
+        guard !inputBlocked else { return }
         DeskhubClient.mouseMove(nx: nx, ny: ny)
     }
 
     func mouseMoveRel(dx: Int32, dy: Int32) {
-        guard !viewOnly else { return }
+        guard !inputBlocked else { return }
         DeskhubClient.mouseMoveRel(dx: dx, dy: dy)
     }
 
     func mouseButton(_ button: MouseButton, down: Bool) {
-        guard !viewOnly else { return }
+        guard !inputBlocked else { return }
         DeskhubClient.mouseButton(button, down: down)
     }
 
     func mouseWheel(_ delta: Int32) {
-        guard !viewOnly else { return }
+        guard !inputBlocked else { return }
         DeskhubClient.mouseWheel(delta)
     }
 
@@ -138,6 +148,11 @@ final class SessionModel {
         statusLine = DeskhubClient.statusLine()
         videoWidth = DeskhubClient.videoWidth()
         videoHeight = DeskhubClient.videoHeight()
+        let accepts = DeskhubClient.inputAccepted()
+        if accepts != hostAcceptsInput {
+            hostAcceptsInput = accepts
+            if !accepts { mouseLocked = false } // không có gì để khoá ở phiên chỉ-xem
+        }
         if let rtt = Self.parseRtt(statusLine) {
             rttTrace.append(rtt)
             if rttTrace.count > 60 { rttTrace.removeFirst(rttTrace.count - 60) }

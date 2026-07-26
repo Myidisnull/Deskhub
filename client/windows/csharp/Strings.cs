@@ -95,6 +95,7 @@ public static class L
         ["refresh"] = "Refresh",
         ["copy"] = "Copy",
         ["allowInput"] = "Allow mouse and keyboard",
+        ["shareClipboard"] = "Share clipboard",
         ["stop"] = "Stop",
         ["stopAll"] = "Stop all",
         ["share"] = "Share",
@@ -111,6 +112,7 @@ public static class L
         // Viewer
         ["mouseLocked"] = "Mouse locked — press F9 to release",
         ["mouseFree"] = "Press F9 to lock the mouse",
+        ["viewOnlySession"] = "view only — this host does not accept input",
         ["end"] = "End",
         ["connecting"] = "connecting…",
 
@@ -118,6 +120,7 @@ public static class L
         ["dllMissing"] = "deskhub_native.dll not found — build the cpp target first.",
         ["connectFailed"] = "Could not connect — check the address and that the other machine is sharing.",
         ["shareFailed"] = "Could not start sharing (see the log).",
+        ["shareStoppedFmt"] = "Sharing stopped: {0}.",
     };
 
     private static readonly Dictionary<string, string> Vi = new()
@@ -184,6 +187,7 @@ public static class L
         ["refresh"] = "Làm mới",
         ["copy"] = "Chép",
         ["allowInput"] = "Cho phép chuột và bàn phím",
+        ["shareClipboard"] = "Đồng bộ clipboard",
         ["stop"] = "Dừng",
         ["stopAll"] = "Dừng hết",
         ["share"] = "Chia sẻ",
@@ -199,11 +203,13 @@ public static class L
 
         ["mouseLocked"] = "Đã khoá chuột — bấm F9 để thả",
         ["mouseFree"] = "Bấm F9 để khoá chuột",
+        ["viewOnlySession"] = "chỉ xem — máy kia không nhận điều khiển",
         ["end"] = "Kết thúc",
         ["connecting"] = "đang kết nối…",
 
         ["dllMissing"] = "Không thấy deskhub_native.dll — hãy dựng phần cpp trước.",
         ["connectFailed"] = "Không kết nối được — kiểm tra địa chỉ và xem máy kia đã chia sẻ chưa.",
         ["shareFailed"] = "Không bắt đầu chia sẻ được (xem log).",
+        ["shareStoppedFmt"] = "Phiên chia sẻ đã dừng: {0}.",
     };
 }

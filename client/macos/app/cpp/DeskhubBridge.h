@@ -102,6 +102,9 @@ const char* dh_take_remote_clipboard(void);
 
 // --- Trạng thái để UI vẽ ---
 DHPhase dh_phase(void);
+// GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng tin
+// sau khi phiên đã đàm phán; trước đó trả true. UI giấu nút khoá chuột khi false.
+bool dh_input_accepted(void);
 // Dòng số liệu cho overlay (fps/kbps/RTT/e2e). Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dh_status_line(void);
 // Lý do phiên kết thúc. Rỗng nếu chưa kết thúc.
@@ -159,8 +162,10 @@ int dha_list_share_sources(DHShareSource* out, int capacity);
 
 // Bắt đầu chia sẻ. CHẶN tới ~10s (đợi frame đầu), gọi ngoài main thread.
 // `port` = 0 dùng mặc định 47777; cổng bận thì tự tăng dần (xem dha_port).
+// `share_clipboard` MẶC ĐỊNH phải là false (GĐ9): clipboard hay chứa mật khẩu/OTP,
+// người dùng phải tự tay bật.
 bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input);
+    uint32_t bitrate_mbps, bool allow_input, bool share_clipboard);
 
 void dha_stop(void);
 bool dha_running(void);

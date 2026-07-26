@@ -28,6 +28,11 @@ struct SessionSourceRow {
     uint32_t kbps = 0;
     uint32_t rttMs = 0; // từ FEEDBACK của client; 0 = chưa có số
 
+    // Handle HĐH của nguồn (HWND/HMONITOR đóng gói uint64). Giao diện dùng làm khoá
+    // khớp dòng ↔ mục danh sách — tên trùng nhau giữa hai cửa sổ là chuyện thường.
+    uint64_t hwnd = 0;    // 0 nếu nguồn là màn hình
+    uint64_t monitor = 0; // 0 nếu nguồn là cửa sổ
+
     // So sánh để SetRows bỏ qua khi không đổi. Bao luôn các trường số: chúng đổi
     // mỗi giây và chính là thứ giao diện cần vẽ lại.
     bool operator==(const SessionSourceRow& o) const = default;

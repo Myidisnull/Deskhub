@@ -178,6 +178,11 @@
 
                 <CheckBox x:Name="AllowInput" Style="{StaticResource DhCheckBox}" IsChecked="True" />
 
+                <!-- Clipboard MẶC ĐỊNH TẮT và phải tự tay bật (GĐ9): clipboard hay
+                     chứa mật khẩu/OTP, "bật vì đằng nào cũng tiện" không phải quyết
+                     định app được đưa thay người dùng. -->
+                <CheckBox x:Name="ShareClipboard" Style="{StaticResource DhCheckBox}" IsChecked="False" />
+
                 <Border Width="6" />
 
                 <!-- Hai mức dừng, đúng như bản thiết kế xếp cạnh nhau:

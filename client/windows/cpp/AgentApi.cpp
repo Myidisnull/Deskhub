@@ -40,6 +40,12 @@ public:
     HeadlessAgentControl(DhAgentRowsCallback rowsCb, DhAgentBoundCallback boundCb, void* user)
         : rowsCb_(rowsCb), boundCb_(boundCb), user_(user) {}
 
+    // Lý do RunAgent tự thoát (OnFailed ghi trên thread Recv, đọc trên CHÍNH thread
+    // đó sau khi RunAgent trả về — xem thread lambda ở dh_agent_start).
+    const char* failReason() const {
+        return failReason_;
+    }
+
     // --- Phía RunAgent (thread Recv) gọi ---
     bool active() const override {
         return !stop_.load(std::memory_order_acquire);
@@ -70,9 +76,14 @@ public:
             const auto& r = rows[i];
             crows.push_back(DhAgentRow{r.sourceId, labels[i].c_str(), r.pending ? 1 : 0,
                 names[i].c_str(), r.width, r.height, r.isDisplay ? 1 : 0,
-                r.viewerConnected ? 1 : 0, viewers[i].c_str(), r.fps, r.kbps, r.rttMs});
+                r.viewerConnected ? 1 : 0, viewers[i].c_str(), r.fps, r.kbps, r.rttMs,
+                r.hwnd, r.monitor});
         }
         rowsCb_(crows.data(), int(crows.size()), user_);
+    }
+
+    void OnFailed(const char* reasonUtf8) override {
+        failReason_ = reasonUtf8 ? reasonUtf8 : "failed";
     }
 
     std::vector<AgentSource> TakeAdds() override {
@@ -105,6 +116,8 @@ private:
     DhAgentBoundCallback boundCb_;
     void* user_;
     std::atomic<bool> stop_{false};
+    // Chuỗi TĨNH từ RunAgent (OnFailed). Chỉ thread Recv ghi/đọc — không cần khoá.
+    const char* failReason_ = "stopped";
     std::mutex m_;
     std::vector<AgentSource> adds_; // C# ghi, RunAgent rút
     std::vector<uint8_t> removes_;  // C# ghi, RunAgent rút
@@ -134,7 +147,7 @@ struct DhAgentHandle {
 
 DH_API DhAgentHandle* DH_CALL dh_agent_start(const DhAgentSource* sources, int count,
     const DhAgentOptions* opt, DhAgentRowsCallback rowsCb, DhAgentBoundCallback boundCb,
-    void* user) {
+    DhAgentStoppedCallback stoppedCb, void* user) {
     if (!sources || count <= 0 || !opt) return nullptr;
 
     auto* h = new DhAgentHandle(rowsCb, boundCb, user);
@@ -147,10 +160,14 @@ DH_API DhAgentHandle* DH_CALL dh_agent_start(const DhAgentSource* sources, int c
     ao.allowInput = opt->allowInput != 0;
     ao.shareClipboard = opt->shareClipboard != 0;
 
-    h->thread = std::thread([h, ao] {
+    h->thread = std::thread([h, ao, stoppedCb, user] {
         // WGC cần WinRT (MTA) trên chính thread tạo WindowCapture — đây là thread đó.
         capture::InitRuntime();
         RunAgent(h->initialSources, ao, h->ctl);
+        // RunAgent tự thoát (hỏng khởi động, lỗi socket...) mà KHÔNG do dh_agent_stop:
+        // báo cho C#, không thì giao diện đứng ở trạng thái "đang chia sẻ" ma trong
+        // khi chẳng có gì chạy. Dừng chủ động thì im lặng — C# đang tự dọn rồi.
+        if (stoppedCb && !h->ctl.stopRequested()) stoppedCb(h->ctl.failReason(), user);
     });
     return h;
 }

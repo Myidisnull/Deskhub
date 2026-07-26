@@ -102,6 +102,7 @@ public sealed partial class SharePage : Page
         SourcesEmpty.Text = L.T("noSources");
         PortLabel.Text = L.T("port").ToLowerInvariant();
         AllowInput.Content = L.T("allowInput");
+        ShareClipboard.Content = L.T("shareClipboard");
         StopText.Text = L.T("stop");
         StopAllText.Text = L.T("stopAll");
         ShareText.Text = L.T("share");
@@ -262,7 +263,8 @@ public sealed partial class SharePage : Page
             Port: ParsePort(),
             Fps: ParseLeadingUint(FpsBox.SelectedItem as string, 60),
             BitrateMbps: ParseLeadingUint(BitrateBox.SelectedItem as string, 20),
-            AllowControl: AllowInput.IsChecked == true);
+            AllowControl: AllowInput.IsChecked == true,
+            ShareClipboard: ShareClipboard.IsChecked == true);
 
         // Nâng quyền thay cả tiến trình → phải xảy ra TRƯỚC khi mở phiên.
         if (ElevationHelper.NeedsElevation(req.AllowControl)
@@ -286,6 +288,7 @@ public sealed partial class SharePage : Page
         }
         _session.Bound += OnBound;
         _session.RowsChanged += OnRows;
+        _session.Stopped += OnAgentStopped;
 
         _sharing = true;
         SetSharingUi(true);
@@ -320,6 +323,7 @@ public sealed partial class SharePage : Page
         if (_session is null) return;
         _session.Bound -= OnBound;
         _session.RowsChanged -= OnRows;
+        _session.Stopped -= OnAgentStopped;
         _session.Dispose();
         _session = null;
     }
@@ -332,6 +336,7 @@ public sealed partial class SharePage : Page
         BitrateBox.IsEnabled = !sharing;
         PortBox.IsEnabled = !sharing;
         AllowInput.IsEnabled = !sharing;
+        ShareClipboard.IsEnabled = !sharing;
         ShareButton.Visibility = sharing ? Visibility.Collapsed : Visibility.Visible;
         StopButton.Visibility = sharing ? Visibility.Visible : Visibility.Collapsed;
         StopAllButton.Visibility = sharing ? Visibility.Visible : Visibility.Collapsed;
@@ -345,14 +350,29 @@ public sealed partial class SharePage : Page
         RebuildAddresses();
     });
 
+    // Phiên TỰ chết (không mở được cổng/GPU, không nguồn nào dùng được, lỗi socket).
+    // Không có đường này thì giao diện đứng ở trạng thái "đang chia sẻ" ma vĩnh viễn.
+    // Dispose diễn ra ở đây (UI thread) chứ không trong callback native — xem
+    // AgentSession.Stopped.
+    private void OnAgentStopped(string reason) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (!_sharing) return;
+        Stop(clearPicks: false);
+        SourcesEmpty.Text = string.Format(L.T("shareStoppedFmt"), reason);
+        SourcesEmpty.Visibility = Visibility.Visible;
+    });
+
     private void OnRows(IReadOnlyList<AgentRow> rows) => DispatcherQueue.TryEnqueue(() =>
     {
-        // Gắn sourceId native cấp vào đúng mục trong danh sách, khớp theo TÊN: đây là
-        // thứ duy nhất đi qua được ranh giới C API (native không trả HWND về).
-        var byName = rows.ToDictionary(r => r.Name, r => r, StringComparer.Ordinal);
+        // Gắn sourceId native cấp vào đúng mục trong danh sách, khớp theo HANDLE
+        // (HWND/HMONITOR — nay đi qua được C API). Khớp theo tên như trước vừa sập
+        // khi hai cửa sổ trùng tiêu đề (ToDictionary ném ArgumentException ngay trên
+        // UI thread) vừa có thể Stop nhầm nguồn.
+        var byKey = new Dictionary<ulong, AgentRow>();
+        foreach (var r in rows) byKey[r.Key] = r;
         foreach (var s in _sources)
         {
-            if (byName.TryGetValue(s.Name, out var r))
+            if (byKey.TryGetValue(s.Key, out var r))
             {
                 s.SourceId = r.SourceId;
                 s.Pending = r.Pending;
@@ -412,6 +432,7 @@ public sealed partial class SharePage : Page
     private void ApplyRequestToUi(ShareRequest req)
     {
         AllowInput.IsChecked = req.AllowControl;
+        ShareClipboard.IsChecked = req.ShareClipboard;
         SelectByPrefix(FpsBox, req.Fps.ToString());
         SelectByPrefix(BitrateBox, req.BitrateMbps.ToString());
         SelectByPrefix(PortBox, req.Port.ToString());

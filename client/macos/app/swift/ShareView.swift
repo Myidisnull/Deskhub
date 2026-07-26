@@ -292,6 +292,13 @@ struct ShareView: View {
             .toggleStyle(DSCheckboxStyle())
             .disabled(model.isSharing)
 
+        // Clipboard MẶC ĐỊNH TẮT và phải tự tay bật (GĐ9): clipboard hay chứa mật
+        // khẩu/OTP, "bật vì đằng nào cũng tiện" không phải quyết định app được đưa
+        // thay người dùng.
+        Toggle(isOn: $model.shareClipboard) { Text(tr("shareClipboard")) }
+            .toggleStyle(DSCheckboxStyle())
+            .disabled(model.isSharing)
+
         // Hai mức dừng, đúng như bản thiết kế xếp cạnh nhau:
         //   Dừng     — tắt phiên, GIỮ nguyên các tick. Bấm "Chia sẻ" lại là chạy tiếp
         //              với đúng bộ nguồn đó.

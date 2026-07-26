@@ -40,18 +40,21 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) 
     }
     sock.SetRecvTimeout(200);
 
-    uint8_t buf[deskhub::kMaxDatagram];
-    const size_t qn = deskhub::BuildListSources(buf);
+    // Đệm gửi và đệm nhận TÁCH RIÊNG: gói lạc nhận vào giữa chừng mà ghi đè lên
+    // query thì mọi lần phát lại sau sẽ gửi rác thay vì LIST_SOURCES.
+    uint8_t query[deskhub::kMaxDatagram];
+    const size_t qn = deskhub::BuildListSources(query);
     if (!qn) return false;
 
     // Phát lại mỗi 500ms: LIST_SOURCES đi trên UDP, gói đầu mất là chuyện bình thường.
+    uint8_t buf[deskhub::kMaxDatagram];
     const uint64_t startUs = NowUs();
     uint64_t lastSendUs = 0;
     while (NowUs() - startUs < kQueryTimeoutUs) {
         const uint64_t now = NowUs();
         if (now - lastSendUs >= kResendUs) {
             lastSendUs = now;
-            sock.SendTo(server, buf, qn);
+            sock.SendTo(server, query, qn);
         }
 
         NetAddr from;

@@ -48,4 +48,9 @@ struct AgentControl {
     // RunAgent báo cổng THẬT đã bind (có thể khác cổng yêu cầu do dò cổng trống).
     // Không bắt buộc override — headless dùng để hiện "Sharing on port N".
     virtual void OnBound(uint16_t /*port*/) {}
+
+    // RunAgent báo lý do nó sắp tự thoát (không mở được cổng/GPU, không nguồn nào
+    // dùng được, lỗi socket...). `reasonUtf8` là chuỗi tĩnh ngắn. Không bắt buộc
+    // override — headless chuyển tiếp cho C# để UI thoát trạng thái "đang chia sẻ".
+    virtual void OnFailed(const char* /*reasonUtf8*/) {}
 };

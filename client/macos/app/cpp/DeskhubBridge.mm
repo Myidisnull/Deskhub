@@ -176,6 +176,11 @@ DHPhase dh_phase(void) {
     return DHPhase(int(g_client->phase()));
 }
 
+bool dh_input_accepted(void) {
+    std::lock_guard<std::mutex> lk(g_clientMutex);
+    return g_client ? g_client->InputAccepted() : true;
+}
+
 const char* dh_status_line(void) {
     g_statusBuf[0] = '\0';
     std::lock_guard<std::mutex> lk(g_clientMutex);
@@ -261,7 +266,7 @@ AgentSource ToAgentSource(const DHShareSource& s) {
 } // namespace
 
 bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input) {
+    uint32_t bitrate_mbps, bool allow_input, bool share_clipboard) {
     if (!sources || count <= 0) return false;
 
     std::vector<AgentSource> list;
@@ -273,6 +278,7 @@ bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t 
     opt.fps = fps ? fps : 60;
     opt.bitrateMbps = bitrate_mbps ? bitrate_mbps : 20;
     opt.allowInput = allow_input;
+    opt.shareClipboard = share_clipboard;
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
