@@ -40,6 +40,7 @@
 // LIÊN QUAN: deskhub/session/HostSession.h (đầu kia), deskhub/input/InputSender.h,
 //            deskhub/transport/Reassembler.h, deskhub/control/LinkStats.h
 // =============================================================================
+#include "deskhub/auth/PasswordAuth.h" // AuthKey — đầu client của bắt tay (GĐ10)
 #include "deskhub/input/InputSender.h"
 #include "deskhub/session/ClipboardAssembler.h"
 #include "deskhub/wire/Wire.h"
@@ -87,6 +88,14 @@ struct ClientCallbacks {
     std::function<void(const char* reason)> onDisconnect; // từ chối/BYE/timeout
     // GĐ8: host vừa copy văn bản — caller đặt vào clipboard máy mình.
     std::function<void(std::string text)> onClipboard;
+    // GĐ10: host đòi mật khẩu nhưng SetPassword chưa được gọi (hoặc mật khẩu vừa bị
+    // từ chối). Caller hiện ô nhập mật khẩu rồi gọi SetPassword — lần HELLO phát lại
+    // kế tiếp sẽ tự đi qua challenge mới, không phải Start lại từ đầu.
+    std::function<void()> onPasswordNeeded;
+    // GĐ10: host vừa cấp token nhớ thiết bị. Caller lưu vào keychain kèm địa chỉ
+    // host; lần sau truyền lại qua Hello::deviceToken để khỏi hỏi mật khẩu.
+    // Ứng với ô "Save the password for this machine" ở màn Settings của client.
+    std::function<void(std::span<const uint8_t> token)> onDeviceToken;
 };
 
 class ClientSession {
@@ -101,6 +110,30 @@ public:
 
     // Phát HELLO ngay và bắt đầu chu kỳ retry trong Tick.
     void Start(const Hello& hello, uint64_t nowUs);
+
+    // Mật khẩu người dùng nhập cho host này (GĐ10). Gọi TRƯỚC Start nếu đã lưu sẵn,
+    // hoặc trong onPasswordNeeded rồi để chu kỳ phát lại HELLO tự đi tiếp.
+    //
+    // Chuỗi được giữ lại vì `salt` chỉ biết được khi AUTH_CHALLENGE về, mà dẫn xuất
+    // khoá cần cả hai. Nó nằm trong bộ nhớ tiến trình tới hết phiên; ClearPassword()
+    // xoá sớm hơn nếu caller muốn.
+    void SetPassword(std::string_view password) {
+        password_.assign(password);
+        derived_ = AuthKey{}; // salt có thể khác — buộc dẫn xuất lại
+    }
+    void ClearPassword() {
+        password_.clear();
+        derived_ = AuthKey{};
+    }
+    bool hasPassword() const {
+        return !password_.empty();
+    }
+
+    // Vì sao lần bắt tay gần nhất bị từ chối (GĐ10) — caller hiện đúng thông báo
+    // thay vì một câu chung chung. RejectReason::None khi chưa bị từ chối lần nào.
+    RejectReason rejectReason() const {
+        return rejectReason_;
+    }
 
     // Gói kênh Control từ host. Trả true nếu gói hợp lệ thuộc phiên.
     bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs);
@@ -164,6 +197,9 @@ private:
     void SendHello();
     void SendStart();
     void Die(const char* reason);
+    // Trả lời AUTH_CHALLENGE (GĐ10). Dẫn xuất khoá nếu chưa có khoá khớp salt/vòng
+    // rồi phát AUTH_RESPONSE.
+    void AnswerChallenge(const AuthChallenge& c);
 
     ClientCallbacks cb_;
     InputSender input_;
@@ -185,6 +221,18 @@ private:
     bool keyframeWanted_ = false;
     ClipboardAssembler clip_;   // ghép mảnh clipboard từ host (GĐ8)
     uint32_t clipUpdateId_ = 0; // updateId của lần SendClipboard kế tiếp
+
+    // --- Xác thực (GĐ10) ---
+    std::string password_;
+    // Khoá đã dẫn xuất, giữ lại giữa các lần bắt tay. PBKDF2 tốn ~100 ms, mà client
+    // phát lại HELLO mỗi 0.5 giây khi chưa thấy ACK — dẫn xuất lại mỗi lần sẽ ngốn
+    // 1/5 thời gian của thread mạng suốt cả giai đoạn bắt tay. `salt` và `iterations`
+    // của host không đổi giữa các lần thử nên khoá cũ dùng lại được; AnswerChallenge
+    // đối chiếu hai trường đó và chỉ tính lại khi chúng thật sự khác.
+    AuthKey derived_;
+    RejectReason rejectReason_ = RejectReason::None;
+    bool passwordAsked_ = false; // đã gọi onPasswordNeeded cho lượt này chưa
+
     uint8_t buf_[kMaxDatagram] = {};
 };
 

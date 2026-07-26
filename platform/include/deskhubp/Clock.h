@@ -66,15 +66,33 @@
 //     lỗi rất khó lần ra nguyên nhân.
 // ---------------------------------------------------------------------------
 #ifdef _WIN32
+// Guard từng macro thay vì #define thẳng: header này bị include ở rất nhiều nơi, và
+// phần lớn file trong client/windows/cpp (cùng deskhubp/Random.h) cũng đặt đúng hai
+// macro này trước windows.h của chúng. Định nghĩa lại một macro đã có là C4005 trên
+// MSVC — hôm nay chỉ là cảnh báo, nhưng core/ đang dịch ở /W4 và thêm /WX là gãy
+// build. Cả hai chỉ cần được đặt MỘT LẦN trước windows.h là đủ.
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 inline uint64_t NowUs() {
     // Tần số QPC cố định suốt phiên chạy của máy, nên hỏi đúng một lần rồi nhớ lại.
     // `static` cục bộ trong hàm inline: C++11 trở đi bảo đảm khởi tạo đúng một lần
     // và an toàn với đa luồng, nên không cần khoá dù nhiều thread cùng gọi.
-    static LARGE_INTEGER freq = [] { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f; }();
+    //
+    // QueryPerformanceFrequency không bao giờ thất bại trên Windows XP trở lên (tài
+    // liệu Microsoft bảo đảm điều đó), nhưng vẫn chốt sàn 1: nếu nó trả về 0 vì bất
+    // cứ lý do gì thì hai phép chia bên dưới là chia cho 0 — sập ngay trên đường
+    // nóng của vòng lặp mạng, ở một chỗ không ai nghĩ tới khi đọc log.
+    static LARGE_INTEGER freq = [] {
+        LARGE_INTEGER f;
+        if (!QueryPerformanceFrequency(&f) || f.QuadPart <= 0) f.QuadPart = 1;
+        return f;
+    }();
     LARGE_INTEGER c;
     QueryPerformanceCounter(&c);
     // Đổi số đếm (tick) sang micro-giây: ticks / freq * 1e6.

@@ -41,6 +41,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace deskhub {
 
@@ -118,6 +119,27 @@ inline constexpr size_t kMaxHostNameBytes = 48; // tên máy, UTF-8, cắt bớt
 inline constexpr uint8_t kAnnounceFlagAcceptsInput = 1u << 0; // host cho điều khiển
 inline constexpr uint8_t kAnnounceFlagBusy = 1u << 1;         // đã có client khác
 
+// XÁC THỰC BẰNG MẬT KHẨU (GĐ10). Cho tới GĐ9, HELLO đầu tiên từ bất kỳ máy nào
+// trong mạng đều mở được phiên và bơm được chuột/phím — không có bước nào hỏi xem
+// người gõ có quyền hay không. Đây là lớp bịt lỗ đó.
+//
+// Mật khẩu KHÔNG đi trên dây. Host gửi một challenge ngẫu nhiên, client đáp bằng
+// HMAC của (khoá dẫn từ mật khẩu, challenge) — xem deskhub/auth/PasswordAuth.h về
+// toàn bộ lý do và phạm vi bảo vệ. Ở đây chỉ định nghĩa khung byte.
+//
+// Đừng nhầm việc này với mã hoá: sau khi bắt tay xong, luồng vẫn đi trần. Nó chặn
+// người lạ MỞ phiên, không chặn người nghe lén ĐỌC phiên (DTLS/AEAD vẫn là GĐ6 của
+// docs/05-roadmap.md).
+inline constexpr size_t kMaxDeviceNameBytes = 48; // tên thiết bị client, UTF-8, cắt bớt
+
+// Trần số vòng PBKDF2 mà client chấp nhận từ AUTH_CHALLENGE. Một host độc hại (hoặc
+// một gói dựng bừa) khai 4 tỉ vòng sẽ treo client hàng giờ bên trong một hàm không
+// huỷ được — DoS rẻ nhất trong toàn bộ giao thức nếu không chặn. Trần này nằm ở
+// tầng wire chứ không ở tầng auth vì nó là ràng buộc trên DỮ LIỆU TỪ MẠNG, mà đó
+// đúng là việc của tầng wire. Rộng gấp 20 lần mức dùng thật (kAuthKdfIterations =
+// 100k) nên còn nhiều chỗ nâng về sau mà không phải đụng client cũ.
+inline constexpr uint32_t kMaxKdfIterations = 2'000'000;
+
 enum class Chan : uint8_t { Control = 0,
     Video = 1,
     Input = 2,
@@ -128,10 +150,12 @@ enum class MsgType : uint8_t {
     HelloAck = 0x02,
     Start = 0x03,
     Bye = 0x04,
-    ListSources = 0x05, // GĐ6: client hỏi host đang chia sẻ những cửa sổ nào
-    SourceList = 0x06,  // GĐ6: host trả danh sách
-    Discover = 0x07,    // GĐ9: client phát quảng bá "có host nào ở đây không?"
-    Announce = 0x08,    // GĐ9: host tự giới thiệu về đúng nơi vừa hỏi
+    ListSources = 0x05,   // GĐ6: client hỏi host đang chia sẻ những cửa sổ nào
+    SourceList = 0x06,    // GĐ6: host trả danh sách
+    Discover = 0x07,      // GĐ9: client phát quảng bá "có host nào ở đây không?"
+    Announce = 0x08,      // GĐ9: host tự giới thiệu về đúng nơi vừa hỏi
+    AuthChallenge = 0x09, // GĐ10: host đòi chứng minh biết mật khẩu
+    AuthResponse = 0x0A,  // GĐ10: client đáp bằng HMAC, không gửi mật khẩu
     VideoPacket = 0x10,
     FecPacket = 0x11,  // GĐ5: parity XOR cho một nhóm gói video
     InputEvent = 0x20, // GĐ4
@@ -217,6 +241,26 @@ struct Hello {
     uint8_t desiredFps;
     uint16_t features;
     uint8_t sourceId; // nguồn muốn xem (lấy từ SOURCE_LIST; 0 = nguồn đầu tiên)
+    // Thêm ở GĐ10, nối vào ĐUÔI payload nên host cũ (gói 14 byte) vẫn đọc được.
+    // `deviceToken` là token host đã cấp ở lần kết nối trước — chìa ra để khỏi phải
+    // hỏi mật khẩu người dùng lần nữa. Rỗng = chưa từng được nhớ, hoặc bị Forget.
+    // `deviceName` chỉ để hiện ở danh sách "Trusted devices" phía host.
+    std::vector<uint8_t> deviceToken;
+    std::string deviceName;
+};
+
+// AUTH_CHALLENGE (host→client): tham số dẫn xuất khoá + thách thức một lần.
+// sessionId = 0 — phiên chưa tồn tại, chính bước này quyết định nó có được tạo không.
+struct AuthChallenge {
+    uint8_t salt[16] = {};   // kAuthSaltBytes; cố định theo mật khẩu đang đặt
+    uint32_t iterations = 0; // số vòng PBKDF2 — đi trên dây để nâng được về sau
+    uint8_t nonce[32] = {};  // kAuthNonceBytes; MỚI mỗi lần, chống phát lại
+};
+
+// AUTH_RESPONSE (client→host): HMAC(khoá, nonce ‖ clientId). Mật khẩu ở lại máy client.
+struct AuthResponse {
+    uint32_t clientId = 0;
+    uint8_t proof[32] = {}; // kAuthProofBytes
 };
 
 // Cờ trong HELLO_ACK: host nói cho client biết phiên này ĐƯỢC PHÉP làm gì. Không có
@@ -225,6 +269,19 @@ struct Hello {
 // khiển" là một lời hứa ở trang giới thiệu, nên nó phải hiện được trên giao diện.
 inline constexpr uint16_t kAckFlagInputAccepted = 1u << 0; // host nhận INPUT_EVENT
 inline constexpr uint16_t kAckFlagClipboard = 1u << 1;     // host đồng bộ clipboard
+
+// Vì sao HELLO bị từ chối. Đi ở ĐUÔI HELLO_ACK (GĐ10) để client hiện đúng thông
+// báo: không có nó, người nhập sai mật khẩu sẽ thấy "host rejected (busy or codec
+// mismatch)" — câu nói dối duy nhất trên toàn bộ giao diện, và họ không có cách nào
+// biết đường mà sửa.
+enum class RejectReason : uint8_t {
+    None = 0,
+    Busy = 1,          // đã có client khác
+    CodecMismatch = 2, // client không giải mã được H.264
+    AuthRequired = 3,  // host đòi mật khẩu, client không đáp / đáp lạc challenge
+    AuthFailed = 4,    // đáp sai
+    LockedOut = 5,     // sai quá nhiều lần, đang bị khoá tạm
+};
 
 struct HelloAck {
     uint32_t sessionId;
@@ -238,6 +295,11 @@ struct HelloAck {
     // Thiếu trường này ParseHelloAck mặc định kAckFlagInputAccepted: host cũ luôn
     // nhận input, hiểu ngược lại sẽ vô hiệu hoá điều khiển với mọi bản cũ.
     uint16_t flags = kAckFlagInputAccepted;
+    // Thêm ở GĐ10, cũng nối vào đuôi. `reason` chỉ có nghĩa khi codec = Rejected.
+    RejectReason reason = RejectReason::None;
+    // Token để client nhớ cho lần sau (rỗng = host không nhớ thiết bị này). Chỉ đi
+    // trên dây ĐÚNG MỘT LẦN, ngay sau khi đáp đúng; host chỉ giữ lại băm của nó.
+    std::vector<uint8_t> deviceToken;
 };
 
 struct PingPong {
@@ -343,6 +405,9 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
 size_t BuildDiscover(std::span<uint8_t> out, uint32_t probeId);
 // Cắt tên máy ở kMaxHostNameBytes (lùi tới ranh giới ký tự UTF-8).
 size_t BuildAnnounce(std::span<uint8_t> out, const HostAnnounce& m);
+// GĐ10. Trả 0 nếu `iterations` = 0 (một challenge không dẫn xuất được khoá là vô nghĩa).
+size_t BuildAuthChallenge(std::span<uint8_t> out, const AuthChallenge& m);
+size_t BuildAuthResponse(std::span<uint8_t> out, const AuthResponse& m);
 size_t BuildBye(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildPing(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);
 size_t BuildPong(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);
@@ -386,6 +451,10 @@ size_t ParseSourceList(const CommonHeader& h, std::span<const uint8_t> payload,
 // DISCOVER: trả probeId. nullopt nếu payload ngắn.
 std::optional<uint32_t> ParseDiscover(std::span<const uint8_t> payload);
 std::optional<HostAnnounce> ParseAnnounce(std::span<const uint8_t> payload);
+// GĐ10. Kẹp `iterations` ở kAuthMaxKdfIterations — host độc hại khai 4 tỉ vòng sẽ
+// treo client hàng giờ trong một hàm không huỷ được (xem PasswordAuth.h).
+std::optional<AuthChallenge> ParseAuthChallenge(std::span<const uint8_t> payload);
+std::optional<AuthResponse> ParseAuthResponse(std::span<const uint8_t> payload);
 std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload);
 std::optional<PingPong> ParsePingPong(std::span<const uint8_t> payload);
 std::optional<Feedback> ParseFeedback(std::span<const uint8_t> payload);

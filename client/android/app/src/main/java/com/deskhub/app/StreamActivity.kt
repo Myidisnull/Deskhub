@@ -87,17 +87,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.deskhub.app.ui.AppState
 import com.deskhub.app.ui.Chip
+import com.deskhub.app.ui.Credentials
 import com.deskhub.app.ui.DeskhubTheme
 import com.deskhub.app.ui.Ds
 import com.deskhub.app.ui.DsButton
 import com.deskhub.app.ui.DsButtonSize
 import com.deskhub.app.ui.DsButtonVariant
+import com.deskhub.app.ui.DsCheckbox
 import com.deskhub.app.ui.DsIconButton
 import com.deskhub.app.ui.Eyebrow
 import com.deskhub.app.ui.HudBar
 import com.deskhub.app.ui.HudDivider
 import com.deskhub.app.ui.KeyboardIcon
 import com.deskhub.app.ui.MonoText
+import com.deskhub.app.ui.PasswordField
 import com.deskhub.app.ui.PillTone
 import com.deskhub.app.ui.Recents
 import com.deskhub.app.ui.Sparkline
@@ -136,13 +139,26 @@ class StreamActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppState.init(this)
         Recents.init(this)
+        Credentials.init(this)
         // Người xem không chạm màn hình trong lúc xem, nên nếu không giữ cờ này thì
         // máy tự tắt màn hình giữa chừng — kéo theo Surface bị hủy và phiên đứt.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val addr = intent.getStringExtra("addr").orEmpty()
+        // GĐ10: chìa mật khẩu + token đã lưu cho host này. Cả hai rỗng ở lần đầu —
+        // khi đó host đòi mật khẩu sẽ đẩy phiên sang PHASE_NEED_PASSWORD và
+        // StreamScreen hiện hộp thoại.
+        val saved = Credentials.forAddress(addr)
         // Không có "source" (vd. chạy thẳng từ adb) -> nguồn 0, như trước.
-        started = NativeClient.nativeStart(addr, intent.getIntExtra("source", 0))
+        started =
+            NativeClient.nativeStart(
+                addr,
+                intent.getIntExtra("source", 0),
+                Credentials.clientId,
+                Credentials.deviceName,
+                saved?.password.orEmpty(),
+                saved?.deviceToken,
+            )
 
         setContent {
             // Ép TỐI bất kể AppState.isDark — xem ghi chú đầu file.
@@ -221,6 +237,11 @@ private fun StreamScreen(
             parseRtt(statusLine)?.let { rtt ->
                 rttTrace.add(rtt)
                 while (rttTrace.size > 60) rttTrace.removeAt(0)
+            }
+            // GĐ10: token nhớ thiết bị chỉ về ĐÚNG MỘT LẦN, ngay sau khi đáp đúng mật
+            // khẩu. Vét mỗi nhịp poll và cất ngay — bỏ lỡ là lần sau phải gõ lại.
+            NativeClient.nativeTakeDeviceToken().let { tok ->
+                if (tok.isNotEmpty()) Credentials.saveToken(address, tok)
             }
             // Hết phiên thì thoát hẳn coroutine: lý do kết thúc không đổi nữa, hỏi
             // tiếp chỉ tốn pin. LaunchedEffect tự hủy coroutine khi rời màn hình.
@@ -366,6 +387,18 @@ private fun StreamScreen(
             EndedOverlay(
                 reason = if (!started) "${tr("invalidAddress")}: $address" else endReason,
                 onBack = onDismiss,
+            )
+        } else if (phase == NativeClient.PHASE_NEED_PASSWORD) {
+            // GĐ10: host đòi mật khẩu. Phiên VẪN SỐNG phía dưới (tầng C++ tiếp tục
+            // phát lại HELLO), nên đây chỉ là một lớp phủ — nhập xong là đi tiếp,
+            // không phải kết nối lại từ đầu.
+            PasswordOverlay(
+                address = address,
+                onSubmit = { pw, remember ->
+                    if (remember) Credentials.savePassword(address, pw)
+                    NativeClient.nativeSubmitPassword(pw)
+                },
+                onCancel = onDismiss,
             )
         } else if (!streaming) {
             ConnectingOverlay(address = address)
@@ -540,6 +573,78 @@ private fun ConnectingOverlay(address: String) {
         ) {
             Spinner(size = 22.dp)
             MonoText(text = "${tr("connecting")} $address", color = Ds.colors.textPrimary)
+        }
+    }
+}
+
+/**
+ * GĐ10 — hộp thoại nhập mật khẩu, hiện khi host đòi mà máy này chưa có.
+ *
+ * Ứng với màn `05 · settings / password` của thiết kế, phần "Password to connect".
+ * Mật khẩu KHÔNG đi lên dây: tầng C++ đổi nó thành một proof HMAC theo challenge của
+ * host (xem docs/04-protocol.md §7b), nên chuỗi này không rời khỏi máy.
+ */
+@Composable
+private fun PasswordOverlay(
+    address: String,
+    onSubmit: (String, Boolean) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var password by remember { mutableStateOf("") }
+    var savePassword by remember { mutableStateOf(true) }
+    var reveal by remember { mutableStateOf(false) }
+    // Sai mật khẩu thì tầng C++ kết thúc phiên (PHASE_ENDED) chứ không quay lại đây,
+    // nên chỗ này chỉ cần chặn lần gửi rỗng.
+    val canSubmit = password.isNotBlank()
+
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(Ds.radiusXl)
+        Column(
+            modifier =
+                Modifier
+                    .padding(24.dp)
+                    .background(Ds.colors.surfacePanel, shape)
+                    .border(Ds.hairline, Ds.colors.borderHairline, shape)
+                    .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Eyebrow(text = tr("securityEyebrow"))
+            Text(
+                text = tr("connectPassword"),
+                fontSize = Ds.textBodyLg,
+                fontWeight = FontWeight.SemiBold,
+                color = Ds.colors.textPrimary,
+            )
+            MonoText(text = address, color = Ds.colors.textSecondary)
+
+            PasswordField(
+                value = password,
+                onValueChange = { password = it },
+                placeholder = tr("connectPassword"),
+                reveal = reveal,
+                onToggleReveal = { reveal = !reveal },
+                onGo = { if (canSubmit) onSubmit(password, savePassword) },
+            )
+            DsCheckbox(
+                checked = savePassword,
+                onToggle = { savePassword = it },
+                label = tr("savePassword"),
+            )
+            MonoText(text = tr("passwordHintPhone"))
+
+            DsButton(
+                text = tr("connect"),
+                onClick = { if (canSubmit) onSubmit(password, savePassword) },
+                variant = DsButtonVariant.PRIMARY,
+                enabled = canSubmit,
+                fullWidth = true,
+            )
+            DsButton(
+                text = tr("back"),
+                onClick = onCancel,
+                variant = DsButtonVariant.SECONDARY,
+                fullWidth = true,
+            )
         }
     }
 }

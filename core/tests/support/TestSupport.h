@@ -25,6 +25,17 @@ void Check(bool ok, const char* what);
 // bằng dữ liệu "ngẫu nhiên" nhưng phải tái lập được khi một check thất bại.
 uint32_t Rnd();
 
+// Nguồn byte cho HostCallbacks::randomBytes trong test.
+//
+// KHÔNG PHẢI NGẪU NHIÊN MÃ HOÁ — nó là xorshift32 ở trên, đoán được hoàn toàn. Chỗ
+// duy nhất được phép dùng nó là test, và chính vì lý do đó: một lần chạy thất bại
+// phải tái lập được y hệt. Bản thật là deskhubp::RandomBytes ở platform/.
+//
+// Nó tồn tại vì HostSession fail closed khi không lấy được entropy (BeginSession từ
+// chối phiên thay vì lùi về sessionId dẫn từ đồng hồ) — nên mọi test dựng HostSession
+// đều phải nối callback này, đúng như mọi client thật phải nối RandomBytes.
+bool TestRandomBytes(std::span<uint8_t> out);
+
 struct TestFrame {
     uint32_t id;
     bool idr;

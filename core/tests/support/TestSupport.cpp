@@ -24,6 +24,11 @@ uint32_t Rnd() {
     return g_rng;
 }
 
+bool TestRandomBytes(std::span<uint8_t> out) {
+    for (size_t i = 0; i < out.size(); ++i) out[i] = uint8_t(Rnd());
+    return true;
+}
+
 std::vector<TestFrame> MakeFrames(size_t count, size_t gop) {
     std::vector<TestFrame> v;
     v.reserve(count);

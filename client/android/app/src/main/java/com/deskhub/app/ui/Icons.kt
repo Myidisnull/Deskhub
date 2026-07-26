@@ -186,6 +186,80 @@ fun TerminalIcon(
     }
 }
 
+/** lock — thân khoá bo góc + quai hình chữ U ngược. Icon của ô mật khẩu (GĐ10). */
+@Composable
+fun LockIcon(
+    size: Dp = 18.dp,
+    color: Color,
+) {
+    Canvas(modifier = Modifier.size(size)) {
+        val stroke = STROKE_DP.dp.toPx()
+        val w = this.size.width
+        val h = this.size.height
+        // Thân khoá: nửa dưới.
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.2f, h * 0.46f),
+            size = Size(w * 0.6f, h * 0.38f),
+            cornerRadius = CornerRadius(w * 0.1f),
+            style = Stroke(width = stroke),
+        )
+        // Quai: cung nửa trên, hai chân cắm xuống mép thân.
+        val shackle =
+            Path().apply {
+                moveTo(w * 0.32f, h * 0.46f)
+                lineTo(w * 0.32f, h * 0.32f)
+                cubicTo(w * 0.32f, h * 0.14f, w * 0.68f, h * 0.14f, w * 0.68f, h * 0.32f)
+                lineTo(w * 0.68f, h * 0.46f)
+            }
+        drawPath(
+            path = shackle,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+    }
+}
+
+/**
+ * eye / eye.slash — nút hiện-ẩn mật khẩu. `crossed` gạch chéo qua để báo đang ẩn.
+ */
+@Composable
+fun EyeIcon(
+    size: Dp = 16.dp,
+    color: Color,
+    crossed: Boolean = false,
+) {
+    Canvas(modifier = Modifier.size(size)) {
+        val stroke = STROKE_DP.dp.toPx()
+        val w = this.size.width
+        val h = this.size.height
+        // Hình quả hạnh: hai cung đối xứng qua trục ngang.
+        val eye =
+            Path().apply {
+                moveTo(w * 0.1f, h * 0.5f)
+                cubicTo(w * 0.3f, h * 0.2f, w * 0.7f, h * 0.2f, w * 0.9f, h * 0.5f)
+                cubicTo(w * 0.7f, h * 0.8f, w * 0.3f, h * 0.8f, w * 0.1f, h * 0.5f)
+                close()
+            }
+        drawPath(path = eye, color = color, style = Stroke(width = stroke, join = StrokeJoin.Round))
+        drawCircle(
+            color = color,
+            radius = w * 0.13f,
+            center = Offset(w * 0.5f, h * 0.5f),
+            style = Stroke(width = stroke),
+        )
+        if (crossed) {
+            drawLine(
+                color = color,
+                start = Offset(w * 0.16f, h * 0.84f),
+                end = Offset(w * 0.84f, h * 0.16f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}
+
 /** macwindow — khung cửa sổ với thanh tiêu đề. Icon của dòng nguồn chia sẻ. */
 @Composable
 fun WindowIcon(

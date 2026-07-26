@@ -13,8 +13,10 @@
 #include "net/SourceQuery.h"
 #include "Log.h"
 
+#include <cstring>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace {
 
@@ -54,7 +56,9 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     return count;
 }
 
-bool dh_start(const char* address, uint8_t sourceId) {
+bool dh_start(const char* address, uint8_t sourceId, uint32_t client_id,
+    const char* device_name, const char* password,
+    const uint8_t* device_token, int device_token_len) {
     std::lock_guard<std::mutex> lk(g_mutex);
     if (g_client) {
         g_client->Stop();
@@ -67,12 +71,43 @@ bool dh_start(const char* address, uint8_t sourceId) {
         return false;
     }
 
+    // GĐ10: mọi trường đều được phép rỗng — khi đó phiên đi đường "chưa có mật khẩu"
+    // và host sẽ hỏi (DHPhaseNeedPassword).
+    ClientLoop::Credentials creds;
+    creds.clientId = client_id;
+    if (device_name) creds.deviceName = device_name;
+    if (password) creds.password = password;
+    if (device_token && device_token_len > 0)
+        creds.deviceToken.assign(device_token, device_token + device_token_len);
+
     g_client = std::make_unique<ClientLoop>();
-    if (!g_client->Start(addr, sourceId)) {
+    if (!g_client->Start(addr, sourceId, creds)) {
         g_client.reset();
         return false;
     }
     return true;
+}
+
+void dh_submit_password(const char* password) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (g_client && password) g_client->SubmitPassword(password);
+}
+
+int dh_take_device_token(uint8_t* out, int cap) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (!g_client || !out || cap <= 0) return 0;
+    const std::vector<uint8_t> tok = g_client->TakeDeviceToken();
+    if (tok.empty()) return 0;
+    // Bộ đệm quá nhỏ: trả 0 chứ KHÔNG chép một phần. Nửa cái token là token sai, mà
+    // caller lại lưu nó xuống Keychain và tưởng đã nhớ được thiết bị.
+    if (int(tok.size()) > cap) return 0;
+    std::memcpy(out, tok.data(), tok.size());
+    return int(tok.size());
+}
+
+int dh_reject_reason(void) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return g_client ? int(g_client->rejectReason()) : 0;
 }
 
 void dh_stop(void) {

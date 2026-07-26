@@ -64,6 +64,7 @@
 #include "net/HostIdent.h" // GĐ9: máy này là ai trên mạng (Beacon)
 #include "net/NetInfo.h"
 #include "deskhubp/Clock.h"
+#include "deskhubp/Random.h"
 #include "net/UdpSocket.h"
 #include "capture/WindowCapture.h"
 #include "AgentControl.h"
@@ -100,6 +101,7 @@ std::wstring FromUtf8(const std::string& s) {
 const char* StateName(deskhub::HostSession::State s) {
     switch (s) {
         case deskhub::HostSession::State::Idle: return "IDLE";
+        case deskhub::HostSession::State::Authenticating: return "AUTH";
         case deskhub::HostSession::State::Ready: return "READY";
         case deskhub::HostSession::State::Streaming: return "STREAMING";
     }
@@ -622,6 +624,13 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         deskhub::HostCallbacks cb;
         cb.send = [&sock, &replyAddr](std::span<const uint8_t> d) {
             sock.SendTo(replyAddr, d.data(), d.size());
+        };
+        // GĐ10: nguồn ngẫu nhiên mã hoá cho nonce challenge, sessionId và token
+        // thiết bị. core/ không đụng được API hệ điều hành nên phải nối từ đây.
+        // Thiếu callback này thì HostSession từ chối MỌI kết nối (fail closed) —
+        // xem HostSession::BeginSession.
+        cb.randomBytes = [](std::span<uint8_t> out) {
+            return RandomBytes(out.data(), out.size());
         };
         cb.onStart = [p] {
             p->forceIdr.store(true); // IDR mở màn (kèm SPS/PPS — repeatSPSPPS=1)

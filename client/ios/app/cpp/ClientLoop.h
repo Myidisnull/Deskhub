@@ -56,7 +56,29 @@ public:
     enum class Phase : int32_t { Idle = 0,
         Connecting = 1,
         Streaming = 2,
-        Ended = 3 };
+        Ended = 3,
+        // GĐ10: host đòi mật khẩu mà ta chưa có. Phiên VẪN SỐNG — ClientSession phát
+        // lại HELLO mỗi 0.5 giây, nên chỉ cần UI gọi SubmitPassword là lần phát lại
+        // kế tiếp đi tiếp, không phải Start lại từ đầu.
+        NeedPassword = 4 };
+
+    // Danh tính và bí mật của MÁY NÀY khi kết nối tới một host (GĐ10). Caller nạp từ
+    // kho an toàn của nền tảng (Keychain trên iOS) rồi truyền vào Start.
+    struct Credentials {
+        // ỔN ĐỊNH THEO CÀI ĐẶT, không theo lần chạy. Host khoá danh sách "thiết bị
+        // tin cậy" theo clientId, nên nếu nó đổi mỗi lần mở app thì deviceToken sẽ
+        // không bao giờ khớp lại và người dùng phải gõ mật khẩu mãi mãi. Sinh một
+        // lần rồi lưu — xem Credentials.swift.
+        uint32_t clientId = 0;
+        // Tên hiện ở danh sách "Trusted devices" phía host ("iPhone 15 Pro").
+        std::string deviceName;
+        // Mật khẩu người dùng đã lưu cho host này. Rỗng = chưa có, và khi đó host
+        // đòi mật khẩu sẽ đưa phiên vào Phase::NeedPassword.
+        std::string password;
+        // Token host cấp ở lần kết nối trước. Rỗng = chưa từng được nhớ / đã bị
+        // Forget phía host. Chìa được token hợp lệ thì khỏi cần mật khẩu.
+        std::vector<uint8_t> deviceToken;
+    };
 
     ClientLoop() = default;
     ~ClientLoop();
@@ -64,8 +86,33 @@ public:
     ClientLoop& operator=(const ClientLoop&) = delete;
 
     // `sourceId` lấy từ SOURCE_LIST (xem SourceQuery.h); 0 = nguồn đầu tiên.
-    bool Start(const NetAddr& server, uint8_t sourceId);
+    bool Start(const NetAddr& server, uint8_t sourceId, const Credentials& creds);
+
+    // Không có credentials — đường dùng của bản trước GĐ10 và của mọi caller chưa
+    // nối kho bí mật. KHÔNG viết `const Credentials& = {}` làm tham số mặc định:
+    // Credentials là lớp lồng, và một default argument dùng NSDMI của nó ngay trong
+    // thân lớp bao ngoài là lỗi biên dịch trên clang ("default member initializer
+    // needed within definition of enclosing class").
+    bool Start(const NetAddr& server, uint8_t sourceId) {
+        return Start(server, sourceId, Credentials{});
+    }
     void Stop();
+
+    // --- Xác thực (GĐ10). Gọi từ UI thread; thread Net vét mỗi vòng. ---
+
+    // Người dùng vừa nhập mật khẩu ở hộp thoại. Có tác dụng ở lần phát lại HELLO kế
+    // tiếp (≤ 0.5 giây). Gọi lúc phiên không ở NeedPassword là vô hại.
+    void SubmitPassword(const std::string& password);
+
+    // Host vừa cấp token nhớ thiết bị — ĐỌC RỒI XOÁ, nên chỉ trả về khác rỗng đúng
+    // một lần. Caller lưu vào Keychain kèm địa chỉ host để lần sau khỏi hỏi mật khẩu.
+    std::vector<uint8_t> TakeDeviceToken();
+
+    // Vì sao host từ chối (deskhub::RejectReason). UI phân biệt "sai mật khẩu" với
+    // "máy đang bận" — hai thứ đòi hai hành động hoàn toàn khác nhau từ người dùng.
+    int32_t rejectReason() const {
+        return rejectReason_.load(std::memory_order_acquire);
+    }
 
     // Giao layer mới (AVSampleBufferDisplayLayer* dưới dạng __bridge void*), hoặc
     // nullptr khi app xuống nền / view biến mất. CHẶN tới khi thread Decode xác nhận
@@ -134,7 +181,17 @@ private:
 
     NetAddr server_{};
     uint8_t sourceId_ = 0;
+    Credentials creds_; // chỉ thread Net đọc, đặt trước khi thread khởi động
     UdpSocket sock_;
+
+    // --- Xác thực (GĐ10): bắt tay giữa UI thread và thread Net ---
+    // Mật khẩu UI vừa nhập, chờ thread Net vét. Mutex chứ không atomic vì đây là
+    // std::string; khoá chỉ giữ vài chục nano giây và không nằm trên đường nóng.
+    std::mutex authMutex_;
+    std::string pendingPassword_;
+    bool havePendingPassword_ = false;
+    std::vector<uint8_t> newDeviceToken_; // host vừa cấp, chờ UI lấy đi lưu
+    std::atomic<int32_t> rejectReason_{0};
 
     std::thread netThread_;
     std::thread decodeThread_;

@@ -23,7 +23,9 @@ void TestWireRoundtrip() {
 
     Hello h{0xDEADBEEF, kCodecMaskH264 | kCodecMaskHevc, 2560, 1440, 120, 0x0001};
     size_t n = BuildHello(buf, h);
-    Check(n == kCommonHeaderSize + 14, "HELLO size"); // +1 byte sourceId ở GD6
+    // 14 byte cố định (+1 sourceId ở GĐ6) rồi hai trường độ dài của GĐ10: tokenLen
+    // và nameLen, cả hai bằng 0 khi client chưa được nhớ và không khai tên.
+    Check(n == kCommonHeaderSize + 16, "HELLO size");
     auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
     Check(ch && ch->type == MsgType::Hello && ch->sessionId == 0, "HELLO header");
     auto hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
@@ -101,8 +103,17 @@ void TestSourceListWire() {
     n = BuildHello(buf, h);
     auto hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(hp && hp->sourceId == 5, "HELLO carries sourceId");
-    auto old = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n - 1)));
+
+    // Dựng TAY một payload 13 byte đúng như client tiền-GĐ6 phát ra. Cắt bớt gói
+    // mới thay cho việc này là một phép thử khác hẳn: từ GĐ10, byte thứ 14 trở đi là
+    // tokenLen/nameLen, nên cắt một byte chỉ bỏ mất trường tên chứ không quay lại
+    // được bố cục cũ — và test sẽ "đạt" mà không kiểm chứng điều nó định kiểm chứng.
+    const uint8_t legacy13[13] = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x0A, 0x00,
+        0x05, 0xA0, 120, 0x00, 0x00};
+    auto old = ParseHello(std::span<const uint8_t>(legacy13, sizeof(legacy13)));
     Check(old && old->sourceId == 0, "13-byte HELLO still parses as source 0");
+    Check(old && old->deviceToken.empty() && old->deviceName.empty(),
+        "13-byte HELLO carries no device token or name");
 }
 
 // Ranh giới tin cậy: gói video/FEC dài quá mức Packetizer bao giờ cũng phát ra là

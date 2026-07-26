@@ -81,10 +81,38 @@ final class SessionModel {
         rttTrace = []
         connectErrorKey = ""
         phase = .connecting
+        // GĐ10: chìa mật khẩu + token đã lưu cho host này. Cả hai rỗng ở lần đầu —
+        // khi đó host đòi mật khẩu sẽ đẩy phiên sang .needPassword và StreamView hiện
+        // ô nhập.
+        let saved = Credentials.forAddress(address)
+
+        // Ô "Unlock with Face ID before connecting". Chỉ hỏi khi THẬT SỰ có bí mật đã
+        // lưu để dùng: bắt quét mặt rồi mới hiện ô nhập mật khẩu là hai lớp xác thực
+        // chồng lên nhau mà lớp đầu không bảo vệ gì cả.
+        if saved != nil, Credentials.biometricEnabled, Credentials.biometricAvailable {
+            Task { @MainActor in
+                guard await Credentials.unlock(reason: tr("biometricUnlock")) else {
+                    phase = .idle
+                    screen = .connect
+                    return
+                }
+                finishStart(sourceId: sourceId, credential: saved)
+            }
+            return
+        }
+        finishStart(sourceId: sourceId, credential: saved)
+    }
+
+    // Nửa sau của startStream, tách ra vì cửa Face ID ở trên là bất đồng bộ.
+    private func finishStart(sourceId: UInt8, credential: HostCredential?) {
         // dh_start chỉ trả false khi chuỗi địa chỉ không phân tích được — lỗi của
         // người gõ, và nó phải được nói ra Ở MÀN KẾT NỐI chứ không phải bằng một màn
         // xem đen thui không giải thích gì.
-        guard DeskhubClient.start(address: address, sourceId: sourceId) else {
+        guard DeskhubClient.start(
+            address: address,
+            sourceId: sourceId,
+            credential: credential
+        ) else {
             phase = .idle
             connectErrorKey = "invalidAddress"
             screen = .connect
@@ -92,6 +120,30 @@ final class SessionModel {
         }
         screen = .stream
         startPolling()
+    }
+
+    // MARK: — Xác thực (GĐ10)
+
+    /// Người dùng vừa nhập mật khẩu ở ô trên màn xem. `remember` = ô "Save the
+    /// password for this machine".
+    func submitPassword(_ password: String, remember: Bool) {
+        guard !password.isEmpty else { return }
+        if remember { Credentials.savePassword(password, for: address) }
+        DeskhubClient.submitPassword(password)
+        // Về .connecting ngay để ô nhập biến mất trong cùng một khung hình; nhịp poll
+        // kế tiếp sẽ nói sự thật (streaming, hoặc ended nếu sai mật khẩu).
+        phase = .connecting
+    }
+
+    /// Bí mật đã lưu cho từng host — mục "Saved passwords" ở màn kết nối.
+    var savedCredentials: [HostCredential] { Credentials.all }
+
+    func forgetCredential(_ address: String) {
+        Credentials.forget(address)
+    }
+
+    func forgetAllCredentials() {
+        Credentials.forgetAll()
     }
 
     // Dừng phiên và quay về màn hình kết nối.
@@ -164,6 +216,12 @@ final class SessionModel {
         if let rtt = Self.parseRtt(statusLine) {
             rttTrace.append(rtt)
             if rttTrace.count > 60 { rttTrace.removeFirst(rttTrace.count - 60) }
+        }
+
+        // GĐ10: token nhớ thiết bị chỉ về ĐÚNG MỘT LẦN, ngay sau khi đáp đúng mật
+        // khẩu. Vét mỗi nhịp poll và cất ngay — bỏ lỡ là lần sau phải gõ lại.
+        if let token = DeskhubClient.takeDeviceToken() {
+            Credentials.saveToken(token, for: address)
         }
 
         if phase == .ended {

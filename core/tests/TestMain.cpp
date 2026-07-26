@@ -17,6 +17,14 @@ int main() {
     std::printf("--- wire ---\n");
     RunWireTests();
 
+    // Crypto đi TRƯỚC auth: nếu SHA-256/HMAC/PBKDF2 sai thì mọi ca xác thực bên dưới
+    // đều vô nghĩa, và đọc log từ trên xuống sẽ thấy ngay nguyên nhân gốc.
+    std::printf("--- crypto: SHA-256 / HMAC / PBKDF2 (standard vectors) ---\n");
+    RunCryptoTests();
+
+    std::printf("--- auth: password gate, lockout, trusted devices ---\n");
+    RunAuthTests();
+
     std::printf("--- transport: reassembler ---\n");
     RunReassemblerTests();
 

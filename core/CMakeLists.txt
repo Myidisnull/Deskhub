@@ -12,8 +12,16 @@ project(DeskhubCore LANGUAGES CXX)
 #   input/     — chuỗi sự kiện chuột/phím có thứ tự trên nền transport
 #   control/   — policy điều tiết: bitrate/FEC phía host, gom số liệu phía client
 #   discovery/ — hỏi-đáp một nhịp TRƯỚC khi có phiên: dò host, liệt kê nguồn, ping dò
+#   crypto/    — SHA-256/HMAC/PBKDF2 thuần, tự cài để không phải link thư viện crypto
+#                khác nhau ở mỗi nền tảng (xem deskhub/crypto/Sha256.h)
+#   auth/      — xác thực mật khẩu kiểu challenge-response + thiết bị tin cậy (GĐ10)
 add_library(core STATIC
     src/wire/Wire.cpp
+
+    src/crypto/Sha256.cpp
+
+    src/auth/PasswordAuth.cpp
+    src/auth/AuthGuard.cpp
 
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
@@ -60,6 +68,10 @@ if(DESKHUB_CORE_TESTS)
         tests/support/TestSupport.cpp
 
         tests/wire/WireTests.cpp
+
+        tests/crypto/CryptoTests.cpp
+
+        tests/auth/AuthTests.cpp
 
         tests/transport/ReassemblerTests.cpp
         tests/transport/FecTests.cpp

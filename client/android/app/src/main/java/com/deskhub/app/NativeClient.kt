@@ -41,12 +41,33 @@ import kotlinx.coroutines.withContext
  * lớp là phải sửa cả bên C++.
  */
 object NativeClient {
-    // Trùng ClientLoop::Phase bên C++ — bốn giá trị này là một enum bị tách làm đôi
+    // Trùng ClientLoop::Phase bên C++ — năm giá trị này là một enum bị tách làm đôi
     // qua ranh giới JNI (nativePhase trả jint), nên sửa một bên phải sửa cả bên kia.
     const val PHASE_IDLE = 0
     const val PHASE_CONNECTING = 1
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
+
+    /**
+     * GĐ10 — host đòi mật khẩu mà máy này chưa có. Phiên **vẫn sống**: tầng C++ tiếp
+     * tục phát lại HELLO, nên chỉ cần [nativeSubmitPassword] là nó đi tiếp. Đừng gọi
+     * [nativeStop] ở trạng thái này.
+     */
+    const val PHASE_NEED_PASSWORD = 4
+
+    /**
+     * Trùng `deskhub::RejectReason` bên C++ (Wire.h) — cùng kiểu enum tách đôi như
+     * PHASE_* ở trên. Dùng để hiện đúng thông báo: "sai mật khẩu" và "máy đang bận"
+     * đòi hai hành động hoàn toàn khác nhau từ người dùng.
+     */
+    object RejectReason {
+        const val NONE = 0
+        const val BUSY = 1
+        const val CODEC_MISMATCH = 2
+        const val AUTH_REQUIRED = 3
+        const val AUTH_FAILED = 4
+        const val LOCKED_OUT = 5
+    }
 
     // Nạp .so một lần, lần đầu có ai chạm tới object này. Phải chạy trước mọi lời
     // gọi external fun, và khối init của object bảo đảm đúng điều đó.
@@ -67,9 +88,29 @@ object NativeClient {
     external fun nativeStart(
         addr: String,
         sourceId: Int,
+        clientId: Int,
+        deviceName: String,
+        password: String,
+        deviceToken: ByteArray?,
     ): Boolean
 
     external fun nativeStop()
+
+    /**
+     * GĐ10 — người dùng vừa nhập mật khẩu ở hộp thoại. Có tác dụng ở lần phát lại
+     * HELLO kế tiếp (≤ 0.5 giây), không phải kết nối lại từ đầu.
+     */
+    external fun nativeSubmitPassword(password: String)
+
+    /**
+     * GĐ10 — token host vừa cấp để nhớ máy này. **Đọc rồi xoá**: gọi lần hai trả
+     * mảng rỗng. Gọi mỗi nhịp poll và cất ngay khi khác rỗng — token chỉ đi trên dây
+     * đúng một lần, bỏ lỡ là lần sau người dùng phải gõ mật khẩu lại.
+     */
+    external fun nativeTakeDeviceToken(): ByteArray
+
+    /** GĐ10 — vì sao host từ chối, theo `deskhub::RejectReason`. Xem [RejectReason]. */
+    external fun nativeRejectReason(): Int
 
     /**
      * Giao/thu hồi Surface. Truyền null CHẶN tới khi bộ giải mã buông surface ra,

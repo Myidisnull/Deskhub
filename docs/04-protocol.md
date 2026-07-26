@@ -460,26 +460,96 @@ không ACK/không phát lại: mất mảnh thì bản copy đó bỏ qua, ngư�
 có bản mới. Vòng echo (đặt clipboard → listener máy đó bắn tiếp) chặn ở tầng nền
 tảng bằng cách nhớ văn bản vừa đặt/vừa đọc và bỏ update trùng nội dung.
 
+## 7b. Xác thực bằng mật khẩu (GĐ10)
+
+Cho tới GĐ9, **HELLO đầu tiên từ bất kỳ máy nào trong mạng đều mở được phiên và bơm được
+chuột/phím** — không có bước nào hỏi người gõ có quyền hay không. Mục này bịt lỗ đó.
+
+**Mật khẩu không đi trên dây.** Host gửi một thách thức ngẫu nhiên, client đáp bằng HMAC:
+
+```
+client                                                     host
+  │ HELLO (kèm deviceToken nếu đã từng được nhớ)             │
+  │────────────────────────────────────────────────────────► │
+  │                                     token khớp? → bỏ qua phần dưới
+  │ AUTH_CHALLENGE  salt(16) iterations(u32) nonce(32)       │
+  │ ◄────────────────────────────────────────────────────────│
+  │ key   = PBKDF2-HMAC-SHA256(password, salt, iterations)   │
+  │ proof = HMAC-SHA256(key, nonce ‖ clientId_be32)          │
+  │ AUTH_RESPONSE  clientId(4) proof(32)                     │
+  │────────────────────────────────────────────────────────► │
+  │                      host tính lại proof bằng key đã lưu, so HẰNG THỜI GIAN
+  │ HELLO_ACK (sessionId, + deviceToken mới nếu được nhớ)    │
+  │ ◄────────────────────────────────────────────────────────│
+```
+
+| Trường | Vì sao có mặt |
+|--------|---------------|
+| `nonce` | Mới mỗi lần bắt tay. Không có nó, một lời đáp bắt được hôm qua phát lại được hôm nay. |
+| `clientId` trộn vào proof | Không cắt proof của máy A dán sang phiên bắt tay của máy B được. |
+| `iterations` đi trên dây | Nâng số vòng KDF về sau mà không phá client cũ. Client **kẹp** ở `kMaxKdfIterations` = 2 000 000 — host độc hại khai 4 tỉ vòng sẽ treo client hàng giờ. |
+| `salt` | Chống bảng tra dựng sẵn. Đổi mỗi lần đặt mật khẩu mới. |
+
+**Trường nối đuôi, tương thích ngược.** `HELLO` thêm `tokenLen(1) token(n) nameLen(1)
+name(n)` sau 14 byte cũ; `HELLO_ACK` thêm `reason(1) tokenLen(1) token(n)` sau 24 byte cũ.
+Bản cũ dừng ở độ dài cũ và vẫn chạy — cùng mẫu đã dùng cho `flags` ở GĐ9.
+
+**`reason` trong HELLO_ACK** (chỉ có nghĩa khi `codec = 0xFF`): `1` Busy · `2` CodecMismatch
+· `3` AuthRequired · `4` AuthFailed · `5` LockedOut. Không có nó, người nhập sai mật khẩu
+thấy "host rejected (busy or codec mismatch)" và không biết đường nào mà sửa.
+
+**Thiết bị tin cậy.** Sau lần đáp đúng đầu tiên, host cấp `deviceToken` 32 byte ngẫu nhiên
+và chỉ nhớ **băm** của nó; client chìa token ra trong HELLO lần sau là vào thẳng. Đổi mật
+khẩu **xoá sạch** danh sách — người ta đổi mật khẩu chính vì muốn cắt quyền của một máy nào đó.
+
+**Khoá tạm.** 3 lần đáp sai → khoá 5 phút. Đây là thứ biến "có mật khẩu" thành "mật khẩu có
+tác dụng": UDP cho thử lại nhanh tuỳ ý nên không có nó, mật khẩu 6 ký tự bị dò xong trong
+vài phút. Gói AUTH_RESPONSE **lạc** (không ứng challenge nào đang chờ) *không* tính vào bộ
+đếm — nếu tính, ba gói rác từ ngoài mạng là khoá được host khỏi chính chủ của nó.
+
+⚠ **Đây không phải mã hoá.** Sau khi bắt tay xong, video/input/clipboard vẫn đi **trần**.
+Lớp này chặn người lạ **mở** phiên, không chặn người nghe lén **đọc** phiên đang chạy. Mã
+hoá luồng (DTLS/AEAD) vẫn là mục §9 dưới đây. Ngoài ra `key` host lưu là **tương đương mật
+khẩu đối với máy đó**: ai đọc được keychain thì tự ký được proof — giới hạn cố hữu của
+challenge-response đối xứng.
+
+**Phía core:** `deskhub/crypto/Sha256.h` (SHA-256/HMAC/PBKDF2 tự cài, thuần C++20),
+`deskhub/auth/PasswordAuth.h` (phép toán), `deskhub/auth/AuthGuard.h` (trạng thái + khoá
+tạm + thiết bị tin cậy). Entropy là thứ **duy nhất** phải xin từ OS:
+`platform/include/deskhubp/Random.h`, nối vào qua `HostCallbacks::randomBytes` — thiếu nó
+thì host **từ chối mọi kết nối** (fail closed).
+
 ## 8. Máy trạng thái phiên
 
 ```
-        HELLO/HELLO_ACK ok        START
-IDLE ─────────────────────► READY ──────► STREAMING
-  ▲                                          │
-  │              STOP/BYE hoặc timeout        │
-  └──────────────────────────────────────────┘
+                              HELLO (không đòi mật khẩu)
+        ┌──────────────────────────────────────────────┐
+        │                                              ▼
+IDLE ───┴─ HELLO (đòi mật khẩu) ─► AUTHENTICATING ─────► READY ──START──► STREAMING
+  ▲                                     │ AUTH_RESPONSE đúng                 │
+  │                                     │                                    │
+  │        đáp sai / khoá tạm / timeout │      STOP/BYE hoặc timeout         │
+  └─────────────────────────────────────┴────────────────────────────────────┘
 ```
 
 - **IDLE**: chờ HELLO.
+- **AUTHENTICATING** (GĐ10): đã gửi AUTH_CHALLENGE, chờ lời đáp. **Chưa có phiên** —
+  `sessionId` vẫn là 0, không nhận input, không đẩy video.
 - **READY**: đã thỏa thuận tham số, chờ START.
 - **STREAMING**: video chảy A→C, input chảy C→A, control hai chiều.
 - Mất PING quá N lần (vd. 5s không PONG) → quay về IDLE (mất kết nối).
+
+⚠ **`sessionId = 0` không bao giờ uỷ quyền cho gói nào.** Ở IDLE và AUTHENTICATING,
+`sessionId` của host là 0, nên phép so trần `gói.sessionId != phiên.sessionId` sẽ **đúng**
+với một gói giả mang `sessionId = 0` — và một START như thế đẩy thẳng host sang STREAMING
+mà chưa ai xác thực gì. Mọi kiểm tra đi qua `HostSession::InSession`, hàm này đòi thêm
+`sessionId != 0`.
 
 ## 9. Mở rộng (ngoài v1)
 
 | Tính năng | Ghi chú |
 |-----------|---------|
-| **Mã hóa** | DTLS hoặc lớp AEAD (vd. libsodium) bọc payload. Bật qua `features` bit1. |
+| **Mã hóa** | DTLS hoặc lớp AEAD (vd. libsodium) bọc payload. Bật qua `features` bit1. Xem §7b: xác thực **đã có** ở GĐ10, mã hoá thì chưa. |
 | **FEC** | Reed-Solomon/XOR trên nhóm gói video để phục hồi mất gói không cần retransmit. |
 | **NAT traversal** | ICE/STUN/TURN để chạy qua Internet không cần forward port. |
 | **Audio** | Kênh 3: Opus qua WASAPI loopback capture ở Agent. |

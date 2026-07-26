@@ -30,6 +30,7 @@ void TestSessions() {
     bool hostStarted = false, hostKeyframeReq = false, hostDisconnected = false;
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
     hcb.onStart = [&] { hostStarted = true; };
     hcb.onKeyframeRequest = [&] { hostKeyframeReq = true; };
     hcb.onDisconnect = [&] { hostDisconnected = true; };
@@ -150,6 +151,7 @@ void TestSessionsNackInvalidate() {
     std::vector<uint16_t> nackIdx;
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
     hcb.onNack = [&](uint32_t fid, std::span<const uint16_t> idx) {
         nackFrame = fid;
         nackIdx.assign(idx.begin(), idx.end());
@@ -212,6 +214,7 @@ void TestReconfigFocusFeedback() {
     bool gotFb = false;
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
     hcb.onFocus = [&](bool on) { focus = on; if (!on) gotFocusFalse = true; };
     hcb.onFeedback = [&](const Feedback& fb) { lastFb = fb; gotFb = true; };
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
@@ -312,6 +315,7 @@ struct Rig {
     HostCallbacks HostCb() {
         HostCallbacks cb;
         cb.send = [this](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
+        cb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
         cb.onStart = [this] { ++startCalls; };
         cb.onDisconnect = [this] { hostDisconnected = true; };
         cb.onInput = [this](const InputEvent& e) { hostInput.push_back(e); };

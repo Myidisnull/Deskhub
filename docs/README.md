@@ -96,6 +96,7 @@ build bằng Xcode project (`client/ios/` — `12-ios-client.md`; `client/macos/
 | [12-ios-client.md](12-ios-client.md) | Client iOS (SwiftUI + VideoToolbox, core C++) — **đã triển khai** (stream video) |
 | [13-release-mobile.md](13-release-mobile.md) | Phát hành mobile: fastlane + GitHub Actions, hướng dẫn cấu hình secrets/store một lần |
 | [14-macos-app.md](14-macos-app.md) | App macOS — **cả hai vai** (SwiftUI + ScreenCaptureKit + VideoToolbox + CGEvent) |
+| [15-review-todo.md](15-review-todo.md) | TODO sau review `core/` + `platform/`: bảo mật, đúng đắn, vệ sinh build, code chết |
 
 ## Trạng thái
 

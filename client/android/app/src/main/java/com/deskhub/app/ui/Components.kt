@@ -68,6 +68,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -706,6 +708,87 @@ fun HeroField(
             },
         )
         trailing()
+    }
+}
+
+/**
+ * Ô mật khẩu (GĐ10) — icon khoá bên trái, nút con mắt hiện/ẩn bên phải.
+ *
+ * Tách khỏi [HeroField] thay vì thêm cờ vào nó: HeroField là ô ĐỊA CHỈ ở màn hình
+ * chính (cao 56dp, imeAction Go, bàn phím Ascii để gõ được "ip:port"), còn ô này nằm
+ * trong một hộp thoại và cần bàn phím mật khẩu. Gộp lại sẽ thành một hàm với năm cờ
+ * điều kiện mà không chỗ nào dùng hết.
+ */
+@Composable
+fun PasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    reveal: Boolean,
+    onToggleReveal: () -> Unit,
+    onGo: () -> Unit = {},
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(Ds.radiusMd)
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) Ds.colors.borderActive else Ds.colors.borderHairline,
+        animationSpec = tween(Ds.EASE_MS),
+        label = "pwFieldBorder",
+    )
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(Ds.fieldHeight)
+                .background(Ds.colors.surfaceField, shape)
+                .border(Ds.hairline, borderColor, shape)
+                .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        LockIcon(size = 18.dp, color = Ds.colors.accent)
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.weight(1f),
+            interactionSource = interaction,
+            textStyle =
+                TextStyle(
+                    fontFamily = Ds.mono,
+                    fontSize = 16.sp,
+                    color = Ds.colors.textPrimary,
+                ),
+            cursorBrush = SolidColor(Ds.colors.accent),
+            singleLine = true,
+            // Che ký tự ở TẦNG VẼ chứ không đổi chuỗi: giá trị thật vẫn nguyên vẹn
+            // để gửi đi, và bấm con mắt là hiện ngay mà không phải giữ hai bản.
+            visualTransformation =
+                if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions =
+                KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Go,
+                ),
+            keyboardActions = KeyboardActions(onGo = { onGo() }),
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            fontFamily = Ds.mono,
+                            fontSize = 16.sp,
+                            color = Ds.colors.textSecondary,
+                        )
+                    }
+                    inner()
+                }
+            },
+        )
+        DsIconButton(onClick = onToggleReveal, side = 30.dp) {
+            EyeIcon(size = 16.dp, color = Ds.colors.textSecondary, crossed = !reveal)
+        }
     }
 }
 

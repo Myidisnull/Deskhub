@@ -62,6 +62,24 @@ std::string ClientLoop::EndReason() {
     return endReason_;
 }
 
+// GĐ10 — hai hàm bắc cầu giữa UI thread và thread Net. Cả hai chỉ chạm một mutex đã
+// giữ sẵn vài chục nano giây, không nằm trên đường nóng của video.
+void ClientLoop::SubmitPassword(const std::string& password) {
+    if (password.empty()) return;
+    std::lock_guard<std::mutex> lk(authMutex_);
+    pendingPassword_ = password;
+    havePendingPassword_ = true;
+}
+
+// ĐỌC RỒI XOÁ: token chỉ về đúng một lần từ host, và caller phải cất nó đi ngay. Trả
+// về rỗng ở mọi lần gọi sau đó cho tới khi host cấp token mới.
+std::vector<uint8_t> ClientLoop::TakeDeviceToken() {
+    std::lock_guard<std::mutex> lk(authMutex_);
+    std::vector<uint8_t> t;
+    t.swap(newDeviceToken_);
+    return t;
+}
+
 // Gõ một phím rời: NHẤN đi ngay, NHẢ hẹn sau kTapHoldUs (xem chú thích ở header
 // về lý do game cần phím được giữ thật). Phần chống mất gói đã có InputSender
 // gửi lặp lo; kẹt phím không xảy ra vì cú nhả chắc chắn được vét ở vòng Net sau.
@@ -181,9 +199,17 @@ void ClientLoop::QueueCharTap(uint32_t codepoint) {
     wantFocus_.store(true, std::memory_order_release);
 }
 
-bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId) {
+bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, const Credentials& creds) {
     server_ = server;
     sourceId_ = sourceId;
+    creds_ = creds;
+    rejectReason_.store(0, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lk(authMutex_);
+        pendingPassword_.clear();
+        havePendingPassword_ = false;
+        newDeviceToken_.clear();
+    }
     if (!sock_.Open(0)) { // cổng ngẫu nhiên
         LOGE("[Client] Failed to open socket.");
         return false;
@@ -413,12 +439,31 @@ void ClientLoop::NetThread() {
         }
         quit_.store(true);
     };
+    // GĐ10: host đòi mật khẩu mà ta không có (hoặc bản đã lưu vừa bị từ chối).
+    // KHÔNG thoát vòng lặp — ClientSession vẫn phát lại HELLO mỗi 0.5 giây, nên chỉ
+    // cần UI gọi SubmitPassword là lần phát lại kế tiếp tự đi tiếp.
+    cb.onPasswordNeeded = [this] {
+        LOGI("[Client] Host requires a password.");
+        phase_.store(Phase::NeedPassword, std::memory_order_release);
+    };
+    // Host vừa nhớ máy này. Giữ lại để UI lấy đi cất vào kho an toàn — token chỉ đi
+    // trên dây ĐÚNG MỘT LẦN, bỏ lỡ là lần sau phải gõ mật khẩu lại.
+    cb.onDeviceToken = [this](std::span<const uint8_t> token) {
+        LOGI("[Client] Host issued a device token (%zu bytes).", token.size());
+        std::lock_guard<std::mutex> lk(authMutex_);
+        newDeviceToken_.assign(token.begin(), token.end());
+    };
     deskhub::ClientSession session(cb);
+    if (!creds_.password.empty()) session.SetPassword(creds_.password);
 
     deskhub::Hello hello;
-    // clientId chỉ cần phân biệt được hai client, không cần bí mật hay bền vững —
-    // lấy đồng hồ micro-giây là đủ ngẫu nhiên cho mục đích đó.
-    hello.clientId = uint32_t(NowUs());
+    // clientId ỔN ĐỊNH theo cài đặt (Credentials.kt sinh một lần rồi cất vào
+    // EncryptedSharedPreferences). Trước GĐ10 nó lấy từ đồng hồ vì chỉ cần phân biệt
+    // hai client; giờ host khoá danh sách thiết bị tin cậy theo trường này, nên
+    // clientId đổi mỗi lần mở app đồng nghĩa với việc deviceToken không bao giờ khớp
+    // lại được. Lùi về đồng hồ nếu caller quên truyền — mất tính năng nhớ thiết bị,
+    // nhưng vẫn kết nối được bằng mật khẩu.
+    hello.clientId = creds_.clientId ? creds_.clientId : uint32_t(NowUs());
     hello.codecMask = deskhub::kCodecMaskH264;
     // Chưa biết kích thước surface lúc gửi HELLO (và đằng nào host cũng stream đúng
     // kích thước cửa sổ nguồn) -> khai trần rộng rãi, để host tự quyết.
@@ -427,6 +472,8 @@ void ClientLoop::NetThread() {
     hello.desiredFps = 60;
     hello.features = 0;
     hello.sourceId = sourceId_;
+    hello.deviceName = creds_.deviceName;
+    hello.deviceToken = creds_.deviceToken;
     session.Start(hello, NowUs());
 
     uint8_t buf[deskhub::kMaxDatagram];
@@ -567,6 +614,24 @@ void ClientLoop::NetThread() {
             if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
         }
 
+        // GĐ10: vét mật khẩu UI vừa nhập. Đặt vào ClientSession là đủ — nó phát lại
+        // HELLO mỗi 0.5 giây, và host sinh challenge MỚI cho mỗi HELLO, nên lượt kế
+        // tiếp tự đi qua cửa xác thực mà không phải dựng lại phiên.
+        {
+            std::string pw;
+            {
+                std::lock_guard<std::mutex> lk(authMutex_);
+                if (havePendingPassword_) {
+                    pw.swap(pendingPassword_);
+                    havePendingPassword_ = false;
+                }
+            }
+            if (!pw.empty()) {
+                session.SetPassword(pw);
+                phase_.store(Phase::Connecting, std::memory_order_release);
+            }
+        }
+
         // Vét input do UI thread gom -> ClientSession đánh seq, Tick gửi. Đã từng có
         // input thì báo SET_FOCUS để host kéo cửa sổ nguồn lên foreground (SetFocused
         // tự lọc trùng nên gọi mỗi vòng là vô hại).
@@ -592,12 +657,18 @@ void ClientLoop::NetThread() {
         if (wantFocus_.load(std::memory_order_acquire)) session.SetFocused(true);
 
         session.Tick(now);
+        rejectReason_.store(int32_t(session.rejectReason()), std::memory_order_release);
         if (session.state() == deskhub::ClientSession::State::Dead) break;
 
-        phase_.store(session.state() == deskhub::ClientSession::State::Streaming
-                         ? Phase::Streaming
-                         : Phase::Connecting,
-            std::memory_order_release);
+        // Giữ nguyên NeedPassword cho tới khi mật khẩu được nạp: ghi đè bằng
+        // Connecting mỗi vòng sẽ làm hộp thoại nhập mật khẩu tự đóng lại ngay sau
+        // khi hiện ra, và người dùng không kịp gõ gì.
+        if (phase_.load(std::memory_order_acquire) != Phase::NeedPassword) {
+            phase_.store(session.state() == deskhub::ClientSession::State::Streaming
+                             ? Phase::Streaming
+                             : Phase::Connecting,
+                std::memory_order_release);
+        }
 
         // Mỗi giây: chốt cửa sổ thống kê, in log, cập nhật overlay, gửi FEEDBACK.
         if (linkStats.Due(now)) {

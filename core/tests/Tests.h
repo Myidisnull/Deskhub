@@ -11,3 +11,5 @@ void RunSessionTests();
 void RunInputTests();
 void RunControlTests();
 void RunDiscoveryTests();
+void RunCryptoTests();
+void RunAuthTests();

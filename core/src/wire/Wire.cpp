@@ -88,9 +88,15 @@ size_t BuildPingPongImpl(std::span<uint8_t> out, MsgType type, uint32_t sessionI
 // HELLO: client tự giới thiệu và nêu khả năng của mình. sessionId = 0 vì phiên
 // chưa tồn tại — chính HELLO_ACK mới cấp số phiên.
 size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
-    // clientId(4) codecMask(2) maxW(2) maxH(2) fps(1) features(2) sourceId(1)
-    constexpr size_t kPayload = 14;
-    const size_t total = WriteCommon(out, MsgType::Hello, 0, Chan::Control, 0, kPayload);
+    // clientId(4) codecMask(2) maxW(2) maxH(2) fps(1) features(2) sourceId(1) = 14
+    // rồi phần GĐ10 nối đuôi: tokenLen(1) token(n) nameLen(1) name(n).
+    constexpr size_t kFixed = 14;
+    // Token dài sai là token hỏng — gửi đi chỉ tổ để host tính băm rồi loại. Bỏ hẳn
+    // và đi đường mật khẩu, đó là đường vẫn đúng trong mọi trường hợp.
+    const size_t tokenLen = m.deviceToken.size() == 32 ? 32 : 0;
+    const size_t nameLen = Utf8TruncLen(m.deviceName, kMaxDeviceNameBytes);
+    const size_t total = WriteCommon(out, MsgType::Hello, 0, Chan::Control, 0,
+        kFixed + 1 + tokenLen + 1 + nameLen);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
     PutU32(p, m.clientId);
@@ -100,6 +106,39 @@ size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
     p[10] = m.desiredFps;
     PutU16(p + 11, m.features);
     p[13] = m.sourceId;
+    uint8_t* q = p + kFixed;
+    *q++ = uint8_t(tokenLen);
+    if (tokenLen) std::memcpy(q, m.deviceToken.data(), tokenLen);
+    q += tokenLen;
+    *q++ = uint8_t(nameLen);
+    if (nameLen) std::memcpy(q, m.deviceName.data(), nameLen);
+    return total;
+}
+
+// AUTH_CHALLENGE: salt(16) iterations(4) nonce(32). sessionId = 0 — phiên chưa tồn
+// tại, và chính bước này quyết định nó có được tạo hay không.
+size_t BuildAuthChallenge(std::span<uint8_t> out, const AuthChallenge& m) {
+    if (m.iterations == 0) return 0; // challenge không dẫn xuất được khoá là vô nghĩa
+    constexpr size_t kPayload = 16 + 4 + 32;
+    const size_t total = WriteCommon(out, MsgType::AuthChallenge, 0, Chan::Control, 0, kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    std::memcpy(p, m.salt, 16);
+    PutU32(p + 16, m.iterations);
+    std::memcpy(p + 20, m.nonce, 32);
+    return total;
+}
+
+// AUTH_RESPONSE: clientId(4) proof(32). clientId đi kèm dù host đã biết nó từ HELLO —
+// host đối chiếu để một proof của client khác không dùng lại được ở đây, và vì
+// sessionId vẫn là 0 nên không có trường nào khác nhận diện được người gửi.
+size_t BuildAuthResponse(std::span<uint8_t> out, const AuthResponse& m) {
+    constexpr size_t kPayload = 4 + 32;
+    const size_t total = WriteCommon(out, MsgType::AuthResponse, 0, Chan::Control, 0, kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.clientId);
+    std::memcpy(p + 4, m.proof, 32);
     return total;
 }
 
@@ -182,10 +221,14 @@ size_t BuildAnnounce(std::span<uint8_t> out, const HostAnnounce& m) {
 // sessionId nằm trong PAYLOAD chứ không phải header, vì lúc gửi gói này client
 // chưa biết số phiên nên không thể đối chiếu trường header.
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
-    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8) flags(2)
-    // flags nối vào ĐUÔI: client cũ đọc 22 byte đầu rồi thôi, không vỡ.
-    constexpr size_t kPayload = 24;
-    const size_t total = WriteCommon(out, MsgType::HelloAck, 0, Chan::Control, 0, kPayload);
+    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8) flags(2) = 24
+    // rồi phần GĐ10 nối đuôi: reason(1) tokenLen(1) token(n).
+    // Mọi thứ sau byte 22 đều nối vào ĐUÔI: client cũ đọc 22 byte đầu rồi thôi,
+    // không vỡ — cùng một mẫu tương thích ngược đã dùng cho `flags` ở GĐ9.
+    constexpr size_t kFixed = 24;
+    const size_t tokenLen = m.deviceToken.size() == 32 ? 32 : 0;
+    const size_t total = WriteCommon(out, MsgType::HelloAck, 0, Chan::Control, 0,
+        kFixed + 1 + 1 + tokenLen);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
     PutU32(p, m.sessionId);
@@ -196,6 +239,9 @@ size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
     PutU32(p + 10, m.bitrateBps);
     PutU64(p + 14, m.timebaseUs);
     PutU16(p + 22, m.flags);
+    p[24] = uint8_t(m.reason);
+    p[25] = uint8_t(tokenLen);
+    if (tokenLen) std::memcpy(p + 26, m.deviceToken.data(), tokenLen);
     return total;
 }
 
@@ -410,6 +456,51 @@ std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {
     m.features = GetU16(p + 11);
     // sourceId thêm ở GĐ6; gói 13 byte của bản cũ vẫn đọc được, hiểu là nguồn 0.
     m.sourceId = payload.size() >= 14 ? p[13] : 0;
+
+    // Phần GĐ10 nối đuôi: tokenLen(1) token(n) nameLen(1) name(n). Client cũ dừng ở
+    // 14 byte → không token, không tên; đó là trạng thái hợp lệ ("chưa từng được
+    // nhớ"), không phải gói hỏng. Mỗi độ dài đều do bên gửi khai nên phải đối chiếu
+    // với biên THẬT trước khi đọc — đây vẫn là ranh giới tin cậy.
+    size_t off = 14;
+    if (payload.size() > off) {
+        const size_t tokenLen = p[off];
+        ++off;
+        if (payload.size() < off + tokenLen) return std::nullopt;
+        // Chỉ nhận token đúng cỡ. Độ dài khác là gói dựng bừa: nhận vào cũng chỉ để
+        // AuthGuard tính băm rồi loại, mà lại mở đường cho một cấp phát tuỳ ý.
+        if (tokenLen == 32) m.deviceToken.assign(p + off, p + off + tokenLen);
+        off += tokenLen;
+    }
+    if (payload.size() > off) {
+        const size_t nameLen = p[off];
+        ++off;
+        if (payload.size() < off + nameLen) return std::nullopt;
+        m.deviceName.assign(reinterpret_cast<const char*>(p + off), nameLen);
+    }
+    return m;
+}
+
+std::optional<AuthChallenge> ParseAuthChallenge(std::span<const uint8_t> payload) {
+    if (payload.size() < 16 + 4 + 32) return std::nullopt;
+    const uint8_t* p = payload.data();
+    AuthChallenge m;
+    std::memcpy(m.salt, p, 16);
+    m.iterations = GetU32(p + 16);
+    std::memcpy(m.nonce, p + 20, 32);
+    // iterations = 0 làm PBKDF2 vô nghĩa; quá trần thì treo client hàng giờ trong
+    // một vòng lặp không huỷ được (xem kMaxKdfIterations). Kẹp thay vì từ chối: một
+    // host hơi lệch cấu hình vẫn kết nối được, còn host độc hại thì mất vũ khí.
+    if (m.iterations == 0) return std::nullopt;
+    if (m.iterations > kMaxKdfIterations) m.iterations = kMaxKdfIterations;
+    return m;
+}
+
+std::optional<AuthResponse> ParseAuthResponse(std::span<const uint8_t> payload) {
+    if (payload.size() < 4 + 32) return std::nullopt;
+    const uint8_t* p = payload.data();
+    AuthResponse m;
+    m.clientId = GetU32(p);
+    std::memcpy(m.proof, p + 4, 32);
     return m;
 }
 
@@ -491,6 +582,18 @@ std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
     // Host cũ dừng ở 22 byte. Mặc định là "nhận input" vì bản cũ luôn nhận — hiểu
     // ngược lại sẽ tắt điều khiển với mọi host chưa cập nhật (xem Wire.h).
     m.flags = payload.size() >= 24 ? GetU16(p + 22) : kAckFlagInputAccepted;
+
+    // Phần GĐ10 nối đuôi: reason(1) tokenLen(1) token(n). Host cũ dừng ở 24 byte —
+    // reason giữ nguyên None, đúng nghĩa "bản cũ không nói vì sao từ chối".
+    if (payload.size() >= 25 && p[24] <= uint8_t(RejectReason::LockedOut))
+        m.reason = RejectReason(p[24]);
+    if (payload.size() >= 26) {
+        const size_t tokenLen = p[25];
+        // Độ dài do host khai — đối chiếu biên thật trước khi đọc, và chỉ nhận đúng
+        // cỡ token của giao thức.
+        if (payload.size() >= 26 + tokenLen && tokenLen == 32)
+            m.deviceToken.assign(p + 26, p + 26 + tokenLen);
+    }
     return m;
 }
 

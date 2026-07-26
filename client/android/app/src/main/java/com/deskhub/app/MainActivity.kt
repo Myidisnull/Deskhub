@@ -40,6 +40,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,6 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.deskhub.app.ui.AppMark
 import com.deskhub.app.ui.AppState
+import com.deskhub.app.ui.Credentials
 import com.deskhub.app.ui.DeskhubTheme
 import com.deskhub.app.ui.Ds
 import com.deskhub.app.ui.DsButton
@@ -71,6 +74,7 @@ import com.deskhub.app.ui.DsButtonSize
 import com.deskhub.app.ui.DsButtonVariant
 import com.deskhub.app.ui.DsCheckbox
 import com.deskhub.app.ui.HeroField
+import com.deskhub.app.ui.LockIcon
 import com.deskhub.app.ui.MachineCard
 import com.deskhub.app.ui.MonoText
 import com.deskhub.app.ui.Panel
@@ -92,6 +96,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppState.init(this)
         Recents.init(this)
+        Credentials.init(this)
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
         // NativeClient không có Context nên phần lưu "chỉ xem" nằm ở đây.
         NativeClient.viewOnly = prefs.getBoolean("viewOnly", false)
@@ -234,6 +239,8 @@ private fun AddressScreen(
     val trimmed = address.trim()
     val go = { if (trimmed.isNotEmpty() && !busy) onConnect(trimmed) }
     var recents by remember { mutableStateOf(Recents.all) }
+    // GĐ10 — mật khẩu/token đã lưu, cho mục "Saved passwords" bên dưới.
+    var savedCreds by remember { mutableStateOf(Credentials.all) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopBar()
@@ -288,6 +295,77 @@ private fun AddressScreen(
                             link = machine.link,
                             onTap = { onAddressChange(machine.address) },
                         )
+                    }
+                }
+            }
+
+            // GĐ10 — "Saved passwords" của màn `05 · settings / password`. Đặt ở đây
+            // thay vì dựng một màn Settings riêng: chỉ có đúng một việc để làm (xoá),
+            // và nó thuộc cùng một câu hỏi với danh sách trên ("máy nào tôi đã dùng").
+            // Ẩn hẳn khi chưa lưu gì — một mục rỗng chỉ làm màn hình dài thêm.
+            if (savedCreds.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionHeader(label = tr("savedHosts")) {
+                        MonoText(text = tr("savedCountFmt").format(savedCreds.size))
+                        DsButton(
+                            text = tr("forgetAll"),
+                            onClick = {
+                                Credentials.forgetAll()
+                                savedCreds = Credentials.all
+                            },
+                            variant = DsButtonVariant.GHOST,
+                            size = DsButtonSize.SM,
+                        )
+                    }
+                    savedCreds.forEach { cred ->
+                        // Dựng tay thay vì dùng SourceRow: SourceRow là dòng CHỌN
+                        // nguồn (cả dòng là một nút, có ô tick), còn dòng này chỉ
+                        // hiển thị và có một nút riêng ở đuôi. Nhét thêm slot vào
+                        // SourceRow sẽ làm hỏng ý nghĩa của nó ở ba chỗ đang dùng.
+                        val shape = RoundedCornerShape(Ds.radiusMd)
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(Ds.colors.surfaceCard, shape)
+                                    .border(Ds.hairline, Ds.colors.borderHairline, shape)
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            LockIcon(size = 18.dp, color = Ds.colors.accent)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                MonoText(
+                                    text = cred.address,
+                                    color = Ds.colors.textPrimary,
+                                    maxLines = 1,
+                                )
+                                // Nói rõ máy này đang được nhớ bằng CÁI GÌ: có token
+                                // thì lần sau vào thẳng, chỉ có mật khẩu thì vẫn phải
+                                // qua challenge. Hai trạng thái đó khác nhau thật.
+                                MonoText(
+                                    text =
+                                        if (cred.hasToken) {
+                                            tr("savePassword")
+                                        } else {
+                                            tr("connectPassword")
+                                        },
+                                    maxLines = 1,
+                                )
+                            }
+                            DsButton(
+                                text = tr("forget"),
+                                onClick = {
+                                    Credentials.forget(cred.address)
+                                    savedCreds = Credentials.all
+                                },
+                                variant = DsButtonVariant.SECONDARY,
+                                size = DsButtonSize.SM,
+                            )
+                        }
                     }
                 }
             }
