@@ -102,7 +102,7 @@ void TestChallengeResponse() {
     Check(g.OnHello(42, {}, now, r) == AuthGuard::Outcome::NeedChallenge, "second attempt");
     Check(g.BeginChallenge(42, Nonce(2), now), "second challenge");
     Check(g.OnResponse(42, GoodProof(g, 42, "wrong password"), now, r) ==
-            AuthGuard::Outcome::Reject,
+              AuthGuard::Outcome::Reject,
         "wrong proof -> Reject");
     Check(r == RejectReason::AuthFailed, "reason says the password was wrong");
     Check(g.wrongTries() == 1, "a wrong proof is counted");

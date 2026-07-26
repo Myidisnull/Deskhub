@@ -117,6 +117,7 @@ class StreamActivity : ComponentActivity() {
     // kết nối lại ngay) — giữ thế hệ để onDestroy trễ của instance này không giết
     // nhầm phiên mà instance mới vừa mở.
     private var session = 0L
+
     // Phiên này có tự gửi mật khẩu ĐÃ LƯU không — để StreamScreen biết đường xoá nó
     // đi nếu host trả lời "sai mật khẩu" (host đổi mật khẩu chẳng hạn).
     private var usedSavedPassword = false
