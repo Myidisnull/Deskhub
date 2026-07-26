@@ -69,13 +69,23 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Windows: một exe duy nhất (host + client). Build preset Release bằng Ninja +
-  # MSVC, chạy lại core_tests trên chính toolchain đó trước khi xuất artifact.
+  # Windows: MỘT app chứa cả hai vai (host + client), dựng hai lớp như make
+  # release-windows: CMake (Ninja + MSVC) ra deskhub_native.dll, rồi dotnet ra
+  # Deskhub.exe (WinUI3) — .csproj tự chép DLL của preset x64-release sang cạnh exe.
+  # Core tests chạy lại trên chính toolchain MSVC trước khi xuất artifact.
   # (Không qua make: runner không có GNU make sẵn, và VsDevCmd đã có ilammy lo.)
+  #
+  # Artifact là CẢ THƯ MỤC, không phải một exe: app unpackaged + self-contained
+  # (WindowsPackageType=None, WindowsAppSDKSelfContained) nên Deskhub.exe cần
+  # runtime .NET + Windows App SDK nằm cùng thư mục mới chạy được.
   # ---------------------------------------------------------------------------
   windows:
     needs: core-tests
     runs-on: windows-latest
+    env:
+      # Đường ra của .csproj gồm cả TFM lẫn RID (xem make/windows.mk). Đổi
+      # TargetFramework trong Deskhub.csproj thì sửa luôn biến này.
+      WINUI_OUT: client/windows/csharp/bin/x64/Release/net9.0-windows10.0.19041.0/win-x64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,20 +99,38 @@ jobs:
       - name: Install Ninja
         run: choco install ninja -y
 
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
       - name: Configure
         run: cmake --preset x64-release
 
-      - name: Build
+      - name: Build native (deskhub_native.dll)
         run: cmake --build --preset x64-release
 
       - name: Run core tests (CTest, offline)
         run: ctest --test-dir out/build/x64-release --output-on-failure
 
-      - name: Upload exe
+      # Tương đương `make release-windows` phần dotnet. -p:Platform=x64 để ra
+      # bin\x64\... — cùng chỗ Visual Studio ghi, khớp WINUI_OUT ở trên.
+      - name: Build WinUI3 app (Deskhub.exe)
+        run: dotnet build client/windows/csharp/Deskhub.csproj -c Release -p:Platform=x64
+
+      # Chặn sớm: thiếu DLL thì app vẫn build xanh nhưng chạy là chết vì DllImport.
+      - name: Check native DLL landed next to the exe
+        shell: pwsh
+        run: |
+          foreach ($f in 'Deskhub.exe', 'deskhub_native.dll') {
+            if (-not (Test-Path "$env:WINUI_OUT/$f")) { throw "missing $f in $env:WINUI_OUT" }
+          }
+
+      - name: Upload app folder
         uses: actions/upload-artifact@v4
         with:
           name: deskhub-windows
-          path: out/build/x64-release/client/windows/client.exe
+          path: ${{ env.WINUI_OUT }}
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -191,10 +219,12 @@ jobs:
         with:
           path: dist
 
+      # Windows là cả thư mục (app unpackaged + self-contained) nên nén thành zip,
+      # giống macOS; android/macOS chỉ cần đổi tên cho mang tag.
       - name: Rename with tag
         run: |
           mkdir -p out
-          cp dist/deskhub-windows/client.exe    "out/deskhub-${GITHUB_REF_NAME}.exe"
+          (cd dist/deskhub-windows && zip -qr "$GITHUB_WORKSPACE/out/deskhub-${GITHUB_REF_NAME}-windows.zip" .)
           cp dist/deskhub-android/app-debug.apk  "out/deskhub-${GITHUB_REF_NAME}.apk"
           cp dist/deskhub-macos/deskhub-macos.zip "out/deskhub-${GITHUB_REF_NAME}-macos.zip"
 
@@ -202,6 +232,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            out/deskhub-${{ github.ref_name }}.exe
+            out/deskhub-${{ github.ref_name }}-windows.zip
             out/deskhub-${{ github.ref_name }}.apk
             out/deskhub-${{ github.ref_name }}-macos.zip

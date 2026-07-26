@@ -46,11 +46,11 @@ Triggers: push to `main`, push of `v*` tags, pull requests to `main`,
 |---|---|---|
 | `core-tests` | ubuntu + macos matrix | `make test-ctest` — offline C++20 core tests |
 | `coverage` | ubuntu | `make coverage` (clang + llvm-cov), uploads `coverage-report` artifact |
-| `windows` | windows (needs core-tests) | CMake preset `x64-release` + CTest, uploads `deskhub-windows` (client.exe); checks out submodules |
+| `windows` | windows (needs core-tests) | CMake preset `x64-release` (native DLL) + CTest, then `dotnet build -c Release -p:Platform=x64` (WinUI3); uploads `deskhub-windows` — the whole unpackaged self-contained folder, not a single exe; checks out submodules |
 | `android` | ubuntu | JDK 17, NDK `26.1.10909125`, CMake `3.22.1`, then `make build-android`; uploads `deskhub-android` (app-debug.apk) |
 | `ios` | macos | `make build-ios` — Simulator build check only, no signing, no artifact |
 | `macos` | macos (needs core-tests) | `make release-macos`, ad-hoc signed, uploads `deskhub-macos` (zip) |
-| `release` | ubuntu (needs windows, android, macos) | Only on `v*` tags: renames the exe/apk/macOS zip with the tag and attaches them to a GitHub Release (`softprops/action-gh-release`) |
+| `release` | ubuntu (needs windows, android, macos) | Only on `v*` tags: zips the Windows folder, renames the apk/macOS zip with the tag, and attaches all three to a GitHub Release (`softprops/action-gh-release`) |
 
 ### deploy.yml
 
