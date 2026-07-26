@@ -106,7 +106,10 @@ public:
 
     // Host vừa cấp token nhớ thiết bị — ĐỌC RỒI XOÁ, nên chỉ trả về khác rỗng đúng
     // một lần. Caller lưu vào Keychain kèm địa chỉ host để lần sau khỏi hỏi mật khẩu.
-    std::vector<uint8_t> TakeDeviceToken();
+    // `maxLen` = sức chứa buffer của caller: token to hơn thì GIỮ NGUYÊN và trả rỗng.
+    // Token chỉ đi trên dây đúng một lần — tiêu huỷ nó chỉ vì buffer nhỏ là mất nó
+    // vĩnh viễn mà không ai hay.
+    std::vector<uint8_t> TakeDeviceToken(size_t maxLen = SIZE_MAX);
 
     // Vì sao host từ chối (deskhub::RejectReason). UI phân biệt "sai mật khẩu" với
     // "máy đang bận" — hai thứ đòi hai hành động hoàn toàn khác nhau từ người dùng.

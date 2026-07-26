@@ -20,8 +20,11 @@
 
 namespace {
 
-// Phiên duy nhất, y như g_client bên Android.
-std::unique_ptr<ClientLoop> g_client;
+// Phiên duy nhất, y như g_client bên Android. shared_ptr chứ không unique_ptr:
+// dh_set_layer phải gọi SetLayer NGOÀI g_mutex (nó chặn chờ thread Decode ack), nên
+// cần một tham chiếu giữ ClientLoop sống qua suốt cú gọi đó — nếu không, dh_stop
+// chạy song song sẽ huỷ đối tượng ngay dưới chân SetLayer.
+std::shared_ptr<ClientLoop> g_client;
 std::mutex g_mutex;
 
 // Buffer tĩnh cho chuỗi trả về (hợp lệ tới lần gọi kế). Thread-safe vì chỉ
@@ -80,7 +83,7 @@ bool dh_start(const char* address, uint8_t sourceId, uint32_t client_id,
     if (device_token && device_token_len > 0)
         creds.deviceToken.assign(device_token, device_token + device_token_len);
 
-    g_client = std::make_unique<ClientLoop>();
+    g_client = std::make_shared<ClientLoop>();
     if (!g_client->Start(addr, sourceId, creds)) {
         g_client.reset();
         return false;
@@ -96,11 +99,11 @@ void dh_submit_password(const char* password) {
 int dh_take_device_token(uint8_t* out, int cap) {
     std::lock_guard<std::mutex> lk(g_mutex);
     if (!g_client || !out || cap <= 0) return 0;
-    const std::vector<uint8_t> tok = g_client->TakeDeviceToken();
+    // Truyền cap xuống: token to hơn buffer thì ClientLoop GIỮ NGUYÊN và trả rỗng,
+    // chứ không tiêu huỷ — token chỉ đi trên dây đúng một lần, và chép một phần thì
+    // caller lưu nửa cái token sai xuống Keychain mà tưởng đã nhớ được thiết bị.
+    const std::vector<uint8_t> tok = g_client->TakeDeviceToken(size_t(cap));
     if (tok.empty()) return 0;
-    // Bộ đệm quá nhỏ: trả 0 chứ KHÔNG chép một phần. Nửa cái token là token sai, mà
-    // caller lại lưu nó xuống Keychain và tưởng đã nhớ được thiết bị.
-    if (int(tok.size()) > cap) return 0;
     std::memcpy(out, tok.data(), tok.size());
     return int(tok.size());
 }
@@ -119,13 +122,15 @@ void dh_stop(void) {
 }
 
 void dh_set_layer(void* layer) {
-    ClientLoop* cl = nullptr;
+    std::shared_ptr<ClientLoop> cl;
     {
         std::lock_guard<std::mutex> lk(g_mutex);
-        cl = g_client.get();
+        cl = g_client;
     }
     // SetLayer blocks until Decode thread acks — must not hold g_mutex during that
     // wait, otherwise poll calls (dh_phase, dh_status_line) from main thread deadlock.
+    // The shared_ptr copy keeps the loop alive even if dh_stop/dh_start resets
+    // g_client concurrently; destruction then happens here, after SetLayer returns.
     if (cl) cl->SetLayer(layer);
 }
 

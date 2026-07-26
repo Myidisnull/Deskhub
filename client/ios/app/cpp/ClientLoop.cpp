@@ -60,9 +60,12 @@ void ClientLoop::SubmitPassword(const std::string& password) {
 
 // ĐỌC RỒI XOÁ: token chỉ về đúng một lần từ host, và caller phải cất nó đi ngay. Trả
 // về rỗng ở mọi lần gọi sau đó cho tới khi host cấp token mới.
-std::vector<uint8_t> ClientLoop::TakeDeviceToken() {
+std::vector<uint8_t> ClientLoop::TakeDeviceToken(size_t maxLen) {
     std::lock_guard<std::mutex> lk(authMutex_);
     std::vector<uint8_t> t;
+    // Buffer của caller không chứa nổi: GIỮ token lại chứ không tiêu huỷ — nó chỉ đi
+    // trên dây đúng một lần, vứt ở đây là mất vĩnh viễn.
+    if (newDeviceToken_.size() > maxLen) return t;
     t.swap(newDeviceToken_);
     return t;
 }
@@ -565,6 +568,16 @@ void ClientLoop::NetThread() {
         // Hai lý do còn lại đến từ thread Decode. exchange() đọc-và-xoá nguyên tử.
         if (decodeFailed_.exchange(false, std::memory_order_acq_rel)) requestKf("dec_fail");
         if (queueOverflow_.exchange(false, std::memory_order_acq_rel)) requestKf("q_overflow");
+
+        // GĐ7: xin host gửi lại các mảnh còn thiếu của frame đầu hàng (NACK). Bù cho
+        // FEC khi chùm mất vượt sức parity mà RTT còn đủ nhỏ để gói gửi lại về kịp.
+        if (reasm) {
+            uint16_t nackIdx[64];
+            uint32_t nackFrame = 0;
+            const size_t nn = reasm->PlanNack(now, minRttUs_.load(std::memory_order_relaxed),
+                nackFrame, nackIdx);
+            if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
+        }
 
         // GĐ10: vét mật khẩu UI vừa nhập. Đặt vào ClientSession là đủ — nó phát lại
         // HELLO mỗi 0.5 giây, và host sinh challenge MỚI cho mỗi HELLO, nên lượt kế

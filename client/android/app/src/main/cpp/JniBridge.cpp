@@ -54,6 +54,14 @@ constexpr uint16_t kDefaultPort = 47777; // trùng client/windows/MainMenuWindow
 std::unique_ptr<ClientLoop> g_client;
 ANativeWindow* g_window = nullptr;
 
+// Thế hệ phiên, tăng mỗi lần nativeStart thành công. Cần vì vòng đời Activity CHỒNG
+// LẤN nhau: người dùng kết thúc phiên rồi kết nối lại ngay, onCreate của
+// StreamActivity MỚI có thể chạy trước onDestroy của cái CŨ (Android không hứa gì về
+// thứ tự với activity đang finish). onDestroy cũ mà gọi một nativeStop vô điều kiện
+// là nó bóp chết phiên mới toanh — nên mỗi Activity giữ thế hệ của phiên MÌNH tạo và
+// chỉ dừng được đúng phiên đó.
+uint64_t g_generation = 0;
+
 jstring ToJString(JNIEnv* env, const std::string& s) {
     return env->NewStringUTF(s.c_str());
 }
@@ -98,7 +106,9 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     return arr;
 }
 
-JNIEXPORT jboolean JNICALL
+// Trả về THẾ HỆ của phiên vừa tạo (0 = thất bại). Caller giữ nó lại và đưa cho
+// nativeStop — xem chú thích ở g_generation.
+JNIEXPORT jlong JNICALL
 Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addrStr,
     jint sourceId, jint clientId, jstring deviceNameStr, jstring passwordStr,
     jbyteArray deviceToken) {
@@ -107,7 +117,7 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     NetAddr server;
     if (!ParseNetAddr(addr, kDefaultPort, server)) {
         LOGE("[JNI] Invalid host address: \"%s\"", addr.c_str());
-        return JNI_FALSE;
+        return 0;
     }
 
     // GĐ10: danh tính + bí mật của máy này, do Credentials.kt nạp từ
@@ -129,11 +139,11 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     g_client = std::make_unique<ClientLoop>();
     if (!g_client->Start(server, uint8_t(sourceId), creds)) {
         g_client.reset();
-        return JNI_FALSE;
+        return 0;
     }
     // Surface có thể đã sẵn sàng trước khi bấm Connect (SurfaceView tạo xong trước).
     if (g_window) g_client->SetWindow(g_window);
-    return JNI_TRUE;
+    return jlong(++g_generation);
 }
 
 // --- Xác thực (GĐ10) ---
@@ -164,12 +174,16 @@ Java_com_deskhub_app_NativeClient_nativeRejectReason(JNIEnv*, jobject) {
 
 // Stop() chờ cả hai thread thoát hẳn rồi reset mới hủy đối tượng — nên sau khi hàm
 // này trả về, không còn thread nào của phiên cũ chạm vào Surface nữa.
+//
+// `generation` là giá trị nativeStart đã trả cho caller: chỉ dừng nếu phiên đang
+// chạy đúng là phiên caller tạo (0 = dừng vô điều kiện). Thiếu phép so này thì
+// onDestroy trễ của một StreamActivity cũ giết nhầm phiên mới — xem g_generation.
 JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeStop(JNIEnv*, jobject) {
-    if (g_client) {
-        g_client->Stop();
-        g_client.reset();
-    }
+Java_com_deskhub_app_NativeClient_nativeStop(JNIEnv*, jobject, jlong generation) {
+    if (!g_client) return;
+    if (generation != 0 && uint64_t(generation) != g_generation) return;
+    g_client->Stop();
+    g_client.reset();
 }
 
 // Giao hoặc thu hồi Surface. Đây là hàm tinh tế nhất file — nó quản lý vòng đời của
@@ -185,15 +199,22 @@ JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeSetSurface(JNIEnv* env, jobject, jobject surface) {
     if (surface) {
         ANativeWindow* w = ANativeWindow_fromSurface(env, surface);
-        // Đã giữ một cửa sổ KHÁC: buông nó theo đúng thứ tự an toàn trước khi thay.
-        // So sánh g_window != w là cần thiết — Android có thể giao lại đúng Surface
-        // cũ, và lúc đó release rồi dùng tiếp là hủy nhầm cái đang cần.
-        if (g_window && g_window != w) {
-            if (g_client) g_client->SetWindow(nullptr);
-            ANativeWindow_release(g_window);
+        if (g_window == w) {
+            // Android giao lại ĐÚNG Surface đang giữ (surfaceCreated bắn lại không có
+            // destroy xen giữa). fromSurface vừa +1 lần nữa cho cùng cửa sổ — phải
+            // trả lại ref thừa đó, nếu không mỗi lần như vậy rò vĩnh viễn một tham
+            // chiếu và buffer queue phía sau Surface không bao giờ được giải phóng
+            // trọn vẹn. Ta chỉ theo dõi MỘT ref cho g_window.
+            if (w) ANativeWindow_release(w);
+        } else {
+            // Đã giữ một cửa sổ KHÁC: buông nó theo đúng thứ tự an toàn trước khi thay.
+            if (g_window) {
+                if (g_client) g_client->SetWindow(nullptr);
+                ANativeWindow_release(g_window);
+            }
+            g_window = w;
         }
-        g_window = w;
-        if (g_client) g_client->SetWindow(g_window);
+        if (g_client && g_window) g_client->SetWindow(g_window);
     } else {
         // Thứ tự bắt buộc: bảo ClientLoop buông trước, RỒI mới release. Đảo lại là
         // codec đang render vào một ANativeWindow đã bị hủy.
@@ -203,6 +224,22 @@ Java_com_deskhub_app_NativeClient_nativeSetSurface(JNIEnv* env, jobject, jobject
             g_window = nullptr;
         }
     }
+}
+
+// Thu hồi khi MỘT Surface cụ thể bị hủy (surfaceDestroyed). Khác nativeSetSurface(null)
+// ở chỗ có so DANH TÍNH: vòng đời hai StreamActivity chồng lấn nhau thì
+// surfaceDestroyed trễ của activity cũ không được phép giật cửa sổ mà phiên MỚI đang
+// vẽ vào. Chỉ khi surface chết đúng là cái đang giữ mới buông.
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeReleaseSurface(JNIEnv* env, jobject, jobject surface) {
+    if (!surface) return;
+    ANativeWindow* w = ANativeWindow_fromSurface(env, surface); // +1 tạm, chỉ để so
+    const bool ours = (w == g_window);
+    if (w) ANativeWindow_release(w);
+    if (!ours) return; // surface của một activity cũ đang đóng — không đụng phiên hiện tại
+    if (g_client) g_client->SetWindow(nullptr);
+    ANativeWindow_release(g_window);
+    g_window = nullptr;
 }
 
 // Gõ một phím rời (nhấn + nhả) sang host — nút F9 trên header màn hình xem.

@@ -112,7 +112,14 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 class StreamActivity : ComponentActivity() {
-    private var started = false
+    // Thế hệ phiên do nativeStart trả về (0 = không mở được). Tầng native là
+    // singleton mà vòng đời hai StreamActivity có thể chồng lấn nhau (kết thúc rồi
+    // kết nối lại ngay) — giữ thế hệ để onDestroy trễ của instance này không giết
+    // nhầm phiên mà instance mới vừa mở.
+    private var session = 0L
+    // Phiên này có tự gửi mật khẩu ĐÃ LƯU không — để StreamScreen biết đường xoá nó
+    // đi nếu host trả lời "sai mật khẩu" (host đổi mật khẩu chẳng hạn).
+    private var usedSavedPassword = false
 
     // Giữ ở Activity chứ không tạo trong composable: callback này phải sống đúng
     // bằng vòng đời SurfaceView, không được dựng lại theo mỗi lần recomposition.
@@ -131,7 +138,9 @@ class StreamActivity : ComponentActivity() {
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 // Chặn tới khi bộ giải mã buông surface — xem chú thích ở NativeClient.
-                NativeClient.nativeSetSurface(null)
+                // Bản có so danh tính: surfaceDestroyed trễ của activity cũ không
+                // được giật cửa sổ mà phiên mới đang vẽ vào.
+                NativeClient.nativeReleaseSurface(holder.surface)
             }
         }
 
@@ -149,8 +158,9 @@ class StreamActivity : ComponentActivity() {
         // khi đó host đòi mật khẩu sẽ đẩy phiên sang PHASE_NEED_PASSWORD và
         // StreamScreen hiện hộp thoại.
         val saved = Credentials.forAddress(addr)
+        usedSavedPassword = saved?.hasPassword == true
         // Không có "source" (vd. chạy thẳng từ adb) -> nguồn 0, như trước.
-        started =
+        session =
             NativeClient.nativeStart(
                 addr,
                 intent.getIntExtra("source", 0),
@@ -165,7 +175,8 @@ class StreamActivity : ComponentActivity() {
             DeskhubTheme(dark = true) {
                 StreamScreen(
                     address = addr,
-                    started = started,
+                    started = session != 0L,
+                    usedSavedPassword = usedSavedPassword,
                     holderCallback = holderCallback,
                     onDismiss = { finish() },
                 )
@@ -173,8 +184,19 @@ class StreamActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Xuống nền là KẾT THÚC phiên. Không có nhánh này thì surfaceDestroyed chỉ
+        // thu hồi cửa sổ (frame bị vứt) còn thread Net vẫn nhận trọn bitrate và host
+        // vẫn encode/gửi vô hạn — nhiều Mbps và pin đốt cho một app vô hình. Giao
+        // thức chưa có "pause" nên dừng hẳn là lựa chọn đúng; bản iOS cũng chết phiên
+        // khi xuống nền (host timeout 5s). Xoay màn hình (config change) thì không.
+        if (!isFinishing && !isChangingConfigurations) finish()
+    }
+
     override fun onDestroy() {
-        if (started) NativeClient.nativeStop()
+        // Chỉ dừng đúng phiên MÌNH tạo — xem chú thích ở `session`.
+        if (session != 0L) NativeClient.nativeStop(session)
         super.onDestroy()
     }
 }
@@ -213,6 +235,7 @@ private val kHotkeys =
 private fun StreamScreen(
     address: String,
     started: Boolean,
+    usedSavedPassword: Boolean,
     holderCallback: SurfaceHolder.Callback,
     onDismiss: () -> Unit,
 ) {
@@ -221,32 +244,61 @@ private fun StreamScreen(
     var endReason by remember { mutableStateOf("") }
     var videoW by remember { mutableIntStateOf(0) }
     var videoH by remember { mutableIntStateOf(0) }
-    // Dãy RTT cho biểu đồ ở HUD số liệu — 60 mẫu × 500ms = 30 giây gần nhất,
-    // trùng bản iOS (SessionModel.rttTrace).
+    // Dãy RTT cho biểu đồ ở HUD số liệu — dòng số liệu đổi mỗi giây một lần nên
+    // 60 mẫu ≈ 60 giây gần nhất, trùng bản iOS (SessionModel.rttTrace).
     val rttTrace = remember { mutableStateListOf<Double>() }
+
+    // Mật khẩu chờ được lưu — CHỈ ghi xuống sau khi host xác nhận nó đúng (phase
+    // sang STREAMING). Lưu ngay lúc nhập thì một lần gõ nhầm với ô "Save" bật sẵn
+    // sẽ ghi đè bản đúng, và mọi lần kết nối sau tự gửi proof sai — mỗi lần tiêu
+    // một lượt trong hạn mức 3 lần sai trước khi host khoá 5 phút.
+    var pendingSavePassword by remember { mutableStateOf<String?>(null) }
+    // Proof đang bay là bản ĐÃ LƯU (gửi tự động lúc start) hay bản vừa gõ.
+    var savedPasswordInPlay by remember { mutableStateOf(usedSavedPassword) }
 
     // Hỏi trạng thái từ tầng C++ 500ms/lần. Rẻ hơn nhiều so với để C++ gọi ngược
     // lên JVM mỗi frame, và overlay chỉ đổi mỗi giây một lần nên không cần nhanh hơn.
     LaunchedEffect(started) {
         if (!started) return@LaunchedEffect
+        // Dòng số liệu chỉ đổi mỗi giây trong khi poll chạy 500ms — chỉ lấy mẫu RTT
+        // khi chuỗi THAY ĐỔI, kẻo mỗi giá trị vào biểu đồ hai lần (bậc thang giả).
+        var prevStatus = ""
         while (true) {
             phase = NativeClient.nativePhase()
             statusLine = NativeClient.nativeStatusLine()
             videoW = NativeClient.nativeVideoWidth()
             videoH = NativeClient.nativeVideoHeight()
-            parseRtt(statusLine)?.let { rtt ->
-                rttTrace.add(rtt)
-                while (rttTrace.size > 60) rttTrace.removeAt(0)
+            if (statusLine.isNotEmpty() && statusLine != prevStatus) {
+                prevStatus = statusLine
+                parseRtt(statusLine)?.let { rtt ->
+                    rttTrace.add(rtt)
+                    while (rttTrace.size > 60) rttTrace.removeAt(0)
+                }
             }
             // GĐ10: token nhớ thiết bị chỉ về ĐÚNG MỘT LẦN, ngay sau khi đáp đúng mật
             // khẩu. Vét mỗi nhịp poll và cất ngay — bỏ lỡ là lần sau phải gõ lại.
             NativeClient.nativeTakeDeviceToken().let { tok ->
                 if (tok.isNotEmpty()) Credentials.saveToken(address, tok)
             }
+            // Mật khẩu vừa gõ đã được host chấp nhận → giờ mới đáng lưu.
+            if (phase == NativeClient.PHASE_STREAMING) {
+                pendingSavePassword?.let { pw ->
+                    Credentials.savePassword(address, pw)
+                    pendingSavePassword = null
+                }
+            }
             // Hết phiên thì thoát hẳn coroutine: lý do kết thúc không đổi nữa, hỏi
             // tiếp chỉ tốn pin. LaunchedEffect tự hủy coroutine khi rời màn hình.
             if (phase == NativeClient.PHASE_ENDED) {
                 endReason = NativeClient.nativeEndReason()
+                pendingSavePassword = null // chưa được xác nhận thì không lưu
+                // Bản đã lưu bị host từ chối (họ đổi mật khẩu chẳng hạn) → xoá đi,
+                // nếu không mọi lần kết nối sau tự gửi proof sai và chết ngay.
+                if (savedPasswordInPlay &&
+                    NativeClient.nativeRejectReason() == NativeClient.RejectReason.AUTH_FAILED
+                ) {
+                    Credentials.forgetPassword(address)
+                }
                 return@LaunchedEffect
             }
             delay(500)
@@ -395,7 +447,9 @@ private fun StreamScreen(
             PasswordOverlay(
                 address = address,
                 onSubmit = { pw, remember ->
-                    if (remember) Credentials.savePassword(address, pw)
+                    // Chưa lưu vội — vòng poll ghi xuống khi host xác nhận (STREAMING).
+                    pendingSavePassword = if (remember) pw else null
+                    savedPasswordInPlay = false // proof sắp bay là bản vừa gõ
                     NativeClient.nativeSubmitPassword(pw)
                 },
                 onCancel = onDismiss,

@@ -142,16 +142,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXSourcesBuildPhase section */
-		BB1620B73011D2F4006CCD14 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXSourcesBuildPhase section */
-
 /* Begin PBXShellScriptBuildPhase section */
 		BBSH000100000001006CCD14 /* Build libcore.a (CMake) */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -173,6 +163,16 @@
 			shellScript = "# libcore.a build bằng CMake — core/CMakeLists.txt là nguồn sự thật duy nhất về\n# danh sách source của core, Xcode không giữ bản chép tay nữa (từng sót file khi\n# core thêm .cpp mới). Chạy lại mỗi build (alwaysOutOfDate): cmake tự incremental.\nset -euo pipefail\n# Xcode không kế thừa PATH của shell — thêm chỗ brew đặt cmake (bootstrap.sh cài).\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/ios-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../../core\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$IPHONEOS_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" -j \"$(sysctl -n hw.ncpu)\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BB1620B73011D2F4006CCD14 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		BB1620C43011D2F5006CCD14 /* Debug */ = {

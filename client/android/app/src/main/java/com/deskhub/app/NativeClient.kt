@@ -83,7 +83,10 @@ object NativeClient {
 
     /**
      * `sourceId` lấy từ [listSources]; 0 = nguồn đầu tiên, cũng là thứ host đời cũ
-     * (chỉ một nguồn) hiểu được. false nếu địa chỉ sai cú pháp.
+     * (chỉ một nguồn) hiểu được. Trả về THẾ HỆ của phiên vừa tạo (0 = địa chỉ sai
+     * cú pháp) — giữ nó lại và đưa cho [nativeStop], để onDestroy trễ của một
+     * StreamActivity cũ không giết nhầm phiên mà activity mới vừa mở (vòng đời hai
+     * activity chồng lấn nhau, Android không hứa gì về thứ tự).
      */
     external fun nativeStart(
         addr: String,
@@ -92,9 +95,13 @@ object NativeClient {
         deviceName: String,
         password: String,
         deviceToken: ByteArray?,
-    ): Boolean
+    ): Long
 
-    external fun nativeStop()
+    /**
+     * Dừng phiên có thế hệ đúng bằng `generation` (giá trị [nativeStart] đã trả);
+     * phiên hiện tại là thế hệ khác thì không đụng. 0 = dừng vô điều kiện.
+     */
+    external fun nativeStop(generation: Long)
 
     /**
      * GĐ10 — người dùng vừa nhập mật khẩu ở hộp thoại. Có tác dụng ở lần phát lại
@@ -118,6 +125,14 @@ object NativeClient {
      * thật, codec còn vẽ vào đó là dùng-sau-giải-phóng.
      */
     external fun nativeSetSurface(surface: Surface?)
+
+    /**
+     * Thu hồi khi MỘT Surface cụ thể bị hủy — gọi trong surfaceDestroyed() với chính
+     * surface đang chết. Khác [nativeSetSurface] (null) ở chỗ tầng C++ so DANH TÍNH:
+     * surfaceDestroyed trễ của một StreamActivity cũ sẽ không giật mất cửa sổ mà
+     * phiên mới đang vẽ vào. Cũng CHẶN tới khi bộ giải mã buông surface ra.
+     */
+    external fun nativeReleaseSurface(surface: Surface)
 
     // Nút chuột theo deskhub::MouseButton (Wire.h).
     const val MOUSE_LEFT = 1

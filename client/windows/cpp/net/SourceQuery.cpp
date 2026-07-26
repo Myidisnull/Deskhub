@@ -57,10 +57,19 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) 
 
         NetAddr from{};
         const int n = sock.RecvFrom(buf, sizeof(buf), from);
-        if (n <= 0) continue; // 0 = hết timeout 200ms, quay lại kiểm tra hạn 3s
+        if (n == 0) continue; // hết timeout 200ms, quay lại kiểm tra hạn 3s
+        if (n < 0) {
+            // Lỗi thật chứ không phải timeout: recvfrom trả về NGAY chứ không chờ
+            // 200ms, nên `continue` sẽ thành vòng xoáy bận suốt 3 giây. Bỏ cuộc
+            // luôn — caller tự lùi về nguồn 0.
+            return false;
+        }
 
         // Lọc kỹ: cổng này vừa mở nên về lý thuyết chỉ có host trả lời, nhưng gói
-        // lạc từ máy khác trong mạng LAN vẫn tới được. Chỉ nhận đúng SOURCE_LIST.
+        // lạc từ máy khác trong mạng LAN vẫn tới được. Chỉ nhận gói từ ĐÚNG host
+        // vừa hỏi — thiếu phép so này thì bất kỳ máy nào trong LAN đoán được cổng
+        // tạm cũng tiêm được danh sách nguồn giả — và chỉ nhận đúng SOURCE_LIST.
+        if (!(from == server)) continue;
         const auto span = std::span<const uint8_t>(buf, size_t(n));
         const auto h = deskhub::ParseCommonHeader(span);
         if (!h || h->type != deskhub::MsgType::SourceList) continue;

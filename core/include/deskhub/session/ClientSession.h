@@ -120,6 +120,11 @@ public:
     void SetPassword(std::string_view password) {
         password_.assign(password);
         derived_ = AuthKey{}; // salt có thể khác — buộc dẫn xuất lại
+        // Người dùng vừa nộp mật khẩu giữa chừng bắt tay: mốc bỏ cuộc 10 giây phải
+        // tính lại từ LÚC NỘP, không tính cả quãng họ ngồi gõ — nếu không thì gõ
+        // chậm hơn 10 giây là phiên chết ngay dưới tay họ. Tick đọc cờ này vì ở đây
+        // không có nowUs.
+        rearmGiveUp_ = true;
     }
     void ClearPassword() {
         password_.clear();
@@ -232,6 +237,7 @@ private:
     AuthKey derived_;
     RejectReason rejectReason_ = RejectReason::None;
     bool passwordAsked_ = false; // đã gọi onPasswordNeeded cho lượt này chưa
+    bool rearmGiveUp_ = false;   // SetPassword giữa bắt tay → Tick đặt lại startedUs_
 
     uint8_t buf_[kMaxDatagram] = {};
 };

@@ -140,7 +140,13 @@ bool MediaCodecDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
             }
             size_t cap = 0;
             uint8_t* buf = AMediaCodec_getInputBuffer(codec_, size_t(idx), &cap);
-            if (!buf || cap < csdLen) return false;
+            if (!buf || cap < csdLen) {
+                // Trả buffer đã dequeue về codec (nạp rỗng) trước khi báo lỗi — giữ
+                // bất biến "dequeue nào cũng có queue lại", kẻo buffer bị bỏ rơi nếu
+                // caller có ngày thôi Shutdown() ngay khi Decode trả false.
+                AMediaCodec_queueInputBuffer(codec_, size_t(idx), 0, 0, 0, 0);
+                return false;
+            }
             std::memcpy(buf, nal, csdLen);
             if (AMediaCodec_queueInputBuffer(codec_, size_t(idx), 0, csdLen, 0,
                     AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG) != AMEDIA_OK)
@@ -166,9 +172,10 @@ bool MediaCodecDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     // nằm trong bộ nhớ dùng chung với phần cứng; ghi tràn là hỏng ngoài tầm kiểm soát.
     size_t cap = 0;
     uint8_t* buf = AMediaCodec_getInputBuffer(codec_, size_t(idx), &cap);
-    if (!buf) return false;
-    if (cap < len) {
-        LOGE("[Decoder] input buffer too small: %zu < %zu", cap, len);
+    if (!buf || cap < len) {
+        if (buf) LOGE("[Decoder] input buffer too small: %zu < %zu", cap, len);
+        // Trả buffer về codec như nhánh CSD ở trên — không bỏ rơi buffer đã dequeue.
+        AMediaCodec_queueInputBuffer(codec_, size_t(idx), 0, 0, 0, 0);
         return false;
     }
     std::memcpy(buf, nal, len);

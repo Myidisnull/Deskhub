@@ -48,9 +48,12 @@ object Recents {
     ) {
         val addr = address.trim()
         if (addr.isEmpty()) return
+        // Tên mới rỗng thì GIỮ tên đã lưu: hầu hết call site chỉ biết địa chỉ, và
+        // ghi đè bằng chuỗi rỗng sẽ xoá mất tên hiển thị mà một lần trước đã có.
+        val newName = clean(name).ifEmpty { all.firstOrNull { it.address == addr }?.name.orEmpty() }
         val list =
             buildList {
-                add(RecentMachine(addr, clean(name), guessLink(addr)))
+                add(RecentMachine(addr, newName, guessLink(addr)))
                 addAll(all.filter { it.address != addr })
             }.take(MAX)
         cache = list

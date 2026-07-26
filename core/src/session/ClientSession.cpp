@@ -39,6 +39,7 @@ void ClientSession::Start(const Hello& hello, uint64_t nowUs) {
     startedUs_ = nowUs;
     lastRecvUs_ = nowUs;
     lastSentUs_ = nowUs;
+    rearmGiveUp_ = false; // SetPassword trước Start (mật khẩu đã lưu) không tính
     SendHello();
 }
 
@@ -218,7 +219,22 @@ void ClientSession::Tick(uint64_t nowUs) {
         case State::Dead:
             return;
         case State::Hello:
-            if (nowUs - startedUs_ > kHelloGiveUpUs) {
+            // Mật khẩu vừa được nộp giữa chừng — tính lại mốc bỏ cuộc từ lúc nộp
+            // (xem ghi chú ở SetPassword).
+            if (rearmGiveUp_) {
+                rearmGiveUp_ = false;
+                startedUs_ = nowUs;
+            }
+            if (passwordAsked_ && password_.empty()) {
+                // Đang chờ người dùng gõ mật khẩu: phiên phải SỐNG vô hạn theo lời
+                // hứa ở onPasswordNeeded — người gõ chậm không có lỗi. Host vẫn đáp
+                // challenge cho mỗi HELLO phát lại nên lastRecvUs_ vẫn được nuôi;
+                // chỉ chết khi host thật sự biến mất.
+                if (nowUs - lastRecvUs_ > kSessionTimeoutUs) {
+                    Die("lost contact with host (timeout)");
+                    return;
+                }
+            } else if (nowUs - startedUs_ > kHelloGiveUpUs) {
                 Die("could not connect (timed out)");
                 return;
             }

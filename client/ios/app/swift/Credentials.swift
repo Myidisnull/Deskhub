@@ -55,10 +55,19 @@ enum Credentials {
     /// Khác 0 là bắt buộc: tầng C++ hiểu 0 là "caller quên truyền" và lùi về đồng hồ,
     /// lúc đó tính năng nhớ thiết bị im lặng ngừng hoạt động.
     static var clientId: UInt32 {
-        if let data = read(account: clientIdKey), data.count == 4 {
+        let (data, status) = readWithStatus(account: clientIdKey)
+        if let data, data.count == 4 {
             let v = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             if v != 0 { return v }
         }
+        // Chỉ sinh danh tính mới khi Keychain KHẲNG ĐỊNH chưa có mục
+        // (errSecItemNotFound), hoặc mục có mà hỏng (đọc được nhưng sai cỡ/bằng 0).
+        // Lỗi tạm — errSecInteractionNotAllowed lúc máy vừa mở khoá, keychain bận —
+        // mà cũng sinh mới thì là GHI ĐÈ danh tính: host khoá "Trusted devices" theo
+        // trường này, một lần ghi đè là mọi deviceToken đã lưu hết khớp vĩnh viễn.
+        // Trả 0 cho lần này: tầng C++ lùi về đồng hồ, mất nhớ-thiết-bị MỘT phiên
+        // nhưng danh tính còn nguyên cho các lần sau.
+        guard status == errSecItemNotFound || status == errSecSuccess else { return 0 }
         // SecRandomCopyBytes chứ không phải arc4random: giá trị này đi vào proof xác
         // thực và là khoá tra thiết bị tin cậy phía host.
         var v: UInt32 = 0
@@ -102,6 +111,21 @@ enum Credentials {
         guard !key.isEmpty, !token.isEmpty else { return }
         write(account: "tok:\(key)", data: token)
         addToIndex(key)
+    }
+
+    /// Xoá RIÊNG mật khẩu đã lưu của một host, giữ lại deviceToken. Dùng khi host trả
+    /// lời "sai mật khẩu" cho bản đã lưu (họ đổi mật khẩu chẳng hạn) — giữ nó lại thì
+    /// mọi lần kết nối sau tự gửi proof sai và tiêu dần hạn mức 3 lần trước khi bị
+    /// khoá 5 phút.
+    static func forgetPassword(_ address: String) {
+        let key = normalize(address)
+        delete(account: "pw:\(key)")
+        // Không còn token thì mục này rỗng — rút khỏi chỉ mục luôn cho sạch.
+        if read(account: "tok:\(key)") == nil {
+            var idx = index()
+            idx.remove(key)
+            writeIndex(idx)
+        }
     }
 
     /// Quên một host — ứng với nút Forget ở màn "Saved passwords".
@@ -172,12 +196,18 @@ enum Credentials {
     }
 
     private static func read(account: String) -> Data? {
+        readWithStatus(account: account).data
+    }
+
+    // Bản trả kèm OSStatus — cho những chỗ (clientId) phải phân biệt "chưa có mục"
+    // với "đọc lỗi tạm thời", vì hai trường hợp đó đòi hai phản ứng ngược nhau.
+    private static func readWithStatus(account: String) -> (data: Data?, status: OSStatus) {
         var q = query(account: account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
-        return out as? Data
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        return (status == errSecSuccess ? out as? Data : nil, status)
     }
 
     private static func write(account: String, data: Data) {

@@ -45,6 +45,15 @@ final class SessionModel {
 
     private var pollTimer: Timer?
 
+    // Mật khẩu chờ được lưu — CHỈ ghi vào Keychain sau khi host xác nhận nó đúng
+    // (phase chuyển sang .streaming). Lưu ngay lúc nhập thì một lần gõ nhầm với ô
+    // "Save" bật sẵn sẽ ghi đè bản đúng, và mọi lần kết nối sau tự gửi proof sai —
+    // mỗi lần tiêu một lượt trong hạn mức 3 lần sai của host.
+    private var pendingSavePassword: String?
+    // Phiên này có tự gửi mật khẩu ĐÃ LƯU không — để biết đường xoá nó đi nếu host
+    // trả lời "sai mật khẩu" (host đã đổi mật khẩu chẳng hạn).
+    private var usedSavedPassword = false
+
     // MARK: - Vòng đời phiên
 
     // Hỏi host xem nó chia sẻ những gì rồi đi tiếp: nhiều nguồn thì cho chọn, không
@@ -80,6 +89,8 @@ final class SessionModel {
         statusLine = ""
         rttTrace = []
         connectErrorKey = ""
+        pendingSavePassword = nil
+        usedSavedPassword = false
         phase = .connecting
         // GĐ10: chìa mật khẩu + token đã lưu cho host này. Cả hai rỗng ở lần đầu —
         // khi đó host đòi mật khẩu sẽ đẩy phiên sang .needPassword và StreamView hiện
@@ -108,6 +119,7 @@ final class SessionModel {
         // dh_start chỉ trả false khi chuỗi địa chỉ không phân tích được — lỗi của
         // người gõ, và nó phải được nói ra Ở MÀN KẾT NỐI chứ không phải bằng một màn
         // xem đen thui không giải thích gì.
+        usedSavedPassword = credential?.hasPassword ?? false
         guard DeskhubClient.start(
             address: address,
             sourceId: sourceId,
@@ -128,7 +140,9 @@ final class SessionModel {
     /// password for this machine".
     func submitPassword(_ password: String, remember: Bool) {
         guard !password.isEmpty else { return }
-        if remember { Credentials.savePassword(password, for: address) }
+        // Chưa lưu vội — đợi host xác nhận đúng đã (poll() lưu khi thấy .streaming).
+        pendingSavePassword = remember ? password : nil
+        usedSavedPassword = false // proof sắp gửi là bản vừa gõ, không phải bản đã lưu
         DeskhubClient.submitPassword(password)
         // Về .connecting ngay để ô nhập biến mất trong cùng một khung hình; nhịp poll
         // kế tiếp sẽ nói sự thật (streaming, hoặc ended nếu sai mật khẩu).
@@ -197,9 +211,14 @@ final class SessionModel {
     // Hỏi C++ mỗi 500ms để cập nhật overlay.
     private func startPolling() {
         stopPolling()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
+        // .common chứ không phải mode mặc định: khi người dùng đang kéo (scroll thanh
+        // phím tắt) run loop ở tracking mode và timer mode mặc định đứng im — phase
+        // đổi hay token về sẽ không được vét cho tới khi họ buông tay.
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
         poll()
     }
 
@@ -210,13 +229,16 @@ final class SessionModel {
 
     private func poll() {
         phase = DeskhubClient.phase()
-        statusLine = DeskhubClient.statusLine()
-        videoWidth = DeskhubClient.videoWidth()
-        videoHeight = DeskhubClient.videoHeight()
-        if let rtt = Self.parseRtt(statusLine) {
+        let line = DeskhubClient.statusLine()
+        // Dòng số liệu chỉ đổi mỗi giây trong khi poll chạy 500ms — chỉ lấy mẫu RTT
+        // khi chuỗi THAY ĐỔI, kẻo mỗi giá trị vào biểu đồ hai lần (bậc thang giả).
+        if !line.isEmpty, line != statusLine, let rtt = Self.parseRtt(line) {
             rttTrace.append(rtt)
             if rttTrace.count > 60 { rttTrace.removeFirst(rttTrace.count - 60) }
         }
+        statusLine = line
+        videoWidth = DeskhubClient.videoWidth()
+        videoHeight = DeskhubClient.videoHeight()
 
         // GĐ10: token nhớ thiết bị chỉ về ĐÚNG MỘT LẦN, ngay sau khi đáp đúng mật
         // khẩu. Vét mỗi nhịp poll và cất ngay — bỏ lỡ là lần sau phải gõ lại.
@@ -224,8 +246,21 @@ final class SessionModel {
             Credentials.saveToken(token, for: address)
         }
 
+        // Mật khẩu vừa gõ đã được host chấp nhận → giờ mới đáng lưu.
+        if phase == .streaming, let pw = pendingSavePassword {
+            Credentials.savePassword(pw, for: address)
+            pendingSavePassword = nil
+        }
+
         if phase == .ended {
             endReason = DeskhubClient.endReason()
+            pendingSavePassword = nil // mật khẩu chưa được xác nhận thì không lưu
+            // Bản đã lưu bị host từ chối (họ đổi mật khẩu chẳng hạn) → xoá đi, nếu
+            // không mọi lần kết nối sau tự gửi proof sai và chết ngay, mỗi lần tiêu
+            // một lượt trong hạn mức 3 lần sai trước khi bị khoá 5 phút.
+            if usedSavedPassword, DeskhubClient.rejectReason() == .authFailed {
+                Credentials.forgetPassword(address)
+            }
             stopPolling()
         }
     }

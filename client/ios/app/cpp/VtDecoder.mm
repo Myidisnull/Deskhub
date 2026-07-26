@@ -82,6 +82,9 @@ bool VtDecoder::Init(void* layer, int width, int height) {
     if (!layer) return false;
     layer_ = layer;
     rendered_ = 0;
+    // Xoá mốc PTS cũ: sau khi dựng lại decoder, frame đầu tiên mà so với PTS của
+    // phiên/lần trước thì mẫu e2e đầu tiên là số rác.
+    lastRenderedPtsUs_ = 0;
     LOGI("[Decoder] VideoToolbox H.264 target %dx%d ready (AVSampleBufferDisplayLayer).",
         width, height);
     return true;
@@ -117,7 +120,16 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
         else if (x.type == 8)
             pps = &x;
     }
-    if (sps && pps && sps->len <= sizeof(sps_) && pps->len <= sizeof(pps_)) {
+    if (sps && pps && (sps->len > sizeof(sps_) || pps->len > sizeof(pps_))) {
+        // Tham số to hơn đệm 256 byte — không xảy ra với stream H.264 của ta, nhưng
+        // nếu bỏ qua trong im lặng thì formatDesc_ mãi null, Decode cứ trả true và
+        // màn hình đen vĩnh viễn không log, không xin IDR. Trả false để ClientLoop
+        // dựng lại decoder và lỗi hiện ra trong log.
+        LOGE("[Decoder] SPS/PPS too large (%zu/%zu bytes) — rejecting frame.",
+            sps->len, pps->len);
+        return false;
+    }
+    if (sps && pps) {
         const bool changed = !formatDesc_ || sps->len != spsLen_ || pps->len != ppsLen_ ||
                              std::memcmp(sps->ptr, sps_, spsLen_) != 0 ||
                              std::memcmp(pps->ptr, pps_, ppsLen_) != 0;
@@ -214,6 +226,14 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
         [l flush];
         CFRelease(sb);
         return false;
+    }
+
+    // Layer nghẽn (chưa tiêu hết mẫu cũ): VỨT frame này thay vì dồn thêm — chính
+    // sách của cả pipeline là thà rơi hình còn hơn tăng trễ, và hàng đợi của layer
+    // dồn đầy có thể tự chuyển sang trạng thái Failed.
+    if (!l.isReadyForMoreMediaData) {
+        CFRelease(sb);
+        return true;
     }
 
     [l enqueueSampleBuffer:sb];

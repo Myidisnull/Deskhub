@@ -141,6 +141,23 @@ object Credentials {
     }
 
     /**
+     * Xoá RIÊNG mật khẩu đã lưu của một host, giữ lại deviceToken. Dùng khi host trả
+     * lời "sai mật khẩu" cho bản đã lưu (họ đổi mật khẩu chẳng hạn) — giữ nó lại thì
+     * mọi lần kết nối sau tự gửi proof sai và tiêu dần hạn mức 3 lần trước khi bị
+     * khoá 5 phút. Không còn cả token thì rút hẳn bản ghi cho sạch.
+     */
+    fun forgetPassword(address: String) {
+        val addr = address.trim()
+        val list = all.toMutableList()
+        val i = list.indexOfFirst { it.address.equals(addr, ignoreCase = true) }
+        if (i < 0) return
+        val cleared = list[i].copy(password = "")
+        if (cleared.hasToken) list[i] = cleared else list.removeAt(i)
+        cache = list
+        save(list)
+    }
+
+    /**
      * Quên một host. Ứng với nút Forget ở màn "Saved passwords".
      *
      * Xoá CẢ mật khẩu lẫn token: giữ token lại thì "quên mật khẩu" vẫn vào được, và

@@ -35,6 +35,7 @@ package com.deskhub.app
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -55,6 +56,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,8 +64,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.deskhub.app.ui.AppMark
 import com.deskhub.app.ui.AppState
 import com.deskhub.app.ui.Credentials
@@ -103,9 +108,16 @@ class MainActivity : ComponentActivity() {
 
         // Vẫn cho chạy thẳng từ adb để test nhanh (bỏ qua bước chọn nguồn):
         //   am start -n com.deskhub.app/.MainActivity --es addr 10.0.2.2:47777
-        intent?.getStringExtra("addr")?.let { addr ->
-            intent.removeExtra("addr") // chỉ dùng một lần, quay lại không tự nhảy nữa
-            openStream(addr, 0)
+        // CHỈ ở bản debug: activity này exported (launcher), nên trên bản phát hành
+        // bất kỳ app nào cũng có thể ném extra "addr" vào và lặng lẽ kích hoạt một
+        // kết nối — kèm tên thiết bị và, nếu có credential đã lưu cho đúng chuỗi đó,
+        // cả HMAC proof + device token — tới địa chỉ do nó chọn.
+        val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debuggable) {
+            intent?.getStringExtra("addr")?.let { addr ->
+                intent.removeExtra("addr") // chỉ dùng một lần, quay lại không tự nhảy nữa
+                openStream(addr, 0)
+            }
         }
 
         setContent {
@@ -151,7 +163,14 @@ class MainActivity : ComponentActivity() {
 private sealed interface Step {
     data object Address : Step
 
-    data object Querying : Step
+    // Mang `seq` để phân biệt CÁC LƯỢT hỏi với nhau: lời gọi JNI chặn 3 giây và
+    // không hủy được, nên Back rồi Connect tới máy khác là có HAI coroutine cùng
+    // bay. Nếu chỗ nhận kết quả chỉ hỏi "đang ở bước Querying à?" thì cả hai đều
+    // lọt — lượt CŨ mở stream tới máy cũ đè lên lượt mới. So bằng đúng thực thể
+    // Querying của mình thì chỉ lượt mới nhất được đi tiếp.
+    data class Querying(
+        val seq: Long,
+    ) : Step
 
     data class Picking(
         val sources: List<NativeClient.Source>,
@@ -167,6 +186,7 @@ private fun MainScreen(
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
     var address by remember { mutableStateOf(initialAddress) }
+    var querySeq by remember { mutableStateOf(0L) }
     val scope = rememberCoroutineScope()
 
     // Đang hỏi hoặc đang chọn: Back quay về ô địa chỉ thay vì thoát app. Coroutine hỏi
@@ -176,12 +196,16 @@ private fun MainScreen(
 
     val connect: (String) -> Unit = { addr ->
         onRemember(addr)
-        step = Step.Querying
+        val mine = Step.Querying(++querySeq)
+        step = mine
         scope.launch {
             // listSources là suspend fun, tự chuyển sang Dispatchers.IO — main
             // thread không bị chặn suốt 3 giây (nếu chặn, Android dựng hộp ANR).
             val sources = NativeClient.listSources(addr)
-            if (step is Step.Querying) {
+            // Chỉ nhận kết quả nếu ĐÚNG lượt hỏi này còn là lượt hiện hành — Back
+            // rồi Connect máy khác đã thay `step` bằng một Querying seq mới, và lượt
+            // cũ về tới đây phải bị bỏ, kẻo nó mở stream tới máy cũ (xem Step.Querying).
+            if (step == mine) {
                 // Rỗng = host im lặng hoặc host đời cũ; một nguồn = không có gì để
                 // chọn. Cả hai vào thẳng, để tầng dưới báo lỗi thật nếu có.
                 if (sources.size <= 1) {
@@ -241,6 +265,23 @@ private fun AddressScreen(
     var recents by remember { mutableStateOf(Recents.all) }
     // GĐ10 — mật khẩu/token đã lưu, cho mục "Saved passwords" bên dưới.
     var savedCreds by remember { mutableStateOf(Credentials.all) }
+
+    // Hai danh sách trên là snapshot, mà StreamActivity ghi thêm vào cả hai kho
+    // (savePassword/saveToken/remember) trong lúc composition này vẫn sống bên dưới.
+    // Không đọc lại lúc quay về thì "Saved passwords" cứ hiển thị trạng thái trước
+    // phiên cho tới khi process chết. ON_RESUME là đúng thời điểm quay về.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    recents = Recents.all
+                    savedCreds = Credentials.all
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopBar()
