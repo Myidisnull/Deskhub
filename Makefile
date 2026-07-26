@@ -1,11 +1,24 @@
-# Cần GNU make. Chạy được trên Windows, macOS và Ubuntu — nhánh theo $(OS):
+# Cần GNU make. Chạy được trên Windows, macOS và Ubuntu.
+#
+# File này chỉ là ĐIỂM VÀO: giữ target dùng chung (bootstrap, clean) rồi include các
+# mảnh trong make/. Mỗi nền tảng một file, thêm nền tảng mới = thêm make/<tên>.mk và
+# include thêm một dòng ở dưới — không phải đụng vào phần chung.
+#
+#   make/toolchain.mk   biến theo HOST: SHELL, VsDevCmd, LLVM, NULDEV (include ĐẦU TIÊN)
+#   make/core.mk        cây CMake lõi dùng chung: debug/release/test/test-ctest/coverage
+#   make/windows.mk     app Windows  — CMake (native DLL) + dotnet (WinUI3)
+#   make/macos.mk       app macOS    — xcodebuild
+#   make/ios.mk         app iOS      — xcodebuild (Simulator)
+#   make/android.mk     APK Android  — Gradle (tự dựng cả .so lẫn APK)
+#   make/codestyle.mk   format/lint C++ + Kotlin + Swift
+#
 # Windows dùng cmd + VsDevCmd (tự tìm Visual Studio qua vswhere nên gọi được từ
 # cmd / PowerShell / Git Bash thường), macOS/Linux dùng sh + toolchain hệ thống.
 #   make bootstrap      cài toàn bộ dependency dev cho OS hiện tại (cả Android SDK, coverage)
 #   make                build debug cây desktop OS hiện tại (Windows: client + core; Unix: core)
 #   make release        build release cây desktop OS hiện tại
 #
-# Build/release RÕ theo từng nền tảng (sau này thêm nền tảng nào thì thêm cặp mới):
+# Build/release RÕ theo từng nền tảng:
 #   make build-windows   / release-windows   app Windows: native (CMake) + WinUI3 (dotnet)
 #   make build-macos     / release-macos     app macOS — cả hai vai (cần macOS + Xcode)
 #   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
@@ -15,9 +28,9 @@
 #   make run-macos      build + mở app macOS (cần macOS + Xcode)
 #   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
 #   make run-ios        build + cài + mở app iOS trên Simulator (cần macOS + Xcode)
-#   make test         build core_tests rồi chạy (offline, không cần client/GPU)
-#   make test-ctest   chạy qua CTest (--output-on-failure) — khớp cách CI chạy
-#   make coverage     đo phủ core (clang + llvm-cov — chạy trên cả Windows/macOS/Ubuntu)
+#   make test           build core_tests rồi chạy (offline, không cần client/GPU)
+#   make test-ctest     chạy qua CTest (--output-on-failure) — khớp cách CI chạy
+#   make coverage       đo phủ core (clang + llvm-cov — chạy trên cả Windows/macOS/Ubuntu)
 #
 # Format/lint — cả 3 ngôn ngữ hoặc rõ từng ngôn ngữ:
 #   make format         áp format tại chỗ cho cả C++ + Kotlin + Swift
@@ -28,230 +41,23 @@
 #
 #   make clean
 
-ifeq ($(OS),Windows_NT)
-# --- Windows: mọi lệnh cmake/ctest đi qua VsDevCmd để có MSVC + CMake + Ninja của VS.
-SHELL := cmd.exe
-.SHELLFLAGS := /c
-
-VSWHERE := C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe
-VSDIR   := $(shell "$(VSWHERE)" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
-VSDEV   := $(VSDIR)\Common7\Tools\VsDevCmd.bat
-DEVCMD  := call "$(VSDEV)" -arch=x64 -host_arch=x64 -no_logo &&
-
-BOOTSTRAP  := powershell -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
-CODESTYLE  := powershell -NoProfile -ExecutionPolicy Bypass -File scripts\codestyle.ps1
-CHECKFLAG  := -Check
-ONLYFLAG   := -Only
-CORE_TESTS := out\build\x64-debug\core\core_tests.exe
-NULDEV     := nul
-# LLVM đi kèm VS (component VC.Llvm.Clang — bootstrap cài): clang++ + llvm-cov/profdata.
-# VsDevCmd không tự thêm thư mục này vào PATH nên coverage tự prepend.
-LLVMPATH   := set "PATH=$(VSDIR)\VC\Tools\Llvm\x64\bin;%PATH%" &&
-LLVM       :=
-COV_TESTS  := out\build\coverage\core\core_tests.exe
-COV_RAW    := out\build\coverage\core_tests.profraw
-COV_DATA   := out\build\coverage\core_tests.profdata
-GRADLEW    := cd client\android && .\gradlew.bat
-# App Windows = 2 lớp: CMake dựng deskhub_native.dll, dotnet/MSBuild dựng Deskhub.exe
-# (giống client/android: cpp/ qua CMake, java/ qua Gradle). Đường ra của .csproj gồm
-# cả TFM lẫn RID nên ghim ở đây; đổi TargetFramework trong .csproj thì sửa WINUI_TFM.
-# Build luôn truyền -p:Platform=x64 để ra bin\x64\... — cùng chỗ Visual Studio ghi,
-# khỏi lệch (dotnet build không có Platform sẽ ghi vào bin\Debug\...).
-WINUI_PROJ := client\windows\csharp\Deskhub.csproj
-WINUI_TFM  := net9.0-windows10.0.19041.0
-WINUI_EXE  := client\windows\csharp\bin\x64\Debug\$(WINUI_TFM)\win-x64\Deskhub.exe
-ADB        := $(if $(ANDROID_HOME),$(ANDROID_HOME)\platform-tools\adb.exe,$(LOCALAPPDATA)\Android\Sdk\platform-tools\adb.exe)
-else
-# --- macOS/Ubuntu: cmake/ninja/clang(gcc) lấy thẳng từ PATH (scripts/bootstrap.sh cài).
-UNAME      := $(shell uname -s)
-DEVCMD     :=
-BOOTSTRAP  := scripts/bootstrap.sh
-CODESTYLE  := scripts/codestyle.sh
-CHECKFLAG  := --check
-ONLYFLAG   := --only
-CORE_TESTS := out/build/x64-debug/core/core_tests
-NULDEV     := /dev/null
-# macOS: llvm-cov/llvm-profdata nằm trong toolchain Xcode, gọi qua xcrun.
-# Ubuntu: gói llvm cài thẳng vào PATH (bootstrap.sh cài clang + llvm).
-LLVMPATH   :=
-LLVM       := $(if $(filter Darwin,$(UNAME)),xcrun)
-COV_TESTS  := out/build/coverage/core/core_tests
-COV_RAW    := out/build/coverage/core_tests.profraw
-COV_DATA   := out/build/coverage/core_tests.profdata
-GRADLEW    := cd client/android && ./gradlew
-ADB        := $(if $(ANDROID_HOME),$(ANDROID_HOME)/platform-tools/adb,adb)
-endif
-
+# Đặt TRƯỚC mọi include để `make` không tham số vẫn là build debug (goal mặc định của
+# GNU make là target ĐẦU TIÊN nó gặp — nếu để sau thì `debug` trong core.mk sẽ chiếm chỗ).
 all: debug
+
+include make/toolchain.mk
+include make/core.mk
+include make/windows.mk
+include make/macos.mk
+include make/ios.mk
+include make/android.mk
+include make/codestyle.mk
 
 # Cài toàn bộ dependency dev (idempotent — có rồi thì bỏ qua).
 bootstrap:
 	@$(BOOTSTRAP)
 
-debug:
-	@$(DEVCMD) cmake --preset x64-debug && cmake --build --preset x64-debug
-
-release:
-	@$(DEVCMD) cmake --preset x64-release && cmake --build --preset x64-release
-
-# --- Build/release từng nền tảng --------------------------------------------
-# Windows: cây CMake desktop ở trên (ra deskhub_native.dll) RỒI dotnet build lớp
-# WinUI3 (ra Deskhub.exe — app Windows duy nhất kể từ M4b). .csproj tự chép DLL
-# native theo cấu hình: Release lấy preset x64-release, còn lại lấy x64-debug.
-# Trên máy không phải Windows thì báo lỗi thay vì build nhầm core.
-ifeq ($(OS),Windows_NT)
-build-windows: debug
-	@$(DEVCMD) dotnet build $(WINUI_PROJ) -c Debug -p:Platform=x64
-
-release-windows: release
-	@$(DEVCMD) dotnet build $(WINUI_PROJ) -c Release -p:Platform=x64
-else
-build-windows release-windows:
-	@echo "make $@: run on a Windows machine (desktop client is Windows-only for now)"; exit 1
-endif
-
-# Android: Gradle tự dựng cả libdeskhub.so (NDK + core) lẫn APK — không đi qua
-# cây CMake desktop. Chỉ cần SDK, không cần máy/emulator, chạy được trên cả 3 OS.
-# release-android ra app-release-unsigned.apk: dự án CHƯA khai signingConfig,
-# khi phát hành thật thì ký bằng apksigner hoặc thêm signingConfig vào gradle.
-build-android:
-	$(GRADLEW) assembleDebug
-
-release-android:
-	$(GRADLEW) assembleRelease
-
-# macOS: MỘT app chứa cả vai host lẫn vai client (kiểu AnyDesk), build bằng
-# xcodebuild. Sản phẩm ra out/build/macos/<Config>/app.app. Ký ad-hoc (CODE_SIGN_IDENTITY
-# = "-") nên chạy được ngay trên máy dev; bản phát hành cần Developer ID + notarize.
-# LƯU Ý khi chạy thử: app cần quyền Screen Recording (vai host) và Accessibility (cho
-# điều khiển từ xa) — xem docs/14-macos-app.md §5.
-ifeq ($(UNAME),Darwin)
-build-macos:
-	xcodebuild -project client/macos/Deskhub.xcodeproj -target app -configuration Debug SYMROOT=$(CURDIR)/out/build/macos build
-
-release-macos:
-	xcodebuild -project client/macos/Deskhub.xcodeproj -target app -configuration Release SYMROOT=$(CURDIR)/out/build/macos build
-
-run-macos: build-macos
-	open out/build/macos/Debug/app.app
-else
-build-macos release-macos run-macos:
-	@echo "make $@: needs macOS + Xcode"; exit 1
-endif
-
-# iOS: build cho Simulator bằng xcodebuild (target `app`, không cần scheme/signing).
-# Sản phẩm ra out/build/ios/<Config>-iphonesimulator/app.app. Chỉ chạy trên macOS.
-# Bản chạy máy thật/App Store cần signing team + archive qua Xcode — để sau.
-ifeq ($(UNAME),Darwin)
-build-ios:
-	xcodebuild -project client/ios/Deskhub.xcodeproj -target app -configuration Debug -sdk iphonesimulator SYMROOT=$(CURDIR)/out/build/ios build
-
-release-ios:
-	xcodebuild -project client/ios/Deskhub.xcodeproj -target app -configuration Release -sdk iphonesimulator SYMROOT=$(CURDIR)/out/build/ios build
-else
-build-ios release-ios:
-	@echo "make $@: needs macOS + Xcode"; exit 1
-endif
-
-# Desktop (Windows): Deskhub.exe (WinUI3) chứa cả vai host lẫn client.
-ifeq ($(OS),Windows_NT)
-run: build-windows
-	$(WINUI_EXE) $(ARGS)
-else
-run:
-	@echo "make run: desktop client is Windows-only for now (see docs/05-roadmap.md)"; exit 1
-endif
-
-# Android: gradle tự build libdeskhub.so (NDK) + APK, cài qua adb rồi mở app.
-# Cần máy thật/emulator đang hiện trong `adb devices`.
-run-android:
-	$(GRADLEW) installDebug
-	"$(ADB)" shell am start -n com.manhpham.deskhub/com.deskhub.app.MainActivity
-
-# iOS: mở Simulator, đợi boot xong rồi cài + launch bản vừa build.
-ifeq ($(UNAME),Darwin)
-run-ios: build-ios
-	open -a Simulator
-	xcrun simctl bootstatus booted -b
-	xcrun simctl install booted out/build/ios/Debug-iphonesimulator/app.app
-	xcrun simctl launch booted com.ios.deskhub
-else
-run-ios:
-	@echo make run-ios: needs macOS + Xcode
-	@exit 1
-endif
-
-# Test của core: offline, không cần mạng/GPU. Chỉ build target core_tests (không dựng
-# client) nên nhanh. Exit code 0 = pass.
-test:
-	@$(DEVCMD) cmake --preset x64-debug >$(NULDEV) && cmake --build --preset x64-debug --target core_tests
-	@echo ===== Running core_tests offline =====
-	$(CORE_TESTS)
-
-# Chạy qua CTest — cùng cách CI chạy. --output-on-failure in stdout của test khi rớt.
-test-ctest:
-	@$(DEVCMD) cmake --preset x64-debug >$(NULDEV) && cmake --build --preset x64-debug --target core_tests
-	@$(DEVCMD) ctest --test-dir out/build/x64-debug --output-on-failure
-
-# Đo phủ code của lõi — cùng một cách trên cả 3 OS: build cây riêng preset
-# `coverage` bằng clang (instrument -fprofile-instr-generate/-fcoverage-mapping),
-# chạy core_tests sinh .profraw rồi xuất báo cáo qua llvm-profdata + llvm-cov.
-# Nguồn tool: Windows = LLVM kèm VS (VC.Llvm.Clang), macOS = Xcode (xcrun),
-# Ubuntu = gói clang + llvm. Chỉ tính core/src + core/include (positional filter
-# của llvm-cov) nên code test tự động nằm ngoài mẫu số.
-ifeq ($(OS),Windows_NT)
-coverage:
-	@$(DEVCMD) $(LLVMPATH) cmake --preset coverage >$(NULDEV) && cmake --build --preset coverage --target core_tests
-	@$(DEVCMD) set "LLVM_PROFILE_FILE=$(COV_RAW)" && $(COV_TESTS)
-	@$(DEVCMD) $(LLVMPATH) llvm-profdata merge -sparse $(COV_RAW) -o $(COV_DATA)
-	@$(DEVCMD) $(LLVMPATH) llvm-cov show $(COV_TESTS) -instr-profile=$(COV_DATA) -format=html -output-dir=out\coverage core\src core\include
-	@$(DEVCMD) $(LLVMPATH) llvm-cov report $(COV_TESTS) -instr-profile=$(COV_DATA) core\src core\include
-	@echo Report: out\coverage\index.html
-else
-coverage:
-	@cmake --preset coverage >$(NULDEV) && cmake --build --preset coverage --target core_tests
-	LLVM_PROFILE_FILE=$(COV_RAW) $(COV_TESTS)
-	@$(LLVM) llvm-profdata merge -sparse $(COV_RAW) -o $(COV_DATA)
-	@$(LLVM) llvm-cov show $(COV_TESTS) -instr-profile=$(COV_DATA) -format=html -output-dir=out/coverage core/src core/include
-	@$(LLVM) llvm-cov report $(COV_TESTS) -instr-profile=$(COV_DATA) core/src core/include
-	@echo "Report: out/coverage/index.html"
-endif
-
-# Format/lint mỗi OS một script cùng hành vi: Windows codestyle.ps1, Unix codestyle.sh.
-# Tool (clang-format + ktlint + swiftformat bản ghim) do `make bootstrap` cài sẵn.
-# format/lint chạy cả 3 ngôn ngữ; các biến thể -cpp/-kotlin/-swift giới hạn một ngôn ngữ.
-format:
-	@$(CODESTYLE)
-
-format-cpp:
-	@$(CODESTYLE) $(ONLYFLAG) cpp
-
-format-kotlin:
-	@$(CODESTYLE) $(ONLYFLAG) kotlin
-
-format-swift:
-	@$(CODESTYLE) $(ONLYFLAG) swift
-
-lint:
-	@$(CODESTYLE) $(CHECKFLAG)
-
-lint-cpp:
-	@$(CODESTYLE) $(CHECKFLAG) $(ONLYFLAG) cpp
-
-lint-kotlin:
-	@$(CODESTYLE) $(CHECKFLAG) $(ONLYFLAG) kotlin
-
-lint-swift:
-	@$(CODESTYLE) $(CHECKFLAG) $(ONLYFLAG) swift
-
 clean:
-ifeq ($(OS),Windows_NT)
-	@$(DEVCMD) cmake -E rm -rf out
-else
-	@rm -rf out
-endif
+	@$(RMRF) out
 
-.PHONY: all bootstrap debug release build-windows release-windows build-android release-android \
-        build-ios release-ios build-macos release-macos run run-android run-ios run-macos \
-        test test-ctest coverage \
-        format format-cpp format-kotlin format-swift lint lint-cpp lint-kotlin lint-swift clean
+.PHONY: all bootstrap clean

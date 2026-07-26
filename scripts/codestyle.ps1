@@ -31,9 +31,14 @@ if ($Only -in @('all', 'cpp')) {
     if (-not $clangFormat) {
         $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         if (Test-Path $vswhere) {
-            $vs = & $vswhere -latest -property installationPath
-            $cand = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-format.exe'
-            if (Test-Path $cand) { $clangFormat = $cand }
+            # -products * là BẮT BUỘC: mặc định vswhere chỉ tìm Community/Professional/
+            # Enterprise, bỏ qua BuildTools — máy chỉ cài BuildTools sẽ ra chuỗi rỗng.
+            # Giống Makefile và bootstrap.ps1.
+            $vs = & $vswhere -latest -products * -property installationPath
+            if ($vs) {
+                $cand = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-format.exe'
+                if (Test-Path $cand) { $clangFormat = $cand }
+            }
         }
     }
     if (-not $clangFormat) { throw "clang-format not found - run 'make bootstrap' first." }
