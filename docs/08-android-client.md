@@ -1,217 +1,211 @@
-# 08 — Client Android
+# 08 — Android Client
 
-Một trong **6 nền tảng client** (xem `03-client.md` §1b, `11-platform-transport.md`).
-Android là **client-only** — không làm agent được (`11-platform-transport.md` §3). Bản đầu
-**chỉ xem** — chưa gửi input. Mạng + giải mã là C++ (dùng lại `core/` native), UI là Kotlin
-+ Jetpack Compose.
+The Android app (`client/android/`) is a client-only viewer and controller: it connects to a
+Deskhub host, decodes the H.264 stream with the device's hardware decoder, and sends mouse and
+keyboard input back. It reuses the shared protocol/session code in `core/` unchanged (see
+01-architecture.md); everything Android-specific is a thin Kotlin UI plus a small C++ layer.
+The Windows client described in 03-client.md is the reference implementation this port follows.
 
-## 1. Phân chia Kotlin / C++
+## Architecture
 
-`core/` đã là C++20 không đụng header hệ điều hành (`core/CMakeLists.txt` ghi rõ nó
-phải build được bằng toolchain NDK). Nên toàn bộ `ClientSession` / `Reassembler` /
-`Wire` dùng lại y nguyên. Phần phải viết mới chỉ là ba lớp mỏng platform-specific,
-đối ứng 1-1 với bên Windows:
-
-| Windows                    | Android                     | Vai trò                       |
-|----------------------------|-----------------------------|-------------------------------|
-| `UdpSocket.cpp` (winsock)  | `UdpSocket.cpp` (BSD)       | datagram vào/ra               |
-| `MfDecoder` + `Renderer`   | `MediaCodecDecoder`         | H.264 -> màn hình             |
-| `MainMenuWindow` (Win32)   | `MainActivity` (Compose)    | nhập địa chỉ, chọn kết nối    |
-| `SourcePickerDialog`       | `MainActivity` (một bước)   | chọn cửa sổ muốn xem          |
-| cửa sổ preview             | `StreamActivity` (Compose)  | SurfaceView + overlay số liệu |
-
-Ranh giới cố ý mỏng, gói gọn trong `JniBridge.cpp` + `NativeClient.kt`: Kotlin chỉ
-làm phần người dùng nhìn thấy và bơm Surface xuống; **không frame video nào đi qua
-JVM, và cũng không qua Compose**. Video nằm trong một `SurfaceView` bọc bằng
-`AndroidView`; MediaCodec được configure thẳng với `ANativeWindow` lấy từ Surface
-của nó, nên đường nóng vẫn là bộ giải mã phần cứng -> hardware composer. Compose chỉ
-vẽ phần chrome (ô nhập địa chỉ, chữ trạng thái) và cập nhật 500ms/lần.
-
-Tỉ lệ khung hình do `Modifier.aspectRatio(w/h)` lo — không phải tự tính layout params.
-
-Phần chrome dựng trên **hệ thiết kế Deskhub** (`ui/Tokens.kt` + `ui/Components.kt`):
-cùng bộ token màu với macOS/iOS/Windows (kính trắng mờ trên nền gần-đen, mint làm màu
-tín hiệu duy nhất, mono cho mọi con số), kích thước theo bản cảm ứng của iOS (control
-44dp, gutter 20). KHÔNG dùng `MaterialTheme.colorScheme` hay control Material — Material
-trộn màu theo luật riêng của nó (tone palette, ripple, elevation overlay) và sẽ vẽ ra
-một thứ khác; bảng màu đi qua CompositionLocal riêng (`DeskhubTheme`). Sáng/tối + EN/VI
-đổi ngay trong app (`ui/AppState.kt` + `ui/Strings.kt`); máy đã kết nối lưu ở
-`ui/Recents.kt` (tối đa 12). Màn xem: video chiếm trọn màn hình, trạng thái + phím tắt
-+ điều khiển là HUD nổi, không còn dải header/thanh đáy đặc. "Chỉ xem" chặn tại
-`NativeClient` — các hàm input `external` là private, UI chỉ thấy wrapper có cửa
-`viewOnly`.
-
-> Bản đầu tiên là NativeActivity thuần native, không một dòng Kotlin. Bỏ vì nó
-> không có cách nào nhập địa chỉ host (phải truyền qua `adb --es addr`) và mọi
-> trạng thái — thiếu địa chỉ, đang kết nối, host không trả lời — đều hiện ra một
-> màn hình đen giống hệt nhau. Đổi sang Activity thường cũng sửa luôn được vụ
-> video bị kéo giãn sai tỉ lệ, thứ mà NativeActivity không làm nổi.
-
-`MediaCodecDecoder` gộp cả decode lẫn render vì AMediaCodec được configure thẳng
-với `ANativeWindow`: `AMediaCodec_releaseOutputBuffer(..., true)` đẩy frame từ bộ
-giải mã phần cứng lên hardware composer, không qua CPU. Bên Windows cần `Renderer`
-riêng để chuyển NV12 -> BGRA; ở đây không cần.
-
-## 2. Thread
-
-Giữ nguyên bố cục của `client/windows/ClientLoop.cpp`:
-
-- **UI** (main thread của Android): `SurfaceHolder.Callback` giao/thu hồi Surface,
-  và hỏi trạng thái 500ms/lần để cập nhật overlay.
-- **Net**: `recvfrom(10ms)` -> `ClientSession` + `Reassembler` -> đẩy frame vào hàng đợi.
-- **Decode**: rút frame -> `MediaCodecDecoder`.
-
-Tách Net và Decode vì lý do cũ: decode chặn thread Net thì `recvfrom` ngừng nghe,
-buffer UDP của OS tràn, sinh mất gói THẬT. Hàng đợi giới hạn 3 frame; đầy thì bỏ
-frame cũ nhất và xin IDR.
-
-## 3. Điểm khác biệt so với client Windows
-
-**Surface đến rồi đi.** Android thu hồi Surface mỗi lần app xuống nền
-(`surfaceDestroyed`), và hủy nó ngay sau khi callback trả về. Codec còn render
-vào đó = dùng-sau-giải-phóng. Nên `ClientLoop::SetWindow(nullptr)` **chặn** tới khi
-thread Decode xác nhận đã buông codec, bắt tay qua cặp `winGen_` / `winAckGen_`.
-Quay lại nền trước thì codec được dựng lại và một IDR được xin ngay.
-
-**SPS/PPS.** NVENC bật `repeatSPSPPS` nên mỗi IDR mang sẵn tham số in-band. Đa số
-bộ giải mã Android nuốt được, nhưng vài dòng máy đòi tham số tới trong buffer riêng
-đánh cờ `CODEC_CONFIG`. `FirstVclOffset()` tách phần trước slice đầu tiên và nạp
-riêng một lần, rồi vẫn gửi trọn frame — SPS/PPS trùng là hợp lệ.
-
-**RECONFIG.** `MfDecoder` tự đàm phán lại kích thước qua
-`MF_E_TRANSFORM_STREAM_CHANGE`. MediaCodec đã configure cứng kích thước, nên
-`onReconfig` đặt cờ dựng lại codec. Host gửi kèm IDR nên không mất gì.
-
-**Chọn nguồn.** `QuerySources()` (`SourceQuery.cpp`) là bản port của
-`QueryHostSources()` bên Windows: mở socket riêng, phát `LIST_SOURCES` mỗi 500ms trong
-3 giây, chờ `SOURCE_LIST`. Đứng NGOÀI `ClientLoop` vì nó chạy trước khi có phiên —
-không sessionId, không thread. Nó chặn tới 3 giây nên `NativeClient.listSources()` bọc
-lại bằng `withContext(Dispatchers.IO)`.
-
-JNI trả về `Array<String>` mỗi dòng `"id\twidth\theight\tname"` chứ không dựng object
-Kotlin từ C++: bên đó chỉ cần `NewStringUTF`, khỏi phải tra `FindClass`/`GetMethodID`
-cho một kiểu chỉ dùng đúng một chỗ. Kotlin `split('\t', limit = 4)` — `limit` là bắt
-buộc, tiêu đề cửa sổ có thể chứa tab.
-
-Danh sách rỗng gộp hai trường hợp — host im lặng (bản cũ, hoặc mất gói) và host không
-chia sẻ gì — thành một: cứ vào nguồn 0 và để `ClientSession` báo lỗi thật. Một nguồn
-thì bỏ qua luôn màn chọn. Khác `SourcePickerDialog` bên Windows ở chỗ chỉ chọn được
-MỘT nguồn: bên đó mỗi nguồn là một cửa sổ preview riêng, ở đây chỉ có một Activity.
-
-**Độ trễ.** Đặt khóa `"low-latency"` (đối ứng `MF_LOW_LATENCY`) để codec không giữ
-frame sắp xếp lại thứ tự hiển thị — chuỗi của ta không có B-frame nên không mất gì.
-Số e2e đo trên frame VỪA LÊN MÀN HÌNH (`lastRenderedPtsUs`), không phải lúc nạp vào
-codec, để so sánh được với con số của client Windows.
-
-## 4. Build và chạy
-
-Đã build thành công lần đầu 2026-07-20: `app-debug.apk` 1.7 MB, chứa
-`lib/arm64-v8a/libdeskhub.so`.
-
-**Ràng buộc phiên bản — mỗi dòng dưới đây đều từng làm build chết thật:**
-
-| Thành phần | Bản | Vì sao |
-|---|---|---|
-| AGP        | 9.3.0 | Đòi Gradle ≥ 9.5.0. |
-| Gradle     | 9.6.1 | Dưới 9.5.0 thì AGP 9.3 từ chối ngay ở `version-check`. |
-| Kotlin     | *tích hợp trong AGP* | **Không** khai `org.jetbrains.kotlin.android`: từ AGP 9, Kotlin nằm sẵn trong plugin Android, khai thêm là lỗi. Cũng vì thế không còn khối `kotlinOptions`/`kotlin { compilerOptions }`. |
-| Compose compiler | plugin `org.jetbrains.kotlin.plugin.compose` 2.4.10 | Từ Kotlin 2.0, bật `buildFeatures { compose = true }` mà thiếu plugin này là lỗi cấu hình. Nó **độc lập** với `kotlin.android` nên vẫn phải khai tay dù AGP 9 đã có Kotlin. |
-| Compose libs | BOM `2026.06.01` | BOM giữ mọi artifact Compose cùng thế hệ; các dòng `implementation` khác không ghi phiên bản. |
-| JDK        | 21 (JBR) | Ghim ở `~/.gradle/gradle.properties`, xem dưới. |
-| compileSdk | **37** | `androidx.core:core-ktx:1.19.0` đòi ≥ 37. Phải cài `platforms;android-37.0` bằng sdkmanager. |
-| targetSdk  | 36 | Cố tình thấp hơn compileSdk: biên dịch với API mới nhất nhưng chỉ cam kết hành vi ở mức đã kiểm chứng. |
-| NDK        | 26.1.10909125 | Pin trong `app/build.gradle.kts`. |
-| CMake      | 3.22.1 | Bản SDK cung cấp. |
-
-Lịch sử để khỏi đi lại vết xe đổ: bộ ban đầu là AGP 8.5.2 + Gradle 8.9. Không lên
-Gradle 9 được vì Gradle 9 bỏ hẳn `Project.exec()` mà AGP 8.5.2 còn gọi
-(`NoSuchMethodError`). Lối thoát là nâng AGP lên 9.x chứ không phải ghìm Gradle lại.
-
-### Trang nhớ 16 KB (Android 15+)
-
-Máy ảo `sdk_gphone16k_*` và thiết bị Android 15+ dùng trang nhớ **16 KB**. NDK 26
-căn ELF theo 4 KB, nạp lên đó là chết ngay khi mở app:
+Three layers, one crossing point:
 
 ```
-dlopen failed: ... program alignment (4096) cannot be smaller than system page size (16384)
+MainActivity / StreamActivity (Kotlin, Jetpack Compose)
+        │  every native call goes through this single object
+NativeClient.kt  ──JNI──  JniBridge.cpp
+        │
+ClientLoop (C++)  →  core/ (ClientSession, Reassembler, Wire, KeyMap, LinkStats)
+        ├── net/UdpSocket, net/SourceQuery
+        └── decode/MediaCodecDecoder
 ```
 
-Hai thứ phải làm cùng lúc, thiếu một cái là vẫn hỏng:
+- `app/src/main/java/com/deskhub/app/NativeClient.kt` is the only Kotlin file allowed to declare
+  `external fun`s. JNI binds by string at runtime, so the names must match
+  `Java_com_deskhub_app_NativeClient_*` in `app/src/main/cpp/JniBridge.cpp` exactly — a mismatch
+  compiles fine and dies with `UnsatisfiedLinkError`.
+- `JniBridge.cpp` is deliberately thin: type conversion plus lifetime of one global
+  `std::unique_ptr<ClientLoop>` (`g_client`) and one held `ANativeWindow*` (`g_window`). A global
+  session generation counter (`g_generation`, returned by `nativeStart`) lets a late `onDestroy`
+  of an old `StreamActivity` avoid killing a session a new activity just opened.
+- `app/src/main/cpp/ClientLoop.{h,cpp}` is the C++ heart, a close port of
+  `client/windows/ClientLoop.cpp`. It wires `UdpSocket`, `deskhub::ClientSession`,
+  `deskhub::Reassembler`, and `MediaCodecDecoder` into one session.
 
-1. `target_link_options(deskhub PRIVATE -Wl,-z,max-page-size=16384)` trong
-   `cpp/CMakeLists.txt`. (NDK r27+ mặc định làm, r26 phải tự khai.)
-2. `-DANDROID_STL=c++_static` trong `app/build.gradle.kts`. `libc++_shared.so` là
-   **prebuilt** của NDK 26 căn 4 KB — ta không re-link được nó, nên chỉ sửa cờ ở (1)
-   thì `libdeskhub.so` nạp được rồi chết ở `libc++_shared.so`. Nhúng STL tĩnh thì
-   app chỉ còn một `.so` do ta hoàn toàn kiểm soát alignment.
+### Threads
 
-Kiểm tra lại bằng: `llvm-readelf -l libdeskhub.so` — cột cuối của các dòng `LOAD`
-phải là `0x4000`, không phải `0x1000`.
+- **Main (UI) thread** — all Compose UI; calls `Start`/`Stop`/`SetWindow`, polls status every
+  500 ms (a `LaunchedEffect` in `StreamActivity.StreamScreen`) instead of C++ calling back into
+  the JVM. `NativeClient.listSources` is a `suspend fun` that hops to `Dispatchers.IO` because
+  the underlying `nativeListSources` blocks up to ~3 s.
+- **Net thread** (`ClientLoop::NetThread`) — `recvfrom` with a 10 ms timeout; video packets go
+  straight into the `Reassembler` (bypassing `ClientSession` on the hot path), everything else
+  through `ClientSession::HandlePacket`; drains the input queue, runs `session.Tick`, sends
+  FEEDBACK/NACK, closes per-second stat windows.
+- **Decode thread** (`ClientLoop::DecodeThread`) — pops reassembled frames from a bounded queue
+  (`kMaxQueuedFrames = 3`, oldest frame dropped on overflow so the Net thread never blocks),
+  feeds `MediaCodecDecoder`, and services Surface handoffs.
 
-### ABI
+Surface handoff is the one place a thread blocks on another: `ClientLoop::SetWindow` bumps a
+generation counter (`winGen_`) and waits until the Decode thread acknowledges (`winAckGen_`)
+that the codec released the old `ANativeWindow` — destroying a Surface the codec still renders
+into is a use-after-free. A `decodeExited_` flag is the anti-hang escape hatch.
 
-`abiFilters = ["arm64-v8a", "x86_64"]`. x86_64 là để máy ảo trên PC chạy **native**;
-thiếu nó thì emulator phải dịch ARM — chậm và không đáng tin với app giải mã video.
+## Build system
 
-JDK đã được ghim một lần cho mọi build ở **`~/.gradle/gradle.properties`** (file cấp
-user, không nằm trong repo):
+- `client/android/settings.gradle.kts` — single `:app` module, project `DeskhubAndroid`.
+- `client/android/build.gradle.kts` — AGP 9.3.1 (Kotlin is built into AGP 9; no separate
+  `kotlin.android` plugin) plus the `org.jetbrains.kotlin.plugin.compose` compiler plugin.
+- `client/android/app/build.gradle.kts` — `namespace com.deskhub.app` (fixed: JNI symbol names
+  depend on it), `applicationId` defaults to `com.manhpham.deskhub` but is injected by fastlane
+  via `-PapplicationId`/`-PversionName`/`-PversionCode` for releases (see 13-release-mobile.md);
+  `minSdk 24`, `targetSdk 36`, `compileSdk 37`, NDK 26.1, ABIs `arm64-v8a` + `x86_64`,
+  `-DANDROID_STL=c++_static` (the app ships exactly one `.so`).
+- `app/src/main/cpp/CMakeLists.txt` — invoked by Gradle/NDK, builds `libdeskhub.so`. It walks
+  six directories up to the repo root and `add_subdirectory`s `core/` and `platform/` directly,
+  so the shared C++20 code is compiled by the NDK toolchain with no copies. It also links
+  `android`, `mediandk`, `log`, and passes `-Wl,-z,max-page-size=16384` so the library loads on
+  16 KB-page devices (NDK r26 still aligns to 4 KB by default).
+- `make/android.mk` — `make build-android` (`gradlew assembleDebug`), `make release-android`
+  (`assembleRelease`), `make run-android` (`installDebug` + `adb shell am start`). Building
+  needs only the SDK, no device.
+- **Signing**: release builds are signed only when the `KEYSTORE_FILE`/`KEYSTORE_PASSWORD`/
+  `KEY_ALIAS`/`KEY_PASSWORD` environment variables are set (CI/fastlane); without them
+  `release-android` produces an unsigned APK. Debug builds use the default debug key.
 
-```properties
-org.gradle.java.home=C:/Program Files/Android/Android Studio/jbr
-```
+## Connect flow
 
-Nên không cần đặt `JAVA_HOME` nữa — build được cả trong Android Studio lẫn dòng lệnh:
+`MainActivity` models the flow as a `sealed interface Step`: `Address` → `Querying` →
+`Picking`. There is no network discovery — the user types `ip[:port]` (default port 47777,
+`kDefaultPort` in `JniBridge.cpp`), or taps a card from:
 
-```powershell
-cd client/android
-.\gradlew.bat assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+- **Recents** (`ui/Recents.kt`) — up to 12 machines in plain `SharedPreferences`, most recently
+  used first; `guessLink` labels addresses as "LAN" or "Tailscale" from the IP range.
+- **Saved hosts** (`ui/Credentials.kt`) — per-host password and device token, AES-256-GCM
+  encrypted with an Android Keystore key (deliberately not the deprecated
+  `androidx.security:security-crypto`). Also holds the stable random `clientId` and the
+  `deviceName` (`Build.MANUFACTURER + MODEL`) shown in the host's trusted-device list.
 
-Hai điều cần biết về cách ghim này: nó áp cho **mọi** project Gradle trên máy (chấp
-nhận được — JDK còn lại là bản 11 quá cũ), và vì file nằm ngoài repo nên máy khác
-clone về sẽ phải tự ghim lại hoặc tự đặt `JAVA_HOME`. Cố tình không nhét đường dẫn
-này vào `client/android/gradle.properties`: đó là file có commit, hardcode đường dẫn
-riêng của một máy vào đấy là hỏng cho mọi máy khác.
+Connect triggers `NativeClient.listSources`, which runs `QuerySources`
+(`cpp/net/SourceQuery.cpp`): a pre-session UDP exchange that resends LIST_SOURCES every 500 ms
+for up to 3 s and accepts the first SOURCE_LIST from the queried host (see 04-protocol.md).
+Zero or one source skips the picker (old hosts don't know LIST_SOURCES); multiple sources show
+`SourcePickerScreen` with radio-style rows. A `seq` on `Step.Querying` discards results from a
+stale, non-cancellable query after Back + reconnect.
 
-Lưu ý cú pháp: trong file `.properties` thì `\` là ký tự escape, phải dùng `/` hoặc `\\`.
+`StreamActivity` is then started with `addr` + `source` extras and calls
+`NativeClient.nativeStart(addr, sourceId, clientId, deviceName, savedPassword, deviceToken)`.
+If the host requires a password and none was saved (or the saved one is stale), the session
+enters `PHASE_NEED_PASSWORD` while `ClientSession` keeps re-sending HELLO every 0.5 s; the
+`PasswordOverlay` submits via `nativeSubmitPassword` without restarting the session. The
+password never travels on the wire — C++ turns it into an HMAC proof of the host's challenge
+(04-protocol.md §5.1). A newly typed password is persisted only after the host accepts it
+(phase reaches STREAMING), and a saved password rejected with `RejectReason.AUTH_FAILED` is
+deleted so it cannot burn the host's 3-strikes lockout. Device tokens arrive exactly once and
+are drained each poll tick via `nativeTakeDeviceToken` into `Credentials.saveToken`.
 
-`local.properties` phải trỏ tới SDK (`sdk.dir=...`) — Android Studio tự ghi, và file
-này KHÔNG commit.
+A debug-only shortcut: `am start ... --es addr 10.0.2.2:47777` opens `StreamActivity` directly
+(guarded by `FLAG_DEBUGGABLE` because `MainActivity` is exported).
 
-Cảnh báo `[CXX5304] SDK XML version 4` khi configure CMake là vô hại: NDK 26.1 cũ hơn
-SDK tools đang cài. Không ảnh hưởng kết quả biên dịch.
+## Streaming path
 
-Mở app, gõ địa chỉ host, bấm **Connect** — địa chỉ được nhớ lại cho lần sau. Host chia
-sẻ nhiều cửa sổ thì hiện màn chọn nguồn (Back quay lại ô địa chỉ). Vẫn chạy thẳng được
-từ adb khi cần test nhanh — đường này bỏ qua màn chọn, luôn vào nguồn 0:
+UDP datagram → `Reassembler` (fragment/FEC reassembly, loss accounting) → frame queue →
+`MediaCodecDecoder` → SurfaceView. Video pixels never touch Compose or the JVM.
 
-```
-adb shell am start -n com.deskhub.app/.MainActivity --es addr 192.168.1.10:47777
-adb logcat -s Deskhub
-```
+`decode/MediaCodecDecoder.cpp` configures an `AMediaCodec` H.264 decoder directly with the
+`ANativeWindow`, so `AMediaCodec_releaseOutputBuffer(..., true)` *is* the render — zero-copy
+through the hardware composer (the reason `StreamActivity` uses `SurfaceView`, not
+`TextureView`). The `"low-latency"` format key is set as a string so the `.so` still loads
+before API 30. On the first frame after each codec (re)build, SPS/PPS preceding the first VCL
+NAL are submitted separately under `BUFFER_FLAG_CODEC_CONFIG` (`FirstVclOffset`) for decoders
+that require it. `Decode()` returning false means "codec broken": the Decode thread shuts it
+down, sets `decodeFailed_`, and the Net thread requests an IDR.
 
-Máy Windows chạy `client.exe`, chọn **[s]** để chia sẻ một cửa sổ. Cả hai máy phải
-cùng LAN và tường lửa Windows phải cho UDP 47777 vào.
+Reconfiguration: the `onReconfig` callback stores the new negotiated size and sets
+`rebuildDecoder_` — unlike the Windows `MfDecoder`, MediaCodec is torn down and rebuilt on a
+resolution change (the host sends an IDR alongside, so nothing is lost). All keyframe-request
+paths (reassembler loss, `WaitingForIdr`, decode failure, queue overflow) funnel into
+`session.RequestKeyframe()` with `[DIAG]` logging per 09-diagnostics.md.
 
-## 4b. Quy ước ngôn ngữ
+Stats surfaced to the UI: `nativeStatusLine` returns the one-per-second line built in
+`ClientLoop::NetThread` (`fps / Mbps / loss % / RTT / e2e`), shown in a HUD pill;
+`StreamActivity.parseRtt` extracts the RTT number from that same string (all clients parse the
+one line rather than adding a second JNI call) to feed a 60-sample `Sparkline`.
+`nativeVideoWidth/Height` drive the letterbox aspect ratio. Full per-second stats and `[DIAG]`
+events go to logcat, tag `Deskhub` (`cpp/Log.h`; `adb logcat -s Deskhub`).
 
-Theo yêu cầu của dự án: **mọi chuỗi người dùng hoặc console thấy đều bằng tiếng
-Anh**, **mọi comment trong code bằng tiếng Việt có dấu**.
+## Input
 
-Cụ thể ở client Android: chuỗi UI nằm trong `ui/Strings.kt` — bảng EN/VI đổi được
-ngay trong app (nút EN/VI ở thanh trên cùng), cùng nguồn với `Strings.swift` của
-iOS/macOS và `Strings.cs` của Windows. KHÔNG dùng `strings.xml` cho chữ giao diện:
-cơ chế resource chọn ngôn ngữ theo cài đặt HỆ ĐIỀU HÀNH và đổi ngôn ngữ là dựng lại
-Activity; `strings.xml` chỉ còn giữ `app_name` (manifest đòi resource thật). Log
-`LOGI/LOGW/LOGE` và dòng overlay dựng trong `ClientLoop.cpp` vẫn tiếng Anh.
+All input funnels through `NativeClient`, which enforces the **view-only** checkbox in one
+place: the raw `external` functions are private and the public wrappers (`keyTap`, `keyChord`,
+`mouseMove`, `mouseButton`, `charTap`, `mouseMoveRel`) drop events when `viewOnly` is set.
+On the C++ side, `ClientLoop::Queue*` methods push `deskhub::InputEvent`s into `inputQueue_`
+under a mutex; the Net thread drains the batch each loop into `ClientSession::QueueInput`,
+which sequences and redundantly sends them via the core `InputSender` (see 07-input.md), and
+calls `SetFocused(true)` once any input has been sent so the host raises the target window.
 
-Một ngoại lệ có lý do: `~/.gradle/gradle.properties` để comment tiếng Anh, vì Gradle
-đọc file `.properties` theo ISO-8859-1 nên không mang được dấu tiếng Việt an toàn.
+- **Trackpad** (`TrackpadOverlay` in `StreamActivity.kt`) — laptop-touchpad semantics: an
+  always-visible drawn cursor (`CursorArrow`) moves by *delta*, never jumps to the touch point.
+  Tap = left click at the cursor, double-tap = right click, long-press-then-drag = left-button
+  drag (mutually exclusive with plain drags by construction). The overlay covers the letterbox
+  too, but the cursor is clamped to the actual video rect and positions are normalized to
+  0..65535 within it (`sendMouseMove` → `QueueMouseMoveAbs`). The overlay is not mounted at all
+  in view-only mode.
+- **Virtual keyboard** (`KeyInputView.kt`) — an invisible 1 dp view that holds IME focus and
+  captures both input paths: `commitText`/`deleteSurroundingText` on a dummy
+  `BaseInputConnection` (Gboard-style IMEs) and raw `onKeyDown` (physical/Bluetooth keyboards).
+  `VISIBLE_PASSWORD + NO_SUGGESTIONS` forces per-key commits with no composition. Each
+  codepoint goes through `nativeCharTap` → `QueueCharTap`, where core `CharToKeyChord`
+  (US layout) expands it into `[Shift↓] key↓ key↑ [Shift↑]`; non-ASCII characters are silently
+  dropped.
+- **Hotkey row** — the `kHotkeys` list in `StreamActivity.kt` (Esc, Tab, Enter, arrows, Del,
+  Ctrl+C, Ctrl+V) sends Windows virtual-key codes + scancodes (bit 8 = E0 flag) via
+  `keyTap`/`keyChord`. Alt+Tab and the Win key are intentionally excluded: they move focus off
+  the shared window and the host stops accepting input.
 
-## 5. Hạn chế đã biết (chưa làm, không phải bug)
+Tap releases are scheduled `kTapHoldUs` (50 ms) after the press (`delayedInput_`) so games that
+poll the keyboard per frame actually see the key held.
 
-- **Một nguồn tại một thời điểm**: chọn được cửa sổ nào để xem, nhưng không xem được
-  nhiều cửa sổ cùng lúc như client Windows.
-- **Số đo e2e sai** (xem §6).
-- **Chưa gửi input** (GĐ4 cho Android).
+## Lifecycle
+
+- `surfaceCreated` → `nativeSetSurface(holder.surface)`; `surfaceDestroyed` →
+  `nativeReleaseSurface(holder.surface)`, which blocks until the decoder lets go and compares
+  Surface *identity* so a late callback from an old activity cannot steal the new session's
+  window. `FLAG_KEEP_SCREEN_ON` prevents the screen (and therefore the Surface and session)
+  from dying mid-view.
+- **Backgrounding ends the session**: `StreamActivity.onStop` calls `finish()` unless the
+  activity is finishing or changing configuration — the protocol has no pause, and without this
+  the Net thread would keep receiving full bitrate invisibly. Rotation survives
+  (`configChanges` in `app/src/main/AndroidManifest.xml`).
+- `onDestroy` calls `nativeStop(session)` with the generation from `nativeStart`, stopping only
+  the session this instance created. There is no automatic reconnect: `PHASE_ENDED` shows
+  `EndedOverlay` with `nativeEndReason`, and the user reconnects from `MainActivity`. On
+  session end the Net thread sends BYE best-effort so the host frees the slot immediately.
+
+## UI system (`ui/` package)
+
+`AppState.kt` holds two app-wide toggles (dark/light theme, EN/VI language) as Compose
+`mutableStateOf` backed by `SharedPreferences`; dark is the default regardless of the OS theme.
+`Tokens.kt` is the Deskhub design-token table (same values as the iOS/macOS/Windows clients;
+delivered via a custom `CompositionLocal`, not `MaterialTheme.colorScheme`). `Components.kt`
+implements the shared component set (buttons, HUD bars, pills, fields — no Material ripple),
+`Icons.kt` hand-draws the five icons on Canvas, `Strings.kt` is the in-app EN/VI string table
+(`tr(key)`), deliberately not `strings.xml` so language switches without recreating the
+Activity. `Credentials.kt` and `Recents.kt` are described under the connect flow.
+
+## Known limitations
+
+- **Relative mouse mode is a stub**: `nativeMouseMoveRel`/`QueueMouseMoveRel` (FPS
+  pointer-lock, the Windows client's F9 mode) exist end-to-end but no UI calls them — the Lock
+  button was removed.
+- Virtual-keyboard typing is limited to US-ASCII; anything `CharToKeyChord` cannot map is
+  dropped. No scroll-wheel or pinch-zoom gesture exists.
+- No host discovery (no mDNS/broadcast); addresses are typed or picked from recents.
+- One session at a time by design: a single global `ClientLoop` behind JNI.
+- No pause/resume — backgrounding terminates the session (see Lifecycle).
+- IME auto-dismiss tracking (keyboard button state) requires API 30+; older devices keep the
+  button latched until pressed again.
+- View-only is enforced client-side only, in `NativeClient`.
+- H.264 only (`hello.codecMask = kCodecMaskH264`); no audio path exists in the app.
+- `make/android.mk`'s header still says no `signingConfig` exists; the Gradle file has since
+  added the env-driven release signing described above.

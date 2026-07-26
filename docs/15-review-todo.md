@@ -1,225 +1,231 @@
-# 15 — TODO sau review `core/` + `platform/`
+# 15 — TODO after review of `core/` + `platform/`
 
-Kết quả rà soát toàn bộ `core/` (7.7k dòng) và `platform/` theo tiêu chuẩn ngành, ngày
-**2026-07-26**. Mỗi mục ghi đủ: **hiện trạng** (file:dòng), **vì sao là vấn đề**, **cách sửa
-đề xuất**, **cách kiểm chứng đã xong**.
+Results of a full review of `core/` (7.7k lines) and `platform/` against industry standards, dated
+**2026-07-26**. Each item records: **current state** (file:line), **why it is a problem**, **proposed
+fix**, and **how to verify it is done**.
 
-Trạng thái lúc rà soát: `make test` **pass**, `core` không include header OS nào (bất biến
-kiến trúc còn nguyên), style CI xanh.
+State at review time: `make test` **passes**, `core` includes no OS headers (the architectural
+invariant is intact), style CI is green.
 
-> **Đọc thứ tự nào trước:** làm §3 (build hygiene) TRƯỚC. Nó rẻ nhất và nó là thứ sẽ tự bắt
-> giúp phần lớn lỗi còn lại — đặc biệt là ASan, thứ đang làm cho test fuzz sẵn có trở nên
-> vô dụng.
+> **What to read first:** do §3 (build hygiene) FIRST. It is the cheapest and it is what will
+> automatically catch most of the remaining bugs — especially ASan, whose absence is currently
+> rendering the existing fuzz test useless.
 
 ---
 
-## Bảng tổng
+## Summary table
 
-> **Cập nhật 2026-07-26 (lần 2).** A1, A3 và D3 đã triển khai xong ở tầng `core/` +
-> `platform/` theo thiết kế trong Claude Design ("Deskhub App" — màn *Settings / password +
-> trusted devices*). Chi tiết ở cuối file, mục **Đã làm**. Phần còn lại của A1 là giao diện
-> + keychain trên 4 nền tảng.
+> **Update 2026-07-26 (round 2).** A1, A3 and D3 have been fully implemented at the `core/` +
+> `platform/` layer per the design in Claude Design ("Deskhub App" — the *Settings / password +
+> trusted devices* screen). Details at the end of the file, under **Done**. What remains of A1 is
+> the UI + keychain on the 4 platforms.
 
-| # | Mục | Nhóm | Công | Rủi ro nếu để nguyên |
+| # | Item | Group | Effort | Risk if left as-is |
 |---|-----|------|------|----------------------|
-| A1 | ~~Không có xác thực phiên~~ → **core xong**, còn UI/keychain | Bảo mật | Vừa | Bất kỳ ai trong LAN điều khiển được máy |
-| A2 | Beacon khuếch đại phản xạ UDP | Bảo mật | Nhỏ | Host thành nguồn DDoS cho bên thứ ba |
-| A3 | ~~`sessionId` entropy thấp~~ → **xong** | Bảo mật | Nhỏ | Đoán được → inject input/BYE |
-| B1 | `kMaxNackIndices` không đạt được | Đúng đắn | Rất nhỏ | Cắt count âm thầm (latent) |
-| B2 | Trừ thời gian không dấu không guard | Đúng đắn | Nhỏ | Ngắt kết nối oan; **treo** ở LatencyTrace |
-| B3 | Overhead FEC 100% với frame nhỏ | Hiệu năng | Nhỏ | Nhân đôi gói đúng lúc mạng đang mất gói |
-| C1 | Không cờ cảnh báo ngoài MSVC, không sanitizer | Build | Nhỏ | Test fuzz sẵn có không bắt được gì |
-| C2 | Không fuzz tầng parse | Build | Vừa | Ranh giới tin cậy chưa được ép thật sự |
-| C3 | Coverage không có ngưỡng | Build | Rất nhỏ | Phủ tụt dần không ai biết |
-| C4 | Không có `.clang-tidy` | Build | Nhỏ | Bỏ lọt narrowing / bugprone |
-| D1 | ClockSync + LatencyTrace là code chết | Kiến trúc | Vừa | Client tự viết lại bản không test |
-| D2 | Discovery chỉ có trên Windows | Kiến trúc | Lớn | — (ghi nhận, không phải lỗi) |
-| D3 | `platform/Clock.h` rò rỉ | Kiến trúc | Nhỏ | **(1)(4) xong**; (2)(3) còn lại |
+| A1 | ~~No session authentication~~ → **core done**, UI/keychain remaining | Security | Medium | Anyone on the LAN can control the machine |
+| A2 | Beacon is a UDP reflection amplifier | Security | Small | Host becomes a DDoS source against third parties |
+| A3 | ~~Low-entropy `sessionId`~~ → **done** | Security | Small | Guessable → inject input/BYE |
+| B1 | `kMaxNackIndices` is unreachable | Correctness | Very small | Silent count truncation (latent) |
+| B2 | Unguarded unsigned time subtraction | Correctness | Small | Spurious disconnects; **hang** in LatencyTrace |
+| B3 | 100% FEC overhead on small frames | Performance | Small | Doubles packets exactly when the network is losing them |
+| C1 | No warning flags outside MSVC, no sanitizers | Build | Small | The existing fuzz test catches nothing |
+| C2 | No fuzzing of the parse layer | Build | Medium | The trust boundary is not truly enforced |
+| C3 | Coverage has no threshold | Build | Very small | Coverage erodes and nobody notices |
+| C4 | No `.clang-tidy` | Build | Small | Narrowing / bugprone issues slip through |
+| D1 | ClockSync + LatencyTrace are dead code | Architecture | Medium | Clients rewrite an untested copy themselves |
+| D2 | Discovery exists only on Windows | Architecture | Large | — (noted, not a bug) |
+| D3 | `platform/Clock.h` leaks | Architecture | Small | **(1)(4) done**; (2)(3) remaining |
 
 ---
 
-## 1. Bảo mật
+## 1. Security
 
-### ⬜ A1 — Không có xác thực: bất kỳ máy nào trong mạng đều điều khiển được host
+### ⬜ A1 — No authentication: any machine on the network can control the host
 
-**Hiện trạng.** `core/src/session/HostSession.cpp:37-62` — HELLO đầu tiên từ **bất kỳ ai**
-đi thẳng: Idle → cấp `sessionId` → Ready → (START) → Streaming → `input_.HandlePacket` →
-`InputInjector`. `inputAllowed_` mặc định `true` (`HostSession.h:166`). Đã grep toàn bộ
-`client/windows`, `client/macos`: **không có** hộp thoại duyệt phía host, **không có** mã ghép
-đôi, **không có** mật khẩu ở bất cứ đâu.
+**Current state.** `core/src/session/HostSession.cpp:37-62` — the first HELLO from **anyone**
+goes straight through: Idle → issue `sessionId` → Ready → (START) → Streaming →
+`input_.HandlePacket` → `InputInjector`. `inputAllowed_` defaults to `true` (`HostSession.h:166`).
+Grepped all of `client/windows`, `client/macos`: there is **no** host-side approval dialog, **no**
+pairing code, **no** password anywhere.
 
-**Vì sao là vấn đề.** Mã hoá là khoản hoãn **có chủ ý và đã công bố** (`05-roadmap.md` GĐ6,
-`PRIVACY.md:96`) — chuyện đó ổn và không nằm trong TODO này. Nhưng **uỷ quyền là một biện
-pháp khác với mã hoá**, và nó hiện không nằm trên roadmap ở bất kỳ đâu. AnyDesk/RustDesk/VNC
-đều bắt buộc mật khẩu hoặc duyệt từng phiên **kể cả trong LAN tin cậy**.
+**Why it is a problem.** Encryption is a **deliberate and published** deferral (`05-roadmap.md`
+Phase 6, `PRIVACY.md:96`) — that is fine and is not part of this TODO. But **authorization is a
+different control from encryption**, and it currently appears nowhere on the roadmap.
+AnyDesk/RustDesk/VNC all require a password or per-session approval **even on a trusted LAN**.
 
-Kịch bản cụ thể: một laptop cùng Wi-Fi quán cà phê chạy `DISCOVER` → `LIST_SOURCES` →
-`HELLO` → gõ được vào máy bạn. Không cần sniff, không cần giả mạo gì.
+Concrete scenario: a laptop on the same coffee-shop Wi-Fi runs `DISCOVER` → `LIST_SOURCES` →
+`HELLO` → can type into your machine. No sniffing, no spoofing required.
 
-**Cần chốt hướng trước khi code** — hai lựa chọn, không loại trừ nhau:
+**A direction must be decided before coding** — two options, not mutually exclusive:
 
-- **(a) Mã phiên 6 chữ số.** Host hiện mã trên màn hình Share; client nhập; mã đi trong
-  HELLO (dùng `Hello::features` hay thêm trường vào đuôi payload theo đúng mẫu tương thích
-  ngược đã có ở `HelloAck::flags`). Rẻ, không cần crypto, chặn được truy cập tuỳ tiện.
-- **(b) Hộp thoại duyệt phía host.** HELLO → host giữ ở trạng thái chờ, hiện "X muốn kết
-  nối — Accept / Deny". Đúng mô hình AnyDesk nhất, nhưng cần thêm một trạng thái vào máy
-  trạng thái và một đường callback lên UI của cả 4 nền tảng.
+- **(a) 6-digit session code.** The host displays the code on the Share screen; the client enters
+  it; the code travels in the HELLO (using `Hello::features` or a field appended to the payload
+  tail following the existing backward-compatible pattern in `HelloAck::flags`). Cheap, no crypto
+  needed, blocks arbitrary access.
+- **(b) Host-side approval dialog.** HELLO → host holds it in a pending state, shows "X wants to
+  connect — Accept / Deny". Closest to the AnyDesk model, but requires adding a state to the
+  state machine and a callback path up to the UI on all 4 platforms.
 
-**Chỗ sửa (dù chọn hướng nào).** Cổng kiểm tra phải nằm **trước** `state_.store(State::Ready)`
-ở `HostSession.cpp:57`, tức trong core — không phải ở từng client. Lý do y hệt lý do
-`SetInputAllowed` được đặt trong core (xem comment `HostSession.h:106-115`): đây là **luật
-giao thức**, mỗi nền tảng tự cài lại một luật giao thức là cách chắc chắn nhất để chúng lệch
-nhau.
+**Where to fix (whichever direction is chosen).** The check gate must sit **before**
+`state_.store(State::Ready)` at `HostSession.cpp:57`, i.e. in core — not in each client. The
+reason is exactly the same as why `SetInputAllowed` lives in core (see the comment at
+`HostSession.h:106-115`): this is a **protocol rule**, and having each platform reimplement a
+protocol rule is the surest way to make them diverge.
 
-Từ chối dùng lại đường `SendReject()` sẵn có (`HostSession.cpp:198`) — client đã biết xử lý
-`Codec::Rejected`. Cân nhắc thêm một mã lý do để client phân biệt "sai mã" với "đang bận",
-nếu không người dùng nhập sai mã sẽ thấy thông báo "host rejected (busy or codec mismatch)".
+For rejection, reuse the existing `SendReject()` path (`HostSession.cpp:198`) — clients already
+know how to handle `Codec::Rejected`. Consider adding a reason code so the client can distinguish
+"wrong code" from "busy"; otherwise a user who mistypes the code will see "host rejected (busy or
+codec mismatch)".
 
-**Kiểm chứng.** Ca test trong `core/tests/session/SessionTests.cpp`: HELLO sai mã → không
-chuyển sang Ready, `sessionId()` vẫn 0, và một `INPUT_EVENT` gửi ngay sau đó không gọi
-`onInput` lần nào.
-
----
-
-### ⬜ A2 — `Beacon` là bộ khuếch đại phản xạ UDP
-
-**Hiện trạng.** `core/src/discovery/Beacon.cpp:36-40` trả lời `LIST_SOURCES` — yêu cầu **12
-byte**, `sessionId = 0`, không trạng thái, không xác thực — bằng `SOURCE_LIST` tới **~577
-byte** (8 nguồn × (7 + 64 byte tên) + 1 + header). Hệ số khuếch đại **~48×**.
-`DISCOVER` (12 B) → `ANNOUNCE` (tới 69 B) → ~5.7×.
-
-Không có rate limit trong core, **và cũng không có ở call site**: `client/windows/cpp/
-AgentLoop.cpp:924` gọi `beacon.Reply` rồi `sendto` ngay, vô điều kiện.
-
-**Vì sao là vấn đề.** Địa chỉ nguồn UDP giả được dễ dàng. Kẻ tấn công broadcast `LIST_SOURCES`
-với source IP giả là nạn nhân → mỗi host trong dải trả 577 byte vào mặt nạn nhân. Trên mạng
-không lọc egress (BCP 38), host của người dùng trở thành nguồn DDoS cho bên thứ ba.
-
-Comment đầu `Beacon.cpp:5-7` có lý luận về chống lụt, và lý luận đó **đúng nhưng chưa đủ**:
-nó chỉ xét thiệt hại cho *chính host*, không xét nạn nhân bị giả mạo. Nên cập nhật comment
-đó luôn khi sửa.
-
-**Cách sửa.** Token bucket theo IP nguồn, đặt **trong `Beacon`** (để cả 4 nền tảng dùng
-chung, đúng lý do core tồn tại) chứ không ở AgentLoop:
-
-- `Beacon::Reply` nhận thêm tham số địa chỉ nguồn (dạng khoá mờ — `uint64_t` hash do caller
-  tính, để core không phải biết `sockaddr`) và `nowUs`.
-- Bảng nhỏ cố định (vd. 16 entry, ghi đè cũ nhất) đếm gói/giây theo khoá. Vượt ngưỡng
-  (đề xuất 5 gói/s/nguồn, 50 gói/s tổng) → trả 0.
-- Kẹp kích thước `SOURCE_LIST`: cân nhắc giảm `kMaxSourceNameBytes` trong câu trả lời
-  broadcast, hoặc chỉ trả `sourceCount` và bắt client hỏi chi tiết sau khi đã có phiên.
-
-**Kiểm chứng.** Ca test trong `core/tests/discovery/DiscoveryTests.cpp`: 100 `LIST_SOURCES`
-liên tiếp từ cùng một khoá trong 1 giây → số lần `Reply` trả khác 0 ≤ ngưỡng; khoá khác
-vẫn được trả lời bình thường trong cùng khoảng thời gian đó.
+**Verification.** Test case in `core/tests/session/SessionTests.cpp`: HELLO with a wrong code →
+no transition to Ready, `sessionId()` remains 0, and an `INPUT_EVENT` sent immediately afterward
+never invokes `onInput`.
 
 ---
 
-### ⬜ A3 — `sessionId` entropy thấp và một phần do kẻ tấn công chọn
+### ⬜ A2 — `Beacon` is a UDP reflection amplifier
 
-**Hiện trạng.** `core/src/session/HostSession.cpp:53-55`:
+**Current state.** `core/src/discovery/Beacon.cpp:36-40` answers `LIST_SOURCES` — a **12-byte**
+request, `sessionId = 0`, stateless, unauthenticated — with a `SOURCE_LIST` of up to **~577
+bytes** (8 sources × (7 + 64 name bytes) + 1 + header). Amplification factor **~48×**.
+`DISCOVER` (12 B) → `ANNOUNCE` (up to 69 B) → ~5.7×.
+
+There is no rate limit in core, **and none at the call site either**: `client/windows/cpp/
+AgentLoop.cpp:924` calls `beacon.Reply` then `sendto` immediately, unconditionally.
+
+**Why it is a problem.** UDP source addresses are trivially spoofed. An attacker broadcasts
+`LIST_SOURCES` with the victim's IP as the spoofed source → every host in the range fires 577
+bytes at the victim. On networks without egress filtering (BCP 38), the user's host becomes a
+DDoS source against third parties.
+
+The comment at the top of `Beacon.cpp:5-7` reasons about flood resistance, and that reasoning is
+**correct but insufficient**: it only considers harm to *the host itself*, not a spoofed victim.
+Update that comment as part of the fix.
+
+**Fix.** A per-source-IP token bucket, placed **inside `Beacon`** (so all 4 platforms share it —
+the very reason core exists) rather than in AgentLoop:
+
+- `Beacon::Reply` takes an additional source-address parameter (as an opaque key — a `uint64_t`
+  hash computed by the caller, so core need not know about `sockaddr`) and `nowUs`.
+- A small fixed table (e.g. 16 entries, evicting the oldest) counts packets/second per key.
+  Above the threshold (proposed: 5 pkt/s/source, 50 pkt/s total) → return 0.
+- Clamp the `SOURCE_LIST` size: consider reducing `kMaxSourceNameBytes` in the broadcast reply,
+  or return only `sourceCount` and make clients ask for details once they have a session.
+
+**Verification.** Test case in `core/tests/discovery/DiscoveryTests.cpp`: 100 consecutive
+`LIST_SOURCES` from the same key within 1 second → the number of non-zero `Reply` returns ≤ the
+threshold; a different key is still answered normally within the same time window.
+
+---
+
+### ⬜ A3 — `sessionId` has low entropy and is partly attacker-chosen
+
+**Current state.** `core/src/session/HostSession.cpp:53-55`:
 
 ```cpp
 uint32_t sid = uint32_t(nowUs ^ (nowUs >> 32)) ^ m->clientId;
 ```
 
-`m->clientId` đến từ **chính HELLO của kẻ tấn công**; `nowUs` là bộ đếm đơn điệu với bit
-thấp đoán được. Cùng mẫu ở `core/src/discovery/HostRegistry.cpp:40` (`probeId`, tác động
-nhẹ hơn nhiều).
+`m->clientId` comes from **the attacker's own HELLO**; `nowUs` is a monotonic counter with
+predictable low bits. The same pattern appears in `core/src/discovery/HostRegistry.cpp:40`
+(`probeId`, far milder impact).
 
-**Vì sao là vấn đề.** Chính comment ở `HostSession.cpp:12-14` nói `sessionId` là *hàng rào
-duy nhất* phân biệt "client của tôi" với phần còn lại của Internet. Đoán trúng là inject
-được `INPUT_EVENT`, `BYE`, `NACK` mà không cần đọc được luồng.
+**Why it is a problem.** The comment at `HostSession.cpp:12-14` itself states that `sessionId`
+is the *only fence* separating "my client" from the rest of the Internet. Guess it correctly and
+you can inject `INPUT_EVENT`, `BYE`, `NACK` without being able to read the stream.
 
-**Cách sửa.** Nguồn ngẫu nhiên mã hoá phải nằm ở `platform/` (core cấm đụng OS):
+**Fix.** The cryptographic randomness source must live in `platform/` (core is forbidden from
+touching the OS):
 
-- Thêm `platform/include/deskhubp/Random.h` — `deskhubp::RandomU32()`: `BCryptGenRandom`
-  trên Windows, `getentropy`/`/dev/urandom` trên POSIX.
-- `HostSession` nhận sessionId qua callback hoặc constructor thay vì tự sinh, để core vẫn
-  không biết gì về OS và test vẫn bơm được giá trị xác định.
+- Add `platform/include/deskhubp/Random.h` — `deskhubp::RandomU32()`: `BCryptGenRandom` on
+  Windows, `getentropy`/`/dev/urandom` on POSIX.
+- `HostSession` receives the sessionId via a callback or constructor instead of generating it
+  itself, so core still knows nothing about the OS and tests can still inject deterministic
+  values.
 
-Sửa cùng lúc thì gộp chung một commit với A1 (cùng vùng mã, cùng chủ đề).
+If fixed at the same time, fold it into a single commit with A1 (same code area, same theme).
 
 ---
 
-## 2. Đúng đắn & hiệu năng
+## 2. Correctness & performance
 
-### ⬜ B1 — `kMaxNackIndices = 593` không bao giờ đạt được: count là u8
+### ⬜ B1 — `kMaxNackIndices = 593` can never be reached: the count is a u8
 
-**Hiện trạng.** `core/include/deskhub/wire/Wire.h:86` tính 593 từ MTU. `core/src/wire/
-Wire.cpp:248` chấp nhận `indices.size() <= 593`, rồi `Wire.cpp:254` ghi:
+**Current state.** `core/include/deskhub/wire/Wire.h:86` derives 593 from the MTU. `core/src/wire/
+Wire.cpp:248` accepts `indices.size() <= 593`, then `Wire.cpp:254` writes:
 
 ```cpp
 p[4] = uint8_t(indices.size());   // 300 → 44
 ```
 
-Với 256–593 chỉ số, byte count bị cắt âm thầm và bên nhận đọc sai số lượng.
+With 256–593 indices, the count byte is silently truncated and the receiver reads the wrong
+count.
 
-**Mức độ.** **Chưa live** — cả hai call site dùng `uint16_t nackIdx[64]`
-(`client/windows/cpp/ClientApi.cpp:283`, `client/android/.../ClientLoop.cpp:563`). Nhưng
-`HostSession.cpp:116` đang cấp `uint16_t idx[kMaxNackIndices]` = **1186 byte stack** cho một
-trần vĩnh viễn không thể quá 255.
+**Severity.** **Not live yet** — both call sites use `uint16_t nackIdx[64]`
+(`client/windows/cpp/ClientApi.cpp:283`, `client/android/.../ClientLoop.cpp:563`). But
+`HostSession.cpp:116` allocates `uint16_t idx[kMaxNackIndices]` = **1186 bytes of stack** for a
+ceiling that can never exceed 255.
 
-**Cách sửa (chọn 1).**
+**Fix (pick one).**
 
-- Đơn giản: `kMaxNackIndices = 255`, sửa comment giải thích rằng trần thật là độ rộng của
-  trường count chứ không phải MTU. Thu hồi luôn 1 KB stack ở HostSession.
-- Hoặc: đổi count sang u16 và cập nhật `04-protocol.md`. Không đáng — client chỉ xin vài
-  mảnh thiếu của frame đầu hàng, 255 là quá đủ.
+- Simple: `kMaxNackIndices = 255`, and fix the comment to explain that the real ceiling is the
+  width of the count field, not the MTU. Also reclaims 1 KB of stack in HostSession.
+- Or: widen the count to u16 and update `04-protocol.md`. Not worth it — clients only request a
+  few missing fragments of the frame at the head of the queue; 255 is more than enough.
 
-**Kiểm chứng.** `core/tests/wire/WireTests.cpp` — `BuildNack` với 256 chỉ số phải trả 0.
+**Verification.** `core/tests/wire/WireTests.cpp` — `BuildNack` with 256 indices must return 0.
 
 ---
 
-### ⬜ B2 — Trừ thời gian không dấu: một module phòng thủ, các module khác thì không
+### ⬜ B2 — Unsigned time subtraction: one module defends, the others do not
 
-**Hiện trạng.** `core/src/discovery/HostRegistry.cpp:109-113` guard rõ ràng, kèm comment nói
-thẳng rằng `nowUs` **có thể lùi** giữa hai vòng lặp (đồng hồ đơn điệu vẫn đọc lệch giữa các
-lõi):
+**Current state.** `core/src/discovery/HostRegistry.cpp:109-113` guards explicitly, with a
+comment stating outright that `nowUs` **can go backward** between two loop iterations (a
+monotonic clock can still read differently across cores):
 
 ```cpp
 if (nowUs > hosts_[i].lastSeenUs && nowUs - hosts_[i].lastSeenUs > staleUs_)
 ```
 
-Cùng biểu thức đó **không guard** ở:
+The same expression is **unguarded** at:
 
-| Chỗ | Hậu quả khi nowUs lùi |
+| Location | Consequence when nowUs goes backward |
 |-----|------------------------|
-| `core/src/control/LatencyTrace.cpp:28` | **Treo.** `while (nowUs - markUs_ >= sampleUs_)` — lùi 1 µs → vòng lặp chạy ~5.7×10¹³ lần |
-| `core/src/session/ClientSession.cpp:181` | Ngắt kết nối oan: `Die("lost contact with host (timeout)")` |
-| `core/src/session/HostSession.cpp:156` | Ngắt kết nối oan: `Disconnect()` |
-| `core/src/transport/Reassembler.cpp:207` | Drop frame oan + xin IDR (IDR nặng — đúng lúc không cần) |
-| `core/src/transport/Reassembler.cpp:66` | Thống kê `maxGapMs_` thành số rác |
+| `core/src/control/LatencyTrace.cpp:28` | **Hang.** `while (nowUs - markUs_ >= sampleUs_)` — 1 µs backward → the loop runs ~5.7×10¹³ times |
+| `core/src/session/ClientSession.cpp:181` | Spurious disconnect: `Die("lost contact with host (timeout)")` |
+| `core/src/session/HostSession.cpp:156` | Spurious disconnect: `Disconnect()` |
+| `core/src/transport/Reassembler.cpp:207` | Spurious frame drop + IDR request (IDR is expensive — exactly when it isn't needed) |
+| `core/src/transport/Reassembler.cpp:66` | `maxGapMs_` statistic becomes garbage |
 
-**Vì sao là vấn đề.** Đây là **mâu thuẫn nội bộ**, không phải thiếu sót ngẫu nhiên: hoặc
-comment ở HostRegistry sai (thì bỏ guard đó đi), hoặc nó đúng (thì áp dụng khắp nơi). Đang ở
-giữa là trạng thái tệ nhất — người đọc sau không biết tin bên nào.
+**Why it is a problem.** This is an **internal contradiction**, not a random omission: either the
+HostRegistry comment is wrong (then remove that guard), or it is right (then apply it everywhere).
+Sitting in the middle is the worst state — the next reader doesn't know which side to trust.
 
-**Cách sửa.** Chốt là "nowUs CÓ THỂ lùi" (an toàn hơn, và Clock.h không hứa ngược lại), rồi
-thêm một helper dùng chung trong `core/include/deskhub/wire/` hoặc một header tiện ích mới:
+**Fix.** Settle on "nowUs CAN go backward" (safer, and Clock.h promises nothing to the contrary),
+then add a shared helper in `core/include/deskhub/wire/` or a new utility header:
 
 ```cpp
-// Hiệu thời gian an toàn: nowUs lùi so với mốc → 0 thay vì tràn thành số khổng lồ.
+// Safe time delta: if nowUs is behind the mark, return 0 instead of wrapping to a huge number.
 inline constexpr uint64_t ElapsedUs(uint64_t nowUs, uint64_t sinceUs) {
     return nowUs > sinceUs ? nowUs - sinceUs : 0;
 }
 ```
 
-Thay ở cả 5 chỗ trên **và** ở HostRegistry (để chỉ còn một cách viết). Ưu tiên
-`LatencyTrace.cpp:28` — chỗ đó là treo, không phải sai số.
+Replace at all 5 locations above **and** in HostRegistry (so there is only one way to write it).
+Prioritize `LatencyTrace.cpp:28` — that one is a hang, not an inaccuracy.
 
-**Kiểm chứng.** Mỗi module một ca: gọi `Tick`/`Add`/`PopReady` với `nowUs` nhỏ hơn lần gọi
-trước → không đổi trạng thái, không treo. Ca LatencyTrace phải có timeout để nếu hồi quy thì
-CI đỏ chứ không treo runner.
+**Verification.** One case per module: call `Tick`/`Add`/`PopReady` with a `nowUs` smaller than
+the previous call → no state change, no hang. The LatencyTrace case must have a timeout so that a
+regression turns CI red instead of hanging the runner.
 
 ---
 
-### ⬜ B3 — Overhead FEC là 100% với frame nhỏ, không phải 1/8 như tài liệu ghi
+### ⬜ B3 — FEC overhead is 100% on small frames, not 1/8 as documented
 
-**Hiện trạng.** `core/src/transport/Packetizer.cpp:38`: `numGroups = ceil(count / 8)`.
-Overhead thật = `numGroups / count`:
+**Current state.** `core/src/transport/Packetizer.cpp:38`: `numGroups = ceil(count / 8)`.
+Actual overhead = `numGroups / count`:
 
-| count (số gói của frame) | numGroups | Overhead |
+| count (packets in frame) | numGroups | Overhead |
 |---|---|---|
 | 1 | 1 | **100%** |
 | 2 | 1 | 50% |
@@ -227,63 +233,66 @@ Overhead thật = `numGroups / count`:
 | 8 | 1 | 12.5% |
 | 14 (P-frame ~16 KB) | 2 | 14% |
 
-`core/include/deskhub/wire/Wire.h:62` khẳng định "chi phí băng thông vẫn y hệt =
-1/kFecGroupSize" — chỉ đúng tiệm cận.
+`core/include/deskhub/wire/Wire.h:62` claims "the bandwidth cost remains exactly =
+1/kFecGroupSize" — which is only asymptotically true.
 
-**Vì sao là vấn đề.** P-frame trên màn hình tĩnh thường xuyên là 1–2 gói. FEC được
-`BitrateController` bật **đúng lúc đường truyền đã đang mất gói** (`BitrateController.cpp:32`,
-ngưỡng ≥1%), tức là ta nhân đôi số gói của các frame nhỏ đúng vào lúc mạng đang chật.
+**Why it is a problem.** P-frames on a static screen are routinely 1–2 packets. FEC is enabled by
+`BitrateController` **exactly when the link is already losing packets**
+(`BitrateController.cpp:32`, threshold ≥1%), meaning we double the packet count of small frames
+precisely when the network is congested.
 
-**Cách sửa.** Bỏ parity khi `count < kFecGroupSize` — parity của một nhóm 1 phần tử **chính
-là bản sao của gói đó**, điều mà `Wire.h:311` đã tự thừa nhận. Ngưỡng đề xuất: chỉ phát FEC
-khi `count >= kFecGroupSize` (tức overhead ≤ 12.5% theo đúng thiết kế). Frame nhỏ mất gói thì
-đã có NACK gánh (`RetransmitCache`) — rẻ hơn nhiều vì chỉ tốn khi thật sự mất.
+**Fix.** Skip parity when `count < kFecGroupSize` — the parity of a 1-element group **is a
+duplicate of that packet**, which `Wire.h:311` itself already admits. Proposed threshold: only
+emit FEC when `count >= kFecGroupSize` (i.e. overhead ≤ 12.5% as designed). Small frames that
+lose packets are already covered by NACK (`RetransmitCache`) — far cheaper because it only costs
+when loss actually happens.
 
-Sửa xong nhớ cập nhật đoạn "chi phí băng thông" ở `Wire.h:53-63` và `06-phase3-transport.md`.
+After the fix, update the "bandwidth cost" passage in `Wire.h:53-63` and
+`06-transport.md`.
 
-**Kiểm chứng.** `core/tests/transport/FecTests.cpp`: frame 1 gói với `SetFecEnabled(true)` →
-`SendFrame` phát đúng 1 datagram, không có gói parity nào.
+**Verification.** `core/tests/transport/FecTests.cpp`: a 1-packet frame with
+`SetFecEnabled(true)` → `SendFrame` emits exactly 1 datagram, with no parity packet.
 
 ---
 
-## 3. Vệ sinh build & kiểm chứng — **LÀM NHÓM NÀY TRƯỚC**
+## 3. Build hygiene & verification — **DO THIS GROUP FIRST**
 
-### ⬜ C1 — Không có cờ cảnh báo ngoài MSVC, không `-Werror`, không sanitizer ở đâu cả
+### ⬜ C1 — No warning flags outside MSVC, no `-Werror`, no sanitizers anywhere
 
-**Hiện trạng.** `core/CMakeLists.txt:38`:
+**Current state.** `core/CMakeLists.txt:38`:
 
 ```cmake
 if(MSVC)
     target_compile_options(core PRIVATE /W4 /permissive- /sdl)
 endif()
-# ← không có else()
+# ← no else()
 ```
 
-Core được dịch bởi **GCC** (CI Ubuntu), **AppleClang** (CI macOS), **NDK clang** (Android),
-**Xcode** (iOS) — tất cả ở **mức cảnh báo mặc định**, tức gần như câm.
+Core is compiled by **GCC** (CI Ubuntu), **AppleClang** (CI macOS), **NDK clang** (Android),
+**Xcode** (iOS) — all at the **default warning level**, i.e. nearly mute.
 
-Đã grep `sanitiz|asan|ubsan|fsanitize|Werror|Wall|Wextra` qua `Makefile`, `make/`, mọi
-`CMakeLists.txt`, mọi workflow trong `.github/`: **không một kết quả nào**.
+Grepped `sanitiz|asan|ubsan|fsanitize|Werror|Wall|Wextra` across `Makefile`, `make/`, every
+`CMakeLists.txt`, every workflow in `.github/`: **not a single hit**.
 
-**Vì sao đây là mục quan trọng nhất trong file.** Nó đang vô hiệu hoá đúng bài test tốt nhất
-mà dự án đã tự viết: `core/tests/wire/WireTests.cpp:516` — *"300 garbage buffers through every
-Parse*"*. Không có ASan, test đó chỉ bắt được crash cứng; **những cú đọc tràn heap mà nó sinh
-ra để tìm sẽ đi qua im lặng**. Bỏ công viết fuzz rồi chạy không sanitizer là trả tiền mà
-không lấy hàng.
+**Why this is the most important item in the file.** It is currently neutralizing the best test
+the project ever wrote for itself: `core/tests/wire/WireTests.cpp:516` — *"300 garbage buffers
+through every Parse*"*. Without ASan, that test only catches hard crashes; **the heap overreads
+it was written to find pass through silently**. Writing a fuzz test and running it without
+sanitizers is paying for goods and never picking them up.
 
-**Cách sửa.**
+**Fix.**
 
-1. `core/CMakeLists.txt` — thêm nhánh non-MSVC:
+1. `core/CMakeLists.txt` — add a non-MSVC branch:
    ```cmake
    else()
        target_compile_options(core PRIVATE -Wall -Wextra -Wconversion -Wshadow)
    endif()
    ```
-   Làm tương tự cho target `core_tests`. Dự liệu: `-Wconversion` sẽ ra một loạt cảnh báo ở
-   các chỗ thu hẹp kiểu có chủ ý (`LinkStats.cpp:88-91`, `Reassembler.cpp:270`) — thêm
-   `static_cast` tường minh, đó chính là điểm của cờ này.
+   Do the same for the `core_tests` target. Expect: `-Wconversion` will produce a batch of
+   warnings at the intentional narrowing sites (`LinkStats.cpp:88-91`, `Reassembler.cpp:270`) —
+   add explicit `static_cast`s; that is exactly the point of the flag.
 
-2. `CMakePresets.json` — thêm preset `asan`:
+2. `CMakePresets.json` — add an `asan` preset:
    ```json
    {
      "name": "asan",
@@ -296,25 +305,24 @@ không lấy hàng.
    }
    ```
 
-3. `make/core.mk` — target `asan` chạy `core_tests` dưới sanitizer, cùng khuôn với target
-   `coverage` sẵn có.
+3. `make/core.mk` — an `asan` target that runs `core_tests` under the sanitizer, following the
+   same pattern as the existing `coverage` target.
 
-4. `.github/workflows/build.yml` — thêm một job (Ubuntu, rẻ) chạy `make asan`. Đặt nó cùng
-   nhóm với `core-tests` để tín hiệu pass/fail độc lập với bản dựng artifact.
+4. `.github/workflows/build.yml` — add one job (Ubuntu, cheap) that runs `make asan`. Group it
+   with `core-tests` so its pass/fail signal is independent of the artifact builds.
 
-5. Chỉ bật `-Werror` **trong CI**, không bật ở bản dựng local (tránh chặn dev vì một cảnh
-   báo mới của trình dịch mới).
+5. Enable `-Werror` **in CI only**, not in local builds (to avoid blocking devs on a new warning
+   from a newer compiler).
 
 ---
 
-### ⬜ C2 — Không fuzz tầng parse
+### ⬜ C2 — No fuzzing of the parse layer
 
-**Hiện trạng.** `core/src/wire/Wire.cpp` là ranh giới tin cậy của toàn bộ chương trình —
-chính header của nó nói vậy ở dòng 22-23. Bài test hiện có
-(`WireTests.cpp:516`) dùng xorshift32 có hạt giống cố định: bản năng đúng, nhưng vẫn chỉ là
-~300 vector tĩnh.
+**Current state.** `core/src/wire/Wire.cpp` is the trust boundary of the entire program — its own
+header says so at lines 22-23. The existing test (`WireTests.cpp:516`) uses a fixed-seed
+xorshift32: the right instinct, but still only ~300 static vectors.
 
-**Cách sửa.** Một target libFuzzer ~30 dòng là đủ và là mức chuẩn của ngành cho parser mạng:
+**Fix.** A ~30-line libFuzzer target is enough and is the industry standard for network parsers:
 
 ```cpp
 // core/fuzz/WireFuzz.cpp
@@ -323,228 +331,236 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* d, size_t n) {
     const auto h = deskhub::ParseCommonHeader(pkt);
     if (!h) return 0;
     const auto p = deskhub::PayloadOf(pkt);
-    // dispatch theo h->type qua TẤT CẢ các Parse* — giống hệt switch của HostSession
+    // dispatch on h->type through ALL Parse* functions — exactly like HostSession's switch
     ...
 }
 ```
 
-Build sau preset `asan` (§C1), chạy 60 giây mỗi lần CI với corpus commit vào repo. Ưu tiên
-phủ: `ParseSourceList`, `ParseInputEvents`, `ParseNack`, `ParseAnnounce`, `ParseClipboardChunk`
-— tất cả đều đọc một trường đếm do bên kia khai.
+Build on top of the `asan` preset (§C1), run 60 seconds per CI run with the corpus committed to
+the repo. Coverage priorities: `ParseSourceList`, `ParseInputEvents`, `ParseNack`,
+`ParseAnnounce`, `ParseClipboardChunk` — all of them read a count field declared by the peer.
 
-Giai đoạn 2 (không gấp): fuzz cả **máy trạng thái**, không chỉ parser — bơm chuỗi datagram
-ngẫu nhiên vào `HostSession::HandlePacket` + `Tick`.
-
----
-
-### ⬜ C3 — Coverage đo nhưng không có ngưỡng
-
-`.github/workflows/build.yml` chạy `make coverage` và đẩy HTML lên artifact, nhưng không có
-gì fail khi phủ tụt (comment trong workflow đã tự ghi nhận điều này). Thêm một ngưỡng sàn cho
-`core/src` — đọc từ `llvm-cov report`, so với một con số commit trong repo. Đặt ngưỡng bằng
-mức hiện tại làm mốc, chỉ cho phép đi lên.
+Phase 2 (not urgent): fuzz the **state machine** too, not just the parser — feed random datagram
+sequences into `HostSession::HandlePacket` + `Tick`.
 
 ---
 
-### ⬜ C4 — Không có `.clang-tidy`
+### ⬜ C3 — Coverage is measured but has no threshold
 
-Phần style thực sự trên mức trung bình: clang-format / ktlint / swiftformat / swiftlint đều
-**pin phiên bản** và được CI check bằng **đúng script dev chạy local** — chỗ này không cần
-động vào.
-
-Thiếu là phân tích tĩnh cho những thứ format không thấy. Thêm `.clang-tidy` ở gốc với
-`bugprone-*`, `cert-*`, `cppcoreguidelines-narrowing-conversions`, `performance-*`. Chạy trên
-`core/` trước (nhỏ, sạch nhất), mở rộng sang `client/` sau. Đã có
-`CMAKE_EXPORT_COMPILE_COMMANDS: ON` trong preset nên không cần thêm hạ tầng gì.
+`.github/workflows/build.yml` runs `make coverage` and uploads the HTML as an artifact, but
+nothing fails when coverage drops (a comment in the workflow already acknowledges this). Add a
+floor threshold for `core/src` — read from `llvm-cov report`, compared against a number committed
+to the repo. Set the threshold at the current level as the baseline, only allowed to move up.
 
 ---
 
-## 4. Kiến trúc & code chết
+### ⬜ C4 — No `.clang-tidy`
 
-### ⬜ D1 — Toàn bộ hệ đo trễ e2e trong core không ai dùng; các client tự viết lại
+The style tooling is genuinely above average: clang-format / ktlint / swiftformat / swiftlint are
+all **version-pinned** and CI checks them with **the exact same script devs run locally** — no
+changes needed there.
 
-**Hiện trạng.** Đã grep toàn bộ `client/` (mọi `.cpp/.h/.mm/.cs/.kt/.swift`):
+What is missing is static analysis for the things a formatter cannot see. Add a `.clang-tidy` at
+the root with `bugprone-*`, `cert-*`, `cppcoreguidelines-narrowing-conversions`,
+`performance-*`. Run it on `core/` first (small, cleanest), expand to `client/` later.
+`CMAKE_EXPORT_COMPILE_COMMANDS: ON` already exists in the preset, so no extra infrastructure is
+needed.
 
-| Module | Kích thước | Người dùng ngoài core |
+---
+
+## 4. Architecture & dead code
+
+### ⬜ D1 — The entire e2e latency system in core is unused; the clients rewrote their own
+
+**Current state.** Grepped all of `client/` (every `.cpp/.h/.mm/.cs/.kt/.swift`):
+
+| Module | Size | Users outside core |
 |--------|-----------|------------------------|
-| `control/ClockSync.{h,cpp}` | 102 + 62 dòng | **không ai** |
-| `control/LatencyTrace.{h,cpp}` | 82 + 99 dòng | **không ai** |
-| `LinkStats::AddE2e` | — | **không client nào gọi** |
+| `control/ClockSync.{h,cpp}` | 102 + 62 lines | **nobody** |
+| `control/LatencyTrace.{h,cpp}` | 82 + 99 lines | **nobody** |
+| `LinkStats::AddE2e` | — | **no client calls it** |
 
-Hệ quả dây chuyền: `LinkWindow::e2eMsAvg` / `e2eMsMax` / `e2eSamples`
-(`LinkStats.cpp:67-71`) **vĩnh viễn bằng 0** ở mọi client.
+Cascading consequence: `LinkWindow::e2eMsAvg` / `e2eMsMax` / `e2eSamples`
+(`LinkStats.cpp:67-71`) are **permanently zero** on every client.
 
-Trong khi đó `client/android/app/src/main/cpp/ClientLoop.cpp:335-343` **tự cài lại** bộ ước
-lượng offset ("e2e = bây giờ − offset − pts của frame", kèm minRTT riêng), và iOS/macOS/
-Windows cũng làm tương tự trong ClientLoop của mình.
+Meanwhile `client/android/app/src/main/cpp/ClientLoop.cpp:335-343` **reimplements** its own
+offset estimator ("e2e = now − offset − frame pts", with its own minRTT), and iOS/macOS/Windows
+do the same in their respective ClientLoops.
 
-**Vì sao là vấn đề.** Đây đúng là sự trùng lặp mà `core/` sinh ra để ngăn — và trớ trêu là
-bản **không** được test lại chính là bản đang chạy thật trên tay người dùng, còn bản đã test
-kỹ thì nằm im. Giữ code-đã-test-nhưng-chết cạnh code-chưa-test-nhưng-sống là tệ hơn cả hai
-lựa chọn dứt khoát.
+**Why it is a problem.** This is exactly the duplication `core/` was created to prevent — and the
+irony is that the **untested** copy is the one actually running on users' devices, while the
+well-tested one sits idle. Keeping tested-but-dead code next to untested-but-live code is worse
+than either decisive choice.
 
-**Cách sửa — chọn dứt khoát một hướng:**
+**Fix — decisively pick one direction:**
 
-- **(a) Nối client vào core.** Thay phần tính offset trong 4 ClientLoop bằng
-  `ClockSync::OnFrame` / `E2eUs`, và feed `LinkStats::AddE2e`. Đúng nguyên tắc kiến trúc,
-  và `docs/09-diagnostics.md` mô tả hệ này như thể nó đang chạy. Công lớn hơn nhưng trả
-  đúng món nợ.
-- **(b) Xoá `ClockSync` + `LatencyTrace` + nửa e2e của `LinkStats`.** Cùng các ca test của
-  chúng trong `ControlTests.cpp`, và cập nhật `09-diagnostics.md`. Trung thực với hiện
-  trạng, và loại luôn chỗ treo B2 ở `LatencyTrace.cpp:28`.
+- **(a) Wire the clients into core.** Replace the offset computation in the 4 ClientLoops with
+  `ClockSync::OnFrame` / `E2eUs`, and feed `LinkStats::AddE2e`. Architecturally correct, and
+  `docs/09-diagnostics.md` describes this system as if it were running. More work, but it pays
+  the debt properly.
+- **(b) Delete `ClockSync` + `LatencyTrace` + the e2e half of `LinkStats`.** Along with their
+  test cases in `ControlTests.cpp`, and update `09-diagnostics.md`. Honest about the current
+  state, and also removes the B2 hang site at `LatencyTrace.cpp:28`.
 
-Đề xuất **(a)** nếu biểu đồ độ trễ vẫn nằm trong kế hoạch giao diện; **(b)** nếu không.
-Không chọn thì mặc định là đang chọn phương án tệ nhất.
-
----
-
-### ⬜ D2 — Discovery chỉ có trên Windows *(ghi nhận, không phải lỗi)*
-
-`Beacon` / `HostRegistry` chỉ được `client/windows` tham chiếu. macOS/Android/iOS không dò
-được host và cũng không bị dò thấy. Ổn với trạng thái triển khai hiện tại — nhưng các header
-trong `core/include/deskhub/discovery/` đọc như thể tính năng này phổ quát. Thêm một dòng
-"nền tảng đã nối: Windows" vào đầu `Beacon.h` và `HostRegistry.h` cho khớp sự thật.
+Recommend **(a)** if the latency chart is still on the UI roadmap; **(b)** if not. Not choosing
+means defaulting to the worst option.
 
 ---
 
-### ⬜ D3 — `platform/Clock.h` rò rỉ
+### ⬜ D2 — Discovery exists only on Windows *(noted, not a bug)*
 
-Bốn vấn đề trong một file 111 dòng:
+`Beacon` / `HostRegistry` are referenced only by `client/windows`. macOS/Android/iOS can neither
+discover hosts nor be discovered. Fine for the current deployment state — but the headers in
+`core/include/deskhub/discovery/` read as if the feature were universal. Add a line
+"platforms wired: Windows" at the top of `Beacon.h` and `HostRegistry.h` to match reality.
 
-1. **Macro không guard.** `platform/include/deskhubp/Clock.h:69-70`:
+---
+
+### ⬜ D3 — `platform/Clock.h` leaks
+
+Four problems in one 111-line file:
+
+1. **Unguarded macros.** `platform/include/deskhubp/Clock.h:69-70`:
    ```cpp
    #define WIN32_LEAN_AND_MEAN
    #define NOMINMAX
    ```
-   TU nào đã định nghĩa sẵn (rất phổ biến — hầu hết file trong `client/windows/cpp` đều có)
-   sẽ ăn **C4005 macro redefinition**. Core đang build ở `/W4`; thêm `/WX` (§C1) là gãy build.
-   Dạng chuẩn: `#ifndef X` / `#define X` / `#endif`.
+   Any TU that already defines them (very common — most files in `client/windows/cpp` do) gets
+   **C4005 macro redefinition**. Core builds at `/W4`; adding `/WX` (§C1) breaks the build.
+   Standard form: `#ifndef X` / `#define X` / `#endif`.
 
-2. **`NowUs()` ở global namespace.** Đường include là `deskhubp/Clock.h`, CMake đặt tên
-   library là `platform`, nhưng hàm không nằm trong `namespace deskhubp`. Một public header
-   xuất một global tên `NowUs` là va chạm tên chờ sẵn. Đưa vào `namespace deskhubp` và sửa
-   call site (grep `NowUs()` trong `client/`).
+2. **`NowUs()` in the global namespace.** The include path is `deskhubp/Clock.h`, CMake names
+   the library `platform`, yet the function is not in `namespace deskhubp`. A public header
+   exporting a global named `NowUs` is a name collision waiting to happen. Move it into
+   `namespace deskhubp` and fix the call sites (grep `NowUs()` in `client/`).
 
-3. **`<windows.h>` vào mọi consumer.** Chính comment của file (`Clock.h:62-63`) phê phán việc
-   kéo trọn `windows.h`, rồi vẫn làm đúng thế với mọi TU include nó. Chuyển `platform` thành
-   **STATIC** + `Clock.cpp` — `platform/CMakeLists.txt:6-8` đã dự liệu sẵn bước này. Giá phải
-   trả là một lời gọi không inline mỗi vòng lặp mạng: không đáng kể cạnh một `sendto`.
+3. **`<windows.h>` into every consumer.** The file's own comment (`Clock.h:62-63`) criticizes
+   pulling in all of `windows.h`, then does exactly that to every TU that includes it. Convert
+   `platform` to **STATIC** + `Clock.cpp` — `platform/CMakeLists.txt:6-8` already anticipates
+   this step. The price is one non-inlined call per network loop iteration: negligible next to a
+   `sendto`.
 
-4. **`QueryPerformanceFrequency` không kiểm tra giá trị trả về** (`Clock.h:77`). Thất bại →
-   `freq` chưa khởi tạo → chia cho rác hoặc cho 0. Một câu `if` là xong.
-
----
-
-## Thứ tự triển khai đề xuất
-
-1. **§3 C1** — cờ cảnh báo + preset ASan + job CI. Rẻ nhất, và nó tự bắt giúp phần còn lại.
-2. **§4 D3** — `Clock.h`. Nhỏ, và mục (1) của nó là điều kiện để bật `/WX` ở bước trên.
-3. **§2 B1, B2, B3** — ba lỗi độc lập, mỗi cái một commit + một ca test.
-4. **§1 A2, A3** — bảo mật không cần chốt thiết kế, làm được ngay.
-5. **§4 D1** — chốt (a) hay (b) rồi làm.
-6. **§1 A1** — chốt (a) hay (b) rồi làm. Cần đụng UI của cả 4 nền tảng nên để sau cùng.
-7. **§3 C2, C3, C4** — nâng dần khi các mục trên đã xanh.
+4. **`QueryPerformanceFrequency` return value unchecked** (`Clock.h:77`). On failure → `freq`
+   uninitialized → division by garbage or by zero. A single `if` fixes it.
 
 ---
 
-## Đã làm (2026-07-26, lần 2)
+## Proposed implementation order
 
-Triển khai theo thiết kế Claude Design *"Deskhub App"* — màn `06 · settings / password +
-trusted devices` (desktop) và `05 · settings / password` (mobile). Thiết kế chốt cơ chế
-**challenge-response**, không phải gửi mật khẩu: *"kept in the keychain — never sent. the
-client answers a challenge, the password stays on this Mac."*
+1. **§3 C1** — warning flags + ASan preset + CI job. Cheapest, and it automatically catches the
+   rest.
+2. **§4 D3** — `Clock.h`. Small, and its item (1) is a prerequisite for enabling `/WX` in the
+   step above.
+3. **§2 B1, B2, B3** — three independent bugs, one commit + one test case each.
+4. **§1 A2, A3** — security items requiring no design decision, doable immediately.
+5. **§4 D1** — decide (a) or (b), then do it.
+6. **§1 A1** — decide (a) or (b), then do it. Touches the UI on all 4 platforms, so leave it for
+   last.
+7. **§3 C2, C3, C4** — ramp up gradually once the items above are green.
 
-**Mới:**
+---
 
-| File | Vai trò |
+## Done (2026-07-26, round 2)
+
+Implemented per the Claude Design *"Deskhub App"* — screens `06 · settings / password +
+trusted devices` (desktop) and `05 · settings / password` (mobile). The design settled on a
+**challenge-response** mechanism, not password transmission: *"kept in the keychain — never sent.
+the client answers a challenge, the password stays on this Mac."*
+
+**New:**
+
+| File | Role |
 |------|---------|
-| `core/include/deskhub/crypto/Sha256.h` + `src/crypto/Sha256.cpp` | SHA-256, HMAC, PBKDF2, so hằng thời gian — thuần C++20 |
-| `core/include/deskhub/auth/PasswordAuth.h` + `src/auth/PasswordAuth.cpp` | Phép toán bắt tay, không trạng thái |
-| `core/include/deskhub/auth/AuthGuard.h` + `src/auth/AuthGuard.cpp` | Mật khẩu, khoá tạm 3/5 phút, thiết bị tin cậy |
+| `core/include/deskhub/crypto/Sha256.h` + `src/crypto/Sha256.cpp` | SHA-256, HMAC, PBKDF2, constant-time compare — pure C++20 |
+| `core/include/deskhub/auth/PasswordAuth.h` + `src/auth/PasswordAuth.cpp` | Handshake math, stateless |
+| `core/include/deskhub/auth/AuthGuard.h` + `src/auth/AuthGuard.cpp` | Password, 3-strikes/5-minute lockout, trusted devices |
 | `platform/include/deskhubp/Random.h` | CSPRNG: BCrypt / arc4random / getrandom |
-| `core/tests/crypto/CryptoTests.cpp` | Vector chuẩn FIPS 180-4, RFC 4231, RFC 7914 |
-| `core/tests/auth/AuthTests.cpp` | 12 nhóm ca, phần lớn khẳng định thứ gì đó **bị từ chối** |
+| `core/tests/crypto/CryptoTests.cpp` | Reference vectors from FIPS 180-4, RFC 4231, RFC 7914 |
+| `core/tests/auth/AuthTests.cpp` | 12 case groups, most asserting that something is **rejected** |
 
-**Sửa:** `Wire.{h,cpp}` (AUTH_CHALLENGE 0x09 / AUTH_RESPONSE 0x0A, `RejectReason`, trường
-nối đuôi cho HELLO/HELLO_ACK), `HostSession.{h,cpp}` (trạng thái `Authenticating`,
+**Modified:** `Wire.{h,cpp}` (AUTH_CHALLENGE 0x09 / AUTH_RESPONSE 0x0A, `RejectReason`,
+tail-appended fields for HELLO/HELLO_ACK), `HostSession.{h,cpp}` (`Authenticating` state,
 `InSession`, `BeginSession`, `GrantInput`), `ClientSession.{h,cpp}` (`SetPassword`,
-`AnswerChallenge`, thông báo từ chối theo lý do), `AgentLoop.cpp` ×2 (nối `randomBytes`),
-`Clock.h` (guard macro + kiểm tra QPF), `docs/04-protocol.md` §7b.
+`AnswerChallenge`, per-reason rejection messages), `AgentLoop.cpp` ×2 (wired `randomBytes`),
+`Clock.h` (macro guards + QPF check), `docs/04-protocol.md` §5.4.
 
-**Vì sao tự cài SHA-256 thay vì link thư viện:** mỗi nền tảng một thư viện khác nhau
-(BCrypt / CommonCrypto / Android NDK không có sẵn) → bốn nhánh `#ifdef` ngay giữa lõi, đúng
-thứ `core/` sinh ra để tránh. SHA-256 là thuật toán cố định, ~150 dòng, kiểm chứng được
-bằng vector công bố. Entropy thì **không** tự cài được — nó là thứ duy nhất nằm ở
-`platform/`.
+**Why implement SHA-256 ourselves instead of linking a library:** each platform has a different
+library (BCrypt / CommonCrypto / not available in the Android NDK) → four `#ifdef` branches in
+the middle of the core, exactly what `core/` exists to avoid. SHA-256 is a fixed algorithm, ~150
+lines, verifiable against published vectors. Entropy, however, **cannot** be self-implemented —
+it is the one thing that lives in `platform/`.
 
-**Quyết định đáng chú ý — fail closed.** Không nối `HostCallbacks::randomBytes` thì host
-**từ chối mọi kết nối** thay vì lùi về `sessionId` dẫn từ đồng hồ. Lùi sẽ dựng lại đúng
-điểm yếu A3 vừa bỏ đi, ở một đường hiếm khi chạy nên không ai thử tới. Hệ quả: mọi test
-dựng `HostSession` phải nối `TestRandomBytes` (đã sửa), và mọi host thật phải nối
-`deskhubp::RandomBytes` (đã nối Windows + macOS).
+**Notable decision — fail closed.** If `HostCallbacks::randomBytes` is not wired, the host
+**rejects all connections** rather than falling back to a clock-derived `sessionId`. Falling back
+would rebuild the exact A3 weakness just removed, on a rarely-exercised path nobody would ever
+test. Consequence: every test that constructs a `HostSession` must wire `TestRandomBytes` (done),
+and every real host must wire `deskhubp::RandomBytes` (wired on Windows + macOS).
 
-### Còn lại của A1 — giao diện + keychain
+### Remainder of A1 — UI + keychain
 
-Phần core đã xong và có test. **iOS + Android (vai client) đã xong** — xem mục riêng bên
-dưới. Còn lại:
+The core part is done and tested. **iOS + Android (client role) are done** — see the dedicated
+section below. Remaining:
 
-- ⬜ **Windows (vai host)** — màn Settings (WinUI3) theo `DesktopSettings`: ô require,
-  trường mật khẩu + xác nhận + Generate, cặp số `0/3 · 5 min`, danh sách thiết bị tin cậy
-  + Forget. Lưu `AuthKey` + danh sách vào DPAPI/Credential Manager qua
+- ⬜ **Windows (host role)** — Settings screen (WinUI3) per `DesktopSettings`: require checkbox,
+  password field + confirm + Generate, the `0/3 · 5 min` counter pair, trusted-devices list
+  + Forget. Store `AuthKey` + the list in DPAPI/Credential Manager via
   `onTrustedDevicesChanged`.
-- ⬜ **macOS (vai host)** — cùng màn, lưu bằng Keychain Services.
-- ⬜ **Windows/macOS (vai client)** — ô nhập mật khẩu khi `onPasswordNeeded` bắn; lưu token
-  qua `onDeviceToken`. Mẫu đã có sẵn ở `client/ios` và `client/android`, port thẳng.
-- ⬜ **Hộp thoại duyệt input** — `SetAskBeforeInput(true)` đã giữ phiên ở chế độ chỉ-xem;
-  còn thiếu cái hỏi và nút gọi `GrantInput()`.
+- ⬜ **macOS (host role)** — same screen, stored via Keychain Services.
+- ⬜ **Windows/macOS (client role)** — password prompt when `onPasswordNeeded` fires; store the
+  token via `onDeviceToken`. Templates already exist in `client/ios` and `client/android`, port
+  directly.
+- ⬜ **Input approval dialog** — `SetAskBeforeInput(true)` already holds the session in view-only
+  mode; still missing the prompt itself and the button that calls `GrantInput()`.
 
-### iOS + Android — ✅ xong (2026-07-26, lần 3)
+### iOS + Android — ✅ done (2026-07-26, round 3)
 
-Cả hai là **client-only** theo thiết kế (`phoneIsClient` / `hostingDesktopOnly`), nên phần
-làm là đầu client của bắt tay. Mặt tiền C++ giống hệt nhau ở hai nền tảng:
+Both are **client-only** by design (`phoneIsClient` / `hostingDesktopOnly`), so the work was the
+client end of the handshake. The C++ facade is identical on both platforms:
 `ClientLoop::Credentials` (clientId / deviceName / password / deviceToken),
 `Phase::NeedPassword`, `SubmitPassword`, `TakeDeviceToken`, `rejectReason`.
 
 | | iOS | Android |
 |---|---|---|
-| Kho bí mật | `Credentials.swift` — Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | `Credentials.kt` — Android Keystore + AES/GCM |
-| Bridge | `dh_start`(+4 tham số), `dh_submit_password`, `dh_take_device_token`, `dh_reject_reason` | `nativeStart`(+4), `nativeSubmitPassword`, `nativeTakeDeviceToken`, `nativeRejectReason` |
-| Ô nhập mật khẩu | `StreamView.passwordOverlay` | `StreamActivity.PasswordOverlay` |
-| Saved passwords | `ConnectView.savedPasswordSection` | `MainActivity` (dưới Recents) |
-| Sinh trắc học | Face ID qua `LocalAuthentication` ✅ | ⬜ chưa (xem bên dưới) |
+| Secret store | `Credentials.swift` — Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | `Credentials.kt` — Android Keystore + AES/GCM |
+| Bridge | `dh_start`(+4 params), `dh_submit_password`, `dh_take_device_token`, `dh_reject_reason` | `nativeStart`(+4), `nativeSubmitPassword`, `nativeTakeDeviceToken`, `nativeRejectReason` |
+| Password prompt | `StreamView.passwordOverlay` | `StreamActivity.PasswordOverlay` |
+| Saved passwords | `ConnectView.savedPasswordSection` | `MainActivity` (below Recents) |
+| Biometrics | Face ID via `LocalAuthentication` ✅ | ⬜ not yet (see below) |
 
-**Lỗi đã bắt được khi nối dây:** `hello.clientId = uint32_t(NowUs())` — clientId đổi mỗi
-lần chạy, mà `AuthGuard` khoá danh sách thiết bị tin cậy **theo clientId**. Token sẽ không
-bao giờ khớp lại và người dùng phải gõ mật khẩu mãi mãi. Giờ nó là một giá trị ngẫu nhiên
-sinh một lần rồi cất vào Keychain/Keystore; lùi về đồng hồ nếu caller quên truyền (mất tính
-năng nhớ thiết bị, vẫn kết nối được).
+**Bug caught while wiring:** `hello.clientId = uint32_t(NowUs())` — the clientId changed on every
+run, while `AuthGuard` keys the trusted-devices list **by clientId**. The token would never match
+again and the user would have to type the password forever. It is now a random value generated
+once and stored in the Keychain/Keystore; falls back to the clock if the caller forgets to pass
+it (loses the remember-device feature, still connects).
 
-**Vì sao Android không dùng `androidx.security:security-crypto`:** `EncryptedSharedPreferences`
-đã bị Google đánh dấu lỗi thời (2024). Thêm một dependency đã hết bảo trì chỉ là dời khoản
-nợ sang chỗ khác; Keystore + AES/GCM là API nền tảng và gọn hơn phần cấu hình thư viện kia đòi.
+**Why Android does not use `androidx.security:security-crypto`:** `EncryptedSharedPreferences`
+was deprecated by Google (2024). Adding an unmaintained dependency merely moves the debt
+elsewhere; Keystore + AES/GCM is a platform API and is leaner than the configuration that library
+demands.
 
-**Chưa làm:** sinh trắc học trên Android (`BiometricPrompt` cần thêm dependency
-`androidx.biometric` + một Activity host). iOS đã có Face ID vì `LocalAuthentication` chỉ
-tốn ~25 dòng và không cần dependency mới.
+**Not done:** biometrics on Android (`BiometricPrompt` requires the extra `androidx.biometric`
+dependency + a host Activity). iOS already has Face ID because `LocalAuthentication` costs only
+~25 lines and no new dependency.
 
-⚠ **iOS chưa được biên dịch kiểm chứng** — máy dev là Windows, Xcode không chạy được ở đây.
-Android (C++/JNI/Kotlin) và core đã build xanh tại chỗ; iOS chỉ mới qua `swiftformat --lint`
-(0/21 file cần sửa). Job `ios` của `.github/workflows/build.yml` (`make build-ios` trên
-macos-latest) là nơi bắt lỗi biên dịch Swift/ObjC++ đầu tiên.
+⚠ **iOS has not been compile-verified** — the dev machine is Windows, Xcode cannot run here.
+Android (C++/JNI/Kotlin) and core build green locally; iOS has only passed
+`swiftformat --lint` (0/21 files needing fixes). The `ios` job of `.github/workflows/build.yml`
+(`make build-ios` on macos-latest) is where Swift/ObjC++ compile errors will first be caught.
 
-### Chưa làm, có chủ ý
+### Deliberately not done
 
-- **Mã hoá luồng** vẫn là GĐ6 — xác thực và mã hoá là hai việc khác nhau, và `04-protocol.md`
-  §7b nói rõ điều đó ở chỗ dễ thấy nhất.
-- **`AuthGuard` giữ một challenge dở dang** (v1 một client mỗi phiên). Cũng chặn luôn việc
-  mở hàng nghìn challenge song song để bào bộ nhớ host.
-- **PBKDF2 chạy trên thread mạng của client** (~100 ms lúc bắt tay, chưa có video). Khoá dẫn
-  xuất được cache theo `(salt, iterations)` nên các lần HELLO phát lại không tính lại.
+- **Stream encryption** remains Phase 6 — authentication and encryption are two different things,
+  and `04-protocol.md` §5.1 says so in the most visible place.
+- **`AuthGuard` holds one in-flight challenge** (v1: one client per session). This also prevents
+  opening thousands of parallel challenges to grind down host memory.
+- **PBKDF2 runs on the client's network thread** (~100 ms during handshake, before video). The
+  derived key is cached by `(salt, iterations)` so replayed HELLOs do not recompute.
 
-## Liên quan
+## Related
 
-- `01-architecture.md` §Bảo mật — nơi ghi khoản hoãn mã hoá (DTLS/AEAD)
-- `04-protocol.md` — đặc tả wire, phải sửa cùng lúc với A1/B1/B3
-- `05-roadmap.md` GĐ6 — nơi cần bổ sung mục **uỷ quyền** (hiện chỉ có mã hoá)
-- `06-phase3-transport.md` — mô tả FEC, phải sửa cùng B3
-- `09-diagnostics.md` — mô tả hệ e2e, phải sửa cùng D1
+- `01-architecture.md` §Security — where the encryption deferral (DTLS/AEAD) is recorded
+- `04-protocol.md` — wire spec, must be updated together with A1/B1/B3
+- `05-roadmap.md` Phase 6 — where an **authorization** item must be added (currently only
+  encryption)
+- `06-transport.md` — describes FEC, must be updated with B3
+- `09-diagnostics.md` — describes the e2e system, must be updated with D1

@@ -1,600 +1,688 @@
-# 04 — Giao thức mạng
+# 04 — Wire Protocol
 
-Đặc tả giao thức giữa Agent và Client. Thiết kế cho độ trễ thấp: UDP, tách kênh theo đặc
-tính tin cậy. Phiên bản này là **v1** — cố ý đơn giản, đủ chạy LAN; các phần nâng cao
-(mã hóa, FEC, NAT traversal) đánh dấu là mở rộng.
+Specification of the v1 wire protocol between a Deskhub host (Agent) and its clients.
 
-## 1. Tổng quan
+This document and `core/include/deskhub/wire/Wire.h` are two forms of the same
+specification. `Wire.h` (with `core/src/wire/Wire.cpp`) is the **single implementation**
+of every byte layout described here — no other module in the project is allowed to read
+or write raw datagram bytes — and its header comment names this file as the source of
+truth. **The two must change together**: a change to either one that is not mirrored in
+the other creates two conflicting specifications. Round-trip and malformed-input tests
+for every message live in `core/tests/wire/WireTests.cpp`.
 
-- **Transport**: UDP. Một cổng, phân kênh bằng byte đầu; hoặc hai cổng (video/control) —
-  v1 dùng **một cổng, phân kênh trong header** cho đơn giản.
-- **Endianness**: mọi trường số nguyên **big-endian (network byte order)**.
-- **MTU**: payload tối đa **1200 byte** (an toàn qua Internet, tránh phân mảnh IP).
-- **Đơn vị thời gian**: micro giây (µs), kiểu `uint64`, gốc thời gian thỏa thuận lúc handshake.
+Related documents: 01-architecture.md (where the wire layer sits in the system),
+06-transport.md (video transport policy in depth), 07-input.md (input pipeline),
+11-platform-transport.md (sockets, ports, and per-platform plumbing).
 
-## 2. Header chung (mọi gói)
+## 1. Overview
 
-Mỗi datagram UDP bắt đầu bằng header 8 byte:
+- **Transport**: UDP, one single port. All traffic — control, video, input — is
+  multiplexed on that port via the `chan` byte of the common header. The default host
+  port is **47777** (a platform-level constant, e.g. `kDefaultPort` in
+  `client/android/app/src/main/cpp/JniBridge.cpp` and `AgentLoop.h` on each host
+  platform; if the port is busy the host probes up to 64 consecutive ports — see
+  11-platform-transport.md). The core protocol code never opens sockets; bytes enter
+  through `HandlePacket`/`Reply` and leave through `send` callbacks.
+- **Byte order**: every multi-byte integer field is **big-endian** (network byte
+  order). The only code allowed to know this is `core/include/deskhub/wire/ByteOrder.h`
+  (`PutU16/PutU32/PutU64`, `GetU16/GetU32/GetU64`); `Wire.cpp` calls down into it.
+  Byte-by-byte shifts are used deliberately — no pointer casts, so unaligned payloads
+  are safe on ARM.
+- **Version**: `kProtocolVersion = 1`. See §8 for the enforcement rules.
+- **Datagram size**: `kMaxDatagram = 1200` bytes — an Internet-safe MTU that avoids IP
+  fragmentation. No message ever exceeds it; variable-length messages truncate their
+  contents to guarantee it.
+- **Time unit**: microseconds, carried as `u64` (`timestampUs`, `sendTimeUs`,
+  `timebaseUs`). Microseconds overflow 32 bits after ~71 minutes, hence 64-bit
+  everywhere on the wire. Host and client clocks are **not** synchronized; §5.4
+  describes how the client relates them.
+- **Reliability**: there is no per-message ACK layer. Messages that must arrive are
+  simply repeated by the sender (HELLO, START, REQUEST_KEYFRAME, SET_FOCUS, input
+  redundancy); everything else is best-effort.
+- **API convention** (`Wire.h`): `Build*(out, ...)` writes one complete datagram
+  (common header + payload) and returns the byte count, or `0` if `out` is too small —
+  it never overruns. `Parse*` returns `std::optional`/`0` for short or malformed input;
+  every declared length coming off the network is checked against the real buffer
+  bounds before it is read. This is the trust boundary of the whole program.
+
+## 2. Common header
+
+Every datagram starts with the same 8-byte header (`kCommonHeaderSize = 8`,
+`struct CommonHeader`, built by `WriteCommon` in `Wire.cpp`):
 
 ```
  0        1        2        3        4        5        6        7
 +--------+--------+--------+--------+--------+--------+--------+--------+
-| Ver    | Type   | Flags  | Chan   | sessionId (u32)                   |
+| ver    | type   | flags  | chan   | sessionId (u32, big-endian)       |
 +--------+--------+--------+--------+--------+--------+--------+--------+
 ```
 
-| Trường | Kích thước | Ý nghĩa |
-|--------|-----------|---------|
-| Ver | u8 | Phiên bản giao thức = `1`. |
-| Type | u8 | Loại gói (bảng §3). |
-| Flags | u8 | Cờ tùy loại (vd. bit 0 = frame IDR ở kênh video). |
-| Chan | u8 | Kênh logic: `0=control`, `1=video`, `2=input`, `3=audio(dự phòng)`. |
-| sessionId | u32 | ID phiên do Agent cấp trong HELLO_ACK. `HELLO`/`HELLO_ACK` dùng `0`. Gói mang sessionId sai → bỏ. |
+| Field | Size | Meaning |
+|-------|------|---------|
+| `ver` | u8 | Protocol version. Must equal `kProtocolVersion` (1); `ParseCommonHeader` rejects anything else. |
+| `type` | u8 | Message type (`MsgType`, table in §3). Unknown values are not rejected at parse time — receivers `switch` on the type and silently ignore unrecognized ones, so a later version can add types without breaking old peers. |
+| `flags` | u8 | Type-specific flags. Used by VIDEO_PACKET/FEC_PACKET (`kVideoFlagIdr`, `kVideoFlagFrameEnd`) and SOURCE_LIST (`kSourceListFlagKind`); 0 elsewhere. |
+| `chan` | u8 | Logical channel (`Chan`): `0 = Control`, `1 = Video`, `2 = Input`, `3 = Audio` (reserved — no audio messages exist in v1). |
+| `sessionId` | u32 | Session identifier. `0` in every pre-session message (HELLO, HELLO_ACK, AUTH_CHALLENGE, AUTH_RESPONSE, LIST_SOURCES, SOURCE_LIST, DISCOVER, ANNOUNCE, and probe PINGs); assigned by the host in HELLO_ACK for everything after. |
 
-Phiên được định danh bằng **sessionId, không phải addr:port**: gói hợp lệ mang đúng
-sessionId đến từ địa chỉ mới → Agent cập nhật peer (client di động đổi mạng Wi-Fi↔LTE
-vẫn giữ phiên).
+`PayloadOf` returns the bytes after the header (empty if the datagram is shorter than
+8 bytes).
 
-Sau header 8 byte là payload tùy `Type`.
+### 2.1 Session identification and peer migration
 
-## 3. Bảng loại gói (Type)
+A session is identified by **sessionId, not by source addr:port**:
 
-| Type | Tên | Kênh | Hướng | Tin cậy |
-|------|-----|------|-------|---------|
-| 0x01 | HELLO | control | C→A | có (retry) |
-| 0x02 | HELLO_ACK | control | A→C | có (retry) |
-| 0x03 | START | control | C→A | có |
-| 0x04 | STOP / BYE | control | cả hai | có |
-| 0x05 | LIST_SOURCES | control | C→A | có (retry 500ms) |
-| 0x06 | SOURCE_LIST | control | A→C | không |
-| 0x07 | DISCOVER | control | C→A (broadcast) | không (quét lặp) |
-| 0x08 | ANNOUNCE | control | A→C | không |
-| 0x10 | VIDEO_PACKET | video | A→C | không |
-| 0x11 | FEC_PACKET | video | A→C | không (parity) |
-| 0x20 | INPUT_EVENT | input | C→A | tin cậy nhẹ (retry key) |
-| 0x30 | PING | control | cả hai | không |
-| 0x31 | PONG | control | cả hai | không |
-| 0x32 | FEEDBACK | control | C→A | không (định kỳ) |
-| 0x33 | REQUEST_KEYFRAME | control | C→A | có (retry) |
-| 0x34 | RECONFIG | control | A→C | có |
-| 0x35 | SET_FOCUS | control | C→A | phát lặp 3× |
-| 0x36 | NACK | control | C→A | không (best-effort) |
-| 0x37 | INVALIDATE_REF | control | C→A | không (best-effort) |
-| 0x38 | CLIPBOARD | control | cả hai | không (best-effort) |
+- `HostSession::HandlePacket` returns `true` only for a valid packet that belongs to
+  the current session; the caller (the platform Agent loop) then updates its peer
+  address from the datagram's source address. A mobile client that switches networks
+  (Wi-Fi ↔ LTE) keeps its session as long as it keeps its sessionId. BYE deliberately
+  returns `false` even though it is a valid packet — the session just closed, so the
+  peer address must not be updated from it.
+- The sessionId is generated by `HostSession::BeginSession` from the platform CSPRNG
+  (`HostCallbacks::randomBytes`). If no entropy is available the host **fails closed**:
+  it rejects the connection rather than fall back to a guessable id, because the
+  sessionId is the only fence between "my client" and the rest of the network.
+- `sessionId = 0` never authorizes anything. `HostSession::InSession` requires the
+  current id to be non-zero **and** equal — otherwise a forged `START` with
+  sessionId 0, sent while the host is mid-handshake (when its own id is still 0),
+  would push it straight into streaming.
+- Every valid in-session packet, whatever its type, **feeds the session timeout**
+  (`lastRecvUs`); see §5.5.
 
-## 3c. Gửi lại theo NACK và huỷ khung tham chiếu (GĐ7)
+## 3. Message types
 
-Hai cơ chế phục hồi mất gói bù cho FEC XOR (chỉ cứu 1 mảnh/nhóm):
+All `MsgType` values in `Wire.h`. Direction: C = client, H = host (Agent).
 
-**NACK (0x36).** Khi frame đầu hàng ở `Reassembler` còn thiếu mảnh sau một nhịp chờ
-(cho gói đảo thứ tự về), client gửi NACK liệt kê các `pktIndex` thiếu; host tra
-`RetransmitCache` (kho các datagram video vừa phát) và gửi lại đúng các mảnh đó. Cứu
-được **mọi** kiểu mất — kể cả chùm mà FEC chịu chết — nếu RTT đủ nhỏ để gói gửi lại về
-trước hạn ghép (2 khoảng frame). Chỉ tốn băng thông khi thật sự mất gói, khác FEC luôn
-tốn 1/8. Client tự điều tiết: không xin lại cùng frame trong vòng ~max(RTT, 10ms).
-Định dạng: `frameId(u32) count(u8)` rồi `count × pktIndex(u16)`.
+| Type | Name | Channel | Direction | Reliability / repetition |
+|------|------|---------|-----------|--------------------------|
+| 0x01 | HELLO | Control | C→H | Repeated every 500 ms until HELLO_ACK; give up after 10 s (`kHelloRetryUs`, `kHelloGiveUpUs`). |
+| 0x02 | HELLO_ACK | Control | H→C | Sent in reply to every HELLO (including repeats). Also the reject vehicle (`codec = Rejected`). |
+| 0x03 | START | Control | C→H | Repeated every 500 ms until the first video packet arrives (the only proof the host received it). |
+| 0x04 | BYE | Control | both | Sent once, best-effort, on orderly shutdown. |
+| 0x05 | LIST_SOURCES | Control | C→H | Best-effort request; client re-asks on its own schedule. Pre-session (sessionId 0), answered by `Beacon`. |
+| 0x06 | SOURCE_LIST | Control | H→C | Best-effort reply. Header flag `kSourceListFlagKind` marks the 7-byte record layout (§4.6). |
+| 0x07 | DISCOVER | Control | C→broadcast | Best-effort; client re-broadcasts each scan round. |
+| 0x08 | ANNOUNCE | Control | H→C | Best-effort reply to DISCOVER, unicast back to the asker. |
+| 0x09 | AUTH_CHALLENGE | Control | H→C | One per received HELLO while password-gated; HELLO repeats regenerate it, which is also the loss-recovery mechanism. |
+| 0x0A | AUTH_RESPONSE | Control | C→H | Sent in reply to each AUTH_CHALLENGE. |
+| 0x10 | VIDEO_PACKET | Video | H→C | Unreliable; protected by FEC (§6.3) and NACK retransmission (§6.4). |
+| 0x11 | FEC_PACKET | Video | H→C | Unreliable parity; only present when FEC is enabled. |
+| 0x20 | INPUT_EVENT | Input | C→H | "Lightly reliable": each event is sent ~3× via redundancy tails and repeats; the receiver deduplicates by sequence number (§4.9). |
+| 0x30 | PING | Control | C→H | Every 1 s in-session (`kPingIntervalUs`); also pre-session probes with sessionId 0 (answered by `Beacon`). |
+| 0x31 | PONG | Control | H→C | Verbatim echo of the PING payload. |
+| 0x32 | FEEDBACK | Control | C→H | Periodic (~1 s), best-effort. Input to `BitrateController`. |
+| 0x33 | REQUEST_KEYFRAME | Control | C→H | Repeated every 250 ms (`kKeyframeRetryUs`) while an IDR is wanted. |
+| 0x34 | RECONFIG | Control | H→C | Best-effort; host follows it with an IDR so the decoder resyncs. |
+| 0x35 | SET_FOCUS | Control | C→H | Event-driven, sent `kFocusRepeats = 3` times, 50 ms apart (`kFocusRetryUs`). Never periodic. |
+| 0x36 | NACK | Control | C→H | Best-effort; self-throttled (§6.4). |
+| 0x37 | INVALIDATE_REF | Control | C→H | Best-effort, sent once per abandoned frame. |
+| 0x38 | CLIPBOARD | Control | both | Best-effort chunks, no ACK, no retransmit: a lost chunk kills that copy, the next copy replaces it. |
 
-**INVALIDATE_REF (0x37).** Client báo đã bỏ hẳn một `frameId(u32)` để host thôi tham
-chiếu nó (phục hồi bằng P-frame rẻ thay vì IDR nặng). Giao thức và định tuyến đã có
-trong core; phần encoder (NVENC reference-invalidation / intra-refresh) còn chờ nối và
-kiểm chứng trên phần cứng.
+`Chan::Audio` (3) is reserved: no message type uses it in v1. Messages with no payload
+(START, BYE, LIST_SOURCES, REQUEST_KEYFRAME) consist of the common header alone
+(`BuildEmpty` in `Wire.cpp`).
 
-## 3b. Nhiều nguồn trên một host (GĐ6)
+## 4. Payload layouts
 
-Một host chia sẻ được nhiều **nguồn** cùng lúc — mỗi nguồn là một cửa sổ hoặc cả một
-màn hình — trên **một cổng UDP duy nhất** (người dùng chỉ mở một cổng firewall và chỉ
-phải nhớ một địa chỉ).
+All offsets below are relative to the start of the payload (byte 8 of the datagram).
+All integers big-endian. "Tail-appended" fields follow the compatibility pattern of
+§8: old parsers stop early, new parsers tolerate their absence.
 
-**Mỗi cặp (client, nguồn) là một PHIÊN ĐỘC LẬP**, có sessionId riêng. Đây là quyết
-định thiết kế chính: phương án kia là nhét `streamId` vào header video/input, nhưng
-như vậy phải sửa toàn bộ đường nóng (packetize, reassemble, FEC, input) và
-`HostSession`/`ClientSession` phải thành 1:N. Với phiên-mỗi-nguồn thì:
+### 4.1 HELLO (0x01) — client capabilities
 
-- Kênh video, FEC, input, FEEDBACK, RECONFIG **không đổi một byte nào**.
-- `HostSession`/`ClientSession` vẫn là máy trạng thái 1:1 như GĐ3.
-- Mỗi nguồn tự có encoder, nên tự điều chỉnh bitrate và tự xin IDR theo tình trạng
-  của riêng nó — vốn là hành vi đúng, không phải mẹo.
-
-Cái giá: client mở N socket và N luồng PING. Không đáng kể.
-
-**Định tuyến ở host:** HELLO chưa có sessionId nên định tuyến theo `hello.sourceId`;
-mọi gói khác đã mang sessionId nên khớp thẳng với phiên tương ứng.
-
-### LIST_SOURCES (0x05) / SOURCE_LIST (0x06)
-
-LIST_SOURCES rỗng payload, sessionId = 0 (hỏi trước khi có phiên). Host trả
-SOURCE_LIST:
+`struct Hello`, `BuildHello`/`ParseHello`. sessionId = 0 (the session does not exist
+yet — HELLO_ACK creates it).
 
 ```
-count(u8), rồi count lần:
-  sourceId(u8) | width(u16) | height(u16) | kind(u8) | nameLen(u8) | name (UTF-8, ≤64 byte)
+off  size  field
+ 0    4    clientId        client-chosen identifier, echoed in AUTH_RESPONSE
+ 4    2    codecMask       bit0 = H.264 (kCodecMaskH264), bit1 = HEVC, bit2 = AV1
+ 6    2    maxWidth
+ 8    2    maxHeight
+10    1    desiredFps
+11    2    features        reserved feature bits
+13    1    sourceId        source to view (from SOURCE_LIST; 0 = first source)
+--- tail-appended (auth, Phase 10) ---
+14    1    tokenLen        0 or 32; any other declared length is dropped by both ends
+15    n    deviceToken     trusted-device token from a previous HELLO_ACK
+15+n  1    nameLen         0..48 (kMaxDeviceNameBytes, UTF-8-boundary truncated)
+16+n  m    deviceName      display-only, shown in the host's "Trusted devices" list
 ```
 
-`kind`: 0 = cửa sổ, 1 = cả màn hình. Client vẽ biểu tượng khác nhau cho hai loại, và
-hệ quả riêng tư của chúng cũng khác hẳn nhau, nên nó không thể đoán từ tên.
+Compatibility: `ParseHello` accepts a 13-byte payload (pre-`sourceId` clients,
+`sourceId` defaults to 0) and a 14-byte payload (pre-auth clients — no token, no name,
+a legitimate "never remembered" state, not an error). Tokens are only accepted at
+exactly 32 bytes (`kAuthTokenBytes`); `BuildHello` likewise refuses to send a
+wrong-sized token.
 
-**Byte `kind` thêm ở GĐ9 và được báo bằng cờ `kSourceListFlagKind` (bit0) trong header
-chung.** Host GĐ6 không đặt cờ và ghi bản ghi 6 byte không có `kind`; `ParseSourceList`
-nhận `CommonHeader` để chọn layout, và hiểu bản ghi cũ là "cửa sổ". Đánh dấu ở header
-chứ không đoán theo độ dài payload — tên nguồn dài ngắn tuỳ ý nên độ dài gói không suy
-ra được layout.
+### 4.2 HELLO_ACK (0x02) — session grant or rejection
 
-Tên bị cắt ở `kMaxSourceNameBytes` nhưng **lùi tới ranh giới ký tự UTF-8** — cắt giữa
-một ký tự nhiều byte sẽ hiện ô vuông ở danh sách phía client. Trần `kMaxSources` = 8
-nguồn để chắc chắn vừa một datagram (và vì mỗi nguồn là một pipeline capture+encode,
-nhiều hơn thì GPU không kham nổi).
-
-Client phát lại LIST_SOURCES mỗi 500ms trong ~3s. Host không trả lời (sai IP, firewall,
-hoặc bản cũ không biết message này) thì client cứ thử nguồn 0 — lỗi kết nối cụ thể từ
-`ClientSession` hữu ích hơn nhiều so với một hộp thoại "không thấy host".
-
-Host **luôn trả lời**, kể cả khi chưa chia sẻ nguồn nào (danh sách rỗng): im lặng bị
-client hiểu là "bản cũ / mất gói" và nó ngồi thử lại hết 3 giây, trong khi sự thật là
-host đang bật nhưng người dùng chưa tick nguồn nào.
-
-## 3d. Dò host trong mạng LAN (GĐ9)
-
-Client tìm ra host mà không cần gõ địa chỉ: **DISCOVER (0x07)** đi broadcast tới cổng
-host, mọi host nghe được trả **ANNOUNCE (0x08)** về **chính nơi gửi**. Đây là thứ nuôi
-danh sách "máy tìm thấy trong mạng" và con số "N máy kết nối được" trên màn hình chính.
+`struct HelloAck`, `BuildHelloAck`/`ParseHelloAck`. sessionId in the **payload**, not
+the header — when this message is sent the client cannot yet validate a header field.
 
 ```
-DISCOVER  probeId(u32)                                   sessionId = 0
-ANNOUNCE  probeId(u32) | hostId(u32) | port(u16) | flags(u8) | sourceCount(u8)
-          | nameLen(u8) | name (UTF-8, ≤48 byte)          sessionId = 0
+off  size  field
+ 0    4    sessionId       CSPRNG-assigned; 0 when rejecting
+ 4    1    codec           Codec: 0 = H264, 1 = Hevc, 2 = Av1, 0xFF = Rejected
+ 5    2    width           negotiated stream size
+ 7    2    height
+ 9    1    fps
+10    4    bitrateBps      starting bitrate
+14    8    timebaseUs      host clock at the moment the ACK was built (µs) — seeds
+                           ClockSync (§5.4)
+--- tail-appended (Phase 9) ---
+22    2    flags           bit0 = kAckFlagInputAccepted, bit1 = kAckFlagClipboard.
+                           Absent ⇒ parsed as kAckFlagInputAccepted (old hosts always
+                           accepted input; assuming otherwise would disable control
+                           against every un-updated host).
+--- tail-appended (Phase 10) ---
+24    1    reason          RejectReason, meaningful only when codec = Rejected:
+                           0 None, 1 Busy, 2 CodecMismatch, 3 AuthRequired,
+                           4 AuthFailed, 5 LockedOut. Out-of-range values are ignored.
+25    1    tokenLen        0 or 32
+26    n    deviceToken     trusted-device token; sent exactly ONCE, in the first ACK
+                           after a correct password answer, never in ACK repeats
 ```
 
-| Trường | Ý nghĩa |
-|--------|---------|
-| probeId | Số hiệu lượt quét do client sinh, host **dội lại nguyên văn**. Client bỏ ANNOUNCE mang probeId của lượt trước — RTT tính từ mốc cũ là một con số bịa, mà đó chính là con số hiện trên thẻ máy. |
-| hostId | Ổn định **theo máy**, không theo lần chạy. Khoá gộp: một máy cắm cả Wi-Fi lẫn Ethernet trả lời hai lần từ hai IP, và hai dòng cho cùng một máy là sai. |
-| port | Cổng host đang **nghe** — không suy được từ cổng nguồn của gói trả lời. |
-| flags | bit0 = nhận input, bit1 = đang bận (đã có client). Client vẽ thẻ máy xám thay vì để người dùng bấm vào rồi mới ăn HELLO_ACK từ chối. |
+A rejection is a HELLO_ACK with `codec = Codec::Rejected` and all other fixed fields
+zero (`HostSession::SendReject`) — reusing the message the client is already waiting
+for gives it an immediate, definitive answer instead of a 10-second timeout.
 
-**Vì sao không mDNS/Bonjour:** nó buộc mỗi nền tảng kéo theo một thư viện khác nhau
-(dnssd trên Apple, NsdManager trên Android, avahi trên Ubuntu) và trên Android/iOS còn
-cần quyền riêng — trong khi cả sáu client đã có sẵn một socket UDP và một bộ giải mã
-gói dùng chung.
+### 4.3 AUTH_CHALLENGE (0x09) — host→client, sessionId 0
 
-**Không có server danh bạ, và cũng không thể có:** ANNOUNCE chỉ đi trong phạm vi
-broadcast của mạng nội bộ. Máy ngoài LAN (Tailscale) vẫn phải gõ địa chỉ tay — đó
-đúng là cam kết "kết nối trực tiếp, không qua server trung gian".
-
-**Phía core:** `Beacon` (host) dựng câu trả lời cho DISCOVER / LIST_SOURCES / PING dò;
-`HostRegistry` (client) gộp ANNOUNCE thành danh sách một-dòng-một-máy, sắp thứ tự cố
-định, và cho hết hạn sau 6 giây im lặng. Beacon **không tự gửi** — nó chỉ dựng byte,
-caller `sendto()` về địa chỉ nguồn, vì các gói này đến từ địa chỉ bất kỳ chứ không phải
-peer của phiên.
-
-## 4. Handshake (thiết lập phiên)
+`struct AuthChallenge`, `BuildAuthChallenge`/`ParseAuthChallenge`.
 
 ```
-Client                                   Agent
-  │ ── HELLO ─────────────────────────────► │  (khả năng client)
-  │ ◄──────────────────────── HELLO_ACK ─── │  (khả năng agent + tham số chọn)
-  │ ── START ─────────────────────────────► │  (xác nhận, bắt đầu stream)
-  │ ◄═══════════ VIDEO_PACKET stream ══════ │
-  │ ══════════════ INPUT_EVENT ═══════════► │
+off  size  field
+ 0   16    salt            kAuthSaltBytes; fixed per configured password
+16    4    iterations      PBKDF2 rounds. On the wire so the host can raise it later
+                           without breaking old clients. Build refuses iterations = 0;
+                           Parse rejects 0 and CLAMPS values above
+                           kMaxKdfIterations = 2,000,000 (a hostile host declaring 4
+                           billion rounds would otherwise hang the client for hours
+                           inside an uncancelable KDF). The real value used is
+                           kAuthKdfIterations = 100,000 (PasswordAuth.h).
+20   32    nonce           kAuthNonceBytes; fresh per challenge — replay protection
 ```
 
-### HELLO (0x01) — payload
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| clientId | u32 | ID phiên do client sinh (chống nhầm gói cũ). |
-| codecMask | u16 | Bitmask codec **decode** được: bit0=H264, bit1=HEVC, bit2=AV1. |
-| maxWidth | u16 | Độ phân giải tối đa client render. |
-| maxHeight | u16 | |
-| desiredFps | u8 | FPS mong muốn. |
-| features | u16 | Bitmask: bit0=FEC, bit1=encryption, bit2=relative-mouse... |
-| sourceId | u8 | Nguồn muốn xem (lấy từ SOURCE_LIST). Thêm ở GĐ6; gói 13 byte kiểu cũ vẫn đọc được và hiểu là nguồn 0. |
+### 4.4 AUTH_RESPONSE (0x0A) — client→host, sessionId 0
 
-### HELLO_ACK (0x02) — payload
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| sessionId | u32 | ID phiên do Agent cấp; dùng trong mọi gói sau. |
-| codec | u8 | Codec đã chọn (giao của khả năng hai bên). |
-| width | u16 | Độ phân giải stream đã chọn (kích thước cửa sổ game). |
-| height | u16 | |
-| fps | u8 | FPS đã chọn. |
-| bitrateBps | u32 | Bitrate khởi đầu. |
-| timebaseUs | u64 | Gốc thời gian Agent (để quy đổi timestamp). |
-| flags | u16 | bit0 = host nhận INPUT_EVENT, bit1 = host đồng bộ clipboard. Thêm ở GĐ9. |
-
-Nếu không giao được codec → HELLO_ACK với `codec=0xFF` (từ chối).
-
-**`flags` nối vào ĐUÔI payload** (offset 22, payload 22 → 24 byte) nên client bản cũ
-đọc 22 byte đầu rồi thôi, không vỡ. Ngược lại, client mới gặp host cũ (payload 22 byte)
-mặc định `flags = bit0` — host cũ **luôn** nhận input, hiểu ngược lại sẽ vô hiệu hoá
-điều khiển với mọi bản chưa cập nhật.
-
-Vì sao phải nói ra: nếu không, client vẽ nút khoá chuột và bàn phím ảo cho một phiên
-chỉ-xem, người dùng gõ vào khoảng không mà không hiểu vì sao. Hai cờ này được **ép ở
-host** (`HostSession` bỏ INPUT_EVENT / mảnh CLIPBOARD khi tắt) **và** được client tôn
-trọng (`ClientSession::QueueInput` không xếp hàng gì khi phiên là chỉ-xem — rê chuột
-sinh hàng trăm event mỗi giây, tất cả sẽ chỉ đi tranh băng thông với luồng video). Cần
-cả hai vế: nói mà không ép thì một client sửa đổi vẫn điều khiển được; ép mà không nói
-thì giao diện nói dối người dùng.
-
-**Clipboard mặc định TẮT.** Clipboard hay chứa mật khẩu và mã OTP, nên "bật vì đằng nào
-cũng tiện" là một quyết định người dùng phải tự đưa ra. Tắt thì mảnh CLIPBOARD đến bị
-**bỏ, không ghép** — ghép xong rồi mới bỏ ở bước áp dụng thì văn bản của người ta vẫn
-đã nằm trong bộ nhớ máy này.
-
-## 5. Kênh video (VIDEO_PACKET, 0x10)
-
-Một frame nén có thể lớn hơn MTU → cắt thành nhiều gói. Header video sau header chung:
+`struct AuthResponse`, `BuildAuthResponse`/`ParseAuthResponse`.
 
 ```
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| frameId (u32)                     | timestampUs (u64) ...           |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| ...timestampUs                    | pktIndex(u16)  | pktCount(u16)  |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| payload (mảnh NAL, ≤ 1174 byte)  ...                                |
+off  size  field
+ 0    4    clientId        echoed so a proof from client A cannot be pasted into
+                           client B's handshake (sessionId is still 0, so nothing
+                           else identifies the sender)
+ 4   32    proof           kAuthProofBytes = HMAC-SHA256(key, nonce ‖ clientId_be32)
+                           where key = PBKDF2-HMAC-SHA256(password, salt, iterations)
+                           (deskhub/auth/PasswordAuth.h: DeriveKey / ComputeProof;
+                           primitives in deskhub/crypto/Sha256.h)
 ```
 
-> Trần payload là **1174** chứ không phải 1176 (= 1200 − 8 − 16): gói FEC dưới đây có
-> header 16 byte **cộng** 2 byte `lenXor`, nên nó mới là ràng buộc chặt nhất. Lấy chung
-> một trần cho cả hai để parity luôn phủ trọn được mảnh dữ liệu lớn nhất.
+The password never travels on the wire. Note the scope honestly stated in
+`PasswordAuth.h`: this handshake gates who may **open** a session; the session itself
+(video, input, clipboard) is **not encrypted** in v1.
 
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| frameId | u32 | Số thứ tự frame, tăng dần. Client dùng để ghép và phát hiện mất. |
-| timestampUs | u64 | Thời điểm capture (theo timebase). Dùng đồng bộ/đo độ trễ. |
-| pktIndex | u16 | Thứ tự mảnh trong frame (0-based). |
-| pktCount | u16 | Tổng số mảnh của frame này. |
-| payload | bytes | Một phần dữ liệu NAL đã nén. |
+### 4.5 START (0x03), BYE (0x04), LIST_SOURCES (0x05), REQUEST_KEYFRAME (0x33)
 
-**Flags (byte Flags của header chung) cho video:**
-- bit0 `IDR`: frame này là keyframe (giải mã độc lập).
-- bit1 `FRAME_END`: mảnh cuối của frame (dư thừa với pktIndex==pktCount-1, để chắc chắn).
+Empty payloads — the common header carries the whole meaning. START/BYE/
+REQUEST_KEYFRAME carry the real sessionId; LIST_SOURCES carries 0 (the client asks
+before it has a session, because it needs the list to pick a `sourceId` for HELLO).
 
-**Ghép frame ở client:**
-1. Gom các gói cùng `frameId` cho tới khi đủ `pktCount` mảnh.
-2. Nếu đủ → nối theo `pktIndex` → NAL hoàn chỉnh → decode.
-3. Nếu sau timeout (vd. 1–2 khoảng frame) vẫn thiếu → bỏ frame; nếu frame bị bỏ khiến
-   decode lỗi lan → gửi **REQUEST_KEYFRAME**.
+### 4.6 SOURCE_LIST (0x06) — host→client, sessionId 0
 
-**Không có ACK cho video.** Độ tin cậy đến từ IDR-on-demand + (tùy chọn) FEC, không từ retransmit.
-
-## 5b. Kênh FEC (FEC_PACKET, 0x11) — GĐ5
-
-**Nhóm XEN KẼ (interleaved).** Frame `N` gói được chia thành `numGroups = ceil(N/8)`
-nhóm (`kFecGroupSize = 8`); gói thứ `i` thuộc nhóm `i % numGroups` — **không** phải các
-gói liên tiếp. Mỗi nhóm kèm MỘT gói parity = XOR của cả nhóm. Mất đúng 1 gói trong một
-nhóm → client dựng lại được, không phải bỏ frame và xin IDR. Vì hai gói cùng nhóm cách
-nhau `numGroups` vị trí, một **chùm mất tới `numGroups` gói liên tiếp** chỉ đụng mỗi nhóm
-một gói nên vẫn cứu được trọn — đây là điểm hơn hẳn cách gom liên tiếp trước đây (chùm ≥2
-là chịu), mà chi phí băng thông vẫn = 1/8. Mất ≥2 gói **cùng một nhóm** → parity vô dụng,
-quay về chính sách §5.
+`BuildSourceList`/`ParseSourceList`. The only message with variable-length records.
+At most `kMaxSources = 8` entries; names truncated to `kMaxSourceNameBytes = 64` on a
+UTF-8 character boundary (`Utf8TruncLen`).
 
 ```
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| frameId (u32)                     | timestampUs (u64) ...           |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| ...timestampUs                    | pktCount(u16)  | grpIdx | rsv    |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| lenXor(u16)     | dữ liệu XOR (đệm 0 tới độ dài lớn nhất trong nhóm) |
+payload: count(u8), then count records:
+  sourceId(u8) width(u16) height(u16) kind(u8) nameLen(u8) name(nameLen)
 ```
 
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| frameId / timestampUs / pktCount | | Như VIDEO_PACKET — đủ để dựng lại frame chỉ có 1 gói. |
-| grpIdx | u8 | Nhóm xen kẽ: phủ các mảnh `{ i : i % numGroups == grpIdx }` với `numGroups = ceil(pktCount/8)` → `grpIdx, grpIdx+numGroups, grpIdx+2·numGroups, …`. Tối đa 256 nhóm (grpIdx là u8). |
-| rsv | u8 | Dự trữ, phải bằng 0. |
-| lenXor | u16 | XOR **độ dài** các mảnh trong nhóm — mảnh cuối frame ngắn hơn, không có trường này thì không biết cắt ở đâu. |
+`kind` is `SourceKind`: 0 = Window, 1 = Display (drawn with different icons and
+different privacy implications, so it must be on the wire). The record contains `kind`
+only when the common-header flag `kSourceListFlagKind` (bit 0) is set; hosts predating
+it send 6-byte records without the flag, and `ParseSourceList` reads both layouts,
+defaulting kind to Window. The flag lives in the header rather than being inferred
+from packet length because names make the length ambiguous. The declared `count` is
+untrusted: parsing clamps to the output span and stops at the first record that would
+cross the real payload boundary.
 
-Cờ `IDR` ở header chung mang cùng giá trị với các gói dữ liệu của frame.
+### 4.7 DISCOVER (0x07) / ANNOUNCE (0x08) — LAN discovery, sessionId 0
 
-**Bật/tắt động.** FEC tốn 1/8 băng thông nên Agent chỉ bật khi FEEDBACK báo mất gói
-≥1%, và tắt sau 5 giây liên tiếp sạch (tắt chậm hơn bật vì mất gói hay đến theo cụm).
-
-## 6. Kênh input (INPUT_EVENT, 0x20)
-
-Gói input nhỏ, có thể gộp nhiều sự kiện trong một datagram để giảm overhead.
-
-```
-+--------+--------+ ---- lặp cho từng event ----
-| seq (u32)       | count(u8) | event[0] | event[1] | ...
-+--------+--------+
-```
-
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| seq | u32 | Số thứ tự của **event đầu tiên** trong gói; event thứ `i` mang seq `= seq + i`. |
-| count | u8 | Số event trong gói (≤ 62 để vừa một datagram). |
-
-> **seq gắn với EVENT, không gắn với gói.** Bản nháp v1 để seq là số thứ tự gói,
-> nhưng như vậy Agent không phân biệt được bản **gửi lặp** với thao tác mới (xem
-> "tin cậy nhẹ" bên dưới) — nhấn W một lần sẽ thành ba lần. Đánh seq theo từng
-> event thì cùng một trường lo được cả ba việc: khử trùng (`seq ≤ lastApplied` →
-> bỏ), đếm mất (nhảy seq), và chống đảo thứ tự (gói cũ về muộn → toàn seq cũ → bỏ
-> sạch, không tua ngược thao tác). Layout wire không đổi. Chi tiết: `07-phase4-input.md` §2.
-
-**Cấu trúc một event:**
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| evType | u8 | `1=key`, `2=mouse_move`, `3=mouse_button`, `4=mouse_wheel`. |
-| timestampUs | u64 | Thời điểm phát sinh ở client. |
-| a | i32 | Tùy loại: key→vkCode; mouse_move→dx (hoặc x chuẩn hóa*65535); button→buttonId. |
-| b | i32 | Tùy loại: key→**scancode** (bit8 = cờ E0, phím mở rộng); mouse_move→dy; wheel→delta; button→0. |
-| state | u8 | `1=down/pressed`, `0=up/released`; mouse_move bỏ qua. |
-| absolute | u8 | 1 nếu a/b là tọa độ tuyệt đối chuẩn hóa; 0 nếu delta tương đối. |
-
-> `b` = scancode là **bắt buộc**, không phải tùy chọn: game dùng DirectInput/Raw Input
-> đọc scancode chứ không đọc vkCode. Chỉ gửi vkCode thì gõ vào Notepad chạy tốt nhưng
-> vào game không có gì xảy ra (`07-phase4-input.md` §5).
-
-**Tin cậy nhẹ:** sự kiện **chuyển trạng thái** (key/button down/up) là quan trọng — mất
-event key-up gây "kẹt phím". Chính sách v1 (đã hiện thực):
-- Client **gửi lặp**: mỗi datagram kèm 8 event đã gửi gần nhất; khi hết event mới thì
-  phát lại đuôi thêm 2 lần cách nhau 25 ms (gói cuối cùng — thường chính là event nhả
-  phím — không có gói nào sau nó để bù). Agent khử trùng bằng seq nên lặp là vô hại.
-- Agent **nhả hết phím đang giữ** khi BYE/timeout/mất focus. Đây là lưới an toàn cuối:
-  gửi lặp chỉ giảm xác suất, không loại trừ được mất gói.
-- `mouse_move` tương đối thì mất một gói không nghiêm trọng (chỉ hụt chút chuyển động) →
-  không cần tin cậy.
-
-## 7. Kênh control
-
-### PING (0x30) / PONG (0x31)
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| pingId | u32 | Client sinh; Agent phản chiếu trong PONG. |
-| sendTimeUs | u64 | Thời điểm gửi (client). RTT = nay − sendTimeUs khi nhận PONG. |
-
-Ping định kỳ (vd. mỗi 1s) để đo RTT, phát hiện mất kết nối.
-
-**PING với `sessionId = 0` là ping DÒ ĐƯỜNG (GĐ9)**, không thuộc phiên nào: client dùng
-nó để biết một máy đã lưu còn sống không và cách bao xa — hai con số hiện trên mỗi thẻ
-máy ở màn hình chính, và trên bảng "kiểm tra đường truyền" trước khi bấm Connect. Host
-trả PONG `sessionId = 0`, dội nguyên văn payload.
-
-Ping dò do `Beacon` trả lời chứ **không phải** `HostSession`, và điều đó quan trọng:
-gói này **không được nuôi timeout** của phiên đang chạy (một máy lạ trong mạng dò đường
-không được phép giữ cho một phiên đã chết sống thêm) và **không được đổi địa chỉ peer**
-(caller chỉ cập nhật peer theo gói mà `HostSession::HandlePacket` trả `true`).
-
-### FEEDBACK (0x32) — client báo tình trạng đường truyền
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| lostFrames | u16 | Số frame bỏ trong cửa sổ gần đây. |
-| lossPct | u8 | % gói mất ước lượng. |
-| rttMs | u16 | RTT hiện tại. |
-| recvBitrateKbps | u32 | Bitrate thực nhận. |
-
-Agent dùng để **điều chỉnh bitrate encoder**. Luật hiện tại (GĐ5, `AgentLoop`): mất ≥5%
-→ ×0.75; ≥2% → ×0.90; ≤1% và đã 2 giây không giảm → +5% trần mỗi giây. Kẹp trong
-[1 Mbps, bitrate người dùng đặt]. Giảm nhân / tăng cộng là có chủ ý — mất gói UDP gần
-như luôn là hàng đợi router đầy, nới nhanh ngay sau đó chỉ làm nghẽn lại theo chu kỳ.
-
-Client gửi FEEDBACK **kể cả khi 0% mất gói**: im lặng bị Agent hiểu là mất kết nối chứ
-không phải đường thông, và Agent cần tín hiệu sạch mới dám nới bitrate lên lại.
-
-### Trễ đầu-cuối: `timebaseUs` dùng để làm gì (GĐ9)
-
-Overlay hiện "e2e 11 ms" — từ lúc host **chụp** một frame tới lúc client **hiện** nó.
-Host đóng dấu thời gian chụp vào `VideoHeader.timestampUs` bằng đồng hồ **của nó**,
-client đọc đồng hồ của mình lúc hiện; trừ thẳng hai số này cho ra một con số vô nghĩa
-(thường là vài giờ — hai máy khởi động cách nhau vài giờ).
-
-`HelloAck.timebaseUs` là mốc để bắt đầu quy đổi, nhưng một mình nó chưa đủ: gói ACK
-cũng mất một quãng đường mới tới nơi, và ta không tách được "đồng hồ lệch bao nhiêu"
-khỏi "gói đi mất bao lâu". `core/control/ClockSync` giải bằng **bộ lọc cực tiểu + nửa
-RTT**: với mỗi frame, `(giờ client lúc nhận − dấu thời gian host)` = độ lệch đồng hồ +
-độ trễ một chiều của riêng frame đó; số hạng thứ hai luôn ≥ 0 nên **cực tiểu** của cả
-dãy là ước lượng tốt nhất cho "độ lệch đồng hồ + độ trễ một chiều nhỏ nhất". Lấy cực
-tiểu đó làm gốc rồi cộng lại `rtt/2` cho chính cái độ trễ vừa bị trừ mất — không cộng
-lại thì frame nhanh nhất luôn báo 0 ms, một con số đẹp và sai.
-
-Cực tiểu chỉ giữ trong một cửa sổ 10 giây rồi thay bằng cực tiểu của cửa sổ kế: cực
-tiểu tích luỹ từ đầu phiên chỉ có thể **giảm**, mà đồng hồ hai máy trôi lệch nhau hàng
-chục mili-giây mỗi giờ — giữ mãi thì e2e báo cao dần một cách giả tạo.
-
-> ⚠️ Đây là **ước lượng**, không phải phép đo. Nó giả định đường đi và đường về đối
-> xứng. Đường bất đối xứng — hay gặp trên Wi-Fi và Tailscale — làm con số lệch đúng
-> bằng phần bất đối xứng đó. Đo thật cần đồng bộ đồng hồ hai máy (PTP/NTP), ngoài
-> phạm vi v1.
-
-`LinkStats::AddE2e` gom theo cửa sổ 1 giây (avg + **max**, vì một frame trễ 200 ms giữa
-một giây trung bình 11 ms vẫn thấy rõ bằng mắt), `LatencyTrace` giữ 60 mẫu cách nhau
-320 ms cho biểu đồ đường.
-
-### REQUEST_KEYFRAME (0x33)
-Rỗng payload (hoặc kèm `frameId` cuối nhận tốt). Agent gọi `encoder.RequestKeyframe()`.
-
-### RECONFIG (0x34) — Agent thông báo đổi tham số
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| width | u16 | Độ phân giải mới (khi cửa sổ game resize). |
-| height | u16 | |
-| bitrateBps | u32 | Bitrate mới. |
-
-Khi cửa sổ đang chia sẻ đổi kích thước, WGC tạo lại frame pool và Agent **bắt buộc phải
-dựng lại encoder** — encoder gắn chặt với kích thước cũ. Agent gửi RECONFIG **kèm IDR**:
-stream đổi SPS giữa chừng, không có IDR thì client chỉ có rác tới keyframe kế tiếp.
-
-Phía client, RECONFIG chỉ để cập nhật hiển thị: `MfDecoder` tự đàm phán lại kích thước
-khi gặp SPS mới (`MF_E_TRANSFORM_STREAM_CHANGE`) và `Renderer` tự dựng lại video
-processor theo kích thước frame giải mã — không bên nào cần dựng lại từ đầu.
-
-**Kích thước nén luôn là số chẵn.** NV12 lấy mẫu chroma 2×2; cửa sổ rộng/cao lẻ được cắt
-xuống số chẵn gần nhất, không thì `CreateTexture2D(NV12)` trả `E_INVALIDARG`. Số trong
-RECONFIG/HELLO_ACK là kích thước **đã cắt**, tức là cái thật sự nằm trong stream.
-
-### SET_FOCUS (0x35) — client chuyển sang điều khiển nguồn này
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| focused | u8 | 1 = cửa sổ preview của nguồn này vừa nhận focus; 0 = vừa mất. |
-
-Chia sẻ nhiều nguồn thì host chỉ để **một** cửa sổ ở foreground được, mà `SendInput` bơm
-vào cửa sổ foreground chứ không vào một HWND cụ thể (`07-phase4-input.md` §5) — nên nếu
-không có message này, client mở N cửa sổ preview nhưng chỉ điều khiển được đúng cái mà
-người ngồi ở máy host tình cờ bấm vào. Client đổi cửa sổ preview → gửi SET_FOCUS(1) →
-host gọi `InputInjector::FocusTarget()` (chính là `ForceForeground` mà `Init` đang dùng).
-SET_FOCUS(0) → host nhả hết phím đang giữ của phiên đó.
-
-Host **chỉ nghe SET_FOCUS khi đã bật cho phép điều khiển** (`--input`): không cho điều
-khiển thì cũng không cho giành foreground của máy chủ.
-
-Gửi **theo biến cố, không định kỳ**. Phát lại đều đặn thì người ngồi ở máy host không
-bao giờ bấm sang được ứng dụng của chính mình — đổi lại phải chịu mất gói, nên mỗi lần
-đổi phát 3 lần cách nhau 50 ms. Host xử lý idempotent (đã foreground thì không làm gì).
-SET_FOCUS đi **trước** INPUT_EVENT trong cùng chu kỳ Tick, không thì mấy phím đầu tiên
-sau khi đổi cửa sổ bị host bỏ vì cửa sổ chưa kịp lên trước.
-
-### CLIPBOARD (0x38) — đồng bộ clipboard văn bản (GĐ8)
-| Trường | Kiểu | Ý nghĩa |
-|--------|------|---------|
-| updateId | u32 | Đổi theo mỗi lần copy — khoá ghép mảnh. |
-| chunkIndex | u16 | 0..chunkCount-1. |
-| chunkCount | u16 | Tổng số mảnh của lần copy này. |
-| data | bytes | UTF-8, 1..1184 byte (phần còn lại của datagram). |
-
-Hai chiều, chỉ khi STREAMING. Văn bản UTF-8 có thể vượt một datagram nên chia mảnh
-≤ 1184 byte; bên nhận (`ClipboardAssembler`) ghép đủ `chunkCount` mảnh — lạc thứ tự
-được — rồi mới đặt vào clipboard. Chỉ giữ MỘT update đang ghép: `updateId` mới tới
-là bản dở dang cũ bị bỏ, vì chỉ bản copy mới nhất có nghĩa. Trần **64 KB** một lần
-copy — quá thì bên gửi không gửi, bên nhận huỷ (chống khai điêu). Best-effort,
-không ACK/không phát lại: mất mảnh thì bản copy đó bỏ qua, người dùng copy tiếp là
-có bản mới. Vòng echo (đặt clipboard → listener máy đó bắn tiếp) chặn ở tầng nền
-tảng bằng cách nhớ văn bản vừa đặt/vừa đọc và bỏ update trùng nội dung.
-
-## 7b. Xác thực bằng mật khẩu (GĐ10)
-
-Cho tới GĐ9, **HELLO đầu tiên từ bất kỳ máy nào trong mạng đều mở được phiên và bơm được
-chuột/phím** — không có bước nào hỏi người gõ có quyền hay không. Mục này bịt lỗ đó.
-
-**Mật khẩu không đi trên dây.** Host gửi một thách thức ngẫu nhiên, client đáp bằng HMAC:
+`BuildDiscover`/`ParseDiscover`, `struct HostAnnounce`,
+`BuildAnnounce`/`ParseAnnounce`. DISCOVER is broadcast to the host port; every
+listening host answers with a unicast ANNOUNCE **to the datagram's source address**
+(`deskhub/discovery/Beacon.h` — the Beacon builds the reply, the caller `sendto`s it).
+There is no directory server, and ANNOUNCE only reaches the local broadcast domain.
 
 ```
-client                                                     host
-  │ HELLO (kèm deviceToken nếu đã từng được nhớ)             │
-  │────────────────────────────────────────────────────────► │
-  │                                     token khớp? → bỏ qua phần dưới
-  │ AUTH_CHALLENGE  salt(16) iterations(u32) nonce(32)       │
-  │ ◄────────────────────────────────────────────────────────│
-  │ key   = PBKDF2-HMAC-SHA256(password, salt, iterations)   │
-  │ proof = HMAC-SHA256(key, nonce ‖ clientId_be32)          │
-  │ AUTH_RESPONSE  clientId(4) proof(32)                     │
-  │────────────────────────────────────────────────────────► │
-  │                      host tính lại proof bằng key đã lưu, so HẰNG THỜI GIAN
-  │ HELLO_ACK (sessionId, + deviceToken mới nếu được nhớ)    │
-  │ ◄────────────────────────────────────────────────────────│
+DISCOVER payload:  probeId(u32)     client-generated per scan round
+
+ANNOUNCE payload:
+ 0    4    probeId       echoed verbatim — lets the client discard stragglers from a
+                         previous scan (HostRegistry::BeginScan/OnAnnounce)
+ 4    4    hostId        stable per machine, key for merging multi-NIC answers
+ 8    2    port          the port the host actually listens on (the reply's source
+                         port is not authoritative)
+10    1    flags         bit0 = kAnnounceFlagAcceptsInput, bit1 = kAnnounceFlagBusy
+11    1    sourceCount
+12    1    nameLen       0..48 (kMaxHostNameBytes, UTF-8-boundary truncated)
+13    n    name          machine name, display only
 ```
 
-| Trường | Vì sao có mặt |
-|--------|---------------|
-| `nonce` | Mới mỗi lần bắt tay. Không có nó, một lời đáp bắt được hôm qua phát lại được hôm nay. |
-| `clientId` trộn vào proof | Không cắt proof của máy A dán sang phiên bắt tay của máy B được. |
-| `iterations` đi trên dây | Nâng số vòng KDF về sau mà không phá client cũ. Client **kẹp** ở `kMaxKdfIterations` = 2 000 000 — host độc hại khai 4 tỉ vòng sẽ treo client hàng giờ. |
-| `salt` | Chống bảng tra dựng sẵn. Đổi mỗi lần đặt mật khẩu mới. |
+The Beacon also answers LIST_SOURCES (even with an empty list) and PING with
+sessionId 0 (liveness/RTT probe for saved-machine cards); a PING with a non-zero
+sessionId is session business and is left to `HostSession`. Client-side aggregation
+constants (`deskhub/discovery/HostRegistry.h`): at most `kMaxDiscoveredHosts = 32`
+entries, expired after `kHostStaleUs = 6 s` of silence.
 
-**Trường nối đuôi, tương thích ngược.** `HELLO` thêm `tokenLen(1) token(n) nameLen(1)
-name(n)` sau 14 byte cũ; `HELLO_ACK` thêm `reason(1) tokenLen(1) token(n)` sau 24 byte cũ.
-Bản cũ dừng ở độ dài cũ và vẫn chạy — cùng mẫu đã dùng cho `flags` ở GĐ9.
+### 4.8 VIDEO_PACKET (0x10) and FEC_PACKET (0x11) — Video channel
 
-**`reason` trong HELLO_ACK** (chỉ có nghĩa khi `codec = 0xFF`): `1` Busy · `2` CodecMismatch
-· `3` AuthRequired · `4` AuthFailed · `5` LockedOut. Không có nó, người nhập sai mật khẩu
-thấy "host rejected (busy or codec mismatch)" và không biết đường nào mà sửa.
-
-**Thiết bị tin cậy.** Sau lần đáp đúng đầu tiên, host cấp `deviceToken` 32 byte ngẫu nhiên
-và chỉ nhớ **băm** của nó; client chìa token ra trong HELLO lần sau là vào thẳng. Đổi mật
-khẩu **xoá sạch** danh sách — người ta đổi mật khẩu chính vì muốn cắt quyền của một máy nào đó.
-
-**Khoá tạm.** 3 lần đáp sai → khoá 5 phút. Đây là thứ biến "có mật khẩu" thành "mật khẩu có
-tác dụng": UDP cho thử lại nhanh tuỳ ý nên không có nó, mật khẩu 6 ký tự bị dò xong trong
-vài phút. Gói AUTH_RESPONSE **lạc** (không ứng challenge nào đang chờ) *không* tính vào bộ
-đếm — nếu tính, ba gói rác từ ngoài mạng là khoá được host khỏi chính chủ của nó.
-
-⚠ **Đây không phải mã hoá.** Sau khi bắt tay xong, video/input/clipboard vẫn đi **trần**.
-Lớp này chặn người lạ **mở** phiên, không chặn người nghe lén **đọc** phiên đang chạy. Mã
-hoá luồng (DTLS/AEAD) vẫn là mục §9 dưới đây. Ngoài ra `key` host lưu là **tương đương mật
-khẩu đối với máy đó**: ai đọc được keychain thì tự ký được proof — giới hạn cố hữu của
-challenge-response đối xứng.
-
-**Phía core:** `deskhub/crypto/Sha256.h` (SHA-256/HMAC/PBKDF2 tự cài, thuần C++20),
-`deskhub/auth/PasswordAuth.h` (phép toán), `deskhub/auth/AuthGuard.h` (trạng thái + khoá
-tạm + thiết bị tin cậy). Entropy là thứ **duy nhất** phải xin từ OS:
-`platform/include/deskhubp/Random.h`, nối vào qua `HostCallbacks::randomBytes` — thiếu nó
-thì host **từ chối mọi kết nối** (fail closed).
-
-## 8. Máy trạng thái phiên
+Both carry a 16-byte sub-header at the start of the payload. Flags ride in the
+**common header's** `flags` byte: `kVideoFlagIdr` (bit 0) and, for video only,
+`kVideoFlagFrameEnd` (bit 1, set on the last fragment of a frame).
 
 ```
-                              HELLO (không đòi mật khẩu)
-        ┌──────────────────────────────────────────────┐
-        │                                              ▼
-IDLE ───┴─ HELLO (đòi mật khẩu) ─► AUTHENTICATING ─────► READY ──START──► STREAMING
-  ▲                                     │ AUTH_RESPONSE đúng                 │
-  │                                     │                                    │
-  │        đáp sai / khoá tạm / timeout │      STOP/BYE hoặc timeout         │
-  └─────────────────────────────────────┴────────────────────────────────────┘
+VIDEO_PACKET payload (kVideoHeaderSize = 16, struct VideoHeader):
+ 0    4    frameId       monotonically increasing per frame
+ 4    8    timestampUs   host capture clock (µs)
+12    2    pktIndex      0-based fragment index
+14    2    pktCount      total fragments of this frame
+16    …    fragment      1..kMaxVideoPayload (= 1174) bytes of Annex-B H.264
+
+FEC_PACKET payload (kFecHeaderSize = 16, struct FecHeader):
+ 0    4    frameId
+ 4    8    timestampUs
+12    2    pktCount      fragment count of the frame this parity covers
+14    1    groupIndex    interleaved group number (u8 — hence kMaxFecGroups = 256)
+15    1    reserved      written as 0
+16    2    lenXor        kFecLenPrefix: XOR of the covered fragments' lengths (u16)
+18    …    parityData    XOR of the covered fragments, zero-padded to the group's
+                         longest fragment; ≤ kMaxVideoPayload bytes
 ```
 
-- **IDLE**: chờ HELLO.
-- **AUTHENTICATING** (GĐ10): đã gửi AUTH_CHALLENGE, chờ lời đáp. **Chưa có phiên** —
-  `sessionId` vẫn là 0, không nhận input, không đẩy video.
-- **READY**: đã thỏa thuận tham số, chờ START.
-- **STREAMING**: video chảy A→C, input chảy C→A, control hai chiều.
-- Mất PING quá N lần (vd. 5s không PONG) → quay về IDLE (mất kết nối).
+`kMaxVideoPayload = kMaxDatagram − kCommonHeaderSize − kFecHeaderSize − kFecLenPrefix
+= 1174`: the FEC packet is the tighter of the two, so it sets the bound for both.
+Parsing rejects, as forged: `pktCount == 0`, `pktIndex >= pktCount`, oversized
+payloads (which would otherwise overflow the fixed-width parity buffer during XOR
+recovery), and `groupIndex >= ceil(pktCount / kFecGroupSize)`. See §6 for semantics.
 
-⚠ **`sessionId = 0` không bao giờ uỷ quyền cho gói nào.** Ở IDLE và AUTHENTICATING,
-`sessionId` của host là 0, nên phép so trần `gói.sessionId != phiên.sessionId` sẽ **đúng**
-với một gói giả mang `sessionId = 0` — và một START như thế đẩy thẳng host sang STREAMING
-mà chưa ai xác thực gì. Mọi kiểm tra đi qua `HostSession::InSession`, hàm này đòi thêm
-`sessionId != 0`.
+### 4.9 INPUT_EVENT (0x20) — Input channel, client→host
 
-## 9. Mở rộng (ngoài v1)
+`BuildInputEvents`/`ParseInputEvents`. One datagram carries a **batch** of events
+(mouse movement produces hundreds per second; one 8-byte header per 19-byte event
+would be waste).
 
-| Tính năng | Ghi chú |
-|-----------|---------|
-| **Mã hóa** | DTLS hoặc lớp AEAD (vd. libsodium) bọc payload. Bật qua `features` bit1. Xem §7b: xác thực **đã có** ở GĐ10, mã hoá thì chưa. |
-| **FEC** | Reed-Solomon/XOR trên nhóm gói video để phục hồi mất gói không cần retransmit. |
-| **NAT traversal** | ICE/STUN/TURN để chạy qua Internet không cần forward port. |
-| **Audio** | Kênh 3: Opus qua WASAPI loopback capture ở Agent. |
-| **Adaptive resolution** | Giảm độ phân giải khi mạng yếu, không chỉ bitrate. |
-| **Multi-client / relay** | Nhiều client xem, một client điều khiển. |
+```
+payload header (kInputHeaderSize = 5):
+ 0    4    firstSeq      sequence number of events[0]
+ 4    1    count         1..kMaxInputEvents (= 62)
 
-## 10. Vì sao thiết kế thế này
+then count × event (kInputEventSize = 19):
+ 0    1    evType        InputType (below)
+ 1    8    timestampUs   client clock at capture
+ 9    4    a             int32 sent as its u32 bit pattern
+13    4    b             int32 sent as its u32 bit pattern
+17    1    state         1 = press/hold, 0 = release; ignored by MouseMove/MouseWheel
+18    1    absolute      1 = a/b are normalized absolute coordinates (MouseMove)
+```
 
-- **Một cổng, phân kênh trong header**: giảm rắc rối firewall/NAT so với nhiều cổng; đủ cho v1.
-- **frameId + pktIndex/pktCount**: đủ tối thiểu để ghép frame và phát hiện mất mà không cần
-  giao thức nặng như RTP. Có thể nâng lên RTP/RTCP sau nếu cần tương thích chuẩn.
-- **IDR-on-demand thay vì GOP cố định**: tiết kiệm bitrate (không phát keyframe thừa), đổi lại
-  cần kênh feedback — đã có sẵn ở control.
-- **Input gộp nhiều event + tương đối cho chuột**: giảm overhead, hợp với game FPS cần chuột thô.
+Event `i` implicitly carries `seq = firstSeq + i` — the receiver
+(`deskhub/input/InputReceiver.h`) relies on exactly this to deduplicate. `InputType`
+and field meanings (`Wire.h`):
 
-## 11. Ràng buộc transport (transport bindings)
+| evType | Kind | `a` | `b` |
+|--------|------|-----|-----|
+| 1 | Key | Windows virtual-key code (VK) | scancode in the low 8 bits; bit 8 (`kScanExtended = 0x100`) = E0 extended key (arrows, right Ctrl, …). `b = 0` means "no scancode": the host looks it up from the VK against **its own** keyboard layout (required for Raw Input/DirectInput games). |
+| 2 | MouseMove | `absolute=1`: x normalized 0..65535 across the client rect; `absolute=0`: raw dx | `absolute=1`: y normalized 0..65535; `absolute=0`: raw dy |
+| 3 | MouseButton | `MouseButton`: 1 Left, 2 Right, 3 Middle, 4 X1, 5 X2 | 0 |
+| 4 | MouseWheel | 0 | delta, multiples of 120; `state` ignored |
 
-Giao thức trên đây **độc lập với transport**: nó chỉ giả định một kênh **datagram không
-tin cậy, giữ ranh giới gói** (mất/đảo/trùng đều xử lý ở tầng này). Nhờ vậy cùng một
-định dạng wire chạy trên nhiều transport mà không đổi một byte:
+The key-code space is the Windows VK space. Clients without physical keyboards
+translate typed characters via `deskhub/input/KeyMap.h` (`CharToKeyChord`): letters and
+digits map to their VK directly, symbols map to `VK_OEM_*` codes assuming a **US host
+layout** (a deliberate v1 limitation), always with `b = 0`.
 
-| Binding | Client | Datagram bằng | Ghi chú |
-|---------|--------|---------------|---------|
-| UDP native | Windows, Android | `sendto`/`recvfrom` (raw UDP) | Mặc định. `client/windows/net/UdpSocket`. |
-| WebTransport | Web (trình duyệt) | QUIC DATAGRAM (RFC 9221) | Trình duyệt không mở được raw UDP. Xem `10-web-client.md`. |
+**Reliability policy** (`deskhub/input/InputSender.h`): state-changing events
+(`IsStateEvent`: Key, MouseButton) are the ones whose loss causes stuck keys, so every
+datagram appends a redundancy tail of the last `kInputRedundancy = 8` already-sent
+events, new events go out in batches of at most `kInputBatchMax = 24`, and after the
+queue drains the tail is re-sent `kInputRepeatCount = 2` more times at
+`kInputRepeatIntervalUs = 25 ms` intervals — each event crosses the wire ~3 times in
+~50 ms. The receiver keeps a single `lastAppliedSeq` watermark: any event with
+`seq <= lastAppliedSeq` is dropped (duplicate or stale), anything newer is applied in
+order. There is no reordering buffer — a late input event is worse than none.
 
-**QUIC datagram ánh xạ 1-1 với UDP datagram** — đó là lý do client web chọn WebTransport
-chứ không phải WebRTC/WebSocket: `Packetizer`/`Reassembler`/FEC/máy trạng thái phiên
-dùng lại nguyên trạng. QUIC datagram cũng **không** retransmit và **có** chịu điều tiết
-tắc nghẽn, đúng giả định của §5/§7 nên FEC + FEEDBACK vẫn cần.
+### 4.10 PING (0x30) / PONG (0x31)
 
-Hai binding **cố ý cùng tồn tại** (hybrid), không thống nhất về một: native (Windows/
-Android, và macOS/iOS/Linux sau) giữ UDP thô — nhẹ, không cert, đã kiểm chứng; chỉ web dùng
-QUIC vì nó bắt buộc. Vì `core/` transport-agnostic (byte ra/vào qua callback, không biết
-socket), thống nhất QUIC mọi client là việc **hoãn được**, gắn với lúc làm mã hóa (GĐ6).
-Chiến lược đầy đủ + ma trận nền tảng (ai làm host/client): `11-platform-transport.md`.
+`struct PingPong`, `BuildPing`/`BuildPong`/`ParsePingPong`. Identical 12-byte
+payloads; PONG is a verbatim echo.
 
-**Trần payload thành tham số runtime.** §5 lấy trần **1174** cố định (MTU 1200 − header).
-QUIC bọc thêm header gói + tag AEAD nên payload dùng được nhỏ hơn; trình duyệt báo trị
-thật qua `datagrams.maxDatagramSize`. Do đó `kMaxVideoPayload` chuyển từ hằng biên dịch
-sang **tham số đặt lúc handshake theo transport**: binding UDP truyền 1174 (hành vi cũ
-không đổi), binding WebTransport truyền trần QUIC báo về. Packetizer nhận trần qua tham
-số; reassembler không cần biết. Đây là **thay đổi core duy nhất** mà client web đòi hỏi.
+```
+ 0    4    pingId        client counter
+ 4    8    sendTimeUs    CLIENT clock at send; echoed untouched, so
+                         RTT = now − sendTimeUs with no clock sync and no lookup table
+```
 
-**Định danh phiên.** Phiên định danh bằng `sessionId` chứ không phải addr:port (§2) —
-giữ nguyên cho mọi binding. Với WebTransport, bản thân kết nối QUIC đã sống sót khi đổi IP
-(connection migration), nhưng `sessionId` vẫn giữ để một host phục vụ chung cả client UDP
-lẫn client web trên cùng một giao thức.
+### 4.11 FEEDBACK (0x32) — client→host link report
+
+`struct Feedback`, `BuildFeedback`/`ParseFeedback`. Built once per ~1-second window by
+`MakeFeedback` (`deskhub/control/LinkStats.h`) and sent even when clean — silence would
+read as disconnection, and the host needs a "link is clear" signal before raising the
+bitrate.
+
+```
+ 0    2    lostFrames        frames dropped in the window
+ 2    1    lossPct           data-packet loss %, rounded (parity packets excluded
+                             from the denominator)
+ 3    2    rttMs             last measured RTT, ms
+ 5    4    recvBitrateKbps   video bitrate actually received
+```
+
+### 4.12 RECONFIG (0x34) — host→client mid-session change
+
+`struct Reconfig`, `BuildReconfig`/`ParseReconfig`. Sent when the source resizes or
+the bitrate is re-negotiated; the host follows with an IDR. The client ignores a zero
+width/height or bitrate rather than reconfigure to nonsense.
+
+```
+ 0    2    width
+ 2    2    height
+ 4    4    bitrateBps
+```
+
+### 4.13 SET_FOCUS (0x35) — client→host
+
+`BuildSetFocus`/`ParseSetFocus`. One payload byte: `1` = this source's preview just
+gained focus (host raises the source window to the foreground before input arrives),
+`0` = focus left (host releases any held keys for this session). Sent on **events
+only**, 3× with 50 ms spacing — a periodic repeat would keep stealing the host user's
+foreground forever.
+
+### 4.14 NACK (0x36) — client→host retransmit request
+
+`BuildNack`/`ParseNack`.
+
+```
+ 0    4    frameId
+ 4    1    count          1..kMaxNackIndices (= 593)
+ 5    …    count × pktIndex(u16)   missing fragment indices
+```
+
+(`kNackHeaderSize = 5`.) Parse rejects `count = 0` and a `count` that overstates the
+payload, and clamps to the caller's output capacity. Semantics in §6.4.
+
+### 4.15 INVALIDATE_REF (0x37) — client→host
+
+`BuildInvalidateRef`/`ParseInvalidateRef`. Payload: `frameId(u32)`. "I have abandoned
+this frame entirely — stop using it as a reference." Lets an encoder that supports
+reference invalidation recover with a cheap P-frame instead of a full IDR; a host
+whose encoder cannot do it falls back to forcing an IDR.
+
+### 4.16 CLIPBOARD (0x38) — both directions, chunked text
+
+`BuildClipboardChunk`/`ParseClipboardChunk`, reassembled by
+`deskhub/session/ClipboardAssembler.h`. **Off by default on the host**
+(`HostSession::SetClipboardEnabled`); when off, incoming chunks are dropped
+unassembled and nothing is sent. The HELLO_ACK `kAckFlagClipboard` flag tells the
+client whether to bother.
+
+```
+ 0    4    updateId       increments per copy operation — the reassembly key
+ 4    2    chunkIndex     0..chunkCount−1
+ 6    2    chunkCount     ≥ 1
+ 8    …    data           1..kMaxClipboardChunk (= 1184) bytes of UTF-8
+```
+
+(`kClipboardHeaderSize = 8`.) One copy is capped at `kMaxClipboardBytes = 65536`
+(64 KiB, ~56 datagrams). The assembler keeps only **one** update in flight (a newer
+updateId replaces a half-built older one — only the latest copy matters), delivers the
+text exactly once when all chunks are present (any order), silently drops chunks of
+the already-applied updateId, and aborts an update whose declared total exceeds the
+cap. Best-effort throughout: no ACK, no retransmission.
+
+## 5. Protocol flows
+
+State machines: `deskhub/session/HostSession.h` (Idle → Authenticating → Ready →
+Streaming) and `deskhub/session/ClientSession.h` (Idle → Hello → Starting →
+Streaming → Dead).
+
+### 5.1 Connection and authentication
+
+```
+client                                                        host (Agent)
+  |                                                                |
+  |-- DISCOVER (broadcast, probeId) ------------------------------>|   optional:
+  |<------------------------- ANNOUNCE (probeId, hostId, port) ----|   LAN discovery
+  |-- LIST_SOURCES ----------------------------------------------->|   optional:
+  |<--------------------------------- SOURCE_LIST (sources) -------|   pick sourceId
+  |                                                                |
+  |-- HELLO (clientId, codecMask, sourceId, [deviceToken]) ------->|
+  |        repeated every 500 ms; give up after 10 s               |
+  |                                                                |
+  |            no password required, or trusted token matches:     |
+  |<-------------------- HELLO_ACK (sessionId, params, flags) -----|
+  |                                                                |
+  |            password required:                                  |
+  |<------------- AUTH_CHALLENGE (salt, iterations, nonce) --------|  state: AUTHENTICATING
+  |   key   = PBKDF2(password, salt, iterations)                   |  (sessionId still 0)
+  |   proof = HMAC(key, nonce ‖ clientId)                          |
+  |-- AUTH_RESPONSE (clientId, proof) ---------------------------->|
+  |<----- HELLO_ACK (sessionId, params, [reason], [deviceToken]) --|  correct → READY
+  |                                                                |  wrong → reject, IDLE
+  |-- START (sessionId) ------------------------------------------>|  READY → STREAMING,
+  |        repeated every 500 ms until video arrives               |  onStart forces an IDR
+  |<===================== VIDEO_PACKET / FEC_PACKET ==============>|  client: Starting →
+  |                                                                |  Streaming on first
+  |   steady state: PING 1/s, FEEDBACK ~1/s, INPUT_EVENT,          |  video packet
+  |   SET_FOCUS, NACK, CLIPBOARD, REQUEST_KEYFRAME as needed       |
+  |-- BYE / <-- BYE ---------------------------------------------- |  either side, once
+```
+
+Rules, exactly as implemented:
+
+- **HELLO handling** (`HostSession::HandlePacket`): a HELLO from a different clientId
+  while READY/STREAMING is rejected with `Busy` (v1 serves one client per session). A
+  client without H.264 in `codecMask` is rejected with `CodecMismatch` (v1 streams
+  H.264 only). A repeated HELLO from the current client just re-sends HELLO_ACK.
+- **Auth gate** (`deskhub/auth/AuthGuard.h`): `OnHello` returns Allow (no password
+  required, or a 32-byte token whose SHA-256 matches a remembered device — compared in
+  constant time), NeedChallenge, or Reject. Lockout is checked **before** the token
+  path, so a stolen token cannot bypass an active lockout. Each received HELLO —
+  including 500 ms repeats — generates a **fresh** challenge; that repetition is also
+  how a lost challenge or response self-heals. AUTH_RESPONSE is only meaningful in the
+  Authenticating state and for the expected clientId; anything else is dropped without
+  touching the wrong-try counter (three garbage packets from a stranger must not lock
+  the real owner out).
+- **Failure accounting** (`AuthGuard`): a wrong proof, or a wrong token for a
+  remembered clientId, counts as a failure; `kMaxWrongTries = 3` failures trigger a
+  lockout of `kLockoutUs = 5 min` (when lockout is enabled — it is by default).
+  Rejections carry `AuthFailed` or `LockedOut` accordingly. A challenge is one-shot —
+  consumed on any answer, right or wrong (re-answering the same nonce would be offline
+  password search) — and expires after `kChallengeTimeoutUs = 30 s`. Disconnect clears
+  the pending challenge but **not** the wrong-try counter, so reconnecting is not a
+  lockout bypass.
+- **Trusted devices**: after the first correct answer the host generates a random
+  32-byte token, stores only its SHA-256 (`HashToken`), and sends the original in that
+  one HELLO_ACK; up to `kMaxTrustedDevices = 32` are kept (oldest evicted). The client
+  presents it in future HELLOs to skip the password prompt.
+- **Client-side password flow** (`ClientSession`): on the first challenge with no
+  stored password, `onPasswordNeeded` fires once and the 10-second give-up clock is
+  re-armed when the user submits (`SetPassword`); the derived key is cached and only
+  re-derived when salt/iterations actually change (PBKDF2 costs ~100 ms and HELLO
+  repeats every 500 ms). On `AuthFailed` the stored password is cleared and re-asked.
+- **Entropy fail-closed**: if `randomBytes` fails, the host refuses to issue a
+  challenge nonce or a sessionId — it rejects the session rather than proceed with
+  predictable values.
+
+### 5.2 IDR on demand
+
+The encoder uses an infinite GOP — no periodic IDRs. When the `Reassembler` drops a
+frame (§6.2) it swallows all further non-IDR frames and raises a loss event; the
+client then holds `RequestKeyframe`, and `ClientSession::Tick` sends REQUEST_KEYFRAME
+every `kKeyframeRetryUs = 250 ms` until the request is cancelled (an IDR arrived).
+The host forwards each one to the encoder via `onKeyframeRequest`. The same mechanism
+covers joining mid-stream: the Reassembler starts in the waiting-for-IDR state.
+
+### 5.3 Retransmission (NACK)
+
+See §6.4 for the transport policy; on the wire it is: client sends NACK (§4.14), host
+looks each `(frameId, pktIndex)` up in `deskhub/transport/RetransmitCache.h` (verbatim
+copies of the last `kCacheFrames = 8` frames' video datagrams) and re-sends exactly
+those datagrams unchanged.
+
+### 5.4 Clock relation (RTT and end-to-end latency)
+
+Two mechanisms, both deliberately avoiding clock synchronization:
+
+- **RTT**: PING carries the client's own `sendTimeUs`; PONG echoes it verbatim, so
+  `rtt = now − sendTimeUs` is a pure client-side subtraction.
+- **End-to-end latency estimate** (`deskhub/control/ClockSync.h`): video timestamps
+  are host-clock. The client seeds an offset from `HelloAck::timebaseUs` vs. its local
+  receive time, then runs a **minimum filter** over
+  `(client_arrival − host_timestamp)` per frame — the minimum approximates
+  clock offset + minimum one-way delay — and adds back `rtt/2` as the estimate of that
+  minimum one-way delay. The window minimum is refreshed every
+  `kClockRefreshUs = 10 s` to track clock drift in both directions. This is an
+  estimate assuming a symmetric path, not a measurement (see the header for the
+  honest caveats). Results are aggregated per 1-second window by
+  `deskhub/control/LinkStats.h` and never travel on the wire.
+
+### 5.5 Disconnect and timeouts
+
+| Constant | Value | Where | Meaning |
+|----------|-------|-------|---------|
+| `kHelloRetryUs` | 500 ms | ClientSession.h | HELLO and START repeat interval. |
+| `kHelloGiveUpUs` | 10 s | ClientSession.h | Give up connecting if the host stays silent. Suspended (replaced by the 5 s silence rule) while waiting for the user to type a password, and re-armed from the moment of submission. |
+| `kPingIntervalUs` | 1 s | ClientSession.h | In-session PING cadence; PINGs are what keep an idle session alive. |
+| `kSessionTimeoutUs` | 5 s | HostSession.h (shared by both sides) | No valid in-session packet for 5 s → host returns to Idle (`onDisconnect` — the caller must release any held keys), client goes Dead. |
+| `kKeyframeRetryUs` | 250 ms | ClientSession.h | REQUEST_KEYFRAME repeat interval. |
+| `kFocusRetryUs` / `kFocusRepeats` | 50 ms / 3 | ClientSession.h | SET_FOCUS burst. |
+
+BYE is sent once, best-effort, by whichever side leaves first; the other side treats
+it as an immediate disconnect. Loss of BYE simply degrades to the 5-second timeout.
+Every valid in-session packet of any type feeds the timeout on both sides — including
+INPUT_EVENT packets that the host is dropping because input is disallowed (a view-only
+session with a user wiggling the mouse is still a live session).
+
+## 6. Video channel
+
+Host side: `deskhub/transport/Packetizer.h`; client side:
+`deskhub/transport/Reassembler.h`. Full policy discussion in 06-transport.md.
+
+### 6.1 Fragmentation
+
+`Packetizer::SendFrame` splits one encoded frame into
+`pktCount = ceil(size / kMaxVideoPayload)` fragments. Every fragment except the last
+carries **exactly** `kMaxVideoPayload = 1174` bytes, so the receiver derives each
+fragment's byte offset from `pktIndex` alone — there is no offset field on the wire.
+The last fragment carries the remainder and the `kVideoFlagFrameEnd` flag; IDR frames
+carry `kVideoFlagIdr` on every fragment. Frames needing more than 65535 fragments are
+not sendable (`pktIndex`/`pktCount` are u16; `SendFrame` returns 0).
+
+### 6.2 Reassembly and drop policy
+
+The `Reassembler` holds at most `kMaxPendingFrames = 4` frames under assembly and
+releases frames strictly in `frameId` order (H.264 inter-prediction makes
+out-of-order decode produce garbage). A frame is dropped when:
+
+- **Timeout** — incomplete for more than 2 frame intervals after its first fragment
+  arrived (frame interval from the negotiated fps, default 16 667 µs), or
+- **Overtaken** — ≥ 2 newer frames have completed past it, or
+- **Evicted** — the pending queue is full.
+
+Fragments of already-released or already-dropped frames are discarded (a barrier
+frameId enforces this). After any loss-drop (and on join) the Reassembler swallows
+complete non-IDR frames (`PreIdr` drops) until an IDR arrives, and raises a one-shot
+loss event that drives §5.2.
+
+### 6.3 FEC scheme (interleaved XOR parity)
+
+Enabled per-frame by the host (`Packetizer::SetFecEnabled`, driven by
+`BitrateController`); overhead is 1/`kFecGroupSize` = 1/8 of video bandwidth.
+
+- A frame of `pktCount` fragments is divided into
+  `numGroups = ceil(pktCount / kFecGroupSize)` **interleaved** groups
+  (`kFecGroupSize = 8`): fragment `i` belongs to group `i mod numGroups` — not
+  consecutive runs. Group membership is derived from `pktCount`, costing no wire
+  bytes.
+- One FEC_PACKET per group, sent **after** all data fragments. Its parity payload is
+  `lenXor` (u16, XOR of the member fragments' lengths — needed because the frame's
+  last fragment is shorter) followed by the XOR of the member fragments' bytes,
+  zero-padded.
+- Recovery (`Reassembler::PushFec`/`TryRecover`): a group missing **exactly one**
+  fragment is repaired by XOR-ing the parity with the received members — length first,
+  then bytes. Because same-group fragments sit `numGroups` positions apart, a burst of
+  up to `numGroups` **consecutive** losses touches each group at most once and is
+  fully recoverable; ≥ 2 losses in the same group are not (one equation, two
+  unknowns). Parity arriving before a reordered data fragment is retained. A
+  one-fragment frame's parity is a full copy of that fragment, so `timestampUs`,
+  `pktCount`, and the IDR flag in the FEC header suffice to rebuild the frame from
+  parity alone.
+- `groupIndex` is u8, so frames needing more than `kMaxFecGroups = 256` groups are
+  sent without FEC.
+
+### 6.4 NACK retransmission
+
+Complements FEC: FEC repairs single losses per group with zero added latency, NACK
+repairs everything else when the RTT allows. `Reassembler::PlanNack` lists the missing
+`pktIndex` values of the **oldest** incomplete pending frame, with self-throttling:
+
+- no NACK before `kNackHoldUs = 2 ms` after the frame's first fragment (give
+  reordered packets a beat before declaring them lost);
+- no NACK for a frame already past its 2-frame-interval assembly deadline
+  (a retransmit could not arrive in time);
+- no repeat NACK for the same frame within `max(rttUs, kNackMinIntervalUs = 10 ms)` —
+  a retransmitted packet needs ~1 RTT to arrive.
+
+The host answers from `RetransmitCache` (last `kCacheFrames = 8` frames ≈ 0.13 s at
+60 fps, longer than the client's assembly deadline; only VIDEO_PACKETs are cached —
+parity is reconstructible and control has its own repetition). When the client instead
+gives up on a frame it sends INVALIDATE_REF (§4.15).
+
+### 6.5 Bitrate/FEC control loop
+
+`deskhub/control/BitrateController.h`, fed by FEEDBACK once per second. Exact rules
+(`BitrateController::Update`): FEC turns **on** at `lossPct ≥ 1 %` and **off** after
+5 consecutive clean feedbacks. Bitrate: `≥ 5 %` loss → ×0.75; `≥ 2 %` → ×0.90;
+`≤ 1 %` and ≥ 2 s since the last decrease → +5 % of the ceiling per feedback; results
+clamped to `[min, startBps]` (the user-chosen start rate is also the ceiling), and
+changes under 2 % of the current rate are suppressed to avoid churning the encoder's
+rate control. The 1–2 % band deliberately enables FEC without lowering picture
+quality. Applied changes reach the client as RECONFIG (§4.12).
+
+## 7. Compatibility rules
+
+All enforced in `Wire.cpp`; new code must follow the same patterns.
+
+1. **Version byte is a hard gate.** `ParseCommonHeader` rejects any datagram whose
+   first byte is not `kProtocolVersion` (1). There is no version negotiation in v1.
+2. **Unknown message types are ignored, not errors** — receivers switch on `type` and
+   fall through on `default`, so new types can be added within v1.
+3. **Payloads grow at the tail only.** Parsers use `<` (minimum length), never `!=`,
+   and supply defaults for absent tail fields. Precedents: HELLO accepts 13/14/N
+   bytes; HELLO_ACK accepts 22 bytes (flags default to `kAckFlagInputAccepted` —
+   assuming anything else would disable input against every old host), 24 bytes
+   (`reason` stays `None`), and longer.
+4. **Layout changes inside a message are signaled by a header flag**, not inferred
+   from length — `kSourceListFlagKind` is the precedent (§4.6).
+5. **Network-supplied lengths and counts are never trusted**: every declared
+   `count`/`len` is checked against the real payload size, clamped to receiver
+   capacity, and oversized video/FEC/clipboard payloads are rejected outright.
+6. **Network-supplied cost parameters are capped at the wire layer**: AUTH_CHALLENGE
+   `iterations` is clamped to `kMaxKdfIterations = 2,000,000` (20× the real value,
+   leaving headroom to raise the KDF cost without touching old clients).
+7. **Secrets cross the wire at most once**: the device token appears once in a
+   HELLO_ACK and is presented back in HELLOs; only its hash is stored host-side.
+
+## 8. Source of truth
+
+`core/include/deskhub/wire/Wire.h` is the single implementation of this
+specification, and its header comment designates this document as the textual source
+of truth. Any change to a constant, layout, or rule in one **must** be made in the
+other in the same change, with the round-trip tests in
+`core/tests/wire/WireTests.cpp` updated to match — two diverging copies of a wire
+protocol are the hardest kind of bug to diagnose over UDP.

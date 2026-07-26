@@ -40,7 +40,7 @@
 //   Apply() được gọi từ luồng Recv của AgentLoop.
 //
 // LIÊN QUAN: input/InputCapture.h (đầu kia), deskhub/input/InputReceiver.h,
-//            deskhub/session/HostSession.h (nơi gọi ReleaseAll), docs/07-phase4-input.md
+//            deskhub/session/HostSession.h (nơi gọi ReleaseAll), docs/07-input.md
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -87,7 +87,7 @@ public:
 
     // Dev (--injecttest): gõ một chuỗi ASCII vào cửa sổ `target` bằng chính
     // đường bơm thật (scancode). Để kiểm chứng riêng nửa "bơm input" mà không
-    // cần dùng mạng - xem docs/07-phase4-input.md §6.
+    // cần dùng mạng - xem docs/07-input.md §6.
     static int SelfTest(HWND target, const char* text);
 
 private:

@@ -26,7 +26,7 @@
 // LIÊN QUAN: AgentLoop.cpp (kiến trúc luồng + định tuyến gói),
 //            agent/ScreenCapture.h, agent/VtEncoder.h, agent/InputInjector.h,
 //            deskhub/session/HostSession.h, client/windows/AgentLoop.h,
-//            docs/06-phase3-transport.md §4
+//            docs/06-transport.md §4
 // =============================================================================
 #include <atomic>
 #include <cstdint>

@@ -1,277 +1,208 @@
-# 12 — Client iOS (SwiftUI + VideoToolbox)
+# 12 — iOS Client
 
-Một trong **6 nền tảng client** (xem `03-client.md` §1b, `11-platform-transport.md`). iOS là
-**client-only** — không làm agent được: inject input vào app khác và listen socket đều bị
-sandbox chặn tuyệt đối (`11-platform-transport.md` §3).
+The iOS app is one of the Deskhub client platforms (see `01-architecture.md`, `03-client.md`).
+It is **client-only**: it views and controls a desktop host, never shares its own screen. The
+current build streams video *and* sends input — touch-driven mouse, a virtual keyboard, and a
+shortcut bar — over the standard UDP protocol described in `04-protocol.md`.
 
-**Trạng thái: 🔶 ĐÃ TRIỂN KHAI (M0+M1).** Stream video chạy trên thiết bị thật — xem được
-cửa sổ host Windows trên iPhone/iPad qua LAN hoặc Tailscale. Chưa gửi input (M2).
+Sources live in `client/ios/`:
 
-iOS **làm client UDP bình thường** — rào cản host ở §3 không áp vào vai client
-(`11-platform-transport.md` §5). Transport là **UDP POSIX**, dùng lại nguyên `UdpSocket` của
-Android; không đụng gì tới QUIC (thứ chỉ web cần). Bản đầu **chỉ xem** — chưa gửi input, đúng
-lộ trình của Android (§5, §7 dưới).
+- `client/ios/app/swift/` — SwiftUI UI, session state, Keychain credentials.
+- `client/ios/app/cpp/` — C facade, `ClientLoop`, `VtDecoder`, POSIX `UdpSocket`/`SourceQuery`.
+- `client/ios/Deskhub.xcodeproj` — a single `app` target; `app/` is a
+  `PBXFileSystemSynchronizedRootGroup`, so files added on disk join the build automatically.
+- `client/ios/fastlane/` — App Store metadata and lanes (see `13-release-mobile.md`).
 
-## 1. Phân chia Swift / C++
+## 1. Architecture: four layers
 
-`core/` đã là C++20 không đụng header hệ điều hành (`core/CMakeLists.txt` ghi rõ nó phải
-build được bằng mọi toolchain — MSVC, NDK, và giờ là Clang của Xcode). Nên toàn bộ
-`ClientSession` / `Reassembler` / `Wire` / `LinkStats` dùng lại **y nguyên**. Phần phải viết
-mới chỉ là bốn lớp mỏng platform-specific, đối ứng **1-1 với bản Android** — iOS gần Android
-hơn gần Windows vì cả hai đều POSIX cho socket và đều "codec tự render, không qua CPU":
+```
+SwiftUI views (ConnectView / SourcePickerView / StreamView)
+    │  read state, call actions
+SessionModel (@MainActor @Observable)          — client/ios/app/swift/SessionModel.swift
+    │  the only caller of the facade wrapper
+DeskhubClient (Swift enum of static funcs)     — client/ios/app/swift/DeskhubClient.swift
+    │  plain C calls via Deskhub-Bridging-Header.h
+dh_* C facade (DeskhubClient.h / .mm, ObjC++)  — client/ios/app/cpp/
+    │  one global session: std::shared_ptr<ClientLoop> g_client + g_mutex
+ClientLoop (pure C++) ── reuses core/: ClientSession, Reassembler, Wire, LinkStats, KeyMap
+```
 
-| Windows                   | Android                     | iOS                              | Vai trò                      |
-|---------------------------|-----------------------------|----------------------------------|------------------------------|
-| `UdpSocket.cpp` (winsock) | `UdpSocket.cpp` (BSD)       | **`UdpSocket.cpp` — chép từ Android** | datagram vào/ra         |
-| `SourceQuery.cpp`         | `SourceQuery.cpp`           | **`SourceQuery.cpp` — chép từ Android** | LIST_SOURCES trước phiên |
-| `MfDecoder` + `Renderer`  | `MediaCodecDecoder`         | **`VtDecoder`** (VideoToolbox)   | H.264 → màn hình             |
-| `MainMenuWindow` (Win32)  | `MainActivity` (Compose)    | **`ConnectView`** (SwiftUI)      | nhập địa chỉ, chọn kết nối   |
-| `SourcePickerDialog`      | `MainActivity` (một bước)   | **`SourcePickerView`** (SwiftUI) | chọn cửa sổ muốn xem         |
-| cửa sổ preview            | `StreamActivity` (Compose)  | **`StreamView`** (SwiftUI)       | layer video + overlay số liệu |
-| —                         | `JniBridge.cpp`             | **`DeskhubClient.mm`** (Obj-C++) | ranh giới UI ↔ C++           |
-| —                         | `NativeClient.kt`           | **`DeskhubClient.swift`** (facade) | điểm gọi xuống C++ duy nhất |
+- `DeskhubClient.swift` is the single Swift-side gateway; no view calls C directly. It mirrors
+  Android's `NativeClient.kt`, and `DeskhubClient.mm` mirrors `JniBridge.cpp`.
+- The facade is flat C functions (not an ObjC class) exported through
+  `client/ios/app/swift/Deskhub-Bridging-Header.h`. `DeskhubClient.mm` is ObjC++ only because
+  the video layer crosses the boundary as a `__bridge void*`.
+- `ClientLoop` (`client/ios/app/cpp/ClientLoop.h/.cpp`) is a close port of the Android
+  `ClientLoop`; only the decoder (`VtDecoder` instead of `MediaCodecDecoder`) and the render
+  target (`AVSampleBufferDisplayLayer` instead of `Surface`) differ. `UdpSocket` and
+  `SourceQuery` under `client/ios/app/cpp/net/` are copied from the Android client (both are
+  POSIX). `NetAddr` is IPv4-only, host byte order.
 
-`UdpSocket` và `SourceQuery` của Android là **POSIX thuần** (BSD socket, `arpa/inet.h`,
-`sys/socket.h`) — chép sang iOS không sửa một dòng. Đây là lời hứa của
-`11-platform-transport.md` §5 ("native mac/iOS/Linux dùng lại `UdpSocket` của Android") được
-thu về tiền mặt: việc platform thật sự phải viết cho iOS là **decode + render + (sau) input**,
-không phải socket.
+### Threading
 
-Ranh giới Swift↔C++ cố ý mỏng, gói gọn trong `DeskhubClient.mm` + `DeskhubClient.swift`, đúng
-như `JniBridge.cpp` + `NativeClient.kt` bên Android: **Swift chỉ làm phần người dùng nhìn thấy
-và đưa layer xuống; không frame video nào đi qua Swift, và cũng không qua SwiftUI.** Video
-sống trong một `AVSampleBufferDisplayLayer` bọc bằng `UIViewRepresentable`; VideoToolbox đẩy
-`CMSampleBuffer` thẳng vào layer đó, nên đường nóng vẫn là bộ giải mã phần cứng → hardware
-compositor. SwiftUI chỉ vẽ phần chrome (ô nhập địa chỉ, chữ trạng thái, overlay số liệu) và
-cập nhật 500ms/lần.
+Three threads per session, documented in `ClientLoop.h`:
 
-Tỉ lệ khung hình do `.aspectRatio(w/h, contentMode: .fit)` lo — đối ứng
-`Modifier.aspectRatio(w/h)` của Android, không phải tự tính frame.
+- **Main** — SwiftUI; hands the layer over (`SetLayer`), polls phase/stats every 500 ms via a
+  `Timer` in `SessionModel.startPolling()` (added to `RunLoop.main` in `.common` mode so it
+  keeps firing during scroll tracking).
+- **Net** (`ClientLoop::NetThread`) — `recvfrom` with a 10 ms timeout; video-channel packets go
+  straight into `deskhub::Reassembler` (hot path, bypassing `ClientSession` except for
+  `NotifyVideoPacket`), everything else through `ClientSession::HandlePacket`. It also drains
+  the pending password, drains the input queue into `ClientSession`, calls `Tick`, requests
+  keyframes, plans NACKs, and closes the 1-second stats window.
+- **Decode** (`ClientLoop::DecodeThread`) — pops reassembled frames from a bounded queue
+  (`kMaxQueuedFrames = 3`; overflow drops the *oldest* frame and flags an IDR request) and
+  feeds `VtDecoder`. Net and Decode are separate so a slow decode never stalls `recvfrom` —
+  a stalled socket overflows the kernel UDP buffer and causes real loss.
 
-## 1b. Seam Swift↔C++: vì sao Obj-C++ facade chứ không Swift/C++ interop trực tiếp
+Layer handover is a generation-counted handshake (`winGen_`/`winAckGen_`): `SetLayer` blocks
+the caller until the Decode thread acknowledges it has released the old layer.
+`dh_set_layer` deliberately copies the `shared_ptr` and calls `SetLayer` *outside* `g_mutex`
+so concurrent `dh_phase`/`dh_stop` calls cannot deadlock. `dh_list_sources` blocks up to ~3 s
+and must run off the main thread — Swift wraps it in `Task.detached`.
 
-Swift 5.9+ gọi thẳng C++ được, nhưng **chọn một lớp Obj-C++ (`.mm`) làm mặt tiền** — đối ứng
-đúng vai `JniBridge.cpp` bên Android — vì ba lý do:
+## 2. Build
 
-1. **Vòng đời & thread rõ ràng.** `ClientLoop` chạy 2 thread nền và giữ con trỏ tài nguyên
-   HĐH (layer). Một facade C giữ `std::unique_ptr<ClientLoop>` static (như biến toàn cục
-   `g_client` bên Android) tránh được cả một lớp lỗi: Swift cầm con trỏ thô, giữ qua một lần
-   xoay màn hình, rồi gọi vào đối tượng đã hủy. App chỉ xem **một nguồn** tại một thời điểm
-   (view-only v1) nên một biến static là vừa đủ.
-2. **`CMSampleBuffer`/`CVPixelBuffer`/`CAMetalLayer` là kiểu Core Foundation/Obj-C** — Obj-C++
-   cầm chúng tự nhiên (bắc cầu ARC↔C++), Swift/C++ interop thuần thì vướng.
-3. **Đối xứng với Android giúp port rẻ**: cùng một tập hàm mặt tiền (`start/stop/setLayer/
-   phase/statusLine/listSources`), cùng một mô hình "một phiên toàn cục".
+`core/` is compiled by a Run Script phase in the Xcode `app` target ("Build libcore.a
+(CMake)"): it invokes CMake on `core/CMakeLists.txt` with `CMAKE_SYSTEM_NAME=iOS`, the current
+SDK/arch/deployment target (iOS 17.0), and `DESKHUB_CORE_TESTS=OFF`, outputting to
+`out/build/ios-core/$PLATFORM_NAME-$CONFIGURATION`. The target links `-lcore` from that
+directory; header search paths add `core/include`, `platform/include`, and `app/cpp`. CMake is
+the single source of truth for the core file list — Xcode keeps no hand-copied list.
 
-**Ánh xạ hàm mặt tiền** (khớp từng cái với `NativeClient.kt`):
+Make targets (`make/ios.mk`, macOS only):
 
-| Android (`NativeClient`) | iOS (`DeskhubClient`) | Ghi chú |
-|--------------------------|------------------------|---------|
-| `nativeListSources`      | `listSources(addr:)`   | CHẶN ~3s → chạy trên `Task.detached`/`DispatchQueue` nền |
-| `nativeStart`            | `start(addr:sourceId:)`| |
-| `nativeStop`             | `stop()`               | |
-| `nativeSetSurface`       | `setLayer(_:)`         | giao/thu hồi `AVSampleBufferDisplayLayer` |
-| `nativePhase`            | `phase()`              | enum 4 giá trị Idle/Connecting/Streaming/Ended |
-| `nativeStatusLine`       | `statusLine()`         | dòng fps/kbps/RTT/e2e cho overlay |
-| `nativeEndReason`        | `endReason()`          | lý do phiên kết thúc |
-| `nativeVideo{Width,Height}` | `videoSize()`       | đặt đúng `.aspectRatio` |
+- `make build-ios` — `xcodebuild -target app -configuration Debug -sdk iphonesimulator`,
+  products under `out/build/ios/Debug-iphonesimulator/app.app`.
+- `make release-ios` — same with `-configuration Release`, still Simulator SDK.
+- `make run-ios` — builds, boots the Simulator, installs and launches `com.ios.deskhub`.
 
-Khác JNI ở một điểm dễ chịu: **không có liên kết theo tên chuỗi**. Bẫy lớn nhất của
-`JniBridge` (`Java_com_deskhub_app_...`, đổi tên gói mà quên sửa C++ → `UnsatisfiedLinkError`
-lúc chạy, không lỗi biên dịch) **biến mất** — bridging header liên kết theo symbol lúc build,
-sai tên là lỗi biên dịch ngay.
+Per the comments in `ios.mk`, real-device and App Store builds need a signing team and an
+archive through Xcode/fastlane — they are not covered by make. See `13-release-mobile.md`.
+C++ logging (`client/ios/app/cpp/Log.h`) is `fprintf(stderr, ...)`, visible in the Xcode
+console and Console.app.
 
-## 2. Decode + Render: VideoToolbox → `AVSampleBufferDisplayLayer`
+## 3. Connect flow
 
-Đây là mảnh iOS-specific lớn nhất. Đối ứng `MediaCodecDecoder` bên Android — **gộp cả decode
-lẫn render**, không tách `Renderer` riêng như Windows.
+1. **Address entry** — `ConnectView` (`client/ios/app/swift/ConnectView.swift`): a manual
+   address field (`192.168.1.7:47777` placeholder). There is **no network discovery**; the
+   default port 47777 is filled in by `ParseNetAddr` in the C++ layer when the string has no
+   `:port`. A "View only" checkbox persists to `UserDefaults`.
+2. **Source query** — `SessionModel.connect()` runs `DeskhubClient.listSources` (blocking
+   `QuerySources`, LIST_SOURCES → SOURCE_LIST) in `Task.detached`. More than one source shows
+   `SourcePickerView` (radio-style rows, "Start viewing" button); exactly one — or a silent
+   host, treated as "old host / single source", not an error — skips straight to source 0.
+3. **Recents** — `Recents` (`client/ios/app/swift/Recents.swift`) keeps up to 12 machines in
+   `UserDefaults` (tab/newline-separated string, most-recent first) with a guessed link label
+   ("LAN", "Tailscale" for 100.64/10). Shown as tappable cards under the address field.
+4. **Credentials** — `Credentials` (`client/ios/app/swift/Credentials.swift`) stores, in the
+   **Keychain** (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`): a stable random `clientId`
+   (host keys its "Trusted devices" list on it), a per-host password, and a per-host
+   `deviceToken` issued by the host after the first successful password. A non-secret address
+   index lives in `UserDefaults`. `startStream` passes any saved credential to `dh_start`;
+   an optional Face ID / Touch ID gate (`Credentials.unlock`, off by default) can guard the
+   use of saved secrets. ConnectView lists saved hosts with per-host and global "Forget".
+5. **Password challenge** — if the host requires a password the phase becomes
+   `.needPassword` (the session stays alive; `ClientSession` keeps re-sending HELLO every
+   0.5 s). `StreamView.passwordOverlay` collects the password, `dh_submit_password` injects it,
+   and the next HELLO retry carries the HMAC proof (`04-protocol.md` §5.1) — the password never
+   travels on the wire. It is saved to the Keychain only after the host accepts it
+   (`SessionModel.poll()` waits for `.streaming`); a rejected *saved* password
+   (`RejectReason.authFailed`) is deleted so it cannot burn the host's retry limit. The
+   device token is read-once via `dh_take_device_token` and stored immediately each poll.
 
-### Vì sao `AVSampleBufferDisplayLayer` (ASBDL) chứ không `VTDecompressionSession` + Metal
+## 4. Streaming path
 
-Android chọn `MediaCodec` configure thẳng với `ANativeWindow`: `releaseOutputBuffer(..., true)`
-đẩy frame từ bộ giải mã phần cứng lên hardware composer, **không qua CPU** — nên bên Windows
-cần `Renderer` (NV12→BGRA) còn Android thì không (§1 của `08`). Analog **chính xác** trên iOS
-là `AVSampleBufferDisplayLayer`: nạp `CMSampleBuffer` vào, layer tự **giải mã phần cứng +
-hiển thị** qua compositor, ta không đụng vào pixel. Ít code hơn hẳn, đúng tinh thần "backend
-mỏng".
+```
+UdpSocket.RecvFrom → Reassembler (core, FEC + NACK) → decQueue_ (≤3)
+  → VtDecoder (Annex-B → AVCC, CMSampleBuffer) → AVSampleBufferDisplayLayer
+```
 
-Phương án kia — `VTDecompressionSession` → `CVPixelBuffer` → Metal (`CVMetalTextureCache`,
-NV12 hai mặt phẳng, sample trong shader, present trên `CAMetalLayer`) — là bản sao của
-`MfDecoder`+`Renderer` bên Windows: kiểm soát đầy đủ, tự compose overlay trong Metal. **Để
-dành** cho lúc cần: (a) núm low-latency tường minh hơn ASBDL cho, hoặc (b) hiệu ứng/overlay vẽ
-thẳng trong khung video. Bản đầu **không cần** — như Android không cần `Renderer`.
+`VtDecoder` (`client/ios/app/cpp/VtDecoder.h/.mm`) does **not** run an explicit
+`VTDecompressionSession`: it enqueues H.264 `CMSampleBuffer`s directly into an
+`AVSampleBufferDisplayLayer`, which hardware-decodes and composites itself (the iOS analogue
+of Android's `releaseOutputBuffer(..., true)`). Details:
 
-### Định dạng bitstream: Annex-B → AVCC
+- **Annex-B → AVCC**: the stream is Annex-B with SPS/PPS repeated in-band on every IDR.
+  `ParseAnnexB` splits NALs; SPS/PPS build a `CMVideoFormatDescription`
+  (rebuilt only when the parameter bytes change); slice NALs get 4-byte length prefixes.
+  Frames before the first IDR (no parameters yet) are silently skipped — not an error.
+- **Low latency**: every sample gets `kCMSampleAttachmentKey_DisplayImmediately`; the stream
+  has no B-frames. If the layer is not `readyForMoreMediaData` the frame is dropped rather
+  than queued. A layer in `Failed` status (typical after returning from background) is
+  flushed and `Decode` returns false, which makes `ClientLoop` rebuild the decoder and
+  request an IDR.
+- **Format changes**: host RECONFIG (`onReconfig`) stores the new size and sets
+  `rebuildDecoder_`; the Decode thread shuts the decoder down and re-inits lazily once it has
+  both a layer and negotiated dimensions. The host sends an IDR with RECONFIG.
+- **IDR requests** funnel through one place in `NetThread` with a logged reason: packet loss,
+  waiting-for-IDR, decoder failure, or frame-queue overflow.
 
-Stream của Deskhub là **H.264 Annex-B** (start code `00 00 00 01`), IDR mang sẵn SPS/PPS
-in-band (NVENC bật `repeatSPSPPS` — xem `08` §3). VideoToolbox lại đòi **AVCC**:
+The UI layer is `VideoLayerView` (`client/ios/app/swift/VideoLayerView.swift`), a
+`UIViewRepresentable` whose `UIView.layerClass` is `AVSampleBufferDisplayLayer`
+(`videoGravity = .resizeAspect`). `StreamView` sizes it with `.aspectRatio` from the
+negotiated `videoWidth/Height`.
 
-- **Tham số:** `CMVideoFormatDescriptionCreateFromH264ParameterSets(...)` nhận SPS/PPS dạng
-  NAL trần (không start code). Tách phần trước slice VCL đầu tiên bằng **`FirstVclOffset()`**
-  — dùng lại nguyên logic của Android (`08` §3, chỗ xử lý máy Android đòi `CODEC_CONFIG`
-  riêng). Chỉ dựng lại `formatDescription` khi SPS/PPS đổi (so byte).
-- **Frame:** `CMSampleBuffer` cần NAL **length-prefixed 4 byte** (AVCC), không phải start
-  code. Chuyển Annex-B→AVCC = quét start code, thay bằng độ dài big-endian. Rẻ, làm trên
-  thread Decode.
+**Stats HUD**: `NetThread` builds a one-line summary every second
+(`fps  Mbps  loss %  RTT ms  e2e ms`); `SessionModel.poll()` reads it via `dh_status_line`,
+parses the RTT number out of the string (`parseRtt`) into a 60-sample trace, and `StreamView`
+shows the line plus a `Sparkline`. The e2e figure is measured at *enqueue* time, not at
+display time — a known caveat noted in `VtDecoder.h` (`lastRenderedPtsUs`).
 
-Đặt attachment `kCMSampleAttachmentKey_DisplayImmediately = true` cho mỗi sample — chuỗi của
-ta **không có B-frame** nên không cần layer giữ frame sắp xếp lại thứ tự hiển thị; đây là núm
-low-latency đối ứng `MF_LOW_LATENCY` (Windows) và khóa `"low-latency"` của MediaCodec
-(`08` §3). Không đặt timestamp lịch trình (để layer hiện ngay), hoặc dùng
-`sampleBufferRenderer` với timebase chạy nhanh.
+## 5. Input
 
-### Đo e2e
+All input funnels through `SessionModel`, which drops everything when `viewOnly` is set — one
+gate for all three sources. The C++ side queues events under `inputMutex_`; the Net thread
+drains them into `ClientSession`, which sequences and redundantly retransmits them
+(`InputSender`, see `07-input.md`). Any input sets `wantFocus_`, so the host receives
+SET_FOCUS and brings the shared window foreground. Input only takes effect while STREAMING.
 
-Số e2e đo trên frame **VỪA LÊN MÀN HÌNH**, không phải lúc nạp vào decoder — để so được với
-Windows/Android (`08` §3, `09-diagnostics.md`). Với ASBDL, mốc "đã hiển thị" lấy từ
-`sampleBufferRenderer`/callback trình bày; nếu ASBDL không lộ mốc đủ chính xác thì đây là một
-lý do chính đáng để chuyển sang nhánh `VTDecompressionSession` (có callback
-`decompressionOutputCallback` với thời điểm rõ ràng). Ghi chú lại: Android hiện **số đo e2e
-còn sai** (`08` §5/§6) — đừng lặp lại, chốt cách đo ngay từ M1.
+- **Touch → mouse** — `TouchInputView` (`client/ios/app/swift/TouchInputView.swift`) is a
+  *trackpad*, not direct touch: a visible cursor (SF Symbol `cursorarrow`) is moved by pan
+  deltas and clamped to the aspect-fit video rect; coordinates sent are normalized 0..65535
+  within that rect. Gestures: drag = move cursor; single tap = left click (waits for the
+  double-tap window to fail); double tap = right click; long-press-then-drag = hold left
+  button and drag, released on lift. A move is re-sent immediately before every click so
+  clicks land under the visible cursor. The overlay covers the whole view including the
+  letterbox, and is simply not mounted in view-only mode.
+- **Virtual keyboard** — `KeyInputView` (`client/ios/app/swift/KeyInputView.swift`) is an
+  invisible `UIKeyInput` view (ASCII keyboard, autocorrect off) toggled by the HUD keyboard
+  button; a transparent accessory bar adds a "Done" dismiss button. Each typed scalar goes to
+  `dh_char_tap`; `ClientLoop::QueueCharTap` uses core `CharToKeyChord` (`KeyMap.h`, US layout)
+  to emit `[Shift↓] key↓ key↑ [Shift↑]`; backspace is sent as codepoint `0x08`. Non-ASCII
+  characters are silently dropped.
+- **Shortcut bar** — `StreamView`'s `kHotkeys` pill row supplies keys the iOS keyboard lacks:
+  Esc, Tab, Enter, arrow keys, Del, Ctrl+C, Ctrl+V (Windows VK + scancode, bit 8 = E0 flag).
+  Plain keys use `dh_key_tap`, combos use `dh_key_chord` (modifier held around the main key).
+  Alt+Tab/Win are deliberately excluded — they would move focus off the shared window.
+- **Tap timing** — key-down is sent immediately; key-up is scheduled `kTapHoldUs` (50 ms)
+  later in `delayedInput_`, so games polling the keyboard per frame still see the press.
 
-## 3. Thread
+## 6. Lifecycle
 
-Giữ nguyên bố cục của `client/android/.../ClientLoop.cpp` (bản thân nó là port của
-`client/windows/ClientLoop.cpp`):
+- `StreamView.onAppear` disables the idle timer and starts the 500 ms poll;
+  `onDisappear` re-enables it, dismisses the keyboard, calls `dh_set_layer(NULL)`, and stops
+  polling.
+- `scenePhase` handling: on `.background` the layer is released (`dh_set_layer(NULL)` blocks
+  until the Decode thread lets go); on `.active` it is re-attached. While layerless the Decode
+  thread drops frames; re-attachment triggers a decoder rebuild plus an IDR request. The
+  session itself keeps running in the C++ threads.
+- `SessionModel.disconnect()` (End button, password-overlay Back, ended-overlay Back) calls
+  `dh_stop`: `ClientLoop::Stop` raises `quit_`, joins both threads, and the Net thread sends
+  a one-shot BYE so the host frees the session immediately. Host BYE / timeout / socket error
+  set `endReason`, phase `.ended`, and `StreamView` shows the ended overlay.
 
-- **UI** (main thread / `@MainActor`): giao/thu hồi layer, hỏi trạng thái 500ms/lần
-  (`Timer`/`.task`) để cập nhật overlay.
-- **Net:** `RecvFrom(10ms)` → `ClientSession` + `Reassembler` → đẩy frame vào hàng đợi.
-- **Decode:** rút frame → `VtDecoder` → `CMSampleBuffer` → enqueue vào layer.
+## 7. Known limitations (as coded)
 
-Tách Net và Decode vì lý do cũ, **không đổi trên iOS**: decode chặn thread Net thì `RecvFrom`
-ngừng nghe, buffer UDP của HĐH tràn, sinh mất gói THẬT — loại mất mát mà cả FEC lẫn xin IDR
-đều không cứu được. Hàng đợi giới hạn **3 frame** (`kMaxQueuedFrames`); đầy thì bỏ frame cũ
-nhất và xin IDR. `ClientLoop` port gần như trọn vẹn — chỉ thay hai điểm chạm HW (decoder,
-layer) và cơ chế bắt tay layer (§4).
-
-## 4. Điểm khác biệt so với Android
-
-**Layer đến rồi đi (lifecycle nền).** Như Android thu hồi Surface mỗi lần app xuống nền
-(`surfaceDestroyed`), iOS cũng cần buông layer khi app vào nền / view biến mất — codec còn
-enqueue vào một layer đã rời cây render là lãng phí hoặc lỗi. Nên `SetWindow(nullptr)` của
-Android trở thành **`setLayer(nil)`**, và giữ nguyên cơ chế **bắt tay theo thế hệ**
-(`winGen_`/`winAckGen_` trong `ClientLoop.h`): main tăng gen, Decode ack — số đếm thay cho cờ
-bool để nhiều lần đổi liên tiếp không nuốt mất lần nào. Móc vào
-`scenePhase == .background`/`onDisappear`. Quay lại foreground → dựng lại `VtDecoder` và xin
-một IDR ngay (`ClientSession::RequestKeyframe`), y như Android.
-
-> ASBDL còn một nếp riêng: sau khi app nền quay lại, layer có thể ở trạng thái
-> `.failed`/cần flush (`requiresFlushToResumeDecoding`). Kiểm tra `status` trước khi enqueue;
-> nếu cần thì `flush()` rồi bơm lại từ một IDR. Đây là chỗ iOS phát sinh so với Android, ghi
-> vào code chỗ enqueue.
-
-**SPS/PPS.** Android: đa số bộ giải mã nuốt được SPS/PPS in-band, vài dòng máy đòi
-`CODEC_CONFIG` riêng nên tách bằng `FirstVclOffset()`. iOS **luôn** phải tách (VideoToolbox
-đòi tham số dựng `CMVideoFormatDescription` tách khỏi frame) — nên `FirstVclOffset()` từ hàng
-"tùy máy" bên Android thành **bắt buộc** bên iOS. Cùng một hàm, dùng lại.
-
-**RECONFIG.** `MfDecoder` (Windows) tự đàm phán lại kích thước qua
-`MF_E_TRANSFORM_STREAM_CHANGE`; MediaCodec (Android) đã configure cứng nên `onReconfig` đặt cờ
-dựng lại codec. iOS giống Android: `formatDescription` gắn với SPS cũ, gặp SPS mới thì **dựng
-lại** nó (và session nếu dùng nhánh VT). Host gửi RECONFIG **kèm IDR** (`04-protocol.md` §7)
-nên không mất gì.
-
-**Chọn nguồn.** `QuerySources()` (`SourceQuery.cpp`) chép từ Android không sửa: mở socket
-riêng, phát `LIST_SOURCES` mỗi 500ms trong 3 giây, chờ `SOURCE_LIST`. Đứng NGOÀI `ClientLoop`
-vì chạy trước khi có phiên — không sessionId, không thread. Nó chặn tới 3s nên
-`DeskhubClient.listSources()` bọc bằng `Task.detached` (đối ứng `withContext(Dispatchers.IO)`
-của Android). Facade trả về mảng chuỗi `"id\twidth\theight\tname"` cho Swift `split` — **không
-dựng struct từ C++**, đúng như Android trả `Array<String>` (bên C chỉ cần bơm chuỗi, khỏi tra
-kiểu Swift cho thứ dùng đúng một chỗ). `split(separator: "\t", maxSplits: 3)` — `maxSplits` là
-**bắt buộc**, tiêu đề cửa sổ có thể chứa tab.
-
-Danh sách rỗng gộp hai trường hợp — host im lặng (bản cũ / mất gói) và host không chia sẻ gì —
-thành một: cứ vào **nguồn 0** và để `ClientSession` báo lỗi thật. Một nguồn thì bỏ qua luôn
-`SourcePickerView`.
-
-## 5. UI SwiftUI — hệ thiết kế Deskhub
-
-UI dựng trên **hệ thiết kế Deskhub** — cùng bộ token màu với macOS
-(`client/macos/app/swift/DesignTokens.swift`) và Windows (`Themes/Tokens.xaml`): kính trắng
-mờ trên nền gần-đen, mint làm màu tín hiệu duy nhất, mono cho mọi con số, sáng/tối + EN/VI
-đổi ngay trong app (nút ở thanh trên cùng, lưu qua `AppState` + `Strings.swift`). **Màu chép
-1-1 từ desktop; kích thước thì không** — control 44pt (ngưỡng vùng chạm HIG), gutter 20,
-hành động chính ghim ở thanh đáy trong tầm ngón cái. Từng chỗ lệch đều ghi lý do ngay tại
-`DesignTokens.swift`.
-
-Tầng thành phần nằm trong `Design*.swift` (Tokens/Text/Surfaces/Buttons/Controls/Rows/
-Layout) — view màn hình không tự vẽ nút/ô tick/panel nào ngoài bộ này.
-
-Ba màn, đối ứng `MainActivity`/`SourcePickerScreen`/`StreamActivity` của Android:
-
-- **`ConnectView`** — ô địa chỉ hero (mono 17, cao 58) + danh sách **máy đã kết nối**
-  (`Recents.swift`, tối đa 12 — thay cho một địa chỉ `lastAddress` duy nhất trước đây; bấm
-  thẻ là điền sẵn địa chỉ, không nối thẳng) + ba panel hướng dẫn + thanh đáy [ô "chỉ xem" +
-  nút Connect]. Port mặc định 47777 do tầng C++ điền (ParseNetAddr). Bấm Connect →
-  `listSources` → nếu >1 nguồn sang `SourcePickerView`, nếu ≤1 vào thẳng nguồn 0.
-- **`SourcePickerView`** — dòng nguồn `SourceRow` với ô tick kiểu radio (dh_start nhận MỘT
-  sourceId), pill trạng thái, thanh đáy [cho phép input + Bắt đầu xem]. Không dùng
-  `List`/`NavigationStack` của hệ — chúng mang nguyên bộ trang trí iOS vào giữa hệ thiết kế.
-- **`StreamView`** — video chiếm TRỌN màn hình, không còn header/thanh đáy đặc: trạng thái
-  + số liệu là HUD nổi góc trên, phím tắt là hàng pill cuộn ngang + HUD điều khiển nổi giữa
-  dưới (bàn phím ảo, Kết thúc). Luôn ở bảng màu TỐI kể cả khi app để giao diện sáng — vùng
-  letterbox phải là màu KHÔNG CÓ. Chế độ "chỉ xem" chặn ở `SessionModel` (cửa duy nhất
-  xuống C++) và không dựng lớp trackpad.
-
-Quản trạng thái bằng một `@Observable` (`SessionModel`) gọi vào `DeskhubClient` — không View
-nào tự gọi C++, mọi lối đi qua facade (đối ứng "không Activity nào tự khai external fun" của
-Android). Lỗi lưu bằng KHOÁ bảng chữ (`connectErrorKey`) chứ không phải câu đã dịch — ngôn
-ngữ đổi được giữa chừng.
-
-## 6. Build & chạy
-
-**Không dùng CMake cho app** (khác Android dùng Gradle+CMake). App là **Xcode project** thêm
-thẳng nguồn C++ vào target — `core/` không có header OS nên Clang của Xcode dựng sạch:
-
-- Thêm compile sources: `core/src/**/*.cpp` + `client/ios/net/{UdpSocket,SourceQuery}.cpp` +
-  `client/ios/*.{mm,cpp}` (ClientLoop, VtDecoder, DeskhubClient).
-- **C++ Language Dialect = C++20** (`-std=c++20`); header search path thêm `core/include`.
-- `DeskhubClient.h` vào **bridging header** để Swift thấy facade.
-- Framework cần link: **VideoToolbox, CoreMedia, AVFoundation, CoreVideo** (+ Metal nếu chọn
-  nhánh VT+Metal).
-- Ký & chạy trên **thiết bị thật** để test LAN (Simulator không cùng mạng với host tiện lợi,
-  và HW decode trên Simulator khác thiết bị). `Info.plist`: `NSLocalNetworkUsageDescription`
-  (iOS đòi quyền LAN cho UDP nội mạng) và **Local Network** entitlement — thiếu là gói UDP ra
-  vào mạng nội bộ bị chặn im lặng, một bẫy iOS không có ở Android.
-
-Chạy: mở app, gõ IP host, **Connect**. Máy Windows chạy `client.exe`, chọn **[s]** chia sẻ một
-cửa sổ. Cả hai cùng LAN, tường lửa Windows cho UDP 47777 vào (`netsh ... localport=47777`).
-Qua Internet: bật Tailscale hai đầu, nhập IP `100.x.y.z`.
-
-**Ràng buộc phiên bản** (điền khi build thật lần đầu, theo mẫu bảng của `08` §4): Xcode /
-iOS Deployment Target / Swift version. Ghi lại mọi dòng từng làm build chết để máy khác khỏi
-đi lại vết xe đổ — như Android đã làm.
-
-## 6b. Quy ước ngôn ngữ
-
-Theo yêu cầu dự án (`08` §4b): **mọi chuỗi người dùng hoặc console thấy đều bằng tiếng Anh**,
-**mọi comment trong code bằng tiếng Việt có dấu**. Cụ thể: chuỗi UI trong `Localizable.strings`
-(tiếng Anh, không hard-code trong View), log và dòng overlay dựng trong `ClientLoop.cpp` cũng
-tiếng Anh.
-
-## 7. Lộ trình (milestone)
-
-Rủi ro giảm dần, đúng triết lý `05-roadmap.md` — làm phần dễ hỏng nhất trước:
-
-- ✅ **M0 — Khung build & seam** (rủi ro cao nhất: toolchain + Swift↔C++). Xcode project, thêm
-  `core/` + net glue làm sources, `DeskhubClient.mm` + bridging header. **Xong:** app gọi
-  `listSources()` lấy danh sách nguồn từ host Windows thật.
-- ✅ **M1 — Stream video (view-only), mục tiêu chính.** Port `ClientLoop`; `VtDecoder`
-  (VideoToolbox → ASBDL); 3 màn SwiftUI; lifecycle nền (§4). **Xong:** xem được cửa sổ host
-  trên iPhone/iPad thật qua LAN và Tailscale, đúng tỉ lệ, overlay chạy.
-- ⬜ **M2 — Input (GĐ4 cho iOS).** Chạm/kéo → `INPUT_EVENT` qua `core/InputSender`; bàn phím ảo
-  (`UIKeyInput`) → vkCode + **scancode** (bắt buộc cho game DirectInput — `07-phase4-input.md`
-  §5); chuột tương đối cho iPad (`GCMouse`/trackpad). iOS **đi trước Android** ở mảng này (Android
-  chưa gửi input — `08` §5). **Xong khi:** điều khiển được host từ iPad.
-- ⬜ **M3 — Hoàn thiện.** FEC (đã ở core, chỉ nối dây), FEEDBACK/điều tiết bitrate (đã ở core),
-  đa nguồn cùng lúc (nếu muốn), chẩn đoán `[DIAG]` (`09`).
-
-## 8. Hạn chế hiện tại
-
-- **Một nguồn tại một thời điểm** (view-only v1) — như Android: chọn cửa sổ nào để xem, chưa
-  xem nhiều cửa sổ song song như client Windows.
-- **Chưa gửi input** (để M2).
-- **Cần thiết bị thật + quyền Local Network** — không test trọn trên Simulator được.
-- **Nhánh render ASBDL** — nếu cần đo e2e chính xác hơn có thể phải chuyển sang
-  `VTDecompressionSession` + Metal (§2).
+- **No scroll**: no gesture maps to mouse wheel; only move/left/right/drag exist.
+- **Relative mouse is a stub**: `dh_mouse_move_rel` / `QueueMouseMoveRel` exist for an
+  FPS-style pointer-lock mode, but no UI calls them (the "Lock" button was removed).
+- **US-ASCII typing only**: `CharToKeyChord` covers the US layout; other characters are
+  dropped in `QueueCharTap`.
+- **e2e latency is approximate**: measured at sample enqueue, not on-glass
+  (`VtDecoder::lastRenderedPtsUs` caveat); switching to `VTDecompressionSession` would be
+  needed for exact timing.
+- **Simulator-only make targets**: device/App Store builds require manual signing
+  (`make/ios.mk`, `13-release-mobile.md`).
+- **One global session** (`g_client` in `DeskhubClient.mm`); IPv4 only (`NetAddr`);
+  no host discovery — addresses are typed or picked from recents.

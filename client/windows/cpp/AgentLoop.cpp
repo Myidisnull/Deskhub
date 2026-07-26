@@ -37,7 +37,7 @@
 //
 // LIÊN QUAN: AgentLoop.h (AgentSource/AgentOptions), ClientLoop.cpp (phía đối
 //            diện), deskhub/session/HostSession.h, deskhub/transport/Packetizer.h,
-//            net/Pacer.h, docs/06-phase3-transport.md §4
+//            net/Pacer.h, docs/06-transport.md §4
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

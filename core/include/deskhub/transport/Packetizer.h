@@ -29,7 +29,7 @@
 //   đường nóng — cái giá là mỗi thread phải có Packetizer riêng của nó.
 //
 // LIÊN QUAN: deskhub/transport/Reassembler.h (đầu kia), deskhub/wire/Wire.h,
-//            docs/06-phase3-transport.md
+//            docs/06-transport.md
 // =============================================================================
 #include "deskhub/wire/Wire.h"
 

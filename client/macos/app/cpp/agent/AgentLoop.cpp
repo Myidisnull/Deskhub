@@ -48,7 +48,7 @@
 // LIÊN QUAN: agent/AgentLoop.h (AgentSource/AgentOptions/AgentSourceStatus),
 //            client/ClientLoop.cpp (phía đối diện), deskhub/session/HostSession.h,
 //            deskhub/transport/Packetizer.h, client/windows/AgentLoop.cpp,
-//            docs/06-phase3-transport.md §4
+//            docs/06-transport.md §4
 // =============================================================================
 #include "agent/AgentLoop.h"
 

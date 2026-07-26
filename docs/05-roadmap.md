@@ -1,357 +1,385 @@
-# 05 — Lộ trình triển khai
+# 05 — Implementation Roadmap
 
-Lộ trình có **hai chiều**:
+The roadmap has **two dimensions**:
 
-1. **Chiều sâu (GĐ0–GĐ6)** — dựng pipeline hoàn chỉnh trên **Windows làm bản tham chiếu**,
-   thứ tự theo **rủi ro giảm dần**: làm phần dễ hỏng nhất trước (encode GĐ1, input GĐ4) để
-   xác nhận dự án khả thi sớm, tránh xây nhiều rồi mới phát hiện tắc.
-2. **Chiều rộng (rollout nền tảng)** — nhân bản tham chiếu ra **3 agent (Win/mac/Ubuntu) +
-   6 client (Win/mac/Ubuntu/iOS/Android/Web)**. Đây là **mục tiêu quan trọng nhất** của dự
-   án; `core/` chung khiến mỗi nền tảng mới chỉ tốn phần backend, không đụng giao thức.
+1. **Depth (Phase 0–Phase 6)** — build the complete pipeline on **Windows as the reference
+   implementation**, ordered by **decreasing risk**: tackle the most failure-prone parts first
+   (encode in Phase 1, input in Phase 4) to validate feasibility early, instead of building a
+   lot only to hit a wall later.
+2. **Breadth (platform rollout)** — replicate the reference implementation across **3 agents
+   (Win/mac/Ubuntu) + 6 clients (Win/mac/Ubuntu/iOS/Android/Web)**. This is the project's
+   **most important goal**; the shared `core/` means each new platform only costs its backend
+   work, without touching the protocol.
 
-## Rollout theo nền tảng
+## Platform rollout
 
-| Nền tảng | Agent | Client | Trạng thái | Doc |
+| Platform | Agent | Client | Status | Doc |
 |----------|:-----:|:------:|-----------|-----|
-| Windows | ✅ | ✅ | **Chạy thật 2 máy LAN + Tailscale** (Internet/NAT); GĐ0–GĐ6 | 02 / 03 |
-| macOS | 🔶 | 🔶 | **Cả hai vai đã triển khai** (SCK + VideoToolbox + CGEvent), build sạch; chưa kiểm chứng 2 máy thật | 14 |
-| Android | — | 🔶 | Stream video chạy (emulator ~33fps); chưa gửi input | 08 |
-| iOS | — | 🔶 | Stream video chạy (SwiftUI + VideoToolbox); chưa gửi input | 12 |
-| Web | — | 📐 | Thiết kế xong, chưa code | 10 |
-| Ubuntu | ⬜ | ⬜ | Chưa bắt đầu | — |
+| Windows | ✅ | ✅ | **Running for real on two machines over LAN + Tailscale** (Internet/NAT); Phase 0–Phase 6 | 02 / 03 |
+| macOS | 🔶 | 🔶 | **Both roles implemented** (SCK + VideoToolbox + CGEvent), clean build; not yet verified on two physical machines | 14 |
+| Android | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard); in testing on Google Play | 08 |
+| iOS | — | ✅ | **Video + input** (SwiftUI + VideoToolbox); in testing via TestFlight | 12 |
+| Web | — | 📐 | Design complete, no code yet | 10 |
+| Ubuntu | ⬜ | ⬜ | Not started | — |
 
-Ma trận + vì sao agent chỉ desktop: `11-platform-transport.md`. Các GĐ dưới đây là **chiều
-sâu trên Windows**; khi mở một nền tảng mới, phần `core/` (GĐ3–GĐ6) dùng lại nguyên trạng,
-chỉ viết backend capture/encode/inject (agent) hoặc decode/render/input (client).
+Matrix + why the agent is desktop-only: `11-platform-transport.md`. The phases below are the
+**depth work on Windows**; when opening up a new platform, the `core/` part (Phase 3–Phase 6)
+is reused as-is, and only the capture/encode/inject backend (agent) or decode/render/input
+backend (client) needs to be written.
 
-## Thứ tự ưu tiên (chiều sâu)
+## Priority order (depth)
 
-Làm phần dễ hỏng nhất trước để xác nhận rủi ro sớm.
+Do the most failure-prone parts first to validate the risks early.
 
-## Giai đoạn 0 — Nền tảng ✅ XONG
-- ✅ WGC capture cửa sổ game theo tên process.
-- ✅ Refactor: tách thành module — `WindowCapture` (PIMPL, giấu winrt), `WindowFinder`, `BmpWriter` (debug).
-- ✅ Chuyển polling → event `FrameArrived` (callback trên luồng thread-pool WGC).
-- ✅ Chia sẻ D3D11 device qua `Device()`/`Context()` (COM thuần, không rò winrt) để encoder dùng chung.
-- ✅ `CopyToCpu`/`WriteBmp` tách ra `BmpWriter`, chỉ chạy khi có cờ `--save`, ngoài đường nóng.
-- **Tiêu chí xong**: ✅ build sạch (0 warning), capture chạy bằng event, đo fps; đường nóng không đụng CPU.
+## Phase 0 — Foundation ✅ DONE
+- ✅ WGC capture of a game window by process name.
+- ✅ Refactor: split into modules — `WindowCapture` (PIMPL, hides winrt), `WindowFinder`, `BmpWriter` (debug).
+- ✅ Switched from polling to the `FrameArrived` event (callback on a WGC thread-pool thread).
+- ✅ Shared the D3D11 device via `Device()`/`Context()` (pure COM, no winrt leakage) so the encoder can reuse it.
+- ✅ `CopyToCpu`/`WriteBmp` split out into `BmpWriter`, only runs when the `--save` flag is set, outside the hot path.
+- **Done criteria**: ✅ clean build (0 warnings), event-driven capture, fps measured; hot path never touches the CPU.
 
-**Cấu trúc file sau GĐ0** (nay đã gom vào `client/windows/capture/`):
+**File structure after Phase 0** (now consolidated into `client/windows/capture/`):
 ```
 client/windows/
-├── main.cpp                  main: tìm cửa sổ → capture theo event → đếm frame/đo fps
+├── main.cpp                  main: find window → event-driven capture → count frames / measure fps
 └── capture/
-    ├── CaptureTypes.h        FrameInfo (D3D11/COM thuần, không winrt)
-    ├── WindowCapture.h/.cpp  module capture, winrt giấu trong .cpp (PIMPL)
-    ├── WindowFinder.h/.cpp   tìm HWND theo tên exe
-    └── BmpWriter.h/.cpp      công cụ debug: texture VRAM → BMP
+    ├── CaptureTypes.h        FrameInfo (pure D3D11/COM, no winrt)
+    ├── WindowCapture.h/.cpp  capture module, winrt hidden in the .cpp (PIMPL)
+    ├── WindowFinder.h/.cpp   find HWND by exe name
+    └── BmpWriter.h/.cpp      debug tool: VRAM texture → BMP
 ```
-Chạy: `client.exe [game.exe] [--save] [--frames N]`
+Run: `client.exe [game.exe] [--save] [--frames N]`
 
-## Giai đoạn 1 — Encode ✅ XONG (bản đầu, file-based)
-- ✅ Định nghĩa interface `IVideoEncoder` + `EncoderConfig` (`IVideoEncoder.h`).
-- ✅ Lớp chọn GPU theo chuỗi **NVIDIA → Intel → AMD → CPU (WARP)** (`GpuSelect.cpp`) — đúng
-  yêu cầu không hard-code một loại GPU; capture và encoder **dùng chung 1 device** trên GPU đã chọn.
-- ✅ Backend **Media Foundation** (`MfEncoder.cpp`): nhận thẳng texture D3D11 (VRAM) → H.264/MP4.
-  MF tự dùng hardware encoder của device (NVENC trên NVIDIA / QSV trên Intel), tự rơi về software
-  nếu không có HW → chuỗi ưu tiên được hiện thực "miễn phí" chỉ bằng việc chọn adapter.
-- ✅ Kiểm chứng thật: bắt cửa sổ Notepad 2570×1018 trên RTX 5070 Ti → ghi 60 frame ra `output.mp4`
-  (~1.1 MB, box `ftyp`/`mp42` hợp lệ).
-- **Quyết định**: chọn MF thay vì NVENC trực tiếp vì `nvEncodeAPI.h` (Video Codec SDK) chưa có trên
-  máy, trong khi MF có sẵn trong Windows SDK và đã cho hardware-encode trên chính NVENC qua MFT.
-  Backend NVENC riêng (điều khiển low-latency mịn hơn) có thể thêm sau **sau cùng interface**.
-- **Còn lại (đẩy sang GĐ3)**: xuất **NAL để streaming** thay vì file — cần `IMFByteStream` tùy biến
-  hoặc chuyển sang NVENC/async-MFT. `forceKeyframe` hiện là no-op ở backend MF.
+## Phase 1 — Encode ✅ DONE (first version, file-based)
+- ✅ Defined the `IVideoEncoder` interface + `EncoderConfig` (`IVideoEncoder.h`).
+- ✅ GPU selection layer with the chain **NVIDIA → Intel → AMD → CPU (WARP)** (`GpuSelect.cpp`) —
+  meeting the requirement of not hard-coding a single GPU type; capture and encoder **share one
+  device** on the selected GPU.
+- ✅ **Media Foundation** backend (`MfEncoder.cpp`): takes D3D11 textures directly (VRAM) → H.264/MP4.
+  MF automatically uses the device's hardware encoder (NVENC on NVIDIA / QSV on Intel) and falls back
+  to software when no HW is available → the priority chain is implemented "for free" simply by
+  choosing the adapter.
+- ✅ Verified for real: captured a 2570×1018 Notepad window on an RTX 5070 Ti → wrote 60 frames to
+  `output.mp4` (~1.1 MB, valid `ftyp`/`mp42` boxes).
+- **Decision**: chose MF over direct NVENC because `nvEncodeAPI.h` (Video Codec SDK) was not yet
+  available on the machine, whereas MF ships with the Windows SDK and already delivered hardware
+  encoding on NVENC itself via the MFT. A dedicated NVENC backend (finer low-latency control) can
+  be added later **behind the same interface**.
+- **Remaining (pushed to Phase 3)**: emit **NAL units for streaming** instead of a file — requires a
+  custom `IMFByteStream` or switching to NVENC/async-MFT. `forceKeyframe` is currently a no-op in
+  the MF backend.
 
-### Backend NVENC ✅ (đã thêm, là backend ưu tiên)
-- ✅ `NvencEncoder.cpp`: nạp `nvEncodeAPI64.dll` động (không cần .lib), đăng ký texture D3D11
-  zero-copy, preset `P4` + tuning `ULTRA_LOW_LATENCY`, CBR, GOP vô hạn + IDR theo yêu cầu,
-  `forceKeyframe`=FORCEIDR chuẩn. Xuất **NAL Annex-B** ra `.h264` (sẵn sàng cho packetize GĐ3).
-- ✅ `EncoderFactory.cpp`: thử **NVENC → Media Foundation** (khớp chuỗi NVIDIA→Intel→CPU).
-- ✅ Kiểm chứng: RTX 5070 Ti → `output.h264` hợp lệ (start code Annex-B, SPS High profile,
-  IDR 7784B + P-frame nhỏ dần). Có kiểm tra version: driver cũ hơn header → tự lùi về MF.
-- ⚠️ **Ràng buộc phiên bản NVENC**: header phải ≤ API version driver hỗ trợ. Driver hiện tại
-  hỗ trợ **API 13.0**; đang pin header **13.0** (`third_party/nvenc-13.0`, nhánh `sdk/13.0`
-  của nv-codec-headers). Bản chính thức **13.1** ở `C:\Tools\Video_Codec_Interface_13.1.15`
-  chỉ dùng được **sau khi update driver NVIDIA** — khi đó configure lại với
-  `-DNVENC_INTERFACE_DIR=...` (biến cache trong `client/windows/CMakeLists.txt`).
+### NVENC backend ✅ (added, and is the preferred backend)
+- ✅ `NvencEncoder.cpp`: loads `nvEncodeAPI64.dll` dynamically (no .lib needed), registers D3D11
+  textures zero-copy, preset `P4` + tuning `ULTRA_LOW_LATENCY`, CBR, infinite GOP + on-demand IDR,
+  proper `forceKeyframe`=FORCEIDR. Emits **Annex-B NAL** to `.h264` (ready for Phase 3 packetization).
+- ✅ `EncoderFactory.cpp`: tries **NVENC → Media Foundation** (matching the NVIDIA→Intel→CPU chain).
+- ✅ Verified: RTX 5070 Ti → valid `output.h264` (Annex-B start codes, High-profile SPS,
+  7784B IDR + progressively smaller P-frames). Includes a version check: driver older than the
+  header → automatic fallback to MF.
+- ⚠️ **NVENC version constraint**: the header must be ≤ the API version supported by the driver.
+  The current driver supports **API 13.0**; the header is pinned to **13.0**
+  (`third_party/nvenc-13.0`, the `sdk/13.0` branch of nv-codec-headers). The official **13.1**
+  release at `C:\Tools\Video_Codec_Interface_13.1.15` is only usable **after updating the NVIDIA
+  driver** — at that point re-configure with `-DNVENC_INTERFACE_DIR=...` (a cache variable in
+  `client/windows/CMakeLists.txt`).
 
-**File thêm ở GĐ1:** `GpuSelect.h/.cpp`, `IVideoEncoder.h`, `MfEncoder.h/.cpp`,
+**Files added in Phase 1:** `GpuSelect.h/.cpp`, `IVideoEncoder.h`, `MfEncoder.h/.cpp`,
 `NvencEncoder.h/.cpp`, `EncoderFactory.cpp`.
-Chạy: `client.exe game.exe --encode --out out.mp4 --bitrate 20 --fps 60 --frames 300`
-(NVENC ghi ra `out.h264`; MF ghi ra `out.mp4`.)
+Run: `client.exe game.exe --encode --out out.mp4 --bitrate 20 --fps 60 --frames 300`
+(NVENC writes `out.h264`; MF writes `out.mp4`.)
 
-## Giai đoạn 2 — Loopback nội máy (không mạng) ✅ XONG
-- ✅ `IVideoDecoder` + `DecoderConfig`/`DecodedFrame` (`IVideoDecoder.h`) — đối xứng với
-  encoder, GĐ3 chỉ đổi nguồn NAL từ loopback sang UDP, interface giữ nguyên.
-- ✅ `MfDecoder.cpp`: H.264 decoder MFT **đồng bộ** (MFTEnumEx, SYNCMFT) + DXGI device
-  manager → **D3D11VA hardware decode**, output **NV12 nằm trong VRAM** (IMFDXGIBuffer,
-  texture pool + array slice, zero-copy). `MF_LOW_LATENCY` bật để MFT trả frame ngay.
-  Xử lý `MF_E_TRANSFORM_STREAM_CHANGE` (renegotiate NV12) và `MF_E_NOTACCEPTING` (drain).
-- ✅ `Renderer.cpp`: cửa sổ preview + swapchain **FLIP_DISCARD** + `Present(0)`;
-  chuyển NV12→BGRA + scale bằng **D3D11 Video Processor** (không cần shader);
-  input view cache theo (texture, slice); `--save` dump backbuffer ra `loopback.bmp`.
-- ✅ Đường NAL trong process: thêm `PacketHandler onPacket` vào `EncoderConfig` —
-  NVENC đẩy Annex-B ra callback (file `.h264` thành tùy chọn, `outputPath` rỗng = chỉ
-  callback). MF encoder từ chối `onPacket` (SinkWriter chưa xuất NAL — việc của GĐ3).
-- ✅ Chế độ `--loopback` trong main: capture → NVENC → MfDecoder → Renderer, cùng 1
-  D3D11 device, timestamp QPC xuyên suốt để đo trễ end-to-end.
-- ✅ **Kiểm chứng thật** (RTX 5070 Ti, Notepad 2570×1018, 60 frame): hình hiển thị lại
-  đúng (so `window.bmp` vs `loopback.bmp` giống nhau, chữ rõ), trễ capture→hiển thị
-  **~3.5 ms** ổn định (trung bình 8.2 ms tính cả frame đầu khởi tạo, max 53.9 ms).
-- **Ghi chú luồng**: toàn chuỗi encode→decode→render chạy trên luồng FrameArrived của
-  WGC; main chỉ tạo cửa sổ + bơm message. Device bật `SetMultithreadProtected`.
+## Phase 2 — In-machine loopback (no network) ✅ DONE
+- ✅ `IVideoDecoder` + `DecoderConfig`/`DecodedFrame` (`IVideoDecoder.h`) — symmetric with the
+  encoder; in Phase 3 only the NAL source changes from loopback to UDP, the interface stays the same.
+- ✅ `MfDecoder.cpp`: **synchronous** H.264 decoder MFT (MFTEnumEx, SYNCMFT) + DXGI device
+  manager → **D3D11VA hardware decode**, output **NV12 kept in VRAM** (IMFDXGIBuffer,
+  texture pool + array slice, zero-copy). `MF_LOW_LATENCY` enabled so the MFT returns frames
+  immediately. Handles `MF_E_TRANSFORM_STREAM_CHANGE` (renegotiate NV12) and `MF_E_NOTACCEPTING`
+  (drain).
+- ✅ `Renderer.cpp`: preview window + **FLIP_DISCARD** swapchain + `Present(0)`;
+  NV12→BGRA conversion + scaling via the **D3D11 Video Processor** (no shaders needed);
+  input views cached by (texture, slice); `--save` dumps the backbuffer to `loopback.bmp`.
+- ✅ In-process NAL path: added a `PacketHandler onPacket` to `EncoderConfig` —
+  NVENC pushes Annex-B to the callback (the `.h264` file becomes optional; empty `outputPath` =
+  callback only). The MF encoder rejects `onPacket` (SinkWriter can't emit NAL yet — that's
+  Phase 3's job).
+- ✅ `--loopback` mode in main: capture → NVENC → MfDecoder → Renderer, all on one
+  D3D11 device, QPC timestamps carried end to end to measure latency.
+- ✅ **Verified for real** (RTX 5070 Ti, Notepad 2570×1018, 60 frames): the image displays
+  correctly again (`window.bmp` vs `loopback.bmp` identical, text sharp), capture→display latency
+  **~3.5 ms** steady (average 8.2 ms including the first initialization frame, max 53.9 ms).
+- **Threading note**: the entire encode→decode→render chain runs on WGC's FrameArrived thread;
+  main only creates the window + pumps messages. The device has `SetMultithreadProtected` enabled.
 
-**File thêm ở GĐ2:** `IVideoDecoder.h`, `MfDecoder.h/.cpp`, `Renderer.h/.cpp`.
-Chạy: `client.exe game.exe --loopback [--frames N] [--save]`
-(không `--frames`: chạy tới khi đóng cửa sổ preview / nhấn ESC).
+**Files added in Phase 2:** `IVideoDecoder.h`, `MfDecoder.h/.cpp`, `Renderer.h/.cpp`.
+Run: `client.exe game.exe --loopback [--frames N] [--save]`
+(without `--frames`: runs until the preview window is closed / ESC is pressed).
 
-## Giai đoạn 3 — Transport + Protocol v1 ✅ XONG trên 1 máy (thiết kế: `06-phase3-transport.md`)
-- ✅ **Thư viện chung `core/`** (static lib, namespace `deskhub`) — thuần C++20, **không
-  Windows header**, dùng chung giữa các OS; không thread/socket/đồng hồ (thời gian
-  bơm từ ngoài qua `nowUs` → test được offline). Cấu trúc repo: `core/` +
-  `client/<os>/`; build **CMake + Ninja**. Đủ bộ: `ByteOrder` + `Wire` (header chung
-  8 byte có sessionId) + `Packetizer` + `Reassembler` + `HostSession`/`ClientSession`.
-- ✅ `UdpSocket` (winsock, mỏng, trong exe): tắt `SIO_UDP_CONNRESET`, SO_RCVBUF 4 MB,
-  recvfrom timeout 100 ms. Chỉ lớp này là platform-specific.
-- ✅ Packetize/reassemble frame: trả frame **theo thứ tự frameId**, giữ ≤4 frame đang
-  ghép, bỏ frame khi quá 2 khoảng frame hoặc bị ≥2 frame mới hoàn chỉnh vượt mặt;
-  sau loss nuốt non-IDR tới khi gặp IDR.
-- ✅ Handshake HELLO/HELLO_ACK/START (retry 500 ms); PING mỗi 1 s đo RTT; BYE +
-  timeout 5 s hai phía; host về IDLE chờ client mới sau khi client rời.
-- ✅ **REQUEST_KEYFRAME khi mất gói** (retry 250 ms tới khi có IDR); `repeatSPSPPS=1`
-  (có sẵn từ GĐ1); `forceIdr` là cờ atomic đặt từ thread Recv, tiêu thụ ở Encode kế tiếp.
-- ✅ Mode `--serve` (AgentLoop) / `--connect ip[:port]` (ClientLoop, tái dùng
-  MfDecoder/Renderer GĐ2) / `core_tests` (self-test M1). Client log mỗi 1 s:
-  fps | kbps | frame bỏ | % gói mất | RTT | trễ e2e ước lượng.
-- ✅ **UX kiểu AnyDesk**: chạy không tham số → menu chính hiện IP máy này theo từng
-  card mạng (`NetInfo`, adapter ảo xếp cuối), `[s]` chia sẻ ứng dụng (picker cửa sổ
-  như cũ), `[c]`/gõ thẳng `ip[:port]` để kết nối; xong phiên quay lại menu.
-- ✅ **Phát sinh ngoài thiết kế**: WGC chỉ phát frame khi nội dung đổi → agent cache
-  frame cuối (CopyResource) và encode lại từ thread Recv khi có yêu cầu IDR treo mà
-  nguồn tĩnh >200 ms — không thì client join màn hình tĩnh sẽ đen vĩnh viễn.
-- ✅ **Kiểm chứng** (2026-07-20): **M1** `core_tests` PASS (in-order/trộn/mất/trùng/join
-  giữa chừng/timeout + mô phỏng handshake 2 session, bytes ra == vào). **M2** 2 process
-  qua 127.0.0.1 PASS: handshake → hình hiển thị (cả nguồn tĩnh lẫn động ~13 fps),
-  0% mất gói, RTT ~5–10 ms, trễ e2e ~4–7 ms; client thoát → agent về IDLE.
-- ✅ **M3 hai máy LAN — ĐÃ CHẠY THẬT** (2026-07-22), và hơn thế: chạy tốt **qua Tailscale**
-  (Internet/NAT), không chỉ LAN. (Host lần đầu nhớ mở firewall UDP 47777.)
-- ⬜ **Còn lại**: **M4** giả lập drop 2–5% (tool clumsy) tự phục hồi qua IDR ≤ vài trăm ms.
+## Phase 3 — Transport + Protocol v1 ✅ DONE on one machine (design: `06-transport.md`)
+- ✅ **Shared `core/` library** (static lib, namespace `deskhub`) — pure C++20, **no Windows
+  headers**, shared across OSes; no threads/sockets/clocks (time is injected from outside via
+  `nowUs` → testable offline). Repo structure: `core/` + `client/<os>/`; built with
+  **CMake + Ninja**. Complete set: `ByteOrder` + `Wire` (shared 8-byte header with sessionId) +
+  `Packetizer` + `Reassembler` + `HostSession`/`ClientSession`.
+- ✅ `UdpSocket` (winsock, thin, inside the exe): disables `SIO_UDP_CONNRESET`, SO_RCVBUF 4 MB,
+  recvfrom timeout 100 ms. Only this layer is platform-specific.
+- ✅ Frame packetize/reassemble: delivers frames **in frameId order**, keeps ≤4 frames being
+  assembled, drops a frame after 2 frame intervals or when overtaken by ≥2 newer complete frames;
+  after loss, swallows non-IDR frames until an IDR arrives.
+- ✅ HELLO/HELLO_ACK/START handshake (500 ms retry); PING every 1 s to measure RTT; BYE +
+  5 s timeout on both sides; the host returns to IDLE to wait for a new client after the client
+  leaves.
+- ✅ **REQUEST_KEYFRAME on packet loss** (250 ms retry until an IDR arrives); `repeatSPSPPS=1`
+  (available since Phase 1); `forceIdr` is an atomic flag set from the Recv thread and consumed
+  on the next Encode.
+- ✅ `--serve` mode (AgentLoop) / `--connect ip[:port]` (ClientLoop, reusing Phase 2's
+  MfDecoder/Renderer) / `core_tests` (M1 self-test). The client logs every 1 s:
+  fps | kbps | dropped frames | % packet loss | RTT | estimated e2e latency.
+- ✅ **AnyDesk-style UX**: run with no arguments → main menu shows this machine's IP per network
+  adapter (`NetInfo`, virtual adapters sorted last), `[s]` shares an application (the window
+  picker as before), `[c]`/typing `ip[:port]` directly to connect; after the session ends it
+  returns to the menu.
+- ✅ **Emerged outside the design**: WGC only emits frames when content changes → the agent caches
+  the last frame (CopyResource) and re-encodes it from the Recv thread when there is a pending IDR
+  request and the source has been static >200 ms — otherwise a client joining a static screen
+  would stay black forever.
+- ✅ **Verified** (2026-07-20): **M1** `core_tests` PASS (in-order/shuffled/lost/duplicated/
+  mid-stream join/timeout + a simulated 2-session handshake, bytes out == bytes in). **M2** 2
+  processes over 127.0.0.1 PASS: handshake → image displayed (both static and dynamic sources,
+  ~13 fps), 0% packet loss, RTT ~5–10 ms, e2e latency ~4–7 ms; client exits → agent returns to
+  IDLE.
+- ✅ **M3 two machines over LAN — RAN FOR REAL** (2026-07-22), and beyond: works well **over
+  Tailscale** (Internet/NAT), not just LAN. (First run on the host: remember to open UDP 47777 in
+  the firewall.)
+- ⬜ **Remaining**: **M4** simulate 2–5% drop (clumsy tool), self-recovery via IDR within ≤ a few
+  hundred ms.
 
-**File thêm ở GĐ3:** core: `transport/Packetizer`, `transport/Reassembler`,
-`session/HostSession`, `session/ClientSession` (+ `wire/ByteOrder.h`, `wire/Wire` từ trước),
+**Files added in Phase 3:** core: `transport/Packetizer`, `transport/Reassembler`,
+`session/HostSession`, `session/ClientSession` (+ `wire/ByteOrder.h`, `wire/Wire` from before),
 `tests/CoreTests.cpp`; platform: `deskhubp/Clock.h`; client/windows: `net/UdpSocket`,
 `net/NetInfo`, `AgentLoop`, `ClientLoop`.
-Chạy: máy host `client.exe` → `[s]` (hoặc `client.exe game.exe --serve [--port N]`);
-máy xem `client.exe` → gõ `ip[:port]` (hoặc `client.exe --connect ip[:port]`).
+Run: host machine `client.exe` → `[s]` (or `client.exe game.exe --serve [--port N]`);
+viewer machine `client.exe` → type `ip[:port]` (or `client.exe --connect ip[:port]`).
 
-## Giai đoạn 4 — Input ✅ XONG phần code, CHỜ kiểm chứng 2 máy (thiết kế: `07-phase4-input.md`)
-- ✅ **core**: `InputEvent` + build/parse trong `Wire`; `InputSender` (gom, đánh seq,
-  gửi lặp) / `InputReceiver` (khử trùng, đếm mất) — thuần C++20, test offline được.
-  `ClientSession::QueueInput` + `HostCallbacks::onInput` nối vào máy trạng thái sẵn có.
-- ✅ **Tinh chỉnh giao thức**: `seq` gắn với **từng event** thay vì từng gói (layout wire
-  không đổi). Không có nó thì bản gửi lặp bị hiểu thành thao tác mới — nhấn W một lần
-  thành ba lần. Xem `04-protocol.md` §6 và `07-phase4-input.md` §2.
-- ✅ **InputCapture** (client): Raw Input trên cửa sổ preview; bàn phím lấy **scancode**
-  (`RAWKEYBOARD.MakeCode`, không phải WM_KEYDOWN) — game DirectInput đọc scancode, gửi
-  vkCode thôi là game không nhận. Chuột 2 chế độ: tuyệt đối (mặc định) và tương đối
-  (F9, khoá + ẩn con trỏ) cho game FPS. F10 tạm dừng gửi input.
-- ✅ **InputInjector** (host): `SendInput` scancode + `KEYEVENTF_EXTENDEDKEY`; toạ độ
-  chuẩn hoá → client rect cửa sổ đích → màn hình ảo (`MOUSEEVENTF_VIRTUALDESK`).
-  Theo dõi phím/nút đang giữ → `ReleaseAll()` khi BYE/timeout/mất focus/thoát.
-- ✅ **Chống kẹt phím** 3 lớp: redundancy trong gói + phát lại khi rảnh + `ReleaseAll`.
-- ✅ **Phát sinh ngoài thiết kế — bẫy foreground**: `SendInput` bơm vào cửa sổ đang
-  foreground của host, KHÔNG vào một HWND. Chủ máy bấm sang app khác là người điều khiển
-  từ xa gõ thẳng vào trình duyệt/terminal của họ. Đã siết: chỉ bơm khi cửa sổ đang chia
-  sẻ có focus, không thì bỏ qua + nhả phím. Vừa chống gõ nhầm vừa đúng ngữ nghĩa
-  "chỉ chia sẻ cửa sổ này".
-- ✅ **Kiểm chứng M1** `core_tests`: wire roundtrip (kể cả toạ độ âm), **bỏ 1/3 datagram
-  mà mọi event vẫn áp dụng đúng một lần, đúng thứ tự**, gói đảo thứ tự không tua ngược.
-- ✅ **Kiểm chứng M2** 2 process/1 máy: input đi trọn vòng client→host (`input 2 (mat 0)`),
-  video không hồi quy (e2e ~2.3 ms, 0% mất gói).
-- ✅ **M3 — ĐÃ CHẠY THẬT** (2026-07-22): 2 máy LAN + qua Tailscale điều khiển được **ứng
-  dụng thường** (gõ phím, di chuột trọn vòng client→host).
-- ⬜ **Còn lại**: **M4** điều khiển **game thật** (chuột nhìn + WASD), đo trễ input.
-  Input **không test được trên 1 máy**: agent bơm vào foreground, nếu cửa sổ preview của
-  client đang foreground thì phím vừa bơm bị chính client bắt lại → vòng lặp.
-- ⬜ Nếu game bỏ qua input (anti-cheat lọc `LLMHF_INJECTED`) → ViGEm (tay cầm, tầng
-  driver) hoặc Interception.
-- ⚠️ Game/app chạy quyền admin ở host: phải chạy agent **as administrator** (UIPI).
+## Phase 4 — Input ✅ code DONE, AWAITING two-machine verification (design: `07-input.md`)
+- ✅ **core**: `InputEvent` + build/parse in `Wire`; `InputSender` (batches, assigns seq,
+  sends redundantly) / `InputReceiver` (de-duplicates, counts losses) — pure C++20, testable
+  offline. `ClientSession::QueueInput` + `HostCallbacks::onInput` wired into the existing state
+  machine.
+- ✅ **Protocol refinement**: `seq` is attached to **each event** rather than each packet (wire
+  layout unchanged). Without it, redundant sends would be interpreted as new actions — pressing W
+  once would become three presses. See `04-protocol.md` §4.9 and `07-input.md` §1.
+- ✅ **InputCapture** (client): Raw Input on the preview window; the keyboard uses **scancodes**
+  (`RAWKEYBOARD.MakeCode`, not WM_KEYDOWN) — DirectInput games read scancodes; sending only vkCode
+  means the game doesn't register it. Mouse has 2 modes: absolute (default) and relative
+  (F9, locks + hides the cursor) for FPS games. F10 pauses input sending.
+- ✅ **InputInjector** (host): `SendInput` with scancodes + `KEYEVENTF_EXTENDEDKEY`; normalized
+  coordinates → target window client rect → virtual desktop (`MOUSEEVENTF_VIRTUALDESK`).
+  Tracks held keys/buttons → `ReleaseAll()` on BYE/timeout/focus loss/exit.
+- ✅ **3-layer stuck-key prevention**: in-packet redundancy + idle-time replay + `ReleaseAll`.
+- ✅ **Emerged outside the design — the foreground trap**: `SendInput` injects into whatever window
+  is foreground on the host, NOT into a specific HWND. If the machine's owner clicks over to
+  another app, the remote controller types straight into their browser/terminal. Tightened: inject
+  only when the shared window has focus, otherwise skip + release keys. This both prevents
+  mistyped input and matches the semantics of "sharing only this window".
+- ✅ **M1 verification** `core_tests`: wire roundtrip (including negative coordinates), **dropping
+  1 in 3 datagrams still applies every event exactly once, in order**, and out-of-order packets
+  don't rewind.
+- ✅ **M2 verification** 2 processes/1 machine: input travels the full client→host round trip
+  (`input 2 (mat 0)`), video shows no regression (e2e ~2.3 ms, 0% packet loss).
+- ✅ **M3 — RAN FOR REAL** (2026-07-22): 2 machines over LAN + over Tailscale, successfully
+  controlling a **regular application** (typing, mouse movement, full client→host round trip).
+- ⬜ **Remaining**: **M4** control a **real game** (mouse look + WASD), measure input latency.
+  Input **cannot be tested on one machine**: the agent injects into the foreground window, and if
+  the client's preview window is foreground, the injected keys are captured right back by the
+  client → a feedback loop.
+- ⬜ If a game ignores the input (anti-cheat filtering `LLMHF_INJECTED`) → ViGEm (gamepad, driver
+  level) or Interception.
+- ⚠️ Game/app running as admin on the host: the agent must be run **as administrator** (UIPI).
 
-**File thêm ở GĐ4:** core: `InputSender.h/.cpp`, `InputReceiver.h/.cpp` (+ `InputEvent`
-trong `Wire`); client/windows: `InputCapture.h/.cpp`, `InputInjector.h/.cpp`.
-Chạy: như GĐ3, input bật sẵn. `--noinput` = chỉ xem (đặt được ở cả hai vai trò).
-`client.exe <app> --injecttest` = thử riêng đường bơm input, không cần mạng (dev).
+**Files added in Phase 4:** core: `InputSender.h/.cpp`, `InputReceiver.h/.cpp` (+ `InputEvent`
+in `Wire`); client/windows: `InputCapture.h/.cpp`, `InputInjector.h/.cpp`.
+Run: same as Phase 3, input enabled by default. `--noinput` = view-only (can be set on either
+role). `client.exe <app> --injecttest` = test the input injection path in isolation, no network
+needed (dev).
 
-## Giai đoạn 5 — Ổn định & chất lượng ✅ XONG phần code, CHỜ kiểm chứng 2 máy
-- ✅ **RECONFIG khi cửa sổ resize**. Thread FrameArrived phát hiện đổi kích thước → vứt
-  encoder + texture cache, dựng lại ngay ở frame đó; thread Recv gửi RECONFIG + IDR.
-  Client không phải dựng lại gì: `MfDecoder` tự đàm phán lại qua
-  `MF_E_TRANSFORM_STREAM_CHANGE`, `Renderer.EnsureVideoProcessor` tự theo kích thước
-  frame giải mã. RECONFIG chỉ để cập nhật hiển thị + `HostSession::SetOffer` (client
-  kết nối lại sau đó phải nhận số mới).
-- ✅ **Kích thước nén luôn chẵn**: NV12 chroma 2×2, cửa sổ lẻ (1689×1392) làm
-  `CreateTexture2D(NV12)` trả `E_INVALIDARG` → không có backend nào chạy được trên máy
-  không-NVIDIA. `EncoderConfig` tách `width/height` (kích thước nén, chẵn) khỏi
-  `srcWidth/srcHeight` (texture WGC thật, có thể lẻ) — video processor cần cả hai để
-  khai báo content desc đúng, khai lệch thì `CreateVideoProcessorInputView` từ chối.
+## Phase 5 — Stability & quality ✅ code DONE, AWAITING two-machine verification
+- ✅ **RECONFIG on window resize**. The FrameArrived thread detects the size change → discards the
+  encoder + texture cache and rebuilds them right at that frame; the Recv thread sends RECONFIG +
+  IDR. The client rebuilds nothing: `MfDecoder` renegotiates by itself via
+  `MF_E_TRANSFORM_STREAM_CHANGE`, and `Renderer.EnsureVideoProcessor` follows the decoded frame
+  size automatically. RECONFIG only exists to update the display + `HostSession::SetOffer`
+  (a client reconnecting afterwards must receive the new numbers).
+- ✅ **Encoded dimensions always even**: NV12 chroma is 2×2; an odd-sized window (1689×1392) makes
+  `CreateTexture2D(NV12)` return `E_INVALIDARG` → no backend could run on non-NVIDIA machines.
+  `EncoderConfig` separates `width/height` (encoded size, even) from `srcWidth/srcHeight` (the
+  actual WGC texture, possibly odd) — the video processor needs both to declare the content desc
+  correctly; declaring them mismatched makes `CreateVideoProcessorInputView` refuse.
 - ✅ **FEEDBACK → bitrate**. `IVideoEncoder::SetBitrate` (NVENC: `nvEncReconfigureEncoder`;
-  MF: `CODECAPI_AVEncCommonMeanBitRate`) — không dựng lại encoder nên không cần IDR.
-  Luật giảm-nhân/tăng-cộng, chi tiết ở `04-protocol.md` §7.
-- ✅ **FEC parity XOR** theo nhóm 8 gói (`FEC_PACKET 0x11`): mất 1 gói/nhóm là dựng lại
-  được, không phải bỏ frame + xin IDR (IDR to hơn P-frame nhiều lần — đáp mất gói bằng
-  IDR đúng lúc đang nghẽn là đổ thêm dầu vào lửa). Bật/tắt động theo FEEDBACK để không
-  trả 12.5% overhead khi đường sạch.
-- ✅ **UILayer client** (đã làm cùng đợt GUI GĐ5): overlay số liệu trên cửa sổ preview,
-  2 nút khóa chuột / tạm dừng đi cùng đường với F9/F10.
-- ✅ **Kiểm chứng M1** `core_tests`: 6 ca FEC PASS (khôi phục gói giữa, khôi phục gói cuối
-  ngắn, frame khôi phục giống hệt từng byte, 2 mất cùng nhóm thì rơi về chính sách cũ,
-  frame 1 gói dựng lại từ parity, mặc định tắt). Toàn bộ suite GĐ3/GĐ4 không hồi quy dù
-  `kMaxVideoPayload` đổi 1176→1174.
-- ✅ **Chuỗi fix từ log chẩn đoán 2026-07-21** (host QSV → client Intel, LAN sạch —
-  xem `09-diagnostics.md`): (1) **keepalive ~2fps khi nguồn tĩnh** — đo lần 2 xác
-  nhận chạy (host `send 2 fps` đều khi capture 0); (2) **dựng decoder trên thread
-  Decode** thay vì thread Recv — đo lần 2 xác nhận hết `recv_stall` phía client;
-  (3) **PumpAsyncEvents cho MFT async** — QSV xếp sẵn nhiều NeedInput nên output bị
-  giam sau hàng sự kiện, chỉ thoát ở lần Encode kế tiếp: input thưa (keepalive 2fps)
-  đo được e2e ~3,4 s = ~7 frame × 500 ms; giờ vét sự kiện ngay sau ProcessInput
-  (+`needInputCredit`), nhịp thưa chờ ≤30 ms cho frame vừa nén thoát ra.
-- ⚠️ **VBV cho QSV chưa ăn**: `CODECAPI_AVEncCommonBufferSize` đặt rồi mà IDR vẫn
-  195 KB (đo lần 2). Đã thêm log kết quả IsSupported/SetValue từng thuộc tính
-  CodecAPI — lần chạy tới sẽ biết driver từ chối ở bước nào. Ghi chú thêm: trên QSV
-  mỗi lần xin IDR = `ReinitTransform` (~200–265 ms, đo được `enc_ms_max=265` chặn
-  thread Recv lúc START) — chi phí này là lý do nữa để ưu tiên NACK hơn xin IDR.
-- ⬜ **Còn lại**: **M3** hai máy LAN — congestion control và FEC mới chỉ chạy đúng trên
-  giấy + self-test, chưa lần nào gặp mất gói thật. **M4** giả lập drop 2–5% (clumsy) để
-  chỉnh ngưỡng 2%/5% và nhóm FEC 8 cho khớp số đo thật.
-- ⬜ Slicing (nhiều slice/frame) **chưa làm**: chỉ có ích nếu decoder chịu tiêu thụ frame
-  thiếu mảnh, mà `MfDecoder` hiện đòi NAL trọn vẹn. Làm slicing mà không sửa đường decode
-  thì không được gì — để lại tới khi có số đo M4 cho thấy FEC chưa đủ.
+  MF: `CODECAPI_AVEncCommonMeanBitRate`) — no encoder rebuild, so no IDR needed.
+  Multiplicative-decrease/additive-increase rule; details in `04-protocol.md` §6.5.
+- ✅ **XOR parity FEC** per group of 8 packets (`FEC_PACKET 0x11`): losing 1 packet/group can be
+  reconstructed, avoiding dropping the frame + requesting an IDR (an IDR is many times larger than
+  a P-frame — answering packet loss with an IDR right when the link is congested is pouring fuel
+  on the fire). Dynamically enabled/disabled based on FEEDBACK so the 12.5% overhead isn't paid on
+  a clean link.
+- ✅ **Client UILayer** (built alongside the Phase 5 GUI work): stats overlay on the preview
+  window, 2 buttons for mouse lock / pause sharing the same path as F9/F10.
+- ✅ **M1 verification** `core_tests`: 6 FEC cases PASS (recover a middle packet, recover a short
+  final packet, recovered frame byte-identical, 2 losses in the same group fall back to the old
+  policy, single-packet frame rebuilt from parity, disabled by default). The entire Phase 3/Phase 4
+  suite shows no regression even with `kMaxVideoPayload` changing 1176→1174.
+- ✅ **Fix series from the 2026-07-21 diagnostic logs** (QSV host → Intel client, clean LAN —
+  see `09-diagnostics.md`): (1) **~2fps keepalive when the source is static** — a second
+  measurement confirmed it works (host `send 2 fps` steadily while capture is 0); (2) **build the
+  decoder on the Decode thread** instead of the Recv thread — a second measurement confirmed the
+  client-side `recv_stall` is gone; (3) **PumpAsyncEvents for the async MFT** — QSV pre-queues
+  many NeedInput events so output was held hostage behind the event queue, only escaping on the
+  next Encode: with sparse input (2fps keepalive) the measured e2e was ~3.4 s = ~7 frames ×
+  500 ms; now events are drained right after ProcessInput (+`needInputCredit`), and at sparse
+  cadence it waits ≤30 ms for the freshly encoded frame to come out.
+- ⚠️ **VBV not taking effect on QSV**: `CODECAPI_AVEncCommonBufferSize` is set yet the IDR is
+  still 195 KB (second measurement). Added logging of the IsSupported/SetValue result for each
+  CodecAPI property — the next run will show at which step the driver refuses. Additional note: on
+  QSV every IDR request = `ReinitTransform` (~200–265 ms, measured `enc_ms_max=265` blocking the
+  Recv thread at START) — this cost is one more reason to prefer NACK over requesting an IDR.
+- ⬜ **Remaining**: **M3** two machines over LAN — congestion control and FEC have so far only
+  been proven on paper + self-tests, never against real packet loss. **M4** simulate 2–5% drop
+  (clumsy) to tune the 2%/5% thresholds and the FEC group of 8 against real measurements.
+- ⬜ Slicing (multiple slices/frame) **not done**: it only helps if the decoder is willing to
+  consume incomplete frames, and `MfDecoder` currently requires complete NAL units. Doing slicing
+  without fixing the decode path gains nothing — deferred until M4 measurements show FEC is
+  insufficient.
 
-**File đổi ở GĐ5:** core: `wire/Wire` (FEC_PACKET, kMaxVideoPayload), `transport/Packetizer`
-(sinh parity), `transport/Reassembler` (`PushFec`/`TryRecover`), `session/HostSession`
+**Files changed in Phase 5:** core: `wire/Wire` (FEC_PACKET, kMaxVideoPayload), `transport/Packetizer`
+(parity generation), `transport/Reassembler` (`PushFec`/`TryRecover`), `session/HostSession`
 (`SetOffer`, `onFeedback`), `session/ClientSession` (`onReconfig`, `SendFeedback`),
-`control/BitrateController` (policy siết/nới bitrate + trễ bật-tắt FEC),
-`control/LinkStats` (gom thống kê 1s, dựng `Feedback` — dùng chung Windows/Android);
+`control/BitrateController` (bitrate tighten/relax policy + FEC on/off hysteresis),
+`control/LinkStats` (1 s stats aggregation, builds `Feedback` — shared between Windows/Android);
 client/windows: `encode/IVideoEncoder.h` (`SetBitrate`, `srcWidth/srcHeight`),
 `encode/MfEncoder`, `encode/NvencEncoder`, `AgentLoop`, `ClientLoop`.
-Chạy self-test: `make test` (hoặc `out\build\x64-debug\core\core_tests.exe`).
+Run self-tests: `make test` (or `out\build\x64-debug\core\core_tests.exe`).
 
-## Giai đoạn 6 — Mở rộng (tùy nhu cầu)
-- ✅ **Nhiều nguồn cùng lúc** (code xong, CHỜ kiểm chứng 2 máy). Host chia sẻ nhiều
-  cửa sổ và/hoặc cả màn hình trên MỘT cổng; client hỏi `LIST_SOURCES`, tick chọn, mỗi
-  nguồn mở một cửa sổ preview riêng.
-  - **Mỗi cặp (client, nguồn) = một phiên độc lập** thay vì thêm streamId vào header
-    video — xem `04-protocol.md` §3b về lý do. Kênh video/FEC/input/FEEDBACK không
-    đổi một byte, `HostSession`/`ClientSession` vẫn 1:1.
-  - Capture cả màn hình: `WindowCapture` nhận `CaptureTarget` (HWND **hoặc**
-    HMONITOR) và gọi `CreateForMonitor`. `InputInjector` ánh xạ toạ độ theo rect
-    monitor, và **bỏ chốt foreground** khi nguồn là cả màn hình — chốt đó có để input
-    không rơi sang ứng dụng ngoài phạm vi chia sẻ, mà ở đây không có "ngoài phạm vi".
-  - **Client dùng MỘT `InputCapture`**, gắn lại theo cửa sổ preview đang foreground.
-    Raw Input đăng ký theo *process* chứ không theo cửa sổ: gọi `Attach` lần hai với
-    HWND khác sẽ âm thầm hủy đăng ký của lần đầu.
-  - `Renderer::Pump()` thành static: `PeekMessage` không lọc theo HWND nên một vòng
-    bơm phục vụ hết mọi cửa sổ preview trên luồng đó.
-  - ✅ **Kiểm chứng M1** `core_tests`: SOURCE_LIST round-trip (kể cả tên UTF-8), cắt
-    tên đúng ranh giới UTF-8, HELLO mang sourceId và gói 13 byte kiểu cũ vẫn đọc được.
-  - ⬜ **Còn lại**: M3 hai máy — chưa lần nào chạy thật với ≥2 nguồn.
-- 📐 **Client Web** (WebTransport + WebCodecs) — **thiết kế xong, chưa code**
-  (`10-web-client.md`). Chạy trong trình duyệt, chỉ xem + input (như Android v1). Trình
-  duyệt không mở raw UDP → transport là **WebTransport (QUIC datagram)**, ánh xạ 1-1 với
-  UDP nên `core/` biên dịch **WASM** dùng lại nguyên trạng; giải mã bằng **WebCodecs**.
-  - **Thay đổi core duy nhất**: `kMaxVideoPayload` từ hằng biên dịch → tham số runtime
-    theo `maxDatagramSize` (xem `04-protocol.md` §11).
-  - **Mảnh native mới**: WebTransport server phía host (QUIC/HTTP3, đề xuất **msquic**),
-    bơm datagram vào `HostSession` như UDP.
-  - **Phần khó nhất**: chứng chỉ tự ký qua `serverCertificateHashes` (ECDSA P-256, hạn
-    < 14 ngày, hash SHA-256) + phân phối hash cho người dùng — xem `10-web-client.md` §6.
-  - **Transport hybrid** (native giữ UDP, chỉ web QUIC) + ma trận client/host + host
-    desktop-only: `11-platform-transport.md`.
-  - Mốc: M1 WASM+loopback trong tab → M2 WebTransport echo + chứng chỉ → M3 video e2e
-    LAN → M4 input.
-- ⬜ Mã hóa (DTLS/AEAD).
-- ⬜ NAT traversal (ICE/STUN/TURN) để chạy qua Internet.
+## Phase 6 — Extensions (as needed)
+- ✅ **Multiple simultaneous sources** (code done, AWAITING two-machine verification). The host
+  shares multiple windows and/or entire displays on ONE port; the client asks `LIST_SOURCES`,
+  ticks its selection, and each source opens its own preview window.
+  - **Each (client, source) pair = one independent session** instead of adding a streamId to the
+    video header — see `04-protocol.md` §4.1 for the rationale. The video/FEC/input/FEEDBACK
+    channels don't change by a single byte; `HostSession`/`ClientSession` remain 1:1.
+  - Full-display capture: `WindowCapture` takes a `CaptureTarget` (HWND **or** HMONITOR) and calls
+    `CreateForMonitor`. `InputInjector` maps coordinates against the monitor rect, and **drops the
+    foreground guard** when the source is the whole display — that guard exists so input doesn't
+    fall into applications outside the sharing scope, and here there is no "outside the scope".
+  - **The client uses ONE `InputCapture`**, re-attached to whichever preview window is foreground.
+    Raw Input registers per *process*, not per window: calling `Attach` a second time with a
+    different HWND silently unregisters the first.
+  - `Renderer::Pump()` became static: `PeekMessage` doesn't filter by HWND, so one pump loop
+    serves every preview window on that thread.
+  - ✅ **M1 verification** `core_tests`: SOURCE_LIST round-trip (including UTF-8 names), name
+    truncation at correct UTF-8 boundaries, HELLO carrying sourceId, and old-style 13-byte packets
+    still parse.
+  - ⬜ **Remaining**: M3 two machines — never yet run for real with ≥2 sources.
+- 📐 **Web client** (WebTransport + WebCodecs) — **design complete, no code yet**
+  (`10-web-client.md`). Runs in the browser, view + input only (like Android v1). Browsers can't
+  open raw UDP → the transport is **WebTransport (QUIC datagram)**, which maps 1-1 to UDP so
+  `core/` compiled to **WASM** is reused as-is; decoding via **WebCodecs**.
+  - **The only core change**: `kMaxVideoPayload` goes from a compile-time constant → a runtime
+    parameter based on `maxDatagramSize` (see `04-protocol.md` §6.1).
+  - **New native piece**: a WebTransport server on the host side (QUIC/HTTP3, **msquic**
+    proposed), feeding datagrams into `HostSession` like UDP.
+  - **The hardest part**: self-signed certificates via `serverCertificateHashes` (ECDSA P-256,
+    validity < 14 days, SHA-256 hash) + distributing the hash to users — see `10-web-client.md` §6.
+  - **Hybrid transport** (native keeps UDP, only web uses QUIC) + the client/host matrix +
+    desktop-only host: `11-platform-transport.md`.
+  - Milestones: M1 WASM+loopback in a tab → M2 WebTransport echo + certificates → M3 e2e video
+    over LAN → M4 input.
+- ⬜ Encryption (DTLS/AEAD).
+- ⬜ NAT traversal (ICE/STUN/TURN) to run over the Internet.
 - ⬜ Audio (Opus + WASAPI loopback).
 - ⬜ Adaptive resolution; multi-client.
 
-## Giai đoạn 9 — Nền core cho giao diện đã thiết kế 🔶 core XONG, chờ nối từng nền tảng
+## Phase 9 — Core foundation for the designed UI 🔶 core DONE, awaiting per-platform wiring
 
-Bản thiết kế giao diện (desktop + mobile + landing) đòi bốn thứ mà `core/` chưa có.
-Phần core của cả bốn đã làm và có test; phần còn lại là socket và giao diện của **từng**
-nền tảng, nên nó nằm ở cột "chờ nối" chứ không phải "chưa làm".
+The UI design (desktop + mobile + landing) requires four things `core/` didn't have.
+The core part of all four is done and tested; what remains is the socket and UI work of **each**
+platform, so this sits in the "awaiting wiring" column, not "not done".
 
-- ✅ **Dò host trong mạng LAN** — DISCOVER/ANNOUNCE (`04-protocol.md` §3d).
-  `discovery/Beacon` (host trả lời) + `discovery/HostRegistry` (client gộp một-dòng-
-  một-máy, sắp thứ tự cố định, hết hạn sau 6 giây im lặng).
-  ⬜ Còn lại mỗi nền tảng: socket broadcast phát DISCOVER, và dịch `sockaddr` → chuỗi
-  `"ip:port"` để đưa vào `HostRegistry::OnAnnounce`.
-- ✅ **Ping dò đường ngoài phiên** (`PING sessionId=0`) — nuôi cặp số sống/độ trễ trên
-  mỗi thẻ máy đã lưu, và bảng "kiểm tra đường truyền" trước khi bấm Connect. Do
-  `Beacon` trả lời, cố ý **không** nuôi timeout phiên và **không** đổi địa chỉ peer.
-- ✅ **Trễ đầu-cuối đo được** — `control/ClockSync` (bộ lọc cực tiểu + nửa RTT, xem
-  §7), `LinkStats::AddE2e` (avg + max theo cửa sổ 1 giây), `control/LatencyTrace`
-  (60 mẫu × 320 ms cho biểu đồ đường). Trước đó `HelloAck::timebaseUs` được gửi từ
-  GĐ3 nhưng **chưa ai dùng** — overlay chỉ có fps/kbps/mất gói/RTT.
-  ⬜ Còn lại mỗi client: gọi `OnFrame`/`AddE2e` ở đường render và vẽ số.
-- ✅ **Chính sách host nói cho client biết** — `HELLO_ACK.flags`: nhận input chưa, đồng
-  bộ clipboard chưa. Trước đó `allowInput` chỉ là biến cục bộ của từng `AgentLoop`,
-  client không có cách nào biết phiên là chỉ-xem → nó vẫn vẽ nút khoá chuột và bàn
-  phím ảo. Nay ép ở `HostSession` (một luật giao thức, một chỗ cài) và client tôn
-  trọng ở `ClientSession::QueueInput`.
-  - **Clipboard đổi thành mặc định TẮT** — trước đây luôn bật.
-  ⬜ Còn lại mỗi nền tảng: `AgentLoop` gọi `SetInputAllowed`/`SetClipboardEnabled`
-  thay cho cờ cục bộ; giao diện ẩn phần điều khiển khi `params().inputAccepted` sai.
-- ✅ **`SourceInfo.kind`** (cửa sổ / cả màn hình) trên dây — danh sách nguồn phía client
-  phân biệt được hai loại. Báo bằng cờ header nên host GĐ6 vẫn đọc được (§3b).
+- ✅ **LAN host discovery** — DISCOVER/ANNOUNCE (`04-protocol.md` §4.7).
+  `discovery/Beacon` (host replies) + `discovery/HostRegistry` (client merges to
+  one-row-per-machine, stable ordering, expires after 6 seconds of silence).
+  ⬜ Remaining per platform: a broadcast socket sending DISCOVER, and translating `sockaddr` →
+  an `"ip:port"` string to feed `HostRegistry::OnAnnounce`.
+- ✅ **Out-of-session probe ping** (`PING sessionId=0`) — feeds the alive/latency pair on each
+  saved machine card, plus the "link check" panel before pressing Connect. Because
+  `Beacon` answers it, it deliberately does **not** feed the session timeout and does **not**
+  change the peer address.
+- ✅ **Measurable end-to-end latency** — `control/ClockSync` (minimum filter + half RTT, see
+  §7), `LinkStats::AddE2e` (avg + max over a 1-second window), `control/LatencyTrace`
+  (60 samples × 320 ms for the line chart). Previously `HelloAck::timebaseUs` had been sent since
+  Phase 3 but **nobody used it** — the overlay only had fps/kbps/packet loss/RTT.
+  ⬜ Remaining per client: call `OnFrame`/`AddE2e` on the render path and draw the numbers.
+- ✅ **Host policy told to the client** — `HELLO_ACK.flags`: whether input is accepted, whether
+  clipboard sync is on. Previously `allowInput` was just a local variable of each `AgentLoop`; the
+  client had no way to know a session was view-only → it still drew the mouse-lock button and the
+  virtual keyboard. Now enforced in `HostSession` (one protocol rule, one place to implement) and
+  respected by the client in `ClientSession::QueueInput`.
+  - **Clipboard changed to default OFF** — previously always on.
+  ⬜ Remaining per platform: `AgentLoop` calls `SetInputAllowed`/`SetClipboardEnabled` instead of
+  local flags; the UI hides the input controls when `params().inputAccepted` is false.
+- ✅ **`SourceInfo.kind`** (window / entire display) on the wire — the client-side source list can
+  distinguish the two kinds. Signaled via a header flag so a Phase 6 host can still read it (`04-protocol.md` §4.6).
 
-**File thêm ở GĐ9 (core):** `discovery/Beacon.h/.cpp`, `discovery/HostRegistry.h/.cpp`,
-`control/ClockSync.h/.cpp`, `control/LatencyTrace.h/.cpp`; sửa: `wire/Wire`
-(DISCOVER/ANNOUNCE, `SourceKind`, `HelloAck::flags`), `session/HostSession` (hai cổng
-chính sách), `session/ClientSession` (`NegotiatedParams::inputAccepted`), `control/LinkStats`.
-Test: `tests/discovery/DiscoveryTests.cpp` + bổ sung ở wire/session/control.
+**Files added in Phase 9 (core):** `discovery/Beacon.h/.cpp`, `discovery/HostRegistry.h/.cpp`,
+`control/ClockSync.h/.cpp`, `control/LatencyTrace.h/.cpp`; changed: `wire/Wire`
+(DISCOVER/ANNOUNCE, `SourceKind`, `HelloAck::flags`), `session/HostSession` (the two policy
+gates), `session/ClientSession` (`NegotiatedParams::inputAccepted`), `control/LinkStats`.
+Tests: `tests/discovery/DiscoveryTests.cpp` + additions in wire/session/control.
 
-### Windows: agent + client theo bản thiết kế ✅ CHẠY THẬT (một máy)
+### Windows: agent + client per the UI design ✅ RUNNING FOR REAL (one machine)
 
-Nền tảng đầu tiên nối xong GĐ9. Giao diện dựng lại theo dự án thiết kế
+The first platform to finish wiring Phase 9. The UI was rebuilt from the design project
 (`desktop.jsx` / `parts.jsx` / `i18n.jsx` / `theme-light.css`).
 
-- ✅ **native**: `capture/DisplayFinder` (liệt kê màn hình — trước đây chỉ có cửa sổ),
-  `net/Discovery` (quét LAN, dựng trên `deskhub::HostRegistry`), `net/HostIdent`
-  (hostId ổn định theo máy), `deskhub::Beacon` nối vào vòng Recv của `AgentLoop`,
-  `SessionSourceRow` có trường CÓ CẤU TRÚC (fps/kbps/rtt/viewer/kind) thay cho một
-  chuỗi ghép sẵn. C API lên **v2**: `dh_list_displays`, `dh_discover_scan`,
-  `DhAgentRow` mở rộng, `DhAgentOptions.shareClipboard`.
-- ✅ **giao diện**: `Themes/Tokens.xaml` (token sáng+tối, dịch 1-1 từ `_ds/tokens/`),
-  `Themes/Controls.xaml` (4 biến thể nút, chip, panel, hàng, pill), `AppState` +
-  `Strings` (EN/VI đổi ngay tại chỗ), `Controls/` (Sparkline, StatusDot, StatBlock,
+- ✅ **native**: `capture/DisplayFinder` (enumerates displays — previously only windows),
+  `net/Discovery` (LAN scan, built on `deskhub::HostRegistry`), `net/HostIdent`
+  (stable per-machine hostId), `deskhub::Beacon` wired into `AgentLoop`'s Recv loop,
+  `SessionSourceRow` with STRUCTURED fields (fps/kbps/rtt/viewer/kind) instead of one
+  pre-concatenated string. C API bumped to **v2**: `dh_list_displays`, `dh_discover_scan`,
+  extended `DhAgentRow`, `DhAgentOptions.shareClipboard`.
+- ✅ **UI**: `Themes/Tokens.xaml` (light+dark tokens, translated 1-1 from `_ds/tokens/`),
+  `Themes/Controls.xaml` (4 button variants, chip, panel, row, pill), `AppState` +
+  `Strings` (EN/VI switchable in place), `Controls/` (Sparkline, StatusDot, StatBlock,
   WrapPanel, MachineCard, SourceRow, AddressRow).
-- ✅ **màn hình**: vỏ rail 74px (3 mục + nút sáng/tối + chip EN/VI) và bốn màn
-  Home / Connect / Share / Viewer. **SharePickerPage + SharingStatusPage gộp thành
-  một `SharePage`** — bản thiết kế đặt chọn nguồn và tình trạng phiên trên cùng một
-  màn, và đó là quyết định đúng: tick thêm/bớt nguồn giữa phiên không ngắt người xem.
-- ✅ **Kiểm chứng chạy thật**: app khởi động, đổi sáng/tối và EN/VI ăn ngay, màn chia
-  sẻ liệt kê đúng màn hình + cửa sổ thật (kể cả tiêu đề tiếng Việt) và cả ba địa chỉ
-  (Tailscale / Ethernet / vEthernet).
-- ⬜ **Còn lại**: chạy thật 2 máy — dò LAN, thẻ máy sống/độ trễ, panel "máy đang xem",
-  và HUD trễ đầu-cuối mới chỉ chạy đúng trên một máy.
-- ⬜ macOS/Android/iOS chưa nối GĐ9 (core đã sẵn, phần còn lại là socket + giao diện).
+- ✅ **screens**: a 74px rail shell (3 items + light/dark button + EN/VI chip) and four screens
+  Home / Connect / Share / Viewer. **SharePickerPage + SharingStatusPage merged into a single
+  `SharePage`** — the design puts source selection and session status on the same screen, and
+  that was the right call: ticking sources on/off mid-session doesn't interrupt viewers.
+- ✅ **Verified running for real**: the app starts, light/dark and EN/VI switches apply instantly,
+  the share screen lists the real displays + windows correctly (including Vietnamese titles) and
+  all three addresses (Tailscale / Ethernet / vEthernet).
+- ⬜ **Remaining**: real two-machine run — LAN discovery, machine-card alive/latency, the
+  "machines viewing" panel, and the end-to-end latency HUD have so far only been proven on one
+  machine.
+- ⬜ macOS/Android/iOS not yet wired to Phase 9 (core is ready; what remains is socket + UI).
 
-⚠️ **Bẫy đã mất thời gian, ghi lại để khỏi vấp lần hai**: hai dấu gạch ngang liền nhau
-trong chú thích XAML (ví dụ khi trích tên biến CSS) là XML KHÔNG hợp lệ, và
-XamlCompiler chết lặng — không số dòng, không thông báo, chỉ `exited with code 1`.
+⚠️ **A trap that cost time, recorded to avoid tripping twice**: two consecutive hyphens inside a
+XAML comment (e.g. when quoting a CSS variable name) are INVALID XML, and the XamlCompiler dies
+silently — no line number, no message, just `exited with code 1`.
 
-## Bảng phụ thuộc
+## Dependency chart
 
 ```
-GĐ0 capture ─► GĐ1 encode ─► GĐ2 loopback ─► GĐ3 transport ─► GĐ4 input ─► GĐ5 ổn định ─► GĐ6 mở rộng
+Phase 0 capture ─► Phase 1 encode ─► Phase 2 loopback ─► Phase 3 transport ─► Phase 4 input ─► Phase 5 stability ─► Phase 6 extensions
                                                    │
-                                        (protocol v1 định nghĩa ở đây,
-                                         nhưng struct nên viết sẵn từ GĐ1)
+                                        (protocol v1 is defined here,
+                                         but the structs should be written from Phase 1)
 ```
 
-## Nguyên tắc xuyên suốt
-1. **Xác nhận rủi ro sớm**: encode (GĐ1) và input (GĐ4) là hai chỗ dễ chết dự án — chạm sớm.
-2. **Loopback trước mạng**: gỡ lỗi codec khi chưa có biến số mạng dễ hơn nhiều.
-3. **Interface trước, backend sau**: `IVideoEncoder`/`IVideoDecoder` cho phép đổi GPU không sửa lõi.
-4. **Đo, đừng đoán**: log fps, độ trễ, bitrate, mất gói ngay từ đầu để biết đang tối ưu đúng chỗ.
+## Guiding principles
+1. **Validate risks early**: encode (Phase 1) and input (Phase 4) are the two places most likely to kill the project — touch them early.
+2. **Loopback before network**: debugging the codec without network variables in play is far easier.
+3. **Interface first, backend later**: `IVideoEncoder`/`IVideoDecoder` allow swapping GPUs without touching the core.
+4. **Measure, don't guess**: log fps, latency, bitrate, and packet loss from the start to know you're optimizing the right thing.

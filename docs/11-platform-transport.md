@@ -1,144 +1,202 @@
-# 11 — Nền tảng & Transport (ma trận client/host, chiến lược UDP/QUIC)
+# 11 — Platforms & Transport Strategy
 
-Những quyết định **cross-cutting** áp cho MỌI client/host, không riêng nền tảng nào — tách
-khỏi các doc client (Windows, `08-android-client.md`, `10-web-client.md`) vì chúng bắt nguồn
-từ một tính chất chung: **`core/` không biết transport**. Nhờ đó "ai làm host" và "dùng UDP
-hay QUIC" là những lựa chọn độc lập với từng client, quyết một lần ở đây.
+Cross-cutting decisions that apply to every platform, not to any single app: who can play
+which role (Agent/host vs Client), what the transport actually is today, and where the
+platform boundary sits in the source tree. Everything below is derived from the current
+code. Siblings: 01-architecture.md (layering), 04-protocol.md (wire format),
+06-transport.md (transport policy in depth), 10-web-client.md (web design, unimplemented).
 
-**Mục tiêu nền tảng của dự án:** agent (host) cho **Windows · macOS · Ubuntu**; client cho
-**Windows · macOS · Ubuntu · iOS · Android · Web**. §3 là ma trận đầy đủ (ai làm được vai
-gì, vì sao). Backend từng vai theo OS: agent ở `02-agent.md` §1b, client ở `03-client.md` §1b.
+## 1. Platform capability matrix
 
-## 1. `core/` transport-agnostic — cái "seam"
+Like AnyDesk, each desktop OS ships **one app containing both roles** (see
+`make/windows.mk`, `make/macos.mk`); mobile apps are client-only.
 
-`core/` chỉ biết một khái niệm: **"datagram = một mảng byte"**. Nó có đúng hai điểm chạm với
-thế giới ngoài, cả hai đều là byte thuần, **không phải socket**:
+| Platform | Agent (host)? | Client? | App form | Current state |
+|---|---|---|---|---|
+| Windows | Yes | Yes | WinUI 3 frontend (`client/windows/csharp/`) over `deskhub_native.dll` (`client/windows/cpp/`, C API in `DeskhubApi.h`) | **Both roles shipped.** Full net layer incl. LAN discovery, firewall helper, pacer. |
+| macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles implemented**, not yet verified between two physical machines. LAN discovery not ported yet: no `Discovery` on macOS and `agent/AgentLoop.cpp` does not answer DISCOVER (noted in `client/macos/app/swift/HomeView.swift`). |
+| Android | No | Yes | Kotlin UI + NDK `libdeskhub.so` (`client/android/app/src/main/cpp/ClientLoop.cpp`) | **Client-only, shipped to store testing** (see 13-release-mobile.md, `make/android.mk`). |
+| iOS | No | Yes | SwiftUI + C++ (`client/ios/app/cpp/ClientLoop.cpp`, VideoToolbox decode) | **Client-only, shipped to store testing** (Simulator build via `make/ios.mk`; device/App Store via Xcode). |
+| Web | No | Planned | Browser (WebTransport + WebCodecs + WASM `core/`) | **Design only** — see 10-web-client.md. No web code exists in the repo. |
+| Linux | Planned | Planned | — | **No code.** Named only as a future target (root `CMakeLists.txt` comment; `core/` and the Android `UdpSocket.cpp` are already Linux-compatible). |
 
-- **Byte ra:** callback `send(std::span<const uint8_t>)` — core **giao** một datagram cho ai
-  đó; core KHÔNG tự gửi. (`HostCallbacks.send` ghi rõ: "giao datagram cho tầng socket".)
-- **Byte vào:** `HandlePacket(...)` — caller **bơm** datagram nhận được vào core.
+## 2. Why only desktops can host
 
-Grep toàn `core/`: **0 chữ** `udp` / `quic` / `socket` / `sendto` / `webtransport`. Hệ quả:
-**chỉ có MỘT `core/`, MỘT `ClientSession`, MỘT `Reassembler`** — dùng y hệt cho mọi
-transport. "UDP hay QUIC" quyết **hoàn toàn bên ngoài core**, bằng việc nối hai callback vào
-đối tượng transport nào. Thời gian cũng bơm từ ngoài (`nowUs`) nên core không thread, không
-đồng hồ, test offline được (`core_tests`).
+The host role needs three OS capabilities that only desktop OSes grant to a third-party
+app:
 
-```
-core (ClientSession / HostSession) — thuần C++20, KHÔNG socket
-   send │ std::function<void(span<const uint8_t>)>   ← core đưa RA byte
-        ▼
-   UdpSocket (winsock/BSD): sendto()   HOẶC   WebTransportHost (msquic): QUIC DATAGRAM
-        ▲
-HandlePacket │  caller bơm byte nhận được VÀO core
-```
+1. **Synthetic input injection.** The agent must inject remote mouse/keyboard events
+   system-wide: `SendInput` on Windows (`client/windows/cpp/input/`), CGEvent posting on
+   macOS (`client/macos/app/cpp/agent/InputInjector.mm`, gated by the Accessibility
+   permission — `agent/Permissions.mm`). iOS has no API for this at all; Android would
+   require an AccessibilityService with severe restrictions. No injection, no remote
+   control.
+2. **Unattended, long-lived capture and listening.** A host binds a UDP port and answers
+   whenever a client shows up. Desktop processes may listen indefinitely; mobile OSes
+   suspend backgrounded apps and their sockets. Screen capture is similarly gated: macOS
+   needs the Screen Recording permission (`agent/ScreenCapture.mm`), which a desktop app
+   can hold persistently; iOS/Android offer no equivalent entitlement for a background
+   remote-control host.
+3. **Binding a fixed, advertised port.** The host must listen on a well-known port
+   (default 47777) that the user can read out to the other machine. The macOS
+   `UdpSocket.cpp` header comment records this explicitly: the host role calls
+   `Open(port)` with a fixed port — something the iOS sandbox does not permit — while
+   clients everywhere pass `Open(0)` and take an ephemeral port.
 
-UDP và QUIC là hai **người đưa thư** khác nhau chở cùng một phong bì; core chỉ viết và đọc
-phong bì. Phần wire-level (định dạng gói, trần payload theo transport): `04-protocol.md` §11.
+## 3. Transport strategy as implemented
 
-## 2. `IHostTransport` — binding trừu tượng ở host
+- **UDP everywhere, native sockets.** Every platform speaks raw UDP through its own thin
+  `UdpSocket` wrapper — winsock2 on Windows, BSD sockets on Android/iOS/macOS (§4).
+  There is no TCP data path and no reliability layer below `core/` (retransmit/FEC/NACK
+  live in `core/` — see 06-transport.md).
+- **One port, channel multiplexing.** All traffic — control, video, input — shares a
+  single socket and port, demultiplexed by the `chan` byte of the common header
+  (04-protocol.md §2). Default host port **47777**; if busy, the host walks forward up
+  to 64 ports (`FindFreeUdpPort` in `client/windows/cpp/net/UdpSocket.cpp`; an inline
+  `kPortTries = 64` loop in `client/macos/app/cpp/agent/AgentLoop.cpp`) and displays the
+  port it actually bound.
+- **LAN discovery = UDP broadcast, split core/platform.** Protocol logic is shared in
+  `core/`: `deskhub::Beacon` (`core/include/deskhub/discovery/Beacon.h`) builds host-side
+  replies to DISCOVER / LIST_SOURCES / pre-session PING; `deskhub::HostRegistry`
+  (`core/include/deskhub/discovery/HostRegistry.h`) merges ANNOUNCEs per `hostId`,
+  orders them stably, and expires stale hosts. The socket side is per-platform: on
+  Windows, `ScanForHosts` (`client/windows/cpp/net/Discovery.cpp`) sends DISCOVER to the
+  **directed broadcast address of every adapter** (`ListLocalBroadcasts` in
+  `net/NetInfo.h`) and collects replies for ~1.2 s. Today this is **end-to-end on
+  Windows only**; macOS, Android and iOS connect by typed address and still query
+  sources pre-session via their `net/SourceQuery.cpp`.
+- **NAT / Internet: Tailscale, not built-in traversal.** Verified: the repo contains
+  **no STUN, TURN, ICE, hole-punching or relay code**. The strategy, recorded in code
+  comments (`core/include/deskhub/wire/Wire.h`, `client/macos/app/cpp/net/NetInfo.h`),
+  is to let a VPN such as Tailscale provide a flat address space; the user types the
+  Tailscale address manually (broadcast discovery cannot cross it — a /32 has no
+  broadcast address, per `client/windows/cpp/net/Discovery.h`). `NetInfo` deliberately
+  lists `utun*`/VPN interfaces so that path stays visible.
+- **QUIC / WebTransport: design only.** Verified by grepping `msquic`, `quic`,
+  `WebTransport` across the repo: **zero hits in source code** — the terms appear only
+  in docs. The plan to carry the same datagram protocol over WebTransport (QUIC
+  unreliable datagrams) for the browser client is specified in 10-web-client.md and is
+  entirely unimplemented; no msquic or any other QUIC library is vendored or linked.
 
-Ranh giới sạch: một interface **`IHostTransport`** mà các transport hiện thực, tất cả bơm
-byte vào một `HostSession`:
+## 4. `UdpSocket` — four deliberate copies of one API
 
-- **`UdpHostTransport`** — raw UDP, mỏng, **per-OS** (winsock trên Windows / BSD trên POSIX).
-  Phải hai bản vì API raw socket mỗi OS một khác.
-- **`WebTransportHost`** — QUIC/HTTP3, **viết một lần, dùng chung mọi OS**. Một thư viện QUIC
-  đã bọc khác biệt socket bên trong nên KHÔNG viết lại theo OS như `UdpSocket`.
+The socket wrapper is intentionally **duplicated per platform with an identical API**,
+so `AgentLoop`/`ClientLoop` code reads the same everywhere and porting is copying, not
+rewriting (stated in each header):
 
-| Thư viện QUIC | Ưu | Nhược |
-|----------|-----|-------|
-| **msquic** (Microsoft, MIT) ✅ | **Native cả Windows + Linux + macOS**, C API gọn, cùng CMake/MSVC sẵn có, có lớp HTTP/3 | WebTransport có thể phải tự ghép trên lớp HTTP/3 của nó |
-| quiche (Cloudflare, Rust + C API) | QUIC + HTTP/3 chín, đa nền tảng | Kéo toolchain Rust vào build C++/CMake |
-| quic-go / các bản Go | Ví dụ WebTransport nhiều nhất | Ngôn ngữ khác, không hợp một-exe |
+| Path | Backend | Lineage |
+|---|---|---|
+| `client/windows/cpp/net/UdpSocket.{h,cpp}` | winsock2 | original Windows version |
+| `client/android/app/src/main/cpp/net/UdpSocket.{h,cpp}` | BSD sockets ("Android/Linux") | POSIX original |
+| `client/ios/app/cpp/net/UdpSocket.{h,cpp}` | BSD sockets | copied from Android, no code changes |
+| `client/macos/app/cpp/net/UdpSocket.{h,cpp}` | BSD sockets | copied from iOS, no code changes |
 
-**Đề xuất: msquic** — chính vì native cả ba OS, `WebTransportHost` viết một lần dùng lại
-được khi làm host macOS/Linux, đồng nhất toolchain. Chốt cuối để lại tới web-M2
-(`10-web-client.md` §10) — cần xác nhận mức hỗ trợ WebTransport-over-HTTP/3 của msquic.
+Shared conventions (all four):
 
-**Layout:** `WebTransportHost` cần thread/socket/msquic nên KHÔNG vào được `core/` (phá tính
-thuần, mất `core_tests` offline), nhưng dùng chung mọi host OS nên KHÔNG nhân bản trong từng
-`client/<os>`. Đặt ở một **module host dùng chung** (thư mục `host/` mới, hay mở rộng
-`platform/`) mà mỗi `client/<os>` link vào — giữ ràng buộc một-exe-mỗi-OS. Thư mục cụ thể
-chốt khi bắt tay code; nguyên tắc bất biến là "một lần, dùng chung".
+- `NetAddr` holds IPv4 in **host byte order**; `htonl`/`ntohl` happen only at the
+  `sockaddr_in` boundary inside the `.cpp`. `Pack()`/`Unpack()` squeeze an address into
+  a `u64` so two threads can share it via `std::atomic` (peer roaming in `AgentLoop`).
+- `RecvFrom` is tri-state: `>0` bytes, `0` timeout/benign error, `<0` fatal — the
+  contract that lets one blocking net thread interleave receives with periodic `Tick`.
+- `Open()` sets a **4 MB `SO_RCVBUF`** (burst absorption at high bitrate) and binds
+  `INADDR_ANY` (multi-homed machines; you cannot predict the peer's interface).
+- `SetRecvTimeout` maps to `SO_RCVTIMEO`; benign errors are folded to `0`
+  (POSIX: `EAGAIN`/`EWOULDBLOCK`/`EINTR`/`ECONNREFUSED`).
 
-## 3. Ma trận nền tảng: ai làm client, ai làm host
+Windows-only differences: `WSAStartup`/`WSACleanup` lifecycle owned by the object;
+`SIO_UDP_CONNRESET` disabled in `Open()` (otherwise one ICMP port-unreachable makes
+`recvfrom` fail with `WSAECONNRESET` forever), with `RecvFrom` swallowing
+`WSAETIMEDOUT`/`WSAECONNRESET`/`WSAEMSGSIZE` as a second line of defense; timeout as a
+`DWORD` rather than a `timeval`; plus API extras the other platforms don't have yet:
+`SetBroadcast` (required for discovery — winsock rejects broadcast `sendto` with
+`WSAEACCES` otherwise), `FindFreeUdpPort`, and `lastBindAddrInUse()` (distinguishes
+"port taken by an old host" for a friendly UI message). The POSIX copies differ from
+each other only in comments; iOS/macOS additionally require the Local Network permission
+(`NSLocalNetworkUsageDescription` in the Xcode projects) at the app-bundle level.
 
-Vai **client** thì mọi nền tảng đều làm được (chỉ cần nhận + decode + gửi input). Vai
-**host** thì KHÔNG — nó đòi bốn thứ, và mobile/web hỏng ở đúng hai thứ then chốt:
+## 5. Per-platform network-layer notes
 
-| Yêu cầu host | Win/mac/Linux | Android | iOS | Web |
-|--------------|---------------|---------|-----|-----|
-| Capture màn hình | ✅ | ✅ MediaProjection | 🔶 ReplayKit | ✅ getDisplayMedia |
-| Encode HW | ✅ | ✅ MediaCodec | ✅ VideoToolbox | ✅ WebCodecs |
-| **Inject input vào app khác** | ✅ | ❌ cần root | ❌ không thể | ❌ không thể |
-| **Nghe kết nối vào (listen)** | ✅ | 🔶 vướng NAT/nền | 🔶 nền bị suspend | ❌ browser không listen |
+**Blocking model (all platforms):** one dedicated net thread per session runs a
+blocking `RecvFrom` loop with `SO_RCVTIMEO` as the tick clock — 100 ms on the Windows
+host (`AgentLoop.cpp`), 10 ms on the Android/iOS/macOS client loops (`ClientLoop.cpp`
+in each). No epoll/kqueue/IOCP; a single socket per session doesn't need them.
 
-- **Inject input** vào *ứng dụng khác* là đặc quyền chỉ desktop có. Android phải root; iOS
-  và trang web bị sandbox tuyệt đối. Mà điều khiển từ xa chính là mục đích app — host không
-  inject được thì vô nghĩa.
-- **Listen**: trình duyệt **chỉ làm client, không mở được listen socket** → không thể là
-  host mà kẻ khác kết nối tới. Mobile listen được nhưng thường sau CGNAT và bị OS treo nền.
+**Windows extras** (`client/windows/cpp/net/`):
 
-Cộng điểm khái niệm: host là "máy đang chạy ứng dụng cần điều khiển" — đó là PC.
+- `Firewall.{h,cpp}` — `HostFirewallRulePresent` / `EnsureHostFirewallRule`: creates an
+  inbound-UDP allow rule for the exe via COM (`INetFwPolicy2`), covering all three
+  profiles; adding requires admin, so it rides the Share button's UAC elevation
+  (`ElevatedShare.h`). Cures the classic "host reachable but every HELLO times out".
+- `NetInfo.{h,cpp}` — `ListLocalIPv4` (per-adapter addresses for the "your address" UI,
+  filtering loopback/APIPA) and `ListLocalBroadcasts` (per-adapter directed broadcast
+  for discovery). macOS has its own `NetInfo` (getifaddrs-based, maps `en0`/`utun*`
+  device names to friendly labels); Android/iOS have none.
+- `HostIdent.{h,cpp}` — `LocalHostId()` (stable 32-bit machine id hashed from the
+  registry `MachineGuid`, fallback: hashed hostname) and `LocalHostName()`. Feeds
+  `Beacon`'s ANNOUNCE and lets the scanning client exclude itself. Not a security
+  identifier.
+- `Pacer.{h,cpp}` — rate-limits `sendto` on the host's dedicated send thread so an IDR
+  burst doesn't tail-drop at a Wi-Fi bottleneck (rationale and measurements in the
+  header; policy discussion in 06-transport.md). Windows-only today; the macOS
+  `AgentLoop` has no equivalent class yet.
+- `Discovery.{h,cpp}` / `SourceQuery.{h,cpp}` — blocking one-shot scans (~1.2 s / ~3 s),
+  called off the UI thread (`Task.Run` from C#), exposed as `dh_discover_scan` /
+  `dh_client_list_sources` in `DeskhubApi.h`.
 
-**Kết luận:** host = **desktop** (Windows và macOS nay; Linux sau). iOS/Android/web là nền
-tảng **client-only**. (Nếu sau này thêm mục tiêu "chỉ chia sẻ màn hình để xem, không điều khiển"
-thì Android/iOS có thể làm host view-only — nhưng **web vẫn không**, vì không listen được —
-và đó là một tính năng khác, không phải hướng hiện tại.)
+## 6. The `core/` boundary — what a platform must provide
 
-## 4. Host trên nhiều OS (macOS / Ubuntu / …)
+`core/` (static lib, namespace `deskhub`, pure C++20) **never touches an OS header** —
+that is the property that lets one source tree compile for Windows, Android NDK, iOS
+and macOS (`core/CMakeLists.txt`). Its entire contact surface with a platform:
 
-Thêm một host OS mới cần đúng ba mảnh **OS-specific mà một host UDP native trên OS đó đằng
-nào cũng phải viết**:
+1. **Bytes out** — a `send(span<const uint8_t>)` callback: core builds a datagram and
+   hands it over; the caller does the `sendto`.
+2. **Bytes in** — the caller feeds each received datagram into `HandlePacket(...)`.
+3. **Time** — every stateful class takes `nowUs` as a parameter; core owns no clock
+   and no threads (which is why `core_tests` runs offline).
 
-| Mảng host | Windows (đang có) | macOS (đang có) | Linux |
-|-----------|-------------------|-----------------|-------|
-| Capture | WGC | ScreenCaptureKit | PipeWire / X11 |
-| Encode | NVENC / MF | VideoToolbox | VAAPI / NVENC |
-| Inject input | `SendInput` | CGEvent | uinput / XTest |
-| **Transport** | **`WebTransportHost` (dùng chung)** ← | ← **cùng một mã** | ← **cùng một mã** |
-| Lõi giao thức | `core/` (dùng chung) | ← | ← |
+Two OS-touching services live in `platform/` (`platform/include/deskhubp/`, an
+INTERFACE library of header-only inlines — `platform/CMakeLists.txt`):
 
-Nói cách khác: **thêm một host OS mới = viết capture + encode + inject cho OS đó**; transport
-(cả UDP lẫn WebTransport) và toàn bộ `core/` dùng lại. Bản macOS đã làm đúng như vậy và đo
-được: xem `14-macos-app.md` §7 (cái gì dùng lại, cái gì phải viết).
+- `Clock.h` — `NowUs()`, monotonic microseconds: QueryPerformanceCounter on Windows,
+  `CLOCK_MONOTONIC` elsewhere. Consumed by session logic (injected), frame timestamps,
+  RTT measurement.
+- `Random.h` — `RandomBytes()`, kernel CSPRNG for nonces/salts/sessionIds:
+  `BCryptGenRandom` (Windows), `arc4random_buf` (Apple), `getrandom(2)` with a
+  `/dev/urandom` fallback (Linux/Android).
 
-## 5. Chiến lược transport: hybrid UDP + QUIC
+The **socket layer deliberately lives outside both** — in each client app's `net/`
+directory (§4). `platform/CMakeLists.txt` notes the intent to eventually fold the
+per-OS `UdpSocket.cpp` into `platform/` as a STATIC library; today it is per-app.
 
-**Quyết định (2026-07-22, "hướng A"): HYBRID.** UDP cho **native** (Windows/macOS/iOS/
-Android, và Linux sau), QUIC/WebTransport **chỉ** cho **web** — nền tảng duy nhất không mở được
-raw UDP. **Không** thống nhất mọi client về QUIC. Cả hai binding cùng bơm vào một
-`HostSession` qua `IHostTransport` (§2), core không đổi.
+Build wiring: the root `CMakeLists.txt` adds `core/`, `platform/`, and (on Windows)
+`client/windows/cpp/`; Android's Gradle/NDK build adds `core/` itself
+(`client/android/app/src/main/cpp/CMakeLists.txt`); macOS/iOS build through their Xcode
+projects via `make/macos.mk` / `make/ios.mk`; shared core targets (tests, coverage) are
+in `make/core.mk`.
 
-Vì `core/` transport-agnostic, "UDP hay QUIC" là lựa chọn **hoãn được**, không phải chốt bây
-giờ. So sánh:
+## 7. Adding a new platform (e.g. Linux), concretely
 
-| | Được | Mất |
-|--|------|-----|
-| **Thống nhất QUIC** | Mã hóa TLS 1.3 mặc định (xóa mục Mã hóa GĐ6); host một listener; connection migration + hợp Internet sẵn có | Kéo msquic vào **mọi** client native (APK/exe phình); lôi rắc rối chứng chỉ vào cả LAN native↔native (nay cắm-là-chạy); **vứt đường UDP đã test M1/M2**; overhead handshake + AEAD |
-| **Hybrid (chọn)** ✅ | Giữ đường native nhẹ, không cert, đã kiểm chứng; web có QUIC nó cần | Host chạy hai listener; hai binding phải bảo trì |
+Reused as-is: **`core/`** (wire, transport, session, input, control, discovery, crypto,
+auth) and **`platform/`** (`Clock.h` and `Random.h` already have Linux branches).
 
-Trên **LAN** — bối cảnh chính hiện tại — raw UDP "cắm là chạy", không cert, không handshake;
-native chưa được lợi đủ từ QUIC để bù chi phí phụ thuộc + churn. Web thì đằng nào cũng phải
-QUIC, nên hybrid không phát sinh việc thừa: mỗi bên dùng đúng transport rẻ nhất cho nó.
+To reimplement, following the existing pattern:
 
-**Bản đồ transport theo client:**
+1. **`net/UdpSocket.{h,cpp}`** — copy the Android version verbatim; its own header
+   labels it "BSD socket (Android/Linux)". Add `SetBroadcast`/`FindFreeUdpPort` from
+   the Windows header if discovery and the host role are wanted.
+2. **`net/SourceQuery.cpp`** — copy from any client (all four are parallel copies).
+3. **Client role** — a `ClientLoop` following `client/macos/app/cpp/client/ClientLoop.cpp`
+   (net thread, 10 ms recv timeout, feed `ClientSession`) plus a hardware decoder
+   (VA-API/Vulkan video filling the role VideoToolbox/MediaCodec/D3D11 play today).
+4. **Host role** — an `AgentLoop` (port walk-forward, `Beacon` for discovery replies),
+   screen capture + encoder (PipeWire/VA-API), input injection (uinput/XTEST), and the
+   Linux analogues of the Windows conveniences: a `NetInfo` (getifaddrs — the macOS one
+   is nearly reusable), a `HostIdent` (e.g. `/etc/machine-id`), and send pacing (port
+   `Pacer`, whose logic is not Windows-specific despite its location).
+5. **UI + glue** — a frontend over either the C API pattern (`DeskhubApi.h`) or the
+   bridge pattern (`DeskhubBridge.mm`), plus a `make/linux.mk` and a `client/linux`
+   entry in the root `CMakeLists.txt`.
 
-| Client | Transport | Socket |
-|--------|-----------|--------|
-| Windows | UDP | winsock (`SIO_UDP_CONNRESET`…) |
-| Android | UDP | BSD/POSIX — đã có |
-| macOS / iOS | UDP | BSD/POSIX — **dùng lại `UdpSocket` của Android** (đã làm: `client/ios`, `client/macos`) |
-| Linux (sau) | UDP | BSD/POSIX — cùng file |
-| Web | **QUIC/WebTransport** | — trình duyệt không mở raw UDP |
-
-Native mac/iOS/Linux đều POSIX nên **không phát sinh transport mới** — chỉ Windows khác
-(winsock). Việc platform thật sự phải viết cho một client OS mới là **decode + render +
-input**, không phải socket. Lưu ý iOS **làm client UDP bình thường** — rào cản host ở §3
-(listen, inject input) không áp vào vai client.
-
-**Khi nào nên xét lại:** phần thưởng lớn nhất của QUIC-everywhere là **mã hóa mặc định** —
-nên thời điểm tự nhiên để thống nhất là lúc bắt tay mục mã hóa GĐ6, hoặc khi cần chạy thật
-qua Internet (không chỉ LAN). Lúc đó di cư native UDP→QUIC **từng client một, không sửa
-core** — chỉ đổi đối tượng nối vào `send`/`HandlePacket`.
+No transport work is required: the wire protocol (04-protocol.md) and everything above
+the socket already compile for Linux unchanged.

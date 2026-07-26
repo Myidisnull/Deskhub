@@ -1,175 +1,295 @@
-# 02 — Thiết kế Agent (host)
+# 02 — Agent (Host) Role
 
-Agent chạy trên máy có ứng dụng cần điều khiển (game, IDE, trình duyệt…) — vai **host**, chỉ
-trên **desktop: Windows · macOS · Ubuntu** (mobile/web không host được,
-`11-platform-transport.md` §3). Trách nhiệm: bắt hình, nén, gửi video, nhận input và bơm vào
-ứng dụng đích. Đây là thành phần phức tạp nhất của hệ.
+The Agent is the sharing side of Deskhub: it captures one or more windows/displays, encodes them
+as H.264, packetizes and sends the stream over UDP, and injects the viewer's input back into the
+machine. Both desktop apps contain the Agent and the Client role side by side; this document covers
+the Agent. System overview: `01-architecture.md`. The viewer side: `03-client.md`.
 
-Vai trò và điều phối (§1, §4, §6, §7) **giống nhau mọi OS**; chỉ ba backend phần cứng —
-**capture · encode · inject** — đổi theo OS (§1b). Phần dưới mô tả **bản tham chiếu Windows**
-(đã hiện thực GĐ0–GĐ5); cột macOS/Ubuntu là thứ tương đương sẽ viết khi mở nền tảng, cùng
-`core/` và cùng giao thức.
+There are two full implementations of the same orchestration:
 
-## 1. Các module
+| | Windows | macOS |
+|---|---|---|
+| Orchestrator | `client/windows/cpp/AgentLoop.cpp` (`RunAgent`) | `client/macos/app/cpp/agent/AgentLoop.cpp` (`AgentLoop` class) |
+| Capture | Windows Graphics Capture (`capture/WindowCapture`) | ScreenCaptureKit (`agent/ScreenCapture`) |
+| Encode | NVENC → Media Foundation (`encode/EncoderFactory`) | VideoToolbox (`agent/VtEncoder`) |
+| Inject | `SendInput` (`input/InputInjector`) | CGEvent (`agent/InputInjector`) |
+| UI frontend | WinUI3/C# via C API (`AgentApi.cpp`) | SwiftUI via `AgentLoop` methods |
 
-```
-Agent
-├── CaptureModule      per-OS backend  (Win ✅ client/windows/capture/WindowCapture)
-├── EncoderModule      per-OS backend  (nén texture GPU → NAL)
-├── TransportModule    core packetize + per-OS socket  (UDP; xem 11 §2)
-├── InputInjector      per-OS backend  (nhận input decode → bơm vào game)
-├── SessionManager     core/  (handshake, state, thương lượng tham số — chung mọi OS)
-└── ControlLoop        per-OS glue  (điều phối Capture → encode → send; xử lý control msg)
-```
+Session state, auth, packet formats, congestion policy and clipboard reassembly are platform-neutral
+and live in `core/` (`deskhub::HostSession`, `deskhub::AuthGuard`, `deskhub::Beacon`,
+`deskhub::BitrateController`, `deskhub::Packetizer`). The agent loops own only the OS-specific
+parts: sockets, threads, GPU, capture and injection.
 
-Ba module `per-OS backend` (Capture/Encoder/InputInjector) là toàn bộ việc phải viết lại cho
-một agent OS mới; `SessionManager` + phần packetize của Transport nằm trong `core/` dùng lại.
+## 1. Entry points
 
-### 1b. Backend theo OS
+**Windows.** The WinUI3 app drives the native DLL through the C API in
+`client/windows/cpp/DeskhubApi.h`. `dh_agent_start` (implemented in `AgentApi.cpp`) copies the
+selected sources, spawns a background thread, calls `capture::InitRuntime()` (WinRT MTA — WGC
+requires it on the thread that creates `WindowCapture`), then calls `RunAgent`, which blocks until
+the session ends. `RunAgent(sources, opt, ctl)` takes:
 
-| | Windows (tham chiếu ✅) | macOS (🔶) | Ubuntu |
-|--|-------------------------|------------|--------|
-| Capture | WGC (`Direct3D11CaptureFramePool`) | ScreenCaptureKit (`SCStream`) | PipeWire (Wayland) / X11 |
-| Encode | NVENC → AMF/QSV → MF | VideoToolbox (`VTCompressionSession`) | VAAPI / NVENC |
-| Inject | `SendInput` (+ ViGEm/Interception) | CGEvent (Quartz Event Services) | uinput / XTest |
-| Device/texture | D3D11 (VRAM) | CVPixelBuffer (IOSurface, NV12) | VA-API surface / DMA-BUF |
+- `AgentOptions` (`AgentLoop.h`): `port` (default 47777), `fps` (60), `bitrateMbps` (20),
+  `allowInput`, `shareClipboard` (default **off** — clipboards carry passwords and OTPs, so sharing
+  is an explicit user decision).
+- `AgentControl&` (`AgentControl.h`) — the abstract frontend interface: `active()`,
+  `stopRequested()`, `SetRows()`, `TakeAdds()`, `TakeRemoves()`, `OnBound()`, `OnFailed()`.
+  `AgentApi.cpp` provides `HeadlessAgentControl`, a mutex-guarded mailbox between the C# UI thread
+  and the Recv loop. The historical Win32 implementation (`SessionWindow`) was removed with the old
+  Win32 UI; `SessionRow.h` (`SessionSourceRow`) remains as the row type `SetRows` pushes to the UI
+  (per-source name, size, viewer address, fps/kbps/RTT, HWND/HMONITOR keys).
 
-Bản macOS đã triển khai — chi tiết ba backend + những chỗ macOS phát sinh so với WGC/NVENC/
-SendInput: `14-macos-app.md` §2.
+Mid-session control flows through the same handle: `dh_agent_add_window`, `dh_agent_remove`,
+`dh_agent_stop`. If `RunAgent` exits on its own (no free port, GPU init failure, socket error), the
+thread invokes the `stoppedCb` with the `OnFailed` reason so the UI can leave the "sharing" state.
 
-Chi tiết ba backend Windows ở §2 (capture), §3 (encode), §5 (inject) — đọc như **bản tham
-chiếu**; mac/Ubuntu thay đúng cột tương ứng, giữ nguyên interface `IVideoEncoder` (§3) và
-ranh giới "texture GPU → NAL Annex-B".
+**macOS.** SwiftUI cannot be blocked, so `agent/AgentLoop.h` exposes a class instead:
+`Start(sources, opt)` binds the port, starts the pipelines, launches the Recv thread and returns
+(`Start` itself still blocks a few seconds waiting for first frames — call it off the main thread).
+The UI polls `Status()`/`StatusLine()` and uses `AddSource`/`RemoveSource`/`Stop`. `Start` refuses
+to run without the Screen Recording permission (`macperm::HasScreenRecording`).
 
-## 2. CaptureModule ✅ (xong ở GĐ0)
+## 2. The main loop
 
-- Event `FrameArrived` của `Direct3D11CaptureFramePool` (không polling) — giảm độ trễ và tải CPU.
-- Tạo D3D11 device, `GraphicsCaptureItem` từ HWND, tắt cursor/border; winrt giấu sau PIMPL.
-- `CopyToCpu` + `WriteBmp` tách ra `BmpWriter`, chỉ chạy khi có cờ `--save` (ngoài đường nóng).
-- D3D11 device chia sẻ với EncoderModule qua `Device()`/`Context()` — không cross-device copy.
+Thread architecture (documented in detail at the top of each `AgentLoop.cpp` — read that header
+before touching either file):
 
-Đầu ra của module: `ID3D11Texture2D*` (BGRA, VRAM) + timestamp (từ `frame.SystemRelativeTime()`).
+- **Per source, one hot path** producing encoded frames. Windows: the WGC `FrameArrived`
+  thread-pool callback runs capture → encode → `onPacket` → `deskhub::Packetizer::SendFrame` →
+  `UdpSocket::SendTo`. macOS: the SCStream queue submits to VideoToolbox, which delivers compressed
+  frames asynchronously on its own thread; `VtEncoder::emitMutex_` serializes `onPacket` so the
+  single-threaded Packetizer stays safe.
+- **One shared Recv thread** for all sources: `recvfrom` with a 100 ms timeout, packet routing,
+  `HostSession::Tick` for every source, 1 s statistics window, and the UI row publish.
 
-## 3. EncoderModule — mắt xích rủi ro nhất
+So N sources means N+1 threads on Windows; every field crossing that boundary in `SourcePipeline`
+is atomic or mutex-protected, and each field's owner thread is annotated in the struct.
 
-> **Trạng thái (GĐ1-2 ✅):** backend **NVENC** (`NvencEncoder.cpp`) là ưu tiên — nạp DLL động,
-> zero-copy texture D3D11, preset P4 + ULTRA_LOW_LATENCY, CBR, GOP vô hạn + IDR theo yêu cầu,
-> xuất NAL Annex-B qua callback `onPacket`. **Media Foundation** (`MfEncoder.cpp`) là fallback
-> (ghi file `.mp4`, chưa xuất NAL). `EncoderFactory` thử NVENC → MF theo GPU từ `GpuSelect`.
+**Packet routing** (one socket, many sources): discovery-type packets are answered first (see §7);
+`HELLO` is routed by `hello.sourceId` (no sessionId exists yet); everything else is routed by
+matching `sessionId` against each source's `HostSession`. A valid in-session packet also updates the
+stored peer address (`peerPacked`), which is how a client that roams to a new IP/port keeps its
+session.
 
-### Trừu tượng hóa
-Định nghĩa interface chung để đổi backend theo GPU:
+**HostSession drives state.** The loop never interprets control messages itself. It hands every
+routed packet to `deskhub::HostSession::HandlePacket` and reacts through `HostCallbacks`: `onStart`
+(set the `forceIdr` atomic), `onKeyframeRequest` (same), `onInput` → `InputInjector::Apply`,
+`onNack` → replay datagrams from `deskhub::RetransmitCache`, `onFocus`, `onClipboard`,
+`onFeedback` → `deskhub::BitrateController` (adjusts encoder bitrate via `SetBitrate`, toggles FEC,
+floor 1 Mbps), `onDisconnect` → clear peer, `ReleaseAll`, reset the retransmit cache. `forceIdr` is
+an atomic flag on purpose: it is set on the Recv thread and consumed by the next `Encode` on the
+capture-side thread — the encoder must never be called from the Recv thread directly.
 
-```cpp
-class IVideoEncoder {
-public:
-    virtual bool Init(ID3D11Device* dev, UINT w, UINT h, const EncoderConfig& cfg) = 0;
-    // Nhận texture VRAM, trả về 0..n gói NAL đã nén qua callback.
-    virtual bool Encode(ID3D11Texture2D* frame, uint64_t timestampUs,
-                        bool forceKeyframe) = 0;
-    virtual void SetBitrate(uint32_t bps) = 0;
-    virtual void RequestKeyframe() = 0;   // khi client báo mất gói
-    virtual ~IVideoEncoder() = default;
-};
+**Startup phases of `RunAgent`** (mirrored by `AgentLoop::Start` on macOS): validate input (max
+`deskhub::kMaxSources` = 8 sources), create the shared D3D11 device (`GpuSelect`), open the UDP
+socket — if the requested port is busy it probes up to 64 consecutive ports and reports the real
+bound port via `OnBound`; ensure the firewall rule (§7); start capture per source; wait up to 10 s
+for each source's first frame (the offer in `HELLO_ACK` needs real dimensions — sources that never
+produce a frame are dropped without killing the session); build `HostSession` + `InputInjector` per
+surviving source; then enter the Recv loop.
 
-struct EncoderConfig {
-    Codec    codec = Codec::H264;   // H264 | HEVC | AV1
-    uint32_t bitrateBps = 20'000'000;
-    uint32_t fps = 60;
-    uint32_t gopLength = 120;        // khoảng cách IDR; 0 = chỉ IDR khi được yêu cầu
-    RateControl rc = RateControl::CBR; // low-latency ưa CBR
-    bool     lowLatency = true;      // preset độ trễ thấp, tắt B-frame
-};
-```
+**Static-source handling.** Both capture APIs only deliver frames when content changes, so each
+pipeline caches the last frame (Windows: a copied D3D11 texture; macOS: a retained
+`CVPixelBufferRef`). The Recv loop re-encodes the cached frame when (a) an IDR request has been
+pending >200 ms with no new frame — otherwise a client joining a static screen stays black forever —
+or (b) as a ~2 fps keepalive after 500 ms of silence, which flushes async encoders (QSV MFTs hold
+the last output until the next input).
 
-### Backend theo GPU
+**Resize and minimum size.** A size change on the hot path tears down the encoder and cache and
+sets `sizeChanged`; the Recv loop then updates the offer (`HostSession::SetOffer`), sends `RECONFIG`
+and forces an IDR. Sources smaller than 160×64 (`kMinEncodeW/H` — hardware encoders reject tiny
+frames) enter a reversible `paused` state, distinct from the one-way `failed` state, so a window
+that is shrunk and later restored resumes streaming.
 
-| GPU | API | Zero-copy input | Ghi chú |
-|-----|-----|-----------------|---------|
-| NVIDIA | **NVENC** (Video Codec SDK) | `nvEncRegisterResource` với D3D11 texture | Ưu tiên. Preset `P1..P7`, tuning `LOW_LATENCY`/`ULTRA_LOW_LATENCY`. |
-| AMD | **AMF** | Submit D3D11 surface | `AMF_VIDEO_ENCODER_USAGE_LOW_LATENCY`. |
-| Intel | **QSV / Media Foundation** | MF sink nhận D3D11 | Đơn giản nhất qua Media Foundation. |
-| Fallback | **Media Foundation H.264** | qua IMFDXGIDeviceManager | Chậm hơn nhưng chạy được đa số GPU. |
+**Pacing.** `client/windows/cpp/net/Pacer.h/.cpp` implements a credit-clock pacer with a
+high-resolution waitable timer, built to spread IDR bursts that overflow bottleneck queues (its
+header documents the measured burst-loss shape that motivated it). **It is currently not wired into
+the send path**: `Packetizer::SendFrame` calls `sendto` directly from the encode-side thread, where
+sleeping is forbidden (it would stall the WGC frame pool — a failure mode the Pacer header itself
+warns about; pacing requires a dedicated send thread that does not exist yet). Burst duration is
+instead measured and logged (`dgBurstMsMax`, IDR burst events) per `09-diagnostics.md`. Packetizer,
+FEC, NACK/retransmit details: `04-protocol.md` and `06-transport.md`.
 
-### Cấu hình low-latency bắt buộc
-- **Tắt B-frame** (B-frame cần frame tương lai → thêm độ trễ).
-- **CBR hoặc low-delay VBR** để bitrate ổn định trên đường mạng cố định.
-- **Infinite GOP + IDR theo yêu cầu**: không phát IDR định kỳ tốn bitrate; chỉ phát khi
-  client mất gói và xin lại (giảm băng thông, nhưng cần kênh feedback — xem protocol).
-- **Slicing**: chia frame thành nhiều slice để mất một gói chỉ hỏng một dải, không cả frame.
+## 3. Sources: enumeration and selection
 
-### Đầu ra
-NAL units (Annex-B hoặc length-prefixed) + metadata: `frameType (IDR/P)`, `timestampUs`,
-`frameId`. Chuyển sang TransportModule để packetize.
+- **Windows windows** — `capture/WindowFinder.h`: `ListCapturableWindows()` filters EnumWindows
+  results down to visible, unowned, titled, non-cloaked top-level windows (excluding Deskhub
+  itself), sorted by area descending; `FindWindowByProcessName()` serves the CLI path. Exposed to
+  C# as `dh_list_windows`.
+- **Windows displays** — `capture/DisplayFinder.h`: `ListDisplays()` returns `HMONITOR`s with
+  synthetic names ("Display 1 (primary)"), primary first. Exposed as `dh_list_displays`.
+- **macOS** — `agent/SourceEnum.h`: `GetShareSources()` asks `SCShareableContent` (the same source
+  of truth ScreenCaptureKit captures from, so the list can never contain uncapturable windows),
+  displays listed before windows, self/untitled/tiny windows filtered. Blocks ~2 s; returns an
+  empty list when Screen Recording permission is missing.
 
-## 4. TransportModule (phía Agent)
+A `CaptureTarget` holds exactly one of window/display handle (`capture/WindowCapture.h`,
+`agent/CaptureTypes.h`). Wire-level `deskhub::SourceInfo.kind` distinguishes `Window` from
+`Display` because their privacy implications differ. Source ids are assigned incrementally and
+**never reused** within a run, so a client holding a stale `SOURCE_LIST` cannot HELLO into the
+wrong source. Sources added mid-session go through a `pendingAdds` list with a 10 s first-frame
+deadline before `attachSession` promotes them.
 
-Phần **packetize/depacketize + pacing + phiên** nằm trong `core/` (chung mọi OS); chỉ lớp
-socket là per-OS (winsock/BSD), và phía host còn có binding **WebTransport/QUIC** để phục vụ
-web client — cả hai bơm vào cùng `HostSession` qua `IHostTransport` (`11-platform-transport.md`
-§2). Nội dung dưới đây mô tả hành vi chung, không phụ thuộc socket cụ thể.
+**Capture backends.** Windows uses Windows Graphics Capture: event-driven `FrameArrived` delivering
+BGRA D3D11 textures that are only valid inside the callback (`capture/CaptureTypes.h`). macOS uses
+ScreenCaptureKit configured for NV12 (`'420v'`) so VideoToolbox needs no color conversion; only
+`SCFrameStatusComplete` frames are processed, sizes are rounded down to even, and a 500 ms watcher
+in `ScreenCapture.mm` calls `updateConfiguration` on source resize because SCStream never resizes
+its buffers on its own.
 
-- **Gửi video**: nhận NAL, cắt theo MTU (~1200 byte payload để an toàn qua Internet),
-  gắn header (xem protocol §video), gửi UDP. Không chờ ACK.
-- **Nhận input/control**: đọc gói UDP đến, tách theo kênh, đẩy tới InputInjector hoặc SessionManager.
-- **Pacing**: rải gói của một frame đều trong khoảng frame để tránh burst gây mất gói.
-- **Congestion feedback**: nhận báo cáo mất gói/RTT từ client → điều chỉnh bitrate encoder (§control).
+## 4. Encoders
 
-## 5. InputInjector — phần khó ngầm
+**GPU selection (Windows).** `capture/GpuSelect.h` creates **one** D3D11 device shared by capture
+and encode (preference NVIDIA → Intel → AMD, falling back to WARP software rendering) — textures
+must never cross devices or every frame takes a round trip through system memory.
 
-> **Bản tham chiếu Windows.** macOS bơm bằng CGEvent (Quartz), Ubuntu bằng uinput/XTest
-> (§1b) — cùng bài toán (fallback dần, ánh xạ toạ độ, giành focus, nhả phím an toàn), khác
-> API. Anti-cheat kernel chặn được cả ba; đây là giới hạn chung, không riêng OS nào.
+**Backend selection (Windows).** `encode/EncoderFactory.cpp` tries backends in order and returns
+the first whose `Init` succeeds: 1) `NvencEncoder`, 2) `MfEncoder` (Media Foundation, which itself
+picks a hardware MFT for the device — Intel QSV, AMD — or software). No capability probing: `Init`
+failing is the reliable signal. Both implement `encode/IVideoEncoder.h`: D3D11 texture in, Annex-B
+NAL out via a synchronous `onPacket`, plus `SetBitrate` for mid-stream congestion control without
+an encoder rebuild. `EncoderConfig` carries both the even encode size and the true (possibly odd)
+texture size so the video processor crops instead of scaling.
 
-### Chiến lược nhiều tầng (fallback dần)
+**IDR on demand.** NVENC is configured with `NVENC_INFINITE_GOPLENGTH` and `repeatSPSPPS = 1`:
+no periodic keyframes; an IDR (with SPS/PPS attached) is emitted only when `Encode` is called with
+`forceKeyframe` (`NV_ENC_PIC_FLAG_FORCEIDR | OUTPUT_SPSPPS`). `MfEncoder` requests keyframes via
+`ICodecAPI` where supported and falls back to recreating the transform on drivers that ignore it
+(see `MfEncoder.cpp`). The request originates as the `forceIdr` atomic set by `onStart`,
+`onKeyframeRequest`, or a resize. Note: `HostSession` parses `INVALIDATE_REF` and offers an
+`onInvalidateRef` callback, but neither agent loop wires it — hosts currently ignore that message
+and recover via NACK retransmit or a requested IDR.
 
-1. **`SendInput` (mặc định)**: bơm chuột/phím cấp Windows. Chạy với đa số ứng dụng và game
-   dùng Windows message. Chuột dùng tọa độ tuyệt đối chuẩn hóa hoặc chuyển động tương đối.
-2. **Nếu game bỏ qua** (Raw Input/DirectInput đọc thẳng thiết bị): dùng
-   - **Interception driver** (bàn phím/chuột cấp driver), hoặc
-   - **ViGEmBus** cho **gamepad ảo** — nhiều game console-port nhận gamepad tốt hơn chuột phím giả lập.
-3. **Anti-cheat**: một số game (kernel anti-cheat) chặn cả driver ảo. Ghi rõ đây là giới hạn,
-   không cố vượt — chỉ hỗ trợ game cho phép.
+**macOS.** `agent/VtEncoder` is the single backend (no abstract interface — VideoToolbox runs on
+every Mac). Configured RealTime, no frame reordering, infinite GOP with IDR on demand, CBR-ish via
+data-rate limits. Its `.mm` converts VideoToolbox's AVCC output to Annex-B and prepends SPS/PPS to
+every IDR, matching the NVENC `repeatSPSPPS` contract that mid-stream joiners depend on.
 
-### Ánh xạ tọa độ
-Client gửi tọa độ theo **hệ chuẩn hóa 0..1 tương đối với vùng client của cửa sổ game**, kèm
-kích thước frame lúc client render. Agent quy đổi về pixel trong cửa sổ game (cửa sổ có thể
-đã resize — dùng `GetClientRect` như code hiện tại đang làm cho capture).
+## 5. Session lifecycle and security
 
-### Vấn đề focus
-`SendInput` gửi tới cửa sổ đang focus. Nếu game không focus, input đi sai chỗ. Giải pháp:
-`SetForegroundWindow`/`AttachThreadInput` để đưa game lên trước, hoặc dùng `PostMessage`
-trực tiếp tới HWND (kém tin cậy với game). Ghi nhận là điểm cần kiểm thử.
+`deskhub::HostSession` (`core/include/deskhub/session/HostSession.h`) is a per-source state
+machine: `Idle → (Authenticating →) Ready → Streaming`. One client per source-session (v1): a HELLO
+from a different `clientId` while Ready/Streaming is rejected with `HELLO_ACK codec=Rejected,
+reason=Busy`. A HELLO without H.264 in its codec mask is rejected with `CodecMismatch`. Rejects
+reuse the `HELLO_ACK` message so clients get an immediate, reasoned answer instead of a timeout.
 
-## 6. SessionManager
+**Password gate** (`core/include/deskhub/auth/AuthGuard.h` + `PasswordAuth.h`). On HELLO,
+`AuthGuard::OnHello` returns one of three outcomes: `Allow` (no password required, or the
+presented 32-byte device token hashes to a remembered trusted device), `NeedChallenge`, or
+`Reject`. The challenge flow is classic challenge-response so the password never crosses the wire:
+host sends `AUTH_CHALLENGE` (16-byte salt, iteration count — 100 000, carried on the wire rather
+than hard-coded — and a fresh 32-byte nonce); client computes `key = PBKDF2(password, salt, iters)`
+and `proof = HMAC-SHA256(key, nonce ‖ clientId)`; host verifies with a constant-time compare. Wrong
+answers count toward a lockout (3 tries → 5 minutes, `kMaxWrongTries`/`kLockoutUs`); a pending
+challenge expires after 30 s and only one exists at a time. On first success the host mints a random
+device token, stores only its SHA-256 (`Remember`, max 32 devices) and sends the original **once**
+in the `HELLO_ACK` — retransmitted ACKs never carry it again. `PasswordAuth.h` states the limits
+plainly: the stored key is password-equivalent for this host, and nothing here encrypts the
+session — video/input/clipboard still travel in the clear.
 
-- Xử lý **handshake** (§protocol): thương lượng codec, độ phân giải, fps, bitrate, khả năng GPU.
-- Quản lý **vòng đời phiên**: chờ client → thiết lập → streaming → teardown.
-- Một phiên = một client (giai đoạn đầu). Multi-client để sau.
+**Wiring status:** the gate is fully implemented and enforced in core, but neither desktop frontend
+currently calls `HostSession::auth()` configuration (`SetPassword`/`SetKey`/`SetRequirePassword`),
+nor `SetAskBeforeInput`/`GrantInput`, nor persists `onTrustedDevicesChanged`. With defaults
+(`requirePassword()` false) every HELLO takes the `Allow` path today; the Settings UI that turns
+the gate on has not landed.
 
-## 7. ControlLoop (điều phối)
+**Session integrity.** Session ids come from the OS CSPRNG via the `randomBytes` callback
+(`deskhubp::RandomBytes` — core cannot touch the OS). If entropy is unavailable the host **fails
+closed**: it rejects the connection rather than fall back to a guessable id or a fixed nonce.
+`InSession()` additionally requires `sessionId != 0`, closing the window where a forged
+`sessionId=0` START during handshake would jump straight to Streaming.
 
-```
-Khi FrameArrived:
-    tex, ts = capture.GetFrame()
-    if tex is null: return                     # pool đổi size, bỏ frame
-    force = keyframeRequested.exchange(false)
-    encoder.Encode(tex, ts, force)             # callback → transport.SendVideo(nal)
+**Timeouts and teardown.** Every valid in-session packet feeds `lastRecvUs_`;
+`HostSession::Tick` disconnects after 5 s of silence (`kSessionTimeoutUs`). `BYE` disconnects
+immediately (and deliberately returns `false` so the loop does not update the peer from it). On
+disconnect the loop clears the peer, calls `InputInjector::ReleaseAll` (a client that vanishes
+mid-keypress must not leave keys stuck), and resets the retransmit cache. Shutting a source down
+(`shutdownPipeline`) sends a courtesy `BYE`, stops capture, finishes the encoder, and is idempotent.
 
-Luồng nhận (song song):
-    khi có gói input:  injector.Inject(decode(pkt))
-    khi có control msg: sessionManager.Handle(pkt)   # đổi bitrate, xin IDR, ping...
-```
+## 6. Input on the host side
 
-## 8. Threading
-- **Capture callback** (WGC free-threaded pool): lấy frame, đẩy encode. Giữ nhẹ.
-- **Encoder**: có thể async; đọc kết quả trên luồng riêng.
-- **Network RX**: một luồng đọc UDP, phân loại kênh.
-- Dùng hàng đợi không khóa hoặc khóa ngắn giữa các luồng; tránh chặn capture callback.
+Injection details live in `07-input.md`; the agent-loop contract is:
 
-## 9. Đầu vào dòng lệnh
-Hiện `main` không tham số sẽ hiện picker chọn cửa sổ; đã có các mode `--encode`, `--loopback`.
-GĐ3 thêm vai trò host:
-```
-client.exe <game.exe> --serve [--port 47777] [--bitrate 20] [--fps 60]
-```
+- `cb.onInput` hands sanitized, in-order `deskhub::InputEvent`s (via `deskhub::InputReceiver`
+  inside `HostSession`) to `InputInjector::Apply` on the Recv thread. `HostSession` drops
+  `INPUT_EVENT` entirely when input is disallowed and advertises that in `HELLO_ACK`
+  (`kAckFlagInputAccepted`), so view-only clients never draw input UI.
+- **Focus gating.** `SendInput`/`CGEventPost` deliver to whatever is foreground, so the injector
+  only injects while the shared window (or its owning app on macOS) is actually foreground;
+  otherwise events are dropped and counted in `skipped()`. `SET_FOCUS` from the client triggers
+  `cb.onFocus` → `InputInjector::FocusTarget()` to raise the right source window (only when input
+  is enabled); focus-loss releases held keys. Full-screen sources skip the gate — there is no
+  "other app" outside what is shared.
+- **`LocalInputMonitor` ("host wins").** Watches *physical* mouse/keyboard activity (Windows:
+  low-level hooks on a dedicated message-pump thread, filtering `LLKHF_INJECTED`; macOS: an NSEvent
+  global monitor filtering events stamped with Deskhub's `kCGEventSourceUserData` marker). While
+  the local user is active, remote input yields for ~1 s — preventing cursor tug-of-war and
+  cross-contaminated modifiers. Started only when `allowInput` is on.
+
+## 7. Windows specifics
+
+- **`ElevatedShare.h` / UAC.** UIPI silently swallows `SendInput` aimed at higher-integrity
+  processes (admin games), a symptom indistinguishable from network failure. The current relaunch
+  flow lives in the C# app (`client/windows/csharp/ElevationHelper.cs`): when starting a share that
+  needs control or a missing firewall rule, it relaunches `Deskhub.exe` with the `runas` verb,
+  passing the share request on the command line so the elevated instance resumes without
+  re-picking sources. The native `IsProcessElevated()` backs `dh_is_elevated` and the "input will
+  NOT reach apps running as administrator" warning in `RunAgent`; the older native
+  `RelaunchElevatedShare`/`ParseElevatedShareArgs` remain in `ElevatedShare.cpp` but have no
+  callers since the Win32 UI was removed.
+- **`net/Firewall.h`.** The host binds `INADDR_ANY` and Windows Firewall drops unsolicited inbound
+  UDP by default — the classic "LAN connect just times out". `EnsureHostFirewallRule()` adds a
+  program-scoped allow rule via `INetFwPolicy2` covering all three profiles (port-independent, so
+  the user can change ports). Adding requires admin (hence the UAC flow above); failure is a
+  warning, not fatal. `HostFirewallRulePresent()` is the read-only probe behind
+  `dh_host_firewall_rule_present`.
+- **`net/HostIdent.h`.** `LocalHostId()` is a stable per-machine 32-bit id (hashed registry
+  MachineGuid, falling back to the machine name) and `LocalHostName()` the display name. It only
+  exists so clients can merge ANNOUNCEs and de-duplicate saved machines — explicitly *not* a
+  security identifier.
+- **Discovery beacon.** `RunAgent` owns a `deskhub::Beacon`
+  (`core/include/deskhub/discovery/Beacon.h`) answering the three pre-session queries:
+  `DISCOVER → ANNOUNCE`, `LIST_SOURCES → SOURCE_LIST`, and probe `PING (sid=0) → PONG`. The beacon
+  only *builds* reply bytes; the Recv loop sends them back to the datagram's origin — deliberately
+  before `replyAddr` is updated, so a stranger probing the network can never hijack the session's
+  send path. `publishRows` refreshes the beacon's source list and `busy` flag each second, and
+  `SetAcceptsInput` mirrors the allow-input option so scanners can label view-only hosts. The
+  client-side counterpart (`net/Discovery.h`, `ScanForHosts`) broadcasts per-NIC; see
+  `04-protocol.md` §4.7.
+
+## 8. Clipboard sync (host side)
+
+Off by default (`AgentOptions::shareClipboard`); when off, `HostSession` drops incoming
+`CLIPBOARD` chunks without assembling them and `SendClipboard` is a no-op. When on:
+
+- **Outbound:** the platform `ClipboardSync` (Windows `ClipboardSync.h`: a clipboard-listener
+  thread with a message-only window; macOS `agent/ClipboardSync.h`: a 300 ms `changeCount` poll —
+  macOS has no change notification) reports local copies into a mutex-guarded mailbox; the Recv
+  loop drains it and calls `HostSession::SendClipboard` on the *first* streaming session (all
+  sessions belong to the same client, and receivers de-duplicate by content). Core chunks the text
+  (`kMaxClipboardChunk`, cap `kMaxClipboardBytes` = 64 KB, UTF-8 text only — no images/files in v1).
+- **Inbound:** `cb.onClipboard` (fired once `deskhub::ClipboardAssembler` completes a chunk set)
+  calls `ClipboardSync::SetRemoteText`. Both platform classes suppress the echo loop (setting the
+  clipboard re-triggers your own listener) by remembering the last set/seen text.
+
+## 9. macOS agent specifics
+
+The macOS agent (`client/macos/app/cpp/agent/`) is a deliberate port of the Windows loop — same
+pipeline-per-source structure, same routing, same cached-frame/keepalive/resize/pause logic — with
+these differences:
+
+- Non-blocking `AgentLoop` class API for SwiftUI (§1); status is polled, not pushed.
+- **Permissions** (`agent/Permissions.h`): missing permissions fail *silently* on macOS — no
+  Screen Recording means `SCShareableContent` only returns the app's own windows; no Accessibility
+  means `CGEventPost` "succeeds" without delivering anything. `Start` therefore refuses to run
+  without Screen Recording, and `InputInjector::Init` checks `HasAccessibility` and logs plainly.
+  Accessibility is only needed when `allowInput` is on. App-level flow: `14-macos-app.md`.
+- The frame cache is a retained `CVPixelBufferRef` (SCStream's queue depth is raised to tolerate
+  it) instead of a texture copy.
+- **No `Beacon`:** the macOS Recv loop answers `LIST_SOURCES` inline (`BuildSourceList`) but does
+  not answer `DISCOVER` or probe `PING`, so a macOS host does not appear in network scans and must
+  be reached by typed address.
+- One shared `LocalInputMonitor` is passed to every injector via `SetLocalMonitor` (Windows uses a
+  process-global timestamp instead).
+
+Transport-per-platform notes: `11-platform-transport.md`. Diagnostics counters emitted by both
+loops (encode ms, IDR size/burst, send failures, Recv-loop stalls): `09-diagnostics.md`.

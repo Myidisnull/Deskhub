@@ -7,7 +7,7 @@
 //   tiến trình ở mức CAO hơn. Hệ quả rất khó chẩn đoán: host chạy quyền thường vẫn
 //   bắt hình được game/ứng dụng chạy admin bình thường — hình vẫn hiện đẹp — nhưng
 //   SendInput bị nuốt IM LẶNG. Không lỗi, không cảnh báo, chỉ là bấm gì cũng không
-//   có gì xảy ra. (Xem docs/07-phase4-input.md.)
+//   có gì xảy ra. (Xem docs/07-input.md.)
 //
 // GIẢI PHÁP: TỰ KHỞI ĐỘNG LẠI Ở MỨC CAO HƠN
 //   Khi người dùng bấm Share có tick "cho phép điều khiển", ta chạy lại chính exe
@@ -24,7 +24,7 @@
 //   thói quen bấm Yes ở UAC mà không đọc. Chỉ xin đúng lúc tính năng thật sự đòi.
 //
 // LIÊN QUAN: main.cpp (đường vào của instance admin), ui/MainMenuWindow.cpp (nơi
-//            gọi relaunch), input/InputInjector.h, docs/07-phase4-input.md
+//            gọi relaunch), input/InputInjector.h, docs/07-input.md
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

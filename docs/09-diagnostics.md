@@ -1,103 +1,225 @@
-# 09 — Log chẩn đoán điểm nghẽn
+# 09 — Diagnostics
 
-Hệ thống log `[DIAG]` trả lời câu hỏi: **khi giật/lag, khúc nào của đường ống đang
-nghẽn** — encoder, đường gửi, mạng, hay đường nhận/decode. Thiết kế ra đời từ phép đo
-`06-phase3-transport.md` §7b (chùm mất 384 gói, nghi vấn "mất thật vs tới muộn" chưa
-được phân xử).
+Deskhub hunts latency and stutter bottlenecks with a structured, always-on log
+stream tagged `[DIAG]`. This document is the reference the code comments point
+at ("docs/09"): the line format, how to capture the log on each platform, the
+complete event catalog, and how to read the numbers.
 
-Nguyên tắc: **đường nóng chỉ cộng bộ đếm** (atomic/biến local, không I/O); mọi thứ in
-ra ở nhịp thống kê 1 giây có sẵn hoặc khi có sự kiện hiếm. Core (`Reassembler`) phát
-sự kiện qua callback `onFrameDrop`, không printf — đúng luật "core không I/O".
+Related: 06-transport.md (packetizer/FEC/burst-loss analysis referenced by the
+send-side events), 02-agent.md (host pipeline), 03-client.md (viewer pipeline).
 
-## 1. Cách thu log
+## Philosophy
 
-Log `[DIAG]` **luôn bật, không có cờ**: diag chỉ thêm in log (bộ đếm luôn chạy, chi
-phí không đáng kể), và khi sự cố xảy ra thì log đã-có-sẵn đáng giá hơn phải tái hiện
-lại.
+- **Always on.** There is no flag to enable diagnostics and none to disable
+  them (`client/windows/cpp/Diag.h`, and the Android note in
+  `client/android/app/src/main/cpp/ClientLoop.cpp`: no `DESKHUB_DIAG` flag —
+  logcat filters by tag, so `[DIAG]` is simply always emitted). The counters
+  run regardless; diag only adds log lines. When something goes wrong, a log
+  that already exists is worth far more than a reproduction attempt.
+- **One event per line, designed for grep.** The uniform shape is:
 
-**Windows** — tick **"Save diagnostic log to a file next to this program"** ở màn
-hình chính, rồi bấm Share hoặc Connect như bình thường. Hết phiên, một hộp thoại chỉ
-đúng đường dẫn file. Tên file tách theo vai trò, nên gom log hai máy vào một thư mục
-không sợ đè nhau:
+  ```
+  [DIAG][<source>] evt=<name> k1=v1 k2=v2 ...
+  ```
+
+  On the host, `<source>` is the name of the shared window/display
+  (`SourcePipeline::name`), or the literal `agent` for events that belong to
+  the receive loop as a whole. Client-side emitters print `[DIAG]` with no
+  source component (a viewer shows exactly one source). This is the file users
+  attach when asked for remote diagnostics.
+- **Never block the hot path.** Counters are windowed atomics
+  (`DiagAtomicMax` in `client/windows/cpp/Diag.h` is the shared CAS-max
+  helper); printing happens on the receive loop, once per second, or on rare
+  events. On Windows, disk I/O is additionally decoupled from the emitting
+  thread (see below). The core stays I/O-free: `Reassembler` reports drops
+  through the `onFrameDrop` callback and lets each client attach
+  printf/logcat.
+
+Two per-second **status lines** accompany the `[DIAG]` stream and are part of
+the same diagnosis workflow: `[Agent][<source>] <state> | capture N fps |
+send N fps, N kbps | input N (lost N, skipped N)` on the host, and
+`[Client] N fps | N kbps | dropped N frame | lost N% pkts | fec+N | RTT N ms |
+e2e ~N ms` on the client. The input triple is the input-stage telemetry:
+`applied` counts events delivered to the injector, `lost` counts sequence
+gaps, and `skipped` counts events the injector refused at the focus gate —
+the only number that distinguishes "typing does nothing" from "packets never
+arrived".
+
+## Capturing the log
+
+### Windows
+
+`client/windows/cpp/DiagLog.h` / `DiagLog.cpp` (`StartProcessLog`) redirect
+the **entire process output** — every `printf`/`wprintf` on stdout and stderr,
+including all `[DIAG]` lines — into one file next to the executable, from
+process start until exit. There is no checkbox and no console window anymore:
+the log always exists when you need to send it. Redirection happens at
+startup rather than at session start because failures cluster around
+negotiation and session setup — enabling logging on demand would miss exactly
+the part that matters.
+
+- **File name:** `deskhub-<yyyymmdd>-<hhmmss>-<pid>.log`, using **local**
+  time (users correlate with the wall clock: "it stuttered around 8:30").
+- **One file per process.** The pid keeps the normal instance and the
+  elevated instance apart when both start within the same second: sharing
+  with control relaunches `Deskhub.exe` under UAC (`runas` verb) with a
+  `--share` command line (`client/windows/csharp/ElevationHelper.cs`,
+  `client/windows/cpp/ElevatedShare.h`), so two processes may be logging at
+  once. The role (agent/client) is already on every line, so it is not
+  encoded in the name.
+- **Hot-path safety:** stdout gets a 256 KB full buffer (`_IOFBF`), so a
+  `printf` on the receive/encode path is a memcpy, not a disk write; a
+  detached background thread flushes every ~500 ms (at most one flush cycle
+  is lost on a crash). stderr shares the same file but stays unbuffered so
+  rare errors hit disk immediately.
+- If the file cannot be created (read-only directory, e.g. the exe under
+  Program Files), `StartProcessLog` returns false and the app runs without a
+  log. The first line of a successful log is
+  `[DiagLog] <name> started YYYY-MM-DD HH:MM:SS`.
+
+### Android
+
+All C++ logging goes through logcat with tag `Deskhub`
+(`client/android/app/src/main/cpp/Log.h`). Capture with:
 
 ```
-diag-agent-<ngày>-<giờ>.log    ← máy chia sẻ (host)
-diag-client-<ngày>-<giờ>.log   ← máy xem (client)
+adb logcat -s Deskhub
 ```
 
-> **Đừng dùng `client.exe > diag-host.log 2>&1`** (cách cũ ghi ở đây). Nó hỏng đúng
-> ca cần log nhất: bấm Share có bật điều khiển thì host chạy lại qua UAC thành TIẾN
-> TRÌNH MỚI, không kế thừa redirect của shell — file nằm lại **0 byte** (đã gặp
-> 21/07/2026). Thêm nữa, `>` của PowerShell 5.1 ghi ra UTF-16LE khiến ripgrep coi
-> file là nhị phân. Checkbox đi thẳng qua cả hai vấn đề: cờ `--diag-log` được truyền
-> sang instance admin, và file luôn là UTF-8 không BOM.
+`-s` filters to the tag and drops every other process's output.
 
-**Android**:
+### iOS
+
+`client/ios/app/cpp/Log.h` writes to **stderr** with a `[Deskhub] ` line
+prefix (deliberately `fprintf`, not `os_log`, to keep the printf-style call
+sites shared with Android). stderr flows into the Xcode debug console, and
+into Console.app when running on a device.
+
+### macOS
+
+`client/macos/app/cpp/Log.h` is the same stderr mechanism, shared by **both
+roles** (client and agent). Read it in the Xcode console, or in the Terminal
+when the app is launched from the command line.
+
+## Event catalog — host side
+
+Emitted by `RunAgent` in `client/windows/cpp/AgentLoop.cpp` and
+`client/macos/app/cpp/agent/AgentLoop.cpp` (same event names and fields on
+both). Per-source events carry `[DIAG][<source>]`; loop-wide events carry
+`[DIAG][agent]`.
+
+| Stage | Event | Fields | Meaning |
+|---|---|---|---|
+| Encode | `evt=sum` (per source, 1 s) | `enc_ms_avg`, `enc_ms_max` | Encode wall time over the 1 s window (measured around `IVideoEncoder::Encode` in `SourcePipeline::DiagEncode`): average and worst case in ms. |
+| Encode | `evt=sum` (cont.) | `idr` | Number of IDR (key) frames sent in the window. |
+| Encode | `evt=enc_fail` | `idr` (0/1), `ms` | An encode call returned failure; `ms` is how long it ran before failing. Catches the previously silent failure on the keepalive/static-IDR path — a dead encoder on a static source means the viewer shows nothing, with no trace. |
+| Send | `evt=sum` (cont.) | `burst_ms_max` | Worst per-frame send burst in the window: time from the first to the last UDP packet of one frame (measured around `Packetizer::SendFrame`). |
+| Send | `evt=sum` (cont.) | `send_fail` | Count of `sendto` failures in the window (send buffer full, …) — packets lost **at the host** before they ever reach the network. |
+| Send | `evt=idr` | `bytes`, `pkts`, `burst_ms` | One IDR frame left the host: encoded size, packet count, and send-burst duration. Recorded on the encode thread, printed on the receive loop to keep I/O off the hot path. IDR size is the single most important host-side number for diagnosing burst loss (06-transport.md §5). |
+| Loop health | `evt=sum` (`[agent]`, 1 s) | `loop_busy_ms_max` | Longest single iteration of the receive loop in the window. |
+| Loop health | `evt=recv_stall` (`[agent]`) | `busy_ms` | Immediate warning (no 1 s wait) when one receive-loop iteration exceeded 250 ms — while the loop is busy, nobody drains the UDP socket. |
+
+Capture rate itself is on the `[Agent]` status line (`capture N fps` vs
+`send N fps`): a healthy capture rate with a sagging send rate points into
+encode/send; a sagging capture rate points at the source.
+
+## Event catalog — client side
+
+Emitted by `ClientLoop` in `client/android/app/src/main/cpp/ClientLoop.cpp`,
+`client/ios/app/cpp/ClientLoop.cpp`, and
+`client/macos/app/cpp/client/ClientLoop.cpp` (identical names and fields).
+The Windows viewer (`client/windows/cpp/ClientApi.cpp`, headless) computes
+the same stats and e2e estimate but currently emits **no** client-side
+`[DIAG]` lines.
+
+| Stage | Event | Fields | Meaning |
+|---|---|---|---|
+| Receive/assemble | `evt=frame_drop` | `id`, `reason`, `miss=<missing>/<total>`, `pos`, `idr` (0/1), `waited_ms`, `got_bytes` | Autopsy of one frame the `Reassembler` gave up on (`Reassembler::FrameDropInfo`, `core/include/deskhub/transport/Reassembler.h`). `reason` ∈ `timeout` (2 frame intervals passed, pieces still missing), `overtaken` (≥2 newer complete frames passed it), `evicted` (pending queue full), `pre_idr` (intact frame swallowed while waiting for an IDR — not packet loss). `pos` places the missing run: `head`/`tail`/`mid`/`all`, or `-` when nothing is missing; `tail` is the signature of burst loss (06-transport.md §5). `waited_ms` = first piece → drop; `got_bytes` = bytes that did arrive. |
+| Receive/assemble | `evt=sum` (1 s) | `asm_ms=<avg>/<max>` | Assembly time per completed frame: first piece arrived → frame complete (`Reassembler::Frame::firstSeenUs`). |
+| Receive/assemble | `evt=sum` (cont.) | `late`, `late_ms_avg`, `late_ms_max` | Packets that arrived **after** their frame was already dropped as "lost" (`Reassembler::Stats::latePackets` via `LinkWindow`). This is the arbiter of "real loss vs late arrival": if `late` accounts for most of the loss, the packets exist — the reassembly deadline just expires before the tail arrives. |
+| Receive/assemble | `evt=sum` (cont.) | `gap_ms_max` | Longest silence between two consecutive video packets in the window (`Reassembler::TakeMaxGapMs`). Gaps of ~100+ ms point at Wi-Fi congestion/power-save: packets bunch up somewhere and arrive in a clump. |
+| Decode | `evt=sum` (cont.) | `dec_ms=<avg>/<max>` | Decode(+enqueue) wall time per frame, measured on the decode thread. |
+| Decode | `evt=sum` (cont.) | `dq_drop` | Frames discarded because the decode queue was full (the oldest frame is dropped, never the newest) — the decoder is not keeping up with the network. |
+| Recovery | `evt=kf_req` | `reason` | The client started asking the host for a keyframe. `reason` ∈ `loss` (`Reassembler::TakeLossEvent`), `wait_idr` (still swallowing frames until an IDR arrives), `dec_fail` (decoder failed and was torn down), `q_overflow` (decode queue overflowed). Logged only on the transition into the pending state, however often the request is re-sent. |
+| Recovery | `evt=idr_rx` | `bytes`, `after_ms` | The requested IDR arrived: its size and the time since the matching `kf_req` — the picture-recovery time the user actually experienced. |
+| Loop health | `evt=sum` (cont.) | `loop_busy_ms_max` | Longest net-loop iteration in the window. |
+| Loop health | `evt=recv_stall` | `busy_ms` | Immediate warning when one net-loop iteration exceeded 50 ms. While the loop is stalled the kernel UDP buffer is the only slack — overflow there is real, self-inflicted packet loss. |
+
+## LatencyTrace and end-to-end latency
+
+**Which stages carry timestamps.** The host stamps each frame with its clock
+at the moment the frame is handed to the encoder (`SourcePipeline::DiagEncode`
+passes `NowUs()` into `Encode`; the value travels on the wire as
+`VideoHeader::timestampUs`). `HelloAck::timebaseUs` carries the host clock at
+negotiation. On the client, the `Reassembler` records `firstSeenUs` per frame
+(feeds `asm_ms`), the decode thread measures around `Decode` (feeds
+`dec_ms`), and RTT comes from the session ping/pong (`onRtt` callback /
+`lastRttUs`).
+
+**How e2e is computed** (identical in all four viewer loops — e.g.
+`ClientLoop::DecodeThread` on macOS and the mirrored block in
+`client/windows/cpp/ClientApi.cpp`): the two machines' clocks are not
+synchronized, so the client estimates the offset —
 
 ```
-adb logcat -s Deskhub > diag-android.log
+ackDeltaUs = client clock at HELLO_ACK − HelloAck::timebaseUs
+offset     = ackDeltaUs − minRTT/2        // minimum RTT ever seen
+e2e        = now − offset − frame timestampUs
 ```
 
-Khi cần chẩn đoán: chạy đúng kịch bản tái hiện, gom **cả hai file** (host + client)
-quanh 1–2 phút lúc giật.
+The minimum RTT is used because the smallest sample is the least polluted by
+queueing. `core/include/deskhub/control/ClockSync.h` is the core home of this
+estimator (a min-filter over per-frame clock deltas plus rtt/2, refreshed
+every 10 s — `kClockRefreshUs` — to track clock drift) and documents its
+limits: it **assumes a symmetric path**; asymmetry (common on Wi-Fi and
+Tailscale) shifts the number by exactly the asymmetric part. Treat e2e as an
+estimate of "host capture → client display", shown on the `[Client]` status
+line and the on-screen overlay.
 
-## 2. Định dạng
+**LatencyTrace** (`core/include/deskhub/control/LatencyTrace.h` + `.cpp`) is
+the ring buffer behind the latency sparkline on the overlay and the "Link
+check" screen (drawn by `client/windows/csharp/Controls/Sparkline.cs`): 60
+columns (`kLatencyTraceLen`) sampled every 320 ms (`kLatencySampleUs`) ≈ the
+last 19 seconds. Each bucket keeps the **maximum** measurement seen in its
+interval — the chart exists to expose spikes, and keeping the last value
+would let a 200 ms hiccup between two sample marks vanish. Buckets with no
+data repeat the previous column (a 0 would read as a perfect wire — the
+opposite of what just happened). `Snapshot` returns oldest → newest, and
+`Min`/`Max`/`Last`/`Avg` label the chart. Read it as "worst latency per
+320 ms": a flat line with isolated tall columns is periodic stutter; a
+staircase is queue buildup.
 
-Một sự kiện một dòng: `[DIAG][<nguồn>] evt=<tên> k1=v1 k2=v2 ...`
-Trường dạng `x=avg/max` là trung bình/đỉnh của cửa sổ 1 giây. Thời gian ms.
+## How to diagnose: localizing a bottleneck
 
-## 3. Sự kiện phía HOST (AgentLoop)
+Compare stages left to right; the first stage whose number explodes owns the
+problem.
 
-| Dòng | Khi nào | Ý nghĩa |
-|---|---|---|
-| `evt=idr bytes= pkts= burst_ms=` | mỗi IDR phát đi | Cỡ IDR — con số quyết định chẩn đoán chùm mất gói. `burst_ms` = thời gian bắn hết gói của frame đó. |
-| `evt=sum enc_ms_avg/max idr= burst_ms_max= send_fail=` | 1s | `enc_ms` = thời gian encode; `send_fail` = sendto trả lỗi (buffer gửi đầy — mất gói ngay tại host). |
-| `evt=sum loop_busy_ms_max=` | 1s | Thread Recv của host bận nhất bao lâu một vòng. |
-| `evt=recv_stall busy_ms=` | busy >250 ms | Thread Recv nghẽn — buffer UDP kernel đang gánh. |
+1. **Host encode?** Check `enc_ms_avg`/`enc_ms_max` in the host `evt=sum`.
+   Max spikes over a normal average = periodic stutter at the encoder;
+   `evt=enc_fail` = the encoder is failing outright (expect a blank viewer
+   on a static source).
+2. **Host send?** `send_fail > 0` means packets died in the host's own send
+   buffer. High `burst_ms_max`, and `evt=idr` with large `bytes`/`pkts`,
+   mean big frames leave as long bursts — correlate with client
+   `frame_drop … pos=tail` to confirm burst loss (06-transport.md §5).
+3. **Network?** Client `evt=frame_drop` plus the loss fields of the
+   `[Client]` status line. Then split "real loss vs late": if `late` in the
+   client `evt=sum` covers most of the loss, packets arrive after the
+   reassembly deadline (queueing) rather than disappearing. `gap_ms_max` in
+   the hundreds of ms points at Wi-Fi buffering/power-save.
+4. **Client receive loop?** Client `evt=recv_stall` / `loop_busy_ms_max`:
+   the viewer itself is stalling its socket, causing kernel-buffer loss that
+   looks exactly like network loss.
+5. **Client decode?** `dec_ms` avg/max and `dq_drop` in the client
+   `evt=sum`; `kf_req reason=dec_fail|q_overflow` names the decoder as the
+   trigger of a keyframe request.
+6. **Recovery quality.** For every visible freeze, pair `evt=kf_req` with
+   the following `evt=idr_rx`: `after_ms` is how long the user stared at a
+   stale frame, and `bytes` (vs the host's `evt=idr`) confirms which IDR
+   healed it.
+7. **Input feels dead?** On the host `[Agent]` status line, distinguish
+   `input … lost` (events never arrived — network) from `skipped` (arrived,
+   but the injector refused them at the focus gate).
 
-## 4. Sự kiện phía CLIENT (Windows + Android)
-
-| Dòng | Khi nào | Ý nghĩa |
-|---|---|---|
-| `evt=frame_drop id= reason= miss=x/y pos= idr= waited_ms= got_bytes=` | mỗi frame bị khai tử | Khám nghiệm: `reason` = timeout / overtaken / evicted / pre_idr; `pos` = chùm thiếu nằm head/mid/tail/all — **tail là dấu vân tay của burst**. |
-| `evt=kf_req reason=` | bắt đầu xin IDR | `reason` = loss / wait_idr / dec_fail / q_overflow. |
-| `evt=idr_rx bytes= after_ms=` | IDR về sau khi xin | `after_ms` lớn + `kf_req` dồn dập = vòng xoáy IDR. |
-| `evt=sum asm_ms= q_ms= dec_ms= dq_max= dq_drop= late= late_ms_avg/max= gap_ms_max= loop_busy_ms_max=` | 1s | Mổ xẻ trễ từng chặng — xem bảng dưới. (`q_ms`/`dq_max` chỉ có trên Windows.) |
-| `evt=recv_stall busy_ms=` | busy >50 ms | Thread Recv/Net của client nghẽn. |
-
-Các trường của `evt=sum` phía client:
-
-- `asm_ms` — mảnh đầu tiên tới → frame ghép xong (mạng rải rác / chờ mảnh).
-- `q_ms` — frame nằm chờ trong hàng đợi decode (decode không theo kịp).
-- `dec_ms` — decode + render một frame.
-- `dq_max` / `dq_drop` — độ sâu đỉnh của hàng đợi decode / số frame bị vứt vì đầy.
-- `late` / `late_ms_*` — **gói VỀ MUỘN**: mảnh tới SAU khi frame của nó đã bị khai tử
-  ("nghĩa địa" 16 frame trong `Reassembler`). Đây là phép đo phân xử §7b: `late`
-  chiếm phần lớn loss → không phải mất gói, là deadline hết hạn trước khi đuôi kịp tới.
-- `gap_ms_max` — khoảng lặng dài nhất giữa hai gói video liên tiếp (Wi-Fi
-  nghẽn/power-save thì con số này nhảy lên hàng trăm).
-
-## 5. Bảng tra: triệu chứng → điểm nghẽn
-
-| Triệu chứng trong log | Điểm nghẽn | Hướng sửa |
-|---|---|---|
-| `evt=idr bytes=` hàng trăm KB | Encoder không chặn cỡ IDR | VBV cho MfEncoder (NVENC đã có, `NvencEncoder.cpp:148`) |
-| `late=` ≈ phần lớn loss, `pos=tail` | Deadline Reassembler + đường truyền trễ, không phải mất thật | Nới deadline theo cỡ frame; giảm cỡ frame |
-| `send_fail=` >0, `burst_ms_max=` lớn | Đường gửi/buffer host | SO_SNDBUF, xem lại burst |
-| `gap_ms_max=` hàng trăm, `late=` cao | Wi-Fi nghẽn / power-save | DSCP, hạ bitrate, kiểm tra AP |
-| `dec_ms` / `q_ms` / `dq_drop` cao | Client đuối | Giảm độ phân giải/fps; xem codec client |
-| `kf_req` dồn dập + `idr_rx after_ms=` lớn | Vòng xoáy IDR | Chữa gốc loss trước, cân nhắc NACK |
-| `recv_stall` / `loop_busy_ms_max=` lớn | Thread bị OS bỏ đói hoặc kẹt việc | Nâng ưu tiên thread; tìm việc chặn trong vòng |
-| `enc_ms_max=` > khoảng frame (16 ms @60fps) | Encoder chậm | Preset/GPU load phía host |
-
-## 6. Vị trí code
-
-- Core: `deskhub/transport/Reassembler.h` — `FrameDropInfo`/`onFrameDrop`, thống kê
-  `latePackets`/nghĩa địa, `TakeMaxGapMs()`, `Frame::firstSeenUs`;
-  `deskhub/control/LinkStats.h` — `LinkWindow::latePackets/lateMsAvg/lateMsMax`.
-- Windows: `client/windows/Diag.h` (helper `DiagAtomicMax`), `AgentLoop.cpp` (H1–H3),
-  `ClientLoop.cpp` (K1–K4 + nối core).
-- Xuất log ra file: `client/windows/DiagLog.h/.cpp` (`DiagLogRedirect`, đặt tên theo
-  vai trò), checkbox ở `ui/MainMenuWindow.cpp`, cờ `--diag-log` qua UAC ở
-  `ElevatedShare.cpp`, đường instance admin ở `main.cpp`.
-- Android: `ClientLoop.cpp/.h` (bản rút gọn, không có `q_ms`/`dq_max`).
+Agent `recv_stall` fires above 250 ms, client above 50 ms — the client loop
+also paces decode and input, so it is held to a tighter budget.

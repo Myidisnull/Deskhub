@@ -22,7 +22,7 @@
 //
 // LIÊN QUAN: AgentLoop.cpp (kiến trúc luồng + định tuyến gói), ClientLoop.h (phía
 //            đối diện), capture/WindowCapture.h (CaptureTarget),
-//            docs/06-phase3-transport.md §4
+//            docs/06-transport.md §4
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

@@ -1,279 +1,286 @@
-# 14 — App macOS (SwiftUI + ScreenCaptureKit + VideoToolbox + CGEvent)
+# 14 — macOS App
 
-**Một app, CẢ HAI VAI** — kiểu AnyDesk, đúng như `client.exe` bên Windows
-(`01-architecture.md` §1). Đây là điểm khác căn bản so với iOS/Android: hai nền tảng
-đó là client-only vì sandbox chặn tuyệt đối việc bơm input vào app khác và việc mở
-cổng nghe (`11-platform-transport.md` §3); macOS thì làm được cả hai, chỉ cần người
-dùng cấp quyền.
+**One app, both roles.** Like the Windows reference build (01-architecture.md §1), the
+macOS app is a single SwiftUI application that can act as **Agent/host** (share a
+window or display of this Mac) and as **Client** (view and control another machine) —
+even both at the same time, since the two roles are independent objects behind the
+bridge. This is the fundamental difference from iOS/Android, which are client-only
+(11-platform-transport.md).
 
-**Trạng thái: 🔶 ĐÃ TRIỂN KHAI (cả agent lẫn client).** Chưa chạy kiểm chứng hai máy
-thật — xem §8.
+**Status: implemented, both roles, but not yet verified between two physical
+machines** — see §8.
 
-## 1. Phân chia Swift / C++
-
-`core/` dùng lại **y nguyên** (thuần C++20, không header hệ điều hành). Phần phải
-viết mới là các lớp mỏng platform-specific. Bảng dưới đọc theo cột: mỗi hàng là một
-vai trò, và ô macOS là file mới trong `client/macos/app/cpp` hoặc `app/swift`.
-
-| Vai trò | Windows | iOS | **macOS** |
-|---------|---------|-----|-----------|
-| datagram vào/ra | `net/UdpSocket.cpp` (winsock) | `net/UdpSocket.cpp` (BSD) | **`net/UdpSocket.cpp` — chép từ iOS** |
-| LIST_SOURCES trước phiên | `SourcePickerDialog` | `net/SourceQuery.cpp` | **`net/SourceQuery.cpp` — chép từ iOS** |
-| địa chỉ IPv4 của máy | `net/NetInfo.cpp` | — | **`net/NetInfo.cpp`** (getifaddrs) |
-| **client** decode + render | `MfDecoder` + `Renderer` | `VtDecoder` | **`client/VtDecoder.mm` — chép từ iOS** |
-| **client** vòng đời phiên | `ClientLoop.cpp` | `ClientLoop.cpp` | **`client/ClientLoop.cpp`** |
-| **client** bắt input | `input/InputCapture.cpp` | `TouchInputView` + `KeyInputView` | **`swift/RemoteView.swift`** |
-| **agent** capture | `capture/WindowCapture` (WGC) | — | **`agent/ScreenCapture.mm`** (SCStream) |
-| **agent** encode | `encode/NvencEncoder` | — | **`agent/VtEncoder.mm`** (VTCompressionSession) |
-| **agent** inject | `input/InputInjector` (SendInput) | — | **`agent/InputInjector.mm`** (CGEvent) |
-| **agent** liệt kê nguồn | `capture/WindowFinder` | — | **`agent/SourceEnum.mm`** (SCShareableContent) |
-| **agent** điều phối | `AgentLoop.cpp` | — | **`agent/AgentLoop.cpp`** |
-| **agent** "host thắng" | `input/LocalInputMonitor` | — | **`agent/LocalInputMonitor.mm`** |
-| clipboard hai chiều | `ClipboardSync.cpp` | — | **`agent/ClipboardSync.mm`** (NSPasteboard) |
-| ranh giới UI ↔ C++ | — | `DeskhubClient.mm` | **`DeskhubBridge.mm`** (thêm nhóm `dha_*`) |
-| bảng phím | (Raw Input cho sẵn scancode) | `core/KeyMap.h` | **`input/MacKeyMap.cpp`** |
-
-`UdpSocket`, `SourceQuery` và `VtDecoder` **chép từ iOS gần như không sửa** — lời hứa
-của `11-platform-transport.md` §5 được thu về tiền mặt lần thứ hai. Việc thật sự phải
-viết cho macOS là **ba backend của vai host** và **lớp bắt input desktop**.
-
-## 2. Vai AGENT — ba backend
-
-### 2a. Capture: ScreenCaptureKit
-
-`SCStream` là đối ứng chính xác của WGC: **theo sự kiện, không polling**, và **chỉ
-phát frame khi nội dung ĐỔI** (`SCFrameStatusComplete` vs `Idle`). Hệ quả quan trọng:
-**cơ chế cache frame cuối của `AgentLoop` vẫn cần y nguyên** — nguồn đứng im mà client
-xin IDR thì không có gì để nén, không cache thì client vào xem màn hình tĩnh sẽ đen
-vĩnh viễn (`02-agent.md` §7, và chú thích đầu `AgentLoop.cpp`).
-
-Ba điểm macOS phát sinh so với WGC, ghi vào `ScreenCapture.mm`:
-
-- **NV12 thẳng từ nguồn.** Cấu hình `pixelFormat = '420v'` nên VideoToolbox nhận đúng
-  thứ nó muốn. Bản Windows phải qua video processor để đổi BGRA→NV12; ở đây khỏi.
-- **Kích thước buffer CỐ ĐỊNH sau khi tạo stream.** Người dùng kéo cửa sổ to ra thì
-  SCStream vẫn giao buffer cũ với nội dung bị co lại, và **không có sự kiện nào báo**.
-  Nên `.mm` chạy một dispatch timer 500ms tự so cỡ nguồn với cỡ buffer và gọi
-  `updateConfiguration` khi lệch; frame sau đó về đúng cỡ mới và `AgentLoop` nhận ra
-  qua đúng đường `sizeChanged` như bản Windows.
-- **Cửa sổ đóng cũng không có sự kiện.** SCStream chỉ ngừng phát frame, và một nguồn
-  im lặng nhìn y hệt mạng hỏng. Cùng timer đó hỏi `CGWindowListCopyWindowInfo`; mảng
-  rỗng = cửa sổ đã đóng → `Closed()`.
-
-`queueDepth = 5` chứ không 3: `AgentLoop` **retain** một buffer làm cache frame cuối,
-và VideoToolbox giữ thêm một cái trong lúc nén. Retain rẻ hơn nhiều so với chép 12 MB
-mỗi frame ở 4K.
-
-### 2b. Encode: VTCompressionSession
-
-Cùng chính sách low-latency với NVENC (`02-agent.md` §3): `RealTime = true`,
-`AllowFrameReordering = false` (không B-frame), **GOP vô hạn + IDR theo yêu cầu**,
-`DataRateLimits` chặn burst. Không có lớp `IVideoEncoder` trừu tượng như Windows —
-Windows cần nó vì có bốn backend tuỳ GPU, macOS chỉ có một đường.
-
-**Chỗ dễ sai nhất: AVCC → Annex-B.** VideoToolbox xuất AVCC (tiền tố ĐỘ DÀI 4 byte,
-SPS/PPS nằm ngoài luồng trong `CMVideoFormatDescription`); giao thức Deskhub đòi
-Annex-B với **SPS/PPS đi kèm MỖI IDR** — đúng như NVENC bật `repeatSPSPPS`
-(`08-android-client.md` §3). Bỏ bước chèn SPS/PPS thì client kết nối giữa chừng không
-bao giờ giải mã được, vì `VtDecoder` bỏ mọi frame cho tới khi thấy tham số.
-
-Khác bản Windows một điểm về luồng: **callback `onPacket` KHÔNG chạy trên thread gọi
-`Encode()`** — VideoToolbox trả kết quả bất đồng bộ. `VtEncoder` khoá quanh phần thân
-callback nên các lời gọi vẫn nối tiếp và đúng thứ tự, thứ mà `Packetizer` đòi hỏi (nó
-single-thread, không tự khoá).
-
-### 2c. Inject: CGEvent
-
-Đối ứng `SendInput`, cùng ba cơ chế an toàn của bản Windows (`02-agent.md` §5):
-
-1. **Chốt foreground** — CGEventPost bơm vào ứng dụng đang foreground, không vào một
-   cửa sổ cụ thể. So pid của ứng dụng sở hữu cửa sổ nguồn với
-   `NSWorkspace.frontmostApplication`. Nguồn là cả màn hình thì bỏ chốt.
-2. **Chống kẹt phím** (`ReleaseAll`) — client mất kết nối giữa lúc giữ W.
-3. **Host thắng** (`LocalInputMonitor`) — người ngồi tại máy vừa dùng chuột/phím thật
-   thì input từ xa nhường 1 giây.
-
-Hai chỗ macOS phát sinh:
-
-- **Ánh xạ VK Windows → keycode Carbon.** Giao thức nói bằng VK + scancode PC
-  (`Wire.h`). Ta ưu tiên **VK** chứ không scancode — ngược bản Windows, vì scancode là
-  mã bàn phím PC còn macOS không có khái niệm tương ứng. Bảng ở `input/MacKeyMap.cpp`,
-  **một bản duy nhất**, dùng cho cả chiều ngược (vai client).
-- **Lọc chính input mình bơm ra.** Sự kiện CGEventPost quay trở lại qua
-  `LocalInputMonitor` y như sự kiện thật; không lọc thì mỗi phím từ xa tự đánh dấu
-  "người ngồi máy vừa gõ" và kênh điều khiển **tự khoá chính nó vĩnh viễn**. Ta đóng
-  dấu `kCGEventSourceUserData = kUserData` vào mọi sự kiện bơm ra — đúng vai cờ
-  `LLMHF_INJECTED` bên Windows, chỉ khác là phải tự đóng.
-
-Ngoài ra `clickState` phải tự đếm: macOS **không** tự suy ra double-click, ứng dụng
-đọc thẳng trường đó — không đặt thì hai cú click nhanh chỉ là hai click đơn.
-
-## 3. Vai CLIENT
-
-`ClientLoop` port sát bản iOS; ba thread và hai cơ chế đồng bộ (hàng đợi frame, bắt
-tay layer) giữ nguyên từng dòng — xem `12-ios-client.md` §3 và header của
-`client/ClientLoop.h`. `VtDecoder` chép từ iOS: `AVSampleBufferDisplayLayer` giống hệt
-nhau trên hai nền tảng, kèm nguyên caveat **e2e đo lúc ENQUEUE chứ chưa phải lúc lên
-màn hình** (`12-ios-client.md` §2).
-
-Phần khác iOS nằm trọn ở **kênh input**, vì macOS là máy desktop có bàn phím và chuột
-thật:
-
-- `QueueKey(vk, scan, down)` — nhấn/nhả **riêng biệt**, không phải "tap" ghép sẵn. Giữ
-  W để nhân vật chạy là điều bàn phím ảo iOS không làm được.
-- **Chuột tương đối dùng thật** — khoá chuột bằng **F9** như client Windows, qua
-  `CGAssociateMouseAndMouseCursorPosition(false)`. Bắt buộc cho game FPS
-  (`07-phase4-input.md` §5).
-- **Con lăn** và **clipboard hai chiều** (GĐ8) — hai máy desktop copy/paste qua lại.
-- `ReleaseAllInput()` khi view mất focus. iOS không có khái niệm này; ở đây thiếu nó
-  là kẹt phím ở máy kia cho tới khi timeout 5 giây.
-
-`RemoteView.swift` gộp **hiển thị + bắt input vào MỘT NSView** (iOS phải tách ba
-lớp). Lý do: một NSView vừa là first responder nhận trọn
-`keyDown`/`mouseMoved`/`scrollWheel`, vừa là view chứa layer video — tách ra chỉ tạo
-thêm ranh giới phải đồng bộ toạ độ.
-
-## 4. UI SwiftUI
-
-Một cửa sổ, năm màn, hai nhánh:
+## 1. Architecture and layering
 
 ```
-home ──► connect ──► sourcePicker ──► stream      (vai CLIENT)
-     └─► share                                    (vai HOST)
+SwiftUI views (App/ContentView/HomeView/ShareView/ConnectView/SourcePickerView/StreamView/RemoteView)
+        │  read models, call actions
+Swift models: SessionModel (client role), AgentModel (host role)   — @MainActor @Observable
+        │  the ONLY callers of the C facade
+Swift wrappers: DeskhubClient.swift (dh_*), DeskhubAgent.swift (dha_* + permissions)
+        │  via Deskhub-Bridging-Header.h
+C facade: client/macos/app/cpp/DeskhubBridge.h / .mm
+        │  two globals: g_client (ClientLoop) + g_agent (AgentLoop), one mutex each
+C++/ObjC++ role stacks: cpp/client/*, cpp/agent/*, cpp/net/*, cpp/input/*
+        │  reuse core/ (deskhub::ClientSession, HostSession, Packetizer, Reassembler,
+        │  BitrateController, RetransmitCache, Wire.h) unchanged
 ```
 
-Giao diện dựng theo **hệ thiết kế Deskhub** (dự án thiết kế `Deskhub App.html`), cùng
-bộ token và cùng năm màn desktop với bản Windows ở `client/windows/csharp`. Vỏ cửa sổ
-là **thanh rail 74px** bên trái (Machines / Connect / Share + nút sáng-tối + nút EN-VI)
-trên một nền có **một** nguồn sáng cobalt.
+- `client/macos/app/swift/App.swift` — entry point; one `WindowGroup` (default
+  1280×840, min 1040×680), no custom title bar.
+- `client/macos/app/swift/ContentView.swift` — navigation via a `Route` enum:
+  `home → connect → sourcePicker → stream` (client branch) and `home → share` (host
+  branch). A left `SideRail` (home / connect / share + theme and EN‑VI language
+  toggles, backed by `AppState`) is hidden on the `stream` route. `SessionModel` and
+  `AgentModel` are owned here so sessions survive navigation.
+- `DeskhubBridge.h` documents which facade calls **block**: `dh_list_sources` (~3 s),
+  `dha_list_share_sources` (~2 s), `dha_start` (up to ~10 s). Swift calls these via
+  `Task.detached`; everything else is safe on the main thread. `dh_set_layer`
+  deliberately drops the client mutex before waiting for the decode thread's ack,
+  otherwise main-thread status polls would deadlock (comment in `DeskhubBridge.mm`).
+- Prefixes: `dh_*` = client role + shared utilities (key map, permissions),
+  `dha_*` = agent role.
+- Logging (`cpp/Log.h`) is `fprintf(stderr)` — visible in the Xcode console; user-facing
+  errors must instead travel through `StatusLine()`/`EndReason()`.
 
-- **`DesignTokens.swift`** — bảng màu/cỡ chữ/bo góc, khớp từng con số với
-  `client/windows/csharp/Themes/Tokens.xaml`. Sáng/tối đi qua `NSColor` động +
-  `preferredColorScheme`, không có bộ đổi màu tự viết.
-- **`DesignText / DesignButtons / DesignSurfaces / DesignControls / DesignRows /
-  DesignLayout`** — các thành phần (nút bốn biến thể, ô tick, thẻ máy, dòng nguồn,
-  HUD, panel, khung màn). Tự viết thay vì dùng control mặc định: control của AppKit
-  lấy **màu nhấn của hệ điều hành**, mà cả hệ này xoay quanh đúng một màu tín hiệu.
-- **`HomeView`** — hai ô lớn (Connect / Share) + **Recent connections**
-  (`Recents.swift`, lưu trong `UserDefaults`).
-- **`ConnectView`** — ô địa chỉ hero cao 66px là trung tâm màn hình, ba panel chú thích
-  bên dưới, ô **View only** ở thanh dưới (chặn ở `SessionModel`, không ở view).
-- **`SourcePickerView` / `StreamView`** — chọn nguồn, rồi xem. `StreamView` **không có
-  thanh phím tắt** như iOS: macOS có bàn phím thật nên `RemoteView` gửi thẳng
-  Esc/Tab/F-key. Ngoại lệ duy nhất là F9 (phím thoát hiểm cho khoá chuột). Màn xem
-  **không có rail** và **luôn nền đen**, kể cả ở giao diện sáng.
-- **`ShareView`** — **gộp** màn chọn nguồn và màn phiên (trước đây là `ShareView` +
-  `SessionView`), đúng như bản thiết kế và bản Windows: địa chỉ để đọc cho máy kia, số
-  liệu sống, và danh sách nguồn có **ô tick sống** — tick giữa phiên là thêm/bớt nguồn
-  ngay, không phải dừng rồi share lại (bắt đầu lại sẽ ngắt người đang xem). Banner
-  quyền nằm **trên cùng** và nút Share bị khoá khi thiếu Screen Recording.
-- **`Strings.swift` + `AppState.swift`** — bảng chữ EN/VI đổi ngay tại chỗ bằng nút ở
-  chân rail, chép từ `i18n.jsx` và giữ đồng bộ với `Strings.cs` bên Windows. Không dùng
-  `NSLocalizedString`: cơ chế của Apple chọn ngôn ngữ theo cài đặt **hệ điều hành** và
-  cần khởi động lại app.
+**Threading model.** UI polls state on 500 ms `Timer`s in both models. Client role:
+three threads — Main (layer handover, polling, input queueing), Net (`recvfrom` with
+10 ms timeout → `ClientSession`/`Reassembler`), Decode (frame queue → `VtDecoder` →
+layer); see `cpp/client/ClientLoop.h`. Agent role: per source one SCStream capture
+queue, one VideoToolbox internal callback thread (serialized by
+`VtEncoder::emitMutex_`), plus a single shared Recv thread (`recvfrom` with 100 ms
+timeout) that routes packets, ticks all sessions and publishes stats; see the thread
+map at the top of `cpp/agent/AgentLoop.cpp`.
 
-Điều phối vẫn là "không View nào gọi thẳng hàm C": mọi lối đi qua `DeskhubClient.swift`
-/ `DeskhubAgent.swift`.
+## 2. Agent role (share this Mac)
 
-Khác bản Windows một điểm kiến trúc: `RunAgent()` bên Windows **chặn** tới hết phiên.
-Ở đây UI là SwiftUI trên main thread nên `AgentLoop::Start()` dựng thread Recv rồi trả
-về ngay, và UI hỏi trạng thái 500ms/lần.
+`AgentLoop` (`cpp/agent/AgentLoop.h/.cpp`) is the host orchestrator. Unlike the
+Windows `RunAgent()`, `AgentLoop::Start()` does not block for the session lifetime:
+it opens the socket, builds one `SourcePipeline` per source, waits for each source's
+first frame (up to 10 s, to learn the size offered in HELLO_ACK), then spawns the
+Recv thread and returns. Notable behavior, all as coded:
 
-## 5. Quyền hệ thống — đọc mục này trước khi báo lỗi
+- **One UDP socket for all sources** (GĐ6). If the requested port is busy it retries
+  upward (up to 64 ports); `dha_port()` reports the port actually bound. Packet
+  routing: `LIST_SOURCES` answered with all live sources; `HELLO` routed by
+  `sourceId`; everything else by `sessionId`. Source ids are never reused.
+- **Live add/remove.** `AddSource`/`RemoveSource` only post to a command mailbox; the
+  Recv thread executes them on its next loop (this is why ShareView's checkboxes work
+  mid-session without dropping the viewer).
+- **IDR on demand + last-frame cache.** SCStream only delivers frames when content
+  changes, so the pipeline retains (not copies) the last `CVPixelBufferRef`; a
+  pending IDR request on a static source re-encodes the cached frame (after 200 ms of
+  silence), and a ~2 fps keepalive re-encode keeps the client's presentation clock
+  running. `forceIdr` is an atomic flag consumed on the capture path.
+- **Resize / minimize handling.** Size changes rebuild the encoder and send
+  `RECONFIG` + IDR; sources smaller than 160×64 (`kMinEncodeW/H`) are *paused*, not
+  failed, and resume when the window grows back. A closed window shuts down only that
+  pipeline; the session keeps running.
+- **Congestion control & recovery.** Per-source `deskhub::BitrateController` acts on
+  `FEEDBACK` (bitrate changes via `VtEncoder::SetBitrate`, FEC toggle), and a
+  `RetransmitCache` answers NACKs (GĐ7) instead of forcing an IDR.
 
-Trên macOS, thiếu quyền **không báo lỗi** mà im lặng cho ra kết quả sai. Đây là bản
-macOS của bẫy UIPI bên Windows (`ElevatedShare.h`).
+Component specifics:
 
-| Quyền | Cần cho | Thiếu thì |
-|-------|---------|-----------|
-| **Screen Recording** | vai host (liệt kê nguồn + bắt hình) | `SCShareableContent` chỉ trả về cửa sổ **của chính Deskhub** → danh sách nguồn gần như trống |
-| **Accessibility** | bơm input + "host thắng" | `CGEventPost` chạy "thành công" nhưng **không sự kiện nào tới ứng dụng đích** |
-| **Local Network** | mọi vai (macOS 15+) | gói UDP nội mạng bị chặn im lặng |
+- **`agent/SourceEnum.mm` — enumeration.** Uses `SCShareableContent`
+  (excluding desktop windows, on-screen only) rather than `CGWindowList`, so the list
+  matches exactly what ScreenCaptureKit can capture. Displays first (pixel sizes from
+  `SCDisplay`), then windows labeled "App — Title", converted points→pixels with the
+  backing scale of the screen with the largest overlap. Filters out Deskhub's own
+  windows, untitled windows, and anything under 120 px. Synchronous wrapper over the
+  async API with a 2 s semaphore timeout — must be called off the main thread.
+- **`agent/ScreenCapture.mm` — capture.** One `SCStream` per source. Configuration:
+  pixel format `420v` (NV12 video-range, fed straight to VideoToolbox with no color
+  conversion), `minimumFrameInterval = 1/fps` (a *cap* — frames arrive only on
+  change), `showsCursor = YES`, `queueDepth = 5` (AgentLoop retains one buffer as
+  cache, VideoToolbox holds another), `scalesToFit = NO`, no audio. Only
+  `SCFrameStatusComplete` frames are forwarded; timestamps are the project clock
+  (`NowUs()`), not the sample buffer PTS. Frames are delivered on a per-source serial
+  `USER_INTERACTIVE` queue. A 500 ms dispatch timer compares the real source size
+  (`CGWindowListCopyWindowInfo` / `CGDisplayPixelsWide`×scale) with the buffer size
+  and calls `updateConfiguration` on mismatch — SCStream does not resize itself — and
+  the same timer detects a vanished window/display (`Closed()`). Sizes are rounded
+  down to even numbers (H.264 chroma requirement).
+- **`agent/VtEncoder.mm` — encoding.** H.264 via `VTCompressionSession` (hardware
+  requested but not required; `BackendName()` reports which was used). Low-latency
+  knobs: `RealTime = true`, `AllowFrameReordering = false` (no B-frames), profile
+  High/AutoLevel, CABAC, **infinite GOP** (`MaxKeyFrameInterval` *and*
+  `MaxKeyFrameIntervalDuration` = INT32_MAX) with IDR only on demand,
+  `AverageBitRate` plus `DataRateLimits` (1.5× bitrate per 1 s window) as a burst
+  cap. `SetBitrate` retunes mid-session without rebuilding. Output arrives async on
+  VideoToolbox's own thread; `OnEncoded` converts AVCC length prefixes to Annex-B
+  start codes and prepends SPS/PPS to every IDR (the protocol requires in-band
+  parameter sets), serialized under `emitMutex_` so the single-threaded
+  `deskhub::Packetizer` stays safe.
+- **`agent/InputInjector.mm` — injection.** Builds CGEvents from an event source
+  created with `kCGEventSourceStateHIDSystemState` and posts to `kCGHIDEventTap`.
+  Keys: protocol VK codes are translated to Carbon keycodes by
+  `cpp/input/MacKeyMap.cpp` (the single key table, shared by both roles; VK is
+  preferred over scancode since macOS has no scancode concept); modifier flags are
+  rebuilt from the injector's own held-modifier ledger and attached to every event.
+  Absolute mouse coords (0..65535) map into the source rect *in points* (200 ms
+  cache); relative moves carry raw deltas in `kCGMouseEventDeltaX/Y` and clamp to the
+  union of all screens. Click counting (`kCGMouseEventClickState`, 500 ms / 4 pt) is
+  synthesized so double-clicks work; wheel deltas convert 120 → 3 lines. Three safety
+  gates in `Apply()`: enabled flag, **foreground gate** (`TargetHasFocus` — window
+  sources only inject while the owning app is frontmost; `FocusTarget()` activates it
+  on `SET_FOCUS`), and **host wins** (below). `ReleaseAll()` un-sticks held keys on
+  disconnect. Every injected event is stamped with
+  `LocalInputMonitor::kUserData` in `kCGEventSourceUserData`.
+- **`agent/LocalInputMonitor.h/.mm` — "host wins".** An NSEvent global monitor (not a
+  CGEventTap) records the last *physical* mouse/keyboard activity; injected events
+  are recognized by the `kUserData` stamp and ignored. While the local user is active
+  (`kQuietUs` = 1 s), remote input is suppressed and held keys are released.
+- **`agent/ClipboardSync.h/.mm` — host clipboard (GĐ8).** Text only (≤ 64 KB). macOS
+  has no clipboard-change event, so a background thread polls
+  `NSPasteboard.changeCount` every 300 ms; loop prevention is two-layered
+  (remembering the changeCount after self-writes + comparing against the last remote
+  text). Sharing clipboard is **off by default** (GĐ9) and must be enabled per
+  session.
 
-Hai điểm dễ mất thời gian:
+## 3. Permissions (`agent/Permissions.h/.mm`)
 
-- Screen Recording đòi **khởi động lại app** sau khi bật công tắc. Accessibility thì
-  có hiệu lực ngay.
-- `CGRequestScreenCaptureAccess()` chỉ bật hộp thoại **đúng một lần trong đời app**;
-  lần sau nó lặng lẽ trả trạng thái hiện tại. Nên UI luôn kèm nút mở thẳng System
-  Settings thay vì dựa vào hộp thoại.
+Exactly two system permissions, both host-role only, both **silent failures** on
+macOS:
 
-App **không sandbox** (`app/Deskhub.entitlements`): Accessibility không cấp cho tiến
-trình sandboxed, và vai host phải bind một cổng UDP cố định. Đây cũng là lý do các app
-điều khiển từ xa đều phát hành ngoài Mac App Store.
+- **Screen Recording** — checked with `CGPreflightScreenCaptureAccess()`, requested
+  with `CGRequestScreenCaptureAccess()`. Without it, `SCShareableContent` returns
+  only the app's own windows (which SourceEnum filters out), so the source list is
+  simply empty with no error. The request dialog appears **once per app install**;
+  after granting, macOS requires an app restart. Required for any sharing.
+- **Accessibility** — checked with `AXIsProcessTrusted()`, requested with
+  `AXIsProcessTrustedWithOptions(kAXTrustedCheckOptionPrompt)`. Without it,
+  `CGEventPost` "succeeds" but no event reaches any app. Takes effect immediately, no
+  restart. Needed only when *Allow input* is on; view-only sharing works without it.
 
-## 6. Build & chạy
+`OpenScreenRecordingSettings`/`OpenAccessibilitySettings` open the exact
+`x-apple.systempreferences:…Privacy_ScreenCapture` / `…Privacy_Accessibility` panes.
+UI behavior as coded: `AgentModel.refreshPermissions()` re-reads both flags on every
+entry to Home/Share (no restart needed to *detect* a change); `ShareView` shows a
+banner and **disables the Share button** while Screen Recording is missing, and shows
+an Accessibility banner only when input is allowed but not granted.
+`AgentLoop::Start` and `InputInjector::Init` also log warnings but do not hard-fail —
+the permission may have just been granted while preflight still caches the old value.
 
-**Xcode project** như iOS, không dùng CMake cho app (`client/macos/Deskhub.xcodeproj`).
-Nguồn được nạp qua **file-system-synchronized group** — thêm file vào `app/` là Xcode
-tự biên dịch, không phải sửa pbxproj. `libcore.a` do một **shell script phase** gọi
-CMake dựng, nên `core/CMakeLists.txt` vẫn là nguồn sự thật duy nhất về danh sách source
-của core.
+## 4. Client role (view another machine)
 
-```
-make build-macos      # Debug  -> out/build/macos/Debug/app.app
-make release-macos    # Release
-make run-macos        # build rồi mở app
-```
+- **`cpp/client/ClientLoop.h/.cpp`** — a close port of the iOS ClientLoop with a
+  desktop-grade input channel (separate key down/up with VK+scancode, mouse wheel,
+  true relative mouse, two-way clipboard, `ReleaseAllInput`). Net thread: video-channel
+  packets bypass `ClientSession` straight into the `Reassembler` (session only gets
+  `NotifyVideoPacket`); assembled frames go into a 3-deep queue toward the Decode
+  thread, dropping the *oldest* on overflow; all keyframe-request reasons (loss,
+  waiting-for-IDR, decoder failure, queue overflow) funnel through one place. HELLO
+  advertises H.264 only, max 3840×2160, 60 fps. Once per second it closes a
+  `LinkStats` window, updates the UI status line (fps / Mbps / loss / RTT / e2e) and
+  sends `FEEDBACK`. Layer handover uses a generation-counted handshake so `SetLayer`
+  blocks until Decode confirms it released the old `AVSampleBufferDisplayLayer`.
+- **`cpp/client/VtDecoder.h/.mm`** — copied from iOS. Converts Annex-B → AVCC, builds
+  a `CMVideoFormatDescription` from in-band SPS/PPS, and enqueues `CMSampleBuffer`s
+  directly into the `AVSampleBufferDisplayLayer` — the layer decodes in hardware and
+  composites; there is no separate renderer. Known caveat (documented in the header):
+  the e2e timestamp is taken at *enqueue*, not at actual display.
+- **Render + input surface.** `swift/RemoteView.swift` is one `NSView`
+  (`RemoteVideoView`) whose **backing layer is the display layer**
+  (`makeBackingLayer`), so decoded frames go straight to the compositor. It is
+  `isFlipped` (top-left origin, matching the protocol), accepts first mouse, and
+  captures the full keyboard (`keyDown`/`keyUp` skipping auto-repeats,
+  `flagsChanged` diffing for modifiers, translated via `dh_map_key`). Two mouse
+  modes: absolute (normalized 0..65535 inside the letterboxed `videoRect`; points on
+  the black bars send nothing) and **relative/mouse-lock via F9**
+  (`CGAssociateMouseAndMouseCursorPosition(false)` + hidden cursor, raw deltas for FPS
+  games; F9 is handled locally and never forwarded). Trackpad scrolling converts
+  precise deltas to at least one 120-unit notch. Losing first-responder releases all
+  input and unlocks the mouse.
+- **`swift/StreamView.swift`** — the viewer screen: video full-window, forced dark
+  scheme, host label + state pill (top-left), stats HUD with RTT sparkline
+  (top-right), control HUD (mouse lock, aspect-fit/fill toggle, state chip, End)
+  bottom-center; connecting and "session ended" overlays (reason from
+  `dh_end_reason`). `onDisappear` revokes the layer and disconnects.
+- **`swift/SessionModel.swift`** — the single choke point for input: everything is
+  gated on `viewOnly || !hostAcceptsInput` (the latter polled from the HELLO_ACK
+  `inputAccepted` flag, GĐ9). Its 500 ms poll also runs two-way clipboard sync
+  against `NSPasteboard` (receive before send, changeCount bookkeeping to break the
+  echo loop) and parses `"RTT n ms"` out of the status line for the sparkline.
+- **`cpp/net/`** — `UdpSocket` (BSD sockets, host-byte-order `NetAddr`,
+  `ParseNetAddr` supplies the default port 47777), `SourceQuery` (pre-session
+  LIST_SOURCES exchange, ~3 s with retries), `NetInfo` (`getifaddrs` IPv4 list with
+  friendly interface labels for the share screen).
 
-**Ràng buộc phiên bản** (đã dựng thật):
+## 5. UX flows as implemented
 
-| Thứ | Bản |
-|-----|-----|
-| Xcode | 26.6 (17F113) |
-| macOS Deployment Target | 14.0 |
-| Swift | 6.0 |
-| C++ | gnu++20 |
-| Kiến trúc | universal (arm64 + x86_64) |
+- **Home (`HomeView.swift`).** Two tiles (Connect / Share) plus "Recent connections"
+  from `Recents.swift`: up to 12 entries in `UserDefaults` (tab/newline separated, no
+  JSON), most-recent first, with a link label guessed from the IP range (LAN /
+  Tailscale CGNAT). Clicking a recent pre-fills the address and opens Connect — it
+  never dials directly, so the view-only choice is not skipped. There is **no
+  "found on network" section**: the macOS C++ layer has no Discovery/Beacon yet
+  (noted explicitly in the HomeView header comment).
+- **Connect (`ConnectView.swift`).** One hero address field (`ip[:port]`, default
+  port 47777 filled by C++), a *View only* checkbox, helper panels. Connect runs
+  `SessionModel.listSources()` (SourceQuery) and remembers the address; **0 or 1
+  sources → stream immediately** (source 0 — a silent/old host is not an error),
+  **>1 → `SourcePickerView`**, where selection is radio-style (the C facade streams
+  one `sourceId` at a time) and "Allow input" is the inverse of `viewOnly`. There is
+  **no password prompt**: core's GĐ10 password gate exists
+  (`ClientSession::SetPassword`, `onPasswordNeeded`) but is not wired into the macOS
+  bridge or UI, and the host side never sets a password (it wires only the mandatory
+  `randomBytes` callback, without which `HostSession` fails closed).
+- **Share (`ShareView.swift`).** One combined screen (no separate session screen):
+  permission banners on top; address panel listing every local IPv4 with the *actual*
+  bound port appended; viewer panel (connected/not, send fps, Mbps, capture fps, send
+  sparkline — the host cannot measure RTT, only the client can); source grid with
+  **live checkboxes** (ticking during a session calls `dha_add_source`, unticking
+  `dha_remove_source` — the viewer never drops). Bottom bar: fps 30/60/120, bitrate
+  8/20/40 Mbps, port 47777/47778/52000 (all locked while sharing), *Allow input*
+  (default on), *Share clipboard* (default off), and two stop levels: **Stop** (keep
+  ticks) vs **Stop all** (danger, clears selection). All options persist in
+  `UserDefaults`. Start failures surface a reason line (`startError`) instead of
+  failing silently. There is no firewall step in the app; the generated Info.plist
+  only carries `NSLocalNetworkUsageDescription` for the OS local-network prompt.
 
-Ký **ad-hoc** (`CODE_SIGN_IDENTITY = "-"`) nên chạy được ngay trên máy dev; bản phát
-hành cần Developer ID + notarize.
+## 6. Build, project layout, signing
 
-Frameworks link: VideoToolbox, CoreMedia, AVFoundation, CoreVideo, **ScreenCaptureKit**,
-CoreGraphics, ApplicationServices, AppKit.
+`make/macos.mk` (macOS-only, guarded by `UNAME`):
 
-**Chạy thử hai máy:** máy A bấm **Share this Mac** → tick cửa sổ/màn hình → **Share** →
-đọc địa chỉ ngay trên màn đó (panel "Enter on the other machine"). Máy B (macOS hoặc
-Windows) gõ địa chỉ đó vào **Connect**. Qua Internet: bật Tailscale hai đầu, dùng IP
-`100.x.y.z`.
+- `make build-macos` — `xcodebuild -project client/macos/Deskhub.xcodeproj -target app
+  -configuration Debug SYMROOT=out/build/macos build`
+- `make release-macos` — same with `Release`
+- `make run-macos` — build then `open out/build/macos/Debug/app.app`
 
-## 6b. Quy ước ngôn ngữ
+Project (`client/macos/Deskhub.xcodeproj`, single target `app`, shared scheme `app`):
+Swift 6.0 + gnu++20, deployment target macOS 14.0, bridging header
+`app/swift/Deskhub-Bridging-Header.h`. **core/ is built by a run-script phase**
+("Build libcore.a (CMake)") that invokes CMake against `core/CMakeLists.txt` into
+`out/build/macos-core/<platform>-<config>` on every build (incremental); the app adds
+`core/include` to `HEADER_SEARCH_PATHS` and links `-lcore`. Linked frameworks:
+VideoToolbox, CoreMedia, AVFoundation, CoreVideo, ScreenCaptureKit, CoreGraphics,
+ApplicationServices, AppKit. Signing: `CODE_SIGN_STYLE = Automatic`, identity
+"Apple Development" for the macOS SDK ("-" as the base fallback);
+`app/Deskhub.entitlements` **disables the App Sandbox** — required for CGEventPost
+into other apps, the NSEvent global monitor, and binding a fixed UDP port (the
+entitlements file comment spells this out) — while keeping the harmless
+`network.client/server` keys for a possible future sandboxed client-only build.
 
-Theo yêu cầu dự án (`08` §4b): **mọi chuỗi người dùng hoặc console thấy đều bằng tiếng
-Anh**, **mọi comment trong code bằng tiếng Việt có dấu**.
+## 7. Cross-references
 
-## 7. Cái gì dùng lại được, cái gì phải viết
+01-architecture.md (one-app/two-roles model) · 02-agent.md (host pipeline policy,
+IDR-on-demand) · 03-client.md (client pipeline) · 07-input.md (input model, relative
+mouse) · 11-platform-transport.md (per-platform capabilities, POSIX socket reuse).
 
-Con số để đo lời hứa "thêm một nền tảng = chỉ viết lớp backend mỏng":
+## 8. Verification status — honest notes
 
-- **Dùng lại nguyên**: toàn bộ `core/` (wire, packetizer, reassembler, FEC, session
-  hai phía, input ordering, bitrate controller, retransmit cache) + `platform/Clock.h`.
-- **Chép từ iOS gần như không sửa**: `UdpSocket`, `SourceQuery`, `VtDecoder`, `Log.h`.
-- **Port có sửa**: `ClientLoop` (thêm kênh input desktop + clipboard), `AgentLoop`
-  (đổi ba backend, đổi mô hình chặn → thread).
-- **Viết mới hoàn toàn**: `ScreenCapture`, `VtEncoder`, `InputInjector`,
-  `LocalInputMonitor`, `SourceEnum`, `Permissions`, `ClipboardSync`, `NetInfo`,
-  `MacKeyMap`, và toàn bộ tầng SwiftUI.
-
-## 8. Hạn chế hiện tại
-
-- **Chưa chạy kiểm chứng hai máy thật.** Code biên dịch sạch (Debug + Release,
-  universal) và bám sát bản tham chiếu Windows từng bước, nhưng các con số độ trễ /
-  fps / e2e trong `docs/09-diagnostics.md` chưa được đo trên macOS. Đây là việc kế
-  tiếp, và là thứ duy nhất còn ngăn cột macOS đổi từ 🔶 sang ✅.
-- **e2e đo lúc enqueue**, chưa phải lúc frame lên màn hình — kế thừa nguyên caveat của
-  nhánh `AVSampleBufferDisplayLayer` (`12-ios-client.md` §2). Muốn chính xác hơn thì
-  chuyển sang `VTDecompressionSession`.
-- **Chưa dò host trong mạng (GĐ9).** Màn chính của bản thiết kế có mục **"Found on your
-  networks"**; bản Windows dựng được vì tầng C++ bên đó đã có `net/Discovery.cpp` và
-  `AgentLoop` đã gắn `deskhub::Beacon`. Tầng C++ của macOS chưa có cả hai, nên mục đó
-  **cố tình không được vẽ**: một danh sách "đang quét…" rỗng vĩnh viễn nói với người
-  dùng rằng mạng của họ không có máy nào, trong khi sự thật là app này chưa biết hỏi.
-- **Panel "máy đang xem" không có tên/địa chỉ người xem và không có RTT.** Giao thức
-  không mang những thứ đó về phía host, và host không đo RTT (chỉ client đo). Panel
-  hiện đúng thứ nó biết — có ai đang xem chưa, fps/bitrate gửi đi, nhịp thu hình — và
-  biểu đồ vẽ **nhịp gửi** thay cho độ trễ.
-- **Chưa có mã hoá** (GĐ6 của `05-roadmap.md`) — như mọi nền tảng khác.
-- **Chưa notarize**: người tải bản CI về phải tự bỏ quarantine.
-- **Anti-cheat kernel** chặn được input tổng hợp trên macOS y như trên Windows. Đây là
-  giới hạn chung, không riêng nền tảng nào (`01-architecture.md` §7).
+- Both roles **have not been verified between two physical machines**
+  (docs/README.md status table). Everything above is what the code does, not what has
+  been proven end-to-end over a real network.
+- No LAN discovery on macOS (client cannot list hosts; agent does not answer
+  DISCOVER) — deliberate gap, documented in `HomeView.swift`.
+- No password/auth UI, although core supports it (GĐ10) — see §5.
+- H.264 only (encoder and HELLO codec mask); no HEVC path exists in this app.
+- Key map is US-layout for symbol keys (`cpp/input/MacKeyMap.h`, accepted
+  limitation).
+- e2e latency shown in the HUD is measured at decoder *enqueue*, not at display
+  (`VtDecoder.h` caveat).
+- Host-side stats show send rate, not viewer-perceived latency — the host cannot
+  measure RTT (only the client does, in `ClientLoop.cpp`), so ShareView's sparkline
+  charts send fps instead.

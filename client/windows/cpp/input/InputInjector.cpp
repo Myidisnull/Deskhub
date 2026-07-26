@@ -31,7 +31,7 @@
 //   nhau có thể cùng vk (Ctrl trái/phải) nhưng scancode luôn phân biệt được.
 //
 // LIÊN QUAN: input/InputInjector.h (hai cơ chế an toàn + ánh xạ toạ độ),
-//            input/InputCapture.cpp (đầu kia), docs/07-phase4-input.md
+//            input/InputCapture.cpp (đầu kia), docs/07-input.md
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

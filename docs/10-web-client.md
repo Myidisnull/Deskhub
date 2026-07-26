@@ -1,254 +1,274 @@
-# 10 — Client Web (WebTransport + WebCodecs)
+# 10 — Web Client (WebTransport + WebCodecs)
 
-Client chạy thẳng trong trình duyệt, **chỉ xem + gửi input** (giống Android v1 — chưa
-làm vai trò host). Không cài đặt, mở một URL là dùng được.
+The client runs directly in the browser, **view + send input only** (like Android v1 — no
+host role yet). No installation; open a URL and it works.
 
-Ba trụ cột, mỗi cái thay đúng một mảnh platform-specific của client Windows:
+Three pillars, each replacing exactly one platform-specific piece of the Windows client:
 
-| Mảng | Windows | Web |
+| Area | Windows | Web |
 |------|---------|-----|
 | Transport | `UdpSocket` (raw UDP) | **WebTransport** (QUIC datagram) |
-| Giải mã | `MfDecoder` + `Renderer` (D3D11) | **WebCodecs `VideoDecoder`** + canvas/WebGL |
-| Lõi giao thức | `core/` (C++20) | **`core/` biên dịch WASM** (Emscripten) — dùng lại y nguyên |
+| Decoding | `MfDecoder` + `Renderer` (D3D11) | **WebCodecs `VideoDecoder`** + canvas/WebGL |
+| Protocol core | `core/` (C++20) | **`core/` compiled to WASM** (Emscripten) — reused as-is |
 
-## 1. Vì sao WebTransport, không phải WebSocket / WebRTC
+## 1. Why WebTransport, not WebSocket / WebRTC
 
-Trình duyệt **không mở được raw UDP socket** — đây là rào cản gốc khiến giao thức UDP
-hiện tại không nói chuyện trực tiếp được với web (xem `04-protocol.md`). Ba lối ra:
+Browsers **cannot open a raw UDP socket** — this is the root obstacle preventing the
+current UDP protocol from talking directly to the web (see `04-protocol.md`). Three ways out:
 
-| Phương án | Transport | Việc phải làm | Độ trễ | Tái dùng `core/` |
+| Option | Transport | Work required | Latency | Reuse of `core/` |
 |-----------|-----------|---------------|--------|------------------|
-| WebSocket | TCP | Host thêm WS server, gửi nguyên frame, bỏ packetize/FEC (TCP đã tin cậy) | Tốt LAN, kém khi mất gói (HOL blocking) | Một phần (bỏ transport) |
-| **WebTransport** ✅ | **QUIC datagram (UDP)** | Host thêm QUIC/HTTP3 server + chứng chỉ | Xuất sắc, gần bằng UDP native | **Gần trọn vẹn** |
-| WebRTC | RTP/SRTP | Remux H264→RTP, ICE/STUN/DTLS, SDP; vứt phần lớn control tự chế | Xuất sắc | Rất ít |
+| WebSocket | TCP | Host adds a WS server, sends whole frames, drops packetize/FEC (TCP is already reliable) | Good on LAN, poor under packet loss (HOL blocking) | Partial (transport dropped) |
+| **WebTransport** ✅ | **QUIC datagram (UDP)** | Host adds a QUIC/HTTP3 server + certificate | Excellent, near native UDP | **Nearly complete** |
+| WebRTC | RTP/SRTP | Remux H264→RTP, ICE/STUN/DTLS, SDP; throw away most of the custom control layer | Excellent | Very little |
 
-**Chọn WebTransport** vì **datagram không tin cậy của QUIC ánh xạ 1-1 với mô hình
-UDP datagram hiện tại**: `Packetizer` / `Reassembler` / FEC XOR / máy trạng thái phiên
-giữ nguyên byte. Đây là điểm khác biệt quyết định so với WebRTC — WebRTC buộc đóng gói
-lại H.264 thành RTP và tự chạy jitter buffer/NACK riêng, ta mất gần hết giao thức đã
-thiết kế. WebSocket thì đơn giản hơn để dựng nhưng TCP head-of-line blocking đúng thứ
-mục 6 của `01-architecture.md` đã bác bỏ khi chọn UDP.
+**WebTransport was chosen** because **QUIC's unreliable datagrams map 1-to-1 onto the
+current UDP datagram model**: `Packetizer` / `Reassembler` / XOR FEC / the session state
+machine stay byte-identical. This is the decisive difference from WebRTC — WebRTC forces
+repackaging H.264 into RTP and runs its own jitter buffer/NACK, so we would lose nearly all
+of the protocol we designed. WebSocket would be simpler to build, but TCP head-of-line
+blocking is exactly what section 6 of `01-architecture.md` rejected when choosing UDP.
 
-**Tương thích trình duyệt (07/2026): WebTransport đã Baseline** — Chrome 97+, Edge 98+,
-Firefox 114+, **Safari 26.4+**, Opera, Samsung Internet. Lúc khảo sát ban đầu Safari còn
-thiếu WebTransport (rủi ro lớn nhất của phương án này); nay đã có sẵn nên rủi ro đó biến
-mất. WebCodecs cũng đã phổ cập trên cùng bộ trình duyệt này.
+**Browser compatibility (07/2026): WebTransport is now Baseline** — Chrome 97+, Edge 98+,
+Firefox 114+, **Safari 26.4+**, Opera, Samsung Internet. At the time of the initial survey,
+Safari still lacked WebTransport (the biggest risk of this option); it is now available, so
+that risk is gone. WebCodecs is also widely available across the same set of browsers.
 
-## 2. Phân chia JS / WASM — tái dùng `core/`
+## 2. JS / WASM split — reusing `core/`
 
-`core/` đã là C++20 không đụng header hệ điều hành (điều kiện `core/CMakeLists.txt` đặt
-ra để build được bằng NDK) — nên **biên dịch sang WASM bằng Emscripten và dùng lại
-`Wire` / `Reassembler` / `ClientSession` / FEC y hệt Android**. Đối ứng 1-1:
+`core/` is already C++20 with no OS headers (the condition `core/CMakeLists.txt` imposes
+so it builds with the NDK) — so **compile it to WASM with Emscripten and reuse
+`Wire` / `Reassembler` / `ClientSession` / FEC exactly as Android does**. 1-to-1 mapping:
 
-| Windows | Web | Vai trò |
+| Windows | Web | Role |
 |---------|-----|---------|
-| `UdpSocket.cpp` (winsock) | `wt-transport.js` (WebTransport) → cầu WASM | datagram vào/ra |
-| `MfDecoder` + `Renderer` | `video-decoder.js` (WebCodecs) + `<canvas>` | H.264 → màn hình |
-| `InputCapture` (Raw Input) | `input.js` (Pointer Lock + KeyboardEvent) | bắt chuột/phím |
-| `MainMenuWindow` | `index.html` (ô nhập địa chỉ) | nhập host + kết nối |
-| cửa sổ preview | `<canvas>` + overlay HTML | hiển thị + số liệu |
+| `UdpSocket.cpp` (winsock) | `wt-transport.js` (WebTransport) → WASM bridge | datagrams in/out |
+| `MfDecoder` + `Renderer` | `video-decoder.js` (WebCodecs) + `<canvas>` | H.264 → screen |
+| `InputCapture` (Raw Input) | `input.js` (Pointer Lock + KeyboardEvent) | mouse/keyboard capture |
+| `MainMenuWindow` | `index.html` (address input field) | enter host + connect |
+| preview window | `<canvas>` + HTML overlay | display + metrics |
 
-Ranh giới cố ý mỏng, gói trong **một lớp cầu Embind/`EM_JS`** (đối ứng `JniBridge.cpp`
-bên Android): WASM giữ toàn bộ logic giao thức; JS chỉ lo ba việc trình duyệt độc quyền
-làm được — mở WebTransport, gọi WebCodecs, bắt input. **Không một frame video nào phải
-đi qua JS heap để copy**: datagram đến từ WebTransport được ghi thẳng vào bộ nhớ WASM,
-`Reassembler` ghép trong WASM, NAL hoàn chỉnh trả về dưới dạng view rồi đưa vào
-`VideoDecoder.decode()` — chỉ một tham chiếu vùng nhớ, không sao chép nội dung.
+The boundary is deliberately thin, wrapped in **one Embind/`EM_JS` bridge layer** (the
+counterpart of `JniBridge.cpp` on Android): WASM holds all protocol logic; JS handles only
+the three things exclusive to the browser — opening WebTransport, calling WebCodecs,
+capturing input. **Not a single video frame has to be copied through the JS heap**:
+datagrams arriving from WebTransport are written directly into WASM memory, the
+`Reassembler` reassembles inside WASM, and the completed NAL is returned as a view and fed
+into `VideoDecoder.decode()` — just one memory reference, no content copy.
 
-> Có thể viết lại `Reassembler`/`Wire` bằng JS/TS thuần cho nhẹ (không cần WASM). Bác bỏ:
-> đó là chính đường nóng dễ sai nhất (ghép mảnh, khử trùng, khôi phục FEC), viết lại là mở
-> ra một bản thứ ba phải giữ đồng bộ với Windows + Android. WASM tái dùng đúng code đã có
-> test `core_tests` bảo chứng.
+> `Reassembler`/`Wire` could be rewritten in plain JS/TS to be lighter (no WASM needed).
+> Rejected: that is precisely the hot path most prone to errors (fragment reassembly,
+> deduplication, FEC recovery), and rewriting it opens a third implementation that must be
+> kept in sync with Windows + Android. WASM reuses the exact code already backed by the
+> `core_tests` test suite.
 
-## 3. Ràng buộc transport: tất cả đi bằng datagram (v1)
+## 3. Transport constraint: everything goes over datagrams (v1)
 
-WebTransport cho cả **datagram (không tin cậy)** lẫn **stream (tin cậy, QUIC tự
-retransmit)**. Cám dỗ: đẩy control (HELLO/START/REQUEST_KEYFRAME/RECONFIG) và input sang
-stream tin cậy để **bỏ hẳn** logic retry-500ms và gửi-lặp-chống-kẹt-phím — QUIC lo tin cậy
-giùm.
+WebTransport offers both **datagrams (unreliable)** and **streams (reliable, QUIC handles
+retransmission)**. The temptation: push control (HELLO/START/REQUEST_KEYFRAME/RECONFIG) and
+input onto reliable streams to **entirely drop** the 500ms-retry logic and the
+repeat-send-against-stuck-keys logic — let QUIC handle reliability.
 
-**Quyết định v1: gửi MỌI THỨ bằng datagram**, kể cả control và input. Lý do: đó chính là
-cái giữ cho `core/` không đổi một dòng — `HostSession`/`ClientSession`/`InputSender`/
-`InputReceiver` vốn xây trên giả định "mọi thứ là datagram không tin cậy, tự lo retry".
-Trộn stream vào là phải rẽ nhánh máy trạng thái theo transport. Đây là **tối ưu để dành**:
-khi web client chạy ổn, chuyển control+input sang stream tin cậy và lược bớt logic gửi-lặp
-là một cải tiến độc lập, không phải điều kiện để có bản chạy được.
+**v1 decision: send EVERYTHING over datagrams**, including control and input. Reason: that
+is exactly what keeps `core/` unchanged, down to the line — `HostSession`/`ClientSession`/
+`InputSender`/`InputReceiver` were built on the assumption "everything is an unreliable
+datagram, handle retry yourself". Mixing in streams means branching the state machine by
+transport. This is a **deferred optimization**: once the web client runs stably, moving
+control+input onto reliable streams and trimming the repeat-send logic is an independent
+improvement, not a prerequisite for a working build.
 
-**Kích thước datagram — thay đổi bắt buộc ở core.** QUIC datagram phải nằm gọn trong một
-gói QUIC; phần payload dùng được **nhỏ hơn 1200** vì QUIC nuốt mất header gói + tag AEAD
-16 byte. Trình duyệt báo trị thật qua `transport.datagrams.maxDatagramSize` (thường
-~1180–1200 tùy đường). Hiện `kMaxVideoPayload` là **hằng số biên dịch 1174** (xem
-`04-protocol.md` §5). Phải **biến nó thành tham số runtime** đặt lúc handshake theo
-`maxDatagramSize` — packetizer cắt NAL theo trần này, reassembler không cần biết. Client
-UDP native truyền trần cũ; client web truyền trần QUIC báo về. Đây là **thay đổi core duy
-nhất** mà phương án này đòi hỏi.
+**Datagram size — a mandatory core change.** A QUIC datagram must fit within a single QUIC
+packet; the usable payload is **smaller than 1200** because QUIC consumes packet headers +
+a 16-byte AEAD tag. The browser reports the actual value via
+`transport.datagrams.maxDatagramSize` (typically ~1180–1200 depending on the path).
+Currently `kMaxVideoPayload` is a **compile-time constant of 1174** (see
+`04-protocol.md` §6.1). It must be **turned into a runtime parameter** set at handshake from
+`maxDatagramSize` — the packetizer splits NALs against this ceiling, the reassembler does
+not need to know. The native UDP client passes the old ceiling; the web client passes the
+ceiling QUIC reports. This is the **only core change** this approach requires.
 
-> QUIC datagram **có** chịu điều tiết tắc nghẽn (RFC 9221: tính vào cửa sổ tắc nghẽn,
-> nghẽn thì **rớt** chứ không xếp hàng, và **không** retransmit) — nên `BitrateController`
-> + kênh FEEDBACK vẫn nguyên giá trị, không bị QUIC làm thừa.
+> QUIC datagrams **are** subject to congestion control (RFC 9221: they count toward the
+> congestion window, are **dropped** rather than queued under congestion, and are **not**
+> retransmitted) — so `BitrateController` + the FEEDBACK channel keep their full value and
+> are not made redundant by QUIC.
 
-## 4. Giải mã video: WebCodecs
+## 4. Video decoding: WebCodecs
 
-`VideoDecoder` nhận thẳng NAL H.264 và giải mã bằng phần cứng, xuất `VideoFrame` vẽ lên
-`<canvas>` (WebGL hoặc `drawImage`). Thay cho cả `MfDecoder` **lẫn** `Renderer` — WebCodecs
-xuất frame đã ở không gian màu hiển thị được, không cần bước NV12→BGRA thủ công.
+`VideoDecoder` accepts H.264 NALs directly and decodes in hardware, producing `VideoFrame`s
+drawn onto a `<canvas>` (WebGL or `drawImage`). It replaces both `MfDecoder` **and**
+`Renderer` — WebCodecs outputs frames already in a displayable color space, no manual
+NV12→BGRA step needed.
 
-- **Cấu hình:** `codec: 'avc1.<profile><level>'` (vd. `avc1.640028` cho High). Stream hiện
-  là **Annex-B** (start code `00 00 00 01`), khai `avc: { format: 'annexb' }` để khỏi remux
-  sang AVCC.
-- **SPS/PPS:** NVENC bật `repeatSPSPPS`, mỗi IDR mang sẵn tham số in-band — WebCodecs
-  annex-b nuốt được thẳng, không cần tách `description` riêng như MSE.
-- **Keyframe:** `EncodedVideoChunk({ type: 'key' | 'delta' })` — cờ IDR ở header chung
-  (`04-protocol.md` §5) map thẳng sang `type`. Sau mất gói mà `Reassembler` bỏ frame →
-  `ClientSession` xin REQUEST_KEYFRAME như cũ.
-- **RECONFIG:** khác `MfDecoder` (tự đàm phán qua `MF_E_TRANSFORM_STREAM_CHANGE`), giống
-  MediaCodec Android — `onReconfig` phải gọi lại `decoder.configure()` với kích thước mới.
-  Host gửi kèm IDR nên không mất gì.
-- **Độ trễ:** đặt `optimizeForLatency: true` để decoder không gom nhiều frame trước khi
-  xuất — đúng tinh thần `MF_LOW_LATENCY` bên Windows.
+- **Configuration:** `codec: 'avc1.<profile><level>'` (e.g. `avc1.640028` for High). The
+  stream is currently **Annex-B** (start code `00 00 00 01`); declare
+  `avc: { format: 'annexb' }` to avoid remuxing to AVCC.
+- **SPS/PPS:** NVENC enables `repeatSPSPPS`, so every IDR carries its parameters in-band —
+  WebCodecs in annex-b mode consumes this directly, no separate `description` needed as
+  with MSE.
+- **Keyframe:** `EncodedVideoChunk({ type: 'key' | 'delta' })` — the IDR flag in the common
+  header (`04-protocol.md` §2) maps straight to `type`. After packet loss when the
+  `Reassembler` drops a frame → `ClientSession` requests REQUEST_KEYFRAME as before.
+- **RECONFIG:** unlike `MfDecoder` (self-negotiating via `MF_E_TRANSFORM_STREAM_CHANGE`),
+  this behaves like Android MediaCodec — `onReconfig` must call `decoder.configure()` again
+  with the new size. The host sends an IDR alongside, so nothing is lost.
+- **Latency:** set `optimizeForLatency: true` so the decoder does not batch multiple frames
+  before output — the same spirit as `MF_LOW_LATENCY` on Windows.
 
-## 5. Input: Pointer Lock + scancode
+## 5. Input: Pointer Lock + scancodes
 
-Bắt input trong trình duyệt là mảng khớp tốt bất ngờ với thiết kế INPUT_EVENT
-(`04-protocol.md` §6):
+Input capture in the browser is an area that matches the INPUT_EVENT design
+(`04-protocol.md` §4.9) surprisingly well:
 
-- **Chuột tương đối (game FPS):** **Pointer Lock API** khóa + ẩn con trỏ, `mousemove` trả
-  `movementX/movementY` — đúng `dx/dy` với cờ `absolute=0`. Đây là bản web của chế độ F9.
-  Chuột tuyệt đối (mặc định): lấy toạ độ trong canvas chuẩn hoá ×65535, `absolute=1`.
-- **Bàn phím — scancode là bắt buộc.** Game đọc DirectInput/Raw Input theo **scancode**,
-  không phải vkCode (`07-phase4-input.md` §5). Trình duyệt cho `KeyboardEvent.code`
-  (physical key, vd. `"KeyW"`, `"ArrowUp"`) — độc lập layout, ánh xạ được sang scancode
-  Windows (bao gồm bit cờ E0 cho phím mở rộng, khớp trường `b`). **`event.key` thì không
-  dùng được** (đã qua layout). Cần một **bảng tra `code` → scancode PS/2** đặt ở JS.
-- **Chống kẹt phím:** giữ nguyên ba lớp của core (redundancy trong gói + phát lại khi rảnh
-  + `ReleaseAll` ở host). Thêm một lưới an toàn riêng của web: bắt sự kiện `blur` /
-  `visibilitychange` (chuyển tab) → phát key-up cho mọi phím đang giữ, vì trình duyệt
-  **không** gửi `keyup` khi cửa sổ mất focus.
-- **Vướng của trình duyệt:** vài tổ hợp bị OS/trình duyệt nuốt trước (Cmd/Win, một số
-  F-key, Esc thoát Pointer Lock). Ghi vào phần hạn chế; không vượt được từ trang web thường.
+- **Relative mouse (FPS games):** the **Pointer Lock API** locks + hides the cursor, and
+  `mousemove` yields `movementX/movementY` — exactly `dx/dy` with the `absolute=0` flag.
+  This is the web version of the F9 mode. Absolute mouse (default): take canvas-relative
+  coordinates normalized ×65535, `absolute=1`.
+- **Keyboard — scancodes are mandatory.** Games read DirectInput/Raw Input by **scancode**,
+  not vkCode (`07-input.md` §2). The browser provides `KeyboardEvent.code`
+  (physical key, e.g. `"KeyW"`, `"ArrowUp"`) — layout-independent, mappable to Windows
+  scancodes (including the E0 flag bit for extended keys, matching the `b` field).
+  **`event.key` is unusable** (already layout-processed). A **`code` → PS/2 scancode lookup
+  table** in JS is needed.
+- **Stuck-key prevention:** keep the core's three layers (in-packet redundancy + idle-time
+  replay + `ReleaseAll` on the host). Add one web-specific safety net: catch `blur` /
+  `visibilitychange` events (tab switch) → emit key-up for every held key, because the
+  browser does **not** send `keyup` when the window loses focus.
+- **Browser limitations:** some combinations are swallowed by the OS/browser first
+  (Cmd/Win, some F-keys, Esc exits Pointer Lock). Documented under limitations; cannot be
+  bypassed from a normal web page.
 
-## 6. Chứng chỉ TLS + thiết lập kết nối (phần khó nhất)
+## 6. TLS certificate + connection setup (the hardest part)
 
-Trình duyệt đòi WebTransport chạy trên **secure context** với chứng chỉ hợp lệ. App này
-là ngang hàng trong LAN, không tên miền, không CA công cộng — nên dùng nhánh
-**`serverCertificateHashes`** của WebTransport, cho phép chứng chỉ tự ký với ràng buộc
-chặt (chính là cơ chế libp2p/thiết bị-LAN dùng):
+Browsers require WebTransport to run in a **secure context** with a valid certificate. This
+app is peer-to-peer on a LAN, no domain name, no public CA — so use WebTransport's
+**`serverCertificateHashes`** path, which allows self-signed certificates under strict
+constraints (the same mechanism libp2p/LAN devices use):
 
-- Chứng chỉ **X.509v3**, khóa **ECDSA secp256r1 (NIST P-256)** — **không** RSA.
-- Hạn hiệu lực **< 14 ngày** (chống dùng hash để theo dõi dài hạn).
-- Hash **SHA-256** (thuật toán duy nhất spec liệt kê hiện nay).
+- Certificate: **X.509v3**, key **ECDSA secp256r1 (NIST P-256)** — **not** RSA.
+- Validity period **< 14 days** (prevents long-term tracking via the hash).
+- Hash: **SHA-256** (the only algorithm the spec currently lists).
 
-Luồng v1:
+v1 flow:
 
-1. Host sinh **chứng chỉ ECDSA P-256 tạm thời** (hạn ~13 ngày), tự ký, tính SHA-256 của
-   nó. Xoay vòng trước khi hết hạn.
-2. Host **in / phục vụ** cặp `ip:port` + hash — cùng chỗ người dùng lấy địa chỉ để kết nối
-   (đối ứng "ID kiểu AnyDesk"). Đóng gói gọn thành **một chuỗi kết nối** hoặc **QR** để chép
-   một lần.
-3. Trang web mở:
+1. The host generates a **temporary ECDSA P-256 certificate** (~13-day validity),
+   self-signed, and computes its SHA-256. Rotate before expiry.
+2. The host **prints / serves** the `ip:port` + hash pair — the same place users get the
+   address to connect (the counterpart of the "AnyDesk-style ID"). Package it compactly as
+   **one connection string** or a **QR code** for a single copy.
+3. The web page opens:
    ```js
    new WebTransport(`https://${ip}:${port}/deskhub`, {
      serverCertificateHashes: [{ algorithm: 'sha-256', value: <ArrayBuffer 32B> }]
    })
    ```
-   QUIC xác minh chứng chỉ server khớp đúng hash đã ghim — MITM tráo chứng chỉ khác sẽ bị
-   từ chối bắt tay.
+   QUIC verifies the server certificate matches the pinned hash — a MITM swapping in a
+   different certificate will fail the handshake.
 
-**Phục vụ chính trang web ở đâu** (secure-context): đơn giản và chắc nhất là **host tự
-phục vụ bundle web tĩnh qua chính HTTP/3 server đó**. Trình duyệt vào `https://<ip>:<port>/`,
-trang và endpoint WebTransport **cùng origin, cùng chứng chỉ** — một server, một cổng, một
-chứng chỉ. Phương án khác (bundle đặt trên CDN/artifact ngoài, chỉ mở WebTransport về host)
-cũng chạy nhưng người dùng vẫn phải nạp hash bằng tay.
+**Where to serve the web page itself** (secure-context): the simplest and most robust
+option is for the **host to serve the static web bundle via that same HTTP/3 server**. The
+browser visits `https://<ip>:<port>/`, and the page and the WebTransport endpoint share
+**the same origin and the same certificate** — one server, one port, one certificate. The
+alternative (bundle hosted on an external CDN/artifact, opening only WebTransport to the
+host) also works, but users would still have to enter the hash manually.
 
-**Hạn chế v1 (ghi rõ):** nếu hash được lấy qua kênh không xác thực (vd. GET plaintext trong
-LAN), kẻ chen giữa có thể tráo cả hash lẫn chứng chỉ. Chấp nhận được cho **LAN tin cậy**
-như các giai đoạn trước; lời giải thật là truyền hash out-of-band (QR/chép tay) hoặc CA nội
-bộ — để chung nhóm với "Mã hóa (DTLS/AEAD)" ở `05-roadmap.md` GĐ6.
+**v1 limitation (stated explicitly):** if the hash is obtained over an unauthenticated
+channel (e.g. plaintext GET on the LAN), a man-in-the-middle can swap both the hash and the
+certificate. Acceptable for a **trusted LAN**, as in earlier phases; the real solution is
+out-of-band hash transfer (QR/manual copy) or an internal CA — grouped together with
+"Encryption (DTLS/AEAD)" in `05-roadmap.md` Phase 6.
 
-## 7. Phía host: WebTransport server
+## 7. Host side: WebTransport server
 
-Để phục vụ web client, host thêm một **WebTransport server** (QUIC + HTTP/3, đàm phán qua
-HTTP/3 CONNECT) bên cạnh listener UDP hiện có. Nó nhận datagram từ WebTransport rồi **bơm
-cùng chuỗi byte vào `HostSession`** như UDP — máy trạng thái phiên không phân biệt transport.
+To serve the web client, the host adds a **WebTransport server** (QUIC + HTTP/3, negotiated
+via HTTP/3 CONNECT) alongside the existing UDP listener. It receives datagrams from
+WebTransport and **feeds the same byte sequence into `HostSession`** as UDP does — the
+session state machine does not distinguish transports.
 
-Đây là một binding **`IHostTransport` dùng chung mọi host OS** (viết một lần trên msquic,
-không per-OS như `UdpSocket`). Thiết kế đầy đủ — interface, so sánh thư viện QUIC, layout
-module, và **vì sao chỉ web dùng QUIC còn native giữ UDP (hybrid)** — ở
-**`11-platform-transport.md`** (§2 và §5). Chốt thư viện QUIC ở web-M2 (§10).
+This is an **`IHostTransport` binding shared by every host OS** (written once on msquic,
+not per-OS like `UdpSocket`). The full design — interface, QUIC library comparison, module
+layout, and **why only the web uses QUIC while native keeps UDP (hybrid)** — is in
+**`11-platform-transport.md`** (§2 and §5). The QUIC library is finalized at web-M2 (§10).
 
-Điểm **web-specific** của server này (khác một QUIC server thường): nó vừa **phục vụ bundle
-web tĩnh** vừa mở **endpoint WebTransport**, dùng **cùng một chứng chỉ**, để trang web và
-kết nối WebTransport cùng origin — thỏa secure-context mà không cần cert công cộng (§6).
+The **web-specific** aspect of this server (versus an ordinary QUIC server): it both
+**serves the static web bundle** and exposes the **WebTransport endpoint**, using **the
+same certificate**, so that the web page and the WebTransport connection share an origin —
+satisfying secure-context without a public certificate (§6).
 
-## 8. Thay đổi ở `core/`
+## 8. Changes to `core/`
 
-Gần như không đụng — đó là toàn bộ lý do chọn WebTransport. Đúng một thay đổi bắt buộc:
+Almost none — that is the entire reason for choosing WebTransport. Exactly one mandatory
+change:
 
-- **`kMaxVideoPayload` từ hằng biên dịch → tham số runtime.** Đặt lúc handshake theo
-  `maxDatagramSize` client báo (§3). Packetizer nhận trần này qua tham số; reassembler
-  không đổi. Client UDP native truyền trần cũ (1174) nên hành vi Windows/Android không đổi.
+- **`kMaxVideoPayload` goes from compile-time constant → runtime parameter.** Set at
+  handshake from the `maxDatagramSize` the client reports (§3). The packetizer receives
+  this ceiling as a parameter; the reassembler is unchanged. The native UDP client passes
+  the old ceiling (1174), so Windows/Android behavior does not change.
 
-Mọi thứ khác (`Wire`, `Reassembler`, `HostSession`, `ClientSession`, FEC, `InputSender/
-Receiver`) build sang WASM và chạy nguyên trạng.
+Everything else (`Wire`, `Reassembler`, `HostSession`, `ClientSession`, FEC, `InputSender/
+Receiver`) builds to WASM and runs unmodified.
 
-## 9. Cấu trúc file dự kiến
+## 9. Planned file structure
 
 ```
-client/web/                 bundle web tĩnh (chưa tồn tại — tạo ở GĐ này)
-  index.html                ô nhập host + canvas + overlay số liệu
+client/web/                 static web bundle (does not exist yet — created in this phase)
+  index.html                host input field + canvas + metrics overlay
   src/
-    main.js                 vòng đời: kết nối → nhận datagram → decode → render
-    wt-transport.js         WebTransport: mở, gửi/nhận datagram, đọc maxDatagramSize
-    video-decoder.js        WebCodecs VideoDecoder + vẽ canvas
-    input.js                Pointer Lock + bảng code→scancode + gửi INPUT_EVENT
-    core-bridge.js          cầu Embind/EM_JS vào core.wasm
-  wasm/                      output Emscripten của core/ (core.js + core.wasm)
+    main.js                 lifecycle: connect → receive datagrams → decode → render
+    wt-transport.js         WebTransport: open, send/receive datagrams, read maxDatagramSize
+    video-decoder.js        WebCodecs VideoDecoder + canvas rendering
+    input.js                Pointer Lock + code→scancode table + send INPUT_EVENT
+    core-bridge.js          Embind/EM_JS bridge into core.wasm
+  wasm/                      Emscripten output of core/ (core.js + core.wasm)
 
-core/                       chỉ sửa trần payload thành runtime (xem §8)
-(module host `WebTransportHost` — dùng chung mọi OS, layout ở 11-platform-transport.md §2)
+core/                       only the payload ceiling changed to runtime (see §8)
+(host module `WebTransportHost` — shared by every OS, layout in 11-platform-transport.md §3)
 ```
 
-`core/CMakeLists.txt` cần thêm nhánh toolchain **Emscripten** (song song với NDK) để xuất
-`core.wasm`. `client/web` build bằng bundler nhẹ hoặc chỉ ES module thuần — chưa quyết,
-để M1. Phía host, `WebTransportHost` đặt ở module host dùng chung (không trong `core/`);
-xem `11-platform-transport.md` §2.
+`core/CMakeLists.txt` needs an additional **Emscripten** toolchain branch (parallel to NDK)
+to produce `core.wasm`. `client/web` builds with a lightweight bundler or plain ES modules
+— not yet decided, deferred to M1. On the host side, `WebTransportHost` lives in the shared
+host module (not in `core/`); see `11-platform-transport.md` §3.
 
-## 10. Lộ trình / mốc kiểm chứng
+## 10. Roadmap / verification milestones
 
-- ⬜ **M1 — WASM + loopback trong tab.** Build `core/` sang WASM; một trang test bơm
-  datagram giả (dump từ `core_tests`) vào `Reassembler` WASM → NAL → `VideoDecoder` →
-  canvas. Chứng minh chuỗi WASM↔WebCodecs chạy, **chưa cần mạng**. Đối ứng "loopback GĐ2".
-- ⬜ **M2 — WebTransport echo + chứng chỉ.** Host msquic phục vụ bundle + endpoint
-  WebTransport trên chứng chỉ ECDSA tạm; trình duyệt kết nối được qua `serverCertificateHashes`,
-  handshake HELLO/HELLO_ACK đi trọn vòng bằng datagram. Chốt thư viện QUIC ở đây.
-- ⬜ **M3 — Video thật e2e LAN.** Host chia sẻ cửa sổ → web client hiện hình, đo fps/kbps/
-  mất gói/RTT/trễ e2e như overlay Windows. So mốc trễ với UDP native.
-- ⬜ **M4 — Input.** Pointer Lock + bàn phím scancode điều khiển ứng dụng thường rồi game
-  thật, đo trễ input. Bật lưới `blur`/`visibilitychange`.
+- ⬜ **M1 — WASM + in-tab loopback.** Build `core/` to WASM; a test page feeds fake
+  datagrams (dumped from `core_tests`) into the WASM `Reassembler` → NAL → `VideoDecoder` →
+  canvas. Proves the WASM↔WebCodecs chain works, **no network needed yet**. The counterpart
+  of "Phase 2 loopback".
+- ⬜ **M2 — WebTransport echo + certificate.** An msquic host serves the bundle + the
+  WebTransport endpoint on a temporary ECDSA certificate; the browser connects via
+  `serverCertificateHashes`, and the HELLO/HELLO_ACK handshake completes a full round trip
+  over datagrams. The QUIC library is finalized here.
+- ⬜ **M3 — Real video e2e on LAN.** Host shares a window → the web client displays it;
+  measure fps/kbps/packet loss/RTT/e2e latency like the Windows overlay. Compare latency
+  milestones against native UDP.
+- ⬜ **M4 — Input.** Pointer Lock + scancode keyboard controlling a regular application and
+  then a real game; measure input latency. Enable the `blur`/`visibilitychange` safety net.
 
-## 11. Rủi ro / câu hỏi mở
+## 11. Risks / open questions
 
-1. **Phân phối hash chứng chỉ** (cao — về UX): làm sao người dùng lấy hash gọn gàng và
-   an toàn. Quyết định giữa chuỗi-kết-nối/QR (out-of-band) và host-tự-phục-vụ (tiện nhưng
-   hash qua kênh LAN). Xem §6.
-2. **Mức hỗ trợ WebTransport của msquic** (trung bình): cần xác nhận lúc M2; nếu thiếu,
-   cân nhắc quiche.
-3. **Chỉnh trần datagram** (thấp): `maxDatagramSize` thay đổi theo đường; chọn lấy trị lúc
-   handshake và cố định phiên, hay cập nhật động khi RECONFIG.
-4. **Kích thước/hiệu năng core.wasm** (thấp): logic giao thức nhẹ, không phải đường nóng
-   pixel — dự kiến không đáng ngại, nhưng đo ở M1.
-5. **Phím bị trình duyệt/OS nuốt** (thấp): một số tổ hợp không bắt được từ trang web
-   thường (§5). Chấp nhận cho v1 view+input.
+1. **Certificate hash distribution** (high — UX): how users obtain the hash conveniently
+   and safely. Decide between connection-string/QR (out-of-band) and host-self-serving
+   (convenient, but the hash travels over the LAN channel). See §6.
+2. **msquic's level of WebTransport support** (medium): must be confirmed at M2; if
+   lacking, consider quiche.
+3. **Datagram ceiling adjustment** (low): `maxDatagramSize` varies with the path; decide
+   between taking the value at handshake and fixing it for the session, or updating
+   dynamically on RECONFIG.
+4. **core.wasm size/performance** (low): the protocol logic is lightweight, not a pixel hot
+   path — expected to be a non-issue, but measure at M1.
+5. **Keys swallowed by the browser/OS** (low): some combinations cannot be captured from a
+   normal web page (§5). Acceptable for v1 view+input.
 
-## 12. Vì sao thiết kế thế này (tóm)
+## 12. Why this design (summary)
 
-- **WebTransport datagram** vì nó là transport trình duyệt duy nhất ánh xạ 1-1 với mô hình
-  UDP hiện tại → giữ trọn `core/` và toàn bộ thiết kế giao thức v1.
-- **Tất cả bằng datagram ở v1** vì đó là điều kiện để `core/` không đổi; dời control/input
-  sang stream tin cậy là tối ưu để dành.
-- **WASM tái dùng core** thay vì viết lại JS — cùng lý do Android tái dùng: không mở bản
-  thứ ba của đường nóng dễ sai nhất.
-- **WebCodecs** vì nó giải mã phần cứng và xuất frame hiển thị được, gộp vai trò
-  decoder + renderer thành một.
-- **`serverCertificateHashes`** vì app là ngang hàng LAN không có CA công cộng — đúng ca sử
-  dụng mà nhánh này của WebTransport sinh ra để phục vụ.
+- **WebTransport datagrams** because it is the only browser transport that maps 1-to-1 onto
+  the current UDP model → preserves all of `core/` and the entire v1 protocol design.
+- **Everything over datagrams in v1** because that is the condition for `core/` to remain
+  unchanged; moving control/input onto reliable streams is a deferred optimization.
+- **WASM reuse of core** instead of a JS rewrite — the same reason Android reuses it: do
+  not open a third implementation of the most error-prone hot path.
+- **WebCodecs** because it decodes in hardware and outputs displayable frames, merging the
+  decoder + renderer roles into one.
+- **`serverCertificateHashes`** because the app is a LAN peer with no public CA — exactly
+  the use case this branch of WebTransport was created to serve.

@@ -44,10 +44,10 @@
 //   thread (thread Recv của client).
 //
 // LIÊN QUAN: deskhub/transport/Packetizer.h (đầu kia), deskhub/control/LinkStats.h (đọc
-//            stats() của lớp này), docs/06-phase3-transport.md §5
+//            stats() của lớp này), docs/06-transport.md §5
 // =============================================================================
 //
-// Chính sách v1 (docs/06-phase3-transport.md §5):
+// Chính sách v1 (docs/06-transport.md §5):
 //   - Giữ tối đa 4 frame đang ghép; gói thuộc frame đã phát/đã bỏ → bỏ.
 //   - Frame đầu hàng chưa đủ mảnh mà (a) đã quá 2 khoảng frame kể từ mảnh đầu, hoặc
 //     (b) đã có ≥2 frame mới hơn hoàn chỉnh → bỏ frame đó, đánh dấu loss.

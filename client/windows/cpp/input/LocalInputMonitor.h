@@ -28,7 +28,7 @@
 //   admin. Chấp nhận: cùng cấu hình đó SendInput của ta cũng không tới app admin.
 //
 // LIÊN QUAN: input/InputInjector.cpp (nơi đọc LastPhysicalUs), AgentLoop.cpp
-//            (nơi Start/Stop theo phiên share), docs/07-phase4-input.md
+//            (nơi Start/Stop theo phiên share), docs/07-input.md
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

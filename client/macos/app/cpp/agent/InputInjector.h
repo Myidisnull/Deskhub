@@ -51,7 +51,7 @@
 //   Apply()/ReleaseAll() gọi từ thread Recv của AgentLoop. Init/FocusTarget cũng vậy.
 //
 // LIÊN QUAN: agent/LocalInputMonitor.h, agent/Permissions.h, input/MacKeyMap.h,
-//            deskhub/input/InputReceiver.h, docs/07-phase4-input.md,
+//            deskhub/input/InputReceiver.h, docs/07-input.md,
 //            client/windows/input/InputInjector.h (bản song song)
 // =============================================================================
 #include <cstdint>
