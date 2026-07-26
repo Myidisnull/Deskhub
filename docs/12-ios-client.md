@@ -79,6 +79,14 @@ Make targets (`make/ios.mk`, macOS only):
 
 Per the comments in `ios.mk`, real-device and App Store builds need a signing team and an
 archive through Xcode/fastlane — they are not covered by make. See `13-release-mobile.md`.
+
+**On the Mac.** `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES`, so the same binary that
+goes to TestFlight also runs on Apple Silicon Macs (Intel Macs cannot run it) and is
+listed in the Mac App Store under "iPhone & iPad Apps". There is no Mac target, no
+separate product, and no extra CI job — Mac Catalyst was considered and rejected. The UI
+stays the finger-oriented virtual trackpad, so this build is a store-presence play, not a
+good Mac client; the native app in `client/macos` is the better client and the only one
+with the host role. Details and the trade-off in `16-release-macos.md` §2.
 C++ logging (`client/ios/app/cpp/Log.h`) is `fprintf(stderr, ...)`, visible in the Xcode
 console and Console.app.
 

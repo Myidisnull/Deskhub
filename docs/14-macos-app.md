@@ -247,6 +247,12 @@ the permission may have just been granted while preflight still caches the old v
   -configuration Debug SYMROOT=out/build/macos build`
 - `make release-macos` — same with `Release`
 - `make run-macos` — build then `open out/build/macos/Debug/app.app`
+- `make dist-macos` — release build signed with Developer ID, notarized, stapled and
+  packaged as a dmg; `make verify-macos` checks Gatekeeper accepts it. Full flow and
+  the certificate setup are in `16-release-macos.md`.
+
+`MACOS_SIGN` picks the identity: empty (default) = "Apple Development" from the project,
+`adhoc` = ad-hoc for CI build checks, `developerid` = the release identity.
 
 Project (`client/macos/Deskhub.xcodeproj`, single target `app`, shared scheme `app`):
 Swift 6.0 + gnu++20, deployment target macOS 14.0, bridging header
@@ -255,12 +261,19 @@ Swift 6.0 + gnu++20, deployment target macOS 14.0, bridging header
 `out/build/macos-core/<platform>-<config>` on every build (incremental); the app adds
 `core/include` to `HEADER_SEARCH_PATHS` and links `-lcore`. Linked frameworks:
 VideoToolbox, CoreMedia, AVFoundation, CoreVideo, ScreenCaptureKit, CoreGraphics,
-ApplicationServices, AppKit. Signing: `CODE_SIGN_STYLE = Automatic`, identity
-"Apple Development" for the macOS SDK ("-" as the base fallback);
-`app/Deskhub.entitlements` **disables the App Sandbox** — required for CGEventPost
-into other apps, the NSEvent global monitor, and binding a fixed UDP port (the
-entitlements file comment spells this out) — while keeping the harmless
-`network.client/server` keys for a possible future sandboxed client-only build.
+ApplicationServices, AppKit. Bundle id `com.deskhub.macos` — deliberately different
+from the iOS app's `com.ios.deskhub`, which also ships to Apple Silicon Macs as
+"Designed for iPad"; two apps must not claim one id on one machine.
+
+Signing: `CODE_SIGN_STYLE = Automatic`, identity "Apple Development" for the macOS SDK
+("-" as the base fallback), overridden per release mode via `MACOS_SIGN`.
+`ENABLE_HARDENED_RUNTIME = YES` in both configurations, which notarization requires.
+`app/Deskhub.entitlements` **disables the App Sandbox** — required for CGEventPost into
+other apps and the NSEvent global monitor — while keeping the harmless
+`network.client/server` keys for a possible future sandboxed client-only build. Note the
+third reason listed in that file (binding a fixed UDP port) is *not* actually a sandbox
+restriction; `network.server` covers it. Disabling the sandbox is what rules out the Mac
+App Store — see `16-release-macos.md` §1.
 
 ## 7. Cross-references
 

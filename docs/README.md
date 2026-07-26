@@ -85,6 +85,8 @@ make release-windows / release-android / release-ios / release-macos
 
 Or drive CMake directly: `cmake --preset x64-debug && cmake --build --preset x64-debug`.
 Mobile release automation (fastlane + GitHub Actions): `13-release-mobile.md`.
+macOS release (Developer ID + notarization, and why the Mac App Store is closed to the
+native app): `16-release-macos.md`.
 
 ## Table of contents
 
@@ -105,6 +107,7 @@ Mobile release automation (fastlane + GitHub Actions): `13-release-mobile.md`.
 | [13-release-mobile.md](13-release-mobile.md) | Mobile release & CI: fastlane lanes, GitHub Actions workflows, secrets, versioning |
 | [14-macos-app.md](14-macos-app.md) | macOS app (both roles): ScreenCaptureKit, VideoToolbox, CGEvent, permissions |
 | [15-review-todo.md](15-review-todo.md) | Open work items from the 2026-07-26 core/platform review: security, correctness, build hygiene |
+| [16-release-macos.md](16-release-macos.md) | macOS release: why not the Mac App Store, Developer ID + notarization, dmg, cert setup, CI |
 
 Reading order for newcomers: 01 → 04 → 06 → 07, then the doc for the platform you are
 touching. `05-roadmap.md` explains how the codebase got here; `15-review-todo.md` lists

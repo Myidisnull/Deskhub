@@ -1,12 +1,21 @@
 name: deploy
 
-# Đẩy bản phân phối lên hai chợ qua fastlane — iOS lên TestFlight, Android lên
-# Google Play track internal. Chạy khi push tag v* hoặc bấm tay (workflow_dispatch).
+# Đẩy bản phân phối đã ký qua fastlane — iOS lên TestFlight, Android lên Google Play
+# track internal, macOS thành dmg đã notarize đính vào GitHub Release. Chạy khi push
+# tag v* hoặc bấm tay (workflow_dispatch).
+#
+# VÌ SAO macOS KHÔNG LÊN CHỢ NÀO: app chứa cả vai host nên phải tắt App Sandbox
+# (CGEventPost + NSEvent global monitor cần Accessibility — sandbox cấm); mà Mac App
+# Store bắt buộc sandbox. Lý do đầy đủ nằm trong client/macos/app/Deskhub.entitlements
+# và docs/16-release-macos.md. Bản iOS thì có mặt trên Mac theo đường "Designed for
+# iPad" — cùng một ipa, không có job riêng ở đây.
 #
 # Danh tính/version app do FASTLANE quản làm nguồn chuẩn duy nhất:
-#   - bundle id iOS + team    : client/ios/fastlane/Appfile
+#   - bundle id iOS + team    : client/ios/fastlane/Appfile   (com.ios.deskhub)
+#   - bundle id macOS + team  : client/macos/fastlane/Appfile (com.deskhub.macos — KHÁC
+#                               bản iOS một cách có chủ ý: app khác, kênh khác)
 #   - package Android         : client/android/fastlane/Appfile
-#   - version hiển thị (x.y.z): file VERSION ở gốc repo (chung hai nền tảng)
+#   - version hiển thị (x.y.z): file VERSION ở gốc repo (chung mọi nền tảng)
 #   - build number/versionCode: github.run_number — mỗi lần chạy tự tăng
 #
 # Secrets khai trong ENVIRONMENT `stg` (Settings -> Environments -> stg) — job
@@ -21,6 +30,9 @@ name: deploy
 #     MATCH_PASSWORD   — passphrase mã hoá cert (đặt khi chạy match lần đầu)
 #     MATCH_GIT_BASIC_AUTHORIZATION — base64 của "<user>:<PAT đọc được repo cert>":
 #                        echo -n "user:ghp_xxx" | base64
+#   macOS: KHÔNG cần secret mới — dùng lại đúng ba ASC_* ở trên cho notarytool, và
+#          cùng bộ MATCH_* ở trên cho match (chỉ khác type: developer_id thay vì
+#          appstore, xem client/macos/fastlane/Matchfile).
 #   Android:
 #     ANDROID_KEYSTORE_BASE64 — keystore ký release, base64: base64 -i release.keystore
 #     KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD — thông số keystore ở trên
@@ -72,6 +84,59 @@ jobs:
           name: deskhub-ios-ipa
           path: client/ios/build/*.ipa
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # macOS -> dmg đã notarize, đính vào GitHub Release. Không có chợ nào để đẩy lên
+  # (lý do ở đầu file), nên "phát hành" ở đây nghĩa là ra một file tải trực tiếp mà
+  # Gatekeeper mở thẳng không cảnh báo.
+  #
+  # Toàn bộ cơ chế nằm ở `make dist-macos` (make/macos.mk): build ký Developer ID ->
+  # notarize -> staple -> dmg -> notarize + staple luôn cái dmg. Lane fastlane chỉ
+  # lo lấy cert qua match và ghi tạm file .p8 cho notarytool.
+  # ---------------------------------------------------------------------------
+  macos:
+    runs-on: macos-latest
+    environment: stg
+    permissions:
+      contents: write   # đính dmg vào GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fastlane release (build + notarize + dmg)
+        working-directory: client/macos
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: fastlane mac release
+
+      # Kiểm tra đúng thứ máy người dùng sẽ thấy — bắt trường hợp notarize "thành
+      # công" nhưng vé không dán được vào app.
+      - name: Verify Gatekeeper acceptance
+        run: make verify-macos
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deskhub-macos-dmg
+          path: out/dist/macos/Deskhub.dmg
+          if-no-files-found: error
+
+      - name: Rename with tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: mv out/dist/macos/Deskhub.dmg "out/dist/macos/deskhub-${GITHUB_REF_NAME}-macos.dmg"
+
+      # Cùng tag với release do build.yml tạo (exe + apk) — action này gộp thêm file
+      # vào release đã có, không tạo bản trùng.
+      - name: Attach dmg to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/dist/macos/deskhub-${{ github.ref_name }}-macos.dmg
 
   # ---------------------------------------------------------------------------
   # Android -> Play internal. NDK/CMake pin đúng phiên bản build.gradle.kts.

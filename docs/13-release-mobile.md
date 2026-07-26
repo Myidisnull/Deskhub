@@ -20,6 +20,8 @@ actual work, so every lane can also be run locally with the same env vars.
 | iOS | `ios release` | Builds a signed release ipa (`build_app`, manual signing via match), uploads to **TestFlight** | CI (`deploy.yml`) or locally |
 | iOS | `ios metadata` | Pushes the App Store listing (deliver) from `client/ios/fastlane/metadata/` | CI (`metadata.yml`) or locally |
 | iOS | `ios certificates` | Creates/renews the Apple Distribution cert + provisioning profile in the match repo (`match(type: "appstore", readonly: false)`) | **Local only** — CI uses match read-only |
+| macOS | `mac release` | Fetches the Developer ID cert via match, then runs `make dist-macos` (build → notarize → staple → dmg). No store upload — the app cannot go on the Mac App Store; see `16-release-macos.md` | CI (`deploy.yml`) or locally |
+| macOS | `mac certificates` | Creates/renews the **Developer ID Application** cert in the same match repo (`match(type: "developer_id", readonly: false)`) | **Local only** — needs the Account Holder role |
 
 App identity:
 
@@ -27,7 +29,13 @@ App identity:
   Independent from the Gradle `namespace` (`com.deskhub.app`), which is kept
   for JNI symbol names.
 - iOS bundle id: `com.ios.deskhub`, team `UPJRMYQ38F`
-  (`client/ios/fastlane/Appfile`).
+  (`client/ios/fastlane/Appfile`). The same build also ships to Apple Silicon
+  Macs as "Designed for iPad" — no separate target, product or CI job; see
+  `16-release-macos.md` §2.
+- macOS bundle id: `com.deskhub.macos`, same team
+  (`client/macos/fastlane/Appfile`) — deliberately **different** from iOS, since
+  the native macOS app is a different app (host role, sandbox off) that would
+  otherwise collide with the iOS-on-Mac build on one machine.
 
 Automated by CI: build, sign, upload to internal/TestFlight, artifact upload,
 GitHub Release creation. Manual/local only: initial cert creation
@@ -49,19 +57,20 @@ Triggers: push to `main`, push of `v*` tags, pull requests to `main`,
 | `windows` | windows (needs core-tests) | CMake preset `x64-release` (native DLL) + CTest, then `dotnet build -c Release -p:Platform=x64` (WinUI3); uploads `deskhub-windows` — the whole unpackaged self-contained folder, not a single exe; checks out submodules |
 | `android` | ubuntu | JDK 17, NDK `26.1.10909125`, CMake `3.22.1`, then `make build-android`; uploads `deskhub-android` (app-debug.apk) |
 | `ios` | macos | `make build-ios` — Simulator build check only, no signing, no artifact |
-| `macos` | macos (needs core-tests) | `make release-macos`, ad-hoc signed, uploads `deskhub-macos` (zip) |
-| `release` | ubuntu (needs windows, android, macos) | Only on `v*` tags: zips the Windows folder, renames the apk/macOS zip with the tag, and attaches all three to a GitHub Release (`softprops/action-gh-release`) |
+| `macos` | macos (needs core-tests) | `make release-macos MACOS_SIGN=adhoc`, uploads `deskhub-macos` (zip). **Build check only** — the ad-hoc artifact is deliberately never attached to a Release; the shippable dmg comes from `deploy.yml`. See `16-release-macos.md` §4 |
+| `release` | ubuntu (needs windows, android) | Only on `v*` tags: zips the Windows folder, renames the apk with the tag, and attaches both to a GitHub Release (`softprops/action-gh-release`). The macOS dmg is appended to the same Release by `deploy.yml` |
 
 ### deploy.yml
 
 Triggers: push of `v*` tags, or `workflow_dispatch` with input
-`promote_track` (choice: `none` (default) or `alpha`). Both jobs declare
+`promote_track` (choice: `none` (default) or `alpha`). All jobs declare
 `environment: stg` — secrets live in that GitHub environment, not in
-repository secrets. `BUILD_NUMBER` is set to `github.run_number` in both jobs.
+repository secrets. `BUILD_NUMBER` is set to `github.run_number` in every job.
 
 | Job | Runner | Steps |
 |---|---|---|
 | `ios` | macos-latest | Checkout → `fastlane ios release` (working dir `client/ios`) → upload `deskhub-ios-ipa` artifact |
+| `macos` | macos-latest | Checkout → `fastlane mac release` (working dir `client/macos`; match fetches the Developer ID cert, then `make dist-macos` builds → notarizes → staples → packages the dmg) → `make verify-macos` → upload `deskhub-macos-dmg` artifact → on tags, attach `deskhub-<tag>-macos.dmg` to the GitHub Release. Reuses the iOS `ASC_*` and `MATCH_*` secrets — no new ones. See `16-release-macos.md` |
 | `android` | ubuntu-latest | Checkout → JDK 17 → Android SDK → `sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"` → Ruby 3.3 + `gem install fastlane` → decode `ANDROID_KEYSTORE_BASE64` to `$RUNNER_TEMP/release.keystore` → `fastlane android release` → upload `deskhub-android-aab` artifact |
 
 On a tag push the `inputs` context is empty, so `PLAY_PROMOTE_TRACK` is empty

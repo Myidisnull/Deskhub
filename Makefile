@@ -24,6 +24,10 @@
 #   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
 #   make build-ios       / release-ios       app iOS cho Simulator (cần macOS + Xcode)
 #
+# Phát hành:
+#   make dist-macos     dmg macOS ký Developer ID + notarize + staple (docs/16-release-macos.md)
+#   make verify-macos   kiểm tra Gatekeeper chấp nhận bản vừa dựng
+#
 #   make run            build + chạy Deskhub.exe (WinUI3, mới có Windows), ARGS="--share ..."
 #   make run-macos      build + mở app macOS (cần macOS + Xcode)
 #   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
