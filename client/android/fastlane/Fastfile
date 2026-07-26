@@ -35,15 +35,25 @@ platform :android do
   desc "Build AAB Release (ký bằng keystore từ env) và upload Play internal"
   lane :release do
     version_code = ENV.fetch("BUILD_NUMBER", "1")
+    gradle_props = {
+      "applicationId" => PACKAGE_NAME,
+      "versionName" => APP_VERSION,
+      "versionCode" => version_code,
+    }
 
     gradle(
       task: "bundle",
       build_type: "Release",
-      properties: {
-        "applicationId" => PACKAGE_NAME,
-        "versionName" => APP_VERSION,
-        "versionCode" => version_code,
-      }
+      properties: gradle_props
+    )
+
+    # APK Release ký cùng keystore — để CI đính vào GitHub Release cho người
+    # dùng sideload. AAB chỉ Play tiêu hoá được, không cài trực tiếp lên máy;
+    # còn apk DEBUG (build.yml) ký khoá debug nên xung đột chữ ký với bản Play.
+    gradle(
+      task: "assemble",
+      build_type: "Release",
+      properties: gradle_props
     )
 
     upload_to_play_store(

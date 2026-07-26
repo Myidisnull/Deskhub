@@ -209,14 +209,20 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Release: chỉ chạy khi push tag v*. Gom artifact của windows + android rồi đính
-  # vào một GitHub Release. Tên file mang tag để tải về khỏi nhầm phiên bản.
+  # Release: chỉ chạy khi push tag v*. Đính zip Windows và viết body liệt kê đủ
+  # các nền tảng. Tên file mang tag để tải về khỏi nhầm phiên bản.
   #
-  # KHÔNG có macOS ở đây: bản dùng được là dmg đã notarize, mà notarize cần secret
-  # nên nằm ở deploy.yml — job macos bên đó tự đính dmg vào CÙNG release này.
+  # CHỈ CÓ Windows ở đây — các bản còn lại cần secret nên deploy.yml đính vào
+  # CÙNG release này (softprops gộp file vào release đã có, không tạo bản trùng):
+  #   - macOS  : dmg ký Developer ID + notarize (job macos)
+  #   - Android: apk ký release, cùng keystore bản Play (job android) — apk DEBUG
+  #     của job android bên trên chỉ là artifact kiểm tra, ký khoá debug nên xung
+  #     đột chữ ký với bản Play, không đính vào release nữa
+  #   - iOS    : không có file — ipa ký App Store không sideload được, người dùng
+  #     đi đường TestFlight / App Store
   # ---------------------------------------------------------------------------
   release:
-    needs: [windows, android]
+    needs: [windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -227,17 +233,22 @@ jobs:
         with:
           path: dist
 
-      # Windows là cả thư mục (app unpackaged + self-contained) nên nén thành zip;
-      # android chỉ cần đổi tên cho mang tag.
+      # Windows là cả thư mục (app unpackaged + self-contained) nên nén thành zip.
       - name: Rename with tag
         run: |
           mkdir -p out
           (cd dist/deskhub-windows && zip -qr "$GITHUB_WORKSPACE/out/deskhub-${GITHUB_REF_NAME}-windows.zip" .)
-          cp dist/deskhub-android/app-debug.apk "out/deskhub-${GITHUB_REF_NAME}.apk"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            out/deskhub-${{ github.ref_name }}-windows.zip
-            out/deskhub-${{ github.ref_name }}.apk
+          files: out/deskhub-${{ github.ref_name }}-windows.zip
+          body: |
+            | Nền tảng | File / kênh |
+            |---|---|
+            | Windows | `deskhub-${{ github.ref_name }}-windows.zip` — giải nén rồi chạy `Deskhub.exe` |
+            | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — đã notarize, mở thẳng không cảnh báo |
+            | Android | `deskhub-${{ github.ref_name }}-android.apk` — ký release, cùng chữ ký bản Google Play |
+            | iOS | TestFlight / App Store (ipa không sideload được) |
+
+            File macOS/Android do workflow deploy đính vào — có thể lên chậm hơn zip Windows vài phút.

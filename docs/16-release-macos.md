@@ -113,7 +113,8 @@ Two ways this differs from the iOS certs:
   in §4.
 - `.github/workflows/deploy.yml` — job `macos` (environment `stg`) runs
   `fastlane mac release` on `v*` tags, then attaches `deskhub-<tag>-macos.dmg` to the
-  same GitHub Release that `build.yml` creates for the exe and apk.
+  same GitHub Release that `build.yml` creates for the Windows zip (the signed apk is
+  attached by the `android` job in the same deploy workflow).
 
 **No new secrets.** `notarytool` takes the same App Store Connect API key already used
 for TestFlight (`ASC_KEY_ID` / `ASC_ISSUER_ID` / `ASC_KEY_CONTENT`), and match uses the
