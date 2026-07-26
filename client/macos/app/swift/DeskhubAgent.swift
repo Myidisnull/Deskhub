@@ -72,7 +72,10 @@ nonisolated enum DeskhubAgent {
     // --- Phiên chia sẻ ---
 
     // CHẶN tới ~10s (đợi frame đầu của từng nguồn) — gọi ngoài main thread.
+    // Chữ ký chép 1-1 từ C API dha_start; gom thành struct chỉ thêm một lớp vỏ
+    // cho đúng một call site.
     @discardableResult
+    // swiftlint:disable:next function_parameter_count
     static func start(
         sources: [ShareSource],
         port: UInt16,

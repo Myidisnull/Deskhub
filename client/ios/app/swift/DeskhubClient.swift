@@ -90,11 +90,11 @@ nonisolated enum DeskhubClient {
     /// mỗi nhịp poll và cất ngay — token chỉ đi trên dây đúng một lần.
     static func takeDeviceToken() -> Data? {
         var buf = [UInt8](repeating: 0, count: 64)
-        let n = buf.withUnsafeMutableBufferPointer { ptr in
+        let len = buf.withUnsafeMutableBufferPointer { ptr in
             dh_take_device_token(ptr.baseAddress, Int32(ptr.count))
         }
-        guard n > 0 else { return nil }
-        return Data(buf.prefix(Int(n)))
+        guard len > 0 else { return nil }
+        return Data(buf.prefix(Int(len)))
     }
 
     static func rejectReason() -> RejectReason {

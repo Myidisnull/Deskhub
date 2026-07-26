@@ -57,8 +57,8 @@ enum Credentials {
     static var clientId: UInt32 {
         let (data, status) = readWithStatus(account: clientIdKey)
         if let data, data.count == 4 {
-            let v = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
-            if v != 0 { return v }
+            let stored = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+            if stored != 0 { return stored }
         }
         // Chỉ sinh danh tính mới khi Keychain KHẲNG ĐỊNH chưa có mục
         // (errSecItemNotFound), hoặc mục có mà hỏng (đọc được nhưng sai cỡ/bằng 0).
@@ -70,13 +70,13 @@ enum Credentials {
         guard status == errSecItemNotFound || status == errSecSuccess else { return 0 }
         // SecRandomCopyBytes chứ không phải arc4random: giá trị này đi vào proof xác
         // thực và là khoá tra thiết bị tin cậy phía host.
-        var v: UInt32 = 0
-        _ = withUnsafeMutableBytes(of: &v) { buf in
+        var fresh: UInt32 = 0
+        _ = withUnsafeMutableBytes(of: &fresh) { buf in
             SecRandomCopyBytes(kSecRandomDefault, 4, buf.baseAddress!)
         }
-        if v == 0 { v = 1 }
-        write(account: clientIdKey, data: withUnsafeBytes(of: v) { Data($0) })
-        return v
+        if fresh == 0 { fresh = 1 }
+        write(account: clientIdKey, data: withUnsafeBytes(of: fresh) { Data($0) })
+        return fresh
     }
 
     /// Tên hiện ở danh sách "Trusted devices" phía host ("iPhone 15 Pro").
@@ -202,11 +202,11 @@ enum Credentials {
     // Bản trả kèm OSStatus — cho những chỗ (clientId) phải phân biệt "chưa có mục"
     // với "đọc lỗi tạm thời", vì hai trường hợp đó đòi hai phản ứng ngược nhau.
     private static func readWithStatus(account: String) -> (data: Data?, status: OSStatus) {
-        var q = query(account: account)
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var attrs = query(account: account)
+        attrs[kSecReturnData as String] = true
+        attrs[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        let status = SecItemCopyMatching(attrs as CFDictionary, &out)
         return (status == errSecSuccess ? out as? Data : nil, status)
     }
 
@@ -214,10 +214,10 @@ enum Credentials {
         // Xoá rồi thêm, thay vì SecItemUpdate: gọn hơn, và không có đường "mục đã tồn
         // tại nhưng thuộc tính accessible khác" phải xử lý riêng.
         delete(account: account)
-        var q = query(account: account)
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        SecItemAdd(q as CFDictionary, nil)
+        var attrs = query(account: account)
+        attrs[kSecValueData as String] = data
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        SecItemAdd(attrs as CFDictionary, nil)
     }
 
     private static func delete(account: String) {
