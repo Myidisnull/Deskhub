@@ -185,25 +185,39 @@ Danh sách rỗng gộp hai trường hợp — host im lặng (bản cũ / mấ
 thành một: cứ vào **nguồn 0** và để `ClientSession` báo lỗi thật. Một nguồn thì bỏ qua luôn
 `SourcePickerView`.
 
-## 5. UI SwiftUI
+## 5. UI SwiftUI — hệ thiết kế Deskhub
 
-Ba màn, đối ứng `MainActivity`/`SourcePickerView`/`StreamActivity` của Android:
+UI dựng trên **hệ thiết kế Deskhub** — cùng bộ token màu với macOS
+(`client/macos/app/swift/DesignTokens.swift`) và Windows (`Themes/Tokens.xaml`): kính trắng
+mờ trên nền gần-đen, mint làm màu tín hiệu duy nhất, mono cho mọi con số, sáng/tối + EN/VI
+đổi ngay trong app (nút ở thanh trên cùng, lưu qua `AppState` + `Strings.swift`). **Màu chép
+1-1 từ desktop; kích thước thì không** — control 44pt (ngưỡng vùng chạm HIG), gutter 20,
+hành động chính ghim ở thanh đáy trong tầm ngón cái. Từng chỗ lệch đều ghi lý do ngay tại
+`DesignTokens.swift`.
 
-- **`ConnectView`** — ô nhập `ip[:port]`, nút **Connect**. Địa chỉ nhớ lại bằng `@AppStorage`
-  (đối ứng "địa chỉ được nhớ lại cho lần sau" của Android). Port mặc định **47777**
-  (`kDefaultPort`, trùng `client/windows/MainMenuWindow.cpp`). Bấm Connect → `listSources` →
-  nếu >1 nguồn đẩy sang `SourcePickerView`, nếu ≤1 vào thẳng `StreamView` nguồn 0.
-- **`SourcePickerView`** — `List` các nguồn từ `SOURCE_LIST`; chọn → `StreamView`. Back về
-  `ConnectView`.
-- **`StreamView`** — `UIViewRepresentable` bọc `UIView` có
-  `layerClass = AVSampleBufferDisplayLayer`, đặt `.aspectRatio(w/h, contentMode: .fit)` theo
-  `videoSize()`. Overlay `Text` (fps/kbps/RTT/e2e) trên `ZStack`, cập nhật 500ms/lần từ
-  `statusLine()`. `onAppear` → `setLayer` + `start`; `onDisappear`/nền → `setLayer(nil)`;
-  phiên `Ended` → hiện `endReason()` rồi về `ConnectView`.
+Tầng thành phần nằm trong `Design*.swift` (Tokens/Text/Surfaces/Buttons/Controls/Rows/
+Layout) — view màn hình không tự vẽ nút/ô tick/panel nào ngoài bộ này.
 
-Quản trạng thái bằng một `@Observable`/`ObservableObject` (`SessionModel`) gọi vào
-`DeskhubClient` — không View nào tự gọi C++, mọi lối đi qua facade (đối ứng "không Activity nào
-tự khai external fun" của Android).
+Ba màn, đối ứng `MainActivity`/`SourcePickerScreen`/`StreamActivity` của Android:
+
+- **`ConnectView`** — ô địa chỉ hero (mono 17, cao 58) + danh sách **máy đã kết nối**
+  (`Recents.swift`, tối đa 12 — thay cho một địa chỉ `lastAddress` duy nhất trước đây; bấm
+  thẻ là điền sẵn địa chỉ, không nối thẳng) + ba panel hướng dẫn + thanh đáy [ô "chỉ xem" +
+  nút Connect]. Port mặc định 47777 do tầng C++ điền (ParseNetAddr). Bấm Connect →
+  `listSources` → nếu >1 nguồn sang `SourcePickerView`, nếu ≤1 vào thẳng nguồn 0.
+- **`SourcePickerView`** — dòng nguồn `SourceRow` với ô tick kiểu radio (dh_start nhận MỘT
+  sourceId), pill trạng thái, thanh đáy [cho phép input + Bắt đầu xem]. Không dùng
+  `List`/`NavigationStack` của hệ — chúng mang nguyên bộ trang trí iOS vào giữa hệ thiết kế.
+- **`StreamView`** — video chiếm TRỌN màn hình, không còn header/thanh đáy đặc: trạng thái
+  + số liệu là HUD nổi góc trên, phím tắt là hàng pill cuộn ngang + HUD điều khiển nổi giữa
+  dưới (bàn phím ảo, Kết thúc). Luôn ở bảng màu TỐI kể cả khi app để giao diện sáng — vùng
+  letterbox phải là màu KHÔNG CÓ. Chế độ "chỉ xem" chặn ở `SessionModel` (cửa duy nhất
+  xuống C++) và không dựng lớp trackpad.
+
+Quản trạng thái bằng một `@Observable` (`SessionModel`) gọi vào `DeskhubClient` — không View
+nào tự gọi C++, mọi lối đi qua facade (đối ứng "không Activity nào tự khai external fun" của
+Android). Lỗi lưu bằng KHOÁ bảng chữ (`connectErrorKey`) chứ không phải câu đã dịch — ngôn
+ngữ đổi được giữa chừng.
 
 ## 6. Build & chạy
 

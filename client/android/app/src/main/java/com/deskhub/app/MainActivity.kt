@@ -1,10 +1,12 @@
 // =============================================================================
 // MainActivity.kt — màn hình đầu tiên: nhập địa chỉ host rồi chọn cửa sổ muốn xem.
+//                   Giao diện dựng trên hệ thiết kế Deskhub (ui/Tokens.kt +
+//                   ui/Components.kt), đối ứng ConnectView/SourcePickerView bên iOS.
 //
 // NHIỆM VỤ
-//   Dẫn người dùng qua ba bước tới lúc mở được StreamActivity. Nhớ lại địa chỉ lần
-//   trước để khỏi phải gõ lại IP mỗi lần mở app — đây là app dùng đi dùng lại với
-//   đúng một cái máy.
+//   Dẫn người dùng qua ba bước tới lúc mở được StreamActivity. Nhớ danh sách máy đã
+//   kết nối (ui/Recents.kt — tối đa 12, thay cho một địa chỉ duy nhất trước đây) để
+//   lần sau chỉ cần một cú chạm thay vì gõ lại IP trên bàn phím ảo.
 //
 // BA BƯỚC, MÔ HÌNH HOÁ BẰNG sealed interface Step
 //   Address  — gõ địa chỉ.
@@ -12,12 +14,16 @@
 //   Picking  — host trả về nhiều nguồn, cho chọn.
 //   Dùng sealed interface thay cho vài biến boolean rời rạc: trình dịch bắt buộc
 //   `when` phải phủ hết mọi nhánh, nên thêm bước mới sau này không thể quên chỗ nào.
-//   Step.Picking mang luôn danh sách nguồn — dữ liệu chỉ tồn tại ở đúng bước cần nó.
 //
 // ĐƯỜNG TẮT: BỎ QUA BƯỚC CHỌN
 //   Host im lặng (bản trước GĐ6 không biết LIST_SOURCES) hoặc chỉ chia sẻ một cửa
 //   sổ → vào thẳng, không bắt chọn giữa một lựa chọn duy nhất. Lỗi thật, nếu có, sẽ
 //   do tầng dưới báo lên ở StreamActivity.
+//
+// "CHỈ XEM" LÀ CỜ TOÀN CỤC PHÍA KOTLIN (NativeClient.viewOnly)
+//   Được tick ở màn này, đọc ở StreamActivity. Chặn ở NativeClient — cửa duy nhất
+//   xuống C++ — chứ không ở từng chỗ gửi input: một chỗ quên kiểm tra là cả lựa chọn
+//   này thành vô nghĩa mà không ai biết.
 //
 // VÌ SAO CÓ ĐƯỜNG CHẠY THẲNG TỪ adb
 //   Truyền extra "addr" là mở luôn StreamActivity, bỏ qua mọi bước. Dùng để test
@@ -33,24 +39,19 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,21 +60,41 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.deskhub.app.ui.AppMark
+import com.deskhub.app.ui.AppState
+import com.deskhub.app.ui.DeskhubTheme
+import com.deskhub.app.ui.Ds
+import com.deskhub.app.ui.DsButton
+import com.deskhub.app.ui.DsButtonSize
+import com.deskhub.app.ui.DsButtonVariant
+import com.deskhub.app.ui.DsCheckbox
+import com.deskhub.app.ui.HeroField
+import com.deskhub.app.ui.MachineCard
+import com.deskhub.app.ui.MonoText
+import com.deskhub.app.ui.Panel
+import com.deskhub.app.ui.PillTone
+import com.deskhub.app.ui.Recents
+import com.deskhub.app.ui.ScreenHeader
+import com.deskhub.app.ui.SectionHeader
+import com.deskhub.app.ui.SourceRow
+import com.deskhub.app.ui.Spinner
+import com.deskhub.app.ui.StatBlock
+import com.deskhub.app.ui.StatusDot
+import com.deskhub.app.ui.TopBar
+import com.deskhub.app.ui.cobaltGlow
+import com.deskhub.app.ui.tr
 import kotlinx.coroutines.launch
 
-/**
- * Màn hình nhập địa chỉ host, rồi chọn cửa sổ muốn xem nếu host chia sẻ nhiều cửa sổ.
- * Nhớ lại địa chỉ lần trước để khỏi phải gõ lại IP mỗi lần mở app — đây là app dùng
- * đi dùng lại với đúng một cái máy.
- */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppState.init(this)
+        Recents.init(this)
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
+        // NativeClient không có Context nên phần lưu "chỉ xem" nằm ở đây.
+        NativeClient.viewOnly = prefs.getBoolean("viewOnly", false)
 
         // Vẫn cho chạy thẳng từ adb để test nhanh (bỏ qua bước chọn nguồn):
         //   am start -n com.deskhub.app/.MainActivity --es addr 10.0.2.2:47777
@@ -83,11 +104,25 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            DeskhubTheme(dark = AppState.isDark) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(Ds.colors.bgWindow)
+                            .cobaltGlow()
+                            .safeDrawingPadding(),
+                ) {
                     MainScreen(
                         initialAddress = prefs.getString("addr", "").orEmpty(),
-                        onRemember = { addr -> prefs.edit().putString("addr", addr).apply() },
+                        onRemember = { addr ->
+                            prefs.edit().putString("addr", addr).apply()
+                            Recents.remember(addr)
+                        },
+                        onViewOnlyChange = { on ->
+                            NativeClient.viewOnly = on
+                            prefs.edit().putBoolean("viewOnly", on).apply()
+                        },
                         onOpenStream = ::openStream,
                     )
                 }
@@ -122,6 +157,7 @@ private sealed interface Step {
 private fun MainScreen(
     initialAddress: String,
     onRemember: (String) -> Unit,
+    onViewOnlyChange: (Boolean) -> Unit,
     onOpenStream: (String, Int) -> Unit,
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
@@ -133,37 +169,52 @@ private fun MainScreen(
     // được), nhưng kết quả bị bỏ qua nhờ phép kiểm tra step ở chỗ nhận kết quả.
     BackHandler(enabled = step != Step.Address) { step = Step.Address }
 
+    val connect: (String) -> Unit = { addr ->
+        onRemember(addr)
+        step = Step.Querying
+        scope.launch {
+            // listSources là suspend fun, tự chuyển sang Dispatchers.IO — main
+            // thread không bị chặn suốt 3 giây (nếu chặn, Android dựng hộp ANR).
+            val sources = NativeClient.listSources(addr)
+            if (step is Step.Querying) {
+                // Rỗng = host im lặng hoặc host đời cũ; một nguồn = không có gì để
+                // chọn. Cả hai vào thẳng, để tầng dưới báo lỗi thật nếu có.
+                if (sources.size <= 1) {
+                    step = Step.Address
+                    onOpenStream(addr, sources.firstOrNull()?.id ?: 0)
+                } else {
+                    step = Step.Picking(sources)
+                }
+            }
+        }
+    }
+
     when (val s = step) {
         is Step.Address ->
             AddressScreen(
                 address = address,
                 onAddressChange = { address = it },
-                onConnect = { addr ->
-                    onRemember(addr)
-                    step = Step.Querying
-                    scope.launch {
-                        // listSources là suspend fun, tự chuyển sang Dispatchers.IO —
-                        // main thread không bị chặn suốt 3 giây (nếu chặn, Android dựng
-                        // hộp thoại ANR).
-                        val sources = NativeClient.listSources(addr)
-                        if (step !is Step.Querying) return@launch // người dùng đã bấm Back
-                        // Rỗng = host im lặng hoặc host đời cũ; một nguồn = không có gì để
-                        // chọn. Cả hai trường hợp vào thẳng, để tầng dưới báo lỗi thật nếu có.
-                        if (sources.size <= 1) {
-                            step = Step.Address
-                            onOpenStream(addr, sources.firstOrNull()?.id ?: 0)
-                        } else {
-                            step = Step.Picking(sources)
-                        }
-                    }
-                },
+                busy = false,
+                onViewOnlyChange = onViewOnlyChange,
+                onConnect = connect,
             )
 
-        is Step.Querying -> CenteredMessage(stringResource(R.string.looking_for_sources), busy = true)
+        // Bước hỏi giữ nguyên bố cục màn địa chỉ (chỉ đổi dòng phụ + vòng quay trong
+        // ô): nhảy sang một màn "đang tìm…" trống trải rồi quay lại là hai lần giật.
+        is Step.Querying ->
+            AddressScreen(
+                address = address,
+                onAddressChange = {},
+                busy = true,
+                onViewOnlyChange = onViewOnlyChange,
+                onConnect = {},
+            )
 
         is Step.Picking ->
             SourcePickerScreen(
+                address = address,
                 sources = s.sources,
+                onViewOnlyChange = onViewOnlyChange,
                 onPick = { source ->
                     step = Step.Address // quay lại từ StreamActivity là thấy ô địa chỉ
                     onOpenStream(address, source.id)
@@ -176,123 +227,227 @@ private fun MainScreen(
 private fun AddressScreen(
     address: String,
     onAddressChange: (String) -> Unit,
+    busy: Boolean,
+    onViewOnlyChange: (Boolean) -> Unit,
     onConnect: (String) -> Unit,
 ) {
     val trimmed = address.trim()
+    val go = { if (trimmed.isNotEmpty() && !busy) onConnect(trimmed) }
+    var recents by remember { mutableStateOf(Recents.all) }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = stringResource(R.string.app_name),
-            fontSize = 28.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = stringResource(R.string.host_address_label),
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
-        )
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopBar()
 
-        OutlinedTextField(
-            value = address,
-            onValueChange = onAddressChange,
-            singleLine = true,
-            placeholder = { Text(stringResource(R.string.host_address_hint)) },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            // Enter trên bàn phím ảo = bấm Connect, khỏi phải với tay xuống nút.
-            keyboardActions =
-                KeyboardActions(onGo = {
-                    if (trimmed.isNotEmpty()) onConnect(trimmed)
-                }),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Column(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            ScreenHeader(eyebrow = tr("clientMode"), title = tr("connectTitle"))
 
-        Button(
-            onClick = { onConnect(trimmed) },
-            enabled = trimmed.isNotEmpty(), // thay cho Toast "nhập địa chỉ trước"
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                HeroField(
+                    value = address,
+                    onValueChange = onAddressChange,
+                    placeholder = tr("addressPlaceholder"),
+                    onGo = go,
+                ) {
+                    if (busy) Spinner(size = 18.dp)
+                }
+                MonoText(text = if (busy) tr("askingSources") else tr("connectHint"))
+            }
+
+            // "Gần đây" đứng NGAY DƯỚI ô nhập, trên cả các panel hướng dẫn: lần mở
+            // app thứ hai trở đi, thứ người dùng cần là một cú chạm vào cái máy hôm
+            // qua vừa dùng — không phải đọc lại hướng dẫn.
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionHeader(label = tr("recentConnections")) {
+                    DsButton(
+                        text = tr("forgetAll"),
+                        onClick = {
+                            Recents.forgetAll()
+                            recents = Recents.all
+                        },
+                        variant = DsButtonVariant.GHOST,
+                        size = DsButtonSize.SM,
+                        enabled = recents.isNotEmpty(),
+                    )
+                }
+                if (recents.isEmpty()) {
+                    MonoText(text = tr("nothingRemembered"))
+                } else {
+                    recents.forEach { machine ->
+                        // Máy đã lưu: ta chưa dò lại nên KHÔNG khẳng định nó đang
+                        // sống — MachineCard vẽ chấm "không sống", không bịa độ trễ.
+                        MachineCard(
+                            name = machine.displayName,
+                            address = machine.address,
+                            link = machine.link,
+                            onTap = { onAddressChange(machine.address) },
+                        )
+                    }
+                }
+            }
+
+            HelpPanels()
+        }
+
+        // Thanh đáy: vùng DUY NHẤT ngón cái với tới thoải mái khi cầm một tay — nút
+        // chính của màn nằm ở đây, cao 52.
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 20.dp),
-        ) {
-            Text(stringResource(R.string.connect))
-        }
-
-        Text(
-            text = stringResource(R.string.emulator_hint),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 28.dp),
+                    .height(Ds.hairline)
+                    .background(Ds.colors.borderHairline),
         )
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(Ds.colors.surfaceCard)
+                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            DsCheckbox(
+                checked = NativeClient.viewOnly,
+                onToggle = onViewOnlyChange,
+                label = tr("viewOnlyOption"),
+            )
+            DsButton(
+                text = tr("connect"),
+                onClick = go,
+                variant = DsButtonVariant.PRIMARY,
+                size = DsButtonSize.LG,
+                enabled = trimmed.isNotEmpty() && !busy,
+                fullWidth = true,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HelpPanels() {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Panel(label = tr("onOtherMachine")) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = tr("openAndShare"),
+                    fontSize = Ds.textBody,
+                    fontWeight = FontWeight.Medium,
+                    color = Ds.colors.textPrimary,
+                )
+                MonoText(text = tr("shareOrExe"))
+            }
+        }
+        Panel(label = tr("whereAddress")) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = tr("printedOnShare"),
+                    fontSize = Ds.textBody,
+                    fontWeight = FontWeight.Medium,
+                    color = Ds.colors.textPrimary,
+                )
+                MonoText(text = tr("onePerInterfaceLong"))
+            }
+        }
+        Panel(label = tr("port")) {
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                StatBlock(label = tr("udp"), value = "47777")
+                MonoText(text = tr("portChangeable"))
+            }
+        }
+        MonoText(text = tr("emulatorHint"))
     }
 }
 
 /**
- * Danh sách cửa sổ host đang chia sẻ. Đối ứng SourcePickerDialog bên client Windows,
- * nhưng chỉ cho chọn MỘT: Android chỉ xem được một nguồn tại một thời điểm (bên
- * Windows mỗi nguồn là một cửa sổ preview riêng, ở đây chỉ có một Activity).
+ * Danh sách cửa sổ host đang chia sẻ, ô tick hành xử như radio — dh_start nhận MỘT
+ * sourceId, chọn cái mới là bỏ cái cũ. Nút "Bắt đầu xem" ở thanh đáy chốt lựa chọn.
  */
 @Composable
 private fun SourcePickerScreen(
+    address: String,
     sources: List<NativeClient.Source>,
+    onViewOnlyChange: (Boolean) -> Unit,
     onPick: (NativeClient.Source) -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = stringResource(R.string.pick_source),
-            fontSize = 18.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 16.dp),
-        )
+    var pickedId by remember { mutableStateOf(sources.first().id) }
 
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
-            items(sources, key = { it.id }) { source ->
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { onPick(source) }
-                            .padding(horizontal = 24.dp, vertical = 14.dp),
-                ) {
-                    Text(
-                        // Host cắt tên ở 64 byte và có cửa sổ không có tiêu đề.
-                        text = source.name.ifBlank { stringResource(R.string.unnamed_source, source.id) },
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = stringResource(R.string.source_size, source.width, source.height),
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopBar {
+            AppMark()
+        }
+
+        Column(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            ScreenHeader(eyebrow = tr("clientMode"), title = tr("pickTitle"), aside = address)
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionHeader(label = tr("sharedByHost")) {
+                    StatusDot(live = sources.isNotEmpty())
+                    MonoText(
+                        text = tr("publishedCountFmt").format(sources.size, 1),
+                        maxLines = 1,
                     )
                 }
-                HorizontalDivider()
+
+                sources.forEach { source ->
+                    val selected = source.id == pickedId
+                    SourceRow(
+                        // Host cắt tên ở 64 byte và có cửa sổ không có tiêu đề.
+                        name = source.name.ifBlank { tr("unnamedSourceFmt").format(source.id) },
+                        detail = "${source.width}×${source.height}",
+                        selected = selected,
+                        state = if (selected) tr("streaming") else tr("idle"),
+                        tone = if (selected) PillTone.LIVE else PillTone.NEUTRAL,
+                        onSelect = { pickedId = source.id },
+                    )
+                }
+
+                MonoText(text = tr("pickHint"))
             }
         }
-    }
-}
 
-@Composable
-private fun CenteredMessage(
-    text: String,
-    busy: Boolean,
-) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        if (busy) CircularProgressIndicator(modifier = Modifier.padding(bottom = 20.dp))
-        Text(text = text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(Ds.hairline)
+                    .background(Ds.colors.borderHairline),
+        )
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(Ds.colors.surfaceCard)
+                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            DsCheckbox(
+                checked = !NativeClient.viewOnly,
+                onToggle = { onViewOnlyChange(!it) },
+                label = tr("allowInput"),
+            )
+            DsButton(
+                text = tr("startViewing"),
+                onClick = { sources.firstOrNull { it.id == pickedId }?.let(onPick) },
+                variant = DsButtonVariant.PRIMARY,
+                size = DsButtonSize.LG,
+                fullWidth = true,
+            )
+        }
     }
 }

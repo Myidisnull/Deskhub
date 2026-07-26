@@ -29,6 +29,9 @@
 package com.deskhub.app
 
 import android.view.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -80,17 +83,27 @@ object NativeClient {
     const val MOUSE_RIGHT = 2
 
     /**
-     * Gõ một phím rời (nhấn + nhả ngay) sang host — dành cho phím đặc biệt tương lai
-     * (Esc, F-key...); phím chữ đi đường [nativeCharTap]. `vk` là mã phím ảo Windows,
+     * "Chỉ xem" — ô tick ở màn Kết nối. Chặn Ở ĐÂY chứ không ở từng chỗ gửi: input đi
+     * ra từ ba chỗ khác nhau (trackpad, bàn phím ảo, thanh phím tắt), và một chỗ quên
+     * kiểm tra là cả lựa chọn này thành vô nghĩa mà không ai biết. Vì thế các hàm
+     * `external` bên dưới là private, UI chỉ thấy các wrapper có cửa chặn.
+     * mutableStateOf để ô tick và HUD tự vẽ lại khi giá trị đổi; MainActivity lo phần
+     * lưu giữa các lần chạy (object này không có Context).
+     */
+    var viewOnly: Boolean by mutableStateOf(false)
+
+    /**
+     * Gõ một phím rời (nhấn + nhả ngay) sang host — phím đặc biệt của thanh phím tắt
+     * (Esc, mũi tên...); phím chữ đi đường [charTap]. `vk` là mã phím ảo Windows,
      * `scan` là scancode (bit8 = cờ E0). Chỉ có tác dụng khi phiên đang STREAMING.
      */
-    external fun nativeKeyTap(
+    private external fun nativeKeyTap(
         vk: Int,
         scan: Int,
     )
 
     /** Tổ hợp kiểu Ctrl+C: giữ phím bổ trợ, gõ phím chính, nhả theo đúng thứ tự. */
-    external fun nativeKeyChord(
+    private external fun nativeKeyChord(
         modVk: Int,
         modScan: Int,
         vk: Int,
@@ -98,28 +111,69 @@ object NativeClient {
     )
 
     /** Chuột tuyệt đối từ touch: toạ độ chuẩn hoá 0..65535 trong khung video. */
-    external fun nativeMouseMove(
+    private external fun nativeMouseMove(
         nx: Int,
         ny: Int,
     )
 
     /**
      * Chuột tương đối — chế độ khoá chuột cho game FPS (nút Lock): delta thô,
-     * game tự áp sensitivity.
+     * game tự áp sensitivity. Chưa có UI gọi; giữ lại cho GĐ sau, cùng cửa viewOnly.
      */
-    external fun nativeMouseMoveRel(
+    private external fun nativeMouseMoveRel(
         dx: Int,
         dy: Int,
     )
 
     /** Nhấn/nhả nút chuột ([MOUSE_LEFT]/[MOUSE_RIGHT]) tại vị trí con trỏ hiện hành. */
-    external fun nativeMouseButton(
+    private external fun nativeMouseButton(
         button: Int,
         down: Boolean,
     )
 
     /** Gõ một ký tự từ bàn phím ảo (core quy đổi sang VK theo layout US). */
-    external fun nativeCharTap(codepoint: Int)
+    private external fun nativeCharTap(codepoint: Int)
+
+    fun keyTap(
+        vk: Int,
+        scan: Int,
+    ) {
+        if (!viewOnly) nativeKeyTap(vk, scan)
+    }
+
+    fun keyChord(
+        modVk: Int,
+        modScan: Int,
+        vk: Int,
+        scan: Int,
+    ) {
+        if (!viewOnly) nativeKeyChord(modVk, modScan, vk, scan)
+    }
+
+    fun mouseMove(
+        nx: Int,
+        ny: Int,
+    ) {
+        if (!viewOnly) nativeMouseMove(nx, ny)
+    }
+
+    fun mouseMoveRel(
+        dx: Int,
+        dy: Int,
+    ) {
+        if (!viewOnly) nativeMouseMoveRel(dx, dy)
+    }
+
+    fun mouseButton(
+        button: Int,
+        down: Boolean,
+    ) {
+        if (!viewOnly) nativeMouseButton(button, down)
+    }
+
+    fun charTap(codepoint: Int) {
+        if (!viewOnly) nativeCharTap(codepoint)
+    }
 
     external fun nativePhase(): Int
 

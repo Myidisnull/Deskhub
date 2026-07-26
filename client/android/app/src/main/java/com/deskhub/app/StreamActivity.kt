@@ -1,25 +1,20 @@
 // =============================================================================
-// StreamActivity.kt — màn hình xem + điều khiển: header bên trên, khung hình dưới.
+// StreamActivity.kt — màn hình XEM + ĐIỀU KHIỂN, chrome dựng trên hệ thiết kế
+//                     Deskhub (ui/Tokens.kt + ui/Components.kt), đối ứng
+//                     StreamView.swift bên iOS.
 //
-// NHIỆM VỤ
-//   Dựng Surface cho bộ giải mã vẽ vào, khởi động phiên, và điều khiển host:
-//   - Trackpad ảo trên khung video: con trỏ luôn hiện, rê ngón di chuột theo delta,
-//     tap 1 = click trái, tap 2 = click phải, giữ rồi kéo = drag (TrackpadOverlay).
-//   - Thanh đáy: phím tắt Esc/Tab/Enter/mũi tên/Del/Ctrl+C/Ctrl+V (kHotkeys — bàn
-//     phím ảo không có những phím này), nút Keys bật bàn phím ảo (KeyInputView),
-//     nút Disconnect.
-//   Nhận địa chỉ host và sourceId qua Intent extra từ MainActivity. Màn hình xoay
-//   theo hướng thiết bị (fullUser trong manifest) — không ép ngang.
+// KHÔNG CÒN HEADER VÀ THANH ĐÁY ĐẶC — CHỈ CÒN HUD NỔI
+//   Bản cũ có một dải xám đặc trên cùng cho dòng trạng thái và một dải nữa dưới đáy
+//   cho nút; hai dải ấy ăn khoảng 15% chiều cao màn hình của đúng thứ duy nhất người
+//   ta mở màn này ra để nhìn. Bản thiết kế bỏ hẳn chúng: hình từ máy kia chiếm TRỌN
+//   màn hình, mọi thứ khác nổi lên trên dưới dạng HUD bo pill. Cả màn LUÔN ở bảng
+//   màu tối kể cả khi app đang để giao diện sáng — vùng letterbox phải là màu KHÔNG
+//   CÓ, không phải một màu nhạt.
 //
-// ĐIỀU QUAN TRỌNG NHẤT: KHUNG HÌNH KHÔNG ĐI QUA COMPOSE
-//   Compose chỉ lo phần chrome (chữ trạng thái, bố cục, letterbox). Pixel của video
-//   đi thẳng từ bộ giải mã phần cứng ra màn hình qua hardware composer, không qua
-//   view hierarchy, không qua CPU. Compose không hề biết tới nội dung đó.
-//
-// VÌ SAO SurfaceView CHỨ KHÔNG PHẢI TextureView
-//   TextureView đi qua view hierarchy, thêm một lần copy trên GPU và khoảng một
-//   frame trễ. Với một app mà độ trễ là tiêu chí hàng đầu thì đó là cái giá vô lý.
-//   Đổi lại, SurfaceView không xoay/biến hình mượt được — ta không cần hai thứ đó.
+// ĐIỀU QUAN TRỌNG NHẤT (không đổi): KHUNG HÌNH KHÔNG ĐI QUA COMPOSE
+//   Compose chỉ lo phần chrome. Pixel của video đi thẳng từ bộ giải mã phần cứng ra
+//   màn hình qua hardware composer — SurfaceView chứ không phải TextureView
+//   (TextureView đi qua view hierarchy, thêm một lần copy GPU và một frame trễ).
 //
 // VÒNG ĐỜI SURFACE LÀ PHẦN DỄ SAI NHẤT
 //   surfaceCreated  → giao Surface xuống C++.
@@ -28,16 +23,14 @@
 //   thật, codec còn vẽ vào đó là lỗi dùng-sau-giải-phóng.
 //
 // VÌ SAO HỎI TRẠNG THÁI THEO NHỊP THAY VÌ ĐỂ C++ GỌI NGƯỢC LÊN
-//   Gọi ngược từ C++ vào JVM đòi phải gắn thread vào JVM và giữ global ref, và phải
-//   làm mỗi frame. Hỏi 500 ms một lần rẻ hơn nhiều, mà overlay chỉ đổi mỗi giây một
-//   lần nên không cần nhanh hơn.
+//   Gọi ngược từ C++ vào JVM đòi gắn thread vào JVM và giữ global ref, mỗi frame.
+//   Hỏi 500 ms một lần rẻ hơn nhiều, mà overlay chỉ đổi mỗi giây một lần.
 //
 // LIÊN QUAN: MainActivity.kt (nơi mở màn hình này), NativeClient.kt, ClientLoop.h
 // =============================================================================
 package com.deskhub.app
 
 import android.content.Context
-import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.SurfaceHolder
@@ -48,6 +41,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -56,24 +50,22 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -88,25 +80,34 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.deskhub.app.ui.AppState
+import com.deskhub.app.ui.Chip
+import com.deskhub.app.ui.DeskhubTheme
+import com.deskhub.app.ui.Ds
+import com.deskhub.app.ui.DsButton
+import com.deskhub.app.ui.DsButtonSize
+import com.deskhub.app.ui.DsButtonVariant
+import com.deskhub.app.ui.DsIconButton
+import com.deskhub.app.ui.Eyebrow
+import com.deskhub.app.ui.HudBar
+import com.deskhub.app.ui.HudDivider
+import com.deskhub.app.ui.KeyboardIcon
+import com.deskhub.app.ui.MonoText
+import com.deskhub.app.ui.PillTone
+import com.deskhub.app.ui.Recents
+import com.deskhub.app.ui.Sparkline
+import com.deskhub.app.ui.Spinner
+import com.deskhub.app.ui.StatePill
+import com.deskhub.app.ui.StatusDot
+import com.deskhub.app.ui.tr
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-/**
- * Màn hình xem. Compose chỉ lo phần chrome (chữ trạng thái, bố cục) — khung hình
- * KHÔNG đi qua Compose: bộ giải mã ghi thẳng vào Surface của SurfaceView qua
- * hardware composer.
- *
- * Dùng SurfaceView bọc trong AndroidView chứ KHÔNG phải TextureView: TextureView đi
- * qua view hierarchy, thêm một lần copy GPU và khoảng một frame trễ.
- */
 class StreamActivity : ComponentActivity() {
     private var started = false
 
@@ -133,6 +134,8 @@ class StreamActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppState.init(this)
+        Recents.init(this)
         // Người xem không chạm màn hình trong lúc xem, nên nếu không giữ cờ này thì
         // máy tự tắt màn hình giữa chừng — kéo theo Surface bị hủy và phiên đứt.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -142,7 +145,8 @@ class StreamActivity : ComponentActivity() {
         started = NativeClient.nativeStart(addr, intent.getIntExtra("source", 0))
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            // Ép TỐI bất kể AppState.isDark — xem ghi chú đầu file.
+            DeskhubTheme(dark = true) {
                 StreamScreen(
                     address = addr,
                     started = started,
@@ -156,209 +160,6 @@ class StreamActivity : ComponentActivity() {
     override fun onDestroy() {
         if (started) NativeClient.nativeStop()
         super.onDestroy()
-    }
-}
-
-// OptIn: FlowRow (thanh nút xuống dòng ở chế độ dọc) còn nằm sau cờ experimental
-// của Compose foundation.
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun StreamScreen(
-    address: String,
-    started: Boolean,
-    holderCallback: SurfaceHolder.Callback,
-    onDismiss: () -> Unit,
-) {
-    var phase by remember { mutableIntStateOf(NativeClient.PHASE_IDLE) }
-    var statusLine by remember { mutableStateOf("") }
-    var endReason by remember { mutableStateOf("") }
-    var videoW by remember { mutableIntStateOf(0) }
-    var videoH by remember { mutableIntStateOf(0) }
-
-    // Hỏi trạng thái từ tầng C++ 500ms/lần. Rẻ hơn nhiều so với để C++ gọi ngược
-    // lên JVM mỗi frame, và overlay chỉ đổi mỗi giây một lần nên không cần nhanh hơn.
-    LaunchedEffect(started) {
-        if (!started) return@LaunchedEffect
-        while (true) {
-            phase = NativeClient.nativePhase()
-            statusLine = NativeClient.nativeStatusLine()
-            videoW = NativeClient.nativeVideoWidth()
-            videoH = NativeClient.nativeVideoHeight()
-            // Hết phiên thì thoát hẳn coroutine: lý do kết thúc không đổi nữa, hỏi
-            // tiếp chỉ tốn pin. LaunchedEffect tự hủy coroutine khi rời màn hình.
-            if (phase == NativeClient.PHASE_ENDED) {
-                endReason = NativeClient.nativeEndReason()
-                return@LaunchedEffect
-            }
-            delay(500)
-        }
-    }
-
-    val message =
-        when {
-            !started -> stringResource(R.string.invalid_address, address)
-            phase == NativeClient.PHASE_ENDED -> stringResource(R.string.disconnected, endReason)
-            phase == NativeClient.PHASE_STREAMING -> statusLine
-            else -> stringResource(R.string.connecting_to, address)
-        }
-
-    // Hết phiên thì chạm vào đâu cũng quay lại màn hình nhập địa chỉ.
-    // Bàn phím ảo ĐÈ lên video chứ không co layout (không imePadding/adjustResize)
-    // — người dùng muốn khung hình đứng yên khi mở bàn phím.
-    val rootModifier =
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .let { if (phase == NativeClient.PHASE_ENDED) it.clickable(onClick = onDismiss) else it }
-
-    val streaming = phase == NativeClient.PHASE_STREAMING
-
-    // Bàn phím ảo: bật/tắt bằng nút Keys trên header. KeyInputView vô hình giữ focus
-    // để IME gửi phím; xem giải thích cơ chế TYPE_NULL trong KeyInputView.kt.
-    var keyboardOn by remember { mutableStateOf(false) }
-    var keyView by remember { mutableStateOf<KeyInputView?>(null) }
-    LaunchedEffect(keyboardOn) {
-        val v = keyView ?: return@LaunchedEffect
-        val imm = v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        if (!keyboardOn) {
-            imm.hideSoftInputFromWindow(v.windowToken, 0)
-            return@LaunchedEffect
-        }
-        v.requestFocus()
-        imm.showSoftInput(v, 0)
-
-        // Người dùng có thể hạ bàn phím bằng nút ẩn/Back của chính IME, không qua nút
-        // Keys — canh ime inset để trạng thái nút không kẹt ở "đang bật". Phải chờ
-        // THẤY bàn phím hiện rồi mới canh lúc ẩn, kẻo tắt nhầm khi IME còn đang trượt
-        // lên. rootWindowInsets chỉ báo được IME từ API 30; máy cũ hơn giữ hành vi cũ
-        // (nút không tự tắt, bấm Keys hai lần để mở lại). Coroutine tự hủy khi
-        // keyboardOn đổi hoặc rời màn hình — không rò vòng lặp.
-        if (Build.VERSION.SDK_INT < 30) return@LaunchedEffect
-        var seen = false
-        while (true) {
-            val visible =
-                v.rootWindowInsets?.isVisible(
-                    android.view.WindowInsets.Type
-                        .ime(),
-                ) == true
-            if (visible) {
-                seen = true
-            } else if (seen) {
-                keyboardOn = false
-                return@LaunchedEffect
-            }
-            delay(200)
-        }
-    }
-
-    // Header trên cùng chỉ có dòng trạng thái (chế độ dọc cho 2 dòng để hiện hết
-    // thông số); toàn bộ nút — phím tắt Esc/Tab/Enter/F9, Keys, Disconnect — nằm ở
-    // thanh đáy cho cả hai chiều màn hình, cuộn ngang được khi chật.
-    val portrait =
-        LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-
-    Column(modifier = rootModifier) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF161616))
-                    .padding(horizontal = 12.dp, vertical = if (portrait) 8.dp else 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = message,
-                color = Color.White,
-                fontSize = 12.sp,
-                maxLines = if (portrait) 2 else 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (started) {
-                // Modifier.aspectRatio lo luôn việc letterbox theo tỉ lệ video — đây là
-                // thứ bản NativeActivity thuần không làm nổi (phải tự tính layout params).
-                val aspect = if (videoW > 0 && videoH > 0) videoW.toFloat() / videoH else null
-                val videoModifier =
-                    if (aspect != null) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize()
-
-                Box(modifier = videoModifier) {
-                    AndroidView(
-                        factory = { ctx ->
-                            SurfaceView(ctx).apply { holder.addCallback(holderCallback) }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-
-                // Trackpad phủ CẢ Box ngoài — gồm cả vùng đen letterbox trên/dưới
-                // (chế độ dọc): rê tay ở đâu cũng di được chuột, vì trackpad chạy
-                // theo delta chứ không theo điểm chạm. Con trỏ và toạ độ gửi đi vẫn
-                // bám khung video thật (overlay tự tính rect từ `aspect`).
-                if (streaming) {
-                    TrackpadOverlay(
-                        videoAspect = aspect,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-
-                // View hứng phím: 1dp, vô hình, chỉ tồn tại để giữ focus cho IME.
-                AndroidView(
-                    factory = { ctx ->
-                        KeyInputView(ctx)
-                            .apply { onChar = { cp -> NativeClient.nativeCharTap(cp) } }
-                            .also { keyView = it }
-                    },
-                    modifier = Modifier.size(1.dp),
-                )
-            }
-        }
-
-        // Thanh nút dưới đáy — mọi chiều màn hình. DỌC: màn hình còn nhiều khung
-        // đen nên cho nút TỰ XUỐNG DÒNG (FlowRow) — thấy hết phím, không phải cuộn.
-        // NGANG: chiều cao quý hơn, giữ một hàng cuộn ngang cho gọn.
-        val buttons: @Composable () -> Unit = {
-            ControlButtons(
-                controlsEnabled = streaming,
-                keyboardOn = keyboardOn,
-                onToggleKeyboard = { keyboardOn = !keyboardOn },
-                onDisconnect = onDismiss,
-            )
-        }
-        if (portrait) {
-            FlowRow(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF161616)),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                buttons()
-            }
-        } else {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF161616)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    buttons()
-                }
-            }
-        }
     }
 }
 
@@ -392,11 +193,401 @@ private val kHotkeys =
         Hotkey("Ctrl+V", 0x56, 0x2F, modVk = 0x11, modScan = 0x1D),
     )
 
+@Composable
+private fun StreamScreen(
+    address: String,
+    started: Boolean,
+    holderCallback: SurfaceHolder.Callback,
+    onDismiss: () -> Unit,
+) {
+    var phase by remember { mutableIntStateOf(NativeClient.PHASE_IDLE) }
+    var statusLine by remember { mutableStateOf("") }
+    var endReason by remember { mutableStateOf("") }
+    var videoW by remember { mutableIntStateOf(0) }
+    var videoH by remember { mutableIntStateOf(0) }
+    // Dãy RTT cho biểu đồ ở HUD số liệu — 60 mẫu × 500ms = 30 giây gần nhất,
+    // trùng bản iOS (SessionModel.rttTrace).
+    val rttTrace = remember { mutableStateListOf<Double>() }
+
+    // Hỏi trạng thái từ tầng C++ 500ms/lần. Rẻ hơn nhiều so với để C++ gọi ngược
+    // lên JVM mỗi frame, và overlay chỉ đổi mỗi giây một lần nên không cần nhanh hơn.
+    LaunchedEffect(started) {
+        if (!started) return@LaunchedEffect
+        while (true) {
+            phase = NativeClient.nativePhase()
+            statusLine = NativeClient.nativeStatusLine()
+            videoW = NativeClient.nativeVideoWidth()
+            videoH = NativeClient.nativeVideoHeight()
+            parseRtt(statusLine)?.let { rtt ->
+                rttTrace.add(rtt)
+                while (rttTrace.size > 60) rttTrace.removeAt(0)
+            }
+            // Hết phiên thì thoát hẳn coroutine: lý do kết thúc không đổi nữa, hỏi
+            // tiếp chỉ tốn pin. LaunchedEffect tự hủy coroutine khi rời màn hình.
+            if (phase == NativeClient.PHASE_ENDED) {
+                endReason = NativeClient.nativeEndReason()
+                return@LaunchedEffect
+            }
+            delay(500)
+        }
+    }
+
+    val streaming = phase == NativeClient.PHASE_STREAMING
+
+    // Bàn phím ảo: bật/tắt bằng nút bàn phím trên HUD. KeyInputView vô hình giữ focus
+    // để IME gửi phím; xem giải thích cơ chế TYPE_NULL trong KeyInputView.kt.
+    var keyboardOn by remember { mutableStateOf(false) }
+    var keyView by remember { mutableStateOf<KeyInputView?>(null) }
+    LaunchedEffect(keyboardOn) {
+        val v = keyView ?: return@LaunchedEffect
+        val imm = v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        if (!keyboardOn) {
+            imm.hideSoftInputFromWindow(v.windowToken, 0)
+            return@LaunchedEffect
+        }
+        v.requestFocus()
+        imm.showSoftInput(v, 0)
+
+        // Người dùng có thể hạ bàn phím bằng nút ẩn/Back của chính IME, không qua nút
+        // bàn phím — canh ime inset để trạng thái nút không kẹt ở "đang bật". Phải chờ
+        // THẤY bàn phím hiện rồi mới canh lúc ẩn, kẻo tắt nhầm khi IME còn đang trượt
+        // lên. rootWindowInsets chỉ báo được IME từ API 30; máy cũ hơn giữ hành vi cũ
+        // (nút không tự tắt, bấm hai lần để mở lại). Coroutine tự hủy khi keyboardOn
+        // đổi hoặc rời màn hình — không rò vòng lặp.
+        if (Build.VERSION.SDK_INT < 30) return@LaunchedEffect
+        var seen = false
+        while (true) {
+            val visible =
+                v.rootWindowInsets?.isVisible(
+                    android.view.WindowInsets.Type
+                        .ime(),
+                ) == true
+            if (visible) {
+                seen = true
+            } else if (seen) {
+                keyboardOn = false
+                return@LaunchedEffect
+            }
+            delay(200)
+        }
+    }
+
+    // Hướng dẫn cử chỉ trackpad: hiện 6 giây kể từ lúc có hình rồi tự tắt — cử chỉ
+    // không tự nói ra được, mà một dòng nằm mãi trên màn hình thì thành rác.
+    var hintVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(streaming) {
+        if (!streaming) return@LaunchedEffect
+        hintVisible = true
+        delay(6000)
+        hintVisible = false
+    }
+
+    // Bàn phím ảo ĐÈ lên video chứ không co layout (không imePadding/adjustResize)
+    // — người dùng muốn khung hình đứng yên khi mở bàn phím.
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+    ) {
+        // --- Tầng video: SurfaceView + trackpad + view hứng phím ---
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (started) {
+                // Modifier.aspectRatio lo luôn việc letterbox theo tỉ lệ video.
+                val aspect = if (videoW > 0 && videoH > 0) videoW.toFloat() / videoH else null
+                val videoModifier =
+                    if (aspect != null) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize()
+
+                Box(modifier = videoModifier) {
+                    AndroidView(
+                        factory = { ctx ->
+                            SurfaceView(ctx).apply { holder.addCallback(holderCallback) }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                // Trackpad phủ CẢ Box ngoài — gồm cả vùng đen letterbox: rê tay ở đâu
+                // cũng di được chuột (trackpad chạy theo delta). "Chỉ xem" thì KHÔNG
+                // dựng lớp này: NativeClient đã chặn ở cửa xuống C++, nhưng để lại một
+                // con trỏ di được mà máy kia không nhúc nhích là nói dối người dùng.
+                if (streaming && !NativeClient.viewOnly) {
+                    TrackpadOverlay(
+                        videoAspect = aspect,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                // View hứng phím: 1dp, vô hình, chỉ tồn tại để giữ focus cho IME.
+                AndroidView(
+                    factory = { ctx ->
+                        KeyInputView(ctx)
+                            .apply { onChar = { cp -> NativeClient.charTap(cp) } }
+                            .also { keyView = it }
+                    },
+                    modifier = Modifier.size(1.dp),
+                )
+            }
+        }
+
+        // --- Tầng chrome: HUD nổi, né tai thỏ/thanh điều hướng ---
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .safeDrawingPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            StatusHud(
+                address = address,
+                streaming = streaming,
+                statusLine = statusLine,
+                rttTrace = rttTrace,
+                videoW = videoW,
+                videoH = videoH,
+            )
+
+            Box(modifier = Modifier.weight(1f))
+
+            BottomHud(
+                streaming = streaming,
+                keyboardOn = keyboardOn,
+                hintVisible = hintVisible,
+                onToggleKeyboard = { keyboardOn = !keyboardOn },
+                onEnd = onDismiss,
+            )
+        }
+
+        // --- Lớp phủ trạng thái ---
+        if (!started || phase == NativeClient.PHASE_ENDED) {
+            EndedOverlay(
+                reason = if (!started) "${tr("invalidAddress")}: $address" else endReason,
+                onBack = onDismiss,
+            )
+        } else if (!streaming) {
+            ConnectingOverlay(address = address)
+        }
+    }
+}
+
+/** HUD trên: máy đang xem + pill trạng thái, và dòng số liệu ở HUD riêng bên dưới. */
+@Composable
+private fun StatusHud(
+    address: String,
+    streaming: Boolean,
+    statusLine: String,
+    rttTrace: List<Double>,
+    videoW: Int,
+    videoH: Int,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HudBar {
+            StatusDot(live = streaming)
+            MonoText(
+                text = if (videoW > 0) "$address — $videoW×$videoH" else address,
+                color = Ds.colors.textPrimary,
+                maxLines = 1,
+            )
+            StatePill(
+                text =
+                    if (NativeClient.viewOnly) {
+                        tr("viewOnly")
+                    } else if (streaming) {
+                        tr("streaming")
+                    } else {
+                        tr("connecting")
+                    },
+                tone = if (streaming) PillTone.LIVE else PillTone.NEUTRAL,
+            )
+        }
+        // Dòng số liệu là HUD RIÊNG: gộp chung hàng trên thì trên màn dọc nó dài quá
+        // bề ngang máy. Nó cũng chỉ có nghĩa khi đã có hình.
+        if (streaming && statusLine.isNotEmpty()) {
+            HudBar {
+                MonoText(text = statusLine, color = Ds.colors.textPrimary, maxLines = 1)
+                if (rttTrace.size >= 2) {
+                    HudDivider()
+                    Sparkline(
+                        values = rttTrace,
+                        modifier = Modifier.size(width = 64.dp, height = 18.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// Bóc "RTT 4 ms" ra khỏi dòng số liệu mà ClientLoop dựng sẵn, thay vì mở thêm một
+// hàm JNI thứ hai chỉ để trả về đúng con số đó. Dòng ấy được dựng ở MỘT chỗ
+// (ClientLoop.cpp) và bản iOS/Windows cũng bóc RTT ra khỏi cùng chuỗi đó — mấy
+// client đọc cùng một nguồn thì không có cách nào lệch nhau.
+private fun parseRtt(line: String): Double? {
+    val idx = line.indexOf("RTT ")
+    if (idx < 0) return null
+    return line
+        .drop(idx + 4)
+        .takeWhile { it.isDigit() || it == '.' }
+        .toDoubleOrNull()
+}
+
+/** HUD dưới: hướng dẫn cử chỉ + hàng phím tắt cuộn ngang + cụm bàn phím/Kết thúc. */
+@Composable
+private fun BottomHud(
+    streaming: Boolean,
+    keyboardOn: Boolean,
+    hintVisible: Boolean,
+    onToggleKeyboard: () -> Unit,
+    onEnd: () -> Unit,
+) {
+    val inputEnabled = streaming && !NativeClient.viewOnly
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (hintVisible && inputEnabled) {
+            MonoText(text = tr("trackpadHint"), maxLines = 1)
+        }
+
+        // Phím tắt là những pill RỜI cuộn ngang — một HUD kính dài gấp đôi màn hình
+        // trượt qua lại thì trông như thanh HUD bị hỏng.
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            kHotkeys.forEach { hk ->
+                DsButton(
+                    text = hk.label,
+                    onClick = {
+                        if (hk.modVk != 0) {
+                            NativeClient.keyChord(hk.modVk, hk.modScan, hk.vk, hk.scan)
+                        } else {
+                            NativeClient.keyTap(hk.vk, hk.scan)
+                        }
+                    },
+                    variant = DsButtonVariant.SECONDARY,
+                    size = DsButtonSize.SM,
+                    enabled = inputEnabled,
+                    pill = true,
+                )
+            }
+        }
+
+        HudBar {
+            DsIconButton(
+                onClick = onToggleKeyboard,
+                side = 34.dp,
+                radius = Ds.radiusPill,
+                active = keyboardOn,
+                enabled = inputEnabled,
+            ) {
+                // Icon vẽ tay (ui/Icons.kt) — ký tự "⌨" là chữ nên bé và lệch
+                // baseline; 18dp ở đây trùng cỡ symbol keyboard 16pt của bản iOS.
+                KeyboardIcon(
+                    size = 18.dp,
+                    color = if (keyboardOn) Ds.colors.accent else Ds.colors.textPrimary,
+                )
+            }
+
+            HudDivider()
+
+            // Chip chứ không phải chữ trần — trùng bản iOS: nhãn trạng thái đứng
+            // giữa hai nút cần cái viền của chip để không dính vào chúng.
+            Chip(
+                text =
+                    if (NativeClient.viewOnly) {
+                        tr("viewOnly")
+                    } else if (keyboardOn) {
+                        tr("keysOn")
+                    } else {
+                        tr("keys")
+                    },
+                active = keyboardOn,
+            )
+
+            HudDivider()
+
+            DsButton(
+                text = tr("end"),
+                onClick = onEnd,
+                variant = DsButtonVariant.DANGER,
+                size = DsButtonSize.SM,
+                pill = true,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConnectingOverlay(address: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val shape = RoundedCornerShape(Ds.radiusXl)
+        Column(
+            modifier =
+                Modifier
+                    .background(Ds.colors.surfacePanel, shape)
+                    .border(Ds.hairline, Ds.colors.borderHairline, shape)
+                    .padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Spinner(size = 22.dp)
+            MonoText(text = "${tr("connecting")} $address", color = Ds.colors.textPrimary)
+        }
+    }
+}
+
+@Composable
+private fun EndedOverlay(
+    reason: String,
+    onBack: () -> Unit,
+) {
+    // Chạm vào đâu cũng quay lại được — nhưng vẫn có nút thật cho người không đoán ra.
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .clickable(onClick = onBack),
+        contentAlignment = Alignment.Center,
+    ) {
+        val shape = RoundedCornerShape(Ds.radiusXl)
+        Column(
+            modifier =
+                Modifier
+                    .padding(24.dp)
+                    .background(Ds.colors.surfacePanel, shape)
+                    .border(Ds.hairline, Ds.colors.borderHairline, shape)
+                    .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Eyebrow(text = tr("sessionEnded"))
+            Text(
+                text = reason,
+                fontSize = Ds.textBodyLg,
+                fontWeight = FontWeight.Normal,
+                color = Ds.colors.textPrimary,
+            )
+            DsButton(
+                text = tr("back"),
+                onClick = onBack,
+                variant = DsButtonVariant.PRIMARY,
+                fullWidth = true,
+            )
+        }
+    }
+}
+
 /**
  * Trackpad ảo phủ lên khung video, kiểu bàn di chuột laptop: con trỏ LUÔN hiện,
  * ngón tay rê ở đâu cũng được — con trỏ dịch theo DELTA chứ không nhảy tới điểm
- * chạm (khác hẳn kiểu chạm-trực-tiếp trước đây: ngón tay không che mất chỗ cần
- * bấm, và bấm được chính xác từng pixel).
+ * chạm (ngón tay không che mất chỗ cần bấm, và bấm được chính xác từng pixel).
  *
  *   Rê ngón       = di con trỏ.
  *   Tap 1 lần     = click trái TẠI CON TRỎ.
@@ -448,8 +639,8 @@ private fun TrackpadOverlay(
     fun clickAt(button: Int) {
         if (cursor.isUnspecified) return
         sendMouseMove(cursor, videoRect())
-        NativeClient.nativeMouseButton(button, true)
-        NativeClient.nativeMouseButton(button, false)
+        NativeClient.mouseButton(button, true)
+        NativeClient.mouseButton(button, false)
     }
 
     Box(
@@ -489,17 +680,17 @@ private fun TrackpadOverlay(
                     detectDragGesturesAfterLongPress(
                         onDragStart = {
                             if (cursor.isSpecified) sendMouseMove(cursor, videoRect())
-                            NativeClient.nativeMouseButton(NativeClient.MOUSE_LEFT, true)
+                            NativeClient.mouseButton(NativeClient.MOUSE_LEFT, true)
                         },
                         onDrag = { change, delta ->
                             change.consume()
                             moveBy(delta)
                         },
                         onDragEnd = {
-                            NativeClient.nativeMouseButton(NativeClient.MOUSE_LEFT, false)
+                            NativeClient.mouseButton(NativeClient.MOUSE_LEFT, false)
                         },
                         onDragCancel = {
-                            NativeClient.nativeMouseButton(NativeClient.MOUSE_LEFT, false)
+                            NativeClient.mouseButton(NativeClient.MOUSE_LEFT, false)
                         },
                     )
                 },
@@ -541,48 +732,8 @@ private fun sendMouseMove(
     rect: Rect,
 ) {
     if (rect.width <= 0f || rect.height <= 0f) return
-    NativeClient.nativeMouseMove(
+    NativeClient.mouseMove(
         (((pos.x - rect.left) / rect.width) * 65535f).roundToInt(),
         (((pos.y - rect.top) / rect.height) * 65535f).roundToInt(),
     )
-}
-
-/**
- * Cụm nút của thanh đáy: phím tắt [kHotkeys] (gõ thẳng phím/tổ hợp sang host —
- * bàn phím ảo không có những phím này), Keys (bật/tắt bàn phím ảo) và Disconnect.
- * Trừ Disconnect, các nút chỉ bấm được khi đang STREAMING vì trước đó kênh input
- * chưa tồn tại. Không tự bọc Row — caller lo phần khung + cuộn ngang.
- */
-@Composable
-private fun ControlButtons(
-    controlsEnabled: Boolean,
-    keyboardOn: Boolean,
-    onToggleKeyboard: () -> Unit,
-    onDisconnect: () -> Unit,
-) {
-    kHotkeys.forEach { hk ->
-        TextButton(
-            onClick = {
-                if (hk.modVk != 0) {
-                    NativeClient.nativeKeyChord(hk.modVk, hk.modScan, hk.vk, hk.scan)
-                } else {
-                    NativeClient.nativeKeyTap(hk.vk, hk.scan)
-                }
-            },
-            enabled = controlsEnabled,
-        ) {
-            Text(hk.label, fontSize = 13.sp)
-        }
-    }
-    TextButton(onClick = onToggleKeyboard, enabled = controlsEnabled) {
-        Text(
-            text = stringResource(R.string.keyboard_button),
-            fontSize = 13.sp,
-            // Đang bật thì tô sáng để biết phím gõ đang chạy sang host.
-            color = if (keyboardOn) Color(0xFF80CBC4) else Color.Unspecified,
-        )
-    }
-    TextButton(onClick = onDisconnect) {
-        Text(stringResource(R.string.disconnect), fontSize = 13.sp)
-    }
 }

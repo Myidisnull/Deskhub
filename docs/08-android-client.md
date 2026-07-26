@@ -29,6 +29,18 @@ vẽ phần chrome (ô nhập địa chỉ, chữ trạng thái) và cập nhậ
 
 Tỉ lệ khung hình do `Modifier.aspectRatio(w/h)` lo — không phải tự tính layout params.
 
+Phần chrome dựng trên **hệ thiết kế Deskhub** (`ui/Tokens.kt` + `ui/Components.kt`):
+cùng bộ token màu với macOS/iOS/Windows (kính trắng mờ trên nền gần-đen, mint làm màu
+tín hiệu duy nhất, mono cho mọi con số), kích thước theo bản cảm ứng của iOS (control
+44dp, gutter 20). KHÔNG dùng `MaterialTheme.colorScheme` hay control Material — Material
+trộn màu theo luật riêng của nó (tone palette, ripple, elevation overlay) và sẽ vẽ ra
+một thứ khác; bảng màu đi qua CompositionLocal riêng (`DeskhubTheme`). Sáng/tối + EN/VI
+đổi ngay trong app (`ui/AppState.kt` + `ui/Strings.kt`); máy đã kết nối lưu ở
+`ui/Recents.kt` (tối đa 12). Màn xem: video chiếm trọn màn hình, trạng thái + phím tắt
++ điều khiển là HUD nổi, không còn dải header/thanh đáy đặc. "Chỉ xem" chặn tại
+`NativeClient` — các hàm input `external` là private, UI chỉ thấy wrapper có cửa
+`viewOnly`.
+
 > Bản đầu tiên là NativeActivity thuần native, không một dòng Kotlin. Bỏ vì nó
 > không có cách nào nhập địa chỉ host (phải truyền qua `adb --es addr`) và mọi
 > trạng thái — thiếu địa chỉ, đang kết nối, host không trả lời — đều hiện ra một
@@ -187,9 +199,12 @@ cùng LAN và tường lửa Windows phải cho UDP 47777 vào.
 Theo yêu cầu của dự án: **mọi chuỗi người dùng hoặc console thấy đều bằng tiếng
 Anh**, **mọi comment trong code bằng tiếng Việt có dấu**.
 
-Cụ thể ở client Android: chuỗi UI nằm trong `res/values/strings.xml` (tiếng Anh,
-không hard-code trong layout/Kotlin), log `LOGI/LOGW/LOGE` và dòng overlay dựng
-trong `ClientLoop.cpp` cũng tiếng Anh.
+Cụ thể ở client Android: chuỗi UI nằm trong `ui/Strings.kt` — bảng EN/VI đổi được
+ngay trong app (nút EN/VI ở thanh trên cùng), cùng nguồn với `Strings.swift` của
+iOS/macOS và `Strings.cs` của Windows. KHÔNG dùng `strings.xml` cho chữ giao diện:
+cơ chế resource chọn ngôn ngữ theo cài đặt HỆ ĐIỀU HÀNH và đổi ngôn ngữ là dựng lại
+Activity; `strings.xml` chỉ còn giữ `app_name` (manifest đòi resource thật). Log
+`LOGI/LOGW/LOGE` và dòng overlay dựng trong `ClientLoop.cpp` vẫn tiếng Anh.
 
 Một ngoại lệ có lý do: `~/.gradle/gradle.properties` để comment tiếng Anh, vì Gradle
 đọc file `.properties` theo ISO-8859-1 nên không mang được dấu tiếng Việt an toàn.
