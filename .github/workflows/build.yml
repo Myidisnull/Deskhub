@@ -150,8 +150,9 @@ jobs:
         run: make build-ios
 
   # ---------------------------------------------------------------------------
-  # macOS: MỘT app chứa cả hai vai (host + client). Build Release, ký ad-hoc —
-  # runner không có Developer ID nên artifact chạy được sau khi người tải tự bỏ
+  # macOS: MỘT app chứa cả hai vai (host + client). Build Release, ký ad-hoc qua
+  # MACOS_SIGN=adhoc — project mặc định ký "Apple Development" (máy dev có cert,
+  # runner thì không); artifact ad-hoc chạy được sau khi người tải tự bỏ
   # quarantine; bản notarize cần secret (để sau, như apk đã ký).
   # Đây cũng là nơi duy nhất CI biên dịch nhánh ScreenCaptureKit/VideoToolbox/CGEvent.
   # ---------------------------------------------------------------------------
@@ -161,8 +162,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build macOS app (make release-macos)
-        run: make release-macos
+      - name: Build macOS app (make release-macos, ad-hoc signing)
+        run: make release-macos MACOS_SIGN=adhoc
 
       - name: Zip app bundle
         run: ditto -c -k --keepParent out/build/macos/Release/app.app deskhub-macos.zip
