@@ -56,10 +56,15 @@ platform :android do
       properties: gradle_props
     )
 
+    # skip_upload_apk BẮT BUỘC: lane assemble ở trên ghi đường dẫn APK vào
+    # lane_context[GRADLE_APK_OUTPUT_PATH], và upload_to_play_store TỰ ĐỘNG nhặt
+    # giá trị đó vào tham số :apk (không xét skip flag lúc điền). Có cả apk lẫn
+    # aab thì supply verify_config! chặn: "Cannot provide both apk(s) and aab".
     upload_to_play_store(
       track: "internal",
       package_name: PACKAGE_NAME,
       aab: "app/build/outputs/bundle/release/app-release.aab",
+      skip_upload_apk: true,
       json_key_data: ENV.fetch("PLAY_JSON_KEY"),
       skip_upload_metadata: true,
       skip_upload_images: true,
