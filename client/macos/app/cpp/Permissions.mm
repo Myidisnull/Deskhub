@@ -10,8 +10,6 @@
 
 #include "Permissions.h"
 
-#include "Log.h"
-
 namespace {
 
 // URL đặc biệt của System Settings. Chuỗi này là API công khai (Apple dùng chính nó
@@ -34,28 +32,8 @@ bool HasScreenRecording() {
     return CGPreflightScreenCaptureAccess();
 }
 
-bool RequestScreenRecording() {
-    // CGRequestScreenCaptureAccess bật hộp thoại ĐÚNG MỘT LẦN trong đời app (hệ
-    // thống nhớ đã hỏi rồi). Lần sau nó trả về trạng thái hiện tại mà không hỏi lại
-    // — nên UI phải luôn kèm nút mở thẳng System Settings, không dựa vào hộp thoại.
-    const bool granted = CGRequestScreenCaptureAccess();
-    if (!granted)
-        LOGW("[Perm] Screen Recording not granted yet — "
-             "enable it in System Settings, then restart Deskhub.");
-    return granted;
-}
-
 bool HasAccessibility() {
     return AXIsProcessTrusted();
-}
-
-bool RequestAccessibility() {
-    NSDictionary* opts = @{(__bridge id)kAXTrustedCheckOptionPrompt : @YES};
-    const bool granted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opts);
-    if (!granted)
-        LOGW("[Perm] Accessibility not granted yet — "
-             "enable it in System Settings to let the remote side control this Mac.");
-    return granted;
 }
 
 void OpenScreenRecordingSettings() {

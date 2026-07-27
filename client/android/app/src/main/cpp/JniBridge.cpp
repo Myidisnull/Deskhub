@@ -45,7 +45,6 @@
 
 namespace {
 
-
 // Phiên đang chạy (null = chưa kết nối) và Surface đang giữ (null = app ở nền).
 // Hai thứ này ĐỘC LẬP về thời điểm xuất hiện: Surface có thể sẵn sàng trước khi
 // người dùng bấm Connect, hoặc ngược lại. Mọi chỗ dùng chúng đều phải chịu được cả

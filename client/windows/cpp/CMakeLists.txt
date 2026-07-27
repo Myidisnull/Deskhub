@@ -5,8 +5,7 @@
 #                                (AgentLoop); vai client chạy headless qua ClientApi.cpp
 #                                (app win32 compile thẳng file đó vào exe).
 #
-# Hai frontend cũ (csharp/WinUI3 qua deskhub_native.dll, imgui) đã xoá 2026-07-27 —
-# app Windows duy nhất là client/windows/win32 (Win32 thuần, một Deskhub.exe).
+# App Windows duy nhất là client/windows/win32 (Win32 thuần, một Deskhub.exe).
 
 # Thư mục chứa nvEncodeAPI.h — pin header NVENC 13.0 (khớp driver hiện tại).
 set(NVENC_INTERFACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/nvenc-13.0/include/ffnvcodec"
@@ -26,7 +25,6 @@ add_library(deskhub_win_core STATIC
     capture/ScreenCapture.cpp
     capture/DisplayFinder.cpp
     capture/GpuSelect.cpp
-    capture/BmpWriter.cpp
 
     encode/MfEncoder.cpp
     encode/NvencEncoder.cpp

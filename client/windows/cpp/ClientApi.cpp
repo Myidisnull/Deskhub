@@ -56,7 +56,7 @@ struct DhClientHandle {
     std::atomic<const char*> failReason{nullptr}; // chuỗi TĨNH mô tả đường chết
 
     std::mutex inputMutex;
-    std::vector<deskhub::InputEvent> inputQueue; // C# ghi, thread Recv rút
+    std::vector<deskhub::InputEvent> inputQueue; // UI thread ghi, thread Recv rút
 
     std::thread thread;
 
@@ -262,7 +262,7 @@ void DhClientHandle::Run() {
             if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
         }
 
-        // Vét input do C# đẩy vào -> ClientSession đánh seq, Tick gửi.
+        // Vét input do app đẩy vào -> ClientSession đánh seq, Tick gửi.
         {
             std::vector<deskhub::InputEvent> batch;
             {
@@ -302,8 +302,8 @@ void DhClientHandle::Run() {
     session.SendBye();
     quit.store(true);
 
-    // MỌI đường chết không do dh_client_stop đều phải báo về C#, kể cả đường native
-    // (decoder hỏng, lỗi socket, phiên Dead) — thiếu là ViewerPage đứng hình vĩnh viễn.
+    // MỌI đường chết không do dh_client_stop đều phải báo về app, kể cả đường native
+    // (decoder hỏng, lỗi socket, phiên Dead) — thiếu là cửa sổ xem đứng hình vĩnh viễn.
     if (!closedNotified && !userStop.load()) {
         const char* r = failReason.load();
         if (closedCb) closedCb(r ? r : "connection lost", user);
@@ -427,9 +427,8 @@ DH_API void DH_CALL dh_client_key(DhClientHandle* h, int vk, int scan, int down)
 
 DH_API void DH_CALL dh_client_stop(DhClientHandle* h) {
     if (!h) return;
-    h->userStop.store(true); // dừng chủ động: đừng bắn closedCb ngược vào C# đang thoát
+    h->userStop.store(true); // dừng chủ động: đừng bắn closedCb ngược vào app đang thoát
     h->quit.store(true);
     if (h->thread.joinable()) h->thread.join();
     delete h;
 }
-

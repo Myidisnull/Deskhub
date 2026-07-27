@@ -1,28 +1,20 @@
 #pragma once
 // =============================================================================
-// PanelRenderer.h — vẽ NV12 vào một swapchain gắn với cửa sổ CON do app cấp
-// (InitForHwnd, đường duy nhất còn dùng — app win32/Viewer.cpp). Bản
-// không-tự-sở-hữu-cửa-sổ của Renderer (decode/Renderer.h).
-//
-// KHÁC Renderer Ở ĐÂU
-//   Renderer tự sở hữu một HWND top-level + overlay. PanelRenderer nhận HWND từ
-//   ngoài và chỉ lo swapchain + chuyển màu NV12→BGRA bằng D3D11 Video Processor
-//   (giữ nguyên như Renderer). (Đường composition cho SwapChainPanel của frontend
-//   C# cũ đã xoá 2026-07-27 cùng frontend đó.)
+// PanelRenderer.h — vẽ NV12 vào một swapchain-for-HWND gắn với cửa sổ CON do app
+// cấp (InitForHwnd — người gọi duy nhất là ClientApi.cpp, cửa sổ con thuộc
+// win32/Viewer.cpp): swapchain + chuyển màu NV12→BGRA bằng D3D11 Video Processor.
 //
 // VÌ SAO KHÔNG BIẾT CỠ VIDEO LÚC TẠO
 //   Kích thước thật chỉ biết sau khi đàm phán/nhận frame đầu. Tạo swapchain cỡ tạm,
-//   rồi ResizeBuffers ở frame đầu (và mỗi lần host đổi độ phân giải). SwapChainPanel
-//   tự co giãn khung theo layout; giữ tỷ lệ là việc của phía C# (đặt aspect cho panel
-//   từ callback báo cỡ).
+//   rồi ResizeBuffers ở frame đầu (và mỗi lần host đổi độ phân giải). Giữ tỷ lệ là
+//   việc của app: Viewer.cpp đặt cỡ cửa sổ con theo khung video (sizeCb báo cỡ).
 //
 // MÔ HÌNH LUỒNG
 //   InitForHwnd gọi trên thread tạo (UI). RenderNV12 gọi trên thread decode.
 //   renderMutex bảo vệ swapchain giữa hai bên; nhưng thực tế dh_client_stop join thread
 //   decode TRƯỚC khi hủy PanelRenderer nên không có tranh chấp hủy.
 //
-// LIÊN QUAN: decode/Renderer.cpp (bản có cửa sổ — nguồn gốc đoạn Video Processor),
-//            ClientApi.cpp (người dùng), client/windows/win32/Viewer.cpp
+// LIÊN QUAN: ClientApi.cpp (người dùng), client/windows/win32/Viewer.cpp
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

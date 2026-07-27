@@ -18,17 +18,19 @@ struct ShareSource: Identifiable, Hashable, Sendable {
     var id: UInt32 { rawId }
 }
 
-// Trạng thái một nguồn đang chia sẻ, cho ShareView vẽ.
+// Trạng thái một nguồn đang chia sẻ, cho màn "Deskhub - sharing" vẽ. Đối ứng
+// SessionSourceRow bên Windows — cùng các trường có cấu trúc.
 struct AgentSourceStatus: Identifiable, Sendable {
     let id: UInt8
     let name: String
     let width: UInt32
     let height: UInt32
     let viewerConnected: Bool
-    let starting: Bool
+    let viewerAddr: String
     let captureFps: Double
     let sendFps: Double
     let sendKbps: Double
+    let rttMs: UInt32
 }
 
 nonisolated enum DeskhubAgent {
@@ -36,12 +38,6 @@ nonisolated enum DeskhubAgent {
 
     static var hasScreenRecording: Bool { dh_has_screen_recording() }
     static var hasAccessibility: Bool { dh_has_accessibility() }
-
-    @discardableResult
-    static func requestScreenRecording() -> Bool { dh_request_screen_recording() }
-
-    @discardableResult
-    static func requestAccessibility() -> Bool { dh_request_accessibility() }
 
     static func openScreenRecordingSettings() { dh_open_screen_recording_settings() }
     static func openAccessibilitySettings() { dh_open_accessibility_settings() }
@@ -86,7 +82,6 @@ nonisolated enum DeskhubAgent {
 
     static func stop() { dha_stop() }
     static var isRunning: Bool { dha_running() }
-    static func statusLine() -> String { String(cString: dha_status_line()) }
 
     static func status() -> [AgentSourceStatus] {
         var buf = [DHAgentStatus](repeating: DHAgentStatus(), count: 16)
@@ -102,19 +97,26 @@ nonisolated enum DeskhubAgent {
                 width: row.width,
                 height: row.height,
                 viewerConnected: row.viewerConnected,
-                starting: row.starting,
+                viewerAddr: cString(row.viewerAddr),
                 captureFps: row.captureFps,
                 sendFps: row.sendFps,
-                sendKbps: row.sendKbps
+                sendKbps: row.sendKbps,
+                rttMs: row.rttMs
             )
         }
     }
 
-    // Địa chỉ IPv4 của máy này để đọc cho người bên kia.
-    static func localAddresses() -> [String] {
+    // Địa chỉ IPv4 của máy này cho hộp Host mode. Gọi được cả khi chưa chia sẻ —
+    // bridge hỏi thẳng hệ thống (mỗi dòng "ip\ttên card").
+    static func localAddresses() -> [LocalAddress] {
         String(cString: dha_local_addresses())
             .split(separator: "\n")
-            .map(String.init)
+            .compactMap { line in
+                let parts = line.split(separator: "\t", maxSplits: 1)
+                guard let ip = parts.first else { return nil }
+                let name = parts.count > 1 ? String(parts[1]) : ""
+                return LocalAddress(ip: String(ip), name: name)
+            }
     }
 
     // Không có addSource/removeSource: phiên chia sẻ tất cả màn hình và danh sách

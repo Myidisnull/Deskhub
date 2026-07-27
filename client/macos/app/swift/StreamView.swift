@@ -1,67 +1,124 @@
 // =============================================================================
-// StreamView.swift — màn hình XEM + ĐIỀU KHIỂN.
+// StreamView.swift — cửa sổ XEM + ĐIỀU KHIỂN, chép theo cửa sổ xem của bản Windows
+//                    (Viewer.cpp). MỖI NGUỒN MỘT CỬA SỔ, mở song song — ViewerWindow
+//                    ở đây đối ứng ViewerFrame: sở hữu một phiên (StreamModel →
+//                    ClientSession) và tự dọn khi đóng.
 //
-// GIAO DIỆN TRẦN (2026-07-27)
-//   Chrome từng dựng trên hệ thiết kế riêng (HUD kính bo pill, chip, chấm sống, biểu
-//   đồ RTT). Cả bộ đó đã xoá — giờ chỉ còn `Text`/`Button` dựng sẵn của SwiftUI.
+// BỐ CỤC MỘT CỬA SỔ — cả cửa sổ là video (aspect-FIT, letterbox đen):
+//   Dòng số liệu (fps/kbps/loss/RTT/e2e) và gợi ý F9 nằm ở HEADER — thanh tiêu đề
+//   của cửa sổ (navigationSubtitle), không chiếm một hàng nội dung riêng như thanh
+//   34px của Viewer.cpp. KHÔNG có nút Disconnect: đóng cửa sổ là ngắt (WM_CLOSE bên
+//   Windows cũng chính là đường đó). KHÔNG có nút Fill/Fit hay Lock mouse: video
+//   luôn fit, còn khoá chuột là PHÍM F9 — chữ gợi ý trên header đổi theo trạng
+//   thái. Cũng KHÔNG có nút Display: xem nguồn khác = một cửa sổ khác.
 //
-// BỐ CỤC: BA HÀNG XẾP DỌC, KHÔNG CHỒNG NHAU
-//     [thanh trên]  địa chỉ + dòng số liệu
-//     [ô giữa]      video (RemoteView)
-//     [thanh dưới]  Lock / Fit / Display / End
-//   Hai thanh từng là HUD nổi ĐÈ lên video; tách hẳn ra để không có gì nằm chắn lên
-//   nội dung đang xem. Đánh đổi: khung hình mất đúng phần chiều cao của hai thanh.
+// MENU HIỆN LẠI KHI CỬA SỔ XEM CUỐI CÙNG ĐÓNG — đối ứng g_openFrames của RunViewer:
+//   Windows ẩn menu suốt lúc xem và hiện lại khi vòng message kết thúc; ở đây
+//   ViewerRegistry đếm cửa sổ, về 0 thì mở lại cửa sổ chính.
+//
+// PHIÊN ĐỨT TỪ PHÍA NATIVE
+//   Windows hiện MessageBox "Connection ended: <lý do>" rồi đóng cửa sổ — ở đây là
+//   một alert, bấm OK cũng đóng cửa sổ này.
 //
 // NỀN ĐEN, KỂ CẢ Ở GIAO DIỆN SÁNG CỦA HỆ
 //   Vùng letterbox quanh khung hình phải là màu KHÔNG CÓ, chứ không phải một màu
 //   nhạt — nếu không, mắt sẽ đọc nó thành một phần của hình.
-//
-// KHÁC BẢN iOS: KHÔNG CÓ THANH PHÍM TẮT
-//   iOS phải có hàng nút Esc/Tab/mũi tên vì bàn phím ảo không có những phím đó. macOS
-//   có bàn phím thật — RemoteView bắt trọn và gửi thẳng, kể cả Esc, Tab, F-key. Ngoại
-//   lệ duy nhất là F9: nó bị giữ lại làm phím thoát hiểm cho khoá chuột.
 // =============================================================================
 import AVFoundation
 import SwiftUI
 
-struct StreamView: View {
-    @Binding var route: Route
-    @Bindable var model: SessionModel
+// Giá trị mở một cửa sổ xem (openWindow(value:)). Codable vì SwiftUI phục hồi cửa
+// sổ qua state restoration.
+struct ViewerRequest: Codable, Hashable {
+    var address: String
+    var sourceId: UInt8
+    var name: String
+}
 
-    @State private var fill = false
-    @State private var pickerOpen = false
+// MARK: - Cửa sổ xem (đối ứng ViewerFrame của Viewer.cpp)
+
+struct ViewerWindow: View {
+    @State private var model: StreamModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
+    @Environment(ViewerRegistry.self) private var viewers
+
+    init(request: ViewerRequest) {
+        _model = State(initialValue: StreamModel(
+            address: request.address,
+            sourceId: request.sourceId,
+            sourceName: request.name
+        ))
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            statusBar
-
-            ZStack {
-                RemoteView(
-                    model: model,
-                    videoSize: videoSize,
-                    fill: fill,
-                    mouseLocked: model.mouseLocked,
-                    onLayerReady: { layer in DeskhubClient.setLayer(layer) },
-                    onLockChanged: { model.mouseLocked = $0 }
-                )
-
-                // Lớp phủ trạng thái nằm TRONG ô video, không che hai thanh.
-                if !model.endReason.isEmpty {
-                    endedOverlay
-                } else if model.phase != .streaming {
-                    connectingOverlay
-                }
+        StreamView(model: model) { dismiss() }
+            .navigationTitle(title)
+            .navigationSubtitle(subtitle)
+            .frame(minWidth: 640, idealWidth: 1024, maxWidth: .infinity,
+                   minHeight: 400, idealHeight: 634, maxHeight: .infinity)
+            .task {
+                viewers.count += 1
+                await model.start()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.black)
+            .onDisappear {
+                model.setLayer(nil)
+                model.disconnect()
+                viewers.count -= 1
+                // Cửa sổ xem cuối cùng đóng -> menu quay lại, như RunViewer trả về.
+                if viewers.count <= 0 { openWindow(id: "main") }
+            }
+            .alert("Deskhub", isPresented: failedShown) {
+                Button("OK") { dismiss() }
+            } message: {
+                // Cùng chuỗi MessageBox của RunViewer khi không mở được phiên nào.
+                Text("Could not open a viewing session - check the address and that "
+                    + "the other machine is sharing.")
+            }
+    }
 
-            bottomBar
-        }
-        .environment(\.colorScheme, .dark)
+    // Giống OpenFrame bên Windows: "Deskhub - viewing: <tên nguồn>" khi biết tên.
+    private var title: String {
+        model.sourceName.isEmpty
+            ? "Deskhub - viewing"
+            : "Deskhub - viewing: \(model.sourceName)"
+    }
+
+    // Header mang cả số liệu lẫn gợi ý F9 — nội dung cửa sổ chỉ còn video.
+    private var subtitle: String {
+        let stats = model.statusLine.isEmpty ? "connecting..." : model.statusLine
+        let hint = model.mouseLocked
+            ? "Mouse locked - press F9 to release"
+            : "Press F9 to lock mouse"
+        return "\(stats) · \(hint)"
+    }
+
+    private var failedShown: Binding<Bool> {
+        Binding(get: { model.failedToStart }, set: { _ in })
+    }
+}
+
+// MARK: - Nội dung cửa sổ
+
+struct StreamView: View {
+    @Bindable var model: StreamModel
+    let onEnd: () -> Void
+
+    var body: some View {
+        RemoteView(
+            model: model,
+            videoSize: videoSize,
+            mouseLocked: model.mouseLocked,
+            onLayerReady: { layer in model.setLayer(layer) },
+            onLockChanged: { model.mouseLocked = $0 }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDisappear {
-            DeskhubClient.setLayer(nil)
-            model.disconnect()
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
+        .alert("Deskhub", isPresented: endedAlertShown) {
+            Button("OK") { onEnd() }
+        } message: {
+            Text("Connection ended: \(model.endReason)")
         }
     }
 
@@ -69,108 +126,7 @@ struct StreamView: View {
         CGSize(width: Double(model.videoWidth), height: Double(model.videoHeight))
     }
 
-    // MARK: - Thanh trên
-
-    private var statusBar: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(hostTitle)
-                .font(.caption)
-                .lineLimit(1)
-            if !model.statusLine.isEmpty {
-                Text(model.statusLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    private var hostTitle: String {
-        guard model.videoWidth > 0 else { return model.address }
-        return "\(model.address) — \(model.videoWidth)×\(model.videoHeight)"
-    }
-
-    // MARK: - Thanh dưới
-
-    private var bottomBar: some View {
-        HStack(spacing: 10) {
-            Button(model.mouseLocked ? "Unlock mouse (F9)" : "Lock mouse (F9)") {
-                model.mouseLocked.toggle()
-            }
-
-            Button(fill ? "Fit" : "Fill") { fill.toggle() }
-
-            // Chỉ hiện khi có cái để đổi: host một màn hình thì nút này là một câu hỏi
-            // không có câu trả lời.
-            if model.sources.count > 1 {
-                Button("Display") { pickerOpen = true }
-                    .popover(isPresented: $pickerOpen, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(model.sources) { source in
-                                Button {
-                                    model.switchSource(to: source.id)
-                                    pickerOpen = false
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: source.id == model.currentSourceId
-                                            ? "largecircle.fill.circle"
-                                            : "circle")
-                                        Text(sourceLabel(source))
-                                        Spacer()
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(12)
-                        .frame(minWidth: 240)
-                    }
-            }
-
-            Spacer()
-
-            Button("End") { end() }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    private func sourceLabel(_ source: Source) -> String {
-        let name = source.name.isEmpty ? "Source \(source.id)" : source.name
-        return "\(name) — \(source.width)×\(source.height)"
-    }
-
-    // MARK: - Lớp phủ
-
-    private var connectingOverlay: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text("Connecting to \(model.address)…")
-                .foregroundStyle(.white)
-        }
-    }
-
-    private var endedOverlay: some View {
-        VStack(spacing: 12) {
-            Text("Session ended").font(.headline).foregroundStyle(.white)
-            Text(model.endReason)
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Back") { end() }
-                .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: 420)
-        .padding(24)
-    }
-
-    private func end() {
-        model.disconnect()
-        route = .connect
+    private var endedAlertShown: Binding<Bool> {
+        Binding(get: { !model.endReason.isEmpty && !model.failedToStart }, set: { _ in })
     }
 }

@@ -309,8 +309,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     // Đây là tham số `minBps` của BitrateController — nó không bao giờ tụt quá đây.
     const uint32_t minBitrate = 1'000'000u;
 
-    // Frontend quản lý phiên (SessionWindow Win32 hoặc HeadlessAgentControl do C#
-    // điều khiển) do NGƯỜI GỌI cấp và đã mở sẵn — RunAgent chỉ nói chuyện qua `ctl`.
+    // Cửa sổ quản lý phiên (SessionWindow) do NGƯỜI GỌI cấp và đã mở sẵn — RunAgent
+    // chỉ nói chuyện qua `ctl`.
     // Đã nghe được trên kDeskhubPort — frontend chuyển sang trạng thái "đang chia sẻ".
     ctl.OnBound();
 

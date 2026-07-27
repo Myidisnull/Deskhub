@@ -35,8 +35,8 @@ import SwiftUI
 // MARK: - NSView
 
 final class RemoteVideoView: NSView {
-    // Model để đẩy input xuống. weak vì SessionModel sống theo AppModel, dài hơn view.
-    weak var model: SessionModel?
+    // Model để đẩy input xuống. weak vì StreamModel sống theo ViewerWindow, dài hơn view.
+    weak var model: StreamModel?
 
     // Kích thước video đàm phán được — quyết định khung nào trong view là video thật
     // (phần còn lại là viền đen letterbox).
@@ -261,11 +261,9 @@ final class RemoteVideoView: NSView {
 // MARK: - Cầu nối SwiftUI
 
 struct RemoteView: NSViewRepresentable {
-    let model: SessionModel
+    let model: StreamModel
     let videoSize: CGSize
-    /// Nút "tỉ lệ" trên HUD: vừa cửa sổ (viền đen hai bên) ↔ lấp đầy (cắt mép).
-    var fill: Bool = false
-    /// Trạng thái khoá chuột do HUD điều khiển. F9 vẫn là đường thoát hiểm ở trong view.
+    /// Trạng thái khoá chuột do model giữ. F9 vẫn là đường thoát hiểm ở trong view.
     var mouseLocked: Bool = false
     let onLayerReady: (AVSampleBufferDisplayLayer?) -> Void
     let onLockChanged: (Bool) -> Void
@@ -275,7 +273,6 @@ struct RemoteView: NSViewRepresentable {
         view.model = model
         view.videoSize = videoSize
         view.onLockChanged = onLockChanged
-        view.displayLayer?.videoGravity = fill ? .resizeAspectFill : .resizeAspect
         onLayerReady(view.displayLayer)
         // Giao bàn phím cho view ngay khi nó xuất hiện, khỏi bắt người dùng bấm một
         // cái vô nghĩa vào khung hình trước khi gõ được.
@@ -285,7 +282,6 @@ struct RemoteView: NSViewRepresentable {
 
     func updateNSView(_ nsView: RemoteVideoView, context _: Context) {
         nsView.videoSize = videoSize
-        nsView.displayLayer?.videoGravity = fill ? .resizeAspectFill : .resizeAspect
         nsView.setMouseLocked(mouseLocked, notify: false)
     }
 
@@ -293,7 +289,7 @@ struct RemoteView: NSViewRepresentable {
     // một layer đã chết là lỗi vòng đời (xem ClientLoop.h, cơ chế bắt tay layer).
     static func dismantleNSView(_ nsView: RemoteVideoView, coordinator _: ()) {
         nsView.setMouseLocked(false)
-        DeskhubClient.setLayer(nil)
+        nsView.model?.setLayer(nil)
         nsView.model = nil
     }
 }

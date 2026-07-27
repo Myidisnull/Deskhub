@@ -3,7 +3,7 @@
 # App Windows là MỘT exe Win32 thuần (client/windows/win32, target CMake
 # deskhub_app -> Deskhub.exe) chứa CẢ vai host lẫn vai client. `make debug`/
 # `release` (core.mk) đã dựng nó cùng cây CMake; các target ở đây chỉ là bí
-# danh + đường chạy. (Hai frontend cũ csharp/WinUI3 + imgui đã xoá 2026-07-27.)
+# danh + đường chạy.
 
 ifeq ($(OS),Windows_NT)
 APP_EXE_DEBUG   := out\build\x64-debug\client\windows\win32\Deskhub.exe

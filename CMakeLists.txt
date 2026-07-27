@@ -21,7 +21,6 @@ add_subdirectory(platform)
 if(WIN32)
     # client/windows/cpp = lớp native (capture/encode/decode/net + C API DeskhubApi.h).
     # client/windows/win32 = app Windows DUY NHẤT (Win32 thuần, một Deskhub.exe).
-    # Hai frontend cũ (csharp/WinUI3 và imgui/Dear ImGui) đã xoá hẳn 2026-07-27.
     add_subdirectory(client/windows/cpp)
     add_subdirectory(client/windows/win32)
 endif()

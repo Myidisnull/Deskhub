@@ -48,8 +48,8 @@ struct AgentSource {
     std::string name;
 };
 
-// Điều khiển phiên đang chạy (SessionWindow hoặc HeadlessAgentControl). RunAgent gọi
-// vào đây để lấy lệnh thêm/bớt nguồn + tín hiệu dừng, và đẩy ngược danh sách nguồn.
+// Điều khiển phiên đang chạy (SessionWindow — bản cài đặt duy nhất). RunAgent gọi
+// vào đây để lấy tín hiệu dừng, và đẩy ngược danh sách nguồn cho UI vẽ.
 struct AgentControl;
 
 // Chạy agent phục vụ `sources` (danh sách ban đầu — thêm/bớt giữa phiên qua `ctl`)

@@ -43,6 +43,6 @@ struct AgentControl {
 
     // RunAgent báo lý do nó sắp tự thoát (không mở được cổng/GPU, không nguồn nào
     // dùng được, lỗi socket...). `reasonUtf8` là chuỗi tĩnh ngắn. Không bắt buộc
-    // override — headless chuyển tiếp cho C# để UI thoát trạng thái "đang chia sẻ".
+    // override — frontend dùng nó để thoát trạng thái "đang chia sẻ" kèm lý do.
     virtual void OnFailed(const char* /*reasonUtf8*/) {}
 };

@@ -6,8 +6,8 @@
 //   Vai client chạy headless trong ClientApi.cpp (recv/decode/render một nguồn);
 //   app Win32 (client/windows/win32) compile thẳng file đó vào exe và điều khiển
 //   nó qua các hàm dưới đây — Viewer.cpp mở phiên, ViewerInput.cpp bơm chuột/phím.
-//   API giữ dạng C phẳng từ thời còn frontend C# (xoá 2026-07-27): hợp đồng hẹp,
-//   không lộ lớp C++, và mọi chuỗi là UTF-8 kết thúc NUL chỉ sống trong callback.
+//   API giữ dạng C phẳng: hợp đồng hẹp, không lộ lớp C++, và mọi chuỗi là UTF-8
+//   kết thúc NUL chỉ sống trong callback.
 //
 // MÔ HÌNH LUỒNG
 //   dh_client_start_hwnd tạo device + swapchain NGAY trên thread gọi (UI) rồi chạy

@@ -16,11 +16,9 @@
 //   Accessibility    — cũng bắt buộc từ 2026-07-27: chuột/bàn phím LUÔN được chia
 //                      sẻ, không còn kiểu chia sẻ chỉ-xem để né quyền này.
 //
-// HÀNH VI CỦA HAI HÀM Request*
-//   Chúng bật hộp thoại của hệ thống (một lần duy nhất cho mỗi app) rồi TRẢ VỀ NGAY
-//   — người dùng phải tự vào System Settings bật công tắc. macOS đòi khởi động lại
-//   app sau khi cấp quyền Screen Recording, nên UI phải nói rõ điều đó thay vì chờ
-//   một giá trị true không bao giờ tới.
+// KHÔNG có hàm Request* (bỏ 2026-07-27): hộp thoại xin quyền của hệ chỉ hiện đúng
+// một lần trong đời app rồi thôi, nên đường tin cậy duy nhất là mở thẳng trang
+// System Settings — UI chỉ cần Has* + Open*Settings.
 //
 // LIÊN QUAN: capture/SourceEnum.h, input/InputInjector.h (hai nơi chịu hậu quả),
 //            docs/14-macos-app.md §5
@@ -31,18 +29,8 @@ namespace macperm {
 // true nếu app đã được cấp quyền Screen Recording (CGPreflightScreenCaptureAccess).
 bool HasScreenRecording();
 
-// Bật hộp thoại xin quyền Screen Recording. Trả về giá trị preflight NGAY sau lời
-// gọi — gần như luôn false ở lần đầu, vì người dùng còn phải bật công tắc và khởi
-// động lại app.
-bool RequestScreenRecording();
-
 // true nếu app nằm trong danh sách Accessibility (AXIsProcessTrusted).
 bool HasAccessibility();
-
-// Bật hộp thoại xin quyền Accessibility (kAXTrustedCheckOptionPrompt). Khác Screen
-// Recording ở một điểm dễ chịu: quyền này có hiệu lực NGAY, không phải khởi động
-// lại app.
-bool RequestAccessibility();
 
 // Mở đúng trang trong System Settings để người dùng khỏi phải mò.
 void OpenScreenRecordingSettings();

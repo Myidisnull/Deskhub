@@ -84,11 +84,6 @@ public:
     // lỗi vòng đời.
     void SetLayer(void* layer);
 
-    // true khi phiên đã kết thúc (host BYE / timeout / lỗi) — UI thoát về ConnectView.
-    bool Finished() const {
-        return finished_.load(std::memory_order_acquire);
-    }
-
     Phase phase() const {
         return phase_.load(std::memory_order_acquire);
     }
@@ -154,7 +149,6 @@ private:
     std::thread decodeThread_;
 
     std::atomic<bool> quit_{false};
-    std::atomic<bool> finished_{false};
     std::atomic<Phase> phase_{Phase::Idle};
 
     // Chuỗi hiển thị: thread Net ghi, UI thread đọc.

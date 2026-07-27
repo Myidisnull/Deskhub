@@ -1,12 +1,14 @@
 // =============================================================================
-// SessionModel.swift — trạng thái phiên XEM cho SwiftUI.
-//                      Đối ứng client/ios/app/swift/SessionModel.swift.
+// SessionModel.swift — hai model của vai CLIENT, chia đúng theo hai cửa sổ Windows:
 //
-// Quản lý luồng người dùng của vai client: kết nối → chọn nguồn → xem. View chỉ đọc
-// thuộc tính và gọi action trên model, không chạm facade trực tiếp.
+//   SessionModel — hộp Client mode ở màn chính (MainMenuWindow::DoConnect): ô địa
+//                  chỉ + hỏi host đang chia sẻ gì.
+//   StreamModel  — MỘT cửa sổ xem (ViewerFrame trong Viewer.cpp): sở hữu một
+//                  ClientSession riêng, nhiều cửa sổ là nhiều model song song.
 //
+// View chỉ đọc thuộc tính và gọi action trên model, không chạm facade trực tiếp.
 // =============================================================================
-import AppKit
+import AVFoundation
 import Foundation
 import Observation
 
@@ -15,30 +17,9 @@ final class SessionModel {
     var address: String = UserDefaults.standard.string(forKey: "lastAddress") ?? ""
     var isConnecting = false
     var connectError = ""
-    var phase: Phase = .idle
-    var statusLine = ""
-    var endReason = ""
-    var videoWidth: UInt32 = 0
-    var videoHeight: UInt32 = 0
 
-    // Khoá chuột (chế độ tương đối) — bật/tắt bằng F9, đối ứng client Windows.
-    var mouseLocked = false
-
-    // KHÔNG có `viewOnly` và KHÔNG có `hostAcceptsInput` (bỏ 2026-07-27): mọi phiên
-    // đều gửi chuột/bàn phím, và host thì luôn nhận. Cả hai từng là hai đường dẫn tới
-    // cùng một trạng thái "gõ không ăn" mà giao diện phải giải thích.
-
-    /// Mọi nguồn host đang chia sẻ + nguồn đang xem, để đổi màn hình giữa phiên.
-    /// Host chia sẻ TẤT CẢ màn hình nên đây là việc thường; giữ danh sách ở đây thì
-    /// màn xem đổi được ngay mà không phải hỏi lại host (mất 3 giây).
-    var sources: [Source] = []
-    var currentSourceId: UInt8 = 0
-
-    private var pollTimer: Timer?
-
-    // MARK: - Vòng đời phiên
-
-    // Trả về danh sách nguồn; caller (AppModel) quyết định đi tiếp màn nào.
+    // Trả về danh sách nguồn; caller (MainMenuView) quyết định đi tiếp màn nào —
+    // danh sách đi theo Route.sourcePicker, model không giữ lại.
     func listSources() async -> [Source] {
         guard !address.isEmpty else { return [] }
         isConnecting = true
@@ -48,75 +29,102 @@ final class SessionModel {
 
         let found = await Task.detached { DeskhubClient.listSources(address: addr) }.value
         isConnecting = false
-        sources = found
         return found
     }
+}
 
-    func startStream(sourceId: UInt8) {
-        endReason = ""
-        statusLine = ""
-        phase = .connecting
-        mouseLocked = false
-        currentSourceId = sourceId
-        DeskhubClient.start(address: address, sourceId: sourceId)
-        startPolling()
+// MARK: - Một cửa sổ xem
+
+@MainActor @Observable
+final class StreamModel {
+    let address: String
+    let sourceId: UInt8
+    let sourceName: String
+
+    var phase: Phase = .connecting
+    var statusLine = ""
+    var endReason = ""
+    var videoWidth: UInt32 = 0
+    var videoHeight: UInt32 = 0
+    // Không mở được phiên (địa chỉ sai / thiếu GPU) — cửa sổ báo rồi tự đóng, giống
+    // nhánh MessageBox "Could not open a viewing session" của RunViewer.
+    var failedToStart = false
+
+    // Khoá chuột (chế độ tương đối) — bật/tắt bằng F9, đối ứng client Windows.
+    var mouseLocked = false
+
+    // KHÔNG có `viewOnly` và KHÔNG có `hostAcceptsInput` (bỏ 2026-07-27): mọi phiên
+    // đều gửi chuột/bàn phím, và host thì luôn nhận.
+
+    private var session: ClientSession?
+    // Layer do RemoteView giao, có thể tới TRƯỚC khi phiên mở xong (start chạy nền)
+    // — giữ lại để áp ngay khi phiên sẵn sàng.
+    private var layer: AVSampleBufferDisplayLayer?
+    private var pollTimer: Timer?
+
+    init(address: String, sourceId: UInt8, sourceName: String) {
+        self.address = address
+        self.sourceId = sourceId
+        self.sourceName = sourceName
     }
 
-    /// Đổi sang màn hình khác của CÙNG host, không rời màn xem.
-    ///
-    /// Giao thức không có lệnh "đổi nguồn" và không cần có: mỗi cặp (client, nguồn)
-    /// vốn là một phiên riêng, nên đổi = đóng phiên cũ rồi mở phiên mới với sourceId
-    /// khác. Lớp video do RemoteView giữ, không phụ thuộc vòng đời phiên.
-    func switchSource(to sourceId: UInt8) {
-        guard sourceId != currentSourceId else { return }
-        stopPolling()
-        DeskhubClient.stop()
-        endReason = ""
-        statusLine = ""
-        videoWidth = 0
-        videoHeight = 0
-        mouseLocked = false
-        phase = .connecting
-        currentSourceId = sourceId
-        DeskhubClient.start(address: address, sourceId: sourceId)
+    // MARK: - Vòng đời
+
+    // CHẶN ~1s trong Task nền. Gọi đúng một lần khi cửa sổ hiện ra.
+    func start() async {
+        let addr = address
+        let sid = sourceId
+        let opened = await Task.detached { ClientSession.start(address: addr, sourceId: sid) }.value
+        guard let opened else {
+            failedToStart = true
+            phase = .ended
+            return
+        }
+        session = opened
+        opened.setLayer(layer)
         startPolling()
     }
 
     func disconnect() {
         stopPolling()
         mouseLocked = false
-        DeskhubClient.stop()
+        session?.stop()
+        session = nil
         phase = .idle
         statusLine = ""
     }
 
-    // MARK: - Chuyển tiếp input (StreamView/RemoteView gọi)
+    // MARK: - Layer video (RemoteView giao/thu hồi)
 
-    // Không còn cửa kiểm tra nào ở đây: bản trước có `inputBlocked` (viewOnly ||
-    // !hostAcceptsInput), cả hai đã bỏ 2026-07-27 nên mọi hàm chỉ chuyển tiếp thẳng.
+    func setLayer(_ newLayer: AVSampleBufferDisplayLayer?) {
+        layer = newLayer
+        session?.setLayer(newLayer)
+    }
+
+    // MARK: - Chuyển tiếp input (RemoteView gọi)
 
     func key(vk: Int32, scan: Int32, down: Bool) {
-        DeskhubClient.key(vk: vk, scan: scan, down: down)
+        session?.key(vk: vk, scan: scan, down: down)
     }
 
     func releaseAllInput() {
-        DeskhubClient.releaseAllInput()
+        session?.releaseAllInput()
     }
 
     func mouseMove(nx: Int32, ny: Int32) {
-        DeskhubClient.mouseMove(nx: nx, ny: ny)
+        session?.mouseMove(nx: nx, ny: ny)
     }
 
     func mouseMoveRel(dx: Int32, dy: Int32) {
-        DeskhubClient.mouseMoveRel(dx: dx, dy: dy)
+        session?.mouseMoveRel(dx: dx, dy: dy)
     }
 
     func mouseButton(_ button: MouseButton, down: Bool) {
-        DeskhubClient.mouseButton(button, down: down)
+        session?.mouseButton(button, down: down)
     }
 
     func mouseWheel(_ delta: Int32) {
-        DeskhubClient.mouseWheel(delta)
+        session?.mouseWheel(delta)
     }
 
     // MARK: - Hỏi vòng trạng thái
@@ -135,13 +143,14 @@ final class SessionModel {
     }
 
     private func poll() {
-        phase = DeskhubClient.phase()
-        statusLine = DeskhubClient.statusLine()
-        videoWidth = DeskhubClient.videoWidth()
-        videoHeight = DeskhubClient.videoHeight()
+        guard let session else { return }
+        phase = session.phase()
+        statusLine = session.statusLine()
+        videoWidth = session.videoWidth()
+        videoHeight = session.videoHeight()
 
         if phase == .ended {
-            endReason = DeskhubClient.endReason()
+            endReason = session.endReason()
             mouseLocked = false
             stopPolling()
         }

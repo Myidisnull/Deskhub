@@ -73,6 +73,7 @@
 #include "net/UdpSocket.h"
 
 #include "deskhub/control/BitrateController.h"
+#include "deskhub/session/Beacon.h" // trả lời LIST_SOURCES / PING dò trước phiên
 #include "deskhub/session/HostSession.h"
 #include "deskhub/transport/Packetizer.h"
 #include "deskhub/transport/RetransmitCache.h"
@@ -90,7 +91,6 @@ inline void DiagAtomicMax(std::atomic<uint32_t>& slot, uint32_t v) {
 const char* StateName(deskhub::HostSession::State s) {
     switch (s) {
         case deskhub::HostSession::State::Idle: return "IDLE";
-        case deskhub::HostSession::State::Authenticating: return "AUTH";
         case deskhub::HostSession::State::Ready: return "READY";
         case deskhub::HostSession::State::Streaming: return "STREAMING";
     }
@@ -152,6 +152,11 @@ struct SourcePipeline {
     std::atomic<uint64_t> bytesSent{0}, framesSent{0};
     std::atomic<uint32_t> captured{0};
     std::atomic<uint32_t> nextFrameId{0};
+    // RTT chỉ đo được ở PHÍA CLIENT (nó phát PING và trừ khi PONG về), nên FEEDBACK
+    // là đường duy nhất con số đó tới được host — UI cần nó để hiện "máy đang xem
+    // cách bao xa". Thread Recv ghi; đọc từ PublishStatus cùng thread, nhưng để
+    // atomic cho thống nhất với phần còn lại (giống uiRttMs bản Windows).
+    std::atomic<uint32_t> uiRttMs{0};
 
     std::mutex encMutex; // bảo vệ encoder + cachedPb giữa hai luồng
     std::unique_ptr<VtEncoder> encoder;
@@ -228,12 +233,16 @@ struct AgentLoop::Impl {
 
     // Ảnh chụp trạng thái cho UI: thread Recv ghi mỗi giây, main thread đọc.
     std::mutex statusMutex;
-    std::string statusLine;
     std::vector<AgentSourceStatus> statusRows;
-    std::vector<std::string> addresses;
 
     // "Host thắng": một bộ theo dõi dùng chung cho mọi nguồn.
     LocalInputMonitor localInputMon;
+
+    // Máy này trả lời các câu hỏi TRƯỚC KHI có phiên — "đang chia sẻ gì?"
+    // (LIST_SOURCES), "còn sống? bao xa?" (PING sessionId=0). Beacon chỉ DỰNG byte
+    // trả lời; gửi là việc của vòng Recv, về đúng nơi vừa hỏi. SetSources gọi từ
+    // PublishStatus — cùng thread Recv (lần gọi ở Start chạy trước khi thread dựng).
+    deskhub::Beacon beacon;
 
     uint32_t startBitrate = 0, minBitrate = 1'000'000;
 
@@ -246,7 +255,7 @@ struct AgentLoop::Impl {
     void AttachSession(SourcePipeline* p);
     void ShutdownPipeline(SourcePipeline* p);
     SourcePipeline* MakePipeline(const AgentSource& s);
-    void PublishStatus(uint64_t now, double secs);
+    void PublishStatus();
 };
 
 AgentLoop::AgentLoop() = default;
@@ -255,22 +264,10 @@ AgentLoop::~AgentLoop() {
     Stop();
 }
 
-std::string AgentLoop::StatusLine() {
-    if (!impl_) return {};
-    std::lock_guard<std::mutex> lk(impl_->statusMutex);
-    return impl_->statusLine;
-}
-
 std::vector<AgentSourceStatus> AgentLoop::Status() {
     if (!impl_) return {};
     std::lock_guard<std::mutex> lk(impl_->statusMutex);
     return impl_->statusRows;
-}
-
-std::vector<std::string> AgentLoop::LocalAddresses() {
-    if (!impl_) return {};
-    std::lock_guard<std::mutex> lk(impl_->statusMutex);
-    return impl_->addresses;
 }
 
 SourcePipeline* AgentLoop::Impl::MakePipeline(const AgentSource& s) {
@@ -492,6 +489,9 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     // hai. Policy nằm ở deskhub::BitrateController (core, test được offline); ở đây
     // chỉ còn phần dính thiết bị.
     cb.onFeedback = [p](const deskhub::Feedback& fb) {
+        // RTT chỉ đo được ở phía client — FEEDBACK là đường duy nhất nó tới host.
+        p->uiRttMs.store(fb.rttMs, std::memory_order_relaxed);
+
         const deskhub::BitrateDecision d = p->rate.Update(fb, NowUs());
 
         if (d.fecToggled) {
@@ -547,30 +547,37 @@ void AgentLoop::Impl::ShutdownPipeline(SourcePipeline* p) {
 }
 
 // Đẩy ảnh chụp trạng thái cho UI. Gọi mỗi giây từ thread Recv (và một lần lúc Start).
-void AgentLoop::Impl::PublishStatus(uint64_t now, double secs) {
+void AgentLoop::Impl::PublishStatus() {
     std::vector<AgentSourceStatus> rows;
+    std::vector<deskhub::SourceInfo> infos; // ảnh chụp cho Beacon, dựng cùng lượt
     for (SourcePipeline* p : live) {
         if (p->failed.load() || p->capture.Closed()) continue;
+        const uint64_t peer = p->peerPacked.load(std::memory_order_relaxed);
         AgentSourceStatus r;
         r.sourceId = p->sourceId;
         r.name = p->name;
         r.width = p->srcW.load();
         r.height = p->srcH.load();
-        r.viewerConnected = p->peerPacked.load(std::memory_order_relaxed) != 0;
+        r.viewerConnected = peer != 0;
+        if (peer) r.viewerAddr = NetAddr::Unpack(peer).ToString();
         r.captureFps = p->statCaptureFps;
         r.sendFps = p->statSendFps;
         r.sendKbps = p->statSendKbps;
+        r.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
         rows.push_back(std::move(r));
-    }
-    char line[192];
-    std::snprintf(line, sizeof(line), "Sharing %zu source(s) on UDP port %u",
-        rows.size(), unsigned(sock.IsOpen() ? kDeskhubPort : 0));
 
-    (void)now;
-    (void)secs;
+        deskhub::SourceInfo si;
+        si.sourceId = p->sourceId;
+        si.width = uint16_t(p->srcW.load());
+        si.height = uint16_t(p->srcH.load());
+        si.name = p->name;
+        infos.push_back(std::move(si));
+    }
+    // Beacon trả lời trên CÙNG thread Recv này nên cập nhật thẳng, không khoá.
+    beacon.SetSources(infos);
+
     std::lock_guard<std::mutex> lk(statusMutex);
     statusRows = std::move(rows);
-    statusLine = line;
 }
 
 // ---------------------------------------------------------------------------
@@ -610,8 +617,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     // cổng kế tiếp khi 47777 bận; việc đó đã bỏ vì client chỉ biết gõ IP — một host
     // nhảy sang 47778 là một host không ai kết nối tới được.
     if (!im->sock.Open(kDeskhubPort)) {
-        LOGE("[Agent] UDP port %u is not available — another Deskhub is probably "
-             "still running. Close it and try again.",
+        LOGE(
+            "[Agent] UDP port %u is not available — another Deskhub is probably "
+            "still running. Close it and try again.",
             unsigned(kDeskhubPort));
         return false;
     }
@@ -622,14 +630,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     // là tham số `minBps` của BitrateController — nó không bao giờ tụt quá đây.
     im->minBitrate = 1'000'000u;
 
-    {
-        std::lock_guard<std::mutex> lk(im->statusMutex);
-        for (const auto& a : ListLocalIPv4())
-            im->addresses.push_back(a.ip + "  (" + a.name + ")");
-    }
     LOGI("[Agent] Listening on UDP port %u. On the other machine, enter one of:",
         unsigned(kDeskhubPort));
-    for (const auto& a : im->addresses) LOGI("    %s", a.c_str());
+    for (const auto& a : ListLocalIPv4()) LOGI("    %s    (%s)", a.ip.c_str(), a.name.c_str());
 
     // --- Dựng + khởi động capture cho từng nguồn ---
     for (const AgentSource& s : sources) im->StartPipeline(im->MakePipeline(s));
@@ -672,9 +675,15 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     }
     LOGI("[Agent] Sharing %zu source(s). Waiting for client...", im->live.size());
 
-    im->PublishStatus(NowUs(), 1.0);
+    im->PublishStatus();
     running_.store(true, std::memory_order_release);
-    im->recvThread = std::thread([im] { im->RecvLoop(); });
+    im->recvThread = std::thread([this, im] {
+        im->RecvLoop();
+        // Vòng Recv tự thoát (lỗi socket / hết nguồn sống) — hạ cờ để UI poll thấy
+        // phiên đã kết thúc, giống RunAgent bên Windows trả về. An toàn: Stop()
+        // join thread này trước khi impl_ và AgentLoop bị huỷ.
+        running_.store(false, std::memory_order_release);
+    });
     return true;
 }
 
@@ -714,6 +723,8 @@ void AgentLoop::Stop() {
 // ba; nó đã bỏ 2026-07-27 — danh sách nguồn chốt lúc Start và không đổi.
 void AgentLoop::Impl::RecvLoop() {
     uint8_t buf[deskhub::kMaxDatagram];
+    uint8_t beaconBuf[deskhub::kMaxDatagram]; // riêng, không dùng chung với buf nhận:
+                                              // Reply() đọc gói đến trong lúc ghi ra
     uint64_t lastStatUs = NowUs();
     // Thời gian BẬN dài nhất của một vòng Recv trong cửa sổ 1s (không tính lúc chờ
     // recvfrom). Vòng này mà nghẽn thì buffer UDP của kernel gánh — tràn là mất gói
@@ -721,6 +732,16 @@ void AgentLoop::Impl::RecvLoop() {
     uint32_t dgLoopBusyMaxMs = 0;
 
     while (!quit.load()) {
+        // Hết nguồn sống là hết phiên (giống bản Windows): một phiên không còn màn
+        // hình nào chỉ là một cửa sổ trống — UI thấy running() tắt và thu dọn.
+        bool anyAlive = false;
+        for (SourcePipeline* p : live)
+            if (!p->failed.load() && !p->capture.Closed()) anyAlive = true;
+        if (!anyAlive) {
+            LOGI("[Agent] No source left alive — session over.");
+            break;
+        }
+
         NetAddr from;
         const int n = sock.RecvFrom(buf, sizeof(buf), from);
         const uint64_t now = NowUs();
@@ -730,24 +751,19 @@ void AgentLoop::Impl::RecvLoop() {
         }
 
         if (n > 0) {
-            replyAddr = from;
             const auto span = std::span<const uint8_t>(buf, size_t(n));
             const auto h = deskhub::ParseCommonHeader(span);
-            if (h && h->type == deskhub::MsgType::ListSources) {
-                // Chỉ liệt kê nguồn còn sống, kèm kích thước hiện tại.
-                std::vector<deskhub::SourceInfo> infos;
-                for (SourcePipeline* p : live) {
-                    if (p->failed.load() || p->capture.Closed()) continue;
-                    deskhub::SourceInfo si;
-                    si.sourceId = p->sourceId;
-                    si.width = uint16_t(p->srcW.load());
-                    si.height = uint16_t(p->srcH.load());
-                    si.name = p->name;
-                    infos.push_back(std::move(si));
-                }
-                const size_t sn = deskhub::BuildSourceList(buf, infos);
-                if (sn) sock.SendTo(from, buf, sn);
+            // Hỏi-đáp KHÔNG thuộc phiên nào (LIST_SOURCES, PING dò đường) đi trước
+            // và trả lời về ĐÚNG `from` — chúng tới từ địa chỉ bất kỳ trong mạng,
+            // không phải peer của phiên. Beacon dựng byte, ta gửi.
+            //
+            // Đặt TRƯỚC `replyAddr = from` là có chủ ý: replyAddr là nơi callback
+            // `send` của mọi phiên gửi tới, nên một máy lạ dò đường không được phép
+            // chiếm chỗ client thật ở đó. Xem deskhub/session/Beacon.h.
+            if (const size_t rn = beacon.Reply(beaconBuf, span); rn) {
+                sock.SendTo(from, beaconBuf, rn);
             } else if (h) {
+                replyAddr = from;
                 // HELLO chưa có sessionId -> định tuyến theo sourceId. Mọi gói khác
                 // đã mang sessionId -> tìm phiên khớp.
                 SourcePipeline* dst = nullptr;
@@ -779,7 +795,7 @@ void AgentLoop::Impl::RecvLoop() {
             if (p->capture.Closed() && !p->shutdownDone) {
                 LOGI("[Agent][%s] Source closed — stopping this source.", p->name.c_str());
                 ShutdownPipeline(p);
-                PublishStatus(now, 1.0);
+                PublishStatus();
                 continue;
             }
             p->session->Tick(now);
@@ -880,7 +896,7 @@ void AgentLoop::Impl::RecvLoop() {
             }
             LOGI("[DIAG][agent] evt=sum loop_busy_ms_max=%u", dgLoopBusyMaxMs);
             dgLoopBusyMaxMs = 0;
-            PublishStatus(now, secs);
+            PublishStatus();
             lastStatUs = now;
         }
 

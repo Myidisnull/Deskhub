@@ -1,89 +1,55 @@
 // =============================================================================
-// ContentView.swift — vỏ app + điều hướng.
+// ContentView.swift — nội dung CỬA SỔ CHÍNH + điều hướng.
 //
-// GIAO DIỆN TRẦN (2026-07-27)
-//   Không rail, không quầng sáng, không hệ thiết kế riêng, không màn Home. App có
-//   đúng hai chế độ và một ô chọn phân đoạn dựng sẵn để đổi giữa chúng:
+// GIỐNG BẢN WINDOWS (2026-07-27)
+//   Bố cục chép theo app Win32: MỘT màn chính chứa cả hai hộp Host mode /
+//   Client mode (MainMenuWindow.cpp), không có ô chọn chế độ. Từ đó rẽ:
 //
-//     Connect — kết nối máy khác (client): connect → sourcePicker → stream
-//     Share   — chia sẻ máy này (host)
+//     Share...  → .sharing (đối ứng SessionWindow "Deskhub - sharing")
+//     Connect   → .sourcePicker (nếu host chia sẻ >1 nguồn) → mở CỬA SỔ XEM RIÊNG
+//                 cho từng nguồn (ViewerWindow, xem StreamView.swift) và ẩn cửa sổ
+//                 chính — giống MainMenuWindow ẩn đi khi RunViewer chạy.
 //
-//   Màn xem chiếm TRỌN cửa sổ, không có ô chọn nào ở trên.
-//
-//   HomeView cũ chỉ là một trang khởi hành gồm hai ô lớn và danh sách máy gần đây;
-//   danh sách đó đã bỏ, nên trang này không còn gì để nói và đã xoá luôn.
-//
-// `.preferredColorScheme(.dark)`: một giao diện duy nhất — nền sáng bỏ 2026-07-27.
+// Không ép dark mode: Win32 vẽ theo màu hệ thống, ở đây cũng theo hệ thống.
 // =============================================================================
 import SwiftUI
 
 enum Route {
-    case connect
+    case menu
     case sourcePicker([Source])
-    case share
-    case stream
+    case sharing
 }
 
 struct ContentView: View {
-    @State private var route: Route = .connect
+    @State private var route: Route = .menu
     @State private var session = SessionModel()
     @State private var agent = AgentModel()
 
     var body: some View {
+        // Mỗi màn tự khai khung của nó (cùng cỡ với cửa sổ Win32 tương ứng);
+        // window resizability `.contentSize` làm cửa sổ ôm đúng khung này.
         Group {
-            if case .stream = route {
-                StreamView(route: $route, model: session)
-            } else {
-                VStack(spacing: 0) {
-                    Picker("", selection: modeBinding) {
-                        Text("Connect").tag(0)
-                        Text("Share this Mac").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(12)
-
-                    Divider()
-
-                    screen
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+            switch route {
+            case .menu:
+                MainMenuView(route: $route, session: session, agent: agent)
+                    .frame(width: 500)
+            case let .sourcePicker(sources):
+                SourcePickerView(route: $route, model: session, sources: sources)
+                    .frame(width: 460, height: 340)
+            case .sharing:
+                SharingSessionView(route: $route, model: agent)
+                    .frame(width: 460, height: 330)
             }
         }
-        .preferredColorScheme(.dark)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(windowTitle)
     }
 
-    // Màn chọn nguồn thuộc chế độ Connect, nên nó cũng cho ô chọn về vị trí 0.
-    private var modeBinding: Binding<Int> {
-        Binding(
-            get: {
-                if case .share = route { return 1 }
-                return 0
-            },
-            set: { newValue in
-                if newValue == 1 {
-                    agent.refreshPermissions()
-                    route = .share
-                } else {
-                    route = .connect
-                }
-            }
-        )
-    }
-
-    @ViewBuilder private var screen: some View {
+    // Tiêu đề cửa sổ đổi theo màn, cùng chuỗi với các cửa sổ của bản Windows.
+    private var windowTitle: String {
         switch route {
-        case .connect:
-            ConnectView(route: $route, model: session)
-        case let .sourcePicker(sources):
-            SourcePickerView(route: $route, model: session, sources: sources)
-        case .share:
-            ShareView(route: $route, model: agent)
-        case .stream:
-            // Không tới được: nhánh .stream đã bị chặn ở trên. `case` này chỉ để
-            // `switch` phủ hết enum mà không cần `default`.
-            EmptyView()
+        case .menu: "Deskhub - stream & remotely control an application"
+        case .sourcePicker: "What do you want to view?"
+        case .sharing: "Deskhub - sharing"
         }
     }
 }

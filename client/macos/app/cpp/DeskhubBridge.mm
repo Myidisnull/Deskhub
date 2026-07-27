@@ -2,18 +2,20 @@
 // DeskhubBridge.mm — cài đặt mặt tiền C, bọc ClientLoop, AgentLoop và SourceQuery.
 //
 // Obj-C++ vì cần __bridge cast (layer là kiểu Obj-C) và vì Permissions/SourceEnum là
-// .mm. Hai biến toàn cục giữ hai vai; mỗi vai một mutex riêng để chia sẻ và xem
-// không chặn nhau.
+// .mm.
 //
-// ⚠ VÌ SAO KHÔNG GIỮ KHOÁ TRONG dh_set_layer
-//   SetLayer CHẶN tới khi thread Decode xác nhận. Giữ g_clientMutex suốt lúc đó thì
-//   mọi lời gọi poll từ main thread (dh_phase, dh_status_line) sẽ tự khoá lẫn nhau
-//   và app treo. Lấy con trỏ dưới khoá rồi NHẢ khoá trước khi chờ — cùng cách bản
-//   iOS làm, và đây là lỗi đã từng gặp thật nên đừng "dọn dẹp" nó.
+// VAI CLIENT THEO HANDLE (2026-07-27, giống ClientApi.cpp bên Windows)
+//   DHSession bọc một ClientLoop; Swift cầm handle và sở hữu vòng đời — không còn
+//   g_client toàn cục, nên KHÔNG cần mutex: mọi lời gọi trên một handle đều từ main
+//   thread (poll + input) trừ dh_session_start/stop chạy trong Task.detached, và
+//   Swift bảo đảm không gọi gì sau stop.
+//
+// VAI AGENT vẫn là MỘT biến static + mutex: máy chỉ có một phiên chia sẻ.
 //
 // LIÊN QUAN: DeskhubBridge.h (hợp đồng + hàm nào chặn), ClientLoop.h,
 //            AgentLoop.h, net/SourceQuery.h,
-//            client/ios/app/cpp/DeskhubClient.mm (bản song song)
+//            client/windows/cpp/DeskhubApi.h (bản đối ứng),
+//            client/ios/app/cpp/DeskhubClient.mm (bản song song một-phiên)
 // =============================================================================
 #import <AVFoundation/AVFoundation.h>
 
@@ -31,22 +33,25 @@
 #include "capture/SourceEnum.h"
 #include "ClientLoop.h"
 #include "input/MacKeyMap.h"
+#include "net/NetInfo.h"
 #include "net/SourceQuery.h"
 
-namespace {
+// Một phiên xem = một ClientLoop. Định nghĩa ngoài namespace ẩn danh vì tên
+// DHSession thuộc hợp đồng C của header.
+struct DHSession {
+    ClientLoop loop;
+};
 
-std::unique_ptr<ClientLoop> g_client;
-std::mutex g_clientMutex;
+namespace {
 
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
-
 // Bộ đệm tĩnh cho chuỗi trả về (hợp lệ tới lần gọi kế). An toàn vì mọi hàm trả chuỗi
-// đều được gọi từ main thread — Swift poll trạng thái trên MainActor.
+// đều được gọi từ main thread — Swift poll trạng thái trên MainActor, và copy ngay
+// sang String trước lời gọi kế tiếp (kể cả khi có nhiều phiên xem).
 char g_statusBuf[256];
 char g_reasonBuf[256];
-char g_agentStatusBuf[256];
 char g_addrBuf[1024];
 
 void CopyToBuf(char* dst, size_t cap, const std::string& s) {
@@ -84,103 +89,78 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     return count;
 }
 
-bool dh_start(const char* address, uint8_t sourceId) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) {
-        g_client->Stop();
-        g_client.reset();
-    }
-
+DHSession* dh_session_start(const char* address, uint8_t sourceId) {
+    if (!address) return nullptr;
     NetAddr addr;
     if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
-        return false;
+        return nullptr;
     }
-
-    g_client = std::make_unique<ClientLoop>();
-    if (!g_client->Start(addr, sourceId)) {
-        g_client.reset();
-        return false;
-    }
-    return true;
+    auto s = std::make_unique<DHSession>();
+    if (!s->loop.Start(addr, sourceId)) return nullptr;
+    return s.release();
 }
 
-void dh_stop(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) {
-        g_client->Stop();
-        g_client.reset();
-    }
+void dh_session_stop(DHSession* s) {
+    if (!s) return;
+    s->loop.Stop();
+    delete s;
 }
 
-void dh_set_layer(void* layer) {
-    ClientLoop* cl = nullptr;
-    {
-        std::lock_guard<std::mutex> lk(g_clientMutex);
-        cl = g_client.get();
-    }
-    // KHÔNG giữ khoá khi chờ — xem cảnh báo ở đầu file.
-    if (cl) cl->SetLayer(layer);
+void dh_session_set_layer(DHSession* s, void* layer) {
+    // SetLayer CHẶN tới khi thread Decode xác nhận — không sao: chỉ handle này chờ,
+    // các phiên khác không liên quan (ngày trước g_client + mutex chung thì chỗ này
+    // từng làm mọi lời poll tự khoá lẫn nhau).
+    if (s) s->loop.SetLayer(layer);
 }
 
-void dh_key(int32_t vk, int32_t scan, bool down) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->QueueKey(vk, scan, down);
+void dh_session_key(DHSession* s, int32_t vk, int32_t scan, bool down) {
+    if (s) s->loop.QueueKey(vk, scan, down);
 }
 
-void dh_release_all_input(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->ReleaseAllInput();
+void dh_session_release_all_input(DHSession* s) {
+    if (s) s->loop.ReleaseAllInput();
 }
 
-void dh_mouse_move(int32_t nx, int32_t ny) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->QueueMouseMoveAbs(nx, ny);
+void dh_session_mouse_move(DHSession* s, int32_t nx, int32_t ny) {
+    if (s) s->loop.QueueMouseMoveAbs(nx, ny);
 }
 
-void dh_mouse_move_rel(int32_t dx, int32_t dy) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->QueueMouseMoveRel(dx, dy);
+void dh_session_mouse_move_rel(DHSession* s, int32_t dx, int32_t dy) {
+    if (s) s->loop.QueueMouseMoveRel(dx, dy);
 }
 
-void dh_mouse_button(int32_t button, bool down) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->QueueMouseButton(button, down);
+void dh_session_mouse_button(DHSession* s, int32_t button, bool down) {
+    if (s) s->loop.QueueMouseButton(button, down);
 }
 
-void dh_mouse_wheel(int32_t delta) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->QueueMouseWheel(delta);
+void dh_session_mouse_wheel(DHSession* s, int32_t delta) {
+    if (s) s->loop.QueueMouseWheel(delta);
 }
 
-DHPhase dh_phase(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (!g_client) return DHPhaseIdle;
-    return DHPhase(int(g_client->phase()));
+DHPhase dh_session_phase(DHSession* s) {
+    if (!s) return DHPhaseIdle;
+    return DHPhase(int(s->loop.phase()));
 }
 
-const char* dh_status_line(void) {
+const char* dh_session_status_line(DHSession* s) {
     g_statusBuf[0] = '\0';
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) CopyToBuf(g_statusBuf, sizeof(g_statusBuf), g_client->StatusLine());
+    if (s) CopyToBuf(g_statusBuf, sizeof(g_statusBuf), s->loop.StatusLine());
     return g_statusBuf;
 }
 
-const char* dh_end_reason(void) {
+const char* dh_session_end_reason(DHSession* s) {
     g_reasonBuf[0] = '\0';
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) CopyToBuf(g_reasonBuf, sizeof(g_reasonBuf), g_client->EndReason());
+    if (s) CopyToBuf(g_reasonBuf, sizeof(g_reasonBuf), s->loop.EndReason());
     return g_reasonBuf;
 }
 
-uint32_t dh_video_width(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    return g_client ? g_client->videoWidth() : 0;
+uint32_t dh_session_video_width(DHSession* s) {
+    return s ? s->loop.videoWidth() : 0;
 }
 
-uint32_t dh_video_height(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    return g_client ? g_client->videoHeight() : 0;
+uint32_t dh_session_video_height(DHSession* s) {
+    return s ? s->loop.videoHeight() : 0;
 }
 
 // ===========================================================================
@@ -199,17 +179,11 @@ bool dh_map_key(uint16_t mac_key_code, int32_t* out_vk, int32_t* out_scan) {
 bool dh_has_screen_recording(void) {
     return macperm::HasScreenRecording();
 }
-bool dh_request_screen_recording(void) {
-    return macperm::RequestScreenRecording();
-}
 void dh_open_screen_recording_settings(void) {
     macperm::OpenScreenRecordingSettings();
 }
 bool dh_has_accessibility(void) {
     return macperm::HasAccessibility();
-}
-bool dh_request_accessibility(void) {
-    return macperm::RequestAccessibility();
 }
 void dh_open_accessibility_settings(void) {
     macperm::OpenAccessibilitySettings();
@@ -279,13 +253,6 @@ bool dha_running(void) {
     return g_agent && g_agent->running();
 }
 
-const char* dha_status_line(void) {
-    g_agentStatusBuf[0] = '\0';
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    if (g_agent) CopyToBuf(g_agentStatusBuf, sizeof(g_agentStatusBuf), g_agent->StatusLine());
-    return g_agentStatusBuf;
-}
-
 int dha_status(DHAgentStatus* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     std::vector<AgentSourceStatus> rows;
@@ -300,10 +267,13 @@ int dha_status(DHAgentStatus* out, int capacity) {
         out[i].width = rows[i].width;
         out[i].height = rows[i].height;
         out[i].viewerConnected = rows[i].viewerConnected;
-        out[i].starting = rows[i].starting;
         out[i].captureFps = rows[i].captureFps;
         out[i].sendFps = rows[i].sendFps;
         out[i].sendKbps = rows[i].sendKbps;
+        out[i].rttMs = rows[i].rttMs;
+        std::strncpy(out[i].viewerAddr, rows[i].viewerAddr.c_str(),
+            sizeof(out[i].viewerAddr) - 1);
+        out[i].viewerAddr[sizeof(out[i].viewerAddr) - 1] = '\0';
         std::strncpy(out[i].name, rows[i].name.c_str(), sizeof(out[i].name) - 1);
         out[i].name[sizeof(out[i].name) - 1] = '\0';
     }
@@ -311,16 +281,13 @@ int dha_status(DHAgentStatus* out, int capacity) {
 }
 
 const char* dha_local_addresses(void) {
+    // Hỏi thẳng hệ thống thay vì AgentLoop: màn chính hiện IP TRƯỚC khi chia sẻ,
+    // đúng như hộp Host mode của MainMenuWindow bên Windows.
     g_addrBuf[0] = '\0';
-    std::vector<std::string> addrs;
-    {
-        std::lock_guard<std::mutex> lk(g_agentMutex);
-        if (g_agent) addrs = g_agent->LocalAddresses();
-    }
     std::string joined;
-    for (const std::string& a : addrs) {
+    for (const auto& a : ListLocalIPv4()) {
         if (!joined.empty()) joined += '\n';
-        joined += a;
+        joined += a.ip + '\t' + a.name;
     }
     CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
     return g_addrBuf;

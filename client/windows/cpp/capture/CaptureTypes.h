@@ -4,8 +4,8 @@
 //
 // NHIỆM VỤ
 //   Định nghĩa FrameInfo: hình dạng của "một khung hình vừa bắt được". Đây là hợp
-//   đồng giữa ScreenCapture (bên sản xuất) và encoder / bộ ghi ảnh debug (bên tiêu
-//   thụ), tách riêng ra để hai bên không phải include lẫn nhau.
+//   đồng giữa ScreenCapture (bên sản xuất) và encoder (bên tiêu thụ), tách riêng ra
+//   để hai bên không phải include lẫn nhau.
 //
 // VÌ SAO CỐ Ý KHÔNG PHỤ THUỘC winrt
 //   Windows.Graphics.Capture là API WinRT, kéo theo cả một bộ header C++/WinRT rất
@@ -21,8 +21,8 @@
 //   của một khung hình khác — lỗi không gây crash, chỉ cho ra hình sai, nên rất khó
 //   lần ra nếu không biết trước quy tắc này.
 //
-// LIÊN QUAN: capture/ScreenCapture.h (bên sản xuất), encode/IVideoEncoder.h,
-//            capture/BmpWriter.h (bên tiêu thụ)
+// LIÊN QUAN: capture/ScreenCapture.h (bên sản xuất), encode/IVideoEncoder.h
+//            (bên tiêu thụ)
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

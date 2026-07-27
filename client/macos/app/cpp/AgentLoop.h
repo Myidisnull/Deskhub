@@ -52,15 +52,16 @@ struct AgentSource {
     std::string name;
 };
 
-// Ảnh chụp trạng thái MỘT nguồn, cho UI vẽ. Thay vai của SessionSourceRow bên
-// Windows; khác ở chỗ nó mang cả số liệu (Windows in ra console).
+// Ảnh chụp trạng thái MỘT nguồn, cho UI vẽ. Đối ứng SessionSourceRow bên Windows —
+// cùng các trường có cấu trúc (tên, kích thước, viewer, số liệu 1s).
 struct AgentSourceStatus {
     uint8_t sourceId = 0;
     std::string name;
     uint32_t width = 0, height = 0;
     bool viewerConnected = false;
-    bool starting = false; // đã thêm nhưng chưa có frame đầu
+    std::string viewerAddr; // "ip:port" của client đang xem, rỗng nếu không có
     double captureFps = 0, sendFps = 0, sendKbps = 0;
+    uint32_t rttMs = 0; // từ FEEDBACK của client; 0 = chưa có số
 };
 
 class AgentLoop {
@@ -86,15 +87,11 @@ public:
         return running_.load(std::memory_order_acquire);
     }
 
-    // Dòng trạng thái tổng cho UI ("Sharing 2 sources"), cập nhật 1s/lần.
-    std::string StatusLine();
-
     // Ảnh chụp trạng thái mọi nguồn còn sống. An toàn gọi từ main thread.
     std::vector<AgentSourceStatus> Status();
 
-    // Địa chỉ IPv4 của máy này để đọc cho người bên kia ("Wi-Fi (en0)\t192.168.1.5").
-    // Chụp một lần lúc Start — card mạng hiếm khi đổi giữa phiên.
-    std::vector<std::string> LocalAddresses();
+    // KHÔNG có LocalAddresses ở đây (bỏ 2026-07-27): màn chính hiện IP TRƯỚC khi
+    // chia sẻ nên bridge hỏi thẳng ListLocalIPv4, giống MainMenuWindow bên Windows.
 
     // KHÔNG có AddSource/RemoveSource (bỏ 2026-07-27): phiên chia sẻ TẤT CẢ màn hình
     // và danh sách chốt ở Start, nên UI chỉ đọc trạng thái rồi Stop.

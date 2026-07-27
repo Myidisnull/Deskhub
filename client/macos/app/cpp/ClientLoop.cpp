@@ -171,7 +171,6 @@ bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId) {
     sock_.SetRecvTimeout(10);
 
     quit_.store(false);
-    finished_.store(false);
     phase_.store(Phase::Connecting, std::memory_order_release);
     {
         std::lock_guard<std::mutex> lk(textMutex_);
@@ -603,6 +602,5 @@ void ClientLoop::NetThread() {
         if (endReason_.empty()) endReason_ = "stopped";
     }
     phase_.store(Phase::Ended, std::memory_order_release);
-    finished_.store(true, std::memory_order_release);
     LOGI("[Client] Session ended.");
 }

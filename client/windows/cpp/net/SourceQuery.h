@@ -8,8 +8,8 @@
 //   sách nguồn để người dùng chọn xem cái nào.
 //
 // VỊ TRÍ TRONG LUỒNG NGƯỜI DÙNG
-//   ConnectPage: gõ địa chỉ → **QuerySources()** → PickPage: chọn nguồn
-//                                                → ViewerPage → dh_client_start(sourceId)
+//   MainMenuWindow: gõ địa chỉ → **QuerySources()** → SourcePickerDialog: chọn nguồn
+//                                                   → RunViewer → dh_client_start_hwnd
 //
 // VÌ SAO ĐỨNG NGOÀI ClientApi/ClientLoop
 //   Nó chạy trước khi có phiên: mở socket riêng, không sessionId, không thread —
@@ -18,8 +18,8 @@
 //
 // TÍNH CHẤT CẦN BIẾT TRƯỚC KHI GỌI
 //   - CHẶN tới ~3 giây (phát lại LIST_SOURCES vài lần vì UDP có thể mất gói).
-//   - PHẢI gọi ngoài UI thread. Chặn UI thread 3 giây là treo app — phía C# bọc
-//     trong Task.Run (giống dh_discover_scan).
+//   - Chặn UI thread 3 giây là treo app — MainMenuWindow chấp nhận điều đó cho một
+//     lần bấm Connect (hộp thoại hiện ngay sau); frontend khác phải bọc thread nền.
 //
 // Ý NGHĨA CỦA GIÁ TRỊ TRẢ VỀ
 //   false = không mở được socket, hoặc host im lặng suốt 3 giây. Caller hiểu là
