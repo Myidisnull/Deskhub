@@ -58,7 +58,7 @@ Triggers: push to `main`, push of `v*` tags, pull requests to `main`,
 | `android` | ubuntu | JDK 17, NDK `26.1.10909125`, CMake `3.22.1`, then `make build-android`; uploads `deskhub-android` (app-debug.apk) |
 | `ios` | macos | `make build-ios` — Simulator build check only, no signing, no artifact |
 | `macos` | macos (needs core-tests) | `make release-macos MACOS_SIGN=adhoc`, uploads `deskhub-macos` (zip). **Build check only** — the ad-hoc artifact is deliberately never attached to a Release; the shippable dmg comes from `deploy.yml`. See `16-release-macos.md` §4 |
-| `release` | ubuntu (needs windows, android) | Only on `v*` tags: zips the Windows folder, renames the apk with the tag, and attaches both to a GitHub Release (`softprops/action-gh-release`). The macOS dmg is appended to the same Release by `deploy.yml` |
+| `release` | ubuntu (needs windows) | Only on `v*` tags: renames `Deskhub.exe` with the tag (no zip — it is a single file) and attaches it to a GitHub Release (`softprops/action-gh-release`). The macOS dmg and the release-signed apk are appended to the same Release by `deploy.yml` |
 
 ### deploy.yml
 

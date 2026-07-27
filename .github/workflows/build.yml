@@ -188,7 +188,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Release: chỉ chạy khi push tag v*. Đính zip Windows và viết body liệt kê đủ
+  # Release: chỉ chạy khi push tag v*. Đính exe Windows và viết body liệt kê đủ
   # các nền tảng. Tên file mang tag để tải về khỏi nhầm phiên bản.
   #
   # CHỈ CÓ Windows ở đây — các bản còn lại cần secret nên deploy.yml đính vào
@@ -212,22 +212,23 @@ jobs:
         with:
           path: dist
 
-      # Windows là cả thư mục (app unpackaged + self-contained) nên nén thành zip.
+      # Artifact Windows chỉ còn ĐÚNG MỘT Deskhub.exe (link tĩnh) nên không nén
+      # zip nữa — đính thẳng exe, tải về là chạy.
       - name: Rename with tag
         run: |
           mkdir -p out
-          (cd dist/deskhub-windows && zip -qr "$GITHUB_WORKSPACE/out/deskhub-${GITHUB_REF_NAME}-windows.zip" .)
+          mv dist/deskhub-windows/Deskhub.exe "out/deskhub-${GITHUB_REF_NAME}-windows.exe"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: out/deskhub-${{ github.ref_name }}-windows.zip
+          files: out/deskhub-${{ github.ref_name }}-windows.exe
           body: |
-            | Nền tảng | File / kênh |
+            | Platform | File / channel |
             |---|---|
-            | Windows | `deskhub-${{ github.ref_name }}-windows.zip` — giải nén rồi chạy `Deskhub.exe` |
-            | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — đã notarize, mở thẳng không cảnh báo |
-            | Android | `deskhub-${{ github.ref_name }}-android.apk` — ký release, cùng chữ ký bản Google Play |
-            | iOS | TestFlight / App Store (ipa không sideload được) |
+            | Windows | `deskhub-${{ github.ref_name }}-windows.exe` — single file, just run it |
+            | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — notarized, opens without warnings |
+            | Android | `deskhub-${{ github.ref_name }}-android.apk` — release-signed, same key as the Google Play build |
+            | iOS | TestFlight / App Store (ipa cannot be sideloaded) |
 
-            File macOS/Android do workflow deploy đính vào — có thể lên chậm hơn zip Windows vài phút.
+            macOS/Android files are attached by the deploy workflow — they may show up a few minutes after the Windows build.
