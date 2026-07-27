@@ -1,10 +1,15 @@
 // =============================================================================
 // Viewer.cpp — cài đặt cửa sổ xem (xem vai trò + mô hình ở Viewer.h).
 //
-// BỐ CỤC MỘT CỬA SỔ
-//   [thanh trên cao 34px: stats (trái) · gợi ý F9 · nút Disconnect (phải)]
+// BỐ CỤC MỘT CỬA SỔ — cả vùng client là video, chép theo bản macOS (StreamView)
 //   [vùng video nền đen: cửa sổ CON aspect-fit — letterbox nằm ngoài cửa sổ con
 //    nên toạ độ chuột chuẩn hoá theo client rect của con là đúng khung video]
+//
+//   Stats (fps/kbps/loss/RTT/e2e) và gợi ý F9 nằm ở HEADER — thanh tiêu đề của
+//   cửa sổ, không chiếm một hàng nội dung riêng. macOS đặt chúng vào
+//   navigationSubtitle; Win32 chỉ có MỘT chuỗi tiêu đề nên nối lại:
+//   "Deskhub - viewing: <nguồn> — <stats> · <gợi ý F9>".
+//   KHÔNG có nút Disconnect: đóng cửa sổ là ngắt (WM_CLOSE), y như bản macOS.
 //
 // KÍCH THƯỚC BAN ĐẦU THEO VIDEO
 //   sizeCb đầu tiên báo WxH đàm phán được -> nới cửa sổ cho vùng video đúng tỷ
@@ -31,11 +36,6 @@ namespace {
 constexpr wchar_t kFrameClass[] = L"DeskhubViewerFrame";
 constexpr wchar_t kVideoClass[] = L"DeskhubViewerVideo";
 
-constexpr int kBarH = 34;
-constexpr int kIdDisconnect = 400;
-constexpr int kIdStats = 401;
-constexpr int kIdHint = 402;
-
 constexpr UINT WM_APP_STATS = WM_APP + 1;  // statsCb có dòng mới
 constexpr UINT WM_APP_SIZE = WM_APP + 2;   // sizeCb báo cỡ video (lần đầu/đổi)
 constexpr UINT WM_APP_CLOSED = WM_APP + 3; // phiên đứt từ phía native
@@ -57,10 +57,10 @@ std::wstring FromUtf8(const std::string& s) {
 struct ViewerFrame {
     HWND hwnd = nullptr;
     HWND video = nullptr; // cửa sổ con native render vào
-    HWND stats = nullptr;
-    HWND hint = nullptr;
     DhClientHandle* client = nullptr;
     ViewerInput input;
+    std::wstring baseTitle;    // "Deskhub - viewing[: <nguồn>]" — phần cố định
+    std::wstring shownTitle;   // tiêu đề đang hiện; so để khỏi vẽ lại vô ích
     bool sizedToVideo = false; // đã nới cửa sổ theo cỡ video lần đầu chưa
 
     // Thread nền của phiên ghi, thread UI đọc (dưới mu).
@@ -69,7 +69,7 @@ struct ViewerFrame {
     std::string closedReason;
     uint32_t videoW = 0, videoH = 0;
 
-    // Đặt cửa sổ con theo letterbox trong vùng dưới thanh bar.
+    // Đặt cửa sổ con theo letterbox trong CẢ vùng client (không còn thanh bar).
     void Relayout() {
         uint32_t w, h;
         {
@@ -79,18 +79,30 @@ struct ViewerFrame {
         }
         RECT rc{};
         GetClientRect(hwnd, &rc);
-        const int aw = rc.right, ah = rc.bottom - kBarH;
+        const int aw = rc.right, ah = rc.bottom;
         if (!w || !h || aw <= 0 || ah <= 0) {
-            MoveWindow(video, 0, kBarH, std::max(1, aw), std::max(1, ah), TRUE);
+            MoveWindow(video, 0, 0, std::max(1, aw), std::max(1, ah), TRUE);
             return;
         }
         const double scale = std::min(double(aw) / w, double(ah) / h);
         const int vw = std::max(1, int(w * scale)), vh = std::max(1, int(h * scale));
-        MoveWindow(video, (aw - vw) / 2, kBarH + (ah - vh) / 2, vw, vh, TRUE);
-        // Thanh trên: stats co giãn, hint + nút neo phải.
-        MoveWindow(stats, 8, 8, std::max(50, aw - 8 - 330), 18, TRUE);
-        MoveWindow(hint, aw - 322, 8, 210, 18, TRUE);
-        MoveWindow(GetDlgItem(hwnd, kIdDisconnect), aw - 104, 4, 96, 26, TRUE);
+        MoveWindow(video, (aw - vw) / 2, (ah - vh) / 2, vw, vh, TRUE);
+    }
+
+    // Header = tên nguồn + stats + gợi ý F9 (đối ứng navigationSubtitle của macOS).
+    void UpdateTitle() {
+        std::string line;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            line = statsLine;
+        }
+        const std::wstring stats = line.empty() ? L"connecting..." : FromUtf8(line);
+        const wchar_t* hint = input.relativeMode() ? L"Mouse locked - press F9 to release"
+                                                   : L"Press F9 to lock mouse";
+        std::wstring t = baseTitle + L" — " + stats + L" · " + hint;
+        if (t == shownTitle) return;
+        shownTitle = std::move(t);
+        SetWindowTextW(hwnd, shownTitle.c_str());
     }
 
     // Lần đầu biết cỡ video: nới cửa sổ để vùng video đúng 1:1 (kẹp vào work area).
@@ -105,7 +117,7 @@ struct ViewerFrame {
         sizedToVideo = true;
         RECT wa{};
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-        RECT wr{0, 0, LONG(w), LONG(h) + kBarH};
+        RECT wr{0, 0, LONG(w), LONG(h)};
         AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
         const int ww = std::min<int>(wr.right - wr.left, wa.right - wa.left - 48);
         const int wh = std::min<int>(wr.bottom - wr.top, wa.bottom - wa.top - 48);
@@ -131,21 +143,11 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             // Chữ gợi ý đổi theo trạng thái khoá — F9 được ViewerInput xử lý tại
             // chỗ nên frame chỉ việc đọc lại mỗi nhịp.
-            if (f && wp == kTimerHint)
-                SetWindowTextW(f->hint, f->input.relativeMode()
-                                            ? L"Mouse locked - press F9 to release"
-                                            : L"Press F9 to lock mouse");
+            if (f && wp == kTimerHint) f->UpdateTitle();
             return 0;
-        case WM_APP_STATS: {
-            if (!f) return 0;
-            std::string line;
-            {
-                std::lock_guard<std::mutex> lk(f->mu);
-                line = f->statsLine;
-            }
-            SetWindowTextW(f->stats, FromUtf8(line).c_str());
+        case WM_APP_STATS:
+            if (f) f->UpdateTitle();
             return 0;
-        }
         case WM_APP_SIZE:
             if (f) {
                 f->SizeToVideo();
@@ -166,12 +168,6 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             DestroyWindow(h);
             return 0;
         }
-        case WM_COMMAND:
-            if (LOWORD(wp) == kIdDisconnect) {
-                DestroyWindow(h);
-                return 0;
-            }
-            break;
         case WM_CLOSE:
             DestroyWindow(h);
             return 0;
@@ -209,28 +205,16 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     const std::string& nameUtf8) {
     auto f = std::make_unique<ViewerFrame>();
 
-    std::wstring title = L"Deskhub - viewing";
-    if (!nameUtf8.empty()) title += L": " + FromUtf8(nameUtf8);
+    f->baseTitle = L"Deskhub - viewing";
+    if (!nameUtf8.empty()) f->baseTitle += L": " + FromUtf8(nameUtf8);
 
-    f->hwnd = CreateWindowExW(0, kFrameClass, title.c_str(), WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1024, 600 + kBarH, nullptr, nullptr,
+    f->hwnd = CreateWindowExW(0, kFrameClass, f->baseTitle.c_str(), WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1024, 600, nullptr, nullptr,
         GetModuleHandleW(nullptr), nullptr);
     if (!f->hwnd) return nullptr;
     SetWindowLongPtrW(f->hwnd, GWLP_USERDATA, (LONG_PTR)f.get());
 
-    const HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD s, int cx, int cy, int cw,
-                  int ch, int id) {
-        HWND c = CreateWindowExW(0, cls, text, s | WS_CHILD | WS_VISIBLE, cx, cy, cw, ch,
-            f->hwnd, (HMENU)(INT_PTR)id, GetModuleHandleW(nullptr), nullptr);
-        if (c) SendMessageW(c, WM_SETFONT, (WPARAM)font, TRUE);
-        return c;
-    };
-    f->stats = mk(L"STATIC", L"connecting...", SS_LEFT | SS_ENDELLIPSIS, 8, 8, 400, 18,
-        kIdStats);
-    f->hint = mk(L"STATIC", L"Press F9 to lock mouse", SS_RIGHT, 440, 8, 210, 18, kIdHint);
-    mk(L"BUTTON", L"Disconnect", BS_PUSHBUTTON, 660, 4, 96, 26, kIdDisconnect);
-    f->video = CreateWindowExW(0, kVideoClass, L"", WS_CHILD | WS_VISIBLE, 0, kBarH, 16, 16,
+    f->video = CreateWindowExW(0, kVideoClass, L"", WS_CHILD | WS_VISIBLE, 0, 0, 16, 16,
         f->hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     SetWindowLongPtrW(f->video, GWLP_USERDATA, (LONG_PTR)f.get());
 
@@ -264,6 +248,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
     ++g_openFrames;
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
+    f->UpdateTitle();
     f->Relayout();
     ShowWindow(f->hwnd, SW_SHOW);
     SetFocus(f->video);

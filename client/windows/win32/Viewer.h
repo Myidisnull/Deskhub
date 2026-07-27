@@ -14,10 +14,12 @@
 //   (client, nguồn) là một phiên dh_client độc lập), bơm message tới khi người
 //   dùng đóng cửa sổ cuối cùng, rồi trả về để MainMenuWindow hiện lại.
 //
-//   Mỗi cửa sổ: thanh trên (stats + gợi ý F9 + nút Disconnect) và một cửa sổ CON
-//   cho video — dh_client_start_hwnd render thẳng vào đó (swapchain-for-HWND,
-//   zero-copy). Input bắt trên chính cửa sổ con bằng ViewerInput (Raw Input +
-//   message thường; F9 khoá chuột — đường chơi game giữ nguyên từ bản cũ).
+//   Mỗi cửa sổ CHỈ có video: một cửa sổ CON aspect-fit chiếm cả vùng client —
+//   dh_client_start_hwnd render thẳng vào đó (swapchain-for-HWND, zero-copy).
+//   Stats và gợi ý F9 nằm ở HEADER (thanh tiêu đề), không có thanh riêng và
+//   không có nút Disconnect — giống bản macOS, đóng cửa sổ là ngắt. Input bắt
+//   trên chính cửa sổ con bằng ViewerInput (Raw Input + message thường; F9 khoá
+//   chuột — đường chơi game giữ nguyên từ bản cũ).
 //
 // CALLBACK từ thread nền của phiên (stats/size/closed) KHÔNG đụng UI trực tiếp:
 // ghi vào state có mutex rồi PostMessage — thread UI mới là người vẽ.
