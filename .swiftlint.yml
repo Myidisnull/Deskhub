@@ -9,9 +9,14 @@
 #     (`const DS = ...` trong parts.jsx của dự án thiết kế) và nó đứng trước MỌI token
 #     màu/cỡ chữ trong app macOS; đặt tên dài hơn chỉ làm mỗi dòng dài thêm mà không
 #     nói thêm gì.
+#   - opening_brace: với chữ ký hàm nhiều dòng, SwiftFormat (wrapMultilineStatementBraces
+#     mặc định) chủ động ĐẨY `{` xuống dòng riêng — bỏ qua trường hợp đó phía SwiftLint
+#     để hai tool không bắt lỗi ngược chiều nhau.
 disabled_rules:
   - trailing_comma
 identifier_name:
   min_length: 2
 type_name:
   min_length: 2
+opening_brace:
+  ignore_multiline_function_signatures: true

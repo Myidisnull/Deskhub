@@ -77,8 +77,8 @@ final class ClientSession: @unchecked Sendable {
 
     // CHẶN ~1s — gọi ngoài main thread. nil = địa chỉ sai / không mở được phiên.
     static func start(address: String, sourceId: UInt8) -> ClientSession? {
-        guard let h = dh_session_start(address, sourceId) else { return nil }
-        return ClientSession(handle: h)
+        guard let handle = dh_session_start(address, sourceId) else { return nil }
+        return ClientSession(handle: handle)
     }
 
     // Dừng phiên và giải phóng handle. Gọi đúng MỘT lần; sau đó buông tham chiếu.
