@@ -56,7 +56,7 @@ struct MachineCard: View {
 
 // MARK: - Dòng nguồn
 
-// Một dòng "cửa sổ hoặc màn hình" trên màn chọn nguồn:
+// Một dòng màn hình trên màn chọn nguồn:
 //   [tick] [biểu tượng] Tên nguồn            2560×1600  [pill trạng thái]
 //
 // BẤM ĐÂU TRONG DÒNG CŨNG CHỌN — khác màn CHIA SẺ bên desktop, nơi chỉ ô tick nhận
@@ -80,11 +80,9 @@ struct SourceRow: View {
                     .toggleStyle(DSCheckboxStyle(decorative: true))
                     .labelsHidden()
 
-                // Giao thức không nói nguồn là cửa sổ hay màn hình ở phía client
-                // (DHSourceInfo chỉ có tên + kích thước), nên đừng đoán: một biểu
-                // tượng cửa sổ dùng chung, thay vì gán bừa "màn hình" cho thứ có thể
-                // là một cửa sổ.
-                Image(systemName: "macwindow")
+                // Mỗi nguồn là một màn hình của host (share theo cửa sổ đã bỏ
+                // 2026-07-27) — icon "display" trùng với bản macOS/Android.
+                Image(systemName: "display")
                     .font(.system(size: 16))
                     .foregroundStyle(selected ? DS.accent : DS.textSecondary)
                     .frame(width: 22)

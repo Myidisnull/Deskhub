@@ -6,9 +6,9 @@ congestion-control layers as implemented today:
 
 - **Host side**: `Packetizer`, `RetransmitCache`, `BitrateController` (all in `core/`),
   plus the platform `Pacer` (`client/windows/cpp/net/Pacer.h`).
-- **Client side**: `Reassembler`, `LinkStats`, `ClockSync`, `LatencyTrace` (all in `core/`).
+- **Client side**: `Reassembler`, `LinkStats` (both in `core/`).
 
-The byte-level wire format lives in `core/include/deskhub/wire/Wire.h` and is specified
+The byte-level wire format lives in `core/include/deskhub/protocol/Wire.h` and is specified
 in 04-protocol.md. Where the whole system sits is 01-architecture.md; the per-platform
 socket wrappers are 11-platform-transport.md; the diagnostics built on these counters
 are 09-diagnostics.md. Behavior described here is pinned down by
@@ -30,11 +30,11 @@ are 09-diagnostics.md. Behavior described here is pinned down by
   or a clock. Datagrams leave through `send` callbacks; time is injected as `nowUs`
   parameters. This is what lets the tests wire a `Packetizer` directly into a
   `Reassembler`, drop packets in between, and fast-forward time without sleeping.
-- **No allocation on the hot path.** `Packetizer` keeps member buffers; `Reassembler`,
-  `RetransmitCache`, and `LatencyTrace` reuse vectors/rings; steady state allocates
-  only when a frame is larger than any frame seen before.
+- **No allocation on the hot path.** `Packetizer` keeps member buffers; `Reassembler`
+  and `RetransmitCache` reuse vectors/rings; steady state allocates only when a frame
+  is larger than any frame seen before.
 
-Key wire constants (`core/include/deskhub/wire/Wire.h`):
+Key wire constants (`core/include/deskhub/protocol/Wire.h`):
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -251,9 +251,8 @@ need is *the last window*. `LinkStats` keeps the previous snapshot and diffs.
 - Per-window outputs (`LinkWindow`): `fps` (rendered frames), `kbps` (received video
   bytes), `lossPct = 100 × lost / (lost + received)` with parity excluded from the
   denominator, `packetsRecovered`, `framesDropped`, the loss-run bucket deltas
-  (`lossRunMax` is a cumulative record, copied through), late-packet stats (per-window
-  average, cumulative max), and e2e latency aggregated via `AddE2e` once per displayed
-  frame (avg/max/samples; `e2eSamples == 0` means "draw a dash, not 0 ms").
+  (`lossRunMax` is a cumulative record, copied through), and late-packet stats
+  (per-window average, cumulative max).
 - `MakeFeedback(window, rttUs)` compresses the window into the 9-byte `Feedback`
   message: `lostFrames` (u16), `lossPct` (u8, rounded to nearest), `rttMs` (u16),
   `recvBitrateKbps` (u32). The client sends it **every** window, even when perfectly
@@ -300,44 +299,22 @@ worth a few tens of kbps.
 change leaves the controller recomputing from the old rate next second
 (`TestBitrateUncommitted`).
 
-## 8. ClockSync and LatencyTrace — measuring end-to-end latency
+## 8. Measuring end-to-end latency
 
-`core/include/deskhub/control/ClockSync.h/.cpp`. The host stamps each frame's capture
-time (`VideoHeader::timestampUs`) with *its* clock; the client presents with *its own*
-clock. The unknown clock offset cannot be measured directly — every sample
-`(client_arrival − host_timestamp)` equals the offset plus that packet's one-way delay.
+The host stamps each frame's capture time (`VideoHeader::timestampUs`) with *its*
+clock; the client presents with *its own* clock. The unknown clock offset cannot be
+measured directly — every sample `(client_arrival − host_timestamp)` equals the offset
+plus that packet's one-way delay. Each client loop estimates it inline (e.g.
+`client/windows/cpp/ClientApi.cpp`): `ackDeltaUs` seeded from `HelloAck::timebaseUs`
+at HELLO_ACK, a monotonically minimized RTT from `onRtt`, and
+`e2e = now − (ackDelta − minRtt/2) − timestampUs` computed per rendered frame. This is
+an *estimate* assuming a symmetric path; asymmetric routes (Wi-Fi, Tailscale) skew it
+by exactly the asymmetry. It is display-only and never travels on the wire.
 
-- **Min filter**: the one-way term is ≥ 0 and varies per packet, so the *minimum* of
-  the samples is the best estimate of "offset + smallest achievable one-way delay". A
-  new minimum wins immediately; the estimate may only move *up* at a window boundary:
-  each `kClockRefreshUs = 10 s` window keeps its own parallel minimum which replaces
-  the base when the window closes — this tracks crystal drift in both directions (tens
-  of ms per hour on cheap oscillators) without the "e2e snaps to 0 every 10 s" artifact
-  a hard reset would cause.
-- **`E2eUs(hostTs, localPresent)`** returns `(localPresent − hostTs − offset) + rtt/2`,
-  clamped to `[0, u32max]`. Adding back half the RTT restores the one-way delay the min
-  filter subtracted — otherwise the fastest frame would always report a beautiful,
-  false 0 ms. This is an *estimate* assuming a symmetric path; asymmetric routes
-  (Wi-Fi, Tailscale) skew it by exactly the asymmetry. `Rebase` seeds the offset from
-  `HelloAck::timebaseUs` so the very first frames already display a number. `OnFrame`
-  is fed the *arrival* time, not the present time — the filter should track network
-  delay, not local decode/present queueing. (`TestClockSyncOffset` cancels a 1-hour
-  clock skew while preserving a 23 ms latency.)
-- In the shipping Windows client (`client/windows/cpp/ClientApi.cpp`) the same idea is
-  currently implemented inline: `ackDeltaUs` seeded from `HelloAck::timebaseUs`, a
-  monotonically minimized RTT from `onRtt`, and
-  `e2e = now − (ackDelta − minRtt/2) − timestampUs` computed per rendered frame. The
-  `ClockSync` class is the tested core form of this computation.
-
-`core/include/deskhub/control/LatencyTrace.h/.cpp` is the ring buffer behind the
-latency sparkline (see 09-diagnostics.md): `kLatencyTraceLen = 60` columns sampled
-every `kLatencySampleUs = 320 ms` (~19 s of history — dense enough to catch a single
-200 ms stutter, long enough to show a trend). Each bucket keeps the **maximum** sample
-seen in its interval, not the last — the chart exists to find the bad moments, and
-last-sample would erase a spike landing between marks. Buckets skipped during a stall
-are filled with the previous value, never 0 (0 ms would claim a perfect link — the
-opposite of what just happened; `TestLatencyTraceGaps`). `Snapshot` returns samples
-oldest-to-newest, ready to draw left-to-right.
+(A tested core implementation of this idea — `ClockSync` with a drift-tracking min
+filter, plus the `LatencyTrace` sparkline ring — existed until 2026-07-27 but was
+never wired into any client, so it was removed rather than kept as a second,
+diverging spec.)
 
 ## 9. Failure modes and recovery, end to end
 

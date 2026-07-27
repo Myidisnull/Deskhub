@@ -39,7 +39,6 @@ void ClientSession::Start(const Hello& hello, uint64_t nowUs) {
     startedUs_ = nowUs;
     lastRecvUs_ = nowUs;
     lastSentUs_ = nowUs;
-    rearmGiveUp_ = false; // SetPassword trước Start (mật khẩu đã lưu) không tính
     SendHello();
 }
 
@@ -49,27 +48,6 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
     const auto payload = PayloadOf(pkt);
 
     switch (h->type) {
-        case MsgType::AuthChallenge: {
-            // Host đòi chứng minh biết mật khẩu (GĐ10). Chỉ có nghĩa lúc đang bắt
-            // tay: challenge đến giữa phiên đang chạy là gói lạc hoặc gói dựng.
-            if (state_ != State::Hello) return false;
-            const auto c = ParseAuthChallenge(payload);
-            if (!c) return false;
-            lastRecvUs_ = nowUs;
-            if (password_.empty()) {
-                // Chưa có mật khẩu — hỏi người dùng MỘT lần rồi thôi. Không gọi lại
-                // ở mỗi HELLO phát lại (0.5 giây/lần), nếu không giao diện sẽ dựng
-                // hộp thoại chồng lên nhau hai lần một giây.
-                if (!passwordAsked_) {
-                    passwordAsked_ = true;
-                    rejectReason_ = RejectReason::AuthRequired;
-                    if (cb_.onPasswordNeeded) cb_.onPasswordNeeded();
-                }
-                return true;
-            }
-            AnswerChallenge(*c);
-            return true;
-        }
         case MsgType::HelloAck: {
             const auto m = ParseHelloAck(payload);
             if (!m) return false;
@@ -79,31 +57,9 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             if (state_ != State::Hello) return true;
             if (m->codec == Codec::Rejected) {
                 rejectReason_ = m->reason;
-                // Thông báo phân biệt theo lý do: "sai mật khẩu" và "máy đang bận"
-                // đòi hai hành động hoàn toàn khác nhau từ người dùng, và câu chung
-                // chung cũ khiến người nhập sai mật khẩu không biết đường nào mà sửa.
+                // Thông báo phân biệt theo lý do: "máy đang bận" và "không giải mã
+                // được" đòi hai hành động khác nhau từ người dùng.
                 switch (m->reason) {
-                    case RejectReason::AuthRequired:
-                        // Host đòi mật khẩu mà ta chưa gửi được lời đáp hợp lệ. Đây
-                        // là đường đi khi challenge lạc chứ không phải sai mật khẩu —
-                        // xin lại mật khẩu và để chu kỳ phát lại HELLO thử tiếp.
-                        if (!passwordAsked_) {
-                            passwordAsked_ = true;
-                            if (cb_.onPasswordNeeded) cb_.onPasswordNeeded();
-                        }
-                        return true;
-                    case RejectReason::AuthFailed:
-                        // Mật khẩu sai: bỏ bản đã lưu, hỏi lại. Giữ nó thì mọi lần
-                        // phát lại HELLO đều tiêu một lần thử trong hạn mức 3 lần và
-                        // người dùng bị khoá 5 phút mà không hiểu vì sao.
-                        ClearPassword();
-                        passwordAsked_ = true;
-                        if (cb_.onPasswordNeeded) cb_.onPasswordNeeded();
-                        Die("wrong password");
-                        return false;
-                    case RejectReason::LockedOut:
-                        Die("too many wrong passwords — locked out, try again later");
-                        return false;
                     case RejectReason::CodecMismatch:
                         Die("host rejected (codec mismatch)");
                         return false;
@@ -116,9 +72,6 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
                 }
             }
             rejectReason_ = RejectReason::None;
-            // Token nhớ thiết bị — chỉ về đúng một lần, ngay sau khi đáp đúng.
-            if (!m->deviceToken.empty() && cb_.onDeviceToken)
-                cb_.onDeviceToken(std::span<const uint8_t>(m->deviceToken));
             sessionId_ = m->sessionId;
             params_.codec = m->codec;
             params_.width = m->width;
@@ -127,7 +80,6 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             params_.bitrateBps = m->bitrateBps;
             params_.timebaseUs = m->timebaseUs;
             params_.inputAccepted = (m->flags & kAckFlagInputAccepted) != 0;
-            params_.clipboardEnabled = (m->flags & kAckFlagClipboard) != 0;
             state_ = State::Starting;
             lastRecvUs_ = nowUs;
             lastSentUs_ = nowUs;
@@ -160,19 +112,6 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             }
             if (m->bitrateBps) params_.bitrateBps = m->bitrateBps;
             if (cb_.onReconfig) cb_.onReconfig(params_);
-            return true;
-        }
-        case MsgType::Clipboard: {
-            if (h->sessionId != sessionId_ || sessionId_ == 0) return false;
-            if (state_ != State::Starting && state_ != State::Streaming) return false;
-            const auto c = ParseClipboardChunk(payload);
-            if (!c) return false;
-            lastRecvUs_ = nowUs;
-            // Host không bật đồng bộ clipboard → bỏ mảnh, không ghép (xem HostSession).
-            if (!params_.clipboardEnabled) return true;
-            // Push trả văn bản đúng một lần khi đủ mảnh — mảnh trùng/lẻ là nullopt.
-            if (auto text = clip_.Push(*c); text && cb_.onClipboard)
-                cb_.onClipboard(std::move(*text));
             return true;
         }
         case MsgType::Bye:
@@ -219,22 +158,7 @@ void ClientSession::Tick(uint64_t nowUs) {
         case State::Dead:
             return;
         case State::Hello:
-            // Mật khẩu vừa được nộp giữa chừng — tính lại mốc bỏ cuộc từ lúc nộp
-            // (xem ghi chú ở SetPassword).
-            if (rearmGiveUp_) {
-                rearmGiveUp_ = false;
-                startedUs_ = nowUs;
-            }
-            if (passwordAsked_ && password_.empty()) {
-                // Đang chờ người dùng gõ mật khẩu: phiên phải SỐNG vô hạn theo lời
-                // hứa ở onPasswordNeeded — người gõ chậm không có lỗi. Host vẫn đáp
-                // challenge cho mỗi HELLO phát lại nên lastRecvUs_ vẫn được nuôi;
-                // chỉ chết khi host thật sự biến mất.
-                if (nowUs - lastRecvUs_ > kSessionTimeoutUs) {
-                    Die("lost contact with host (timeout)");
-                    return;
-                }
-            } else if (nowUs - startedUs_ > kHelloGiveUpUs) {
+            if (nowUs - startedUs_ > kHelloGiveUpUs) {
                 Die("could not connect (timed out)");
                 return;
             }
@@ -305,25 +229,6 @@ void ClientSession::SendInvalidateRef(uint32_t frameId) {
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }
 
-// Chia văn bản thành mảnh ≤ kMaxClipboardChunk rồi phát một loạt. Không ACK, không
-// phát lại: mất mảnh thì bản copy này bỏ, người dùng copy tiếp là có bản mới.
-void ClientSession::SendClipboard(std::string_view utf8) {
-    if (state_ != State::Streaming || !cb_.send) return;
-    if (!params_.clipboardEnabled) return;
-    if (utf8.empty() || utf8.size() > kMaxClipboardBytes) return;
-    const uint32_t id = ++clipUpdateId_;
-    const size_t count = (utf8.size() + kMaxClipboardChunk - 1) / kMaxClipboardChunk;
-    for (size_t i = 0; i < count; ++i) {
-        const size_t off = i * kMaxClipboardChunk;
-        const size_t len = utf8.size() - off < kMaxClipboardChunk ? utf8.size() - off
-                                                                  : kMaxClipboardChunk;
-        const auto* d = reinterpret_cast<const uint8_t*>(utf8.data()) + off;
-        const size_t n = BuildClipboardChunk(buf_, sessionId_, id, uint16_t(i),
-            uint16_t(count), std::span<const uint8_t>(d, len));
-        if (n) cb_.send(std::span<const uint8_t>(buf_, n));
-    }
-}
-
 void ClientSession::SendBye() {
     if (state_ == State::Starting || state_ == State::Streaming) {
         const size_t n = BuildBye(buf_, sessionId_);
@@ -334,29 +239,6 @@ void ClientSession::SendBye() {
 
 void ClientSession::SendHello() {
     const size_t n = BuildHello(buf_, hello_);
-    if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
-}
-
-// Trả lời AUTH_CHALLENGE. Mật khẩu KHÔNG lên dây — thứ gửi đi là
-// HMAC(PBKDF2(mật khẩu, salt), nonce ‖ clientId).
-void ClientSession::AnswerChallenge(const AuthChallenge& c) {
-    const auto salt = std::span<const uint8_t>(c.salt, kAuthSaltBytes);
-
-    // Chỉ dẫn xuất lại khi host thật sự đổi tham số. PBKDF2 chạy ~100 ms và hàm này
-    // được gọi mỗi lần HELLO phát lại (0.5 giây/lần) — tính lại mỗi lần sẽ chiếm
-    // 1/5 thời gian của thread mạng suốt giai đoạn bắt tay, ngay lúc nó cần phản
-    // hồi nhanh nhất.
-    const bool sameParams = derived_.valid && derived_.iterations == c.iterations &&
-                            ConstantTimeEqual(std::span<const uint8_t>(derived_.salt, kAuthSaltBytes), salt);
-    if (!sameParams) derived_ = DeriveKey(password_, salt, c.iterations);
-    if (!derived_.valid) return;
-
-    AuthResponse r;
-    r.clientId = hello_.clientId;
-    ComputeProof(derived_, std::span<const uint8_t>(c.nonce, kAuthNonceBytes), r.clientId,
-        std::span<uint8_t>(r.proof, kAuthProofBytes));
-
-    const size_t n = BuildAuthResponse(buf_, r);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }
 

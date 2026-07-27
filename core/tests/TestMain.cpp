@@ -17,14 +17,6 @@ int main() {
     std::printf("--- wire ---\n");
     RunWireTests();
 
-    // Crypto đi TRƯỚC auth: nếu SHA-256/HMAC/PBKDF2 sai thì mọi ca xác thực bên dưới
-    // đều vô nghĩa, và đọc log từ trên xuống sẽ thấy ngay nguyên nhân gốc.
-    std::printf("--- crypto: SHA-256 / HMAC / PBKDF2 (standard vectors) ---\n");
-    RunCryptoTests();
-
-    std::printf("--- auth: password gate, lockout, trusted devices ---\n");
-    RunAuthTests();
-
     std::printf("--- transport: reassembler ---\n");
     RunReassemblerTests();
 
@@ -40,11 +32,11 @@ int main() {
     std::printf("--- input ---\n");
     RunInputTests();
 
-    std::printf("--- control: bitrate + link stats + latency ---\n");
+    std::printf("--- control: bitrate + link stats ---\n");
     RunControlTests();
 
-    std::printf("--- discovery: beacon + host registry ---\n");
-    RunDiscoveryTests();
+    std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
+    RunBeaconTests();
 
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");

@@ -239,7 +239,7 @@ host module (not in `core/`); see `11-platform-transport.md` §3.
   WebTransport endpoint on a temporary ECDSA certificate; the browser connects via
   `serverCertificateHashes`, and the HELLO/HELLO_ACK handshake completes a full round trip
   over datagrams. The QUIC library is finalized here.
-- ⬜ **M3 — Real video e2e on LAN.** Host shares a window → the web client displays it;
+- ⬜ **M3 — Real video e2e on LAN.** Host shares a display → the web client displays it;
   measure fps/kbps/packet loss/RTT/e2e latency like the Windows overlay. Compare latency
   milestones against native UDP.
 - ⬜ **M4 — Input.** Pointer Lock + scancode keyboard controlling a regular application and

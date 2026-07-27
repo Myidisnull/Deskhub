@@ -5,7 +5,7 @@
 //                          SourcePickerScreen bên Android.
 //
 // MÀN NÀY XEN GIỮA CONNECT VÀ VIEWER
-//   Host chia sẻ nhiều cửa sổ/màn hình cùng lúc, mỗi cái một sourceId. Không có màn
+//   Host chia sẻ nhiều màn hình cùng lúc (multi-monitor), mỗi cái một sourceId. Không có màn
 //   này thì client luôn xem nguồn 0 và không có đường nào tới các nguồn còn lại.
 //
 // MỘT LẦN MỘT NGUỒN

@@ -22,7 +22,7 @@ backend, never touching the core.**
 
 | Platform | Agent (host) | Client | App | Status |
 |----------|:------------:|:------:|-----|--------|
-| Windows | ✅ | ✅ | `Deskhub.exe` — WinUI 3 shell + `deskhub_native.dll`, both roles | **Real-world use across 2 machines over LAN + Tailscale** (Internet/NAT) |
+| Windows | ✅ | ✅ | `Deskhub.exe` — single native exe (plain Win32 UI + statically linked core/pipeline), both roles | **Real-world use across 2 machines over LAN + Tailscale** (Internet/NAT) |
 | macOS | ✅ | ✅ | one app, both roles (SwiftUI + core C++) | **Both roles tested and working** (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | Android | ❌ | ✅ | client-only (Kotlin + core C++ via JNI) | **Video + input**; in testing on Google Play |
 | iOS | ❌ | ✅ | client-only (SwiftUI + core C++) | **Video + input**; in testing via TestFlight |
@@ -30,29 +30,29 @@ backend, never touching the core.**
 | Ubuntu/Linux | ⬜ | ⬜ | one app, both roles (planned) | Not started |
 
 Transport today is **UDP everywhere** (one port, channels multiplexed in the header); the
-QUIC/WebTransport path exists only as the web-client design. LAN discovery is a UDP
-DISCOVER/ANNOUNCE beacon; Internet/NAT use goes through Tailscale by convention — there is
-no built-in NAT traversal. Details: `11-platform-transport.md`.
+QUIC/WebTransport path exists only as the web-client design. Clients connect by a typed
+`ip:port` address; Internet/NAT use goes through Tailscale by convention — there is no
+built-in NAT traversal. LAN discovery (DISCOVER/ANNOUNCE) and the password/auth layer
+were removed on 2026-07-27: the app targets trusted LANs. Details:
+`11-platform-transport.md`.
 
 ## Repository layout
 
 ```
 core/            shared across ALL platforms (pure C++20, NO OS headers)
   include/deskhub/ + src/, by layer:
-    wire/        the protocol: byte layout of every message (Wire.h = spec in code,
+    protocol/    byte layout of every message (Wire.h = spec in code,
                  04-protocol.md = spec in prose; the two must change together)
     transport/   Packetizer (fragment + XOR FEC) · Reassembler (reorder/recover/drop)
                  · RetransmitCache (NACK)
-    session/     HostSession / ClientSession state machines · ClipboardAssembler
+    session/     HostSession / ClientSession state machines · Beacon (pre-session)
     input/       InputSender / InputReceiver (seq-per-event, loss-tolerant) · KeyMap
-    control/     BitrateController · LinkStats · ClockSync · LatencyTrace
-    auth/        PasswordAuth (challenge–response) · AuthGuard
-    crypto/      Sha256
-    discovery/   Beacon (host) · HostRegistry (client) — LAN DISCOVER/ANNOUNCE
+    control/     BitrateController · LinkStats
   tests/         core_tests — offline, no network/GPU; buildable by every toolchain
 platform/        thin OS wrappers core is allowed to use: Clock.h, Random.h
 client/windows/  cpp/ (capture WGC · encode NVENC/MF · decode MF+D3D11 · input ·
-                 net · C API in DeskhubApi.h) + csharp/ (WinUI 3 UI)      ✅ reference
+                 net · C API in DeskhubApi.h) + win32/ (plain Win32 UI, ONE exe)
+                 (WinUI3/csharp and ImGui frontends removed 2026-07-27)   ✅ reference
 client/macos/    one app, both roles: cpp/{agent,client,input,net} + swift/   ✅
 client/android/  client-only: Kotlin UI + cpp/{decode,net} over JNI            ✅
 client/ios/      client-only: SwiftUI + cpp/{decode,net} via ObjC++ bridge     ✅
@@ -65,15 +65,15 @@ third_party/     pinned NVENC headers
 ## Requirements & build
 
 - **Windows**: Windows 10 1903+ x64, Visual Studio 2022+ (C++ workload, bundles
-  CMake + Ninja), .NET SDK for the WinUI 3 shell. NVIDIA GPU recommended (NVENC);
-  otherwise encoding falls back to Media Foundation.
+  CMake + Ninja). NVIDIA GPU recommended (NVENC); otherwise encoding falls back
+  to Media Foundation.
 - **macOS / iOS**: macOS 14+, Xcode 26+. The macOS app needs **Screen Recording** (to
   share) and **Accessibility** (to inject input) — `14-macos-app.md`.
 - **Any OS**: `make bootstrap` installs every dependency (idempotent), including the
   Android SDK/NDK and pinned format/lint tools.
 
 ```
-make             # debug build (Windows: deskhub_native.dll + Deskhub.exe)
+make             # debug build (Windows: a single Deskhub.exe)
 make run         # build + launch the desktop app
 make test        # core_tests — offline, no network/GPU
 make lint        # style check for C++/Kotlin/Swift (matches CI)
@@ -93,8 +93,8 @@ native app): `16-release-macos.md`.
 | Document | Contents |
 |----------|----------|
 | [01-architecture.md](01-architecture.md) | System model, video/input data flow, the eight core layers, per-OS backend matrix |
-| [02-agent.md](02-agent.md) | Agent (host) role: capture → encode → send, injection hand-off, elevation, beacon, clipboard |
-| [03-client.md](03-client.md) | Client role: connect/auth flow, receive → decode → render, per-platform backends |
+| [02-agent.md](02-agent.md) | Agent (host) role: capture → encode → send, injection hand-off, elevation, beacon |
+| [03-client.md](03-client.md) | Client role: connect flow, receive → decode → render, per-platform backends |
 | [04-protocol.md](04-protocol.md) | **Wire protocol specification** — byte-level layout of every message (source of truth, paired with `Wire.h`) |
 | [05-roadmap.md](05-roadmap.md) | Phase-by-phase build log (Windows reference) + platform rollout status |
 | [06-transport.md](06-transport.md) | Transport internals: packetization, XOR FEC, NACK/retransmit, pacing, bitrate control, clock sync |

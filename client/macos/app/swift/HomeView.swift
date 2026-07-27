@@ -2,22 +2,15 @@
 // HomeView.swift — màn chính. Dựng theo `DesktopHome` trong desktop.jsx:
 //   tiêu đề → hai ô lớn (Kết nối / Chia sẻ) → "Kết nối gần đây"
 //   → thanh hành động dưới cùng.
-// Đối ứng client/windows/csharp/Views/HomePage.xaml.
 //
 // HAI VIỆC MỘT MÀN HÌNH (docs/01 §1): "máy này cho người khác
 // dùng" và "tôi muốn dùng máy khác". Không đoán ý người dùng, không nhớ lựa chọn lần
 // trước — chọn sai vai trên một app điều khiển từ xa khó chịu hơn nhiều so với bấm
 // thêm một nút.
 //
-// ⚠ THIẾU SO VỚI BẢN THIẾT KẾ: MỤC "TÌM THẤY TRONG MẠNG"
-//   `DesktopHome` còn một danh sách thứ hai — các host tự tìm thấy qua DISCOVER/
-//   ANNOUNCE (GĐ9). Bản Windows có nó vì tầng C++ bên đó đã có net/Discovery.cpp và
-//   AgentLoop đã gắn deskhub::Beacon. Tầng C++ của macOS thì CHƯA: không có
-//   Discovery, và agent/AgentLoop.cpp không trả lời DISCOVER.
-//
-//   Vẽ một mục "đang quét…" rỗng vĩnh viễn còn tệ hơn không vẽ: nó nói với người dùng
-//   rằng mạng của họ không có máy nào, trong khi sự thật là app này chưa biết hỏi.
-//   Mục đó sẽ xuất hiện cùng lượt với phần port discovery sang macOS.
+// KHÔNG CÓ MỤC "TÌM THẤY TRONG MẠNG"
+//   LAN discovery (DISCOVER/ANNOUNCE) đã gỡ toàn dự án 2026-07-27 — kết nối bằng
+//   địa chỉ gõ tay đọc từ màn chia sẻ của máy kia.
 //
 // BẤM MỘT THẺ MÁY = MỞ MÀN KẾT NỐI VỚI ĐỊA CHỈ ĐIỀN SẴN, KHÔNG NỐI THẲNG
 //   Nối thẳng sẽ bỏ qua ô "chỉ xem", mà đó là lựa chọn người ta cần cân nhắc trước khi

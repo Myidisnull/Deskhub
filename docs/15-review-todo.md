@@ -26,13 +26,13 @@ invariant is intact), style CI is green.
 | A2 | Beacon is a UDP reflection amplifier | Security | Small | Host becomes a DDoS source against third parties |
 | A3 | ~~Low-entropy `sessionId`~~ → **done** | Security | Small | Guessable → inject input/BYE |
 | B1 | `kMaxNackIndices` is unreachable | Correctness | Very small | Silent count truncation (latent) |
-| B2 | Unguarded unsigned time subtraction | Correctness | Small | Spurious disconnects; **hang** in LatencyTrace |
+| B2 | Unguarded unsigned time subtraction | Correctness | Small | Spurious disconnects (the LatencyTrace hang site was deleted with D1) |
 | B3 | 100% FEC overhead on small frames | Performance | Small | Doubles packets exactly when the network is losing them |
 | C1 | No warning flags outside MSVC, no sanitizers | Build | Small | The existing fuzz test catches nothing |
 | C2 | No fuzzing of the parse layer | Build | Medium | The trust boundary is not truly enforced |
 | C3 | Coverage has no threshold | Build | Very small | Coverage erodes and nobody notices |
 | C4 | No `.clang-tidy` | Build | Small | Narrowing / bugprone issues slip through |
-| D1 | ClockSync + LatencyTrace are dead code | Architecture | Medium | Clients rewrite an untested copy themselves |
+| D1 | ~~ClockSync + LatencyTrace are dead code~~ → **done: deleted** | Architecture | Medium | — |
 | D2 | Discovery exists only on Windows | Architecture | Large | — (noted, not a bug) |
 | D3 | `platform/Clock.h` leaks | Architecture | Small | **(1)(4) done**; (2)(3) remaining |
 
@@ -40,56 +40,32 @@ invariant is intact), style CI is green.
 
 ## 1. Security
 
-### ⬜ A1 — No authentication: any machine on the network can control the host
+### ✅ A1 — RESOLVED BY DECISION (2026-07-27): no authentication, by design
 
-**Current state.** `core/src/session/HostSession.cpp:37-62` — the first HELLO from **anyone**
-goes straight through: Idle → issue `sessionId` → Ready → (START) → Streaming →
-`input_.HandlePacket` → `InputInjector`. `inputAllowed_` defaults to `true` (`HostSession.h:166`).
-Grepped all of `client/windows`, `client/macos`: there is **no** host-side approval dialog, **no**
-pairing code, **no** password anywhere.
+The owner decided the app targets **trusted LANs only** (or Tailscale, which is its own
+trust boundary): the entire auth layer (GĐ10 password challenge–response, device tokens)
+**was removed from core and every client**, together with LAN discovery
+(DISCOVER/ANNOUNCE). The first HELLO goes straight through: Idle → issue `sessionId` →
+Ready. Do not re-add per-client checks; if this decision is ever revisited, the gate
+belongs in core before `state_.store(State::Ready)` (a protocol rule, same reasoning as
+`SetInputAllowed`), and `git log` has the removed implementation to start from.
 
-**Why it is a problem.** Encryption is a **deliberate and published** deferral (`05-roadmap.md`
-Phase 6, `PRIVACY.md:96`) — that is fine and is not part of this TODO. But **authorization is a
-different control from encryption**, and it currently appears nowhere on the roadmap.
-Mainstream remote-desktop tools all require a password or per-session approval **even on a
-trusted LAN**.
-
-Concrete scenario: a laptop on the same coffee-shop Wi-Fi runs `DISCOVER` → `LIST_SOURCES` →
-`HELLO` → can type into your machine. No sniffing, no spoofing required.
-
-**A direction must be decided before coding** — two options, not mutually exclusive:
-
-- **(a) 6-digit session code.** The host displays the code on the Share screen; the client enters
-  it; the code travels in the HELLO (using `Hello::features` or a field appended to the payload
-  tail following the existing backward-compatible pattern in `HelloAck::flags`). Cheap, no crypto
-  needed, blocks arbitrary access.
-- **(b) Host-side approval dialog.** HELLO → host holds it in a pending state, shows "X wants to
-  connect — Accept / Deny". The most user-friendly option, but requires adding a state to the
-  state machine and a callback path up to the UI on all 4 platforms.
-
-**Where to fix (whichever direction is chosen).** The check gate must sit **before**
-`state_.store(State::Ready)` at `HostSession.cpp:57`, i.e. in core — not in each client. The
-reason is exactly the same as why `SetInputAllowed` lives in core (see the comment at
-`HostSession.h:106-115`): this is a **protocol rule**, and having each platform reimplement a
-protocol rule is the surest way to make them diverge.
-
-For rejection, reuse the existing `SendReject()` path (`HostSession.cpp:198`) — clients already
-know how to handle `Codec::Rejected`. Consider adding a reason code so the client can distinguish
-"wrong code" from "busy"; otherwise a user who mistypes the code will see "host rejected (busy or
-codec mismatch)".
-
-**Verification.** Test case in `core/tests/session/SessionTests.cpp`: HELLO with a wrong code →
-no transition to Ready, `sessionId()` remains 0, and an `INPUT_EVENT` sent immediately afterward
-never invokes `onInput`.
+Consequence worth stating: anyone who can reach the host's UDP port can view and (if
+allowed) control the machine. The port must never be exposed to untrusted networks.
 
 ---
 
 ### ⬜ A2 — `Beacon` is a UDP reflection amplifier
 
-**Current state.** `core/src/discovery/Beacon.cpp:36-40` answers `LIST_SOURCES` — a **12-byte**
-request, `sessionId = 0`, stateless, unauthenticated — with a `SOURCE_LIST` of up to **~577
-bytes** (8 sources × (7 + 64 name bytes) + 1 + header). Amplification factor **~48×**.
-`DISCOVER` (12 B) → `ANNOUNCE` (up to 69 B) → ~5.7×.
+**Current state.** `core/src/discovery/Beacon.cpp` answers `LIST_SOURCES` — a **12-byte**
+request, `sessionId = 0`, stateless, unauthenticated — with a `SOURCE_LIST` of up to **~569
+bytes** (8 sources × (6 + 64 name bytes) + 1 + header; the per-record `kind` byte was removed
+2026-07-27). Amplification factor **~47×** at the theoretical maximum — though in practice
+names are now the short synthetic "Display N (WxH)" form (window titles left with window
+sharing, 2026-07-27), so real replies are far smaller; the worst-case bound above is what the
+wire format still permits.
+(The DISCOVER → ANNOUNCE pair was removed 2026-07-27 with LAN discovery, which shrinks the
+attack surface but the LIST_SOURCES amplification remains.)
 
 There is no rate limit in core, **and none at the call site either**: `client/windows/cpp/
 AgentLoop.cpp:924` calls `beacon.Reply` then `sendto` immediately, unconditionally.
@@ -113,7 +89,7 @@ the very reason core exists) rather than in AgentLoop:
 - Clamp the `SOURCE_LIST` size: consider reducing `kMaxSourceNameBytes` in the broadcast reply,
   or return only `sourceCount` and make clients ask for details once they have a session.
 
-**Verification.** Test case in `core/tests/discovery/DiscoveryTests.cpp`: 100 consecutive
+**Verification.** Test case in the Beacon tests: 100 consecutive
 `LIST_SOURCES` from the same key within 1 second → the number of non-zero `Reply` returns ≤ the
 threshold; a different key is still answered normally within the same time window.
 
@@ -128,8 +104,8 @@ uint32_t sid = uint32_t(nowUs ^ (nowUs >> 32)) ^ m->clientId;
 ```
 
 `m->clientId` comes from **the attacker's own HELLO**; `nowUs` is a monotonic counter with
-predictable low bits. The same pattern appears in `core/src/discovery/HostRegistry.cpp:40`
-(`probeId`, far milder impact).
+predictable low bits. (A second occurrence lived in `HostRegistry` until LAN discovery was
+removed on 2026-07-27.)
 
 **Why it is a problem.** The comment at `HostSession.cpp:12-14` itself states that `sessionId`
 is the *only fence* separating "my client" from the rest of the Internet. Guess it correctly and
@@ -152,7 +128,7 @@ If fixed at the same time, fold it into a single commit with A1 (same code area,
 
 ### ⬜ B1 — `kMaxNackIndices = 593` can never be reached: the count is a u8
 
-**Current state.** `core/include/deskhub/wire/Wire.h:86` derives 593 from the MTU. `core/src/wire/
+**Current state.** `core/include/deskhub/protocol/Wire.h:86` derives 593 from the MTU. `core/src/protocol/
 Wire.cpp:248` accepts `indices.size() <= 593`, then `Wire.cpp:254` writes:
 
 ```cpp
@@ -174,15 +150,15 @@ ceiling that can never exceed 255.
 - Or: widen the count to u16 and update `04-protocol.md`. Not worth it — clients only request a
   few missing fragments of the frame at the head of the queue; 255 is more than enough.
 
-**Verification.** `core/tests/wire/WireTests.cpp` — `BuildNack` with 256 indices must return 0.
+**Verification.** `core/tests/protocol/WireTests.cpp` — `BuildNack` with 256 indices must return 0.
 
 ---
 
 ### ⬜ B2 — Unsigned time subtraction: one module defends, the others do not
 
-**Current state.** `core/src/discovery/HostRegistry.cpp:109-113` guards explicitly, with a
-comment stating outright that `nowUs` **can go backward** between two loop iterations (a
-monotonic clock can still read differently across cores):
+**Current state.** The (now-removed) `HostRegistry` guarded explicitly, with a comment stating
+outright that `nowUs` **can go backward** between two loop iterations (a monotonic clock can
+still read differently across cores):
 
 ```cpp
 if (nowUs > hosts_[i].lastSeenUs && nowUs - hosts_[i].lastSeenUs > staleUs_)
@@ -192,18 +168,17 @@ The same expression is **unguarded** at:
 
 | Location | Consequence when nowUs goes backward |
 |-----|------------------------|
-| `core/src/control/LatencyTrace.cpp:28` | **Hang.** `while (nowUs - markUs_ >= sampleUs_)` — 1 µs backward → the loop runs ~5.7×10¹³ times |
+| ~~`LatencyTrace.cpp:28`~~ | ~~**Hang.**~~ Deleted 2026-07-27 together with the module (D1) |
 | `core/src/session/ClientSession.cpp:181` | Spurious disconnect: `Die("lost contact with host (timeout)")` |
 | `core/src/session/HostSession.cpp:156` | Spurious disconnect: `Disconnect()` |
 | `core/src/transport/Reassembler.cpp:207` | Spurious frame drop + IDR request (IDR is expensive — exactly when it isn't needed) |
 | `core/src/transport/Reassembler.cpp:66` | `maxGapMs_` statistic becomes garbage |
 
-**Why it is a problem.** This is an **internal contradiction**, not a random omission: either the
-HostRegistry comment is wrong (then remove that guard), or it is right (then apply it everywhere).
-Sitting in the middle is the worst state — the next reader doesn't know which side to trust.
+**Why it is a problem.** The removed `HostRegistry` comment was right — and nothing else in
+core applies its guard, so every location above still trusts a clock that can step backward.
 
 **Fix.** Settle on "nowUs CAN go backward" (safer, and Clock.h promises nothing to the contrary),
-then add a shared helper in `core/include/deskhub/wire/` or a new utility header:
+then add a shared helper in `core/include/deskhub/protocol/` or a new utility header:
 
 ```cpp
 // Safe time delta: if nowUs is behind the mark, return 0 instead of wrapping to a huge number.
@@ -212,12 +187,10 @@ inline constexpr uint64_t ElapsedUs(uint64_t nowUs, uint64_t sinceUs) {
 }
 ```
 
-Replace at all 5 locations above **and** in HostRegistry (so there is only one way to write it).
-Prioritize `LatencyTrace.cpp:28` — that one is a hang, not an inaccuracy.
+Replace at the 4 remaining locations above (so there is only one way to write it).
 
-**Verification.** One case per module: call `Tick`/`Add`/`PopReady` with a `nowUs` smaller than
-the previous call → no state change, no hang. The LatencyTrace case must have a timeout so that a
-regression turns CI red instead of hanging the runner.
+**Verification.** One case per module: call `Tick`/`PopReady` with a `nowUs` smaller than
+the previous call → no state change, no spurious disconnect/drop.
 
 ---
 
@@ -234,7 +207,7 @@ Actual overhead = `numGroups / count`:
 | 8 | 1 | 12.5% |
 | 14 (P-frame ~16 KB) | 2 | 14% |
 
-`core/include/deskhub/wire/Wire.h:62` claims "the bandwidth cost remains exactly =
+`core/include/deskhub/protocol/Wire.h:62` claims "the bandwidth cost remains exactly =
 1/kFecGroupSize" — which is only asymptotically true.
 
 **Why it is a problem.** P-frames on a static screen are routinely 1–2 packets. FEC is enabled by
@@ -276,7 +249,7 @@ Grepped `sanitiz|asan|ubsan|fsanitize|Werror|Wall|Wextra` across `Makefile`, `ma
 `CMakeLists.txt`, every workflow in `.github/`: **not a single hit**.
 
 **Why this is the most important item in the file.** It is currently neutralizing the best test
-the project ever wrote for itself: `core/tests/wire/WireTests.cpp:516` — *"300 garbage buffers
+the project ever wrote for itself: `core/tests/protocol/WireTests.cpp:516` — *"300 garbage buffers
 through every Parse*"*. Without ASan, that test only catches hard crashes; **the heap overreads
 it was written to find pass through silently**. Writing a fuzz test and running it without
 sanitizers is paying for goods and never picking them up.
@@ -319,7 +292,7 @@ sanitizers is paying for goods and never picking them up.
 
 ### ⬜ C2 — No fuzzing of the parse layer
 
-**Current state.** `core/src/wire/Wire.cpp` is the trust boundary of the entire program — its own
+**Current state.** `core/src/protocol/Wire.cpp` is the trust boundary of the entire program — its own
 header says so at lines 22-23. The existing test (`WireTests.cpp:516`) uses a fixed-seed
 xorshift32: the right instinct, but still only ~300 static vectors.
 
@@ -338,8 +311,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* d, size_t n) {
 ```
 
 Build on top of the `asan` preset (§C1), run 60 seconds per CI run with the corpus committed to
-the repo. Coverage priorities: `ParseSourceList`, `ParseInputEvents`, `ParseNack`,
-`ParseAnnounce`, `ParseClipboardChunk` — all of them read a count field declared by the peer.
+the repo. Coverage priorities: `ParseSourceList`, `ParseInputEvents`, `ParseNack` —
+all of them read a count field declared by the peer.
 
 Phase 2 (not urgent): fuzz the **state machine** too, not just the parser — feed random datagram
 sequences into `HostSession::HandlePacket` + `Tick`.
@@ -371,49 +344,21 @@ needed.
 
 ## 4. Architecture & dead code
 
-### ⬜ D1 — The entire e2e latency system in core is unused; the clients rewrote their own
+### ✅ D1 — RESOLVED (2026-07-27): the unused e2e latency system was deleted (option b)
 
-**Current state.** Grepped all of `client/` (every `.cpp/.h/.mm/.cs/.kt/.swift`):
-
-| Module | Size | Users outside core |
-|--------|-----------|------------------------|
-| `control/ClockSync.{h,cpp}` | 102 + 62 lines | **nobody** |
-| `control/LatencyTrace.{h,cpp}` | 82 + 99 lines | **nobody** |
-| `LinkStats::AddE2e` | — | **no client calls it** |
-
-Cascading consequence: `LinkWindow::e2eMsAvg` / `e2eMsMax` / `e2eSamples`
-(`LinkStats.cpp:67-71`) are **permanently zero** on every client.
-
-Meanwhile `client/android/app/src/main/cpp/ClientLoop.cpp:335-343` **reimplements** its own
-offset estimator ("e2e = now − offset − frame pts", with its own minRTT), and iOS/macOS/Windows
-do the same in their respective ClientLoops.
-
-**Why it is a problem.** This is exactly the duplication `core/` was created to prevent — and the
-irony is that the **untested** copy is the one actually running on users' devices, while the
-well-tested one sits idle. Keeping tested-but-dead code next to untested-but-live code is worse
-than either decisive choice.
-
-**Fix — decisively pick one direction:**
-
-- **(a) Wire the clients into core.** Replace the offset computation in the 4 ClientLoops with
-  `ClockSync::OnFrame` / `E2eUs`, and feed `LinkStats::AddE2e`. Architecturally correct, and
-  `docs/09-diagnostics.md` describes this system as if it were running. More work, but it pays
-  the debt properly.
-- **(b) Delete `ClockSync` + `LatencyTrace` + the e2e half of `LinkStats`.** Along with their
-  test cases in `ControlTests.cpp`, and update `09-diagnostics.md`. Honest about the current
-  state, and also removes the B2 hang site at `LatencyTrace.cpp:28`.
-
-Recommend **(a)** if the latency chart is still on the UI roadmap; **(b)** if not. Not choosing
-means defaulting to the worst option.
+`control/ClockSync.{h,cpp}`, `control/LatencyTrace.{h,cpp}`, the e2e half of `LinkStats`
+(`AddE2e` + the `e2eMsAvg`/`e2eMsMax`/`e2eSamples` fields), and their test cases in
+`ControlTests.cpp` were removed. No client ever called any of it — every ClientLoop ships
+its own inline estimate (`e2e = now − (ackDelta − minRTT/2) − frame pts`) and that is now
+the only implementation, documented in `06-transport.md` §8 and `09-diagnostics.md`.
+Side effect: the B2 hang site at `LatencyTrace.cpp:28` no longer exists.
 
 ---
 
-### ⬜ D2 — Discovery exists only on Windows *(noted, not a bug)*
+### ✅ D2 — RESOLVED (2026-07-27): LAN discovery removed entirely
 
-`Beacon` / `HostRegistry` are referenced only by `client/windows`. macOS/Android/iOS can neither
-discover hosts nor be discovered. Fine for the current deployment state — but the headers in
-`core/include/deskhub/discovery/` read as if the feature were universal. Add a line
-"platforms wired: Windows" at the top of `Beacon.h` and `HostRegistry.h` to match reality.
+The DISCOVER/ANNOUNCE feature and `HostRegistry` were removed project-wide; `Beacon`
+(now `core/session/Beacon`) only answers pre-session LIST_SOURCES + PING.
 
 ---
 
@@ -498,6 +443,10 @@ test. Consequence: every test that constructs a `HostSession` must wire `TestRan
 and every real host must wire `deskhubp::RandomBytes` (wired on Windows + macOS).
 
 ### Remainder of A1 — UI + keychain
+
+*(Historical — superseded 2026-07-27: the entire auth layer was removed, see A1 above. None of
+the items below will be done; the WinUI3 frontend they referenced was also deleted the same
+day. Kept as a record of the round-2/3 work.)*
 
 The core part is done and tested. **iOS + Android (client role) are done** — see the dedicated
 section below. Remaining:

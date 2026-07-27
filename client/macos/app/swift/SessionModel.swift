@@ -5,11 +5,6 @@
 // Quản lý luồng người dùng của vai client: kết nối → chọn nguồn → xem. View chỉ đọc
 // thuộc tính và gọi action trên model, không chạm facade trực tiếp.
 //
-// CLIPBOARD ĐI QUA ĐÂY, KHÔNG QUA VIEW
-//   NSPasteboard phải chạm trên main thread, và vòng hỏi 500ms sẵn có là chỗ rẻ nhất
-//   để làm việc đó — khỏi thêm một timer thứ hai. Chiều gửi đi cũng vậy: ta so
-//   changeCount mỗi nhịp poll thay vì bắt sự kiện (macOS không có sự kiện clipboard —
-//   xem agent/ClipboardSync.h).
 // =============================================================================
 import AppKit
 import Foundation
@@ -50,7 +45,6 @@ final class SessionModel {
     var rttTrace: [Double] = []
 
     private var pollTimer: Timer?
-    private var lastPasteboardChange = NSPasteboard.general.changeCount
 
     // MARK: - Vòng đời phiên
 
@@ -74,9 +68,6 @@ final class SessionModel {
         phase = .connecting
         mouseLocked = false
         hostAcceptsInput = true // chỉ biết thật sau HELLO_ACK — poll cập nhật
-        // Chụp mốc clipboard NGAY khi vào phiên: không thì thứ đang nằm sẵn trong
-        // clipboard bị coi là "vừa copy" và bắn sang host ngay lập tức.
-        lastPasteboardChange = NSPasteboard.general.changeCount
         DeskhubClient.start(address: address, sourceId: sourceId)
         startPolling()
     }
@@ -128,7 +119,7 @@ final class SessionModel {
         DeskhubClient.mouseWheel(delta)
     }
 
-    // MARK: - Hỏi vòng trạng thái + clipboard
+    // MARK: - Hỏi vòng trạng thái
 
     private func startPolling() {
         stopPolling()
@@ -157,34 +148,11 @@ final class SessionModel {
             rttTrace.append(rtt)
             if rttTrace.count > 60 { rttTrace.removeFirst(rttTrace.count - 60) }
         }
-        syncClipboard()
 
         if phase == .ended {
             endReason = DeskhubClient.endReason()
             mouseLocked = false
             stopPolling()
-        }
-    }
-
-    // Hai chiều trong một hàm, và thứ tự QUAN TRỌNG: nhận trước, gửi sau. Đặt văn
-    // bản của host vào clipboard làm changeCount tăng, nên nếu gửi trước thì nhánh
-    // gửi ở nhịp SAU sẽ bắn ngược đúng thứ vừa nhận — vòng lặp vô tận. Ghi nhận
-    // changeCount ngay sau khi tự ghi là thứ cắt vòng đó.
-    private func syncClipboard() {
-        let pb = NSPasteboard.general
-
-        let incoming = DeskhubClient.takeRemoteClipboard()
-        if !incoming.isEmpty {
-            pb.clearContents()
-            pb.setString(incoming, forType: .string)
-            lastPasteboardChange = pb.changeCount
-            return
-        }
-
-        guard pb.changeCount != lastPasteboardChange else { return }
-        lastPasteboardChange = pb.changeCount
-        if let text = pb.string(forType: .string), !text.isEmpty {
-            DeskhubClient.setClipboard(text)
         }
     }
 

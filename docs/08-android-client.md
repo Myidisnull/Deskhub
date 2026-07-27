@@ -81,10 +81,6 @@ into is a use-after-free. A `decodeExited_` flag is the anti-hang escape hatch.
 
 - **Recents** (`ui/Recents.kt`) — up to 12 machines in plain `SharedPreferences`, most recently
   used first; `guessLink` labels addresses as "LAN" or "Tailscale" from the IP range.
-- **Saved hosts** (`ui/Credentials.kt`) — per-host password and device token, AES-256-GCM
-  encrypted with an Android Keystore key (deliberately not the deprecated
-  `androidx.security:security-crypto`). Also holds the stable random `clientId` and the
-  `deviceName` (`Build.MANUFACTURER + MODEL`) shown in the host's trusted-device list.
 
 Connect triggers `NativeClient.listSources`, which runs `QuerySources`
 (`cpp/net/SourceQuery.cpp`): a pre-session UDP exchange that resends LIST_SOURCES every 500 ms
@@ -94,15 +90,9 @@ Zero or one source skips the picker (old hosts don't know LIST_SOURCES); multipl
 stale, non-cancellable query after Back + reconnect.
 
 `StreamActivity` is then started with `addr` + `source` extras and calls
-`NativeClient.nativeStart(addr, sourceId, clientId, deviceName, savedPassword, deviceToken)`.
-If the host requires a password and none was saved (or the saved one is stale), the session
-enters `PHASE_NEED_PASSWORD` while `ClientSession` keeps re-sending HELLO every 0.5 s; the
-`PasswordOverlay` submits via `nativeSubmitPassword` without restarting the session. The
-password never travels on the wire — C++ turns it into an HMAC proof of the host's challenge
-(04-protocol.md §5.1). A newly typed password is persisted only after the host accepts it
-(phase reaches STREAMING), and a saved password rejected with `RejectReason.AUTH_FAILED` is
-deleted so it cannot burn the host's 3-strikes lockout. Device tokens arrive exactly once and
-are drained each poll tick via `nativeTakeDeviceToken` into `Credentials.saveToken`.
+`NativeClient.nativeStart(addr, sourceId)` — the `clientId` is random per session inside the
+native layer. There is no password step: the auth layer was removed project-wide on
+2026-07-27 (trusted-LAN decision, see 15-review-todo.md §A1).
 
 A debug-only shortcut: `am start ... --es addr 10.0.2.2:47777` opens `StreamActivity` directly
 (guarded by `FLAG_DEBUGGABLE` because `MainActivity` is exported).
@@ -142,7 +132,9 @@ place: the raw `external` functions are private and the public wrappers (`keyTap
 On the C++ side, `ClientLoop::Queue*` methods push `deskhub::InputEvent`s into `inputQueue_`
 under a mutex; the Net thread drains the batch each loop into `ClientSession::QueueInput`,
 which sequences and redundantly sends them via the core `InputSender` (see 07-input.md), and
-calls `SetFocused(true)` once any input has been sent so the host raises the target window.
+calls `SetFocused(true)` once any input has been sent. (The host no longer raises anything on
+`SET_FOCUS(true)` — that went with window sharing, removed 2026-07-27; only the `false` edge
+matters, releasing held keys.)
 
 - **Trackpad** (`TrackpadOverlay` in `StreamActivity.kt`) — laptop-touchpad semantics: an
   always-visible drawn cursor (`CursorArrow`) moves by *delta*, never jumps to the touch point.
@@ -160,8 +152,9 @@ calls `SetFocused(true)` once any input has been sent so the host raises the tar
   dropped.
 - **Hotkey row** — the `kHotkeys` list in `StreamActivity.kt` (Esc, Tab, Enter, arrows, Del,
   Ctrl+C, Ctrl+V) sends Windows virtual-key codes + scancodes (bit 8 = E0 flag) via
-  `keyTap`/`keyChord`. Alt+Tab and the Win key are intentionally excluded: they move focus off
-  the shared window and the host stops accepting input.
+  `keyTap`/`keyChord`. Alt+Tab and the Win key are intentionally excluded (originally because
+  they moved focus off the shared window under the old per-window sharing; still left out as
+  rarely useful from a hotkey bar).
 
 Tap releases are scheduled `kTapHoldUs` (50 ms) after the press (`delayedInput_`) so games that
 poll the keyboard per frame actually see the key held.
@@ -191,7 +184,7 @@ delivered via a custom `CompositionLocal`, not `MaterialTheme.colorScheme`). `Co
 implements the shared component set (buttons, HUD bars, pills, fields — no Material ripple),
 `Icons.kt` hand-draws the five icons on Canvas, `Strings.kt` is the in-app EN/VI string table
 (`tr(key)`), deliberately not `strings.xml` so language switches without recreating the
-Activity. `Credentials.kt` and `Recents.kt` are described under the connect flow.
+Activity. `Recents.kt` is described under the connect flow.
 
 ## Known limitations
 

@@ -1,7 +1,7 @@
 // =============================================================================
 // PanelRenderer.cpp — cài đặt. Đoạn Video Processor (NV12→BGRA, color space, source
 // rect) là bản sao đã lược của decode/Renderer.cpp; đọc file đó để hiểu VÌ SAO từng
-// khai báo color space tồn tại. Ở đây chỉ khác: swapchain-for-composition + ResizeBuffers.
+// khai báo color space tồn tại. Ở đây chỉ khác: swapchain-for-HWND con + ResizeBuffers.
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -45,7 +45,8 @@ struct PanelRenderer::Impl {
     uint32_t bbW = 0, bbH = 0;       // cỡ backbuffer hiện tại (= cỡ video)
     uint32_t vpSrcW = 0, vpSrcH = 0; // cỡ nguồn mà VP đang phục vụ
 
-    bool Init(ID3D11Device* dev, uint32_t initialW, uint32_t initialH) {
+    bool Init(ID3D11Device* dev, HWND hwnd, uint32_t initialW, uint32_t initialH) {
+        if (!hwnd) return false;
         device = dev;
         device->GetImmediateContext(&context);
         ComPtr<ID3D10Multithread> mt;
@@ -68,11 +69,17 @@ struct PanelRenderer::Impl {
         sd.SampleDesc.Count = 1;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.BufferCount = 2;
-        sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL; // hợp lệ cho composition
+        sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         sd.Scaling = DXGI_SCALING_STRETCH;
         sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-        PR_CHECK(factory->CreateSwapChainForComposition(device.Get(), &sd, nullptr, &swapchain),
-            "CreateSwapChainForComposition");
+        PR_CHECK(factory->CreateSwapChainForHwnd(device.Get(), hwnd, &sd, nullptr, nullptr,
+                     &swapchain),
+            "CreateSwapChainForHwnd");
+        // Alt+Enter của DXGI tự chuyển fullscreen độc quyền — app tự lo layout,
+        // để mặc định là nó phá cửa sổ con.
+        ComPtr<IDXGIFactory1> parent;
+        if (SUCCEEDED(swapchain->GetParent(IID_PPV_ARGS(&parent))))
+            parent->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
         PR_CHECK(swapchain->GetBuffer(0, IID_PPV_ARGS(&backbuffer)), "GetBuffer");
 
         PR_CHECK(device.As(&videoDevice), "ID3D11VideoDevice");
@@ -178,17 +185,14 @@ struct PanelRenderer::Impl {
 PanelRenderer::PanelRenderer() = default;
 PanelRenderer::~PanelRenderer() = default;
 
-bool PanelRenderer::Init(ID3D11Device* device, uint32_t initialW, uint32_t initialH) {
+bool PanelRenderer::InitForHwnd(ID3D11Device* device, void* hwnd, uint32_t initialW,
+    uint32_t initialH) {
     impl_ = std::make_unique<Impl>();
-    if (!impl_->Init(device, initialW, initialH)) {
+    if (!impl_->Init(device, (HWND)hwnd, initialW, initialH)) {
         impl_.reset();
         return false;
     }
     return true;
-}
-
-void* PanelRenderer::SwapChain() const {
-    return impl_ ? impl_->swapchain.Get() : nullptr;
 }
 
 bool PanelRenderer::RenderNV12(ID3D11Texture2D* tex, unsigned subresource, uint32_t width,

@@ -1,7 +1,6 @@
 // =============================================================================
 // ConnectView.swift — ô nhập địa chỉ + nút Connect (vai CLIENT).
 //                     Dựng theo `DesktopConnect` trong desktop.jsx; đối ứng
-//                     client/windows/csharp/Views/ConnectPage.xaml.
 //
 // Ô ĐỊA CHỈ LÀ TRUNG TÂM MÀN HÌNH, KHÔNG PHẢI MỘT DÒNG TRONG FORM
 //   Cao 66px, chữ mono 22px, căn giữa theo chiều dọc. Màn này có đúng một việc, và

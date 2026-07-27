@@ -3,22 +3,16 @@
 // AgentControl.h — interface điều khiển MỘT phiên host đang chạy.
 //
 // VÌ SAO CÓ FILE NÀY
-//   Trước đây RunAgent gọi thẳng vào SessionWindow (cửa sổ Win32). Để cùng một vòng
-//   lặp host phục vụ được HAI frontend — SessionWindow (client.exe cũ) và WinUI3/C#
-//   (qua C API) — RunAgent giờ nói chuyện qua interface trừu tượng này thay vì một
-//   lớp UI cụ thể. Ai muốn chạy phiên host thì cấp một AgentControl.
+//   RunAgent nói chuyện với frontend qua interface trừu tượng này thay vì một lớp
+//   UI cụ thể — vòng lặp host không biết gì về Win32. Bản cài đặt duy nhất hiện
+//   nay là SessionWindow (client/windows/win32/SessionWindow.h); interface giữ lại
+//   vì nó là đường ranh mỏng, test được, giữa vòng Recv và UI.
 //
-//   Hai bản cài đặt:
-//     • SessionWindow          — Win32, dùng bởi client.exe (ui/SessionWindow.h).
-//     • HeadlessAgentControl   — do C#/WinUI3 điều khiển (AgentApi.cpp).
+// Mọi method bị gọi từ VÒNG RECV của RunAgent — bản cài đặt phải an toàn luồng
+// (SessionWindow dùng hộp thư có mutex).
 //
-// TÊN METHOD GIỮ GIỐNG HỆT SessionWindow (SetRows/TakeAdds/TakeRemoves/active/
-// stopRequested) để nó chỉ cần thêm `: public AgentControl` + `override`, không phải
-// đổi chữ ký. Mọi method bị gọi từ VÒNG RECV của RunAgent — bản cài đặt phải an toàn
-// luồng (SessionWindow đã dùng hộp thư có mutex; headless cũng vậy).
-//
-// LIÊN QUAN: AgentLoop.h (RunAgent nhận AgentControl&), ui/SessionWindow.h,
-//            AgentApi.cpp (HeadlessAgentControl + C API)
+// LIÊN QUAN: AgentLoop.h (RunAgent nhận AgentControl&),
+//            client/windows/win32/SessionWindow.h
 // =============================================================================
 #include <cstdint>
 #include <vector>

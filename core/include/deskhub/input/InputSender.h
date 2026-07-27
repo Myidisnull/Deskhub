@@ -33,7 +33,7 @@
 //            (nơi gọi Queue/Flush), docs/04-protocol.md §6
 // =============================================================================
 //
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <deque>

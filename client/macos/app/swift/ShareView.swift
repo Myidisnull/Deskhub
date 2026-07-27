@@ -1,7 +1,6 @@
 // =============================================================================
 // ShareView.swift — chọn nguồn, đặt tham số, chia sẻ, VÀ theo dõi phiên đang chạy —
 //                   tất cả trên MỘT màn. Dựng theo `DesktopShare` trong desktop.jsx;
-//                   đối ứng client/windows/csharp/Views/SharePage.xaml.
 //
 // VÌ SAO GỘP (trước đây là ShareView + SessionView)
 //   Bản thiết kế vẽ chọn nguồn và tình trạng phiên trên cùng một màn, và đó là quyết
@@ -9,7 +8,7 @@
 //   nguồn. Tách hai màn thì thao tác đó thành "quay lại → chọn lại → bắt đầu lại", mà
 //   bắt đầu lại sẽ ngắt phiên của người đang xem.
 //
-//   Nên danh sách nguồn ở đây có ô tick SỐNG: tick thêm một cửa sổ là nó vào phiên
+//   Nên danh sách nguồn ở đây có ô tick SỐNG: tick thêm một màn hình là nó vào phiên
 //   đang chạy, bỏ tick là nó ra — máy bên kia không rớt kết nối.
 //
 // HAI TRẠNG THÁI, MỘT MÀN
@@ -200,7 +199,7 @@ struct ShareView: View {
 
     private var sourceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(label: tr("windowsAndDisplays")) {
+            SectionHeader(label: tr("displays")) {
                 if model.isScanning { Spinner() }
                 MonoText(text: String(
                     format: tr("sharedCountFmt"),
@@ -225,7 +224,6 @@ struct ShareView: View {
                         SourceRow(
                             name: source.name,
                             detail: "\(source.width)×\(source.height)",
-                            isDisplay: source.isDisplay,
                             selected: model.selected.contains(source.id),
                             state: stateLabel(live: live),
                             tone: live == nil ? .neutral : .live,
@@ -292,12 +290,6 @@ struct ShareView: View {
             .toggleStyle(DSCheckboxStyle())
             .disabled(model.isSharing)
 
-        // Clipboard MẶC ĐỊNH TẮT và phải tự tay bật (GĐ9): clipboard hay chứa mật
-        // khẩu/OTP, "bật vì đằng nào cũng tiện" không phải quyết định app được đưa
-        // thay người dùng.
-        Toggle(isOn: $model.shareClipboard) { Text(tr("shareClipboard")) }
-            .toggleStyle(DSCheckboxStyle())
-            .disabled(model.isSharing)
 
         // Hai mức dừng, đúng như bản thiết kế xếp cạnh nhau:
         //   Dừng     — tắt phiên, GIỮ nguyên các tick. Bấm "Chia sẻ" lại là chạy tiếp

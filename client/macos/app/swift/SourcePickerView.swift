@@ -1,11 +1,11 @@
 // =============================================================================
-// SourcePickerView.swift — màn 03 "Chọn thứ muốn xem" (vai CLIENT).
-//                          Dựng theo `DesktopPick` trong desktop.jsx; đối ứng
-//                          client/windows/csharp/Views/PickPage.xaml.
+// SourcePickerView.swift — màn 03 "Chọn màn hình muốn xem" (vai CLIENT).
+//                          Dựng theo `DesktopPick` trong desktop.jsx.
 //
 // MÀN NÀY XEN GIỮA CONNECT VÀ VIEWER
-//   Host chia sẻ nhiều cửa sổ/màn hình cùng lúc, mỗi cái một sourceId. Không có màn
-//   này thì client luôn xem nguồn 0 và không có đường nào tới các nguồn còn lại.
+//   Host chia sẻ nhiều màn hình cùng lúc (multi-monitor), mỗi cái một sourceId.
+//   Không có màn này thì client luôn xem nguồn 0 và không có đường nào tới các
+//   nguồn còn lại.
 //
 // MỘT LẦN MỘT NGUỒN
 //   Bản thiết kế ghi rõ trong chính chuỗi `pickHint`: "One at a time — picking another
@@ -54,11 +54,6 @@ struct SourcePickerView: View {
                             SourceRow(
                                 name: source.name,
                                 detail: "\(source.width)×\(source.height)",
-                                // Giao thức không nói nguồn là cửa sổ hay màn hình ở
-                                // phía client (DHSourceInfo chỉ có tên + kích thước),
-                                // nên đừng đoán: dùng chung một biểu tượng cửa sổ thay
-                                // vì gán bừa "display" cho thứ có thể là một cửa sổ.
-                                isDisplay: false,
                                 selected: source.id == selectedId,
                                 state: source.id == selectedId ? tr("streaming") : tr("idle"),
                                 tone: source.id == selectedId ? .live : .neutral,

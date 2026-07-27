@@ -9,22 +9,25 @@ Code comments are written in Vietnamese and carry most of the design rationale �
 
 Two roles, OS-independent; each OS only swaps the hardware backends underneath:
 
-- **Agent (host role)** — runs where the shared application lives. Captures the screen or a
-  window, hardware-encodes H.264, sends video; receives input events and injects them
+- **Agent (host role)** — runs where the shared application lives. Captures whole displays
+  (per-window sharing was removed 2026-07-27), hardware-encodes H.264, sends video; receives
+  input events and injects them
   locally. Implemented today on **Windows** (`client/windows/cpp/AgentLoop.cpp`) and
-  **macOS** (`client/macos/app/cpp/agent/AgentLoop.cpp`).
+  **macOS** (`client/macos/app/cpp/AgentLoop.cpp`).
 - **Client role** — receives video, hardware-decodes and renders it, captures mouse /
   keyboard / touch and sends them back. Implemented on **Windows, macOS, Android, iOS**.
 
 Android and iOS have no agent role (mobile OSes cannot host this kind of session), so their
 apps ship only the client pipeline. A desktop app can run both roles simultaneously — e.g.
 `client/macos/app/cpp/DeskhubBridge.h` keeps two independent singletons, `g_client`
-(viewing) and `g_agent` (sharing). The agent can share **multiple sources (windows and/or
-displays) on one UDP port**; each (client, source) pair is an independent session with its
-own `sessionId` (GĐ6, see `deskhub::SourceInfo` in `core/include/deskhub/wire/Wire.h`).
+(viewing) and `g_agent` (sharing). The agent can share **multiple displays on one UDP
+port**; each (client, source) pair is an independent session with its
+own `sessionId` (GĐ6, see `deskhub::SourceInfo` in `core/include/deskhub/protocol/Wire.h`).
 
-There is no relay/broker server: clients find hosts by LAN broadcast discovery
-(`Discover`/`Announce`) or by a direct `ip:port` address.
+There is no relay/broker server: clients connect by a direct `ip:port` address the
+user types in (shown on the host's share screen). LAN broadcast discovery and the
+password/auth layer were removed on 2026-07-27 — the app targets trusted LANs
+(or Tailscale, which is its own trust boundary).
 
 ## 2. End-to-end data flow
 
@@ -71,7 +74,7 @@ UDP  ~~~►  deskhub::HostSession ──► deskhub::InputReceiver ──► Inp
            (session gate)           (dedupe by seq)            (SendInput / CGEventPost)
 ```
 
-Control traffic (HELLO/START/PING/FEEDBACK/keyframe requests/clipboard) flows through
+Control traffic (HELLO/START/PING/FEEDBACK/keyframe requests) flows through
 `ClientSession` ↔ `HostSession`; feedback drives `BitrateController` on the host.
 
 ## 3. The core/ library — one protocol implementation for every OS
@@ -87,9 +90,9 @@ over UDP is nearly undiagnosable. A side effect: everything is testable offline 
 
 Layers, bottom-up (headers in `core/include/deskhub/<layer>/`):
 
-- **wire/** — `Wire.h`, `ByteOrder.h`. The single definition of what every byte on the wire
+- **protocol/** — `Wire.h`, `ByteOrder.h`. The single definition of what every byte on the wire
   means: protocol v1, 8-byte common header, big-endian fields, `kMaxDatagram = 1200`,
-  `MsgType` enum (Hello…Clipboard), and stateless `Build*`/`Parse*` functions. No other
+  `MsgType` enum, and stateless `Build*`/`Parse*` functions. No other
   module may touch raw datagram bytes. `docs/04-protocol.md` is the normative text spec.
 - **transport/** — `Packetizer` (host) slices an encoded frame into fragments of exactly
   `kMaxVideoPayload` bytes (offset derived from `pktIndex`) and optionally emits interleaved
@@ -99,39 +102,27 @@ Layers, bottom-up (headers in `core/include/deskhub/<layer>/`):
   (`PlanNack`), and keeps rich loss/burst/late-packet statistics. `RetransmitCache` (host)
   keeps the last 8 frames' datagrams verbatim to answer NACKs — FEC handles isolated loss,
   NACK handles bursts when RTT allows.
-- **session/** — `HostSession`: the host-side state machine (IDLE → AUTHENTICATING → READY
+- **session/** — `HostSession`: the host-side state machine (IDLE → READY
   → STREAMING), one client per session in v1, all control-channel handling, callbacks for
   start/keyframe/feedback/disconnect. `ClientSession`: the mirror state machine (Hello →
   Starting → Streaming → Dead) with HELLO/START retransmission, PING/RTT, FEEDBACK and
-  keyframe requests. `ClipboardAssembler` reassembles chunked clipboard text (newest update
-  wins, size-capped).
+  keyframe requests.
 - **input/** — `InputSender` (client) assigns sequence numbers and appends a redundancy tail
   of the last 8 events, re-sent twice more (~3× per event in ~50 ms) — the defense against
   the worst failure mode, a lost key-release. `InputReceiver` (host) deduplicates with a
   single `lastAppliedSeq` watermark: no reorder buffer, late input is discarded by design.
   `KeyMap.h` maps soft-keyboard characters to US-layout Windows VK codes for mobile clients.
 - **control/** — `BitrateController`: AIMD congestion policy (loss ≥5% ⇒ ×0.75, ≥2% ⇒
-  ×0.90, clean link ⇒ +5% probe; also toggles FEC), fed by client FEEDBACK. `ClockSync`:
-  min-filter + RTT/2 estimate to convert host frame timestamps into client-clock end-to-end
-  latency. `LinkStats`: turns the Reassembler's cumulative counters into per-second windows
-  (fps/kbps/loss%) and builds the FEEDBACK payload. `LatencyTrace`: a 60-sample ring
-  (320 ms sampling, max-hold) behind the latency sparkline in every client UI.
-- **auth/** — `PasswordAuth`: the stateless math of the challenge–response handshake
-  (PBKDF2-derived key, HMAC proof over nonce‖clientId; the password never crosses the
-  wire). `AuthGuard`: the host-side state — stored `AuthKey`, lockout after repeated wrong
-  answers, and trusted-device tokens that skip the password prompt. Lives in core because
-  it is a protocol rule; re-implementing it per platform risks one platform silently
-  leaving the door open.
-- **crypto/** — `Sha256.h`: self-contained SHA-256, HMAC-SHA256, PBKDF2-HMAC-SHA256 and
-  `ConstantTimeEqual`, implemented in-tree because every OS ships a different crypto
-  library and core forbids OS headers. Note the stated scope: this authenticates session
-  setup only — **the stream itself (video/input/clipboard) is not encrypted**; DTLS/AEAD is
-  a roadmap item (`05-roadmap.md`).
-- **discovery/** — `Beacon` (host) answers the three pre-session queries (DISCOVER →
-  ANNOUNCE, LIST_SOURCES → SOURCE_LIST, PING sid=0 → PONG); it only builds reply bytes, the
-  caller sends them back to the datagram's source address. `HostRegistry` (client) merges
-  noisy ANNOUNCEs into a stable UI list: keyed by `hostId` (one row per machine even with
-  multiple NICs), fixed sort order, 6 s staleness eviction.
+  ×0.90, clean link ⇒ +5% probe; also toggles FEC), fed by client FEEDBACK. `LinkStats`:
+  turns the Reassembler's cumulative counters into per-second windows (fps/kbps/loss%)
+  and builds the FEEDBACK payload. (An e2e-latency subsystem — `ClockSync` +
+  `LatencyTrace` — was removed 2026-07-27: no client used it; each ClientLoop keeps its
+  own simple offset estimate for the overlay.)
+- **session/Beacon** — the host-side answerer for the two pre-session queries
+  (LIST_SOURCES → SOURCE_LIST, PING sid=0 → PONG); it only builds reply bytes, the
+  caller sends them back to the datagram's source address. (The auth/, crypto/ and
+  LAN-discovery layers were removed 2026-07-27 — nothing on the wire is encrypted, so
+  keep the host port inside trusted networks.)
 
 ## 4. The platform/ thin layer
 
@@ -145,10 +136,10 @@ headers *do* include OS headers, behind `#ifdef`, with one API name everywhere:
   project is subtraction of two stamps on `uint64_t` — a wall-clock jump would misfire
   timeouts or underflow.
 - **`Random.h`** — `RandomBytes()`: kernel CSPRNG (Windows: `BCryptGenRandom`; Apple:
-  `arc4random_buf`; Linux/Android: `getrandom(2)` with `/dev/urandom` fallback). Feeds auth
-  nonces, salts, session IDs and device tokens. It returns `bool` deliberately — a silently
-  all-zero nonce would void the auth layer with no symptom. This is the only piece of the
-  auth stack outside core, because entropy can only come from the OS kernel.
+  `arc4random_buf`; Linux/Android: `getrandom(2)` with `/dev/urandom` fallback). Feeds
+  session IDs (since the auth layer was removed 2026-07-27, that is its only consumer). It
+  returns `bool` deliberately — a silently all-zero session id would void the only fence
+  against packet forgery with no symptom; entropy can only come from the OS kernel.
 
 Anything larger (sockets, capture, codecs, UI) lives in each client tree, not here.
 
@@ -158,14 +149,14 @@ All verified against the classes in each client directory:
 
 | Stage | Windows | macOS | Android | iOS |
 |---|---|---|---|---|
-| Capture (agent) | `WindowCapture` — Windows Graphics Capture, window or monitor, D3D11 textures (`client/windows/cpp/capture/`) | `ScreenCapture` — ScreenCaptureKit, NV12 `CVPixelBuffer` (`client/macos/app/cpp/agent/`) | — (client-only) | — (client-only) |
+| Capture (agent) | `ScreenCapture` — Windows Graphics Capture, monitor only, D3D11 textures (`client/windows/cpp/capture/`) | `ScreenCapture` — ScreenCaptureKit, NV12 `CVPixelBuffer` (`client/macos/app/cpp/capture/`) | — (client-only) | — (client-only) |
 | Encode (agent) | `NvencEncoder` (NVENC, DLL loaded at runtime) with fallback to `MfEncoder` (Media Foundation MFT); chosen by `EncoderFactory` | `VtEncoder` — VideoToolbox, AVCC→Annex-B conversion, SPS/PPS injected per IDR | — | — |
 | Decode | `MfDecoder` — sync MFT + D3D11VA, NV12 stays in VRAM | `VtDecoder` — VideoToolbox via `AVSampleBufferDisplayLayer` | `MediaCodecDecoder` — `AMediaCodec` configured directly on the `Surface` | `VtDecoder` — same design as macOS (macOS copy is derived from it) |
-| Render | `PanelRenderer` — D3D11 composition swapchain into a WinUI3 `SwapChainPanel` | decode *is* render (layer enqueue) | decode *is* render (`releaseOutputBuffer(..., true)`) | decode *is* render (layer enqueue) |
-| Input capture (client) | WinUI3 (C#) UI → `dh_client_mouse_move/…/key` in `DeskhubApi.h` | SwiftUI views → `dh_key/dh_mouse_*` in `DeskhubBridge.h` | touch + soft keyboard (`StreamActivity.kt`, `KeyInputView.kt` → `ClientLoop::QueueCharTap` + core `KeyMap`) | touch + soft keyboard (`TouchInputView.swift`, `KeyInputView.swift`) |
+| Render | `PanelRenderer` — D3D11 swapchain, for-HWND child window (Win32 app, `dh_client_start_hwnd`; the WinUI3 for-composition mode was removed 2026-07-27) | decode *is* render (layer enqueue) | decode *is* render (`releaseOutputBuffer(..., true)`) | decode *is* render (layer enqueue) |
+| Input capture (client) | `ViewerInput` (Raw Input + window messages on the video child HWND) → `dh_client_mouse_move/…/key` in `DeskhubApi.h` | SwiftUI views → `dh_key/dh_mouse_*` in `DeskhubBridge.h` | touch + soft keyboard (`StreamActivity.kt`, `KeyInputView.kt` → `ClientLoop::QueueCharTap` + core `KeyMap`) | touch + soft keyboard (`TouchInputView.swift`, `KeyInputView.swift`) |
 | Input inject (agent) | `InputInjector` — `SendInput` with scancodes (works with Raw-Input/DirectInput games); `LocalInputMonitor` gives the person at the machine priority | `InputInjector` — Quartz `CGEventPost`, `MacKeyMap` translates wire VKs to Carbon keycodes; `LocalInputMonitor` too | — | — |
-| Transport glue | `net/UdpSocket` (winsock) + `net/Pacer` (spreads a frame's burst — the project's biggest loss fix), `Discovery`, `Firewall` | `net/UdpSocket`, `SourceQuery`, `NetInfo` | `net/UdpSocket`, `SourceQuery` | `net/UdpSocket`, `SourceQuery` |
-| UI / bridge | C# WinUI3 (`client/windows/csharp/`) P/Invokes `deskhub_native.dll` via the flat C API `DeskhubApi.h` | SwiftUI + C bridge `DeskhubBridge.h` (`dh_*` client, `dha_*` agent) | Jetpack Compose/Kotlin → `NativeClient.kt` → `JniBridge.cpp` → `ClientLoop` | SwiftUI → `DeskhubClient.swift` → `DeskhubClient.mm` → `ClientLoop` |
+| Transport glue | `net/UdpSocket` (winsock) + `net/Pacer` (spreads a frame's burst — the project's biggest loss fix), `SourceQuery`, `NetInfo`, `Firewall` | `net/UdpSocket`, `SourceQuery`, `NetInfo` | `net/UdpSocket`, `SourceQuery` | `net/UdpSocket`, `SourceQuery` |
+| UI / bridge | Plain Win32 app (`client/windows/win32/`) — host role calls `AgentLoop`/`AgentControl` directly, client role statically links the C API `DeskhubApi.h` (the WinUI3/C# frontend and `deskhub_native.dll` were removed 2026-07-27) | SwiftUI + C bridge `DeskhubBridge.h` (`dh_*` client, `dha_*` agent) | Jetpack Compose/Kotlin → `NativeClient.kt` → `JniBridge.cpp` → `ClientLoop` | SwiftUI → `DeskhubClient.swift` → `DeskhubClient.mm` → `ClientLoop` |
 
 Mobile `ClientLoop`s (Android original, iOS a close port) run three threads — Main (UI /
 surface handoff), Net (recv → `ClientSession` + `Reassembler`), Decode — with a bounded
@@ -178,13 +169,14 @@ CMakeLists.txt          root build: core + platform (+ client/windows/cpp on Win
 CMakePresets.json       CMake presets (x64-debug, ...)
 Makefile, make/*.mk     entry points: per-platform build/run/test/format targets
 core/                   shared protocol library — pure C++20, no OS headers
-  include/deskhub/      wire/ transport/ session/ input/ control/ auth/ crypto/ discovery/
+  include/deskhub/      protocol/ transport/ session/ input/ control/
   src/                  mirrors include/ layer by layer
   tests/                core_tests: offline unit tests per layer (CTest)
 platform/               header-only OS shims: deskhubp/Clock.h, deskhubp/Random.h
 client/windows/
-  cpp/                  native pipeline → deskhub_native.dll (agent + client + C API)
-  csharp/               WinUI3 frontend (MSBuild/dotnet, not in root CMake)
+  cpp/                  native pipeline, statically linked (agent + client + dh_client_* C API)
+  win32/                plain Win32 frontend → ONE Deskhub.exe (root CMake)
+                        (csharp/ WinUI3 and imgui/ frontends removed 2026-07-27)
 client/macos/           Xcode app: swift/ (SwiftUI, both roles) + cpp/ (agent/, client/, bridge)
 client/android/         Gradle app: src/main/java (Compose UI) + src/main/cpp (NDK client)
 client/ios/             Xcode app: swift/ (SwiftUI) + cpp/ (ClientLoop, VtDecoder)

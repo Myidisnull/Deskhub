@@ -1,6 +1,6 @@
 // =============================================================================
 // ContentView.swift — vỏ cửa sổ + điều hướng. Dựng theo `WindowShell` + `Rail` trong
-// parts.jsx của dự án thiết kế; đối ứng client/windows/csharp/MainWindow.xaml.
+// parts.jsx của dự án thiết kế.
 //
 // HAI NHÁNH, MỘT CỬA SỔ
 //   home → connect → sourcePicker → stream   (vai CLIENT: xem máy khác)

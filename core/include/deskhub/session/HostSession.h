@@ -8,26 +8,21 @@
 //   chỉ lo phần cơ bắp (socket, encoder, capture) và phản ứng qua callback.
 //
 // MÁY TRẠNG THÁI
-//                          HELLO (không đòi mật khẩu)
-//     ┌────────────────────────────────────────────────┐
-//     │                                                ▼
-//   IDLE ─┴─ HELLO (đòi mật khẩu) ─→ AUTHENTICATING ──→ READY ──START──→ STREAMING
-//     ↑                                   │ đáp đúng                        │
-//     │                                   │                                 │
-//     │      đáp sai / khoá tạm / timeout │   BYE / timeout 5 giây          │
-//     └───────────────────────────────────┴─────────────────────────────────┘
 //
-//   IDLE           — chưa có ai. Chỉ HELLO được xử lý.
-//   AUTHENTICATING — đã gửi AUTH_CHALLENGE, chờ lời đáp (GĐ10). CHƯA CÓ PHIÊN:
-//                    sessionId vẫn 0, không nhận input, không đẩy video.
-//   READY          — đã cấp sessionId và gửi HELLO_ACK, đang đợi client sẵn sàng.
-//   STREAMING      — client đã gửi START; từ đây mới nhận input và mới đẩy video.
+//   IDLE ──HELLO──→ READY ──START──→ STREAMING
+//     ↑                │                 │
+//     │       BYE / timeout 5 giây       │
+//     └────────────────┴─────────────────┘
+//
+//   IDLE      — chưa có ai. Chỉ HELLO được xử lý.
+//   READY     — đã cấp sessionId và gửi HELLO_ACK, đang đợi client sẵn sàng.
+//   STREAMING — client đã gửi START; từ đây mới nhận input và mới đẩy video.
 //
 //   v1 chỉ phục vụ MỘT client mỗi phiên: HELLO từ clientId khác trong lúc đang bận
 //   bị từ chối bằng HELLO_ACK có codec = Rejected kèm reason = Busy.
 //
 // ⚠ sessionId = 0 KHÔNG BAO GIỜ uỷ quyền cho gói nào — xem InSession() ở phần
-//   private. Đây là chỗ dễ sai nhất sau khi thêm AUTHENTICATING.
+//   private: ở IDLE sessionId vẫn là 0, phép so trần sẽ nhận nhầm gói giả sid=0.
 //
 // VÌ SAO TÁCH KHỎI SOCKET, THREAD, ĐỒNG HỒ
 //   Byte vào qua HandlePacket, byte ra qua callback `send`, thời gian bơm từ ngoài
@@ -45,10 +40,8 @@
 // LIÊN QUAN: deskhub/session/ClientSession.h (đầu kia), deskhub/input/InputReceiver.h,
 //            client/windows/AgentLoop.cpp (người dùng), docs/04-protocol.md
 // =============================================================================
-#include "deskhub/auth/AuthGuard.h"
 #include "deskhub/input/InputReceiver.h"
-#include "deskhub/session/ClipboardAssembler.h"
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <atomic>
 #include <cstdint>
@@ -81,10 +74,10 @@ struct HostCallbacks {
     // giữ phím mà không nhả sẽ kẹt phím ở máy host.
     std::function<void(const InputEvent&)> onInput;
     // SET_FOCUS: client vừa chuyển sang (true) hoặc rời khỏi (false) nguồn này.
-    // Chỉ MỘT cửa sổ trên host được foreground tại một thời điểm, mà SendInput bơm
-    // vào cửa sổ foreground — nên client xem nhiều nguồn cùng lúc chỉ điều khiển
-    // được nguồn nào host đang để foreground. Caller kéo cửa sổ nguồn lên trước khi
-    // true, nhả phím đang giữ khi false.
+    // Việc duy nhất caller phải làm là NHẢ HẾT PHÍM đang giữ khi false — người dùng
+    // rời đi giữa lúc giữ phím thì gói key-up không bao giờ tới, không nhả là kẹt
+    // phím ở máy host. true không đòi hành động gì (vai trò cũ "kéo cửa sổ nguồn
+    // lên foreground" đã bỏ cùng share-theo-cửa-sổ 2026-07-27).
     std::function<void(bool focused)> onFocus;
     // NACK (GĐ7): client xin gửi lại các mảnh `indices` của `frameId`. Caller tra
     // RetransmitCache rồi phát lại đúng các datagram đó. `indices` chỉ hợp lệ trong
@@ -94,31 +87,20 @@ struct HostCallbacks {
     // chiếu frame đó nữa (NvEncInvalidateRefFrames) để phục hồi bằng P-frame rẻ thay
     // vì IDR nặng; encoder không làm được thì đành force IDR như cũ.
     std::function<void(uint32_t frameId)> onInvalidateRef;
-    // GĐ8: client vừa copy văn bản — caller đặt vào clipboard máy host.
-    std::function<void(std::string text)> onClipboard;
-    // GĐ10: nguồn ngẫu nhiên MÃ HOÁ. Caller nối vào deskhubp::RandomBytes (core
-    // không đụng OS được, mà entropy chỉ xin được từ nhân hệ điều hành).
+    // Nguồn ngẫu nhiên MÃ HOÁ, dùng để cấp sessionId. Caller nối vào
+    // deskhubp::RandomBytes (core không đụng OS được, mà entropy chỉ xin được từ
+    // nhân hệ điều hành).
     //
     // Trả false = thất bại. Khi đó HostSession TỪ CHỐI phiên chứ không đi tiếp với
-    // một nonce/sessionId toàn số 0: nonce cố định làm lời đáp phát lại được, và
-    // sessionId đoán được thì ai cũng chen vào phiên được. Không nối callback này
-    // thì mọi kết nối bị từ chối khi mật khẩu đang bật — fail closed.
+    // một sessionId toàn số 0/đoán được: sessionId là hàng rào duy nhất chặn gói
+    // giả chen vào phiên (xem InSession). Không nối callback này thì mọi kết nối
+    // bị từ chối — fail closed.
     std::function<bool(std::span<uint8_t>)> randomBytes;
-    // GĐ10: một thiết bị vừa qua được cửa mật khẩu và được ghi nhớ — caller lưu
-    // AuthGuard::devices() xuống keychain để còn nhớ sau khi khởi động lại.
-    std::function<void()> onTrustedDevicesChanged;
 };
 
 class HostSession {
 public:
-    // IDLE ──HELLO──→ (mật khẩu tắt) ──────────────→ READY ──START──→ STREAMING
-    //   │                                             ↑
-    //   └────→ AUTHENTICATING ──AUTH_RESPONSE đúng───┘
-    //
-    // AUTHENTICATING là trạng thái CHƯA CÓ PHIÊN: sessionId vẫn 0, không nhận input,
-    // không đẩy video. Nó chỉ tồn tại để nhớ "đã gửi challenge cho ai" giữa hai gói.
     enum class State : uint8_t { Idle,
-        Authenticating,
         Ready,
         Streaming };
 
@@ -145,59 +127,13 @@ public:
     void SetInputAllowed(bool on) {
         inputAllowed_.store(on, std::memory_order_relaxed);
     }
-    // Phiên này có thực sự được bơm chuột/phím không. Hai điều kiện ĐỘC LẬP phải
-    // cùng đúng: người dùng bật ô "Allow keyboard and mouse" (inputAllowed_), VÀ
-    // phiên đã được cấp quyền (inputGranted_ — xem SetAskBeforeInput bên dưới).
     bool inputAllowed() const {
-        return inputAllowed_.load(std::memory_order_relaxed) &&
-               inputGranted_.load(std::memory_order_relaxed);
-    }
-
-    // Ô "Ask again before granting mouse and keyboard" ở màn Settings. Bật = mọi
-    // phiên MỚI bắt đầu ở chế độ chỉ-xem dù ô Allow đang bật, cho tới khi người dùng
-    // ở host bấm duyệt (GrantInput). Đây là lớp thứ hai sau mật khẩu: biết mật khẩu
-    // đủ để XEM màn hình, nhưng chưa đủ để GÕ vào máy người ta.
-    void SetAskBeforeInput(bool on) {
-        auth_.SetAskBeforeInput(on);
-    }
-    // Người dùng ở host vừa duyệt cho phiên đang chạy được điều khiển. HELLO_ACK đã
-    // gửi từ trước nên client không tự biết — caller phải gửi RECONFIG hoặc ngắt/nối
-    // lại nếu muốn client cập nhật giao diện ngay.
-    void GrantInput() {
-        inputGranted_.store(true, std::memory_order_relaxed);
-    }
-    bool inputGranted() const {
-        return inputGranted_.load(std::memory_order_relaxed);
-    }
-
-    // Cổng gác mật khẩu (GĐ10). Giao diện đọc/ghi qua đây: SetPassword, danh sách
-    // thiết bị tin cậy, bộ đếm sai, trạng thái khoá tạm.
-    AuthGuard& auth() {
-        return auth_;
-    }
-    const AuthGuard& auth() const {
-        return auth_;
-    }
-
-    // Đồng bộ clipboard. MẶC ĐỊNH TẮT, và cố ý tắt: clipboard hay chứa mật khẩu và
-    // mã OTP, nên "bật vì đằng nào cũng tiện" là một quyết định người dùng phải tự
-    // đưa ra ("the clipboard stays off until you turn it on"). Tắt thì mảnh
-    // CLIPBOARD đến bị bỏ và SendClipboard không gửi gì.
-    void SetClipboardEnabled(bool on) {
-        clipboardEnabled_.store(on, std::memory_order_relaxed);
-    }
-    bool clipboardEnabled() const {
-        return clipboardEnabled_.load(std::memory_order_relaxed);
+        return inputAllowed_.load(std::memory_order_relaxed);
     }
 
     // Trả true nếu gói hợp lệ và thuộc phiên hiện tại (caller cập nhật peer addr).
     bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs);
     void Tick(uint64_t nowUs);
-
-    // Gửi văn bản clipboard của máy host cho client (GĐ8), tự chia mảnh. Bỏ qua
-    // nếu chưa STREAMING, text rỗng hoặc quá kMaxClipboardBytes. Gọi trên thread
-    // Recv (dùng chung buf_ với các đường gửi khác).
-    void SendClipboard(std::string_view utf8);
 
     State state() const {
         return state_.load(std::memory_order_acquire);
@@ -213,10 +149,10 @@ private:
     // Gói này có thuộc phiên ĐANG CHẠY không.
     //
     // Điều kiện `cur != 0` là phần thiết yếu, không phải phòng xa: sessionId bằng 0
-    // ở IDLE và AUTHENTICATING, nên phép so trần `h->sessionId != sessionId()` sẽ
-    // ĐÚNG với một gói giả mang sessionId = 0 gửi vào đúng lúc đang bắt tay — và
-    // một START như thế sẽ đẩy thẳng host sang STREAMING mà không ai xác thực gì.
-    // Mọi nhánh của HandlePacket đi qua đây thay vì tự so.
+    // ở IDLE, nên phép so trần `h->sessionId != sessionId()` sẽ ĐÚNG với một gói
+    // giả mang sessionId = 0 gửi vào đúng lúc đang bắt tay — và một START như thế
+    // sẽ đẩy thẳng host sang STREAMING. Mọi nhánh của HandlePacket đi qua đây thay
+    // vì tự so.
     bool InSession(uint32_t sid) const {
         const uint32_t cur = sessionId();
         return cur != 0 && sid == cur;
@@ -224,7 +160,6 @@ private:
 
     void SendHelloAck(uint64_t nowUs);
     void SendReject(RejectReason reason);
-    void SendAuthChallenge(uint64_t nowUs);
     // Cấp sessionId và chuyển sang READY. Trả false nếu không lấy được entropy —
     // caller phải từ chối phiên chứ không đi tiếp với sessionId đoán được.
     bool BeginSession(uint64_t nowUs);
@@ -233,19 +168,11 @@ private:
     HostCallbacks cb_;
     StreamParams offer_;
     InputReceiver input_;
-    AuthGuard auth_;            // cổng gác mật khẩu (GĐ10)
-    ClipboardAssembler clip_;   // ghép mảnh clipboard từ client (GĐ8)
-    uint32_t clipUpdateId_ = 0; // updateId của lần SendClipboard kế tiếp
     std::atomic<State> state_{State::Idle};
     std::atomic<uint32_t> sessionId_{0};
     // Atomic vì giao diện đặt chúng từ thread của nó trong khi thread Recv đang đọc.
     std::atomic<bool> inputAllowed_{true};
-    std::atomic<bool> inputGranted_{true}; // đặt lại mỗi phiên theo askBeforeInput
-    std::atomic<bool> clipboardEnabled_{false};
     uint32_t clientId_ = 0;
-    std::string clientName_;                     // tên thiết bị client khai trong HELLO
-    uint8_t pendingToken_[kAuthTokenBytes] = {}; // token vừa cấp, gửi kèm HELLO_ACK
-    bool havePendingToken_ = false;
     uint64_t lastRecvUs_ = 0;
     uint8_t buf_[kMaxDatagram] = {}; // chỉ dùng trên thread Recv
 };

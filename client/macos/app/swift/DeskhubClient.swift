@@ -99,16 +99,6 @@ nonisolated enum DeskhubClient {
         dh_mouse_wheel(delta)
     }
 
-    // --- Clipboard hai chiều ---
-
-    static func setClipboard(_ text: String) {
-        dh_set_clipboard(text)
-    }
-
-    // Chuỗi rỗng = host chưa copy gì mới.
-    static func takeRemoteClipboard() -> String {
-        String(cString: dh_take_remote_clipboard())
-    }
 
     // --- Trạng thái ---
 

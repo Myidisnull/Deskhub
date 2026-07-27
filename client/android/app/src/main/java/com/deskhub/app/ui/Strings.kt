@@ -85,21 +85,6 @@ object Strings {
             "keys" to "Keys",
             "keysOn" to "keyboard on",
             "trackpadHint" to "drag to move · tap to click · double tap for right click",
-            // Xác thực (GĐ10) — trùng khoá với i18n.jsx của dự án thiết kế.
-            "securityEyebrow" to "Security",
-            "settingsTitle" to "Password and access",
-            "connectPassword" to "Password to connect",
-            "savePassword" to "Save the password for this machine",
-            "passwordHintPhone" to "kept encrypted on this phone — never in a file, never synced.",
-            "savedHosts" to "Saved passwords",
-            "savedCountFmt" to "%d machines",
-            "forget" to "Forget",
-            "forgetAll" to "Forget all",
-            "lastConnected" to "last connected",
-            "wrongPassword" to "Wrong password",
-            "lockedOut" to "Too many wrong tries — locked out, try again in a few minutes",
-            "hostBusy" to "That machine is busy with another client",
-            "noSavedPasswords" to "No saved passwords yet.",
         )
 
     private val vi =
@@ -146,20 +131,5 @@ object Strings {
             "keys" to "Bàn phím",
             "keysOn" to "bàn phím đang bật",
             "trackpadHint" to "rê để di chuột · chạm để bấm · chạm hai lần để bấm phải",
-            // Xác thực (GĐ10) — trùng khoá với i18n.jsx của dự án thiết kế.
-            "securityEyebrow" to "Bảo mật",
-            "settingsTitle" to "Mật khẩu và quyền truy cập",
-            "connectPassword" to "Mật khẩu để kết nối",
-            "savePassword" to "Lưu mật khẩu cho máy này",
-            "passwordHintPhone" to "lưu đã mã hoá trên điện thoại — không ghi ra file, không đồng bộ.",
-            "savedHosts" to "Mật khẩu đã lưu",
-            "savedCountFmt" to "%d máy",
-            "forget" to "Xoá",
-            "forgetAll" to "Xoá hết",
-            "lastConnected" to "kết nối lần cuối",
-            "wrongPassword" to "Sai mật khẩu",
-            "lockedOut" to "Sai quá nhiều lần — đang bị khoá, thử lại sau vài phút",
-            "hostBusy" to "Máy đó đang bận với một client khác",
-            "noSavedPasswords" to "Chưa lưu mật khẩu nào.",
         )
 }

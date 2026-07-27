@@ -23,8 +23,6 @@ struct ConnectView: View {
     @Bindable var model: SessionModel
 
     @State private var recents: [RecentMachine] = []
-    // GĐ10 — mật khẩu/token đã lưu, cho mục "Saved passwords" bên dưới.
-    @State private var savedCreds: [HostCredential] = []
 
     var body: some View {
         ScreenBody {
@@ -50,7 +48,6 @@ struct ConnectView: View {
             }
 
             recentSection
-            savedPasswordSection
             helpPanels
         } bar: {
             Toggle(isOn: $model.viewOnly) { Text(tr("viewOnlyOption")) }
@@ -64,7 +61,6 @@ struct ConnectView: View {
         }
         .onAppear {
             recents = Recents.all
-            savedCreds = model.savedCredentials
         }
     }
 
@@ -91,54 +87,6 @@ struct ConnectView: View {
                         link: machine.link,
                         live: false
                     ) { model.address = machine.address }
-                }
-            }
-        }
-    }
-
-    /// GĐ10 — "Saved passwords" của màn `05 · settings / password`.
-    ///
-    /// Đặt ở đây thay vì dựng một màn Settings riêng: chỉ có đúng một việc để làm
-    /// (xoá), và nó thuộc cùng một câu hỏi với danh sách trên ("máy nào tôi đã dùng").
-    /// Ẩn hẳn khi chưa lưu gì — một mục rỗng chỉ làm màn hình dài thêm.
-    @ViewBuilder
-    private var savedPasswordSection: some View {
-        if !savedCreds.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionHeader(label: tr("savedHosts")) {
-                    MonoText(text: String(format: tr("savedCountFmt"), savedCreds.count))
-                    Button(tr("forgetAll")) {
-                        model.forgetAllCredentials()
-                        savedCreds = model.savedCredentials
-                    }
-                    .buttonStyle(DSButtonStyle(variant: .ghost, size: .sm))
-                }
-
-                ForEach(savedCreds) { cred in
-                    HStack(spacing: 10) {
-                        Image(systemName: "lock")
-                            .font(.system(size: 16))
-                            .foregroundStyle(DS.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            MonoText(text: cred.address, color: DS.textPrimary)
-                            // Nói rõ máy này đang được nhớ bằng CÁI GÌ: có token thì
-                            // lần sau vào thẳng, chỉ có mật khẩu thì vẫn qua challenge.
-                            MonoText(text: cred.hasToken ? tr("savePassword") : tr("connectPassword"))
-                        }
-                        Spacer(minLength: 8)
-                        Button(tr("forget")) {
-                            model.forgetCredential(cred.address)
-                            savedCreds = model.savedCredentials
-                        }
-                        .buttonStyle(DSButtonStyle(variant: .secondary, size: .sm))
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(DS.surfaceCard, in: RoundedRectangle(cornerRadius: DS.radiusMd, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.radiusMd, style: .continuous)
-                            .strokeBorder(DS.borderHairline, lineWidth: DS.hairline)
-                    )
                 }
             }
         }

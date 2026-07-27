@@ -9,7 +9,7 @@
 //   tuỳ chọn phát thêm gói parity FEC. Đối tác ở đầu kia là Reassembler.
 //
 // VỊ TRÍ TRONG LUỒNG DỮ LIỆU
-//   WindowCapture → IVideoEncoder → **Packetizer** → UDP ~~~> Reassembler
+//   ScreenCapture → IVideoEncoder → **Packetizer** → UDP ~~~> Reassembler
 //                                                              → IVideoDecoder → Renderer
 //
 // VÌ SAO KHÔNG SỞ HỮU SOCKET
@@ -28,10 +28,10 @@
 //   buf_/parity_ là thành viên chứ không phải biến cục bộ để tránh cấp phát trên
 //   đường nóng — cái giá là mỗi thread phải có Packetizer riêng của nó.
 //
-// LIÊN QUAN: deskhub/transport/Reassembler.h (đầu kia), deskhub/wire/Wire.h,
+// LIÊN QUAN: deskhub/transport/Reassembler.h (đầu kia), deskhub/protocol/Wire.h,
 //            docs/06-transport.md
 // =============================================================================
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <functional>

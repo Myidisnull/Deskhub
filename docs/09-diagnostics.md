@@ -22,7 +22,7 @@ send-side events), 02-agent.md (host pipeline), 03-client.md (viewer pipeline).
   [DIAG][<source>] evt=<name> k1=v1 k2=v2 ...
   ```
 
-  On the host, `<source>` is the name of the shared window/display
+  On the host, `<source>` is the name of the shared display
   (`SourcePipeline::name`), or the literal `agent` for events that belong to
   the receive loop as a whole. Client-side emitters print `[DIAG]` with no
   source component (a viewer shows exactly one source). This is the file users
@@ -41,9 +41,10 @@ send N fps, N kbps | input N (lost N, skipped N)` on the host, and
 `[Client] N fps | N kbps | dropped N frame | lost N% pkts | fec+N | RTT N ms |
 e2e ~N ms` on the client. The input triple is the input-stage telemetry:
 `applied` counts events delivered to the injector, `lost` counts sequence
-gaps, and `skipped` counts events the injector refused at the focus gate —
-the only number that distinguishes "typing does nothing" from "packets never
-arrived".
+gaps, and `skipped` counts events yielded because the local user was active
+("host wins" — since the foreground gate was removed 2026-07-27 that is the
+only skip reason) — the only number that distinguishes "typing does nothing"
+from "packets never arrived".
 
 ## Capturing the log
 
@@ -63,8 +64,8 @@ the part that matters.
 - **One file per process.** The pid keeps the normal instance and the
   elevated instance apart when both start within the same second: sharing
   with control relaunches `Deskhub.exe` under UAC (`runas` verb) with a
-  `--share` command line (`client/windows/csharp/ElevationHelper.cs`,
-  `client/windows/cpp/ElevatedShare.h`), so two processes may be logging at
+  `--share` command line (`client/windows/cpp/ElevatedShare.h`, driven by
+  the Win32 UI), so two processes may be logging at
   once. The role (agent/client) is already on every line, so it is not
   encoded in the name.
 - **Hot-path safety:** stdout gets a 256 KB full buffer (`_IOFBF`), so a
@@ -104,7 +105,7 @@ when the app is launched from the command line.
 ## Event catalog — host side
 
 Emitted by `RunAgent` in `client/windows/cpp/AgentLoop.cpp` and
-`client/macos/app/cpp/agent/AgentLoop.cpp` (same event names and fields on
+`client/macos/app/cpp/AgentLoop.cpp` (same event names and fields on
 both). Per-source events carry `[DIAG][<source>]`; loop-wide events carry
 `[DIAG][agent]`.
 
@@ -127,7 +128,7 @@ encode/send; a sagging capture rate points at the source.
 
 Emitted by `ClientLoop` in `client/android/app/src/main/cpp/ClientLoop.cpp`,
 `client/ios/app/cpp/ClientLoop.cpp`, and
-`client/macos/app/cpp/client/ClientLoop.cpp` (identical names and fields).
+`client/macos/app/cpp/ClientLoop.cpp` (identical names and fields).
 The Windows viewer (`client/windows/cpp/ClientApi.cpp`, headless) computes
 the same stats and e2e estimate but currently emits **no** client-side
 `[DIAG]` lines.
@@ -145,7 +146,7 @@ the same stats and e2e estimate but currently emits **no** client-side
 | Loop health | `evt=sum` (cont.) | `loop_busy_ms_max` | Longest net-loop iteration in the window. |
 | Loop health | `evt=recv_stall` | `busy_ms` | Immediate warning when one net-loop iteration exceeded 50 ms. While the loop is stalled the kernel UDP buffer is the only slack — overflow there is real, self-inflicted packet loss. |
 
-## LatencyTrace and end-to-end latency
+## End-to-end latency
 
 **Which stages carry timestamps.** The host stamps each frame with its clock
 at the moment the frame is handed to the encoder (`SourcePipeline::DiagEncode`
@@ -168,26 +169,13 @@ e2e        = now − offset − frame timestampUs
 ```
 
 The minimum RTT is used because the smallest sample is the least polluted by
-queueing. `core/include/deskhub/control/ClockSync.h` is the core home of this
-estimator (a min-filter over per-frame clock deltas plus rtt/2, refreshed
-every 10 s — `kClockRefreshUs` — to track clock drift) and documents its
-limits: it **assumes a symmetric path**; asymmetry (common on Wi-Fi and
-Tailscale) shifts the number by exactly the asymmetric part. Treat e2e as an
-estimate of "host capture → client display", shown on the `[Client]` status
-line and the on-screen overlay.
-
-**LatencyTrace** (`core/include/deskhub/control/LatencyTrace.h` + `.cpp`) is
-the ring buffer behind the latency sparkline on the overlay and the "Link
-check" screen (drawn by `client/windows/csharp/Controls/Sparkline.cs`): 60
-columns (`kLatencyTraceLen`) sampled every 320 ms (`kLatencySampleUs`) ≈ the
-last 19 seconds. Each bucket keeps the **maximum** measurement seen in its
-interval — the chart exists to expose spikes, and keeping the last value
-would let a 200 ms hiccup between two sample marks vanish. Buckets with no
-data repeat the previous column (a 0 would read as a perfect wire — the
-opposite of what just happened). `Snapshot` returns oldest → newest, and
-`Min`/`Max`/`Last`/`Avg` label the chart. Read it as "worst latency per
-320 ms": a flat line with isolated tall columns is periodic stutter; a
-staircase is queue buildup.
+queueing. Known limit: this **assumes a symmetric path**; asymmetry (common
+on Wi-Fi and Tailscale) shifts the number by exactly the asymmetric part.
+Treat e2e as an estimate of "host capture → client display", shown on the
+`[Client]` status line and the on-screen overlay. (The dedicated
+`ClockSync`/`LatencyTrace` classes in core — a drift-tracking min filter and
+the sparkline ring buffer — were removed 2026-07-27: no client ever wired
+them in, and this inline estimate is what ships.)
 
 ## How to diagnose: localizing a bottleneck
 
@@ -219,7 +207,7 @@ problem.
    healed it.
 7. **Input feels dead?** On the host `[Agent]` status line, distinguish
    `input … lost` (events never arrived — network) from `skipped` (arrived,
-   but the injector refused them at the focus gate).
+   but yielded to the person at the host machine — "host wins").
 
 Agent `recv_stall` fires above 250 ms, client above 50 ms — the client loop
 also paces decode and input, so it is held to a tighter budget.

@@ -6,7 +6,7 @@
 #
 #   make/toolchain.mk   biến theo HOST: SHELL, VsDevCmd, LLVM, NULDEV (include ĐẦU TIÊN)
 #   make/core.mk        cây CMake lõi dùng chung: debug/release/test/test-ctest/coverage
-#   make/windows.mk     app Windows  — CMake (native DLL) + dotnet (WinUI3)
+#   make/windows.mk     app Windows  — CMake (app Win32, MỘT Deskhub.exe)
 #   make/macos.mk       app macOS    — xcodebuild
 #   make/ios.mk         app iOS      — xcodebuild (Simulator)
 #   make/android.mk     APK Android  — Gradle (tự dựng cả .so lẫn APK)
@@ -19,7 +19,7 @@
 #   make release        build release cây desktop OS hiện tại
 #
 # Build/release RÕ theo từng nền tảng:
-#   make build-windows   / release-windows   app Windows: native (CMake) + WinUI3 (dotnet)
+#   make build-windows   / release-windows   app Windows native (Win32, một Deskhub.exe)
 #   make build-macos     / release-macos     app macOS — cả hai vai (cần macOS + Xcode)
 #   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
 #   make build-ios       / release-ios       app iOS cho Simulator (cần macOS + Xcode)
@@ -28,7 +28,7 @@
 #   make dist-macos     dmg macOS ký Developer ID + notarize + staple (docs/16-release-macos.md)
 #   make verify-macos   kiểm tra Gatekeeper chấp nhận bản vừa dựng
 #
-#   make run            build + chạy Deskhub.exe (WinUI3, mới có Windows), ARGS="--share ..."
+#   make run            build + chạy Deskhub.exe (app Win32, mới có Windows), ARGS="--share ..."
 #   make run-macos      build + mở app macOS (cần macOS + Xcode)
 #   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
 #   make run-ios        build + cài + mở app iOS trên Simulator (cần macOS + Xcode)

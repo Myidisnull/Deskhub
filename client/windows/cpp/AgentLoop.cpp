@@ -57,21 +57,19 @@
 #include "capture/GpuSelect.h"
 #include "ElevatedShare.h" // IsProcessElevated — chẩn đoán UIPI khi bật điều khiển
 #include "net/Firewall.h"  // tự mở firewall để client không bị timeout
-#include "ClipboardSync.h"
 #include "input/InputInjector.h"
 #include "input/LocalInputMonitor.h" // "host thắng" khi hai bên cùng điều khiển
 #include "encode/IVideoEncoder.h"
-#include "net/HostIdent.h" // GĐ9: máy này là ai trên mạng (Beacon)
 #include "net/NetInfo.h"
 #include "deskhubp/Clock.h"
 #include "deskhubp/Random.h"
 #include "net/UdpSocket.h"
-#include "capture/WindowCapture.h"
+#include "capture/ScreenCapture.h"
 #include "AgentControl.h"
 #include "Diag.h"
 
 #include "deskhub/control/BitrateController.h"
-#include "deskhub/discovery/Beacon.h" // GĐ9: trả lời DISCOVER / LIST_SOURCES / PING dò
+#include "deskhub/session/Beacon.h" // trả lời LIST_SOURCES / PING dò trước phiên
 #include "deskhub/session/HostSession.h"
 #include "deskhub/transport/Packetizer.h"
 #include "deskhub/transport/RetransmitCache.h"
@@ -101,7 +99,6 @@ std::wstring FromUtf8(const std::string& s) {
 const char* StateName(deskhub::HostSession::State s) {
     switch (s) {
         case deskhub::HostSession::State::Idle: return "IDLE";
-        case deskhub::HostSession::State::Authenticating: return "AUTH";
         case deskhub::HostSession::State::Ready: return "READY";
         case deskhub::HostSession::State::Streaming: return "STREAMING";
     }
@@ -110,12 +107,12 @@ const char* StateName(deskhub::HostSession::State s) {
 
 // Cỡ khung nhỏ nhất còn encode được. Encoder phần cứng từ chối khung quá nhỏ —
 // NVENC trả "status=8 Frame Dimension less than the minimum supported value", MF
-// trả 0xC00D6D76 ở SetOutputType. Ca gặp thật: người dùng THU NHỎ cửa sổ đang share,
-// WGC báo về 146x20 (log 21/07/2026).
+// trả 0xC00D6D76 ở SetOutputType. (Thời còn share cửa sổ, ca gặp thật là cửa sổ bị
+// THU NHỎ về 146x20 — log 21/07/2026; với màn hình đây chỉ còn là lưới an toàn cho
+// độ phân giải bất thường.)
 //
 // Ngưỡng đặt cao hơn mức tối thiểu thật của NVENC một quãng an toàn, vì hai backend
-// có ngưỡng khác nhau và ta không muốn dò từng cái. Cửa sổ nhỏ hơn cỡ này thì có
-// stream được cũng chẳng ai xem nổi.
+// có ngưỡng khác nhau và ta không muốn dò từng cái.
 inline constexpr uint32_t kMinEncodeW = 160;
 inline constexpr uint32_t kMinEncodeH = 64;
 
@@ -127,10 +124,10 @@ struct SourcePipeline {
 
     // --- Cấu hình, cố định sau khi dựng ---
     uint8_t sourceId = 0;
-    CaptureTarget target;
+    HMONITOR monitor = nullptr;
     std::string name;
 
-    WindowCapture capture;
+    ScreenCapture capture;
     InputInjector injector;                        // chỉ thread Recv chạm
     std::unique_ptr<deskhub::HostSession> session; // tạo sau khi biết kích thước nguồn
     deskhub::StreamParams offer;                   // chỉ thread Recv chạm
@@ -282,8 +279,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             if (!sock.lastBindAddrInUse()) break; // lỗi khác cổng-bận -> dừng, Open đã in
         }
         if (!opened) {
-            // Không MessageBox: hàm này chạy trên thread nền của C API — popup Win32
-            // thô sẽ nấp sau cửa sổ WinUI3. Báo qua OnFailed để giao diện tự hiện lỗi.
+            // Không MessageBox: hàm này chạy trên thread Recv nền — popup Win32 thô
+            // chặn cả vòng lặp. Báo qua OnFailed để giao diện tự hiện lỗi.
             std::printf(
                 "[Agent] Cannot start sharing: no free UDP port found from %u to %u. "
                 "Several Deskhub hosts may still be running.\n",
@@ -337,7 +334,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     auto makePipeline = [&](const AgentSource& s) -> SourcePipeline* {
         auto p = std::make_unique<SourcePipeline>(startBitrate, minBitrate);
         p->sourceId = nextSourceId++;
-        p->target = s.target;
+        p->monitor = s.monitor;
         p->name = s.name;
         pipes.push_back(std::move(p));
         return pipes.back().get();
@@ -433,8 +430,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
 
             std::lock_guard<std::mutex> lk(p->encMutex);
 
-            // Nguồn đổi kích thước (người dùng kéo cửa sổ / đổi độ phân giải màn
-            // hình). Encoder và texture cache đều gắn chặt với kích thước cũ -> vứt
+            // Nguồn đổi kích thước (đổi độ phân giải / scale màn hình). Encoder và
+            // texture cache đều gắn chặt với kích thước cũ -> vứt
             // cả hai, dựng lại ngay ở frame này. Cờ sizeChanged để thread Recv báo
             // RECONFIG + IDR cho client.
             if (p->srcW.load() != encW || p->srcH.load() != encH) {
@@ -453,12 +450,12 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                 p->sizeChanged.store(true, std::memory_order_release);
             }
 
-            // Nguồn nhỏ hơn mức encoder nhận (cửa sổ vừa bị thu nhỏ). TRẠNG THÁI
+            // Nguồn nhỏ hơn mức encoder nhận (độ phân giải bất thường). TRẠNG THÁI
             // TẠM, không phải lỗi: bỏ qua frame và giữ nguyên phiên.
             //
             // Chặn ở ĐÚNG chỗ này mới thoát được: trên nó là đoạn ghi nhận kích
-            // thước — vẫn phải chạy, vì đó là thứ duy nhất cho ta biết cửa sổ đã mở
-            // to trở lại. Dưới nó là cache + encode — đều vô nghĩa ở cỡ này. Thoát
+            // thước — vẫn phải chạy, vì đó là thứ duy nhất cho ta biết nguồn đã to
+            // trở lại. Dưới nó là cache + encode — đều vô nghĩa ở cỡ này. Thoát
             // sớm hơn (như `failed` làm) là tự bịt mắt: không còn đường nhận ra
             // nguồn đã bình thường, phiên treo vĩnh viễn.
             //
@@ -508,7 +505,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             p->DiagEncode(p->encoder.get(), fi.texture, p->forceIdr.exchange(false));
         };
 
-        if (!p->capture.Start(p->target, gpu.device.Get(), onFrame)) {
+        if (!p->capture.Start(p->monitor, gpu.device.Get(), onFrame)) {
             std::printf("[Agent][%s] Failed to start capture — skipping this source.\n",
                 p->name.c_str());
             p->failed.store(true);
@@ -570,39 +567,18 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         return 1;
     }
 
-    // Đồng bộ clipboard (GĐ8). clipMu/clipPending* khai báo TRƯỚC clipSync: callback
-    // của nó chạm vào chúng nên phải sống lâu hơn (hủy ngược thứ tự khai báo).
-    // Copy ở máy host -> hộp thư -> vòng Recv gửi qua phiên đang streaming đầu tiên.
-    std::mutex clipMu;
-    std::string clipPendingText;
-    bool clipPending = false;
-    ClipboardSync clipSync;
-    clipSync.Start([&clipMu, &clipPendingText, &clipPending](const std::string& utf8) {
-        std::lock_guard<std::mutex> lk(clipMu);
-        clipPendingText = utf8;
-        clipPending = true;
-    });
-
     // --- Dựng phiên + injector cho từng nguồn còn sống ---
     // Tách thành hàm vì cũng được gọi ở HAI chỗ: các nguồn ban đầu ngay dưới, và
     // nguồn thêm giữa phiên (trong vòng Recv, khi frame đầu của nó về).
     NetAddr replyAddr; // địa chỉ nguồn của gói đang xử lý (chỉ thread Recv dùng)
 
-    // GĐ9: máy này trả lời các câu hỏi TRƯỚC KHI có phiên — "có host nào ở đây
-    // không?" (DISCOVER), "đang chia sẻ gì?" (LIST_SOURCES), "còn sống? bao xa?"
-    // (PING sessionId=0). Nhờ nó máy khác tìm ra máy này mà không phải gõ địa chỉ.
-    // Beacon chỉ DỰNG byte trả lời; gửi là việc của vòng Recv, về đúng nơi vừa hỏi.
+    // Máy này trả lời các câu hỏi TRƯỚC KHI có phiên — "đang chia sẻ gì?"
+    // (LIST_SOURCES), "còn sống? bao xa?" (PING sessionId=0). Beacon chỉ DỰNG byte
+    // trả lời; gửi là việc của vòng Recv, về đúng nơi vừa hỏi. (Nhánh DISCOVER/
+    // ANNOUNCE đã gỡ 2026-07-27 cùng toàn bộ LAN discovery — chỉ dùng địa chỉ tay.)
     deskhub::Beacon beacon;
     uint8_t beaconBuf[deskhub::kMaxDatagram]; // riêng, không dùng chung với buf nhận:
                                               // Reply() đọc gói đến trong lúc ghi ra
-    {
-        deskhub::HostIdentity id;
-        id.hostId = LocalHostId();
-        id.port = boundPort;
-        id.name = LocalHostName();
-        beacon.SetIdentity(std::move(id));
-        beacon.SetAcceptsInput(opt.allowInput);
-    }
 
     auto attachSession = [&](SourcePipeline* p) {
         p->offer.width = uint16_t(p->srcW.load());
@@ -614,9 +590,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             opt.fps, opt.bitrateMbps);
 
         if (opt.allowInput) {
-            const bool ok = p->target.hwnd ? p->injector.Init(p->target.hwnd)
-                                           : p->injector.InitMonitor(p->target.monitor);
-            p->injector.SetEnabled(ok);
+            p->injector.SetEnabled(p->injector.Init(p->monitor));
         } else {
             p->injector.SetEnabled(false);
         }
@@ -625,10 +599,9 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         cb.send = [&sock, &replyAddr](std::span<const uint8_t> d) {
             sock.SendTo(replyAddr, d.data(), d.size());
         };
-        // GĐ10: nguồn ngẫu nhiên mã hoá cho nonce challenge, sessionId và token
-        // thiết bị. core/ không đụng được API hệ điều hành nên phải nối từ đây.
-        // Thiếu callback này thì HostSession từ chối MỌI kết nối (fail closed) —
-        // xem HostSession::BeginSession.
+        // Nguồn ngẫu nhiên mã hoá cho sessionId (hàng rào chặn gói giả trên UDP).
+        // core/ không đụng được API hệ điều hành nên phải nối từ đây. Thiếu callback
+        // này thì HostSession từ chối MỌI kết nối (fail closed) — xem BeginSession.
         cb.randomBytes = [](std::span<uint8_t> out) {
             return RandomBytes(out.data(), out.size());
         };
@@ -651,25 +624,11 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             }
         };
         cb.onInput = [p](const deskhub::InputEvent& e) { p->injector.Apply(e); };
-        // GĐ8: client vừa copy văn bản -> đặt vào clipboard máy host. ClipboardSync
-        // tự khử trùng nội dung nên nhiều phiên cùng gửi một bản copy cũng vô hại.
-        cb.onClipboard = [&clipSync](std::string text) { clipSync.SetRemoteText(text); };
-        // Client chuyển cửa sổ preview -> kéo đúng cửa sổ nguồn đó lên foreground.
-        // Chia sẻ nhiều nguồn thì chỉ một cửa sổ được foreground, mà SendInput bơm
-        // vào cửa sổ foreground; không có bước này thì client xem N nguồn nhưng chỉ
-        // điều khiển được nguồn nào người ở máy host tự bấm vào.
-        // Gác bằng enabled(): không cho điều khiển thì cũng không cho giành foreground.
+        // SET_FOCUS(false): client rời nguồn này (đổi màn hình xem / app xuống nền)
+        // giữa lúc có thể đang giữ phím — nhả hết, không để kẹt. Nhánh true không
+        // còn việc gì: nguồn là cả màn hình, không có cửa sổ nào để kéo lên trước.
         cb.onFocus = [p](bool focused) {
-            if (!p->injector.enabled()) return;
-            if (!focused) {
-                p->injector.ReleaseAll(); // client rời đi giữa lúc giữ phím
-                return;
-            }
-            if (!p->injector.FocusTarget())
-                std::printf(
-                    "[Agent][%s] Windows refused to bring this window to the front — "
-                    "click it once on this machine.\n",
-                    p->name.c_str());
+            if (!focused) p->injector.ReleaseAll();
         };
         cb.onDisconnect = [p] {
             p->peerPacked.store(0, std::memory_order_release);
@@ -721,7 +680,6 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         // phiên chỉ-xem. Trước đây đây chỉ là một `if (opt.allowInput)` ở phía dưới,
         // client không có cách nào biết.
         p->session->SetInputAllowed(opt.allowInput);
-        p->session->SetClipboardEnabled(opt.shareClipboard);
         p->netReady.store(true, std::memory_order_release);
     };
     for (SourcePipeline* p : live) attachSession(p);
@@ -735,7 +693,6 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     auto publishRows = [&] {
         std::vector<SessionSourceRow> rows;
         std::vector<deskhub::SourceInfo> infos; // ảnh chụp cho Beacon, dựng cùng lượt
-        bool anyViewer = false;
         for (SourcePipeline* p : live) {
             if (p->failed.load() || p->capture.Closed()) continue;
             const uint32_t w = p->srcW.load(), hgt = p->srcH.load();
@@ -747,34 +704,23 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             swprintf(suffix, 64, L"  (%ux%u%ls)", w, hgt,
                 peer ? L", viewer connected" : L"");
             r.label = FromUtf8(p->name) + suffix;
-            // Các trường CÓ CẤU TRÚC cho giao diện mới (GĐ9). `label` giữ lại để
-            // không phá bản dựng cũ; giao diện WinUI3 đọc các trường dưới đây và tự
-            // ghép chữ theo ngôn ngữ nó đang hiện — chuỗi ghép sẵn ở đây thì không
-            // dịch được.
+            // Các trường CÓ CẤU TRÚC (GĐ9): giao diện vẽ mỗi mẩu một chỗ (tên đậm,
+            // độ phân giải mono, huy hiệu trạng thái) — `label` giữ cho log.
             r.name = FromUtf8(p->name);
             r.width = w;
             r.height = hgt;
-            r.isDisplay = p->target.monitor != nullptr;
             r.viewerConnected = peer != 0;
-            if (peer) {
-                anyViewer = true;
-                r.viewerAddr = NetAddr::Unpack(peer).ToString();
-            }
+            if (peer) r.viewerAddr = NetAddr::Unpack(peer).ToString();
             r.fps = p->uiFps.load(std::memory_order_relaxed);
             r.kbps = p->uiKbps.load(std::memory_order_relaxed);
             r.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
-            r.hwnd = uint64_t(uintptr_t(p->target.hwnd));
-            r.monitor = uint64_t(uintptr_t(p->target.monitor));
+            r.monitor = uint64_t(uintptr_t(p->monitor));
             rows.push_back(std::move(r));
 
             deskhub::SourceInfo si;
             si.sourceId = p->sourceId;
             si.width = uint16_t(w);
             si.height = uint16_t(hgt);
-            // Cả màn hình hay một cửa sổ — client vẽ biểu tượng khác nhau, và hệ quả
-            // riêng tư của hai thứ này khác hẳn nhau.
-            si.kind = p->target.monitor ? deskhub::SourceKind::Display
-                                        : deskhub::SourceKind::Window;
             si.name = p->name;
             infos.push_back(std::move(si));
         }
@@ -784,14 +730,11 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             r.pending = true;
             r.label = FromUtf8(pr.first->name) + L"  (starting...)";
             r.name = FromUtf8(pr.first->name);
-            r.isDisplay = pr.first->target.monitor != nullptr;
-            r.hwnd = uint64_t(uintptr_t(pr.first->target.hwnd));
-            r.monitor = uint64_t(uintptr_t(pr.first->target.monitor));
+            r.monitor = uint64_t(uintptr_t(pr.first->monitor));
             rows.push_back(std::move(r));
         }
         // Beacon trả lời trên CÙNG thread Recv này nên cập nhật thẳng, không khoá.
         beacon.SetSources(infos);
-        beacon.SetBusy(anyViewer);
         ctl.SetRows(std::move(rows));
     };
     publishRows();
@@ -825,7 +768,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     //   3. Định tuyến gói vừa nhận về đúng SourcePipeline (xem sơ đồ đầu file).
     //   4. Tick mọi phiên + in thống kê mỗi giây.
     //
-    // Một cửa sổ đóng KHÔNG giết cả phiên: chỉ dừng khi không còn nguồn nào sống.
+    // Một màn hình bị ngắt KHÔNG giết cả phiên: chỉ dừng khi hết nguồn sống.
     uint8_t buf[deskhub::kMaxDatagram];
     uint64_t lastStatUs = NowUs();
     bool anyFailed = false;
@@ -929,7 +872,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             //
             // Đặt TRƯỚC `replyAddr = from` là có chủ ý: replyAddr là nơi callback
             // `send` của mọi phiên gửi tới, nên một máy lạ dò đường không được phép
-            // chiếm chỗ client thật ở đó. Xem deskhub/discovery/Beacon.h.
+            // chiếm chỗ client thật ở đó. Xem deskhub/session/Beacon.h.
             if (const size_t rn = beacon.Reply(beaconBuf, span); rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else if (h) {
@@ -954,33 +897,6 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                         std::printf("[Agent][%s] Peer: %s\n", dst->name.c_str(),
                             from.ToString().c_str());
                     }
-                }
-            }
-        }
-
-        // Clipboard máy host vừa đổi -> gửi cho client (GĐ8). Gửi qua phiên ĐANG
-        // streaming đầu tiên là đủ: các phiên đều là cùng một client, và bên nhận
-        // khử trùng theo nội dung. replyAddr phải đặt về peer của phiên đó vì send
-        // callback của session gửi theo replyAddr (bình thường do gói đến đặt).
-        {
-            std::string t;
-            {
-                std::lock_guard<std::mutex> lk(clipMu);
-                if (clipPending) {
-                    t = std::move(clipPendingText);
-                    clipPending = false;
-                }
-            }
-            if (!t.empty()) {
-                for (SourcePipeline* p : live) {
-                    if (p->failed.load() || !p->session ||
-                        p->session->state() != deskhub::HostSession::State::Streaming)
-                        continue;
-                    const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
-                    if (!pp) continue;
-                    replyAddr = NetAddr::Unpack(pp);
-                    p->session->SendClipboard(t);
-                    break;
                 }
             }
         }
@@ -1100,8 +1016,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             std::printf("[DIAG][agent] evt=sum loop_busy_ms_max=%u\n", dgLoopBusyMaxMs);
             dgLoopBusyMaxMs = 0;
             // Làm mới danh sách trên cửa sổ phiên theo nhịp 1s: bắt các thay đổi
-            // không đi qua lệnh của người dùng (nguồn đổi kích thước, cửa sổ được
-            // share bị đóng, client vào/ra). SetRows tự bỏ qua khi không đổi.
+            // không đi qua lệnh của người dùng (nguồn đổi độ phân giải, màn hình
+            // bị rút, client vào/ra). SetRows tự bỏ qua khi không đổi.
             publishRows();
             lastStatUs = now;
         }
@@ -1125,7 +1041,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         totalFrames += up->framesSent.load();
         totalMB += up->bytesSent.load() / 1e6;
     }
-    // Không đóng `ctl` ở đây — người gọi sở hữu nó (SessionWindow.Stop / dh_agent_stop).
+    // Không đóng `ctl` ở đây — người gọi sở hữu nó (SessionWindow.Stop).
     std::printf("[Agent] Stopped. Total: %llu frames sent, %.2f MB.\n",
         (unsigned long long)totalFrames, totalMB);
     SetConsoleCtrlHandler(CtrlHandler, FALSE);

@@ -182,13 +182,6 @@ bool UdpSocket::SetRecvTimeout(uint32_t ms) {
                (const char*)&t, sizeof(t)) == 0;
 }
 
-bool UdpSocket::SetBroadcast(bool on) {
-    if (!IsOpen()) return false;
-    BOOL v = on ? TRUE : FALSE;
-    return setsockopt(SOCKET(sock_), SOL_SOCKET, SO_BROADCAST,
-               (const char*)&v, sizeof(v)) == 0;
-}
-
 bool UdpSocket::SendTo(const NetAddr& to, const uint8_t* data, size_t len) {
     if (!IsOpen()) return false;
     sockaddr_in sa{};

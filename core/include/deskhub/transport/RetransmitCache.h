@@ -27,9 +27,9 @@
 //   Store/Find, hoặc gọi cả hai trên cùng một thread. Lớp này KHÔNG tự khoá (giữ đúng
 //   kỷ luật "core không biết mô hình luồng của nền tảng").
 //
-// LIÊN QUAN: deskhub/wire/Wire.h (MsgType::Nack, ParseNack), Packetizer.h (nguồn datagram)
+// LIÊN QUAN: deskhub/protocol/Wire.h (MsgType::Nack, ParseNack), Packetizer.h (nguồn datagram)
 // =============================================================================
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <span>

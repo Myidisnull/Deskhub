@@ -79,7 +79,7 @@ struct MachineCard: View {
 
 // MARK: - Dòng nguồn
 
-// Một dòng "cửa sổ hoặc màn hình":
+// Một dòng màn hình:
 //   [tick] [biểu tượng] Tên nguồn            2560×1600  [pill trạng thái] [Dừng]
 //
 // BẤM CẢ DÒNG HAY CHỈ BẤM Ô TICK — TUỲ MÀN, VÀ RANH GIỚI LÀ "CÓ ĐANG CHẠY KHÔNG"
@@ -91,7 +91,6 @@ struct MachineCard: View {
 struct SourceRow: View {
     let name: String
     let detail: String
-    let isDisplay: Bool
     let selected: Bool
     var state: String = ""
     var tone: StatePill.Tone = .neutral
@@ -117,9 +116,7 @@ struct SourceRow: View {
                 .toggleStyle(DSCheckboxStyle(decorative: rowToggles))
                 .labelsHidden()
 
-            // Màn hình và cửa sổ có hệ quả riêng tư khác hẳn nhau, nên chúng phải phân
-            // biệt được bằng MẮT chứ không chỉ bằng tên.
-            Image(systemName: isDisplay ? "display" : "macwindow")
+            Image(systemName: "display")
                 .font(.system(size: 16))
                 .foregroundStyle(DS.textSecondary)
                 .frame(width: 20)

@@ -1,11 +1,10 @@
 // =============================================================================
 // ClientApi.cpp — cài đặt C API vai CLIENT/VIEWER (xem DeskhubApi.h §VAI CLIENT).
 //
-// Đây là bản HEADLESS, MỘT NGUỒN của vòng xem trong ClientLoop.cpp: cùng kiến trúc
-// (thread Recv + thread Decode, hàng đợi frame, ước lượng e2e, NACK, feedback) nhưng
-// KHÔNG có cửa sổ Renderer/ViewerWindow — thay bằng PanelRenderer (vẽ vào SwapChainPanel
-// của C#) và input đến từ C API thay vì InputCapture. Giữ tách khỏi ClientLoop.cpp để
-// client.exe cũ không bị đụng; khi WinUI3 phủ hết, sẽ gộp hai đường này lại.
+// Đây là bản HEADLESS, MỘT NGUỒN của vòng xem: thread Recv + thread Decode, hàng
+// đợi frame, ước lượng e2e, NACK, feedback — không tự sở hữu cửa sổ nào. Render đi
+// qua PanelRenderer vào cửa sổ con do app cấp, input đến qua C API. Người gọi duy
+// nhất là app win32 (Viewer.cpp) qua dh_client_start_hwnd.
 //
 // Đọc ClientLoop.cpp (StreamRecvLoop) để hiểu VÌ SAO tách thread Decode khỏi Recv và
 // cách ước lượng e2e — phần đó ở đây là bản rút gọn nguyên vẹn logic.
@@ -29,10 +28,8 @@
 #include <vector>
 
 #include "capture/GpuSelect.h"
-#include "ClipboardSync.h"
 #include "decode/IVideoDecoder.h"
 #include "decode/PanelRenderer.h"
-#include "net/SourceQuery.h"
 #include "net/UdpSocket.h"
 #include "deskhubp/Clock.h"
 
@@ -148,19 +145,6 @@ void DhClientHandle::Run() {
         CoUninitialize();
     });
 
-    // GĐ8/GĐ9 clipboard phía viewer, hai chiều — cùng khuôn mailbox với AgentLoop:
-    // copy ở máy này -> hộp thư -> vòng Recv gửi qua phiên; host copy -> onClipboard
-    // -> đặt vào clipboard máy này. Chỉ chạy khi host BẬT (params().clipboardEnabled).
-    std::mutex clipMu;
-    std::string clipPendingText;
-    bool clipPending = false;
-    ClipboardSync clipSync;
-    clipSync.Start([&clipMu, &clipPendingText, &clipPending](const std::string& utf8) {
-        std::lock_guard<std::mutex> lk(clipMu);
-        clipPendingText = utf8;
-        clipPending = true;
-    });
-
     deskhub::ClientCallbacks cb;
     cb.send = [&](std::span<const uint8_t> d) { sock.SendTo(server, d.data(), d.size()); };
     cb.onReady = [&](const deskhub::NegotiatedParams& np) {
@@ -190,9 +174,6 @@ void DhClientHandle::Run() {
         if (closedCb) closedCb(reason ? reason : "disconnected", user);
         quit.store(true);
     };
-    // Host vừa copy văn bản -> đặt vào clipboard máy này. ClipboardSync tự khử echo
-    // theo nội dung nên không có vòng lặp hai máy ném qua lại.
-    cb.onClipboard = [&clipSync](std::string text) { clipSync.SetRemoteText(text); };
 
     deskhub::ClientSession session(cb);
 
@@ -297,20 +278,6 @@ void DhClientHandle::Run() {
             for (const auto& e : batch) session.QueueInput(e);
         }
 
-        // Clipboard máy này vừa đổi -> gửi cho host. Gác theo cờ host chào trong
-        // HELLO_ACK: host tắt clipboard thì đằng nào cũng bỏ, đừng tốn gói.
-        if (session.params().clipboardEnabled) {
-            std::string t;
-            {
-                std::lock_guard<std::mutex> lk(clipMu);
-                if (clipPending) {
-                    t = std::move(clipPendingText);
-                    clipPending = false;
-                }
-            }
-            if (!t.empty()) session.SendClipboard(t);
-        }
-
         session.SetFocused(true); // panel đang xem = luôn "focus" nguồn này
         session.Tick(now);
         if (session.state() == deskhub::ClientSession::State::Dead) break;
@@ -374,8 +341,11 @@ deskhub::InputEvent MakeMoveRel(int dx, int dy) {
 
 } // namespace
 
-DH_API DhClientHandle* DH_CALL dh_client_start(const char* addrUtf8, uint8_t sourceId,
-    int sendInput, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
+namespace {
+
+// Thân của dh_client_start_hwnd, tách riêng để giữ cấu trúc validate-rồi-chạy gọn.
+DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId, int sendInput,
+    uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
     DhClientClosedCallback closedCb, void* user) {
     if (!addrUtf8) return nullptr;
 
@@ -395,9 +365,9 @@ DH_API DhClientHandle* DH_CALL dh_client_start(const char* addrUtf8, uint8_t sou
         delete h;
         return nullptr;
     }
-    // Tạo swapchain NGAY trên thread này (UI của C#) để C# gắn vào SwapChainPanel được.
+    // Tạo swapchain NGAY trên thread gọi (UI) — cần trước khi cửa sổ con hiện.
     // Cỡ 1280x720 chỉ là tạm — frame đầu sẽ ResizeBuffers về cỡ thật.
-    if (!h->renderer.Init(h->gpu.device.Get(), 1280, 720)) {
+    if (!h->renderer.InitForHwnd(h->gpu.device.Get(), (void*)(uintptr_t)hwnd, 1280, 720)) {
         delete h;
         return nullptr;
     }
@@ -411,8 +381,13 @@ DH_API DhClientHandle* DH_CALL dh_client_start(const char* addrUtf8, uint8_t sou
     return h;
 }
 
-DH_API void* DH_CALL dh_client_swapchain(DhClientHandle* h) {
-    return h ? h->renderer.SwapChain() : nullptr;
+} // namespace
+
+DH_API DhClientHandle* DH_CALL dh_client_start_hwnd(const char* addrUtf8, uint8_t sourceId,
+    int sendInput, uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
+    DhClientClosedCallback closedCb, void* user) {
+    if (!hwnd) return nullptr;
+    return StartClient(addrUtf8, sourceId, sendInput, hwnd, statsCb, sizeCb, closedCb, user);
 }
 
 DH_API void DH_CALL dh_client_mouse_move(DhClientHandle* h, uint16_t nx, uint16_t ny) {
@@ -434,6 +409,8 @@ DH_API void DH_CALL dh_client_mouse_button(DhClientHandle* h, int button, int do
     e.timestampUs = NowUs();
     e.a = int32_t(button == 1   ? deskhub::MouseButton::Right
                   : button == 2 ? deskhub::MouseButton::Middle
+                  : button == 3 ? deskhub::MouseButton::X1
+                  : button == 4 ? deskhub::MouseButton::X2
                                 : deskhub::MouseButton::Left);
     e.state = down ? 1 : 0;
     h->PushInput(e);
@@ -467,28 +444,3 @@ DH_API void DH_CALL dh_client_stop(DhClientHandle* h) {
     delete h;
 }
 
-// -----------------------------------------------------------------------------
-// Danh mục nguồn (GĐ6). Đứng ngoài DhClientHandle vì nó chạy TRƯỚC khi có phiên:
-// socket riêng, không sessionId, không thread — xem net/SourceQuery.h.
-//
-// Đẩy qua callback thay vì trả mảng: cùng khuôn với dh_discover_scan /
-// dh_list_windows, nên phía C# tái dùng đúng một kiểu marshal cho cả ba.
-// -----------------------------------------------------------------------------
-DH_API int DH_CALL dh_client_list_sources(const char* addrUtf8,
-    DhSourceFoundCallback cb, void* user) {
-    if (!addrUtf8 || !*addrUtf8) return 0;
-
-    NetAddr server{};
-    if (!ParseNetAddr(addrUtf8, 47777, server)) return 0;
-
-    std::vector<deskhub::SourceInfo> sources;
-    if (!QuerySources(server, sources)) return 0;
-
-    if (cb) {
-        for (const auto& s : sources) {
-            cb(s.sourceId, s.name.c_str(), int(s.width), int(s.height),
-                s.kind == deskhub::SourceKind::Display ? 1 : 0, user);
-        }
-    }
-    return int(sources.size());
-}

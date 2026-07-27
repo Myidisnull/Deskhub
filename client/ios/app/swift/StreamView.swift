@@ -39,7 +39,7 @@ private struct Hotkey {
     var modScan: Int32 = 0
 }
 
-// Không đưa Alt+Tab/phím Win vào: chúng chuyển focus khỏi cửa sổ đang chia sẻ,
+// Không đưa Alt+Tab/phím Win vào: chúng đổi ngữ cảnh trên máy host,
 // host sẽ ngừng nhận input (xem TargetHasFocus bên InputInjector).
 private let kHotkeys: [Hotkey] = [
     Hotkey(label: "Esc", vk: 0x1B, scan: 0x01),
@@ -72,11 +72,7 @@ struct StreamView: View {
             statusHud
             bottomHud
 
-            // GĐ10: host đòi mật khẩu. Đặt TRƯỚC connectingOverlay vì lúc đó phiên
-            // vẫn đang "connecting" ở tầng dưới — hiện cả hai sẽ chồng lên nhau.
-            if model.phase == .needPassword, model.endReason.isEmpty {
-                PasswordOverlay(model: model)
-            } else if !streaming, model.endReason.isEmpty {
+            if !streaming, model.endReason.isEmpty {
                 connectingOverlay
             }
             if !model.endReason.isEmpty {

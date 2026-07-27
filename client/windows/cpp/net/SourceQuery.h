@@ -14,7 +14,7 @@
 // VÌ SAO ĐỨNG NGOÀI ClientApi/ClientLoop
 //   Nó chạy trước khi có phiên: mở socket riêng, không sessionId, không thread —
 //   gọi xong là xong. Phía host cũng không đưa nó vào HostSession mà để ở Beacon,
-//   vì đúng lý do đó (xem core/include/deskhub/discovery/Beacon.h).
+//   vì đúng lý do đó (xem core/include/deskhub/session/Beacon.h).
 //
 // TÍNH CHẤT CẦN BIẾT TRƯỚC KHI GỌI
 //   - CHẶN tới ~3 giây (phát lại LIST_SOURCES vài lần vì UDP có thể mất gói).
@@ -25,15 +25,14 @@
 //   false = không mở được socket, hoặc host im lặng suốt 3 giây. Caller hiểu là
 //   "host bản cũ / chỉ có một nguồn" và cứ xem nguồn 0 — KHÔNG coi là lỗi tử vong.
 //
-// LIÊN QUAN: deskhub/wire/Wire.h (BuildListSources/ParseSourceList),
-//            deskhub/discovery/Beacon.h (đầu kia), ClientApi.cpp (người gọi),
-//            net/Discovery.cpp (cùng hình dạng vòng lặp, cho DISCOVER)
+// LIÊN QUAN: deskhub/protocol/Wire.h (BuildListSources/ParseSourceList),
+//            deskhub/session/Beacon.h (đầu kia), ClientApi.cpp (người gọi)
 // =============================================================================
 #include <vector>
 
 #include "net/UdpSocket.h"
 
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 // CHẶN tới ~3 giây. Trả false nếu không mở được socket hoặc host im lặng — caller
 // hiểu là "host bản cũ / chỉ có một nguồn" và cứ xem nguồn 0.

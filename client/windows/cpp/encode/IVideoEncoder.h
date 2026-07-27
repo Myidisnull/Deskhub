@@ -9,7 +9,7 @@
 //   mà GpuSelect dựng ra.
 //
 // VỊ TRÍ TRONG LUỒNG DỮ LIỆU
-//   WindowCapture → **IVideoEncoder** → Packetizer → Pacer → UDP
+//   ScreenCapture → **IVideoEncoder** → Packetizer → Pacer → UDP
 //   Vào là texture D3D11 trong VRAM, ra là NAL Annex-B qua callback onPacket.
 //
 // HAI ĐƯỜNG RA, DÙNG ĐƯỢC CÙNG LÚC

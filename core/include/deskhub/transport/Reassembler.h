@@ -57,7 +57,7 @@
 //
 // Thuần C++20, không thread, không đồng hồ — thời gian bơm từ ngoài qua `nowUs`.
 // Dùng trên MỘT thread (thread Recv của client).
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <functional>

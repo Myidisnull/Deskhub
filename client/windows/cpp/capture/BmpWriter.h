@@ -22,7 +22,7 @@
 //   BGRA 32-bit của BMP trùng đúng với định dạng WGC giao ra, nên không phải đổi
 //   màu gì cả — chép thẳng.
 //
-// LIÊN QUAN: capture/CaptureTypes.h (nguồn texture), capture/WindowCapture.h
+// LIÊN QUAN: capture/CaptureTypes.h (nguồn texture), capture/ScreenCapture.h
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

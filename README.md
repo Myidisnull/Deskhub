@@ -26,8 +26,9 @@ Chrome tab — with zero protocol rewrites.
   builds from a weak laptop or an iPad at a café.
 - **Browsing & app control** — drive Chrome, Office, or PC-only software from any device.
 - **Gaming** — the most demanding case: 60 fps, low latency, relative mouse + DirectInput keys.
-- **Share one window, not the whole screen** — pick exactly the app you want to expose;
-  the rest of your machine stays private.
+- **Multi-monitor sharing** — pick which display (or several) to expose; each shared
+  display streams as its own independent session. (Per-window sharing was removed
+  2026-07-27 — sharing is whole-display only.)
 
 ## 🚦 Status
 
@@ -108,11 +109,10 @@ machine, open the firewall once (command below). To use it **over the Internet**
 [Tailscale](https://tailscale.com) on both machines and connect using the Tailscale IP
 (100.x.y.z).
 
-The app opens on the **Home** screen, which shows this machine's address per network
-adapter. **Share** lists the windows and displays you can expose (pick one or more →
-become the host); **Connect** takes an `ip[:port]` — or a host discovered on the LAN — to
-view and control it. Light/dark theme and English/Vietnamese can be switched in place. On
-the host machine, open the firewall once:
+The app shows this machine's address per network adapter. **Share** lists the displays
+you can expose (pick one or more → become the host); **Connect** takes an
+`ip[:port]` to view and control the other machine. On the host machine, open the
+firewall once:
 
 ```
 netsh advfirewall firewall add rule name="Deskhub" dir=in action=allow protocol=udp localport=47777
@@ -128,9 +128,10 @@ controls the host machine.
 
 - `F9` captures/releases the mouse (pointer lock) — **required for FPS games** (sends
   relative mouse motion instead of absolute coordinates).
-- On the host machine, **click the shared window once** so it has focus: input is only
-  injected while that window is in the foreground (by design — otherwise the remote user
-  would type into your other apps).
+- Remote input goes to whatever is on the shared display, exactly as if you were sitting
+  at the machine. If the person at the host touches their own mouse or keyboard, **the
+  host wins**: remote input pauses for about a second and any remotely held keys are
+  released.
 - If the game/app runs elevated, run the host **as administrator**, or input gets blocked
   by UIPI.
 

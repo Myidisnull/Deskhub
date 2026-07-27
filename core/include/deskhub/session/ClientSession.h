@@ -40,10 +40,8 @@
 // LIÊN QUAN: deskhub/session/HostSession.h (đầu kia), deskhub/input/InputSender.h,
 //            deskhub/transport/Reassembler.h, deskhub/control/LinkStats.h
 // =============================================================================
-#include "deskhub/auth/PasswordAuth.h" // AuthKey — đầu client của bắt tay (GĐ10)
 #include "deskhub/input/InputSender.h"
-#include "deskhub/session/ClipboardAssembler.h"
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <functional>
@@ -74,7 +72,6 @@ struct NegotiatedParams {
     // giấu nút khoá chuột và bàn phím ảo đi, thay vì để người dùng gõ vào khoảng
     // không. Host bản cũ không gửi cờ này và luôn được hiểu là true (xem Wire.h).
     bool inputAccepted = true;
-    bool clipboardEnabled = false; // host có đồng bộ clipboard không
 };
 
 struct ClientCallbacks {
@@ -86,16 +83,6 @@ struct ClientCallbacks {
     std::function<void(const NegotiatedParams&)> onReconfig;
     std::function<void(uint32_t rttUs)> onRtt;            // mỗi PONG
     std::function<void(const char* reason)> onDisconnect; // từ chối/BYE/timeout
-    // GĐ8: host vừa copy văn bản — caller đặt vào clipboard máy mình.
-    std::function<void(std::string text)> onClipboard;
-    // GĐ10: host đòi mật khẩu nhưng SetPassword chưa được gọi (hoặc mật khẩu vừa bị
-    // từ chối). Caller hiện ô nhập mật khẩu rồi gọi SetPassword — lần HELLO phát lại
-    // kế tiếp sẽ tự đi qua challenge mới, không phải Start lại từ đầu.
-    std::function<void()> onPasswordNeeded;
-    // GĐ10: host vừa cấp token nhớ thiết bị. Caller lưu vào keychain kèm địa chỉ
-    // host; lần sau truyền lại qua Hello::deviceToken để khỏi hỏi mật khẩu.
-    // Ứng với ô "Save the password for this machine" ở màn Settings của client.
-    std::function<void(std::span<const uint8_t> token)> onDeviceToken;
 };
 
 class ClientSession {
@@ -111,31 +98,8 @@ public:
     // Phát HELLO ngay và bắt đầu chu kỳ retry trong Tick.
     void Start(const Hello& hello, uint64_t nowUs);
 
-    // Mật khẩu người dùng nhập cho host này (GĐ10). Gọi TRƯỚC Start nếu đã lưu sẵn,
-    // hoặc trong onPasswordNeeded rồi để chu kỳ phát lại HELLO tự đi tiếp.
-    //
-    // Chuỗi được giữ lại vì `salt` chỉ biết được khi AUTH_CHALLENGE về, mà dẫn xuất
-    // khoá cần cả hai. Nó nằm trong bộ nhớ tiến trình tới hết phiên; ClearPassword()
-    // xoá sớm hơn nếu caller muốn.
-    void SetPassword(std::string_view password) {
-        password_.assign(password);
-        derived_ = AuthKey{}; // salt có thể khác — buộc dẫn xuất lại
-        // Người dùng vừa nộp mật khẩu giữa chừng bắt tay: mốc bỏ cuộc 10 giây phải
-        // tính lại từ LÚC NỘP, không tính cả quãng họ ngồi gõ — nếu không thì gõ
-        // chậm hơn 10 giây là phiên chết ngay dưới tay họ. Tick đọc cờ này vì ở đây
-        // không có nowUs.
-        rearmGiveUp_ = true;
-    }
-    void ClearPassword() {
-        password_.clear();
-        derived_ = AuthKey{};
-    }
-    bool hasPassword() const {
-        return !password_.empty();
-    }
-
-    // Vì sao lần bắt tay gần nhất bị từ chối (GĐ10) — caller hiện đúng thông báo
-    // thay vì một câu chung chung. RejectReason::None khi chưa bị từ chối lần nào.
+    // Vì sao lần bắt tay gần nhất bị từ chối — caller hiện đúng thông báo thay vì
+    // một câu chung chung. RejectReason::None khi chưa bị từ chối lần nào.
     RejectReason rejectReason() const {
         return rejectReason_;
     }
@@ -178,10 +142,6 @@ public:
     // Báo host đã bỏ hẳn `frameId` để nó thôi tham chiếu (GĐ7). Bỏ qua nếu chưa STREAMING.
     void SendInvalidateRef(uint32_t frameId);
 
-    // Gửi văn bản clipboard của máy mình cho host (GĐ8), tự chia mảnh. Bỏ qua nếu
-    // chưa STREAMING, text rỗng hoặc quá kMaxClipboardBytes.
-    void SendClipboard(std::string_view utf8);
-
     // Báo host mình rời đi (gửi 1 lần, best-effort) và kết thúc phiên.
     void SendBye();
 
@@ -202,9 +162,6 @@ private:
     void SendHello();
     void SendStart();
     void Die(const char* reason);
-    // Trả lời AUTH_CHALLENGE (GĐ10). Dẫn xuất khoá nếu chưa có khoá khớp salt/vòng
-    // rồi phát AUTH_RESPONSE.
-    void AnswerChallenge(const AuthChallenge& c);
 
     ClientCallbacks cb_;
     InputSender input_;
@@ -224,20 +181,7 @@ private:
     uint32_t nextPingId_ = 1;
     uint32_t lastRttUs_ = 0;
     bool keyframeWanted_ = false;
-    ClipboardAssembler clip_;   // ghép mảnh clipboard từ host (GĐ8)
-    uint32_t clipUpdateId_ = 0; // updateId của lần SendClipboard kế tiếp
-
-    // --- Xác thực (GĐ10) ---
-    std::string password_;
-    // Khoá đã dẫn xuất, giữ lại giữa các lần bắt tay. PBKDF2 tốn ~100 ms, mà client
-    // phát lại HELLO mỗi 0.5 giây khi chưa thấy ACK — dẫn xuất lại mỗi lần sẽ ngốn
-    // 1/5 thời gian của thread mạng suốt cả giai đoạn bắt tay. `salt` và `iterations`
-    // của host không đổi giữa các lần thử nên khoá cũ dùng lại được; AnswerChallenge
-    // đối chiếu hai trường đó và chỉ tính lại khi chúng thật sự khác.
-    AuthKey derived_;
     RejectReason rejectReason_ = RejectReason::None;
-    bool passwordAsked_ = false; // đã gọi onPasswordNeeded cho lượt này chưa
-    bool rearmGiveUp_ = false;   // SetPassword giữa bắt tay → Tick đặt lại startedUs_
 
     uint8_t buf_[kMaxDatagram] = {};
 };

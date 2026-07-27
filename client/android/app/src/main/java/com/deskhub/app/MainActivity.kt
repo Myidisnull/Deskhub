@@ -1,5 +1,5 @@
 // =============================================================================
-// MainActivity.kt — màn hình đầu tiên: nhập địa chỉ host rồi chọn cửa sổ muốn xem.
+// MainActivity.kt — màn hình đầu tiên: nhập địa chỉ host rồi chọn màn hình muốn xem.
 //                   Giao diện dựng trên hệ thiết kế Deskhub (ui/Tokens.kt +
 //                   ui/Components.kt), đối ứng ConnectView/SourcePickerView bên iOS.
 //
@@ -41,7 +41,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +51,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,7 +69,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.deskhub.app.ui.AppMark
 import com.deskhub.app.ui.AppState
-import com.deskhub.app.ui.Credentials
 import com.deskhub.app.ui.DeskhubTheme
 import com.deskhub.app.ui.Ds
 import com.deskhub.app.ui.DsButton
@@ -79,7 +76,6 @@ import com.deskhub.app.ui.DsButtonSize
 import com.deskhub.app.ui.DsButtonVariant
 import com.deskhub.app.ui.DsCheckbox
 import com.deskhub.app.ui.HeroField
-import com.deskhub.app.ui.LockIcon
 import com.deskhub.app.ui.MachineCard
 import com.deskhub.app.ui.MonoText
 import com.deskhub.app.ui.Panel
@@ -101,7 +97,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppState.init(this)
         Recents.init(this)
-        Credentials.init(this)
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
         // NativeClient không có Context nên phần lưu "chỉ xem" nằm ở đây.
         NativeClient.viewOnly = prefs.getBoolean("viewOnly", false)
@@ -110,8 +105,7 @@ class MainActivity : ComponentActivity() {
         //   am start -n com.deskhub.app/.MainActivity --es addr 10.0.2.2:47777
         // CHỈ ở bản debug: activity này exported (launcher), nên trên bản phát hành
         // bất kỳ app nào cũng có thể ném extra "addr" vào và lặng lẽ kích hoạt một
-        // kết nối — kèm tên thiết bị và, nếu có credential đã lưu cho đúng chuỗi đó,
-        // cả HMAC proof + device token — tới địa chỉ do nó chọn.
+        // kết nối tới địa chỉ do nó chọn.
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (debuggable) {
             intent?.getStringExtra("addr")?.let { addr ->
@@ -263,20 +257,17 @@ private fun AddressScreen(
     val trimmed = address.trim()
     val go = { if (trimmed.isNotEmpty() && !busy) onConnect(trimmed) }
     var recents by remember { mutableStateOf(Recents.all) }
-    // GĐ10 — mật khẩu/token đã lưu, cho mục "Saved passwords" bên dưới.
-    var savedCreds by remember { mutableStateOf(Credentials.all) }
 
-    // Hai danh sách trên là snapshot, mà StreamActivity ghi thêm vào cả hai kho
-    // (savePassword/saveToken/remember) trong lúc composition này vẫn sống bên dưới.
-    // Không đọc lại lúc quay về thì "Saved passwords" cứ hiển thị trạng thái trước
-    // phiên cho tới khi process chết. ON_RESUME là đúng thời điểm quay về.
+    // Danh sách trên là snapshot, mà StreamActivity ghi thêm vào kho (remember)
+    // trong lúc composition này vẫn sống bên dưới. Không đọc lại lúc quay về thì
+    // "Gần đây" cứ hiển thị trạng thái trước phiên cho tới khi process chết.
+    // ON_RESUME là đúng thời điểm quay về.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     recents = Recents.all
-                    savedCreds = Credentials.all
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -336,77 +327,6 @@ private fun AddressScreen(
                             link = machine.link,
                             onTap = { onAddressChange(machine.address) },
                         )
-                    }
-                }
-            }
-
-            // GĐ10 — "Saved passwords" của màn `05 · settings / password`. Đặt ở đây
-            // thay vì dựng một màn Settings riêng: chỉ có đúng một việc để làm (xoá),
-            // và nó thuộc cùng một câu hỏi với danh sách trên ("máy nào tôi đã dùng").
-            // Ẩn hẳn khi chưa lưu gì — một mục rỗng chỉ làm màn hình dài thêm.
-            if (savedCreds.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionHeader(label = tr("savedHosts")) {
-                        MonoText(text = tr("savedCountFmt").format(savedCreds.size))
-                        DsButton(
-                            text = tr("forgetAll"),
-                            onClick = {
-                                Credentials.forgetAll()
-                                savedCreds = Credentials.all
-                            },
-                            variant = DsButtonVariant.GHOST,
-                            size = DsButtonSize.SM,
-                        )
-                    }
-                    savedCreds.forEach { cred ->
-                        // Dựng tay thay vì dùng SourceRow: SourceRow là dòng CHỌN
-                        // nguồn (cả dòng là một nút, có ô tick), còn dòng này chỉ
-                        // hiển thị và có một nút riêng ở đuôi. Nhét thêm slot vào
-                        // SourceRow sẽ làm hỏng ý nghĩa của nó ở ba chỗ đang dùng.
-                        val shape = RoundedCornerShape(Ds.radiusMd)
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(Ds.colors.surfaceCard, shape)
-                                    .border(Ds.hairline, Ds.colors.borderHairline, shape)
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            LockIcon(size = 18.dp, color = Ds.colors.accent)
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                MonoText(
-                                    text = cred.address,
-                                    color = Ds.colors.textPrimary,
-                                    maxLines = 1,
-                                )
-                                // Nói rõ máy này đang được nhớ bằng CÁI GÌ: có token
-                                // thì lần sau vào thẳng, chỉ có mật khẩu thì vẫn phải
-                                // qua challenge. Hai trạng thái đó khác nhau thật.
-                                MonoText(
-                                    text =
-                                        if (cred.hasToken) {
-                                            tr("savePassword")
-                                        } else {
-                                            tr("connectPassword")
-                                        },
-                                    maxLines = 1,
-                                )
-                            }
-                            DsButton(
-                                text = tr("forget"),
-                                onClick = {
-                                    Credentials.forget(cred.address)
-                                    savedCreds = Credentials.all
-                                },
-                                variant = DsButtonVariant.SECONDARY,
-                                size = DsButtonSize.SM,
-                            )
-                        }
                     }
                 }
             }
@@ -487,7 +407,7 @@ private fun HelpPanels() {
 }
 
 /**
- * Danh sách cửa sổ host đang chia sẻ, ô tick hành xử như radio — dh_start nhận MỘT
+ * Danh sách màn hình host đang chia sẻ, ô tick hành xử như radio — dh_start nhận MỘT
  * sourceId, chọn cái mới là bỏ cái cũ. Nút "Bắt đầu xem" ở thanh đáy chốt lựa chọn.
  */
 @Composable
@@ -526,7 +446,7 @@ private fun SourcePickerScreen(
                 sources.forEach { source ->
                     val selected = source.id == pickedId
                     SourceRow(
-                        // Host cắt tên ở 64 byte và có cửa sổ không có tiêu đề.
+                        // Host cắt tên ở 64 byte; tên rỗng thì hiện "Source N".
                         name = source.name.ifBlank { tr("unnamedSourceFmt").format(source.id) },
                         detail = "${source.width}×${source.height}",
                         selected = selected,

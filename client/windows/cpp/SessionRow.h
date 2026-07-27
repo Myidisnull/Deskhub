@@ -19,19 +19,17 @@ struct SessionSourceRow {
     // ngôn ngữ và vẽ mỗi mẩu thông tin ở một chỗ khác nhau (tên đậm, độ phân giải
     // mono, huy hiệu trạng thái riêng) — nên nó cần từng mẩu RỜI, không phải một
     // câu. Giữ `label` lại vì nó vẫn là cách hiển thị gọn cho log và cho bản dựng cũ.
-    std::wstring name; // tên nguồn, không hậu tố
+    std::wstring name; // tên màn hình, không hậu tố
     uint32_t width = 0, height = 0;
-    bool isDisplay = false; // cả màn hình (khác: một cửa sổ)
     bool viewerConnected = false;
     std::string viewerAddr; // "ip:port" của client đang xem, rỗng nếu không có
     uint32_t fps = 0;       // đang gửi, cửa sổ 1 giây gần nhất
     uint32_t kbps = 0;
     uint32_t rttMs = 0; // từ FEEDBACK của client; 0 = chưa có số
 
-    // Handle HĐH của nguồn (HWND/HMONITOR đóng gói uint64). Giao diện dùng làm khoá
-    // khớp dòng ↔ mục danh sách — tên trùng nhau giữa hai cửa sổ là chuyện thường.
-    uint64_t hwnd = 0;    // 0 nếu nguồn là màn hình
-    uint64_t monitor = 0; // 0 nếu nguồn là cửa sổ
+    // HMONITOR của nguồn đóng gói uint64 — khoá ổn định để giao diện khớp dòng ↔
+    // mục danh sách (tên "Display 1" có thể trùng khi cắm lại màn hình).
+    uint64_t monitor = 0;
 
     // So sánh để SetRows bỏ qua khi không đổi. Bao luôn các trường số: chúng đổi
     // mỗi giây và chính là thứ giao diện cần vẽ lại.

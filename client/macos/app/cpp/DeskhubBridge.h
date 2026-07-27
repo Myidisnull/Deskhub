@@ -25,8 +25,8 @@
 //   toàn và nhanh trên main thread.
 //
 // LIÊN QUAN: DeskhubBridge.mm (cài đặt), swift/DeskhubClient.swift +
-//            swift/DeskhubAgent.swift (bọc Swift), client/ClientLoop.h,
-//            agent/AgentLoop.h
+//            swift/DeskhubAgent.swift (bọc Swift), ClientLoop.h,
+//            AgentLoop.h
 // =============================================================================
 
 #include <stdbool.h>
@@ -91,15 +91,6 @@ void dh_mouse_button(int32_t button, bool down);
 // Con lăn. `delta` là bội của 120 (dương = cuộn lên), như WHEEL_DELTA của Windows.
 void dh_mouse_wheel(int32_t delta);
 
-// --- Clipboard hai chiều (GĐ8) ---
-
-// Máy này vừa copy văn bản -> gửi sang host.
-void dh_set_clipboard(const char* utf8);
-
-// Host vừa copy văn bản. Trả chuỗi RỖNG nếu không có gì mới; chuỗi tĩnh, hợp lệ tới
-// lần gọi kế. Đọc-và-xoá nên poll lặp là an toàn.
-const char* dh_take_remote_clipboard(void);
-
 // --- Trạng thái để UI vẽ ---
 DHPhase dh_phase(void);
 // GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng tin
@@ -135,10 +126,9 @@ void dh_open_accessibility_settings(void);
 // Vai AGENT — chia sẻ máy này
 // ===========================================================================
 
-// Một thứ máy này chia sẻ được (một cửa sổ hoặc một màn hình).
+// Một màn hình máy này chia sẻ được (share theo cửa sổ đã bỏ 2026-07-27).
 typedef struct {
-    uint32_t id; // CGWindowID hoặc CGDirectDisplayID
-    bool isDisplay;
+    uint32_t id; // CGDirectDisplayID
     uint32_t width;
     uint32_t height;
     char name[256];
@@ -157,15 +147,13 @@ typedef struct {
     char name[256];
 } DHAgentStatus;
 
-// Liệt kê cửa sổ + màn hình chia sẻ được. CHẶN ~2s, gọi ngoài main thread.
+// Liệt kê màn hình chia sẻ được. CHẶN ~2s, gọi ngoài main thread.
 int dha_list_share_sources(DHShareSource* out, int capacity);
 
 // Bắt đầu chia sẻ. CHẶN tới ~10s (đợi frame đầu), gọi ngoài main thread.
 // `port` = 0 dùng mặc định 47777; cổng bận thì tự tăng dần (xem dha_port).
-// `share_clipboard` MẶC ĐỊNH phải là false (GĐ9): clipboard hay chứa mật khẩu/OTP,
-// người dùng phải tự tay bật.
 bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input, bool share_clipboard);
+    uint32_t bitrate_mbps, bool allow_input);
 
 void dha_stop(void);
 bool dha_running(void);

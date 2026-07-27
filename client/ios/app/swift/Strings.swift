@@ -1,6 +1,6 @@
 // =============================================================================
 // Strings.swift — bảng chữ EN/VI. Cùng nguồn với client/macos/app/swift/Strings.swift
-//                 và client/windows/csharp/Strings.cs (i18n.jsx của dự án thiết kế).
+//                 (i18n.jsx của dự án thiết kế).
 //
 // CHỈ MANG PHẦN CỦA VAI CLIENT, CỘNG VÀI KHOÁ RIÊNG CỦA CẢM ỨNG
 //   iOS là client-only, nên toàn bộ nhóm chữ của màn chia sẻ và của quyền hệ thống
@@ -72,7 +72,7 @@ enum Strings {
         "startViewing": "Start viewing",
         "noSourcesShared": "That machine is not sharing anything right now.",
         "allowInput": "Allow touch and keyboard",
-        // Host cắt tên ở 64 byte, và cửa sổ không tiêu đề thì trả về tên rỗng.
+        // Host cắt tên ở 64 byte; tên rỗng thì hiện "Source N".
         "unnamedSourceFmt": "Source %d",
 
         // Viewer
@@ -88,21 +88,6 @@ enum Strings {
         "keys": "Keys",
         "keysOn": "keyboard on",
         "trackpadHint": "drag to move · tap to click · double tap for right click",
-        // Xác thực (GĐ10) — trùng khoá với i18n.jsx của dự án thiết kế.
-        "securityEyebrow": "Security",
-        "settingsTitle": "Password and access",
-        "connectPassword": "Password to connect",
-        "savePassword": "Save the password for this machine",
-        "biometricUnlock": "Unlock with Face ID before connecting",
-        "passwordHintPhone": "kept in the keychain on this phone — never in a file, never synced.",
-        "savedHosts": "Saved passwords",
-        "savedCountFmt": "%d machines",
-        "forget": "Forget",
-        "lastConnected": "last connected",
-        "wrongPassword": "Wrong password",
-        "lockedOut": "Too many wrong tries — locked out, try again in a few minutes",
-        "hostBusy": "That machine is busy with another client",
-        "noSavedPasswords": "No saved passwords yet.",
     ]
 
     private static let vi: [String: String] = [
@@ -151,20 +136,5 @@ enum Strings {
         "keys": "Bàn phím",
         "keysOn": "bàn phím đang bật",
         "trackpadHint": "rê để di chuột · chạm để bấm · chạm hai lần để bấm phải",
-        // Xác thực (GĐ10) — trùng khoá với i18n.jsx của dự án thiết kế.
-        "securityEyebrow": "Bảo mật",
-        "settingsTitle": "Mật khẩu và quyền truy cập",
-        "connectPassword": "Mật khẩu để kết nối",
-        "savePassword": "Lưu mật khẩu cho máy này",
-        "biometricUnlock": "Mở bằng Face ID trước khi kết nối",
-        "passwordHintPhone": "lưu trong keychain của điện thoại — không ghi ra file, không đồng bộ.",
-        "savedHosts": "Mật khẩu đã lưu",
-        "savedCountFmt": "%d máy",
-        "forget": "Xoá",
-        "lastConnected": "kết nối lần cuối",
-        "wrongPassword": "Sai mật khẩu",
-        "lockedOut": "Sai quá nhiều lần — đang bị khoá, thử lại sau vài phút",
-        "hostBusy": "Máy đó đang bận với một client khác",
-        "noSavedPasswords": "Chưa lưu mật khẩu nào.",
     ]
 }

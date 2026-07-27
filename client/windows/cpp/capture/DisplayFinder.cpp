@@ -7,7 +7,7 @@
 // DÙNG rcMonitor CHỨ KHÔNG PHẢI rcWork: rcWork trừ đi taskbar, mà ta capture cả màn
 // hình kể cả taskbar — khai kích thước nhỏ hơn thật sẽ làm client dựng decoder sai cỡ.
 //
-// LIÊN QUAN: capture/DisplayFinder.h (vì sao tách khỏi WindowFinder)
+// LIÊN QUAN: capture/DisplayFinder.h (vai trò + quy ước đặt tên)
 // =============================================================================
 #include "capture/DisplayFinder.h"
 

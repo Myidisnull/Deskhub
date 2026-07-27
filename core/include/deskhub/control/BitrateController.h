@@ -36,7 +36,7 @@
 //
 #include <cstdint>
 
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 namespace deskhub {
 

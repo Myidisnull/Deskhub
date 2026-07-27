@@ -2,7 +2,7 @@
 // DesignTokens.swift — bảng token của hệ thiết kế Deskhub cho iOS.
 //
 // CÙNG MỘT BỘ SỐ VỚI macOS VÀ WINDOWS
-//   client/macos/app/swift/DesignTokens.swift và client/windows/csharp/Themes/
+//   client/macos/app/swift/DesignTokens.swift
 //   Tokens.xaml đã dịch bộ token này từ _ds/tokens/*.css. File này lấy lại CHÍNH
 //   những giá trị màu ấy chứ không dịch lại lần nữa: ba nền tảng phải trông cùng một
 //   sản phẩm, và một chênh lệch 1% alpha ở đây sẽ không ai phát hiện ra cho tới lúc

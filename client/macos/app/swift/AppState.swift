@@ -1,7 +1,7 @@
 // =============================================================================
 // AppState.swift — hai tuỳ chọn toàn app mà bản thiết kế đặt ở CHÂN THANH RAIL,
 // cạnh nhau: giao diện sáng/tối và ngôn ngữ EN/VI.
-// Đối ứng client/windows/csharp/AppState.cs và `APP` trong i18n.jsx.
+// Đối ứng `APP` trong i18n.jsx của dự án thiết kế.
 //
 // VÌ SAO LÀ MỘT SINGLETON CHỨ KHÔNG PHẢI @Environment
 //   Đúng một cái tồn tại trong đời sống app, và cả bảng chữ (Strings.swift) lẫn thanh

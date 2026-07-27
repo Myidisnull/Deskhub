@@ -22,12 +22,10 @@ final class AgentModel {
     var fps: Int = UserDefaults.standard.object(forKey: "shareFps") as? Int ?? 60
     var bitrateMbps: Int = UserDefaults.standard.object(forKey: "shareBitrate") as? Int ?? 20
     var allowInput: Bool = UserDefaults.standard.object(forKey: "shareAllowInput") as? Bool ?? true
-    // GĐ9: clipboard MẶC ĐỊNH TẮT — hay chứa mật khẩu/OTP, người dùng phải tự bật.
-    var shareClipboard: Bool = UserDefaults.standard.object(forKey: "shareClipboard") as? Bool ?? false
 
-    // Danh sách nguồn chia sẻ được + lựa chọn của người dùng.
+    // Danh sách màn hình chia sẻ được + lựa chọn của người dùng.
     var available: [ShareSource] = []
-    var selected: Set<String> = []
+    var selected: Set<UInt32> = []
     var isScanning = false
 
     // Trạng thái phiên đang chạy.
@@ -74,7 +72,7 @@ final class AgentModel {
         isScanning = true
         let found = await Task.detached { DeskhubAgent.listShareSources() }.value
         available = found
-        // Bỏ khỏi lựa chọn những nguồn đã biến mất giữa hai lần quét (cửa sổ bị đóng).
+        // Bỏ khỏi lựa chọn những màn hình đã biến mất giữa hai lần quét (bị rút).
         let ids = Set(found.map(\.id))
         selected = selected.intersection(ids)
         isScanning = false
@@ -93,13 +91,11 @@ final class AgentModel {
         UserDefaults.standard.set(fps, forKey: "shareFps")
         UserDefaults.standard.set(bitrateMbps, forKey: "shareBitrate")
         UserDefaults.standard.set(allowInput, forKey: "shareAllowInput")
-        UserDefaults.standard.set(shareClipboard, forKey: "shareClipboard")
 
         let portNum = UInt16(port) ?? 47777
         let fpsNum = UInt32(fps)
         let bitrateNum = UInt32(bitrateMbps)
         let input = allowInput
-        let clipboard = shareClipboard
 
         let ok = await Task.detached {
             DeskhubAgent.start(
@@ -107,8 +103,7 @@ final class AgentModel {
                 port: portNum,
                 fps: fpsNum,
                 bitrateMbps: bitrateNum,
-                allowInput: input,
-                shareClipboard: clipboard
+                allowInput: input
             )
         }.value
 
@@ -120,7 +115,7 @@ final class AgentModel {
             startPolling()
         } else {
             startError = hasScreenRecording
-                ? "Could not start sharing. The window may have closed, or the port is in use."
+                ? "Could not start sharing. The display may be disconnected, or the port is in use."
                 : "Screen Recording permission is required. Grant it in System Settings, "
                 + "then quit and reopen Deskhub."
         }

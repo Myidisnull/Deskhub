@@ -48,27 +48,6 @@ object NativeClient {
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
 
-    /**
-     * GĐ10 — host đòi mật khẩu mà máy này chưa có. Phiên **vẫn sống**: tầng C++ tiếp
-     * tục phát lại HELLO, nên chỉ cần [nativeSubmitPassword] là nó đi tiếp. Đừng gọi
-     * [nativeStop] ở trạng thái này.
-     */
-    const val PHASE_NEED_PASSWORD = 4
-
-    /**
-     * Trùng `deskhub::RejectReason` bên C++ (Wire.h) — cùng kiểu enum tách đôi như
-     * PHASE_* ở trên. Dùng để hiện đúng thông báo: "sai mật khẩu" và "máy đang bận"
-     * đòi hai hành động hoàn toàn khác nhau từ người dùng.
-     */
-    object RejectReason {
-        const val NONE = 0
-        const val BUSY = 1
-        const val CODEC_MISMATCH = 2
-        const val AUTH_REQUIRED = 3
-        const val AUTH_FAILED = 4
-        const val LOCKED_OUT = 5
-    }
-
     // Nạp .so một lần, lần đầu có ai chạm tới object này. Phải chạy trước mọi lời
     // gọi external fun, và khối init của object bảo đảm đúng điều đó.
     init {
@@ -76,7 +55,7 @@ object NativeClient {
     }
 
     /**
-     * Host đang chia sẻ những cửa sổ nào. CHẶN tới ~3 giây (LIST_SOURCES đi trên UDP,
+     * Host đang chia sẻ những màn hình nào. CHẶN tới ~3 giây (LIST_SOURCES đi trên UDP,
      * phát lại vài lần) nên phải gọi ngoài main thread — dùng [listSources].
      */
     private external fun nativeListSources(addr: String): Array<String>
@@ -91,10 +70,6 @@ object NativeClient {
     external fun nativeStart(
         addr: String,
         sourceId: Int,
-        clientId: Int,
-        deviceName: String,
-        password: String,
-        deviceToken: ByteArray?,
     ): Long
 
     /**
@@ -102,22 +77,6 @@ object NativeClient {
      * phiên hiện tại là thế hệ khác thì không đụng. 0 = dừng vô điều kiện.
      */
     external fun nativeStop(generation: Long)
-
-    /**
-     * GĐ10 — người dùng vừa nhập mật khẩu ở hộp thoại. Có tác dụng ở lần phát lại
-     * HELLO kế tiếp (≤ 0.5 giây), không phải kết nối lại từ đầu.
-     */
-    external fun nativeSubmitPassword(password: String)
-
-    /**
-     * GĐ10 — token host vừa cấp để nhớ máy này. **Đọc rồi xoá**: gọi lần hai trả
-     * mảng rỗng. Gọi mỗi nhịp poll và cất ngay khi khác rỗng — token chỉ đi trên dây
-     * đúng một lần, bỏ lỡ là lần sau người dùng phải gõ mật khẩu lại.
-     */
-    external fun nativeTakeDeviceToken(): ByteArray
-
-    /** GĐ10 — vì sao host từ chối, theo `deskhub::RejectReason`. Xem [RejectReason]. */
-    external fun nativeRejectReason(): Int
 
     /**
      * Giao/thu hồi Surface. Truyền null CHẶN tới khi bộ giải mã buông surface ra,
@@ -241,7 +200,7 @@ object NativeClient {
 
     external fun nativeVideoHeight(): Int
 
-    /** Một cửa sổ host đang chia sẻ. `name` chỉ để hiển thị. */
+    /** Một màn hình host đang chia sẻ. `name` chỉ để hiển thị. */
     data class Source(
         val id: Int,
         val width: Int,
@@ -260,7 +219,7 @@ object NativeClient {
     suspend fun listSources(addr: String): List<Source> =
         withContext(Dispatchers.IO) {
             nativeListSources(addr).mapNotNull { line ->
-                // limit = 4: tiêu đề cửa sổ có thể chứa tab, không được cắt tiếp.
+                // limit = 4: tên nguồn có thể chứa tab, không được cắt tiếp.
                 val f = line.split('\t', limit = 4)
                 if (f.size < 4) return@mapNotNull null
                 val id = f[0].toIntOrNull() ?: return@mapNotNull null
