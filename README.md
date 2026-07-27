@@ -5,8 +5,9 @@
 > **demanding games** — from your phone, tablet, another laptop, or straight from a browser.
 > **Millisecond** latency, end-to-end **hardware encode/decode**, everything in **one file**.
 
-A **low-latency, cross-platform** remote desktop/app with an **AnyDesk-style** architecture —
-but fast enough, and raw enough at the input layer, to **actually play games** (relative mouse +
+A **low-latency, cross-platform** remote desktop/app — **one app per desktop OS, containing
+both roles** (host + client) —
+fast enough, and raw enough at the input layer, to **actually play games** (relative mouse +
 DirectInput scancodes), which ordinary remote desktop tools can't pull off. The technical
 differentiator: **a single C++20 core that runs everywhere** — from Windows to iPhone to a
 Chrome tab — with zero protocol rewrites.
@@ -40,7 +41,7 @@ local network. Grab a prebuilt binary from
 | **Windows** | ✅ | ✅ | **Real-world use across 2 machines over LAN + via Tailscale** (Internet/NAT) — video + input |
 | **Android** | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard, shortcut keys) — in testing on Google Play |
 | **iOS** | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard) — in testing via TestFlight |
-| **macOS** | 🔶 | 🔶 | **Both roles implemented** (ScreenCaptureKit + VideoToolbox + CGEvent) — not yet verified on two physical machines |
+| **macOS** | ✅ | ✅ | **Both roles tested and working** (ScreenCaptureKit + VideoToolbox + CGEvent) — video + input |
 | **Web** | — | 📐 | Designed, not yet implemented |
 | **Ubuntu** | ⬜ | ⬜ | Not started |
 

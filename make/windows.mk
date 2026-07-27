@@ -2,7 +2,7 @@
 #
 # App Windows = 2 lớp: CMake dựng deskhub_native.dll, dotnet/MSBuild dựng Deskhub.exe
 # (giống client/android: cpp/ qua CMake, java/ qua Gradle). Deskhub.exe chứa CẢ vai host
-# lẫn vai client (kiểu AnyDesk) — từ M4b đây là app Windows duy nhất.
+# lẫn vai client — từ M4b đây là app Windows duy nhất.
 # .csproj tự chép DLL native theo cấu hình: Release lấy preset x64-release, còn lại x64-debug.
 
 ifeq ($(OS),Windows_NT)

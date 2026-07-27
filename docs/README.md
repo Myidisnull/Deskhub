@@ -11,7 +11,7 @@ stands today.
 - **Agent (host): Windows · macOS · Ubuntu** — the machine running the app to be controlled: captures video + receives input.
 - **Client: Windows · macOS · Ubuntu · iOS · Android · Web** — the machine that views + controls.
 
-**AnyDesk-style**: each **desktop OS ships ONE app** containing **both roles** (agent +
+**One app per desktop OS**: each **desktop OS ships ONE app** containing **both roles** (agent +
 client), selected at runtime. **iOS / Android / Web are client-only apps** (they cannot
 host — input injection and background listening sockets are blocked by those platforms,
 see `11-platform-transport.md`). All protocol logic lives in `core/` (pure C++20, no OS
@@ -23,7 +23,7 @@ backend, never touching the core.**
 | Platform | Agent (host) | Client | App | Status |
 |----------|:------------:|:------:|-----|--------|
 | Windows | ✅ | ✅ | `Deskhub.exe` — WinUI 3 shell + `deskhub_native.dll`, both roles | **Real-world use across 2 machines over LAN + Tailscale** (Internet/NAT) |
-| macOS | 🔶 | 🔶 | one app, both roles (SwiftUI + core C++) | Both roles implemented (ScreenCaptureKit + VideoToolbox + CGEvent); not yet verified on two physical machines |
+| macOS | ✅ | ✅ | one app, both roles (SwiftUI + core C++) | **Both roles tested and working** (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | Android | ❌ | ✅ | client-only (Kotlin + core C++ via JNI) | **Video + input**; in testing on Google Play |
 | iOS | ❌ | ✅ | client-only (SwiftUI + core C++) | **Video + input**; in testing via TestFlight |
 | Web | ❌ | 📐 | in the browser (WebTransport + WebCodecs) | Design only — no code yet (`10-web-client.md`) |
@@ -53,7 +53,7 @@ core/            shared across ALL platforms (pure C++20, NO OS headers)
 platform/        thin OS wrappers core is allowed to use: Clock.h, Random.h
 client/windows/  cpp/ (capture WGC · encode NVENC/MF · decode MF+D3D11 · input ·
                  net · C API in DeskhubApi.h) + csharp/ (WinUI 3 UI)      ✅ reference
-client/macos/    one app, both roles: cpp/{agent,client,input,net} + swift/   🔶
+client/macos/    one app, both roles: cpp/{agent,client,input,net} + swift/   ✅
 client/android/  client-only: Kotlin UI + cpp/{decode,net} over JNI            ✅
 client/ios/      client-only: SwiftUI + cpp/{decode,net} via ObjC++ bridge     ✅
 client/web/      not started — design in 10-web-client.md                      📐

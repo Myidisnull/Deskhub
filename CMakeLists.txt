@@ -1,6 +1,6 @@
 # Remote game streaming/control — build bằng CMake + Ninja.
 # Cấu trúc: core/ (thuần, dùng chung mọi OS) + client/<os>/ (app từng nền tảng,
-# mỗi OS một file duy nhất kiểu AnyDesk — chứa cả vai trò host lẫn client).
+# mỗi OS một file duy nhất — chứa cả vai trò host lẫn client).
 # Windows: mở thư mục này bằng Visual Studio (Open Folder) hoặc từ Developer prompt:
 #   cmake --preset x64-debug && cmake --build --preset x64-debug
 cmake_minimum_required(VERSION 3.25)

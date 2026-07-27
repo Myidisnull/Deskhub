@@ -4,7 +4,7 @@
 //   → thanh hành động dưới cùng.
 // Đối ứng client/windows/csharp/Views/HomePage.xaml.
 //
-// HAI VIỆC MỘT MÀN HÌNH, đúng mô hình AnyDesk (docs/01 §1): "máy này cho người khác
+// HAI VIỆC MỘT MÀN HÌNH (docs/01 §1): "máy này cho người khác
 // dùng" và "tôi muốn dùng máy khác". Không đoán ý người dùng, không nhớ lựa chọn lần
 // trước — chọn sai vai trên một app điều khiển từ xa khó chịu hơn nhiều so với bấm
 // thêm một nút.

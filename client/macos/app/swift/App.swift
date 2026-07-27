@@ -2,7 +2,7 @@
 // App.swift — entry point của app macOS.
 //
 // MỘT CỬA SỔ, HAI VAI
-//   Khác iOS (client-only), app này chứa cả vai xem lẫn vai chia sẻ — kiểu AnyDesk,
+//   Khác iOS (client-only), app này chứa cả vai xem lẫn vai chia sẻ,
 //   đúng như bản Windows (docs/01 §1). Một cửa sổ duy nhất, điều hướng bằng
 //   ContentView.route.
 //

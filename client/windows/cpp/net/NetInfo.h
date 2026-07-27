@@ -4,7 +4,7 @@
 //
 // NHIỆM VỤ
 //   Trả lời câu hỏi "máy này có địa chỉ gì để máy kia gọi tới?". Dùng ở màn hình
-//   chính kiểu AnyDesk: hiện địa chỉ để người dùng đọc cho máy bên kia, và để agent
+//   chính: hiện địa chỉ để người dùng đọc cho máy bên kia, và để agent
 //   in ra khi bắt đầu lắng nghe.
 //
 // VÌ SAO PHẢI LIỆT KÊ THEO ADAPTER, KHÔNG PHẢI MỘT ĐỊA CHỈ DUY NHẤT

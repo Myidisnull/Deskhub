@@ -1,7 +1,7 @@
 # 01 — Architecture
 
-Deskhub is a low-latency remote desktop/app tool. One codebase produces one app per OS
-(AnyDesk-style): on desktop the same app contains **both roles**; on mobile it is
+Deskhub is a low-latency remote desktop/app tool. One codebase produces one app per OS:
+on desktop the same app contains **both roles**; on mobile it is
 **client-only**. Everything runs over UDP with a custom protocol (see `04-protocol.md`).
 Code comments are written in Vietnamese and carry most of the design rationale — read them.
 

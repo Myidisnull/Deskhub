@@ -1,6 +1,6 @@
 # make/macos.mk — app macOS: build-macos / release-macos / run-macos / dist-macos.
 #
-# MỘT app chứa cả vai host lẫn vai client (kiểu AnyDesk), build bằng xcodebuild.
+# MỘT app chứa cả vai host lẫn vai client, build bằng xcodebuild.
 # Sản phẩm ra out/build/macos/<Config>/app.app.
 # LƯU Ý khi chạy thử: app cần quyền Screen Recording (vai host) và Accessibility (cho
 # điều khiển từ xa) — xem docs/14-macos-app.md §5.

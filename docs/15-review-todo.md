@@ -51,7 +51,8 @@ pairing code, **no** password anywhere.
 **Why it is a problem.** Encryption is a **deliberate and published** deferral (`05-roadmap.md`
 Phase 6, `PRIVACY.md:96`) — that is fine and is not part of this TODO. But **authorization is a
 different control from encryption**, and it currently appears nowhere on the roadmap.
-AnyDesk/RustDesk/VNC all require a password or per-session approval **even on a trusted LAN**.
+Mainstream remote-desktop tools all require a password or per-session approval **even on a
+trusted LAN**.
 
 Concrete scenario: a laptop on the same coffee-shop Wi-Fi runs `DISCOVER` → `LIST_SOURCES` →
 `HELLO` → can type into your machine. No sniffing, no spoofing required.
@@ -63,7 +64,7 @@ Concrete scenario: a laptop on the same coffee-shop Wi-Fi runs `DISCOVER` → `L
   tail following the existing backward-compatible pattern in `HelloAck::flags`). Cheap, no crypto
   needed, blocks arbitrary access.
 - **(b) Host-side approval dialog.** HELLO → host holds it in a pending state, shows "X wants to
-  connect — Accept / Deny". Closest to the AnyDesk model, but requires adding a state to the
+  connect — Accept / Deny". The most user-friendly option, but requires adding a state to the
   state machine and a callback path up to the UI on all 4 platforms.
 
 **Where to fix (whichever direction is chosen).** The check gate must sit **before**

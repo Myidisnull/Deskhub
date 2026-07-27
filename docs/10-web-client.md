@@ -153,7 +153,7 @@ v1 flow:
 1. The host generates a **temporary ECDSA P-256 certificate** (~13-day validity),
    self-signed, and computes its SHA-256. Rotate before expiry.
 2. The host **prints / serves** the `ip:port` + hash pair — the same place users get the
-   address to connect (the counterpart of the "AnyDesk-style ID"). Package it compactly as
+   address to connect. Package it compactly as
    **one connection string** or a **QR code** for a single copy.
 3. The web page opens:
    ```js

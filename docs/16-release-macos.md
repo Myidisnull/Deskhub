@@ -25,8 +25,8 @@ with `network.server`, which the file already declares. ScreenCaptureKit and
 `NSPasteboard` are likewise fine under sandbox. The host input path is the whole reason.
 
 Since the sandbox is a per-process property and this is one app with both roles
-(`01-architecture.md`), the host role rules out MAS for the entire binary. Same reason
-AnyDesk, TeamViewer and BetterTouchTool all ship outside the store.
+(`01-architecture.md`), the host role rules out MAS for the entire binary. The same reason
+remote-control tools in general ship outside the store.
 
 ## 2. The two Mac deliverables
 

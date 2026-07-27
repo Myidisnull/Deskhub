@@ -53,7 +53,7 @@ namespace {
 // "Host thắng": sau lần chuột/phím VẬT LÝ gần nhất của người ngồi máy, input từ
 // xa bị bỏ qua thêm quãng này nữa. Đủ dài để host thao tác liền mạch không bị
 // remote chen vào, đủ ngắn để remote lấy lại quyền gần như ngay khi host buông
-// tay (các tool VNC/AnyDesk dùng cùng cỡ ~1s cho heuristic này).
+// tay (cỡ ~1s là mức phổ biến cho heuristic này ở các tool điều khiển từ xa).
 constexpr uint64_t kHostWinsGraceUs = 1'000'000;
 
 // Đổi pixel màn hình -> tọa độ chuẩn hóa 0..65535 trên MÀN HÌNH ẢO (toàn bộ

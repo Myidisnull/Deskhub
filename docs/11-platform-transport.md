@@ -8,13 +8,13 @@ code. Siblings: 01-architecture.md (layering), 04-protocol.md (wire format),
 
 ## 1. Platform capability matrix
 
-Like AnyDesk, each desktop OS ships **one app containing both roles** (see
+Each desktop OS ships **one app containing both roles** (see
 `make/windows.mk`, `make/macos.mk`); mobile apps are client-only.
 
 | Platform | Agent (host)? | Client? | App form | Current state |
 |---|---|---|---|---|
 | Windows | Yes | Yes | WinUI 3 frontend (`client/windows/csharp/`) over `deskhub_native.dll` (`client/windows/cpp/`, C API in `DeskhubApi.h`) | **Both roles shipped.** Full net layer incl. LAN discovery, firewall helper, pacer. |
-| macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles implemented**, not yet verified between two physical machines. LAN discovery not ported yet: no `Discovery` on macOS and `agent/AgentLoop.cpp` does not answer DISCOVER (noted in `client/macos/app/swift/HomeView.swift`). |
+| macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles tested and working.** LAN discovery not ported yet: no `Discovery` on macOS and `agent/AgentLoop.cpp` does not answer DISCOVER (noted in `client/macos/app/swift/HomeView.swift`). |
 | Android | No | Yes | Kotlin UI + NDK `libdeskhub.so` (`client/android/app/src/main/cpp/ClientLoop.cpp`) | **Client-only, shipped to store testing** (see 13-release-mobile.md, `make/android.mk`). |
 | iOS | No | Yes | SwiftUI + C++ (`client/ios/app/cpp/ClientLoop.cpp`, VideoToolbox decode) | **Client-only, shipped to store testing** (Simulator build via `make/ios.mk`; device/App Store via Xcode). |
 | Web | No | Planned | Browser (WebTransport + WebCodecs + WASM `core/`) | **Design only** — see 10-web-client.md. No web code exists in the repo. |

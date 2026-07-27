@@ -16,7 +16,7 @@ The roadmap has **two dimensions**:
 | Platform | Agent | Client | Status | Doc |
 |----------|:-----:|:------:|-----------|-----|
 | Windows | ✅ | ✅ | **Running for real on two machines over LAN + Tailscale** (Internet/NAT); Phase 0–Phase 6 | 02 / 03 |
-| macOS | 🔶 | 🔶 | **Both roles implemented** (SCK + VideoToolbox + CGEvent), clean build; not yet verified on two physical machines | 14 |
+| macOS | ✅ | ✅ | **Both roles tested and working** (SCK + VideoToolbox + CGEvent), clean build | 14 |
 | Android | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard); in testing on Google Play | 08 |
 | iOS | — | ✅ | **Video + input** (SwiftUI + VideoToolbox); in testing via TestFlight | 12 |
 | Web | — | 📐 | Design complete, no code yet | 10 |
@@ -137,7 +137,7 @@ Run: `client.exe game.exe --loopback [--frames N] [--save]`
 - ✅ `--serve` mode (AgentLoop) / `--connect ip[:port]` (ClientLoop, reusing Phase 2's
   MfDecoder/Renderer) / `core_tests` (M1 self-test). The client logs every 1 s:
   fps | kbps | dropped frames | % packet loss | RTT | estimated e2e latency.
-- ✅ **AnyDesk-style UX**: run with no arguments → main menu shows this machine's IP per network
+- ✅ **Menu-first UX**: run with no arguments → main menu shows this machine's IP per network
   adapter (`NetInfo`, virtual adapters sorted last), `[s]` shares an application (the window
   picker as before), `[c]`/typing `ip[:port]` directly to connect; after the session ends it
   returns to the menu.

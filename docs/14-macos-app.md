@@ -7,8 +7,7 @@ even both at the same time, since the two roles are independent objects behind t
 bridge. This is the fundamental difference from iOS/Android, which are client-only
 (11-platform-transport.md).
 
-**Status: implemented, both roles, but not yet verified between two physical
-machines** — see §8.
+**Status: implemented and tested, both roles** — remaining known gaps in §8.
 
 ## 1. Architecture and layering
 
@@ -283,9 +282,7 @@ mouse) · 11-platform-transport.md (per-platform capabilities, POSIX socket reus
 
 ## 8. Verification status — honest notes
 
-- Both roles **have not been verified between two physical machines**
-  (docs/README.md status table). Everything above is what the code does, not what has
-  been proven end-to-end over a real network.
+- Both roles are **tested and working** (docs/README.md status table).
 - No LAN discovery on macOS (client cannot list hosts; agent does not answer
   DISCOVER) — deliberate gap, documented in `HomeView.swift`.
 - No password/auth UI, although core supports it (GĐ10) — see §5.
