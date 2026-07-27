@@ -45,7 +45,6 @@
 
 namespace {
 
-constexpr uint16_t kDefaultPort = 47777; // trùng client/windows/MainMenuWindow.cpp
 
 // Phiên đang chạy (null = chưa kết nối) và Surface đang giữ (null = app ở nền).
 // Hai thứ này ĐỘC LẬP về thời điểm xuất hiện: Surface có thể sẵn sàng trước khi
@@ -90,7 +89,7 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     const std::string addr = FromJString(env, addrStr);
     NetAddr server;
     std::vector<deskhub::SourceInfo> sources;
-    if (ParseNetAddr(addr, kDefaultPort, server)) {
+    if (ParseNetAddr(addr, server)) {
         QuerySources(server, sources);
     } else {
         LOGE("[JNI] Invalid host address: \"%s\"", addr.c_str());
@@ -114,7 +113,7 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     const std::string addr = FromJString(env, addrStr);
 
     NetAddr server;
-    if (!ParseNetAddr(addr, kDefaultPort, server)) {
+    if (!ParseNetAddr(addr, server)) {
         LOGE("[JNI] Invalid host address: \"%s\"", addr.c_str());
         return 0;
     }

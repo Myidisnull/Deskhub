@@ -79,7 +79,6 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             params_.fps = m->fps;
             params_.bitrateBps = m->bitrateBps;
             params_.timebaseUs = m->timebaseUs;
-            params_.inputAccepted = (m->flags & kAckFlagInputAccepted) != 0;
             state_ = State::Starting;
             lastRecvUs_ = nowUs;
             lastSentUs_ = nowUs;
@@ -134,10 +133,6 @@ void ClientSession::NotifyVideoPacket(uint64_t nowUs) {
 
 void ClientSession::QueueInput(const InputEvent& e) {
     if (state_ != State::Streaming) return; // chưa có phiên → không có chỗ gửi
-    // Host đã nói trong HELLO_ACK là nó không nhận input. Gửi vẫn sẽ bị nó bỏ, nên
-    // chặn ngay tại đây: rê chuột sinh ra hàng trăm event mỗi giây và tất cả sẽ đi
-    // tranh băng thông với luồng video mà không đổi lại được gì.
-    if (!params_.inputAccepted) return;
     input_.SetSessionId(sessionId_);
     input_.Queue(e);
 }

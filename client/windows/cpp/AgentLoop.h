@@ -8,11 +8,12 @@
 //   AgentLoop.cpp — đọc header khối ở đó để hiểu kiến trúc luồng.
 //
 // VỊ TRÍ TRONG KIẾN TRÚC
-//   MainMenuWindow → ScreenPickerDialog → **RunAgent()**
+//   MainMenuWindow → **RunAgent()** (không có bước chọn nguồn — share hết màn hình)
 //   RunAgent CHẶN tới khi người dùng kết thúc phiên / Ctrl+C / lỗi, rồi trả exit
-//   code. Trong lúc chạy nó mở một cửa sổ quản lý phiên (ui/SessionWindow.h):
-//   `sources` chỉ là danh sách BAN ĐẦU — người dùng thêm/bớt nguồn giữa phiên
-//   bằng các nút Add / Stop selected trên cửa sổ đó.
+//   code. Trong lúc chạy nó mở một cửa sổ quản lý phiên (ui/SessionWindow.h) chỉ để
+//   XEM trạng thái và dừng. `sources` là danh sách CUỐI CÙNG: nó được chốt lúc bấm
+//   Share (tất cả màn hình đang gắn) và không đổi nữa — nút Add / Stop selected đã
+//   bỏ 2026-07-27.
 //
 // GĐ6: NHIỀU NGUỒN, MỘT CỔNG
 //   Chia sẻ nhiều MÀN HÌNH cùng lúc trên MỘT cổng UDP (máy nhiều monitor). Mỗi
@@ -33,11 +34,12 @@
 
 #include "capture/ScreenCapture.h"
 
+// KHÔNG có `port` và KHÔNG có `allowInput` ở đây, và đó là chủ ý (chốt 2026-07-27):
+// cổng là hằng số kDeskhubPort (net/UdpSocket.h), còn chuột/bàn phím thì LUÔN được
+// chia sẻ. Cả hai từng là tuỳ chọn; bỏ đi để app chỉ còn đúng một hành vi.
 struct AgentOptions {
-    uint16_t port = 47777;
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
-    bool allowInput = true; // GD4: cho client điều khiển
 };
 
 // Một màn hình được chia sẻ. `name` là tên hiện ở danh sách phía client (UTF-8).

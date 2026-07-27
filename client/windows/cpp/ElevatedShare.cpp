@@ -123,12 +123,10 @@ bool RelaunchElevatedShare(std::span<const AgentSource> sources,
     if (exe.empty()) return false;
 
     wchar_t nums[128];
-    swprintf(nums, 128, L" --port %u --fps %u --bitrate %u",
-        unsigned(opt.port), unsigned(opt.fps), unsigned(opt.bitrateMbps));
+    swprintf(nums, 128, L" --fps %u --bitrate %u", unsigned(opt.fps), unsigned(opt.bitrateMbps));
 
     std::wstring args = kFlagShare;
     args += nums;
-    if (opt.allowInput) args += L" --allow-input";
     // Instance admin tự mở file log riêng (pid trong tên file), không cần truyền cờ.
     for (const auto& s : sources) args += L" --src " + EncodeSource(s);
 
@@ -156,17 +154,15 @@ bool ParseElevatedShareArgs(int adeskhub, wchar_t** argv,
     if (!isShare) return false;
 
     AgentOptions opt;
-    opt.allowInput = false;
     std::vector<AgentSource> sources;
 
+    // Không còn --port và --allow-input: cổng là hằng số, điều khiển thì luôn bật.
+    // Bản cũ có cả hai, nên chuỗi tham số ở đây chỉ khớp với chính exe này —
+    // RelaunchElevatedShare luôn chạy lại ĐÚNG file đang chạy nên không lệch được.
     for (int i = 1; i < adeskhub; ++i) {
         const std::wstring a = argv[i];
         const bool hasNext = (i + 1) < adeskhub;
-        if (a == L"--allow-input") {
-            opt.allowInput = true;
-        } else if (a == L"--port" && hasNext) {
-            opt.port = uint16_t(wcstoul(argv[++i], nullptr, 10));
-        } else if (a == L"--fps" && hasNext) {
+        if (a == L"--fps" && hasNext) {
             opt.fps = uint32_t(wcstoul(argv[++i], nullptr, 10));
         } else if (a == L"--bitrate" && hasNext) {
             opt.bitrateMbps = uint32_t(wcstoul(argv[++i], nullptr, 10));

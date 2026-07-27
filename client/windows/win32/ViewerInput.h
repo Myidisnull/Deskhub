@@ -32,10 +32,8 @@ public:
     // Gọi từ WndProc của cửa sổ video. true = đã tiêu thụ message.
     bool OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
-    void SetEnabled(bool on); // false = phiên chỉ-xem, nuốt input tại chỗ
-    bool enabled() const {
-        return enabled_;
-    }
+    // KHÔNG có công tắc bật/tắt: đã Attach là gửi input. Bản trước có SetEnabled cho
+    // chế độ chỉ-xem — chế độ đó đã bỏ 2026-07-27 (app chỉ làm remote desktop).
     bool relativeMode() const {
         return relative_;
     }
@@ -48,7 +46,6 @@ private:
 
     HWND hwnd_ = nullptr;
     DhClientHandle* client_ = nullptr;
-    bool enabled_ = false;
     bool relative_ = false;
     bool attached_ = false;
     int buttonsDown_ = 0; // đếm nút đang giữ -> biết khi nào nhả SetCapture

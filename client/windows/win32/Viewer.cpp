@@ -61,7 +61,6 @@ struct ViewerFrame {
     HWND hint = nullptr;
     DhClientHandle* client = nullptr;
     ViewerInput input;
-    bool sendInput = true;
     bool sizedToVideo = false; // đã nới cửa sổ theo cỡ video lần đầu chưa
 
     // Thread nền của phiên ghi, thread UI đọc (dưới mu).
@@ -132,7 +131,7 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             // Chữ gợi ý đổi theo trạng thái khoá — F9 được ViewerInput xử lý tại
             // chỗ nên frame chỉ việc đọc lại mỗi nhịp.
-            if (f && wp == kTimerHint && f->sendInput)
+            if (f && wp == kTimerHint)
                 SetWindowTextW(f->hint, f->input.relativeMode()
                                             ? L"Mouse locked - press F9 to release"
                                             : L"Press F9 to lock mouse");
@@ -207,9 +206,8 @@ void RegisterClasses() {
 // Mở một cửa sổ xem + phiên dh_client cho `sourceId`. Trả nullptr nếu không mở
 // được phiên (cửa sổ cũng bị huỷ theo).
 std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId,
-    const std::string& nameUtf8, bool sendInput) {
+    const std::string& nameUtf8) {
     auto f = std::make_unique<ViewerFrame>();
-    f->sendInput = sendInput;
 
     std::wstring title = L"Deskhub - viewing";
     if (!nameUtf8.empty()) title += L": " + FromUtf8(nameUtf8);
@@ -230,15 +228,14 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     };
     f->stats = mk(L"STATIC", L"connecting...", SS_LEFT | SS_ENDELLIPSIS, 8, 8, 400, 18,
         kIdStats);
-    f->hint = mk(L"STATIC", sendInput ? L"Press F9 to lock mouse" : L"View only", SS_RIGHT, 440,
-        8, 210, 18, kIdHint);
+    f->hint = mk(L"STATIC", L"Press F9 to lock mouse", SS_RIGHT, 440, 8, 210, 18, kIdHint);
     mk(L"BUTTON", L"Disconnect", BS_PUSHBUTTON, 660, 4, 96, 26, kIdDisconnect);
     f->video = CreateWindowExW(0, kVideoClass, L"", WS_CHILD | WS_VISIBLE, 0, kBarH, 16, 16,
         f->hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     SetWindowLongPtrW(f->video, GWLP_USERDATA, (LONG_PTR)f.get());
 
     // Ba callback chạy trên thread nền của phiên: chỉ ghi state + PostMessage.
-    f->client = dh_client_start_hwnd(addr.c_str(), sourceId, sendInput ? 1 : 0, (uint64_t)(uintptr_t)f->video, [](const char* line, void* user) {
+    f->client = dh_client_start_hwnd(addr.c_str(), sourceId, (uint64_t)(uintptr_t)f->video, [](const char* line, void* user) {
             auto* fr = (ViewerFrame*)user;
             {
                 std::lock_guard<std::mutex> lk(fr->mu);
@@ -264,7 +261,6 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     }
 
     f->input.Attach(f->video, f->client);
-    f->input.SetEnabled(sendInput);
 
     ++g_openFrames;
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
@@ -276,8 +272,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
 } // namespace
 
-void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
-    bool sendInput) {
+void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources) {
     RegisterClasses();
     g_openFrames = 0;
 
@@ -285,10 +280,10 @@ void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInf
     if (sources.empty()) {
         // Host đời cũ không biết LIST_SOURCES: cứ xem nguồn 0 — phiên sẽ báo lỗi
         // cụ thể nếu địa chỉ sai, tốt hơn một hộp thoại "không thấy host".
-        if (auto f = OpenFrame(addrUtf8, 0, "", sendInput)) frames.push_back(std::move(f));
+        if (auto f = OpenFrame(addrUtf8, 0, "")) frames.push_back(std::move(f));
     } else {
         for (const auto& s : sources)
-            if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name, sendInput))
+            if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name))
                 frames.push_back(std::move(f));
     }
     if (frames.empty()) {

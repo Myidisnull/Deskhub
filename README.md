@@ -110,9 +110,10 @@ machine, open the firewall once (command below). To use it **over the Internet**
 (100.x.y.z).
 
 The app shows this machine's address per network adapter. **Share** lists the displays
-you can expose (pick one or more → become the host); **Connect** takes an
-`ip[:port]` to view and control the other machine. On the host machine, open the
-firewall once:
+you can expose (pick one or more → become the host); **Connect** takes just the other
+machine's **IP address** — the port is always UDP 47777 — to view and control it.
+Whoever connects gets mouse and keyboard: sharing your screen means handing over
+control, there is no view-only mode. On the host machine, open the firewall once:
 
 ```
 netsh advfirewall firewall add rule name="Deskhub" dir=in action=allow protocol=udp localport=47777

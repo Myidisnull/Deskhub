@@ -14,8 +14,8 @@
 //   Ở đây UI là SwiftUI trên main thread, không thể bị chặn — nên AgentLoop::Start()
 //   dựng thread Recv rồi TRẢ VỀ NGAY, và UI hỏi trạng thái qua Status()/StatusLine()
 //   theo nhịp 500ms. Cửa sổ quản lý phiên (SessionWindow.cpp bên Windows) vì thế
-//   không có bản macOS: nó là màn hình SwiftUI ShareView, và mọi lệnh của người
-//   dùng đi qua AddSource/RemoveSource/Stop.
+//   không có bản macOS: nó là màn hình SwiftUI ShareView, và lệnh duy nhất của
+//   người dùng là Stop.
 //
 // GĐ6: NHIỀU NGUỒN, MỘT CỔNG
 //   Chia sẻ nhiều MÀN HÌNH cùng lúc trên MỘT cổng UDP (máy nhiều monitor). Mỗi
@@ -38,11 +38,12 @@
 
 #include "capture/CaptureTypes.h"
 
+// KHÔNG có `port` và KHÔNG có `allowInput` ở đây, và đó là chủ ý (chốt 2026-07-27):
+// cổng là hằng số kDeskhubPort (net/UdpSocket.h), còn chuột/bàn phím thì LUÔN được
+// chia sẻ. Giống hệt bản Windows — xem client/windows/cpp/AgentLoop.h.
 struct AgentOptions {
-    uint16_t port = 47777;
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
-    bool allowInput = true; // GĐ4: cho client điều khiển máy này
 };
 
 // Một màn hình được chia sẻ. `name` là tên hiện ở danh sách phía client (UTF-8).
@@ -85,12 +86,7 @@ public:
         return running_.load(std::memory_order_acquire);
     }
 
-    // Cổng THẬT đang nghe — có thể khác opt.port nếu cổng đó đã bận (xem .cpp).
-    uint16_t port() const {
-        return port_.load(std::memory_order_relaxed);
-    }
-
-    // Dòng trạng thái tổng cho UI ("Sharing 2 sources on port 47777"), cập nhật 1s/lần.
+    // Dòng trạng thái tổng cho UI ("Sharing 2 sources"), cập nhật 1s/lần.
     std::string StatusLine();
 
     // Ảnh chụp trạng thái mọi nguồn còn sống. An toàn gọi từ main thread.
@@ -100,16 +96,12 @@ public:
     // Chụp một lần lúc Start — card mạng hiếm khi đổi giữa phiên.
     std::vector<std::string> LocalAddresses();
 
-    // Thêm/bớt nguồn GIỮA PHIÊN (ô tick sống trên ShareView). Cả hai
-    // chỉ đặt lệnh vào hộp thư; thread Recv thi hành ở vòng kế tiếp — cùng mô hình
-    // SessionWindow::TakeAdds/TakeRemoves bên Windows.
-    void AddSource(const AgentSource& s);
-    void RemoveSource(uint8_t sourceId);
+    // KHÔNG có AddSource/RemoveSource (bỏ 2026-07-27): phiên chia sẻ TẤT CẢ màn hình
+    // và danh sách chốt ở Start, nên UI chỉ đọc trạng thái rồi Stop.
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 
     std::atomic<bool> running_{false};
-    std::atomic<uint16_t> port_{0};
 };

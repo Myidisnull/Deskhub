@@ -30,23 +30,27 @@ selected sources, spawns a background thread, calls `capture::InitRuntime()` (Wi
 requires it on the thread that creates `ScreenCapture`), then calls `RunAgent`, which blocks until
 the session ends. `RunAgent(sources, opt, ctl)` takes:
 
-- `AgentOptions` (`AgentLoop.h`): `port` (default 47777), `fps` (60), `bitrateMbps` (20),
-  `allowInput`.
+- `AgentOptions` (`AgentLoop.h`): `fps` (60) and `bitrateMbps` (20) — that is all. There is no
+  `port` (it is the constant `kDeskhubPort` = 47777 in `net/UdpSocket.h`; a busy port is a hard
+  error, the host never walks to another one) and no `allowInput` (mouse and keyboard are always
+  shared). Both were removed 2026-07-27 when the app narrowed to plain remote desktop.
 - `AgentControl&` (`AgentControl.h`) — the abstract frontend interface: `active()`,
-  `stopRequested()`, `SetRows()`, `TakeAdds()`, `TakeRemoves()`, `OnBound()`, `OnFailed()`.
+  `stopRequested()`, `SetRows()`, `OnBound()`, `OnFailed()`.
   The Win32 app implements it as `SessionWindow` (a small always-on-top session window).
   `SessionRow.h` (`SessionSourceRow`) is the row type `SetRows`
   pushes to the UI (per-source name, size, viewer address, fps/kbps/RTT, HMONITOR key).
 
-Mid-session control flows through the same interface: `TakeAdds`/`TakeRemoves` carry
-display add/remove requests from the UI, `stopRequested()` ends the run. If `RunAgent` exits on
-its own (no free port, GPU init failure, socket error), the UI is told via `OnFailed` so it can
-leave the "sharing" state.
+`sources` is the **final** list, not an initial one. Pressing Share hands over *every*
+attached display, and the roster cannot change afterwards — the Add / Stop-selected buttons and
+their `TakeAdds`/`TakeRemoves` channel were removed 2026-07-27, along with the source picker
+itself. Plugging in a monitor mid-session means stopping and sharing again. The only thing
+still flowing UI → Recv is `stopRequested()`. If `RunAgent` exits on its own (port busy, GPU
+init failure, socket error), the UI is told via `OnFailed` so it can leave the "sharing" state.
 
 **macOS.** SwiftUI cannot be blocked, so `agent/AgentLoop.h` exposes a class instead:
 `Start(sources, opt)` binds the port, starts the pipelines, launches the Recv thread and returns
 (`Start` itself still blocks a few seconds waiting for first frames — call it off the main thread).
-The UI polls `Status()`/`StatusLine()` and uses `AddSource`/`RemoveSource`/`Stop`. `Start` refuses
+The UI polls `Status()`/`StatusLine()`; the only command it can issue is `Stop`. `Start` refuses
 to run without the Screen Recording permission (`macperm::HasScreenRecording`).
 
 ## 2. The main loop
@@ -196,9 +200,9 @@ mid-keypress must not leave keys stuck), and resets the retransmit cache. Shutti
 Injection details live in `07-input.md`; the agent-loop contract is:
 
 - `cb.onInput` hands sanitized, in-order `deskhub::InputEvent`s (via `deskhub::InputReceiver`
-  inside `HostSession`) to `InputInjector::Apply` on the Recv thread. `HostSession` drops
-  `INPUT_EVENT` entirely when input is disallowed and advertises that in `HELLO_ACK`
-  (`kAckFlagInputAccepted`), so view-only clients never draw input UI.
+  inside `HostSession`) to `InputInjector::Apply` on the Recv thread. There is no gate in front
+  of this: `HostSession` always accepts `INPUT_EVENT` (the `SetInputAllowed` switch and the
+  `kAckFlagInputAccepted` bit in HELLO_ACK were both removed 2026-07-27).
 - **No foreground gate.** With whole displays as the only source kind there is no "other app"
   outside what is shared, so the old foreground gate (`TargetHasFocus`/`FocusTarget`, which
   dropped or redirected input when the shared window was not foreground) was removed 2026-07-27
@@ -210,7 +214,7 @@ Injection details live in `07-input.md`; the agent-loop contract is:
   low-level hooks on a dedicated message-pump thread, filtering `LLKHF_INJECTED`; macOS: an NSEvent
   global monitor filtering events stamped with Deskhub's `kCGEventSourceUserData` marker). While
   the local user is active, remote input yields for ~1 s — preventing cursor tug-of-war and
-  cross-contaminated modifiers. Started only when `allowInput` is on.
+  cross-contaminated modifiers. Always started — every session accepts input.
 
 ## 7. Windows specifics
 
@@ -253,7 +257,7 @@ these differences:
   Screen Recording means `SCShareableContent` only returns the app's own windows; no Accessibility
   means `CGEventPost` "succeeds" without delivering anything. `Start` therefore refuses to run
   without Screen Recording, and `InputInjector::Init` checks `HasAccessibility` and logs plainly.
-  Accessibility is only needed when `allowInput` is on. App-level flow: `14-macos-app.md`.
+  Accessibility is required for every share (input is always on). App-level flow: `14-macos-app.md`.
 - The frame cache is a retained `CVPixelBufferRef` (SCStream's queue depth is raised to tolerate
   it) instead of a texture copy.
 - **No `Beacon`:** the macOS Recv loop answers `LIST_SOURCES` inline (`BuildSourceList`) but does

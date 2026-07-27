@@ -542,49 +542,32 @@ void TestSessionsSurviveGarbage() {
         "client unaffected by garbage datagrams");
 }
 
-// GĐ9: chính sách cho-điều-khiển của host được NÓI cho client biết trong HELLO_ACK
-// và được ÉP ở host. Cả hai vế đều cần: nói mà không ép thì một client sửa đổi vẫn
-// điều khiển được; ép mà không nói thì giao diện vẽ bàn phím ảo cho phiên chỉ-xem.
-void TestPolicyGates() {
-    std::printf("[session] host policy: view-only sessions...\n");
+// Chia sẻ chuột/bàn phím là MẶC ĐỊNH VÀ KHÔNG TẮT ĐƯỢC (chốt 2026-07-27: app chỉ
+// làm remote desktop). Test này khoá chính điều đó lại: một phiên vừa bắt tay xong,
+// không ai bật gì thêm, phải cho input đi thẳng từ client tới injector của host.
+void TestInputAlwaysFlows() {
+    std::printf("[session] input is always shared, no opt-in needed...\n");
     {
+        // Phía client: QueueInput ngay sau bắt tay là đã lên dây.
         Rig r;
-        r.host.SetInputAllowed(false);
-        NegotiatedParams seen{};
-        // Rig::CliCb bỏ tham số của onReady; ở đây cần nó nên tự nối lại.
         r.Handshake();
-        seen = r.cli.params();
-        Check(!seen.inputAccepted, "HELLO_ACK tells the client this session is view-only");
-
-        // Client không gửi input đi nữa — rê chuột sinh hàng trăm event mỗi giây và
-        // tất cả sẽ chỉ đi tranh băng thông với luồng video.
         r.w.toHost.clear();
         for (int i = 0; i < 5; ++i)
             r.cli.QueueInput(InputEvent{InputType::Key, uint64_t(i), 65, 30, 1, 0});
         r.now += 20'000;
         r.cli.Tick(r.now);
-        Check(CountType(r.w.toHost, MsgType::InputEvent) == 0,
-            "a view-only client stops sending input");
+        Check(CountType(r.w.toHost, MsgType::InputEvent) > 0, "the client sends input by default");
     }
     {
-        // Ép ở phía host: một client không tôn trọng cờ vẫn không điều khiển được.
+        // Phía host: nhận và chuyển tiếp, không cần bật gì.
         Rig r;
-        r.host.SetInputAllowed(false);
         r.Handshake();
         uint8_t buf[kMaxDatagram];
         const InputEvent ev{InputType::Key, 1, 65, 30, 1, 0};
         const size_t n = BuildInputEvents(buf, r.cli.sessionId(), 0,
             std::span<const InputEvent>(&ev, 1));
-        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
-            "the packet is still valid traffic (it feeds the session timeout)");
-        Check(r.hostInput.empty(), "...but no input reaches the injector");
-
-        // Bật lại giữa phiên là có tác dụng ngay.
-        r.host.SetInputAllowed(true);
-        const size_t n2 = BuildInputEvents(buf, r.cli.sessionId(), 1,
-            std::span<const InputEvent>(&ev, 1));
-        r.host.HandlePacket(std::span<const uint8_t>(buf, n2), r.now);
-        Check(r.hostInput.size() == 1, "turning it back on takes effect immediately");
+        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now), "the packet is valid");
+        Check(r.hostInput.size() == 1, "and it reaches the injector");
     }
 }
 
@@ -600,6 +583,6 @@ void RunSessionTests() {
     TestInputThroughSession();
     TestStraySessionIdIgnored();
     TestFocusRepeatsAndKeyframeCancel();
-    TestPolicyGates();
+    TestInputAlwaysFlows();
     TestSessionsSurviveGarbage();
 }

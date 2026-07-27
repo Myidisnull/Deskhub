@@ -207,9 +207,9 @@ viewer machine `client.exe` → type `ip[:port]` (or `client.exe --connect ip[:p
 
 **Files added in Phase 4:** core: `InputSender.h/.cpp`, `InputReceiver.h/.cpp` (+ `InputEvent`
 in `Wire`); client/windows: `InputCapture.h/.cpp`, `InputInjector.h/.cpp`.
-Run: same as Phase 3, input enabled by default. `--noinput` = view-only (can be set on either
-role). `client.exe <app> --injecttest` = test the input injection path in isolation, no network
-needed (dev).
+Run: same as Phase 3. Input is always on — the `--noinput` / view-only escape hatch described
+here was removed 2026-07-27. `client.exe <app> --injecttest` = test the input injection path in
+isolation, no network needed (dev).
 
 ## Phase 5 — Stability & quality ✅ code DONE, AWAITING two-machine verification
 - ✅ **RECONFIG on window resize**. The FrameArrived thread detects the size change → discards the
@@ -327,13 +327,13 @@ platform, so this sits in the "awaiting wiring" column, not "not done".
   ever wired them in; each ClientLoop ships its own inline estimate instead
   (`e2e = now − (ackDelta − minRTT/2) − frame pts`, seeded from `HelloAck::timebaseUs`).
   See 15-review-todo.md D1. History in `git log`.
-- ✅ **Host policy told to the client** — `HELLO_ACK.flags`: whether input is accepted (a
-  clipboard flag existed until clipboard sync was removed on 2026-07-27). Previously `allowInput` was just a local variable of each `AgentLoop`; the
-  client had no way to know a session was view-only → it still drew the mouse-lock button and the
-  virtual keyboard. Now enforced in `HostSession` (one protocol rule, one place to implement) and
-  respected by the client in `ClientSession::QueueInput`.
-  ⬜ Remaining per platform: the UI hides the input controls when
-  `params().inputAccepted` is false.
+- ❌ **Host policy told to the client** — `HELLO_ACK.flags` carried "input accepted" (plus a
+  clipboard bit), enforced in `HostSession` and respected by `ClientSession::QueueInput`.
+  **REMOVED 2026-07-27** together with the whole view-only idea: the app was narrowed to plain
+  remote desktop, where sharing your screen *is* handing over mouse and keyboard, so the flag,
+  `SetInputAllowed`, `NegotiatedParams::inputAccepted`, and every UI toggle behind them went
+  away. Bytes 22-23 of HELLO_ACK stay as reserved zeros so `reason` keeps its offset
+  (`04-protocol.md` §3b). History in `git log`.
 - ❌ **`SourceInfo.kind`** (window / entire display) on the wire — built in Phase 9 (signaled via
   the `kSourceListFlagKind` header flag), then **REMOVED 2026-07-27**: per-window sharing was
   dropped, every source is a display, so the kind byte and the flag left the wire
@@ -342,8 +342,9 @@ platform, so this sits in the "awaiting wiring" column, not "not done".
 **Files added in Phase 9 (core):** `discovery/Beacon.h/.cpp`, `discovery/HostRegistry.h/.cpp`
 (HostRegistry removed 2026-07-27), `control/ClockSync.h/.cpp`, `control/LatencyTrace.h/.cpp`
 (both removed 2026-07-27); changed: `wire/Wire`
-(DISCOVER/ANNOUNCE, `SourceKind` — removed again 2026-07-27, `HelloAck::flags`), `session/HostSession` (the two policy
-gates), `session/ClientSession` (`NegotiatedParams::inputAccepted`), `control/LinkStats`.
+(DISCOVER/ANNOUNCE, `SourceKind`, `HelloAck::flags` — all removed again 2026-07-27),
+`session/HostSession` (the two policy gates, also removed), `session/ClientSession`
+(`NegotiatedParams::inputAccepted`, removed), `control/LinkStats`.
 Tests: `tests/discovery/DiscoveryTests.cpp` + additions in wire/session/control.
 
 ### Windows: agent + client per the UI design ✅ RUNNING FOR REAL (one machine)
@@ -370,6 +371,8 @@ The first platform to finish wiring Phase 9. The UI was rebuilt from the design 
 - ✅ **Verified running for real**: the app starts, light/dark and EN/VI switches apply instantly,
   the share screen lists the real displays + windows correctly (including Vietnamese titles) and
   all three addresses (Tailscale / Ethernet / vEthernet).
+  *(Historical: that WinUI3 app is gone, and on 2026-07-27 the surviving clients dropped
+  light/dark and EN/VI entirely — one dark appearance, English only.)*
 - ⬜ **Remaining**: real two-machine run — machine-card alive/latency, the
   "machines viewing" panel, and the end-to-end latency HUD have so far only been proven on one
   machine.

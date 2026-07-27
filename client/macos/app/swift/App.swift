@@ -7,12 +7,9 @@
 //   ContentView.route.
 //
 // KÍCH THƯỚC
-//   defaultSize là đúng khung bản thiết kế vẽ các màn desktop trên đó (1280×840), nên
-//   những con số trong đó — gutter 56, lưới 2 và 3 cột, ô địa chỉ rộng 700 — rơi vào
-//   đúng chỗ mà không phải co giãn.
+//   1280×840 là khung mặc định; minWidth chỉ chặn người dùng bóp cửa sổ tới mức
+//   thanh dưới của màn xem bị cắt.
 //
-//   minWidth chặn người dùng bóp cửa sổ tới mức lưới ba panel ở màn Kết nối phải xuống
-//   dòng và thanh hành động dưới cùng bị cắt.
 //
 // KHÔNG CÓ THANH TIÊU ĐỀ RIÊNG
 //   `WindowShell` của bản thiết kế vẽ một thanh 38px với ba chấm và tên cửa sổ. Trên

@@ -150,9 +150,14 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
 // sessionId nằm trong PAYLOAD chứ không phải header, vì lúc gửi gói này client
 // chưa biết số phiên nên không thể đối chiếu trường header.
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
-    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8) flags(2) = 24
+    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8) reserved(2) = 24
     // rồi reason(1) nối đuôi. Mọi thứ sau byte 22 đều nối vào ĐUÔI: client cũ đọc
-    // 22 byte đầu rồi thôi, không vỡ — cùng mẫu tương thích ngược của `flags` (GĐ9).
+    // 22 byte đầu rồi thôi, không vỡ.
+    //
+    // Hai byte 22-23 RESERVED, luôn ghi 0. Chúng từng là `flags` mang cờ
+    // kAckFlagInputAccepted; chế độ chỉ-xem đã bỏ 2026-07-27 (app luôn nhận điều
+    // khiển) nhưng hai byte PHẢI ở lại: bỏ chúng đi thì `reason` lùi về offset 22 và
+    // mọi bản đã phát hành sẽ đọc lý do từ chối thành cờ, sai lặng lẽ.
     constexpr size_t kFixed = 24;
     const size_t total = WriteCommon(out, MsgType::HelloAck, 0, Chan::Control, 0, kFixed + 1);
     if (!total) return 0;
@@ -164,7 +169,7 @@ size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
     p[9] = m.fps;
     PutU32(p + 10, m.bitrateBps);
     PutU64(p + 14, m.timebaseUs);
-    PutU16(p + 22, m.flags);
+    PutU16(p + 22, 0); // reserved
     p[24] = uint8_t(m.reason);
     return total;
 }
@@ -406,9 +411,7 @@ std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
     m.fps = p[9];
     m.bitrateBps = GetU32(p + 10);
     m.timebaseUs = GetU64(p + 14);
-    // Host cũ dừng ở 22 byte. Mặc định là "nhận input" vì bản cũ luôn nhận — hiểu
-    // ngược lại sẽ tắt điều khiển với mọi host chưa cập nhật (xem Wire.h).
-    m.flags = payload.size() >= 24 ? GetU16(p + 22) : kAckFlagInputAccepted;
+    // Byte 22-23 (reserved, xem BuildHelloAck) cố tình KHÔNG đọc.
 
     // reason(1) nối đuôi. Host cũ dừng ở 24 byte — reason giữ nguyên None, đúng
     // nghĩa "bản cũ không nói vì sao từ chối". Giá trị lạ (bản sau thêm lý do mới)

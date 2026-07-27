@@ -5,7 +5,7 @@
 // VÌ SAO VIẾT MỚI (không khôi phục ClientLoop/Renderer cũ)
 //   Bộ client cũ (ClientLoop + Renderer + InputCapture, gỡ ở M4b) tự sở hữu vòng
 //   recv/decode. Từ đó pipeline client đã dời vào C API (ClientApi.cpp — thêm cả
-//   chuyển nguồn, input_accepted). Viết lại UI mỏng trên C API
+//   chuyển nguồn). Viết lại UI mỏng trên C API
 //   thì viewer chạy CHUNG một pipeline với phần còn lại của app, không nuôi
 //   hai bản song song.
 //
@@ -30,7 +30,7 @@
 
 #include "deskhub/protocol/Wire.h" // SourceInfo
 
-// CHẶN tới khi mọi cửa sổ xem đóng. `sources` rỗng = host đời cũ không trả lời
-// LIST_SOURCES -> mở một cửa sổ xem nguồn 0. `sendInput` = false là phiên chỉ xem.
-void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
-    bool sendInput);
+// CHẶN tới khi mọi cửa sổ xem đóng. `addrUtf8` là IP trần (cổng cố định 47777).
+// `sources` rỗng = host đời cũ không trả lời LIST_SOURCES -> mở một cửa sổ xem
+// nguồn 0. Mọi phiên đều gửi chuột/bàn phím — không còn chế độ chỉ xem.
+void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources);

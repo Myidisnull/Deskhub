@@ -76,11 +76,11 @@ into is a use-after-free. A `decodeExited_` flag is the anti-hang escape hatch.
 ## Connect flow
 
 `MainActivity` models the flow as a `sealed interface Step`: `Address` → `Querying` →
-`Picking`. There is no network discovery — the user types `ip[:port]` (default port 47777,
-`kDefaultPort` in `JniBridge.cpp`), or taps a card from:
-
-- **Recents** (`ui/Recents.kt`) — up to 12 machines in plain `SharedPreferences`, most recently
-  used first; `guessLink` labels addresses as "LAN" or "Tailscale" from the IP range.
+`Picking`. There is no network discovery — the user types a bare **IP address** (the port is
+the fixed constant `kDeskhubPort` = 47777 in `cpp/net/UdpSocket.h`; `ParseNetAddr` rejects any
+string containing `:`). The last address typed is written to `SharedPreferences` and pre-filled
+next launch; that is the only memory left, since the **Recents** list (`ui/Recents.kt`, up to 12
+machines with LAN/Tailscale labels) was deleted 2026-07-27 along with the on-screen help text.
 
 Connect triggers `NativeClient.listSources`, which runs `QuerySources`
 (`cpp/net/SourceQuery.cpp`): a pre-session UDP exchange that resends LIST_SOURCES every 500 ms
@@ -91,10 +91,22 @@ stale, non-cancellable query after Back + reconnect.
 
 `StreamActivity` is then started with `addr` + `source` extras and calls
 `NativeClient.nativeStart(addr, sourceId)` — the `clientId` is random per session inside the
-native layer. There is no password step: the auth layer was removed project-wide on
+native layer. The **whole source list** rides along as four parallel arrays
+(`srcIds`/`srcW`/`srcH`/`srcNames`), which is what lets the stream screen switch displays
+without a second 3-second query.
+
+**Switching display mid-session** (added 2026-07-27, now that hosts share every display): a
+`Display` button in the bottom bar — shown only when the host published more than one source —
+opens a radio dialog and calls `StreamActivity.switchSource`. The protocol has no "change
+source" message and does not need one: each (client, source) pair is already an independent
+session, so switching is `nativeStop` + `nativeStart` with a different `sourceId`. The
+`SurfaceView` is *not* recreated — `JniBridge` holds `g_window` independently of session
+lifetime and `nativeStart` re-attaches it — so the swap costs one handshake and no black flash.
+`StreamScreen` keys its polling `LaunchedEffect` on the session generation so stats and any
+end-reason from the closed session are cleared rather than lingering. There is no password step: the auth layer was removed project-wide on
 2026-07-27 (trusted-LAN decision, see 15-review-todo.md §A1).
 
-A debug-only shortcut: `am start ... --es addr 10.0.2.2:47777` opens `StreamActivity` directly
+A debug-only shortcut: `am start ... --es addr 10.0.2.2` opens `StreamActivity` directly
 (guarded by `FLAG_DEBUGGABLE` because `MainActivity` is exported).
 
 ## Streaming path
@@ -118,18 +130,21 @@ paths (reassembler loss, `WaitingForIdr`, decode failure, queue overflow) funnel
 `session.RequestKeyframe()` with `[DIAG]` logging per 09-diagnostics.md.
 
 Stats surfaced to the UI: `nativeStatusLine` returns the one-per-second line built in
-`ClientLoop::NetThread` (`fps / Mbps / loss % / RTT / e2e`), shown in a HUD pill;
-`StreamActivity.parseRtt` extracts the RTT number from that same string (all clients parse the
-one line rather than adding a second JNI call) to feed a 60-sample `Sparkline`.
-`nativeVideoWidth/Height` drive the letterbox aspect ratio. Full per-second stats and `[DIAG]`
+`ClientLoop::NetThread` (`fps / Mbps / loss % / RTT / e2e`), printed as a plain line of text in
+the status bar above the video. The stream screen is three stacked rows — status bar, video
+(`weight(1f)`), button bar — since 2026-07-27; the bars used to float on top of the video and
+now sit outside it. (It used to also be parsed for RTT and drawn as a 60-sample
+sparkline; that went with the design system on 2026-07-27 — the numbers are still all there in
+the line itself.) `nativeVideoWidth/Height` drive the letterbox aspect ratio. Full per-second stats and `[DIAG]`
 events go to logcat, tag `Deskhub` (`cpp/Log.h`; `adb logcat -s Deskhub`).
 
 ## Input
 
-All input funnels through `NativeClient`, which enforces the **view-only** checkbox in one
-place: the raw `external` functions are private and the public wrappers (`keyTap`, `keyChord`,
-`mouseMove`, `mouseButton`, `charTap`, `mouseMoveRel`) drop events when `viewOnly` is set.
-On the C++ side, `ClientLoop::Queue*` methods push `deskhub::InputEvent`s into `inputQueue_`
+All input funnels through `NativeClient`: the raw `external` functions stay private and the
+public wrappers (`keyTap`, `keyChord`, `mouseMove`, `mouseButton`, `charTap`, `mouseMoveRel`)
+are the only door down to JNI. They no longer gate anything — the view-only checkbox and
+`NativeClient.viewOnly` were removed 2026-07-27; the single door is kept so any future rule
+still has exactly one place to live. On the C++ side, `ClientLoop::Queue*` methods push `deskhub::InputEvent`s into `inputQueue_`
 under a mutex; the Net thread drains the batch each loop into `ClientSession::QueueInput`,
 which sequences and redundantly sends them via the core `InputSender` (see 07-input.md), and
 calls `SetFocused(true)` once any input has been sent. (The host no longer raises anything on
@@ -139,10 +154,11 @@ matters, releasing held keys.)
 - **Trackpad** (`TrackpadOverlay` in `StreamActivity.kt`) — laptop-touchpad semantics: an
   always-visible drawn cursor (`CursorArrow`) moves by *delta*, never jumps to the touch point.
   Tap = left click at the cursor, double-tap = right click, long-press-then-drag = left-button
-  drag (mutually exclusive with plain drags by construction). The overlay covers the letterbox
-  too, but the cursor is clamped to the actual video rect and positions are normalized to
-  0..65535 within it (`sendMouseMove` → `QueueMouseMoveAbs`). The overlay is not mounted at all
-  in view-only mode.
+  drag (mutually exclusive with plain drags by construction). The overlay fills the middle row
+  of the screen — letterbox included — but not the status/button bars above and below it, so a
+  finger landing on a button no longer jogs the cursor. The cursor itself is clamped to the
+  actual video rect and positions are normalized to 0..65535 within it (`sendMouseMove` →
+  `QueueMouseMoveAbs`). It is mounted whenever the session is streaming.
 - **Virtual keyboard** (`KeyInputView.kt`) — an invisible 1 dp view that holds IME focus and
   captures both input paths: `commitText`/`deleteSurroundingText` on a dummy
   `BaseInputConnection` (Gboard-style IMEs) and raw `onKeyDown` (physical/Bluetooth keyboards).
@@ -177,14 +193,23 @@ poll the keyboard per frame actually see the key held.
 
 ## UI system (`ui/` package)
 
-`AppState.kt` holds two app-wide toggles (dark/light theme, EN/VI language) as Compose
-`mutableStateOf` backed by `SharedPreferences`; dark is the default regardless of the OS theme.
-`Tokens.kt` is the Deskhub design-token table (same values as the iOS/macOS/Windows clients;
-delivered via a custom `CompositionLocal`, not `MaterialTheme.colorScheme`). `Components.kt`
-implements the shared component set (buttons, HUD bars, pills, fields — no Material ripple),
-`Icons.kt` hand-draws the five icons on Canvas, `Strings.kt` is the in-app EN/VI string table
-(`tr(key)`), deliberately not `strings.xml` so language switches without recreating the
-Activity. `Recents.kt` is described under the connect flow.
+**There is no `ui/` package any more.** On 2026-07-27 the whole bespoke design system was
+deleted in stages, on request: first the language and theme switches (`AppState.kt`,
+`Strings.kt` + `tr(key)`, `SunIcon`/`MoonIcon`), then — "trông cơ bản thôi, không cần màu mè" —
+`Tokens.kt`, `Components.kt` and the rest of `Icons.kt`, and finally every line of on-screen
+help text plus `Recents.kt`.
+
+Both screens now use **stock Material 3** (`MaterialTheme(colorScheme = darkColorScheme())`,
+`OutlinedTextField`, `Button`, `OutlinedButton`, `RadioButton`, `CircularProgressIndicator`,
+`Text`) with English literals inline. Around 1,400 lines of UI code went away; the four
+remaining Kotlin files are `MainActivity` (~290), `StreamActivity` (~600), `NativeClient`
+(~220) and `KeyInputView` (~94).
+
+What was **kept** because it is functional, not decoration: the SurfaceView + `aspectRatio`
+letterbox, `TrackpadOverlay` with its drawn `CursorArrow` (delta cursor, tap / double-tap /
+long-press-drag), the invisible `KeyInputView` that holds IME focus, and the horizontally
+scrolling hotkey row. The RTT sparkline went with the design system — the status line still
+shows the same numbers as text.
 
 ## Known limitations
 
@@ -193,7 +218,7 @@ Activity. `Recents.kt` is described under the connect flow.
   button was removed.
 - Virtual-keyboard typing is limited to US-ASCII; anything `CharToKeyChord` cannot map is
   dropped. No scroll-wheel or pinch-zoom gesture exists.
-- No host discovery (no mDNS/broadcast); addresses are typed or picked from recents.
+- No host discovery (no mDNS/broadcast); the address is typed by hand (the last one is pre-filled).
 - One session at a time by design: a single global `ClientLoop` behind JNI.
 - No pause/resume — backgrounding terminates the session (see Lifecycle).
 - IME auto-dismiss tracking (keyboard button state) requires API 30+; older devices keep the

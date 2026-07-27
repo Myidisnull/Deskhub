@@ -62,7 +62,7 @@ Idle ─Start()→ Hello ─HELLO_ACK→ Starting ─first video packet→ Strea
 
 HELLO and START are resent every 0.5 s because UDP gives them no ACK; the first
 video packet is the only proof that START arrived. `onReady` delivers the
-`NegotiatedParams` (codec, size, fps, host timebase, `inputAccepted`)
+`NegotiatedParams` (codec, size, fps, host timebase)
 so the caller can build its decoder; `onReconfig` fires when the
 host changes resolution mid-session. `Dead` is terminal — reconnecting means a new
 session.
@@ -148,14 +148,15 @@ key stuck. Details in 07-input.md.
   right click, long-press-drag = held left drag. Characters from the soft keyboard
   go through `QueueCharTap` (core `KeyMap`, US layout → Shift sequences); a
   shortcut bar sends discrete key taps, with key-up delayed 50 ms (`kTapHoldUs`) so
-  frame-polling games see the press. A view-only toggle gates all senders in one
-  place (`NativeClient.viewOnly`).
+  frame-polling games see the press. Every sender still funnels through
+  `NativeClient`, but there is no gate in it any more — the view-only toggle was
+  removed 2026-07-27.
 
 `SET_FOCUS` is still sent event-driven (3 repeats, 50 ms apart) when the preview
 gains or loses focus; the host now acts only on `false`, releasing any held keys for
 the session (the raise-to-foreground behavior on `true` was removed 2026-07-27 with
-window sharing). The `inputAccepted` flag from
-HELLO_ACK tells the UI to hide input affordances for view-only hosts.
+window sharing). Clients no longer ask whether the host accepts input: it always
+does, and the `inputAccepted` flag was removed from HELLO_ACK on 2026-07-27.
 
 ## 5. Clipboard — removed
 

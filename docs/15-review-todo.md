@@ -459,8 +459,8 @@ section below. Remaining:
 - ⬜ **Windows/macOS (client role)** — password prompt when `onPasswordNeeded` fires; store the
   token via `onDeviceToken`. Templates already exist in `client/ios` and `client/android`, port
   directly.
-- ⬜ **Input approval dialog** — `SetAskBeforeInput(true)` already holds the session in view-only
-  mode; still missing the prompt itself and the button that calls `GrantInput()`.
+- ❌ **Input approval dialog** — dropped 2026-07-27. It rested on the host being able to hold a
+  session in view-only mode, and that capability is gone: input is always shared.
 
 ### iOS + Android — ✅ done (2026-07-26, round 3)
 

@@ -70,24 +70,22 @@ nonisolated enum DeskhubAgent {
 
     // CHẶN tới ~10s (đợi frame đầu của từng nguồn) — gọi ngoài main thread.
     // Chữ ký chép 1-1 từ C API dha_start; gom thành struct chỉ thêm một lớp vỏ
-    // cho đúng một call site.
+    // cho đúng một call site. Không có tham số cổng / cho-phép-điều-khiển: cổng
+    // luôn 47777 và chuột+bàn phím luôn được chia sẻ (chốt 2026-07-27).
     @discardableResult
     static func start(
         sources: [ShareSource],
-        port: UInt16,
         fps: UInt32,
-        bitrateMbps: UInt32,
-        allowInput: Bool
+        bitrateMbps: UInt32
     ) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
-            dha_start(ptr.baseAddress, Int32(ptr.count), port, fps, bitrateMbps, allowInput)
+            dha_start(ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps)
         }
     }
 
     static func stop() { dha_stop() }
     static var isRunning: Bool { dha_running() }
-    static var port: UInt16 { dha_port() }
     static func statusLine() -> String { String(cString: dha_status_line()) }
 
     static func status() -> [AgentSourceStatus] {
@@ -119,14 +117,8 @@ nonisolated enum DeskhubAgent {
             .map(String.init)
     }
 
-    static func addSource(_ source: ShareSource) {
-        var raw = toRaw(source)
-        dha_add_source(&raw)
-    }
-
-    static func removeSource(id: UInt8) {
-        dha_remove_source(id)
-    }
+    // Không có addSource/removeSource: phiên chia sẻ tất cả màn hình và danh sách
+    // chốt lúc start (bỏ 2026-07-27).
 
     // --- Tiện ích chuyển đổi ---
 

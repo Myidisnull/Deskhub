@@ -16,11 +16,11 @@
 //   Cửa sổ chạy trên MỘT THREAD UI RIÊNG (tự bơm message), vì thread gọi RunAgent
 //   chính là vòng Recv — nó chặn ở recvfrom 100ms nên không bơm message được.
 //   Hai thread nói chuyện qua hộp thư có mutex, KHÔNG gọi thẳng vào nhau:
-//     UI  → Recv : adds_/removes_/stopReq_ — vòng Recv rút mỗi vòng lặp.
+//     UI  → Recv : stopReq_ — vòng Recv rút mỗi vòng lặp.
 //     Recv → UI  : SetRows(danh sách nguồn) + cờ dirty; timer ~300ms đổ listbox.
 //
-// LIÊN QUAN: AgentLoop.cpp (nơi rút lệnh và đẩy danh sách), ScreenPickerDialog.h
-//            (picker mở khi bấm Add), MainMenuWindow.cpp (nơi ẩn màn chính)
+// LIÊN QUAN: AgentLoop.cpp (nơi đẩy danh sách nguồn sang),
+//            MainMenuWindow.cpp (nơi ẩn màn chính)
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -48,9 +48,9 @@ public:
     SessionWindow(const SessionWindow&) = delete;
     SessionWindow& operator=(const SessionWindow&) = delete;
 
-    // Mở cửa sổ trên thread UI riêng, trả về ngay. `port` chỉ để hiển thị;
-    // `maxSources` = trần số nguồn (kMaxSources) để nút Add tự chặn.
-    void Start(uint16_t port, size_t maxSources);
+    // Mở cửa sổ trên thread UI riêng, trả về ngay. Không tham số: cổng là hằng số và
+    // trần số nguồn không còn ai cần (nút Add đã bỏ — danh sách chốt lúc bắt đầu).
+    void Start();
 
     // Đóng cửa sổ và join thread UI. Gọi được nhiều lần / khi chưa Start.
     void Stop();
@@ -62,8 +62,6 @@ public:
         return stopReq_.load(std::memory_order_acquire);
     }
     void SetRows(std::vector<SessionSourceRow> rows) override;
-    std::vector<AgentSource> TakeAdds() override;
-    std::vector<uint8_t> TakeRemoves() override;
 
 private:
     void ThreadMain();
@@ -79,15 +77,13 @@ private:
     // và tự đóng — không thì join() treo vĩnh viễn.
     std::atomic<bool> quitReq_{false};
     std::atomic<HWND> hwnd_{nullptr};
-    uint16_t port_ = 0;
-    size_t maxSources_ = 8;
 
-    // --- Hộp thư giữa thread Recv và thread UI, mutex bảo vệ cả bốn ---
+    // --- Hộp thư giữa thread Recv và thread UI, mutex bảo vệ cả hai ---
+    // Chỉ còn MỘT chiều (Recv → UI). Chiều ngược lại (adds_/removes_ cho nút Add /
+    // Stop selected) đã bỏ 2026-07-27 cùng hai nút đó.
     std::mutex m_;
     std::vector<SessionSourceRow> rows_;
     bool dirty_ = false;
-    std::vector<AgentSource> adds_;
-    std::vector<uint8_t> removes_;
 
     // --- Chỉ thread UI chạm ---
     std::vector<SessionSourceRow> uiRows_;

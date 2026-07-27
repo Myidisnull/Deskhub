@@ -41,7 +41,6 @@ std::mutex g_clientMutex;
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
-constexpr uint16_t kDefaultPort = 47777;
 
 // Bộ đệm tĩnh cho chuỗi trả về (hợp lệ tới lần gọi kế). An toàn vì mọi hàm trả chuỗi
 // đều được gọi từ main thread — Swift poll trạng thái trên MainActor.
@@ -66,7 +65,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     if (!address || !out || capacity <= 0) return 0;
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return 0;
     }
@@ -93,7 +92,7 @@ bool dh_start(const char* address, uint8_t sourceId) {
     }
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return false;
     }
@@ -158,11 +157,6 @@ DHPhase dh_phase(void) {
     std::lock_guard<std::mutex> lk(g_clientMutex);
     if (!g_client) return DHPhaseIdle;
     return DHPhase(int(g_client->phase()));
-}
-
-bool dh_input_accepted(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    return g_client ? g_client->InputAccepted() : true;
 }
 
 const char* dh_status_line(void) {
@@ -248,8 +242,7 @@ AgentSource ToAgentSource(const DHShareSource& s) {
 }
 } // namespace
 
-bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input) {
+bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps) {
     if (!sources || count <= 0) return false;
 
     std::vector<AgentSource> list;
@@ -257,10 +250,8 @@ bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t 
     for (int i = 0; i < count; ++i) list.push_back(ToAgentSource(sources[i]));
 
     AgentOptions opt;
-    opt.port = port ? port : kDefaultPort;
     opt.fps = fps ? fps : 60;
     opt.bitrateMbps = bitrate_mbps ? bitrate_mbps : 20;
-    opt.allowInput = allow_input;
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
@@ -286,11 +277,6 @@ void dha_stop(void) {
 bool dha_running(void) {
     std::lock_guard<std::mutex> lk(g_agentMutex);
     return g_agent && g_agent->running();
-}
-
-uint16_t dha_port(void) {
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    return g_agent ? g_agent->port() : 0;
 }
 
 const char* dha_status_line(void) {
@@ -338,15 +324,4 @@ const char* dha_local_addresses(void) {
     }
     CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
     return g_addrBuf;
-}
-
-void dha_add_source(const DHShareSource* s) {
-    if (!s) return;
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    if (g_agent) g_agent->AddSource(ToAgentSource(*s));
-}
-
-void dha_remove_source(uint8_t source_id) {
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    if (g_agent) g_agent->RemoveSource(source_id);
 }

@@ -12,22 +12,19 @@
 //   "chọn nguồn NÀO" chứ không phải "chọn dòng THỨ MẤY" (thứ tự có thể đổi khi
 //   nguồn bị tắt). sourceId nhét thẳng vào item data của từng dòng.
 //
-// LIÊN QUAN: ui/SessionWindow.h, ScreenPickerDialog.h (picker khi bấm Add),
+// LIÊN QUAN: ui/SessionWindow.h,
 //            AgentLoop.cpp (đầu kia của hộp thư)
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "SessionWindow.h"
 
-#include "ScreenPickerDialog.h"
-
 namespace {
 
 constexpr wchar_t kWndClass[] = L"DeskhubSessionWindow";
 
 constexpr int kIdList = 100;
-constexpr int kIdAdd = 101;
-constexpr int kIdStopSel = 102;
+// (kIdAdd = 101 và kIdStopSel = 102 đã bỏ cùng hai nút của chúng — 2026-07-27)
 constexpr int kIdStopAll = 103;
 
 constexpr UINT kTimerId = 1;
@@ -36,9 +33,7 @@ constexpr UINT WM_APP_QUIT = WM_APP + 1; // Stop() (thread Recv) yêu cầu đó
 
 } // namespace
 
-void SessionWindow::Start(uint16_t port, size_t maxSources) {
-    port_ = port;
-    maxSources_ = maxSources;
+void SessionWindow::Start() {
     thread_ = std::thread(&SessionWindow::ThreadMain, this);
 }
 
@@ -57,20 +52,6 @@ void SessionWindow::SetRows(std::vector<SessionSourceRow> rows) {
     dirty_ = true;
 }
 
-std::vector<AgentSource> SessionWindow::TakeAdds() {
-    std::lock_guard<std::mutex> lk(m_);
-    std::vector<AgentSource> out;
-    out.swap(adds_);
-    return out;
-}
-
-std::vector<uint8_t> SessionWindow::TakeRemoves() {
-    std::lock_guard<std::mutex> lk(m_);
-    std::vector<uint8_t> out;
-    out.swap(removes_);
-    return out;
-}
-
 // Đổ uiRows_ vào listbox, giữ nguyên nguồn đang chọn (theo sourceId, không theo
 // vị trí dòng — xem chú thích LB_SETITEMDATA ở đầu file).
 void SessionWindow::RefreshList() {
@@ -81,8 +62,7 @@ void SessionWindow::RefreshList() {
 
     SendMessageW(list_, LB_RESETCONTENT, 0, 0);
     if (uiRows_.empty()) {
-        SendMessageW(list_, LB_ADDSTRING, 0,
-            (LPARAM)L"(nothing is being shared - press Add to pick a source)");
+        SendMessageW(list_, LB_ADDSTRING, 0, (LPARAM)L"(nothing is being shared)");
         SendMessageW(list_, LB_SETITEMDATA, 0, (LPARAM)-1);
         return;
     }
@@ -115,37 +95,6 @@ LRESULT SessionWindow::HandleMsg(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_COMMAND: {
             switch (LOWORD(wp)) {
-                case kIdAdd: {
-                    if (uiRows_.size() >= maxSources_) {
-                        wchar_t m[128];
-                        swprintf(m, 128, L"At most %zu sources can be shared at once.",
-                            maxSources_);
-                        MessageBoxW(h, m, L"Deskhub", MB_OK | MB_ICONWARNING);
-                        return 0;
-                    }
-                    // Picker modal trên chính thread UI này; vòng Recv vẫn chạy
-                    // bình thường trong lúc hộp thoại mở.
-                    std::vector<AgentSource> picked;
-                    if (ShowScreenPickerAddDialog(h, picked)) {
-                        std::lock_guard<std::mutex> lk(m_);
-                        for (auto& s : picked) adds_.push_back(std::move(s));
-                    }
-                    return 0;
-                }
-                case kIdStopSel: {
-                    const LRESULT cur = SendMessageW(list_, LB_GETCURSEL, 0, 0);
-                    if (cur == LB_ERR || uiRows_.empty()) {
-                        MessageBoxW(h, L"Select a source in the list first.",
-                            L"Deskhub", MB_OK | MB_ICONINFORMATION);
-                        return 0;
-                    }
-                    const LONG_PTR id = (LONG_PTR)SendMessageW(list_, LB_GETITEMDATA, (WPARAM)cur, 0);
-                    if (id >= 0) {
-                        std::lock_guard<std::mutex> lk(m_);
-                        removes_.push_back(uint8_t(id));
-                    }
-                    return 0;
-                }
                 case kIdStopAll:
                     // Ẩn ngay cho có phản hồi tức thì; vòng Recv thấy cờ trong
                     // ~100ms sẽ dọn phiên và gọi Stop() đóng hẳn cửa sổ.
@@ -198,9 +147,7 @@ void SessionWindow::ThreadMain() {
     AdjustWindowRect(&wr, style, FALSE);
     const int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
 
-    wchar_t title[96];
-    swprintf(title, 96, L"Deskhub - sharing (port %u)", unsigned(port_));
-    HWND hwnd = CreateWindowExW(0, kWndClass, title, style,
+    HWND hwnd = CreateWindowExW(0, kWndClass, L"Deskhub - sharing", style,
         wa.right - ww - 24, wa.bottom - wh - 24, ww, wh,
         nullptr, nullptr, wc.hInstance, this);
     if (!hwnd) return; // active_ giữ false — AgentLoop rơi về hành vi cũ
@@ -217,11 +164,8 @@ void SessionWindow::ThreadMain() {
     list_ = mk(L"LISTBOX", nullptr,
         LBS_NOTIFY | LBS_HASSTRINGS | WS_VSCROLL | WS_BORDER,
         12, 30, kW - 24, kH - 116, kIdList);
-    wchar_t hint[128];
-    swprintf(hint, 128, L"Others connect to this machine on UDP port %u.", unsigned(port_));
-    mk(L"STATIC", hint, SS_LEFT, 12, kH - 78, kW - 24, 16, 0);
-    mk(L"BUTTON", L"Add...", BS_PUSHBUTTON, 12, kH - 50, 120, 28, kIdAdd);
-    mk(L"BUTTON", L"Stop selected", BS_PUSHBUTTON, 140, kH - 50, 120, 28, kIdStopSel);
+    mk(L"STATIC", L"Others connect by entering this machine's IP address.", SS_LEFT, 12,
+        kH - 78, kW - 24, 16, 0);
     mk(L"BUTTON", L"Stop sharing", BS_PUSHBUTTON, kW - 12 - 130, kH - 50, 130, 28, kIdStopAll);
 
     RefreshList();

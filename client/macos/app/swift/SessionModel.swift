@@ -24,25 +24,15 @@ final class SessionModel {
     // Khoá chuột (chế độ tương đối) — bật/tắt bằng F9, đối ứng client Windows.
     var mouseLocked = false
 
-    // GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK, poll qua
-    // facade). false = phiên chỉ-xem từ phía host — khác `viewOnly` là lựa chọn của
-    // người dùng máy này; UI phải NÓI ra để "gõ không ăn" không giống lỗi mạng.
-    private(set) var hostAcceptsInput = true
+    // KHÔNG có `viewOnly` và KHÔNG có `hostAcceptsInput` (bỏ 2026-07-27): mọi phiên
+    // đều gửi chuột/bàn phím, và host thì luôn nhận. Cả hai từng là hai đường dẫn tới
+    // cùng một trạng thái "gõ không ăn" mà giao diện phải giải thích.
 
-    // "Chỉ xem" — ô tick ở màn Kết nối của bản thiết kế. Chặn Ở ĐÂY chứ không ở view:
-    // input đi ra từ bốn chỗ khác nhau trong RemoteView (phím, phím bổ trợ, chuột,
-    // con lăn), và một cái quên kiểm tra là cả lựa chọn này thành vô nghĩa mà không ai
-    // biết. Chặn ở cửa duy nhất xuống C++ thì không có đường nào lọt.
-    var viewOnly: Bool = UserDefaults.standard.bool(forKey: "viewOnly") {
-        didSet {
-            UserDefaults.standard.set(viewOnly, forKey: "viewOnly")
-            // Bật giữa phiên trong lúc đang giữ phím = kẹt phím ở máy kia.
-            if viewOnly { DeskhubClient.releaseAllInput() }
-        }
-    }
-
-    // Dãy RTT cho biểu đồ ở HUD màn xem, bóc từ dòng số liệu (xem parseRtt).
-    var rttTrace: [Double] = []
+    /// Mọi nguồn host đang chia sẻ + nguồn đang xem, để đổi màn hình giữa phiên.
+    /// Host chia sẻ TẤT CẢ màn hình nên đây là việc thường; giữ danh sách ở đây thì
+    /// màn xem đổi được ngay mà không phải hỏi lại host (mất 3 giây).
+    var sources: [Source] = []
+    var currentSourceId: UInt8 = 0
 
     private var pollTimer: Timer?
 
@@ -56,18 +46,38 @@ final class SessionModel {
         let addr = address
         UserDefaults.standard.set(addr, forKey: "lastAddress")
 
-        let sources = await Task.detached { DeskhubClient.listSources(address: addr) }.value
+        let found = await Task.detached { DeskhubClient.listSources(address: addr) }.value
         isConnecting = false
-        return sources
+        sources = found
+        return found
     }
 
     func startStream(sourceId: UInt8) {
         endReason = ""
         statusLine = ""
-        rttTrace = []
         phase = .connecting
         mouseLocked = false
-        hostAcceptsInput = true // chỉ biết thật sau HELLO_ACK — poll cập nhật
+        currentSourceId = sourceId
+        DeskhubClient.start(address: address, sourceId: sourceId)
+        startPolling()
+    }
+
+    /// Đổi sang màn hình khác của CÙNG host, không rời màn xem.
+    ///
+    /// Giao thức không có lệnh "đổi nguồn" và không cần có: mỗi cặp (client, nguồn)
+    /// vốn là một phiên riêng, nên đổi = đóng phiên cũ rồi mở phiên mới với sourceId
+    /// khác. Lớp video do RemoteView giữ, không phụ thuộc vòng đời phiên.
+    func switchSource(to sourceId: UInt8) {
+        guard sourceId != currentSourceId else { return }
+        stopPolling()
+        DeskhubClient.stop()
+        endReason = ""
+        statusLine = ""
+        videoWidth = 0
+        videoHeight = 0
+        mouseLocked = false
+        phase = .connecting
+        currentSourceId = sourceId
         DeskhubClient.start(address: address, sourceId: sourceId)
         startPolling()
     }
@@ -82,16 +92,10 @@ final class SessionModel {
 
     // MARK: - Chuyển tiếp input (StreamView/RemoteView gọi)
 
-    //
-    // Mọi hàm ở đây đi qua cùng một cửa `inputBlocked`. releaseAllInput là NGOẠI LỆ
-    // có chủ ý: nó chỉ nhả thứ đang bị giữ, nên chặn nó lại mới là chuyện gây kẹt phím.
-
-    // Hai đường tới "chỉ xem": người dùng tự chọn (viewOnly), hoặc host không nhận
-    // điều khiển (GĐ9 — hostAcceptsInput). Cửa duy nhất, không có đường nào lọt.
-    private var inputBlocked: Bool { viewOnly || !hostAcceptsInput }
+    // Không còn cửa kiểm tra nào ở đây: bản trước có `inputBlocked` (viewOnly ||
+    // !hostAcceptsInput), cả hai đã bỏ 2026-07-27 nên mọi hàm chỉ chuyển tiếp thẳng.
 
     func key(vk: Int32, scan: Int32, down: Bool) {
-        guard !inputBlocked else { return }
         DeskhubClient.key(vk: vk, scan: scan, down: down)
     }
 
@@ -100,22 +104,18 @@ final class SessionModel {
     }
 
     func mouseMove(nx: Int32, ny: Int32) {
-        guard !inputBlocked else { return }
         DeskhubClient.mouseMove(nx: nx, ny: ny)
     }
 
     func mouseMoveRel(dx: Int32, dy: Int32) {
-        guard !inputBlocked else { return }
         DeskhubClient.mouseMoveRel(dx: dx, dy: dy)
     }
 
     func mouseButton(_ button: MouseButton, down: Bool) {
-        guard !inputBlocked else { return }
         DeskhubClient.mouseButton(button, down: down)
     }
 
     func mouseWheel(_ delta: Int32) {
-        guard !inputBlocked else { return }
         DeskhubClient.mouseWheel(delta)
     }
 
@@ -139,31 +139,11 @@ final class SessionModel {
         statusLine = DeskhubClient.statusLine()
         videoWidth = DeskhubClient.videoWidth()
         videoHeight = DeskhubClient.videoHeight()
-        let accepts = DeskhubClient.inputAccepted()
-        if accepts != hostAcceptsInput {
-            hostAcceptsInput = accepts
-            if !accepts { mouseLocked = false } // không có gì để khoá ở phiên chỉ-xem
-        }
-        if let rtt = Self.parseRtt(statusLine) {
-            rttTrace.append(rtt)
-            if rttTrace.count > 60 { rttTrace.removeFirst(rttTrace.count - 60) }
-        }
 
         if phase == .ended {
             endReason = DeskhubClient.endReason()
             mouseLocked = false
             stopPolling()
         }
-    }
-
-    // Bóc "RTT 4 ms" ra khỏi dòng số liệu mà ClientLoop dựng sẵn, thay vì mở thêm một
-    // hàm C thứ hai chỉ để trả về đúng con số đó. Dòng ấy được dựng ở MỘT chỗ
-    // (ClientLoop.cpp) và bản Windows cũng bóc RTT ra khỏi cùng chuỗi đó — hai client
-    // đọc cùng một nguồn thì không có cách nào lệch nhau.
-    private static func parseRtt(_ line: String) -> Double? {
-        guard let range = line.range(of: "RTT ") else { return nil }
-        let rest = line[range.upperBound...]
-        let digits = rest.prefix { $0.isNumber || $0 == "." }
-        return Double(digits)
     }
 }

@@ -7,17 +7,17 @@
 //   exe chạy độc lập. Với giao diện chỉ vài ô nhập và ít nút, đó là đánh đổi đúng.
 //
 // HAI HỘP: HOST MODE và CLIENT MODE
-//     • "Host mode"   — chia sẻ máy này: địa chỉ IP (kèm Copy), Port/FPS/Bitrate,
-//                       nút Share.
-//     • "Client mode" — kết nối máy khác: ô ip[:port], View only, nút Connect.
-//   Port nằm TRONG hộp host = cổng máy này lắng nghe; phía client lấy cổng từ
-//   chính ô địa chỉ ip[:port].
+//     • "Host mode"   — chia sẻ máy này: địa chỉ IP (kèm Copy), FPS/Bitrate, nút Share.
+//     • "Client mode" — kết nối máy khác: ô IP, nút Connect.
+//   KHÔNG có ô Port và KHÔNG có ô "View only" (bỏ 2026-07-27): cổng luôn là 47777
+//   và chuột/bàn phím luôn được chia sẻ, nên cả hai chỉ còn là chữ chứ không phải
+//   lựa chọn. Xem kDeskhubPort trong ../cpp/net/UdpSocket.h.
 //
 // ĐƯỜNG RẼ HAI VAI — cả hai đều CHẶN, cửa sổ chính ẩn trong lúc phiên chạy
-//   Share   → ScreenPickerDialog → RunAgent()  (SessionWindow quản lý phiên)
+//   Share   → RunAgent() thẳng, chia sẻ HẾT màn hình (SessionWindow quản lý phiên)
 //   Connect → QuerySources → SourcePickerDialog → RunViewer() (C API, Viewer.h)
 //
-// LIÊN QUAN: MainMenuWindow.h, ScreenPickerDialog.h, SourcePickerDialog.h,
+// LIÊN QUAN: MainMenuWindow.h, SourcePickerDialog.h, capture/DisplayFinder.h,
 //            Viewer.h, AgentLoop.h, ElevatedShare.h
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
@@ -34,7 +34,7 @@
 #include "SessionWindow.h"
 #include "SourcePickerDialog.h"
 #include "Viewer.h"
-#include "ScreenPickerDialog.h"
+#include "capture/DisplayFinder.h"
 #include "net/Firewall.h"
 #include "net/NetInfo.h"
 #include "net/SourceQuery.h"
@@ -45,18 +45,15 @@ namespace {
 
 constexpr wchar_t kWndClass[] = L"DeskhubMainMenu";
 
-constexpr int kIdEditPort = 200;
 constexpr int kIdEditFps = 199;
 constexpr int kIdEditBitrate = 198;
 constexpr int kIdShare = 201;
 constexpr int kIdEditAddr = 202;
 constexpr int kIdConnect = 203;
-constexpr int kIdChkViewOnly = 204;
 constexpr int kIdExit = 205;
 // Dải id cho các nút Copy: một dòng IP một nút, id = kIdCopyBase + chỉ số dòng.
 constexpr int kIdCopyBase = 300;
 
-constexpr uint16_t kDefaultPort = 47777;
 constexpr uint32_t kDefaultFps = 60;
 constexpr uint32_t kDefaultBitrateMbps = 20;
 
@@ -94,31 +91,58 @@ void CopyTextToClipboard(HWND owner, const std::wstring& text) {
 
 struct MenuState {
     HWND hwnd = nullptr;
-    HWND editPort = nullptr;
     HWND editFps = nullptr;
     HWND editBitrate = nullptr;
     HWND editAddr = nullptr;
-    HWND chkViewOnly = nullptr;
     std::vector<std::wstring> copyIps; // IP mỗi dòng, song song với các nút Copy
     bool quit = false;
 };
 
+// Tên nguồn đi trên dây là UTF-8 (client có thể không phải Windows).
+std::string ToUtf8(const std::wstring& w) {
+    if (w.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()),
+        nullptr, 0, nullptr, nullptr);
+    if (n <= 0) return {};
+    std::string s(size_t(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
 void DoShare(MenuState& st) {
+    // KHÔNG có bước chọn nguồn (bỏ 2026-07-27): bấm Share là chia sẻ HẾT màn hình
+    // đang gắn. Danh sách chốt tại đây và không đổi trong suốt phiên — cắm thêm màn
+    // hình giữa chừng thì phải dừng rồi share lại.
     std::vector<AgentSource> sources;
-    bool allow = true;
-    if (!ShowScreenPickerDialog(st.hwnd, sources, allow)) return;
+    for (const auto& d : ListDisplays()) {
+        if (sources.size() >= deskhub::kMaxSources) {
+            // kMaxSources là trần của SOURCE_LIST trong MỘT datagram, không phải một
+            // con số tuỳ ý — máy nhiều màn hình hơn thế thì cắt bớt và nói ra.
+            wchar_t msg[192];
+            swprintf(msg, 192,
+                L"This machine has more than %zu displays. Only the first %zu will be shared.",
+                deskhub::kMaxSources, deskhub::kMaxSources);
+            MessageBoxW(st.hwnd, msg, L"Deskhub", MB_OK | MB_ICONWARNING);
+            break;
+        }
+        sources.push_back(AgentSource{d.monitor, ToUtf8(d.name)});
+    }
+    if (sources.empty()) {
+        MessageBoxW(st.hwnd, L"No display found to share.", L"Deskhub",
+            MB_OK | MB_ICONWARNING);
+        return;
+    }
 
     AgentOptions ao;
-    ao.port = uint16_t(GetEditUint(st.editPort, kDefaultPort));
     ao.fps = GetEditUint(st.editFps, kDefaultFps);
     ao.bitrateMbps = GetEditUint(st.editBitrate, kDefaultBitrateMbps);
-    ao.allowInput = allow;
 
     // HAI lý do cần quyền admin, gộp vào MỘT lần bung UAC lúc bấm Share:
-    //   • allowInput — UIPI: SendInput vào tiến trình elevated bị nuốt IM LẶNG.
+    //   • điều khiển — UIPI: SendInput vào tiến trình elevated bị nuốt IM LẶNG.
+    //     Luôn cần, vì chuột/bàn phím luôn được chia sẻ.
     //   • firewall   — thêm rule inbound đòi admin, chỉ cần khi rule chưa có.
-    const bool needFirewall = !HostFirewallRulePresent();
-    if ((ao.allowInput || needFirewall) && !IsProcessElevated()) {
+    if (!IsProcessElevated()) {
+        const bool needFirewall = !HostFirewallRulePresent();
         bool cancelled = false;
         if (RelaunchElevatedShare(sources, ao, cancelled)) {
             st.quit = true; // instance admin tiếp quản đúng phiên này
@@ -134,11 +158,10 @@ void DoShare(MenuState& st) {
                 L"- Windows Firewall may block the other machine from connecting. "
                 L"If it cannot connect, allow Deskhub.exe through Windows Firewall for "
                 L"the network you are on, or run this program as administrator once.\n\n";
-        if (ao.allowInput)
-            msg +=
-                L"- Mouse/keyboard control will not reach apps that run as "
-                L"administrator (games with anti-cheat, elevated tools). Everything "
-                L"else still works.";
+        msg +=
+            L"- Mouse/keyboard control will not reach apps that run as "
+            L"administrator (games with anti-cheat, elevated tools). Everything "
+            L"else still works.";
         MessageBoxW(st.hwnd, msg.c_str(), L"Deskhub", MB_OK | MB_ICONWARNING);
     }
 
@@ -146,7 +169,7 @@ void DoShare(MenuState& st) {
     // RunAgent nhận AgentControl; SessionWindow là bản Win32 của nó. Mở trước,
     // đóng sau khi phiên kết thúc.
     SessionWindow session;
-    session.Start(ao.port, deskhub::kMaxSources);
+    session.Start();
     RunAgent(sources, ao, session);
     session.Stop();
     ShowWindow(st.hwnd, SW_SHOW);
@@ -162,19 +185,21 @@ void DoConnect(MenuState& st) {
             L"Deskhub", MB_OK | MB_ICONWARNING);
         return;
     }
-    // Địa chỉ ip[:port] chỉ gồm ASCII — thu hẹp từng ký tự là an toàn.
+    // Địa chỉ IP chỉ gồm ASCII — thu hẹp từng ký tự là an toàn.
     std::string addr;
     addr.reserve(waddr.size());
     for (wchar_t c : waddr) addr.push_back(char(c));
 
     NetAddr server{};
-    if (!ParseNetAddr(addr, kDefaultPort, server)) {
+    if (!ParseNetAddr(addr, server)) {
+        // Nói rõ cả cổng, vì đường sai hay gặp nhất là người dùng gõ kèm ":port"
+        // theo thói quen — ParseNetAddr từ chối chuỗi đó chứ không lờ đi.
         const std::wstring msg = L"Invalid address: \"" + waddr +
-                                 L"\"\n(e.g., 192.168.1.10 or 192.168.1.10:47777)";
+                                 L"\"\nEnter just the IP address (e.g., 192.168.1.10). "
+                                 L"Deskhub always uses UDP port 47777.";
         MessageBoxW(st.hwnd, msg.c_str(), L"Deskhub", MB_OK | MB_ICONERROR);
         return;
     }
-    const bool sendInput = SendMessageW(st.chkViewOnly, BM_GETCHECK, 0, 0) != BST_CHECKED;
 
     // Hỏi host đang chia sẻ những gì rồi cho chọn. Host bản cũ (hoặc sai IP /
     // firewall chặn) không trả lời -> cứ thử nguồn 0, phiên sẽ báo lỗi kết nối
@@ -186,7 +211,7 @@ void DoConnect(MenuState& st) {
     }
 
     ShowWindow(st.hwnd, SW_HIDE);
-    RunViewer(addr, picked, sendInput);
+    RunViewer(addr, picked);
     ShowWindow(st.hwnd, SW_SHOW);
     SetForegroundWindow(st.hwnd);
 }
@@ -235,12 +260,6 @@ int RunMainMenuWindow() {
     const auto addrs = ListLocalIPv4();
     const int nRows = addrs.empty() ? 1 : (int)addrs.size();
 
-    // Chọn sẵn cổng host: ưu tiên 47777, bận thì +1 dần tới cổng trống kế tiếp —
-    // để cổng hiển thị + copy + ô Port khớp đúng cổng phiên Share sắp bind.
-    const uint16_t freePort = FindFreeUdpPort(kDefaultPort, 64);
-    const uint16_t sharePort = freePort ? freePort : kDefaultPort;
-    const std::wstring sharePortText = std::to_wstring(sharePort);
-
     // --- Bố cục: hai group box xếp dọc, dưới cùng là nút Exit ---
     constexpr int kW = 496;
     const int gx = 12;
@@ -254,7 +273,7 @@ int RunMainMenuWindow() {
     const int shareRel = settingsRel + 34;
     const int hostH = shareRel + 32 + 12;
     const int clientTop = hostTop + hostH + 10;
-    const int clientH = 118;
+    const int clientH = 100; // thấp hơn bản trước 18px: checkbox View only đã bỏ
     const int exitY = clientTop + clientH + 14;
     const int kH = exitY + 44;
 
@@ -283,7 +302,7 @@ int RunMainMenuWindow() {
     mk(L"BUTTON", L"Host mode - share an application on THIS machine", BS_GROUPBOX, gx, hostTop,
         gw, hostH, 0);
 
-    mk(L"STATIC", L"Others connect to you using one of these addresses:", SS_LEFT, ix,
+    mk(L"STATIC", L"Others connect to you using one of these IP addresses:", SS_LEFT, ix,
         hostTop + 22, iw, 16, 0);
 
     constexpr int kCopyW = 60, kCopyH = 20;
@@ -295,8 +314,8 @@ int RunMainMenuWindow() {
         int i = 0;
         for (const auto& a : addrs) {
             const int rowY = hostTop + 44 + i * rowH;
-            std::wstring wip(a.ip.begin(), a.ip.end());
-            std::wstring addr = wip + L":" + sharePortText; // giá trị Copy = ip:port
+            // Giá trị Copy là IP TRẦN — đúng thứ phải gõ vào ô địa chỉ phía kia.
+            std::wstring addr(a.ip.begin(), a.ip.end());
             wchar_t line[192];
             swprintf(line, 192, L"%-20ls %ls", a.name.c_str(), addr.c_str());
             mk(L"STATIC", line, SS_LEFT | SS_ENDELLIPSIS, ix, rowY + 2, copyX - 8 - ix, 18, 0);
@@ -306,10 +325,10 @@ int RunMainMenuWindow() {
         }
     }
 
+    // Không có ô Port: cổng là hằng số 47777 (net/UdpSocket.h). Chỉ nói ra cho người
+    // dùng biết con số đó, vì firewall doanh nghiệp có thể cần mở tay.
     const int sy = hostTop + settingsRel;
-    mk(L"STATIC", L"Port", SS_LEFT, ix, sy + 3, 32, 18, 0);
-    st.editPort = mk(L"EDIT", sharePortText.c_str(), WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER,
-        ix + 36, sy, 64, 24, kIdEditPort);
+    mk(L"STATIC", L"UDP port 47777", SS_LEFT, ix, sy + 3, 100, 18, 0);
     mk(L"STATIC", L"FPS", SS_LEFT, ix + 116, sy + 3, 30, 18, 0);
     st.editFps = mk(L"EDIT", L"60", WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER, ix + 148, sy, 48, 24,
         kIdEditFps);
@@ -324,14 +343,12 @@ int RunMainMenuWindow() {
     mk(L"BUTTON", L"Client mode - connect to ANOTHER machine", BS_GROUPBOX, gx, clientTop, gw,
         clientH, 0);
 
-    mk(L"STATIC", L"Host machine address (ip[:port]):", SS_LEFT, ix, clientTop + 24, iw, 16, 0);
+    mk(L"STATIC", L"Host machine IP address:", SS_LEFT, ix, clientTop + 24, iw, 16, 0);
     st.editAddr =
         mk(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL, ix, clientTop + 44, iw - 110, 26,
             kIdEditAddr);
     mk(L"BUTTON", L"Connect", BS_DEFPUSHBUTTON, ix + iw - 100, clientTop + 44, 100, 26,
         kIdConnect);
-    st.chkViewOnly = mk(L"BUTTON", L"View only, don't send mouse/keyboard input",
-        BS_AUTOCHECKBOX, ix, clientTop + 80, iw, 20, kIdChkViewOnly);
 
     mk(L"BUTTON", L"Exit", BS_PUSHBUTTON, gx, exitY, 100, 28, kIdExit);
 

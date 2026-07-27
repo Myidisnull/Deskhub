@@ -13,7 +13,7 @@ bridge. This is the fundamental difference from iOS/Android, which are client-on
 ## 1. Architecture and layering
 
 ```
-SwiftUI views (App/ContentView/HomeView/ShareView/ConnectView/SourcePickerView/StreamView/RemoteView)
+SwiftUI views (App/ContentView/ShareView/ConnectView/SourcePickerView/StreamView/RemoteView)
         │  read models, call actions
 Swift models: SessionModel (client role), AgentModel (host role)   — @MainActor @Observable
         │  the ONLY callers of the C facade
@@ -29,10 +29,17 @@ C++/ObjC++ role stacks: cpp/client/*, cpp/agent/*, cpp/net/*, cpp/input/*
 - `client/macos/app/swift/App.swift` — entry point; one `WindowGroup` (default
   1280×840, min 1040×680), no custom title bar.
 - `client/macos/app/swift/ContentView.swift` — navigation via a `Route` enum:
-  `home → connect → sourcePicker → stream` (client branch) and `home → share` (host
-  branch). A left `SideRail` (home / connect / share + theme and EN‑VI language
-  toggles, backed by `AppState`) is hidden on the `stream` route. `SessionModel` and
-  `AgentModel` are owned here so sessions survive navigation.
+  `connect → sourcePicker → stream` (client branch) and `share` (host branch), switched
+  by a stock segmented `Picker` at the top; the stream route takes the whole window.
+  `SessionModel` and `AgentModel` are owned here so sessions survive navigation.
+
+  **The bespoke design system is gone (2026-07-27).** `AppState.swift`, `Strings.swift`,
+  `Recents.swift`, `HomeView.swift`, the left `SideRail` and all seven `Design*.swift`
+  files (~1,230 lines: tokens, buttons, controls, rows, surfaces, text, layout) were
+  deleted in favour of stock SwiftUI — `TextField`, `Button`, `Picker`, `ProgressView`,
+  `Text`. One appearance (dark, forced via `.preferredColorScheme(.dark)`), one
+  language, English written straight into the views. The macOS Swift tree went from
+  3,365 to ~1,500 lines.
 - `DeskhubBridge.h` documents which facade calls **block**: `dh_list_sources` (~3 s),
   `dha_list_share_sources` (~2 s), `dha_start` (up to ~10 s). Swift calls these via
   `Task.detached`; everything else is safe on the main thread. `dh_set_layer`
@@ -144,7 +151,8 @@ macOS:
 - **Accessibility** — checked with `AXIsProcessTrusted()`, requested with
   `AXIsProcessTrustedWithOptions(kAXTrustedCheckOptionPrompt)`. Without it,
   `CGEventPost` "succeeds" but no event reaches any app. Takes effect immediately, no
-  restart. Needed only when *Allow input* is on; view-only sharing works without it.
+  restart. Required for every share since 2026-07-27 — mouse and keyboard are always
+  shared, so there is no view-only mode that avoids this permission.
 
 `OpenScreenRecordingSettings`/`OpenAccessibilitySettings` open the exact
 `x-apple.systempreferences:…Privacy_ScreenCapture` / `…Privacy_Accessibility` panes.
@@ -190,45 +198,45 @@ the permission may have just been granted while preflight still caches the old v
   (top-right), control HUD (mouse lock, aspect-fit/fill toggle, state chip, End)
   bottom-center; connecting and "session ended" overlays (reason from
   `dh_end_reason`). `onDisappear` revokes the layer and disconnects.
-- **`swift/SessionModel.swift`** — the single choke point for input: everything is
-  gated on `viewOnly || !hostAcceptsInput` (the latter polled from the HELLO_ACK
-  `inputAccepted` flag, GĐ9). Its 500 ms poll parses `"RTT n ms"` out of the status
-  line for the sparkline.
+- **`swift/SessionModel.swift`** — still the single door for input, but with no gate
+  behind it: `viewOnly` and `hostAcceptsInput` were both removed 2026-07-27. Its
+  500 ms poll parses `"RTT n ms"` out of the status line for the sparkline.
 - **`cpp/net/`** — `UdpSocket` (BSD sockets, host-byte-order `NetAddr`,
-  `ParseNetAddr` supplies the default port 47777), `SourceQuery` (pre-session
+  `ParseNetAddr` takes a bare IP and supplies the fixed port 47777), `SourceQuery` (pre-session
   LIST_SOURCES exchange, ~3 s with retries), `NetInfo` (`getifaddrs` IPv4 list with
   friendly interface labels for the share screen).
 
 ## 5. UX flows as implemented
 
-- **Home (`HomeView.swift`).** Two tiles (Connect / Share) plus "Recent connections"
-  from `Recents.swift`: up to 12 entries in `UserDefaults` (tab/newline separated, no
-  JSON), most-recent first, with a link label guessed from the IP range (LAN /
-  Tailscale CGNAT). Clicking a recent pre-fills the address and opens Connect — it
-  never dials directly, so the view-only choice is not skipped. There is **no
-  "found on network" section**: LAN discovery was removed project-wide on
-  2026-07-27 — connections start from a typed address.
-- **Connect (`ConnectView.swift`).** One hero address field (`ip[:port]`, default
-  port 47777 filled by C++), a *View only* checkbox, helper panels. Connect runs
-  `SessionModel.listSources()` (SourceQuery) and remembers the address; **0 or 1
-  sources → stream immediately** (source 0 — a silent/old host is not an error),
-  **>1 → `SourcePickerView`**, where selection is radio-style (the C facade streams
-  one `sourceId` at a time) and "Allow input" is the inverse of `viewOnly`. There is
-  **no password prompt**: the auth layer was removed from core on 2026-07-27
-  (trusted-LAN decision) — no client has one anymore.
-- **Share (`ShareView.swift`).** One combined screen (no separate session screen):
-  permission banners on top; address panel listing every local IPv4 with the *actual*
-  bound port appended; viewer panel (connected/not, send fps, Mbps, capture fps, send
-  sparkline — the host cannot measure RTT, only the client can); a display grid
-  (labeled "Displays" / "Màn hình", every row with the display icon) with
-  **live checkboxes** (ticking during a session calls `dha_add_source`, unticking
-  `dha_remove_source` — the viewer never drops). Bottom bar: fps 30/60/120, bitrate
-  8/20/40 Mbps, port 47777/47778/52000 (all locked while sharing), *Allow input*
-  (default on), and two stop levels: **Stop** (keep
-  ticks) vs **Stop all** (danger, clears selection). All options persist in
-  `UserDefaults`. Start failures surface a reason line (`startError`) instead of
-  failing silently. There is no firewall step in the app; the generated Info.plist
-  only carries `NSLocalNetworkUsageDescription` for the OS local-network prompt.
+There is no Home screen: the segmented picker in `ContentView` *is* the launcher. `HomeView`
+and its "Recent connections" list were deleted 2026-07-27; only the last address is remembered
+(`UserDefaults`, pre-filled into the field). There is **no "found on network" section** either
+— LAN discovery was removed project-wide the same day, so connections start from a typed
+address.
+
+- **Connect (`ConnectView.swift`).** One `TextField` (bare IP — the fixed port 47777 is
+  filled by C++, which rejects any string containing `:`) and a Connect button. Connect runs
+  `SessionModel.listSources()` (SourceQuery); **0 or 1 sources → stream immediately**
+  (source 0 — a silent/old host is not an error), **>1 → `SourcePickerView`**, radio-style
+  (the C facade streams one `sourceId` at a time). There is **no password prompt**: the auth
+  layer was removed from core on 2026-07-27 (trusted-LAN decision) — no client has one.
+- **Stream (`StreamView.swift`).** Three stacked rows — status text, video, button bar —
+  since 2026-07-27; the bars used to float on top of the video. Buttons: lock mouse (F9),
+  Fit/Fill, **Display** (only when the host published more than one source; a popover that
+  calls `SessionModel.switchSource` = `dh_stop` + `dh_start` with another `sourceId`, without
+  leaving the screen), and End.
+- **Share (`ShareView.swift`).** One combined screen (no separate session screen): permission
+  banners on top; every local IPv4 listed bare (the port is always 47777 and the other side
+  never types it); a viewer line (connected/not, send fps, Mbps, capture fps as text — the
+  host cannot measure RTT, only the client can); and a **read-only** display list. There is
+  nothing to tick: Share hands over every attached display, so the list only states what is
+  being seen — the live checkboxes and `dha_add_source`/`dha_remove_source` were removed
+  2026-07-27, as were the port picker, the *Allow input* checkbox and the send sparkline.
+  Controls: fps 30/60/120 and bitrate 8/20/40 Mbps (both locked while sharing, persisted in
+  `UserDefaults`) and a single **Stop sharing** button. Start failures surface a reason line
+  (`startError`) instead of failing silently. There is no firewall step in the app; the
+  generated Info.plist only carries `NSLocalNetworkUsageDescription` for the OS
+  local-network prompt.
 
 ## 6. Build, project layout, signing
 

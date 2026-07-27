@@ -54,7 +54,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         LocalFree(wargv);
         if (elevatedShare) {
             SessionWindow session;
-            session.Start(opt.port, deskhub::kMaxSources);
+            session.Start();
             RunAgent(sources, opt, session);
             session.Stop();
             return RunMainMenuWindow();

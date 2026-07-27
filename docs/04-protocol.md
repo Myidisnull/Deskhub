@@ -17,11 +17,11 @@ Related documents: 01-architecture.md (where the wire layer sits in the system),
 ## 1. Overview
 
 - **Transport**: UDP, one single port. All traffic — control, video, input — is
-  multiplexed on that port via the `chan` byte of the common header. The default host
-  port is **47777** (a platform-level constant, e.g. `kDefaultPort` in
-  `client/android/app/src/main/cpp/JniBridge.cpp` and `AgentLoop.h` on each host
-  platform; if the port is busy the host probes up to 64 consecutive ports — see
-  11-platform-transport.md). The core protocol code never opens sockets; bytes enter
+  multiplexed on that port via the `chan` byte of the common header. The host port is
+  **always 47777** — a fixed platform-level constant (`kDeskhubPort` in each platform's
+  `net/UdpSocket.h`), not a default: there is no setting for it, clients type a bare IP,
+  and a busy port is a hard error rather than a walk to the next one (changed 2026-07-27;
+  see 11-platform-transport.md). The core protocol code never opens sockets; bytes enter
   through `HandlePacket`/`Reply` and leave through `send` callbacks.
 - **Byte order**: every multi-byte integer field is **big-endian** (network byte
   order). The only code allowed to know this is `core/include/deskhub/protocol/ByteOrder.h`
@@ -162,11 +162,12 @@ off  size  field
 14    8    timebaseUs      host clock at the moment the ACK was built (µs) — seeds
                            the client's e2e-latency offset estimate (§5.4)
 --- tail-appended (Phase 9) ---
-22    2    flags           bit0 = kAckFlagInputAccepted (bit1 was the clipboard
-                           flag, removed 2026-07-27).
-                           Absent ⇒ parsed as kAckFlagInputAccepted (old hosts always
-                           accepted input; assuming otherwise would disable control
-                           against every un-updated host).
+22    2    reserved        Always written as 0, always ignored on read. This used to be
+                           `flags`: bit0 = kAckFlagInputAccepted, bit1 = clipboard.
+                           Clipboard went 2026-07-27, the input flag went with it the
+                           same day (input is always accepted now). The two bytes STAY
+                           so `reason` keeps offset 24 — dropping them would make every
+                           already-released build read the reject reason as flags.
 --- tail-appended ---
 24    1    reason          RejectReason, meaningful only when codec = Rejected:
                            0 None, 1 Busy, 2 CodecMismatch. Out-of-range values are
@@ -448,9 +449,7 @@ Two mechanisms, both deliberately avoiding clock synchronization:
 
 BYE is sent once, best-effort, by whichever side leaves first; the other side treats
 it as an immediate disconnect. Loss of BYE simply degrades to the 5-second timeout.
-Every valid in-session packet of any type feeds the timeout on both sides — including
-INPUT_EVENT packets that the host is dropping because input is disallowed (a view-only
-session with a user wiggling the mouse is still a live session).
+Every valid in-session packet of any type feeds the timeout on both sides.
 
 ## 6. Video channel
 
@@ -548,9 +547,9 @@ All enforced in `Wire.cpp`; new code must follow the same patterns.
    fall through on `default`, so new types can be added within v1.
 3. **Payloads grow at the tail only.** Parsers use `<` (minimum length), never `!=`,
    and supply defaults for absent tail fields. Precedents: HELLO accepts 13/14/N
-   bytes; HELLO_ACK accepts 22 bytes (flags default to `kAckFlagInputAccepted` —
-   assuming anything else would disable input against every old host), 24 bytes
-   (`reason` stays `None`), and longer.
+   bytes; HELLO_ACK accepts 22 bytes, 24 bytes (`reason` stays `None`), and longer.
+   Note the corollary at bytes 22-23: once a tail field ships, its *slot* is permanent
+   even after the field itself dies — it becomes reserved, not reclaimed.
 4. **Layout changes inside a message are signaled by a header flag**, not inferred
    from length — the video flags (`kVideoFlagIdr`, `kVideoFlagFrameEnd`, §4.8) show
    the pattern: per-datagram meaning rides in the header, never in guessed payload

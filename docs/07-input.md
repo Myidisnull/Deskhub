@@ -109,8 +109,7 @@ own sensitivity. Per-platform:
 - *Windows client* (client/windows/win32/ViewerInput.cpp): F9 (`kToggleRelativeKey`) toggles
   relative mode. While locked the cursor is hidden and confined to the viewer window with
   `ClipCursor`, and Raw Input mouse deltas are sent via `dh_client_mouse_move_rel`. **F9 is
-  consumed locally and never forwarded** — it is the only exit from lock mode. Locking is
-  refused for view-only sessions.
+  consumed locally and never forwarded** — it is the only exit from lock mode.
 - *macOS client* (client/macos/app/swift/RemoteView.swift): same two modes; lock uses
   `CGAssociateMouseAndMouseCursorPosition(0)` to detach the cursor from the physical mouse and
   sends `NSEvent.deltaX/deltaY` (raw device deltas, no pointer acceleration). F9 (keyCode 0x65)
@@ -182,8 +181,9 @@ the event pipeline, so low-level HID readers and fullscreen games see them), fro
 Details:
 
 - **Accessibility permission is required.** `Init()` warns but does not fail without it — macOS
-  silently drops injected events until the user grants it (effective immediately, no restart);
-  sharing continues view-only. See 14-macos-app.md.
+  silently drops injected events until the user grants it (effective immediately, no restart).
+  Video keeps flowing meanwhile, but control simply does not work, so the UI has to say so —
+  there is no longer a view-only mode this could be mistaken for. See 14-macos-app.md.
 - VK → macOS keycode via `mackeys::WinVkToMac`; unmappable keys are skipped. Modifier state is
   tracked in `modsDown_` and stamped as `CGEventFlags` on *every* event (required — without flags
   Shift+A produces 'a'); the bookkeeping happens before building the event so the Shift-down event
@@ -232,11 +232,9 @@ nothing left to guard. `skipped_` now counts only events yielded under "host win
 
 Additional guards along the path:
 
-- The client stops queueing input entirely when the host declared `inputAccepted = 0` in HELLO_ACK
-  (`ClientSession::QueueInput` in core/src/session/ClientSession.cpp) — mouse moves would
-  otherwise fight video for bandwidth for nothing. UIs also gate at their layer
-  (`NativeClient.viewOnly` on Android, `SessionModel` checks on iOS, hidden lock button on
-  Windows).
+- There is **no view-only path any more** (removed 2026-07-27). `ClientSession::QueueInput` only
+  checks that the session is streaming, and `HostSession` accepts every `INPUT_EVENT`. The one
+  remaining exception is iOS, whose UI still carries its own local view-only checkbox.
 - On session teardown the host resets `InputReceiver` and calls `ReleaseAll`, so a reconnecting
   client restarting at seq 0 is handled cleanly.
 - Mobile tap events split press/release across time: the release of a tap is scheduled

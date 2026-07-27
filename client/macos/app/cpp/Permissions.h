@@ -13,8 +13,8 @@
 //
 // KHI NÀO CẦN CÁI NÀO
 //   Screen Recording — bắt buộc để chia sẻ (liệt kê nguồn + bắt hình).
-//   Accessibility    — chỉ cần khi cho phép điều khiển (opt.allowInput). Chia sẻ
-//                      kiểu chỉ-xem vẫn chạy đủ mà không cần quyền này.
+//   Accessibility    — cũng bắt buộc từ 2026-07-27: chuột/bàn phím LUÔN được chia
+//                      sẻ, không còn kiểu chia sẻ chỉ-xem để né quyền này.
 //
 // HÀNH VI CỦA HAI HÀM Request*
 //   Chúng bật hộp thoại của hệ thống (một lần duy nhất cho mỗi app) rồi TRẢ VỀ NGAY

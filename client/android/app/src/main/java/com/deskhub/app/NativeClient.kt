@@ -29,9 +29,6 @@
 package com.deskhub.app
 
 import android.view.Surface
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -97,15 +94,11 @@ object NativeClient {
     const val MOUSE_LEFT = 1
     const val MOUSE_RIGHT = 2
 
-    /**
-     * "Chỉ xem" — ô tick ở màn Kết nối. Chặn Ở ĐÂY chứ không ở từng chỗ gửi: input đi
-     * ra từ ba chỗ khác nhau (trackpad, bàn phím ảo, thanh phím tắt), và một chỗ quên
-     * kiểm tra là cả lựa chọn này thành vô nghĩa mà không ai biết. Vì thế các hàm
-     * `external` bên dưới là private, UI chỉ thấy các wrapper có cửa chặn.
-     * mutableStateOf để ô tick và HUD tự vẽ lại khi giá trị đổi; MainActivity lo phần
-     * lưu giữa các lần chạy (object này không có Context).
+    /*
+     * KHÔNG còn cờ "chỉ xem" (bỏ 2026-07-27): chuột/bàn phím luôn được gửi. Các hàm
+     * `external` vẫn để private và UI vẫn gọi qua wrapper — giữ đúng một cửa xuống
+     * JNI thì sau này thêm luật gì cũng chỉ phải sửa một chỗ.
      */
-    var viewOnly: Boolean by mutableStateOf(false)
 
     /**
      * Gõ một phím rời (nhấn + nhả ngay) sang host — phím đặc biệt của thanh phím tắt
@@ -133,7 +126,7 @@ object NativeClient {
 
     /**
      * Chuột tương đối — chế độ khoá chuột cho game FPS (nút Lock): delta thô,
-     * game tự áp sensitivity. Chưa có UI gọi; giữ lại cho GĐ sau, cùng cửa viewOnly.
+     * game tự áp sensitivity. Chưa có UI gọi; giữ lại cho GĐ sau.
      */
     private external fun nativeMouseMoveRel(
         dx: Int,
@@ -153,7 +146,7 @@ object NativeClient {
         vk: Int,
         scan: Int,
     ) {
-        if (!viewOnly) nativeKeyTap(vk, scan)
+        nativeKeyTap(vk, scan)
     }
 
     fun keyChord(
@@ -162,32 +155,32 @@ object NativeClient {
         vk: Int,
         scan: Int,
     ) {
-        if (!viewOnly) nativeKeyChord(modVk, modScan, vk, scan)
+        nativeKeyChord(modVk, modScan, vk, scan)
     }
 
     fun mouseMove(
         nx: Int,
         ny: Int,
     ) {
-        if (!viewOnly) nativeMouseMove(nx, ny)
+        nativeMouseMove(nx, ny)
     }
 
     fun mouseMoveRel(
         dx: Int,
         dy: Int,
     ) {
-        if (!viewOnly) nativeMouseMoveRel(dx, dy)
+        nativeMouseMoveRel(dx, dy)
     }
 
     fun mouseButton(
         button: Int,
         down: Boolean,
     ) {
-        if (!viewOnly) nativeMouseButton(button, down)
+        nativeMouseButton(button, down)
     }
 
     fun charTap(codepoint: Int) {
-        if (!viewOnly) nativeCharTap(codepoint)
+        nativeCharTap(codepoint)
     }
 
     external fun nativePhase(): Int

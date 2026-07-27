@@ -36,21 +36,17 @@ typedef void(DH_CALL* DhClientSizeCallback)(uint32_t width, uint32_t height, voi
 // Phiên kết thúc (BYE/timeout/lỗi). Chạy trên thread nền.
 typedef void(DH_CALL* DhClientClosedCallback)(const char* reasonUtf8, void* user);
 
-// Bắt đầu xem `addrUtf8` ("ip[:port]", port mặc định 47777) nguồn `sourceId`, render
-// vào `hwnd` (cửa sổ CON do app cấp, đóng gói HWND thành uint64) qua swapchain-for-HWND.
-// Backbuffer = cỡ video, DXGI stretch ra cỡ cửa sổ — app giữ tỷ lệ bằng cách đặt cỡ
-// cửa sổ con theo khung video (sizeCb báo cỡ). `sendInput`=1 cho phép gửi chuột/phím.
+// Bắt đầu xem `addrUtf8` (CHỈ địa chỉ IP — cổng cố định 47777, xem net/UdpSocket.h)
+// nguồn `sourceId`, render vào `hwnd` (cửa sổ CON do app cấp, đóng gói HWND thành
+// uint64) qua swapchain-for-HWND. Backbuffer = cỡ video, DXGI stretch ra cỡ cửa sổ —
+// app giữ tỷ lệ bằng cách đặt cỡ cửa sổ con theo khung video (sizeCb báo cỡ).
+// Chuột/bàn phím luôn được gửi; không còn tham số bật/tắt.
 // Trả handle hoặc NULL nếu tham số sai/thiếu GPU. Giải phóng bằng dh_client_stop.
 DH_API DhClientHandle* DH_CALL dh_client_start_hwnd(const char* addrUtf8, uint8_t sourceId,
-    int sendInput, uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
+    uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
     DhClientClosedCallback closedCb, void* user);
 
-// GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng tin
-// sau khi sizeCb đầu tiên bắn (phiên đã đàm phán); trước đó trả 1. UI dùng để giấu
-// nút khoá chuột ở phiên mà host chỉ cho xem.
-DH_API int DH_CALL dh_client_input_accepted(DhClientHandle* h);
-
-// --- Input (chỉ có tác dụng khi sendInput=1) ---
+// --- Input ---
 // Chuột di chuyển: toạ độ chuẩn hoá 0..65535 trong khung video.
 DH_API void DH_CALL dh_client_mouse_move(DhClientHandle* h, uint16_t nx, uint16_t ny);
 // Chuột di chuyển TƯƠNG ĐỐI (chế độ khoá chuột F9): delta thô theo pixel. Host bơm

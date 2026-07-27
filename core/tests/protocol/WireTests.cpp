@@ -382,8 +382,11 @@ void TestSourceListTruncation() {
 }
 
 // HELLO_ACK cõng thêm cờ ở ĐUÔI payload (GĐ9) — client bản cũ đọc 22 byte đầu.
-void TestHelloAckFlags() {
-    std::printf("[wire] HELLO_ACK flags: tail-appended, old clients unaffected...\n");
+// Byte 22-23 của HELLO_ACK là RESERVED (xem BuildHelloAck). Chúng từng mang cờ
+// chỉ-xem; chế độ đó đã bỏ, nhưng hai byte phải ở nguyên chỗ — bỏ chúng đi thì
+// `reason` lùi về offset 22 và mọi bản đã phát hành đọc lý do từ chối thành cờ.
+void TestHelloAckReserved() {
+    std::printf("[wire] HELLO_ACK: reserved bytes stay, reason keeps its offset...\n");
     uint8_t buf[kMaxDatagram];
 
     HelloAck a{};
@@ -394,20 +397,21 @@ void TestHelloAckFlags() {
     a.fps = 60;
     a.bitrateBps = 20'000'000;
     a.timebaseUs = 0x1122334455667788ull;
-    a.flags = 1u << 1; // một bit khác kAckFlagInputAccepted, cố ý KHÔNG có bit đó
+    a.reason = RejectReason::Busy;
     const size_t n = BuildHelloAck(buf, a);
     const auto pl = PayloadOf(std::span<const uint8_t>(buf, n));
-    const auto got = ParseHelloAck(pl);
-    Check(got && got->flags == (1u << 1), "flags round-trip");
-    Check(got && (got->flags & kAckFlagInputAccepted) == 0, "a view-only session says so");
-    Check(got && got->timebaseUs == a.timebaseUs, "the fields before flags are untouched");
+    Check(pl.size() == 25, "HELLO_ACK is still 25 bytes");
+    Check(pl[22] == 0 && pl[23] == 0, "the reserved bytes go out as zero");
+    Check(pl[24] == uint8_t(RejectReason::Busy), "reason still sits at offset 24");
 
-    // Host bản cũ dừng ở 22 byte. Mặc định phải là "nhận input": hiểu ngược lại sẽ
-    // tắt điều khiển với mọi host chưa cập nhật.
+    const auto got = ParseHelloAck(pl);
+    Check(got && got->timebaseUs == a.timebaseUs, "the fields before the reserved bytes survive");
+    Check(got && got->reason == RejectReason::Busy, "reason round-trip");
+
+    // Host bản cũ dừng ở 22 byte — vẫn phải đọc được.
     const auto old = ParseHelloAck(pl.first(22));
     Check(old.has_value(), "a 22-byte HELLO_ACK still parses");
-    Check(old && (old->flags & kAckFlagInputAccepted) != 0,
-        "a host too old to send flags is assumed to accept input");
+    Check(old && old->reason == RejectReason::None, "a host too old to say why is read as None");
 }
 
 // Đầu vào rác thuần ngẫu nhiên (PRNG xác định): mọi Parse* phải trả nullopt/0 hoặc
@@ -455,6 +459,6 @@ void RunWireTests() {
     TestWireCoverage();
     TestFecWireErrors();
     TestSourceListTruncation();
-    TestHelloAckFlags();
+    TestHelloAckReserved();
     TestParseGarbage();
 }

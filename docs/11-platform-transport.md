@@ -38,7 +38,7 @@ app:
    can hold persistently; iOS/Android offer no equivalent entitlement for a background
    remote-control host.
 3. **Binding a fixed, advertised port.** The host must listen on a well-known port
-   (default 47777) that the user can read out to the other machine. The macOS
+   (always 47777) that the user can read out to the other machine. The macOS
    `UdpSocket.cpp` header comment records this explicitly: the host role calls
    `Open(port)` with a fixed port — something the iOS sandbox does not permit — while
    clients everywhere pass `Open(0)` and take an ephemeral port.
@@ -51,10 +51,11 @@ app:
   live in `core/` — see 06-transport.md).
 - **One port, channel multiplexing.** All traffic — control, video, input — shares a
   single socket and port, demultiplexed by the `chan` byte of the common header
-  (04-protocol.md §2). Default host port **47777**; if busy, the host walks forward up
-  to 64 ports (`FindFreeUdpPort` in `client/windows/cpp/net/UdpSocket.cpp`; an inline
-  `kPortTries = 64` loop in `client/macos/app/cpp/AgentLoop.cpp`) and displays the
-  port it actually bound.
+  (04-protocol.md §2). Host port is **fixed at 47777** (`kDeskhubPort`, defined once per
+  platform in `net/UdpSocket.h`). If it is busy the host **fails with an explicit error**
+  instead of binding elsewhere — the port-walking of earlier versions (`FindFreeUdpPort`,
+  a `kPortTries = 64` loop) was deleted 2026-07-27, because clients only ever type a bare
+  IP: a host that quietly moved to 47778 was a host nobody could reach.
 - **No LAN discovery, no auth — removed 2026-07-27.** The DISCOVER/ANNOUNCE broadcast
   beacon, `HostRegistry`, and the whole password/auth layer (GĐ10) were removed: the
   app targets trusted LANs, and every connection starts from a typed `ip:port` read

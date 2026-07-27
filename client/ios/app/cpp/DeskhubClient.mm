@@ -32,7 +32,6 @@ std::mutex g_mutex;
 char g_statusBuf[256];
 char g_reasonBuf[256];
 
-constexpr uint16_t kDefaultPort = 47777;
 
 } // namespace
 
@@ -40,7 +39,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     if (!address || !out || capacity <= 0) return 0;
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return 0;
     }
@@ -67,7 +66,7 @@ bool dh_start(const char* address, uint8_t sourceId) {
     }
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return false;
     }

@@ -161,12 +161,6 @@ struct Hello {
     uint8_t sourceId; // nguồn muốn xem (lấy từ SOURCE_LIST; 0 = nguồn đầu tiên)
 };
 
-// Cờ trong HELLO_ACK: host nói cho client biết phiên này ĐƯỢC PHÉP làm gì. Không có
-// chúng thì client vẽ nút khoá chuột và bàn phím ảo cho một phiên chỉ-xem, người dùng
-// gõ vào khoảng không mà không hiểu vì sao — "có thể chỉ chia sẻ hình, từ chối điều
-// khiển" là một lời hứa ở trang giới thiệu, nên nó phải hiện được trên giao diện.
-inline constexpr uint16_t kAckFlagInputAccepted = 1u << 0; // host nhận INPUT_EVENT
-
 // Vì sao HELLO bị từ chối. Đi ở ĐUÔI HELLO_ACK để client hiện đúng thông báo:
 // "máy đang bận" và "không giải mã được" đòi hai hành động khác nhau từ người dùng.
 enum class RejectReason : uint8_t {
@@ -183,12 +177,14 @@ struct HelloAck {
     uint8_t fps;
     uint32_t bitrateBps;
     uint64_t timebaseUs;
-    // Thêm ở GĐ9, nối vào ĐUÔI payload nên host cũ (gói 22 byte) vẫn đọc được.
-    // Thiếu trường này ParseHelloAck mặc định kAckFlagInputAccepted: host cũ luôn
-    // nhận input, hiểu ngược lại sẽ vô hiệu hoá điều khiển với mọi bản cũ.
-    uint16_t flags = kAckFlagInputAccepted;
-    // Cũng nối vào đuôi. `reason` chỉ có nghĩa khi codec = Rejected; host cũ dừng
-    // ở 24 byte và được hiểu là None ("bản cũ không nói vì sao từ chối").
+    // KHÔNG có trường flags. Byte 22-23 trên dây là 2 byte RESERVED, luôn ghi 0 và
+    // luôn bỏ qua khi đọc — xem ghi chú ở BuildHelloAck. Chúng từng mang cờ
+    // "host có nhận điều khiển không" (chế độ chỉ-xem); chế độ đó đã bỏ 2026-07-27,
+    // app chỉ làm remote desktop và LUÔN nhận chuột/bàn phím. Hai byte ở lại chỉ để
+    // `reason` không bị dịch chỗ so với các bản đã phát hành.
+    //
+    // `reason` nối vào ĐUÔI, chỉ có nghĩa khi codec = Rejected; host cũ dừng ở 24
+    // byte và được hiểu là None ("bản cũ không nói vì sao từ chối").
     RejectReason reason = RejectReason::None;
 };
 

@@ -346,9 +346,6 @@ void ClientLoop::NetThread() {
             np.width, np.height, np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
-        inputAccepted_.store(np.inputAccepted, std::memory_order_relaxed);
-        if (!np.inputAccepted)
-            LOGI("[Client] Host is view-only — input from this machine is ignored.");
     };
     cb.onReconfig = [this](const deskhub::NegotiatedParams& np) {
         LOGI("[Client] Host reconfigured: %ux%u, %.1f Mbps",

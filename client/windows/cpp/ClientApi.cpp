@@ -44,7 +44,6 @@ struct DhClientHandle {
     UdpSocket sock;
     NetAddr server{};
     uint8_t sourceId = 0;
-    bool sendInput = true;
 
     DhClientStatsCallback statsCb = nullptr;
     DhClientSizeCallback sizeCb = nullptr;
@@ -55,9 +54,6 @@ struct DhClientHandle {
     std::atomic<bool> failed{false};
     std::atomic<bool> userStop{false};            // dh_client_stop chủ động dừng
     std::atomic<const char*> failReason{nullptr}; // chuỗi TĨNH mô tả đường chết
-    // GĐ9: cờ inputAccepted từ HELLO_ACK. Ghi ở onReady (thread Recv), C# đọc qua
-    // dh_client_input_accepted (thread UI) sau khi sizeCb bắn.
-    std::atomic<int> inputAccepted{1};
 
     std::mutex inputMutex;
     std::vector<deskhub::InputEvent> inputQueue; // C# ghi, thread Recv rút
@@ -66,7 +62,6 @@ struct DhClientHandle {
 
     void Run();
     void PushInput(const deskhub::InputEvent& e) {
-        if (!sendInput) return;
         std::lock_guard<std::mutex> lk(inputMutex);
         inputQueue.push_back(e);
     }
@@ -150,7 +145,6 @@ void DhClientHandle::Run() {
     cb.onReady = [&](const deskhub::NegotiatedParams& np) {
         ackDeltaUs.store(int64_t(NowUs()) - int64_t(np.timebaseUs), std::memory_order_relaxed);
         negotiated = true;
-        inputAccepted.store(np.inputAccepted ? 1 : 0, std::memory_order_relaxed);
         decW.store(np.width, std::memory_order_relaxed);
         decH.store(np.height, std::memory_order_relaxed);
         decFps.store(np.fps ? np.fps : 60, std::memory_order_relaxed);
@@ -344,18 +338,17 @@ deskhub::InputEvent MakeMoveRel(int dx, int dy) {
 namespace {
 
 // Thân của dh_client_start_hwnd, tách riêng để giữ cấu trúc validate-rồi-chạy gọn.
-DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId, int sendInput,
+DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId,
     uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
     DhClientClosedCallback closedCb, void* user) {
     if (!addrUtf8) return nullptr;
 
     NetAddr server{};
-    if (!ParseNetAddr(addrUtf8, 47777, server)) return nullptr;
+    if (!ParseNetAddr(addrUtf8, server)) return nullptr;
 
     auto* h = new DhClientHandle();
     h->server = server;
     h->sourceId = sourceId;
-    h->sendInput = sendInput != 0;
     h->statsCb = statsCb;
     h->sizeCb = sizeCb;
     h->closedCb = closedCb;
@@ -384,10 +377,10 @@ DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId, int sendInpu
 } // namespace
 
 DH_API DhClientHandle* DH_CALL dh_client_start_hwnd(const char* addrUtf8, uint8_t sourceId,
-    int sendInput, uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
+    uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
     DhClientClosedCallback closedCb, void* user) {
     if (!hwnd) return nullptr;
-    return StartClient(addrUtf8, sourceId, sendInput, hwnd, statsCb, sizeCb, closedCb, user);
+    return StartClient(addrUtf8, sourceId, hwnd, statsCb, sizeCb, closedCb, user);
 }
 
 DH_API void DH_CALL dh_client_mouse_move(DhClientHandle* h, uint16_t nx, uint16_t ny) {
@@ -396,10 +389,6 @@ DH_API void DH_CALL dh_client_mouse_move(DhClientHandle* h, uint16_t nx, uint16_
 
 DH_API void DH_CALL dh_client_mouse_move_rel(DhClientHandle* h, int dx, int dy) {
     if (h) h->PushInput(MakeMoveRel(dx, dy));
-}
-
-DH_API int DH_CALL dh_client_input_accepted(DhClientHandle* h) {
-    return h ? h->inputAccepted.load(std::memory_order_relaxed) : 1;
 }
 
 DH_API void DH_CALL dh_client_mouse_button(DhClientHandle* h, int button, int down) {

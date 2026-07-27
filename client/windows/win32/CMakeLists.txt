@@ -15,7 +15,6 @@ add_executable(deskhub_app WIN32
     SourcePickerDialog.cpp
     Viewer.cpp
     ViewerInput.cpp
-    ScreenPickerDialog.cpp
 
     ../cpp/ClientApi.cpp
 )

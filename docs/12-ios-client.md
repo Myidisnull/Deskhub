@@ -92,19 +92,24 @@ console and Console.app.
 
 ## 3. Connect flow
 
-1. **Address entry** — `ConnectView` (`client/ios/app/swift/ConnectView.swift`): a manual
-   address field (`192.168.1.7:47777` placeholder). There is **no network discovery**; the
-   default port 47777 is filled in by `ParseNetAddr` in the C++ layer when the string has no
-   `:port`. A "View only" checkbox persists to `UserDefaults`.
+1. **Address entry** — `ConnectView` (`client/ios/app/swift/ConnectView.swift`): a bare **IP
+   address** field and a Connect button, nothing else. There is **no network discovery**; the
+   port is the fixed constant `kDeskhubPort` = 47777 filled in by `ParseNetAddr` in the C++
+   layer, which **rejects** any string containing `:`. No view-only checkbox — input is always
+   shared (all of this was brought in line with the other clients on 2026-07-27).
 2. **Source query** — `SessionModel.connect()` runs `DeskhubClient.listSources` (blocking
    `QuerySources`, LIST_SOURCES → SOURCE_LIST) in `Task.detached`. Every source is a shared
    display (window sources were removed 2026-07-27; rows use the "display" icon). More than
    one source shows
    `SourcePickerView` (radio-style rows, "Start viewing" button); exactly one — or a silent
    host, treated as "old host / single source", not an error — skips straight to source 0.
-3. **Recents** — `Recents` (`client/ios/app/swift/Recents.swift`) keeps up to 12 machines in
-   `UserDefaults` (tab/newline-separated string, most-recent first) with a guessed link label
-   ("LAN", "Tailscale" for 100.64/10). Shown as tappable cards under the address field.
+3. **Switching display mid-session** — the host shares *every* display, so `SessionModel`
+   keeps the whole source list and `StreamView` has a `Display` button (shown only when there
+   is more than one) that calls `switchSource`: `dh_stop` + `dh_start` with a different
+   `sourceId`, without leaving the stream screen. There is no "change source" protocol
+   message and none is needed — each (client, source) pair is already its own session.
+   (The **Recents** list of up to 12 machines was deleted 2026-07-27; only the last address is
+   remembered, pre-filled into the field.)
 4. **No password step** — the auth layer (passwords, Keychain credentials, device tokens)
    was removed project-wide on 2026-07-27 (trusted-LAN decision, see 15-review-todo.md
    §A1); `dh_start` takes just the address and `sourceId`, `clientId` is random per
@@ -143,15 +148,17 @@ The UI layer is `VideoLayerView` (`client/ios/app/swift/VideoLayerView.swift`), 
 negotiated `videoWidth/Height`.
 
 **Stats HUD**: `NetThread` builds a one-line summary every second
-(`fps  Mbps  loss %  RTT ms  e2e ms`); `SessionModel.poll()` reads it via `dh_status_line`,
-parses the RTT number out of the string (`parseRtt`) into a 60-sample trace, and `StreamView`
-shows the line plus a `Sparkline`. The e2e figure is measured at *enqueue* time, not at
-display time — a known caveat noted in `VtDecoder.h` (`lastRenderedPtsUs`).
+(`fps  Mbps  loss %  RTT ms  e2e ms`); `SessionModel.poll()` reads it via `dh_status_line` and
+`StreamView` prints it as one line of text in the status bar. (It used to also be parsed for
+RTT and drawn as a sparkline; that went with the design system on 2026-07-27.) The e2e figure
+is measured at *enqueue* time, not at display time — a known caveat noted in `VtDecoder.h`
+(`lastRenderedPtsUs`).
 
 ## 5. Input
 
-All input funnels through `SessionModel`, which drops everything when `viewOnly` is set — one
-gate for all three sources. The C++ side queues events under `inputMutex_`; the Net thread
+All input funnels through `SessionModel`. There is no gate behind it any more — the `viewOnly`
+flag was removed 2026-07-27; the funnel stays so views never touch the facade directly. The
+C++ side queues events under `inputMutex_`; the Net thread
 drains them into `ClientSession`, which sequences and redundantly retransmits them
 (`InputSender`, see `07-input.md`). Any input sets `wantFocus_`, so the host receives
 SET_FOCUS — since 2026-07-27 the host takes no action on `true` (it used to raise the shared
@@ -164,8 +171,9 @@ STREAMING.
   within that rect. Gestures: drag = move cursor; single tap = left click (waits for the
   double-tap window to fail); double tap = right click; long-press-then-drag = hold left
   button and drag, released on lift. A move is re-sent immediately before every click so
-  clicks land under the visible cursor. The overlay covers the whole view including the
-  letterbox, and is simply not mounted in view-only mode.
+  clicks land under the visible cursor. The overlay fills the middle row of the screen —
+  letterbox included — but not the status/button bars above and below it, so a finger landing
+  on a button no longer jogs the cursor. It is mounted whenever the session is streaming.
 - **Virtual keyboard** — `KeyInputView` (`client/ios/app/swift/KeyInputView.swift`) is an
   invisible `UIKeyInput` view (ASCII keyboard, autocorrect off) toggled by the HUD keyboard
   button; a transparent accessory bar adds a "Done" dismiss button. Each typed scalar goes to

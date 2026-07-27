@@ -4,8 +4,8 @@
 //   KHÔNG RIDEV_NOLEGACY — vẫn cần message thường (WM_MOUSEMOVE tuyệt đối, kéo
 //     cửa sổ, WM_CLOSE). KHÔNG RIDEV_INPUTSINK — alt-tab ra ngoài thì gõ vào
 //     máy mình như bình thường.
-//   Khi bật gửi input, nuốt gần hết message phím (kể cả ESC) để người dùng gõ
-//     vào MÁY KIA; riêng F9 là phím thoát hiểm, xử lý tại chỗ.
+//   Nuốt gần hết message phím (kể cả ESC) để người dùng gõ vào MÁY KIA; riêng F9
+//     là phím thoát hiểm, xử lý tại chỗ.
 // =============================================================================
 #include "ViewerInput.h"
 
@@ -68,14 +68,8 @@ void ViewerInput::Detach() {
     client_ = nullptr;
 }
 
-void ViewerInput::SetEnabled(bool on) {
-    if (enabled_ == on) return;
-    enabled_ = on;
-    if (!on) SetRelativeMode(false);
-}
-
 void ViewerInput::ToggleRelativeMode() {
-    if (enabled_) SetRelativeMode(!relative_);
+    SetRelativeMode(!relative_);
 }
 
 // Ba việc phải làm cùng lúc khi khoá chuột: ClipCursor giữ con trỏ trong cửa sổ,
@@ -109,7 +103,7 @@ void ViewerInput::EmitButton(int button, bool down) {
     } else if (buttonsDown_ > 0) {
         if (--buttonsDown_ == 0 && !relative_ && GetCapture() == hwnd_) ReleaseCapture();
     }
-    if (enabled_ && client_) dh_client_mouse_button(client_, button, down ? 1 : 0);
+    if (client_) dh_client_mouse_button(client_, button, down ? 1 : 0);
 }
 
 void ViewerInput::OnRawInput(LPARAM lp) {
@@ -136,7 +130,7 @@ void ViewerInput::OnRawInput(LPARAM lp) {
 
         int scan = kb.MakeCode;
         if (kb.Flags & RI_KEY_E0) scan |= kScanExtended;
-        if (enabled_ && client_) dh_client_key(client_, int(kb.VKey), scan, down ? 1 : 0);
+        if (client_) dh_client_key(client_, int(kb.VKey), scan, down ? 1 : 0);
         return;
     }
 
@@ -145,7 +139,7 @@ void ViewerInput::OnRawInput(LPARAM lp) {
         // Chuột tuyệt đối (máy ảo/RDP/bảng vẽ) không cho delta -> bỏ, đường
         // tuyệt đối WM_MOUSEMOVE vẫn phục vụ các thiết bị đó.
         if (m.usFlags & MOUSE_MOVE_ABSOLUTE) return;
-        if ((m.lLastX || m.lLastY) && enabled_ && client_)
+        if ((m.lLastX || m.lLastY) && client_)
             dh_client_mouse_move_rel(client_, m.lLastX, m.lLastY);
     }
 }
@@ -162,7 +156,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (relative_) return true; // delta đã lấy từ Raw Input
             RECT r{};
             GetClientRect(hwnd_, &r);
-            if (enabled_ && client_)
+            if (client_)
                 dh_client_mouse_move(client_,
                     uint16_t(Normalize(GET_X_LPARAM(lp), uint32_t(r.right - r.left))),
                     uint16_t(Normalize(GET_Y_LPARAM(lp), uint32_t(r.bottom - r.top))));
@@ -183,7 +177,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return true;
 
         case WM_MOUSEWHEEL:
-            if (enabled_ && client_) dh_client_wheel(client_, GET_WHEEL_DELTA_WPARAM(wp));
+            if (client_) dh_client_wheel(client_, GET_WHEEL_DELTA_WPARAM(wp));
             return true;
 
         // Phím lấy qua WM_INPUT rồi; nuốt message thường để ESC trong game ở máy
@@ -193,7 +187,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SYSKEYDOWN:
         case WM_SYSKEYUP:
         case WM_CHAR:
-            return enabled_;
+            return true; // đã gửi qua WM_INPUT — nuốt để không lọt vào máy này
 
         case WM_KILLFOCUS:
             // Mất focus khi đang khoá -> thả, không thì người dùng kẹt con trỏ.

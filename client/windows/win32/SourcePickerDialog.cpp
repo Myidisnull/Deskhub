@@ -7,14 +7,14 @@
 //     1. EnableWindow(owner, FALSE) — vô hiệu hoá cửa sổ cha, tạo cảm giác modal.
 //     2. Vòng lặp message riêng chạy tới khi người dùng bấm OK/Huỷ.
 //     3. EnableWindow(owner, TRUE) và trả kết quả.
-//   ScreenPickerDialog.cpp dùng đúng khuôn này — sửa một bên nên xem lại bên kia.
+//   Khuôn này từng dùng chung với ScreenPickerDialog.cpp (xoá 2026-07-27).
 //
 // FromUtf8 — VÌ SAO CẦN
 //   Tên nguồn đi trên dây là UTF-8 (host có thể phục vụ client không phải Windows),
 //   còn control Win32 cần UTF-16. Đây là chỗ đổi. Hàm đối xứng ToUtf8 nằm ở
-//   ScreenPickerDialog.cpp, nơi tên đi theo chiều ngược lại.
+//   phía host, nơi tên đi theo chiều ngược lại.
 //
-// LIÊN QUAN: ui/SourcePickerDialog.h (vai trò), ScreenPickerDialog.cpp (cùng
+// LIÊN QUAN: ui/SourcePickerDialog.h (vai trò), Viewer.h (người gọi)
 //            khuôn mẫu, chiều ngược lại), deskhub/protocol/Wire.h (SourceInfo)
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN

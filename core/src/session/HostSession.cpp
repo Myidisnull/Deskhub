@@ -87,11 +87,7 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
         case MsgType::InputEvent:
             // Chỉ nhận input khi đang STREAMING: trước đó host chưa biết client là ai.
             if (state() != State::Streaming || !InSession(h->sessionId)) return false;
-            // Gói vẫn NUÔI TIMEOUT dù bị bỏ: một phiên chỉ-xem mà người dùng ngồi rê
-            // chuột suốt vẫn là một phiên sống, và HELLO_ACK đã nói trước với client
-            // rằng input không được nhận (kAckFlagInputAccepted).
             lastRecvUs_ = nowUs;
-            if (!inputAllowed()) return true;
             input_.HandlePacket(payload, cb_.onInput);
             return true;
         case MsgType::SetFocus: {
@@ -179,9 +175,6 @@ void HostSession::SendHelloAck(uint64_t nowUs) {
     a.fps = offer_.fps;
     a.bitrateBps = offer_.bitrateBps;
     a.timebaseUs = nowUs; // mốc đồng hồ host để client ước lượng trễ e2e (§7)
-    // Nói trước cho client biết phiên này được phép làm gì, để nó khỏi vẽ bàn phím ảo
-    // và nút khoá chuột cho một phiên chỉ-xem (xem kAckFlag* trong Wire.h).
-    a.flags = uint16_t((inputAllowed() ? kAckFlagInputAccepted : 0));
     const size_t n = BuildHelloAck(buf_, a);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }

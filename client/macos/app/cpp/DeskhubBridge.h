@@ -93,9 +93,6 @@ void dh_mouse_wheel(int32_t delta);
 
 // --- Trạng thái để UI vẽ ---
 DHPhase dh_phase(void);
-// GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng tin
-// sau khi phiên đã đàm phán; trước đó trả true. UI giấu nút khoá chuột khi false.
-bool dh_input_accepted(void);
 // Dòng số liệu cho overlay (fps/kbps/RTT/e2e). Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dh_status_line(void);
 // Lý do phiên kết thúc. Rỗng nếu chưa kết thúc.
@@ -151,15 +148,13 @@ typedef struct {
 int dha_list_share_sources(DHShareSource* out, int capacity);
 
 // Bắt đầu chia sẻ. CHẶN tới ~10s (đợi frame đầu), gọi ngoài main thread.
-// `port` = 0 dùng mặc định 47777; cổng bận thì tự tăng dần (xem dha_port).
-bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input);
+// KHÔNG có tham số cổng và cũng KHÔNG có tham số "cho phép điều khiển": cổng luôn
+// là 47777 (kDeskhubPort, net/UdpSocket.h) và chuột/bàn phím luôn được chia sẻ.
+// false = cổng đã bị chiếm, thiếu quyền, hoặc không nguồn nào lên hình.
+bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps);
 
 void dha_stop(void);
 bool dha_running(void);
-
-// Cổng THẬT đang nghe — có thể khác cổng đã xin nếu cổng đó bận.
-uint16_t dha_port(void);
 
 // Dòng trạng thái tổng. Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dha_status_line(void);
@@ -171,9 +166,8 @@ int dha_status(DHAgentStatus* out, int capacity);
 // bằng '\n'. Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dha_local_addresses(void);
 
-// Thêm/bớt nguồn GIỮA PHIÊN. Không chặn — thread Recv thi hành ở vòng kế tiếp.
-void dha_add_source(const DHShareSource* s);
-void dha_remove_source(uint8_t source_id);
+// KHÔNG có dha_add_source/dha_remove_source (bỏ 2026-07-27): phiên chia sẻ tất cả
+// màn hình và danh sách chốt lúc dha_start, nên không có lệnh nào đổi nó giữa chừng.
 
 #ifdef __cplusplus
 }

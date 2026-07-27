@@ -218,18 +218,13 @@ struct AgentLoop::Impl {
 
     std::vector<std::unique_ptr<SourcePipeline>> pipes;
     std::vector<SourcePipeline*> live;
-    // Nguồn thêm giữa phiên: capture đã chạy, đang đợi frame đầu để biết kích thước
-    // rồi mới AttachSession được. pair = (pipeline, hạn chót µs).
-    std::vector<std::pair<SourcePipeline*, uint64_t>> pendingAdds;
 
     // Cấp sourceId tăng dần và KHÔNG tái dùng id của nguồn đã tắt: client còn cầm
     // SOURCE_LIST cũ mà HELLO lại trúng một nguồn mới toanh thì xem nhầm màn hình.
     uint8_t nextSourceId = 0;
 
-    // Hộp thư lệnh từ UI -> thread Recv (đối ứng SessionWindow::TakeAdds/TakeRemoves).
-    std::mutex cmdMutex;
-    std::vector<AgentSource> pendingAddCmds;
-    std::vector<uint8_t> pendingRemoveCmds;
+    // Không có hộp thư lệnh từ UI (bỏ 2026-07-27 cùng nút thêm/bớt nguồn): danh sách
+    // nguồn chốt lúc Start và không đổi, nên UI chỉ còn đọc trạng thái và gọi Stop.
 
     // Ảnh chụp trạng thái cho UI: thread Recv ghi mỗi giây, main thread đọc.
     std::mutex statusMutex;
@@ -276,18 +271,6 @@ std::vector<std::string> AgentLoop::LocalAddresses() {
     if (!impl_) return {};
     std::lock_guard<std::mutex> lk(impl_->statusMutex);
     return impl_->addresses;
-}
-
-void AgentLoop::AddSource(const AgentSource& s) {
-    if (!impl_) return;
-    std::lock_guard<std::mutex> lk(impl_->cmdMutex);
-    impl_->pendingAddCmds.push_back(s);
-}
-
-void AgentLoop::RemoveSource(uint8_t sourceId) {
-    if (!impl_) return;
-    std::lock_guard<std::mutex> lk(impl_->cmdMutex);
-    impl_->pendingRemoveCmds.push_back(sourceId);
 }
 
 SourcePipeline* AgentLoop::Impl::MakePipeline(const AgentSource& s) {
@@ -453,12 +436,9 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     LOGI("[Agent] Source %u \"%s\": %ux%u @%ufps, %u Mbps.", p->sourceId, p->name.c_str(),
         p->offer.width, p->offer.height, opt.fps, opt.bitrateMbps);
 
-    if (opt.allowInput) {
-        p->injector.SetLocalMonitor(&localInputMon);
-        p->injector.SetEnabled(p->injector.Init(p->displayId));
-    } else {
-        p->injector.SetEnabled(false);
-    }
+    // Chuột/bàn phím LUÔN được chia sẻ (chốt 2026-07-27) — chỉ còn một đường.
+    p->injector.SetLocalMonitor(&localInputMon);
+    p->injector.SetEnabled(p->injector.Init(p->displayId));
 
     UdpSocket* sockPtr = &sock;
     Impl* self = this;
@@ -534,10 +514,6 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     };
 
     p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
-    // Chính sách GĐ9 nằm ở core: HostSession vừa BỎ gói INPUT_EVENT khi tắt, vừa
-    // nói cho client biết qua HELLO_ACK (cờ inputAccepted) để nó khỏi vẽ nút khoá
-    // chuột cho một phiên chỉ-xem. Thiếu dòng này thì host macOS chào sai cờ.
-    p->session->SetInputAllowed(opt.allowInput);
     p->netReady.store(true, std::memory_order_release);
 }
 
@@ -586,17 +562,9 @@ void AgentLoop::Impl::PublishStatus(uint64_t now, double secs) {
         r.sendKbps = p->statSendKbps;
         rows.push_back(std::move(r));
     }
-    for (const auto& pr : pendingAdds) {
-        AgentSourceStatus r;
-        r.sourceId = pr.first->sourceId;
-        r.name = pr.first->name;
-        r.starting = true;
-        rows.push_back(std::move(r));
-    }
-
     char line[192];
     std::snprintf(line, sizeof(line), "Sharing %zu source(s) on UDP port %u",
-        rows.size(), unsigned(sock.IsOpen() ? opt.port : 0));
+        rows.size(), unsigned(sock.IsOpen() ? kDeskhubPort : 0));
 
     (void)now;
     (void)secs;
@@ -623,7 +591,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     im->opt = opt;
 
     if (sources.empty()) {
-        LOGE("[Agent] No source selected.");
+        LOGE("[Agent] No display to share.");
         return false;
     }
     if (sources.size() > deskhub::kMaxSources) {
@@ -638,33 +606,15 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             "capture will likely fail. Grant it in System Settings and restart.");
     }
 
-    // Ưu tiên cổng người dùng chọn, kẹt thì +1 dần tới cổng trống kế tiếp — một host
-    // cũ còn chạy ngầm không còn chặn được phiên mới. Cổng THẬT mới là cái phải in
-    // ra cho máy kia gõ, không phải opt.port ban đầu.
-    constexpr int kPortTries = 64;
-    uint16_t boundPort = opt.port;
-    bool opened = false;
-    for (int i = 0; i < kPortTries; ++i) {
-        const int p = int(opt.port) + i;
-        if (p <= 0 || p > 65535) break;
-        boundPort = uint16_t(p);
-        if (im->sock.Open(boundPort)) {
-            opened = true;
-            break;
-        }
-    }
-    if (!opened) {
-        LOGE("[Agent] No free UDP port from %u to %u.", unsigned(opt.port),
-            unsigned(opt.port) + kPortTries - 1);
+    // MỘT cổng duy nhất, không có phương án hai (giống bản Windows). Bản trước dò 64
+    // cổng kế tiếp khi 47777 bận; việc đó đã bỏ vì client chỉ biết gõ IP — một host
+    // nhảy sang 47778 là một host không ai kết nối tới được.
+    if (!im->sock.Open(kDeskhubPort)) {
+        LOGE("[Agent] UDP port %u is not available — another Deskhub is probably "
+             "still running. Close it and try again.",
+            unsigned(kDeskhubPort));
         return false;
     }
-    if (boundPort != opt.port)
-        LOGI(
-            "[Agent] Port %u was busy — using %u instead. Tell the other person to "
-            "use this port.",
-            unsigned(opt.port), unsigned(boundPort));
-    im->opt.port = boundPort;
-    port_.store(boundPort, std::memory_order_relaxed);
     im->sock.SetRecvTimeout(100);
 
     im->startBitrate = opt.bitrateMbps * 1'000'000u;
@@ -678,8 +628,8 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             im->addresses.push_back(a.ip + "  (" + a.name + ")");
     }
     LOGI("[Agent] Listening on UDP port %u. On the other machine, enter one of:",
-        boundPort);
-    for (const auto& a : im->addresses) LOGI("    %s:%u", a.c_str(), boundPort);
+        unsigned(kDeskhubPort));
+    for (const auto& a : im->addresses) LOGI("    %s", a.c_str());
 
     // --- Dựng + khởi động capture cho từng nguồn ---
     for (const AgentSource& s : sources) im->StartPipeline(im->MakePipeline(s));
@@ -712,15 +662,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     for (SourcePipeline* p : im->live) im->AttachSession(p);
 
-    // "Host thắng" khi hai bên cùng điều khiển. Chỉ cần khi cho phép điều khiển.
-    if (opt.allowInput) {
+    // "Host thắng" khi hai bên cùng điều khiển. Luôn cần: input luôn được chia sẻ.
+    {
         im->localInputMon.Start();
         const bool ax = macperm::HasAccessibility();
         LOGI("[Agent] Client control allowed (mouse + keyboard). Accessibility: %s%s",
             ax ? "YES" : "NO",
             ax ? "" : " — input will be silently dropped until it is granted");
-    } else {
-        LOGI("[Agent] VIEW ONLY — input from client is ignored.");
     }
     LOGI("[Agent] Sharing %zu source(s). Waiting for client...", im->live.size());
 
@@ -752,19 +700,18 @@ void AgentLoop::Stop() {
     im->sock.Close();
     LOGI("[Agent] Stopped. Total: %" PRIu64 " frames sent, %.2f MB.", totalFrames, totalMB);
     impl_.reset();
-    port_.store(0, std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
 // Vòng Recv (thread riêng), dùng chung cho mọi nguồn
 // ---------------------------------------------------------------------------
-// Mỗi vòng làm bốn việc, theo thứ tự:
-//   1. Thi hành lệnh từ UI (Add / Stop selected) + nuôi danh sách nguồn đang chờ.
-//   2. recvfrom — chặn tối đa 100 ms, nên vòng lặp luôn quay đủ nhanh để Tick.
-//   3. Định tuyến gói vừa nhận về đúng SourcePipeline (xem sơ đồ đầu file).
-//   4. Tick mọi phiên + thống kê mỗi giây.
+// Mỗi vòng làm ba việc, theo thứ tự:
+//   1. recvfrom — chặn tối đa 100 ms, nên vòng lặp luôn quay đủ nhanh để Tick.
+//   2. Định tuyến gói vừa nhận về đúng SourcePipeline (xem sơ đồ đầu file).
+//   3. Tick mọi phiên + thống kê mỗi giây.
 //
-// Một cửa sổ đóng KHÔNG giết cả phiên: người dùng còn nút Add để thêm nguồn mới.
+// Bản trước còn một bước "thi hành lệnh từ UI (Add / Stop selected)" đứng trước cả
+// ba; nó đã bỏ 2026-07-27 — danh sách nguồn chốt lúc Start và không đổi.
 void AgentLoop::Impl::RecvLoop() {
     uint8_t buf[deskhub::kMaxDatagram];
     uint64_t lastStatUs = NowUs();
@@ -774,70 +721,6 @@ void AgentLoop::Impl::RecvLoop() {
     uint32_t dgLoopBusyMaxMs = 0;
 
     while (!quit.load()) {
-        // --- Lệnh từ UI ---
-        bool rosterChanged = false;
-        std::vector<AgentSource> adds;
-        std::vector<uint8_t> removes;
-        {
-            std::lock_guard<std::mutex> lk(cmdMutex);
-            adds.swap(pendingAddCmds);
-            removes.swap(pendingRemoveCmds);
-        }
-        for (AgentSource& s : adds) {
-            // Trần kMaxSources tính trên nguồn CÒN SỐNG + đang chờ, không phải tổng
-            // đã từng share — tắt bớt rồi thêm lại thoải mái.
-            size_t aliveCnt = pendingAdds.size();
-            for (SourcePipeline* q : live)
-                if (!q->failed.load() && !q->capture.Closed()) ++aliveCnt;
-            if (aliveCnt >= deskhub::kMaxSources) {
-                LOGW("[Agent] Cannot add \"%s\": already sharing %zu sources.",
-                    s.name.c_str(), aliveCnt);
-                continue;
-            }
-            SourcePipeline* p = MakePipeline(s);
-            StartPipeline(p);
-            LOGI("[Agent][%s] Added — waiting for first frame.", p->name.c_str());
-            // Start hỏng thì failed đã bật — vòng pending dưới sẽ không bao giờ thấy
-            // nó, nên đừng cho vào danh sách chờ.
-            if (!p->failed.load()) pendingAdds.push_back({p, NowUs() + 10'000'000ull});
-            rosterChanged = true;
-        }
-        for (uint8_t id : removes) {
-            for (auto& up : pipes) {
-                if (up->sourceId != id || up->shutdownDone) continue;
-                LOGI("[Agent][%s] Stopped by the user.", up->name.c_str());
-                ShutdownPipeline(up.get());
-                rosterChanged = true;
-            }
-        }
-
-        // --- Nguồn đang chờ: frame đầu về thì vào phiên, quá hạn/hỏng thì bỏ ---
-        for (auto it = pendingAdds.begin(); it != pendingAdds.end();) {
-            SourcePipeline* p = it->first;
-            if (p->failed.load()) { // StartPipeline hỏng muộn, hoặc vừa bị Stop
-                it = pendingAdds.erase(it);
-                rosterChanged = true;
-                continue;
-            }
-            if (p->srcW.load()) {
-                AttachSession(p);
-                live.push_back(p);
-                it = pendingAdds.erase(it);
-                rosterChanged = true;
-                continue;
-            }
-            if (NowUs() > it->second) {
-                LOGW("[Agent][%s] No frame within 10s — not sharing this source.",
-                    p->name.c_str());
-                ShutdownPipeline(p);
-                it = pendingAdds.erase(it);
-                rosterChanged = true;
-                continue;
-            }
-            ++it;
-        }
-        if (rosterChanged) PublishStatus(NowUs(), 1.0);
-
         NetAddr from;
         const int n = sock.RecvFrom(buf, sizeof(buf), from);
         const uint64_t now = NowUs();

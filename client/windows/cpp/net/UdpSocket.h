@@ -37,6 +37,19 @@
 #include <cstdint>
 #include <string>
 
+// CỔNG CỐ ĐỊNH CỦA TOÀN BỘ SẢN PHẨM. Host luôn bind đúng cổng này, client luôn gửi
+// tới đúng cổng này, và KHÔNG có đường nào đổi nó — không ô nhập, không cờ dòng
+// lệnh, không tự nhảy sang cổng khác khi bận (chốt 2026-07-27).
+//
+// Vì sao không cho đổi: một cổng cố định biến "kết nối tới máy kia" thành đúng một
+// thao tác — gõ IP. Cho đổi cổng thì mọi lời hướng dẫn, mọi nút Copy, mọi thông báo
+// lỗi đều phải mang theo con số đó, và người dùng gặp thêm một cách để sai mà không
+// đổi lại được gì trong mạng nhà. Cổng bận thì BÁO LỖI (xem lastBindAddrInUse) chứ
+// không lặng lẽ nhảy cổng, vì nhảy cổng nghĩa là client gõ đúng IP vẫn không thấy máy.
+//
+// Giá trị này lặp lại y hệt ở client/macos và client/android — đổi thì đổi cả ba.
+inline constexpr uint16_t kDeskhubPort = 47777;
+
 // Địa chỉ IPv4 dạng host byte order - POD để so sánh/copy rẻ (roaming: peer đổi addr).
 struct NetAddr {
     uint32_t ip = 0; // host byte order (127.0.0.1 = 0x7F000001)
@@ -53,13 +66,11 @@ struct NetAddr {
     std::string ToString() const;
 };
 
-// "ip[:port]" -> NetAddr (port mặc định nếu không ghi). false nếu sai cú pháp.
-bool ParseNetAddr(const std::string& s, uint16_t defaultPort, NetAddr& out);
-
-// Tìm cổng UDP TRỐNG đầu tiên trong [start, start+count) bằng cách thử bind rồi đóng
-// ngay. Trả 0 nếu cả dải đều bận. Dùng để host chọn cổng lúc khởi động (ưu tiên
-// 47777, kẹt thì +1 dần) mà không đụng tới host cũ đang chạy. Im lặng — không in log.
-uint16_t FindFreeUdpPort(uint16_t start, int count);
+// "192.168.1.5" -> NetAddr với port = kDeskhubPort. false nếu sai cú pháp.
+// CHỈ nhận IP trần: chuỗi có ':' bị TỪ CHỐI chứ không bỏ qua phần cổng, để người
+// dùng dán "ip:port" kiểu cũ nhận được lời báo lỗi thay vì im lặng đi tới một cổng
+// khác cái họ vừa gõ.
+bool ParseNetAddr(const std::string& s, NetAddr& out);
 
 class UdpSocket {
 public:

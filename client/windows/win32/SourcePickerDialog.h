@@ -10,7 +10,7 @@
 // VỊ TRÍ TRONG LUỒNG NGƯỜI DÙNG
 //   MainMenuWindow (gõ IP) → QueryHostSources → **SourcePickerDialog** → ClientLoop
 //
-// ĐỐI XỨNG VỚI ScreenPickerDialog PHÍA HOST
+// PHÍA CLIENT — host không còn hộp thoại đối xứng (share hết, bỏ 2026-07-27)
 //   Cùng kiểu listbox nhiều lựa chọn, cùng cách trả kết quả. Bên host chọn "chia
 //   sẻ cái gì", bên client chọn "xem cái gì" — hai nửa của cùng một câu hỏi.
 //
@@ -18,7 +18,7 @@
 //   Android chỉ cho chọn MỘT nguồn (một Activity, một Surface). Bản Windows mở
 //   được nhiều cửa sổ preview cùng lúc nên cho tick nhiều — xem MainActivity.kt.
 //
-// LIÊN QUAN: ScreenPickerDialog.h (đối xứng phía host), Viewer.h,
+// LIÊN QUAN: Viewer.h,
 //            deskhub/protocol/Wire.h (SourceInfo, kMaxSources)
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN
