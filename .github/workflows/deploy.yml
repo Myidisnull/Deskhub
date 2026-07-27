@@ -198,7 +198,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: mv client/android/app/build/outputs/apk/release/app-release.apk "deskhub-${GITHUB_REF_NAME}-android.apk"
 
-      # Cùng release do build.yml tạo (zip Windows) — action gộp thêm file vào
+      # Cùng release do build.yml tạo (exe Windows) — action gộp thêm file vào
       # release đã có, không tạo bản trùng (giống job macos ở trên).
       - name: Attach apk to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
