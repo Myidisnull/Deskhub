@@ -8,7 +8,7 @@ desktop tools can't pull off.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
-| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The whole macOS app is a **2.4 MB** download. | Two buttons: **Share** a display or **Connect** to an IP. That's the entire UI. |
+| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~280 KB** exe; macOS is a **1.9 MB** dmg. | Two buttons: **Share** a display or **Connect** to an IP. That's the entire UI. |
 
 ## 💡 Why
 
@@ -32,7 +32,7 @@ Roadmap: [`docs/05-roadmap.md`](docs/05-roadmap.md)
 
 ## 🚀 Get it
 
-**🪟 Windows & 🍎 macOS** — grab the app (`.zip` / `.dmg`) from
+**🪟 Windows & 🍎 macOS** — grab a single `.exe` / `.dmg` from
 **[Releases](https://github.com/manhpham90vn/Deskhub/releases)** — no install, no setup.
 On Windows, sharing prompts for admin once and the app configures the firewall by itself.
 
