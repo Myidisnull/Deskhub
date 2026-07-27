@@ -35,21 +35,7 @@ typedef enum {
     DHPhaseConnecting = 1,
     DHPhaseStreaming = 2,
     DHPhaseEnded = 3,
-    // GĐ10: host đòi mật khẩu mà máy này chưa có. Phiên VẪN SỐNG — tầng C++ tiếp tục
-    // phát lại HELLO, nên chỉ cần dh_submit_password là nó đi tiếp. ĐỪNG gọi dh_stop.
-    DHPhaseNeedPassword = 4,
 } DHPhase;
-
-// Vì sao host từ chối. Trùng deskhub::RejectReason bên C++ (Wire.h) — cùng kiểu enum
-// bị tách làm đôi qua ranh giới ngôn ngữ, nên sửa một bên phải sửa cả bên kia.
-typedef enum {
-    DHRejectNone = 0,
-    DHRejectBusy = 1,
-    DHRejectCodecMismatch = 2,
-    DHRejectAuthRequired = 3,
-    DHRejectAuthFailed = 4,
-    DHRejectLockedOut = 5,
-} DHRejectReason;
 
 // Thông tin một nguồn (cửa sổ) host đang chia sẻ.
 typedef struct {
@@ -64,31 +50,7 @@ typedef struct {
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);
 
 // Bắt đầu phiên xem. Trả true nếu khởi động thành công.
-//
-// Bốn tham số sau là của GĐ10 (xác thực), do Credentials.swift nạp từ Keychain:
-//   client_id    — danh tính ỔN ĐỊNH của bản cài này. Host khoá danh sách thiết bị
-//                  tin cậy theo nó; đổi mỗi lần chạy là token không bao giờ khớp lại.
-//   device_name  — tên hiện ở danh sách "Trusted devices" phía host.
-//   password     — mật khẩu đã lưu cho host này (NULL/rỗng = chưa có → host đòi thì
-//                  phiên vào DHPhaseNeedPassword).
-//   device_token — token host cấp lần trước (NULL/0 = chưa từng được nhớ).
-bool dh_start(const char* address, uint8_t sourceId, uint32_t client_id,
-    const char* device_name, const char* password,
-    const uint8_t* device_token, int device_token_len);
-
-// --- Xác thực (GĐ10) ---
-
-// Người dùng vừa nhập mật khẩu. Có tác dụng ở lần phát lại HELLO kế tiếp (≤ 0.5s);
-// KHÔNG phải kết nối lại từ đầu.
-void dh_submit_password(const char* password);
-
-// Token host vừa cấp để nhớ máy này. ĐỌC RỒI XOÁ — gọi lần hai trả 0. Chép ≤ `cap`
-// byte vào `out`, trả số byte thật (0 = chưa có gì mới). Gọi mỗi nhịp poll và cất
-// ngay: token chỉ đi trên dây ĐÚNG MỘT LẦN.
-int dh_take_device_token(uint8_t* out, int cap);
-
-// Vì sao host từ chối lần bắt tay gần nhất (DHRejectReason).
-int dh_reject_reason(void);
+bool dh_start(const char* address, uint8_t sourceId);
 
 // Dừng phiên hiện tại.
 void dh_stop(void);

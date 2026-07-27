@@ -25,7 +25,7 @@
 //   kể cả trong máy ảo không có GPU ảo hoá. `hardware = false` để người gọi biết mà
 //   hạ kỳ vọng (và để in cảnh báo cho người dùng).
 //
-// LIÊN QUAN: capture/WindowCapture.h, encode/EncoderFactory.cpp (hai bên dùng chung
+// LIÊN QUAN: capture/ScreenCapture.h, encode/EncoderFactory.cpp (hai bên dùng chung
 //            device), decode/Renderer.h
 // =============================================================================
 #define WIN32_LEAN_AND_MEAN

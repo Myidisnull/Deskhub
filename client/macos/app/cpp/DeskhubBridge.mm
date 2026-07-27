@@ -11,8 +11,8 @@
 //   và app treo. Lấy con trỏ dưới khoá rồi NHẢ khoá trước khi chờ — cùng cách bản
 //   iOS làm, và đây là lỗi đã từng gặp thật nên đừng "dọn dẹp" nó.
 //
-// LIÊN QUAN: DeskhubBridge.h (hợp đồng + hàm nào chặn), client/ClientLoop.h,
-//            agent/AgentLoop.h, net/SourceQuery.h,
+// LIÊN QUAN: DeskhubBridge.h (hợp đồng + hàm nào chặn), ClientLoop.h,
+//            AgentLoop.h, net/SourceQuery.h,
 //            client/ios/app/cpp/DeskhubClient.mm (bản song song)
 // =============================================================================
 #import <AVFoundation/AVFoundation.h>
@@ -26,10 +26,10 @@
 #include <vector>
 
 #include "Log.h"
-#include "agent/AgentLoop.h"
-#include "agent/Permissions.h"
-#include "agent/SourceEnum.h"
-#include "client/ClientLoop.h"
+#include "AgentLoop.h"
+#include "Permissions.h"
+#include "capture/SourceEnum.h"
+#include "ClientLoop.h"
 #include "input/MacKeyMap.h"
 #include "net/SourceQuery.h"
 
@@ -41,13 +41,11 @@ std::mutex g_clientMutex;
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
-constexpr uint16_t kDefaultPort = 47777;
 
 // Bộ đệm tĩnh cho chuỗi trả về (hợp lệ tới lần gọi kế). An toàn vì mọi hàm trả chuỗi
 // đều được gọi từ main thread — Swift poll trạng thái trên MainActor.
 char g_statusBuf[256];
 char g_reasonBuf[256];
-char g_clipBuf[deskhub::kMaxClipboardBytes + 1];
 char g_agentStatusBuf[256];
 char g_addrBuf[1024];
 
@@ -67,7 +65,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     if (!address || !out || capacity <= 0) return 0;
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return 0;
     }
@@ -94,7 +92,7 @@ bool dh_start(const char* address, uint8_t sourceId) {
     }
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return false;
     }
@@ -155,30 +153,10 @@ void dh_mouse_wheel(int32_t delta) {
     if (g_client) g_client->QueueMouseWheel(delta);
 }
 
-void dh_set_clipboard(const char* utf8) {
-    if (!utf8 || !*utf8) return;
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (g_client) g_client->SetLocalClipboard(utf8);
-}
-
-const char* dh_take_remote_clipboard(void) {
-    g_clipBuf[0] = '\0';
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    if (!g_client) return g_clipBuf;
-    std::string s;
-    if (g_client->TakeRemoteClipboard(s)) CopyToBuf(g_clipBuf, sizeof(g_clipBuf), s);
-    return g_clipBuf;
-}
-
 DHPhase dh_phase(void) {
     std::lock_guard<std::mutex> lk(g_clientMutex);
     if (!g_client) return DHPhaseIdle;
     return DHPhase(int(g_client->phase()));
-}
-
-bool dh_input_accepted(void) {
-    std::lock_guard<std::mutex> lk(g_clientMutex);
-    return g_client ? g_client->InputAccepted() : true;
 }
 
 const char* dh_status_line(void) {
@@ -246,8 +224,7 @@ int dha_list_share_sources(DHShareSource* out, int capacity) {
     const std::vector<ShareSource> src = GetShareSources();
     const int count = int(src.size()) < capacity ? int(src.size()) : capacity;
     for (int i = 0; i < count; ++i) {
-        out[i].id = src[i].target.id;
-        out[i].isDisplay = src[i].target.isDisplay;
+        out[i].id = src[i].displayId;
         out[i].width = src[i].width;
         out[i].height = src[i].height;
         std::strncpy(out[i].name, src[i].name.c_str(), sizeof(out[i].name) - 1);
@@ -259,14 +236,13 @@ int dha_list_share_sources(DHShareSource* out, int capacity) {
 namespace {
 AgentSource ToAgentSource(const DHShareSource& s) {
     AgentSource a;
-    a.target = s.isDisplay ? CaptureTarget::Display(s.id) : CaptureTarget::Window(s.id);
+    a.displayId = s.id;
     a.name = s.name;
     return a;
 }
 } // namespace
 
-bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input, bool share_clipboard) {
+bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps) {
     if (!sources || count <= 0) return false;
 
     std::vector<AgentSource> list;
@@ -274,11 +250,8 @@ bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t 
     for (int i = 0; i < count; ++i) list.push_back(ToAgentSource(sources[i]));
 
     AgentOptions opt;
-    opt.port = port ? port : kDefaultPort;
     opt.fps = fps ? fps : 60;
     opt.bitrateMbps = bitrate_mbps ? bitrate_mbps : 20;
-    opt.allowInput = allow_input;
-    opt.shareClipboard = share_clipboard;
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
@@ -304,11 +277,6 @@ void dha_stop(void) {
 bool dha_running(void) {
     std::lock_guard<std::mutex> lk(g_agentMutex);
     return g_agent && g_agent->running();
-}
-
-uint16_t dha_port(void) {
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    return g_agent ? g_agent->port() : 0;
 }
 
 const char* dha_status_line(void) {
@@ -356,15 +324,4 @@ const char* dha_local_addresses(void) {
     }
     CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
     return g_addrBuf;
-}
-
-void dha_add_source(const DHShareSource* s) {
-    if (!s) return;
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    if (g_agent) g_agent->AddSource(ToAgentSource(*s));
-}
-
-void dha_remove_source(uint8_t source_id) {
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    if (g_agent) g_agent->RemoveSource(source_id);
 }

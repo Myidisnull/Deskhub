@@ -16,7 +16,7 @@ The roadmap has **two dimensions**:
 | Platform | Agent | Client | Status | Doc |
 |----------|:-----:|:------:|-----------|-----|
 | Windows | ✅ | ✅ | **Running for real on two machines over LAN + Tailscale** (Internet/NAT); Phase 0–Phase 6 | 02 / 03 |
-| macOS | 🔶 | 🔶 | **Both roles implemented** (SCK + VideoToolbox + CGEvent), clean build; not yet verified on two physical machines | 14 |
+| macOS | ✅ | ✅ | **Both roles tested and working** (SCK + VideoToolbox + CGEvent), clean build | 14 |
 | Android | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard); in testing on Google Play | 08 |
 | iOS | — | ✅ | **Video + input** (SwiftUI + VideoToolbox); in testing via TestFlight | 12 |
 | Web | — | 📐 | Design complete, no code yet | 10 |
@@ -50,6 +50,9 @@ client/windows/
     └── BmpWriter.h/.cpp      debug tool: VRAM texture → BMP
 ```
 Run: `client.exe [game.exe] [--save] [--frames N]`
+
+(Historical record — window sharing was removed 2026-07-27: `WindowFinder` is gone and
+`WindowCapture` became `ScreenCapture`, display-only.)
 
 ## Phase 1 — Encode ✅ DONE (first version, file-based)
 - ✅ Defined the `IVideoEncoder` interface + `EncoderConfig` (`IVideoEncoder.h`).
@@ -137,7 +140,7 @@ Run: `client.exe game.exe --loopback [--frames N] [--save]`
 - ✅ `--serve` mode (AgentLoop) / `--connect ip[:port]` (ClientLoop, reusing Phase 2's
   MfDecoder/Renderer) / `core_tests` (M1 self-test). The client logs every 1 s:
   fps | kbps | dropped frames | % packet loss | RTT | estimated e2e latency.
-- ✅ **AnyDesk-style UX**: run with no arguments → main menu shows this machine's IP per network
+- ✅ **Menu-first UX**: run with no arguments → main menu shows this machine's IP per network
   adapter (`NetInfo`, virtual adapters sorted last), `[s]` shares an application (the window
   picker as before), `[c]`/typing `ip[:port]` directly to connect; after the session ends it
   returns to the menu.
@@ -177,13 +180,16 @@ viewer machine `client.exe` → type `ip[:port]` (or `client.exe --connect ip[:p
   (F9, locks + hides the cursor) for FPS games. F10 pauses input sending.
 - ✅ **InputInjector** (host): `SendInput` with scancodes + `KEYEVENTF_EXTENDEDKEY`; normalized
   coordinates → target window client rect → virtual desktop (`MOUSEEVENTF_VIRTUALDESK`).
-  Tracks held keys/buttons → `ReleaseAll()` on BYE/timeout/focus loss/exit.
+  Tracks held keys/buttons → `ReleaseAll()` on BYE/timeout/`SET_FOCUS(false)`/exit.
 - ✅ **3-layer stuck-key prevention**: in-packet redundancy + idle-time replay + `ReleaseAll`.
 - ✅ **Emerged outside the design — the foreground trap**: `SendInput` injects into whatever window
   is foreground on the host, NOT into a specific HWND. If the machine's owner clicks over to
   another app, the remote controller types straight into their browser/terminal. Tightened: inject
   only when the shared window has focus, otherwise skip + release keys. This both prevents
-  mistyped input and matches the semantics of "sharing only this window".
+  mistyped input and matches the semantics of "sharing only this window". *(Removed 2026-07-27
+  along with window sharing — with whole displays there is no "outside the scope", so the
+  foreground gate is gone; `ReleaseAll` on BYE/timeout/`SET_FOCUS(false)`/exit and the
+  "host wins" monitor remain.)*
 - ✅ **M1 verification** `core_tests`: wire roundtrip (including negative coordinates), **dropping
   1 in 3 datagrams still applies every event exactly once, in order**, and out-of-order packets
   don't rewind.
@@ -201,9 +207,9 @@ viewer machine `client.exe` → type `ip[:port]` (or `client.exe --connect ip[:p
 
 **Files added in Phase 4:** core: `InputSender.h/.cpp`, `InputReceiver.h/.cpp` (+ `InputEvent`
 in `Wire`); client/windows: `InputCapture.h/.cpp`, `InputInjector.h/.cpp`.
-Run: same as Phase 3, input enabled by default. `--noinput` = view-only (can be set on either
-role). `client.exe <app> --injecttest` = test the input injection path in isolation, no network
-needed (dev).
+Run: same as Phase 3. Input is always on — the `--noinput` / view-only escape hatch described
+here was removed 2026-07-27. `client.exe <app> --injecttest` = test the input injection path in
+isolation, no network needed (dev).
 
 ## Phase 5 — Stability & quality ✅ code DONE, AWAITING two-machine verification
 - ✅ **RECONFIG on window resize**. The FrameArrived thread detects the size change → discards the
@@ -264,15 +270,16 @@ Run self-tests: `make test` (or `out\build\x64-debug\core\core_tests.exe`).
 
 ## Phase 6 — Extensions (as needed)
 - ✅ **Multiple simultaneous sources** (code done, AWAITING two-machine verification). The host
-  shares multiple windows and/or entire displays on ONE port; the client asks `LIST_SOURCES`,
+  shares multiple **displays** on ONE port (since 2026-07-27 displays are the only source kind —
+  per-window sharing was removed); the client asks `LIST_SOURCES`,
   ticks its selection, and each source opens its own preview window.
   - **Each (client, source) pair = one independent session** instead of adding a streamId to the
     video header — see `04-protocol.md` §4.1 for the rationale. The video/FEC/input/FEEDBACK
     channels don't change by a single byte; `HostSession`/`ClientSession` remain 1:1.
-  - Full-display capture: `WindowCapture` takes a `CaptureTarget` (HWND **or** HMONITOR) and calls
-    `CreateForMonitor`. `InputInjector` maps coordinates against the monitor rect, and **drops the
-    foreground guard** when the source is the whole display — that guard exists so input doesn't
-    fall into applications outside the sharing scope, and here there is no "outside the scope".
+  - Display capture: `ScreenCapture` (formerly `WindowCapture`) calls `CreateForMonitor` only; an
+    `AgentSource` is an HMONITOR plus its name. `InputInjector` maps coordinates against the
+    monitor rect. *(The HWND branch of `CaptureTarget` and the foreground guard were removed
+    2026-07-27 with window sharing — whole displays have no "outside the scope".)*
   - **The client uses ONE `InputCapture`**, re-attached to whichever preview window is foreground.
     Raw Input registers per *process*, not per window: calling `Attach` a second time with a
     different HWND silently unregisters the first.
@@ -307,35 +314,37 @@ The UI design (desktop + mobile + landing) requires four things `core/` didn't h
 The core part of all four is done and tested; what remains is the socket and UI work of **each**
 platform, so this sits in the "awaiting wiring" column, not "not done".
 
-- ✅ **LAN host discovery** — DISCOVER/ANNOUNCE (`04-protocol.md` §4.7).
-  `discovery/Beacon` (host replies) + `discovery/HostRegistry` (client merges to
-  one-row-per-machine, stable ordering, expires after 6 seconds of silence).
-  ⬜ Remaining per platform: a broadcast socket sending DISCOVER, and translating `sockaddr` →
-  an `"ip:port"` string to feed `HostRegistry::OnAnnounce`.
+- ❌ **LAN host discovery** — DISCOVER/ANNOUNCE, `HostRegistry`. Built in Phase 9, then
+  **REMOVED 2026-07-27** together with the whole auth layer (GĐ10): the app targets
+  trusted LANs with typed addresses only. Kept from this work: `Beacon` still answers
+  pre-session LIST_SOURCES + PING. History in `git log`.
 - ✅ **Out-of-session probe ping** (`PING sessionId=0`) — feeds the alive/latency pair on each
   saved machine card, plus the "link check" panel before pressing Connect. Because
   `Beacon` answers it, it deliberately does **not** feed the session timeout and does **not**
   change the peer address.
-- ✅ **Measurable end-to-end latency** — `control/ClockSync` (minimum filter + half RTT, see
-  §7), `LinkStats::AddE2e` (avg + max over a 1-second window), `control/LatencyTrace`
-  (60 samples × 320 ms for the line chart). Previously `HelloAck::timebaseUs` had been sent since
-  Phase 3 but **nobody used it** — the overlay only had fps/kbps/packet loss/RTT.
-  ⬜ Remaining per client: call `OnFrame`/`AddE2e` on the render path and draw the numbers.
-- ✅ **Host policy told to the client** — `HELLO_ACK.flags`: whether input is accepted, whether
-  clipboard sync is on. Previously `allowInput` was just a local variable of each `AgentLoop`; the
-  client had no way to know a session was view-only → it still drew the mouse-lock button and the
-  virtual keyboard. Now enforced in `HostSession` (one protocol rule, one place to implement) and
-  respected by the client in `ClientSession::QueueInput`.
-  - **Clipboard changed to default OFF** — previously always on.
-  ⬜ Remaining per platform: `AgentLoop` calls `SetInputAllowed`/`SetClipboardEnabled` instead of
-  local flags; the UI hides the input controls when `params().inputAccepted` is false.
-- ✅ **`SourceInfo.kind`** (window / entire display) on the wire — the client-side source list can
-  distinguish the two kinds. Signaled via a header flag so a Phase 6 host can still read it (`04-protocol.md` §4.6).
+- ❌ **Measurable end-to-end latency** — `control/ClockSync`, `LinkStats::AddE2e`,
+  `control/LatencyTrace` were built in Phase 9 but **REMOVED 2026-07-27**: no client
+  ever wired them in; each ClientLoop ships its own inline estimate instead
+  (`e2e = now − (ackDelta − minRTT/2) − frame pts`, seeded from `HelloAck::timebaseUs`).
+  See 15-review-todo.md D1. History in `git log`.
+- ❌ **Host policy told to the client** — `HELLO_ACK.flags` carried "input accepted" (plus a
+  clipboard bit), enforced in `HostSession` and respected by `ClientSession::QueueInput`.
+  **REMOVED 2026-07-27** together with the whole view-only idea: the app was narrowed to plain
+  remote desktop, where sharing your screen *is* handing over mouse and keyboard, so the flag,
+  `SetInputAllowed`, `NegotiatedParams::inputAccepted`, and every UI toggle behind them went
+  away. Bytes 22-23 of HELLO_ACK stay as reserved zeros so `reason` keeps its offset
+  (`04-protocol.md` §3b). History in `git log`.
+- ❌ **`SourceInfo.kind`** (window / entire display) on the wire — built in Phase 9 (signaled via
+  the `kSourceListFlagKind` header flag), then **REMOVED 2026-07-27**: per-window sharing was
+  dropped, every source is a display, so the kind byte and the flag left the wire
+  (`04-protocol.md` §4.6). History in `git log`.
 
-**Files added in Phase 9 (core):** `discovery/Beacon.h/.cpp`, `discovery/HostRegistry.h/.cpp`,
-`control/ClockSync.h/.cpp`, `control/LatencyTrace.h/.cpp`; changed: `wire/Wire`
-(DISCOVER/ANNOUNCE, `SourceKind`, `HelloAck::flags`), `session/HostSession` (the two policy
-gates), `session/ClientSession` (`NegotiatedParams::inputAccepted`), `control/LinkStats`.
+**Files added in Phase 9 (core):** `discovery/Beacon.h/.cpp`, `discovery/HostRegistry.h/.cpp`
+(HostRegistry removed 2026-07-27), `control/ClockSync.h/.cpp`, `control/LatencyTrace.h/.cpp`
+(both removed 2026-07-27); changed: `wire/Wire`
+(DISCOVER/ANNOUNCE, `SourceKind`, `HelloAck::flags` — all removed again 2026-07-27),
+`session/HostSession` (the two policy gates, also removed), `session/ClientSession`
+(`NegotiatedParams::inputAccepted`, removed), `control/LinkStats`.
 Tests: `tests/discovery/DiscoveryTests.cpp` + additions in wire/session/control.
 
 ### Windows: agent + client per the UI design ✅ RUNNING FOR REAL (one machine)
@@ -346,9 +355,11 @@ The first platform to finish wiring Phase 9. The UI was rebuilt from the design 
 - ✅ **native**: `capture/DisplayFinder` (enumerates displays — previously only windows),
   `net/Discovery` (LAN scan, built on `deskhub::HostRegistry`), `net/HostIdent`
   (stable per-machine hostId), `deskhub::Beacon` wired into `AgentLoop`'s Recv loop,
-  `SessionSourceRow` with STRUCTURED fields (fps/kbps/rtt/viewer/kind) instead of one
+  `SessionSourceRow` with STRUCTURED fields (fps/kbps/rtt/viewer — the `kind` field left with
+  window sharing, 2026-07-27) instead of one
   pre-concatenated string. C API bumped to **v2**: `dh_list_displays`, `dh_discover_scan`,
-  extended `DhAgentRow`, `DhAgentOptions.shareClipboard`.
+  extended `DhAgentRow`, `DhAgentOptions.shareClipboard` (this whole agent C API was removed
+  2026-07-27 with the WinUI3 app; only `dh_client_*` remains).
 - ✅ **UI**: `Themes/Tokens.xaml` (light+dark tokens, translated 1-1 from `_ds/tokens/`),
   `Themes/Controls.xaml` (4 button variants, chip, panel, row, pill), `AppState` +
   `Strings` (EN/VI switchable in place), `Controls/` (Sparkline, StatusDot, StatBlock,
@@ -360,10 +371,18 @@ The first platform to finish wiring Phase 9. The UI was rebuilt from the design 
 - ✅ **Verified running for real**: the app starts, light/dark and EN/VI switches apply instantly,
   the share screen lists the real displays + windows correctly (including Vietnamese titles) and
   all three addresses (Tailscale / Ethernet / vEthernet).
-- ⬜ **Remaining**: real two-machine run — LAN discovery, machine-card alive/latency, the
+  *(Historical: that WinUI3 app is gone, and on 2026-07-27 the surviving clients dropped
+  light/dark and EN/VI entirely — one dark appearance, English only.)*
+- ⬜ **Remaining**: real two-machine run — machine-card alive/latency, the
   "machines viewing" panel, and the end-to-end latency HUD have so far only been proven on one
   machine.
 - ⬜ macOS/Android/iOS not yet wired to Phase 9 (core is ready; what remains is socket + UI).
+
+**Note 2026-07-27:** the WinUI3 UI described above was **deleted** (along with the short-lived
+ImGui frontend and `deskhub_native.dll`) — the only Windows app is the plain Win32 UI
+(`client/windows/win32/`, restored from pre-M4b history, statically linked into one
+`Deskhub.exe`); LAN discovery, auth, and per-window sharing were removed project-wide the same
+day (see the Phase 9/GĐ10 notes).
 
 ⚠️ **A trap that cost time, recorded to avoid tripping twice**: two consecutive hyphens inside a
 XAML comment (e.g. when quoting a CSS variable name) are INVALID XML, and the XamlCompiler dies

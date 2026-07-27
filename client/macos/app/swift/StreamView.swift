@@ -1,18 +1,20 @@
 // =============================================================================
-// StreamView.swift — màn hình XEM + ĐIỀU KHIỂN. Dựng theo `DesktopViewer` trong
-//                    desktop.jsx; đối ứng client/windows/csharp/Views/ViewerPage.xaml.
+// StreamView.swift — màn hình XEM + ĐIỀU KHIỂN.
 //
-// KHÔNG CÓ THANH CÔNG CỤ, CHỈ CÓ HAI HUD NỔI
-//   Màn cũ có một thanh số liệu đặc chiếm nguyên một hàng trên cùng. Bản thiết kế bỏ
-//   hẳn nó: hình từ máy kia chiếm TRỌN cửa sổ, số liệu nổi ở góc trên phải, điều khiển
-//   nổi ở giữa dưới. Một thanh đặc ăn mất chiều cao của thứ duy nhất người ta mở màn
-//   này ra để nhìn.
+// GIAO DIỆN TRẦN (2026-07-27)
+//   Chrome từng dựng trên hệ thiết kế riêng (HUD kính bo pill, chip, chấm sống, biểu
+//   đồ RTT). Cả bộ đó đã xoá — giờ chỉ còn `Text`/`Button` dựng sẵn của SwiftUI.
 //
-// NỀN LUÔN ĐEN, KỂ CẢ Ở GIAO DIỆN SÁNG
-//   Vùng letterbox quanh khung hình phải là màu KHÔNG CÓ, chứ không phải một màu nhạt
-//   — nếu không, mắt sẽ đọc nó thành một phần của hình. Vì vậy cả màn này ép
-//   colorScheme = .dark: mọi thứ nổi trên video giữ bảng màu tối, đúng như
-//   theme-light.css quy định cho `.om-video`.
+// BỐ CỤC: BA HÀNG XẾP DỌC, KHÔNG CHỒNG NHAU
+//     [thanh trên]  địa chỉ + dòng số liệu
+//     [ô giữa]      video (RemoteView)
+//     [thanh dưới]  Lock / Fit / Display / End
+//   Hai thanh từng là HUD nổi ĐÈ lên video; tách hẳn ra để không có gì nằm chắn lên
+//   nội dung đang xem. Đánh đổi: khung hình mất đúng phần chiều cao của hai thanh.
+//
+// NỀN ĐEN, KỂ CẢ Ở GIAO DIỆN SÁNG CỦA HỆ
+//   Vùng letterbox quanh khung hình phải là màu KHÔNG CÓ, chứ không phải một màu
+//   nhạt — nếu không, mắt sẽ đọc nó thành một phần của hình.
 //
 // KHÁC BẢN iOS: KHÔNG CÓ THANH PHÍM TẮT
 //   iOS phải có hàng nút Esc/Tab/mũi tên vì bàn phím ảo không có những phím đó. macOS
@@ -27,30 +29,33 @@ struct StreamView: View {
     @Bindable var model: SessionModel
 
     @State private var fill = false
+    @State private var pickerOpen = false
 
     var body: some View {
-        ZStack {
-            DS.bgVideo.ignoresSafeArea()
+        VStack(spacing: 0) {
+            statusBar
 
-            RemoteView(
-                model: model,
-                videoSize: videoSize,
-                fill: fill,
-                mouseLocked: model.mouseLocked,
-                onLayerReady: { layer in DeskhubClient.setLayer(layer) },
-                onLockChanged: { model.mouseLocked = $0 }
-            )
+            ZStack {
+                RemoteView(
+                    model: model,
+                    videoSize: videoSize,
+                    fill: fill,
+                    mouseLocked: model.mouseLocked,
+                    onLayerReady: { layer in DeskhubClient.setLayer(layer) },
+                    onLockChanged: { model.mouseLocked = $0 }
+                )
 
-            hostLabel
-            statsHud
-            controlHud
-
-            if model.phase != .streaming, model.endReason.isEmpty {
-                connectingOverlay
+                // Lớp phủ trạng thái nằm TRONG ô video, không che hai thanh.
+                if !model.endReason.isEmpty {
+                    endedOverlay
+                } else if model.phase != .streaming {
+                    connectingOverlay
+                }
             }
-            if !model.endReason.isEmpty {
-                endedOverlay
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+
+            bottomBar
         }
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -64,23 +69,23 @@ struct StreamView: View {
         CGSize(width: Double(model.videoWidth), height: Double(model.videoHeight))
     }
 
-    // Nhãn máy đang xem, góc trên trái.
-    private var hostLabel: some View {
-        HStack(spacing: 10) {
-            StatusDot(live: model.phase == .streaming)
-            MonoText(
-                text: hostTitle,
-                size: DS.textMono,
-                color: DS.textPrimary
-            )
-            StatePill(
-                text: model.phase == .streaming ? tr("streaming") : tr("connecting"),
-                tone: model.phase == .streaming ? .live : .neutral
-            )
+    // MARK: - Thanh trên
+
+    private var statusBar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(hostTitle)
+                .font(.caption)
+                .lineLimit(1)
+            if !model.statusLine.isEmpty {
+                Text(model.statusLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
-        .padding(26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     private var hostTitle: String {
@@ -88,95 +93,80 @@ struct StreamView: View {
         return "\(model.address) — \(model.videoWidth)×\(model.videoHeight)"
     }
 
-    // HUD số liệu, góc trên phải.
-    private var statsHud: some View {
-        HudBar {
-            MonoText(
-                text: model.statusLine.isEmpty ? tr("connecting") : model.statusLine,
-                color: DS.textPrimary
-            )
-            .lineLimit(1)
-            if model.rttTrace.count >= 2 {
-                HudDivider()
-                Sparkline(values: model.rttTrace)
-                    .frame(width: 96, height: 22)
-            }
-        }
-        .padding(.top, 24)
-        .padding(.trailing, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-    }
+    // MARK: - Thanh dưới
 
-    // HUD điều khiển, giữa dưới.
-    private var controlHud: some View {
-        HudBar {
-            Button {
+    private var bottomBar: some View {
+        HStack(spacing: 10) {
+            Button(model.mouseLocked ? "Unlock mouse (F9)" : "Lock mouse (F9)") {
                 model.mouseLocked.toggle()
-            } label: {
-                Image(systemName: model.mouseLocked ? "cursorarrow.rays" : "cursorarrow")
-                    .font(.system(size: 16))
             }
-            .buttonStyle(DSIconButtonStyle(side: 34, radius: DS.radiusPill, active: model.mouseLocked))
-            .help(tr(model.mouseLocked ? "mouseLocked" : "mouseFree"))
-            .disabled(model.viewOnly || !model.hostAcceptsInput)
 
-            Button { fill.toggle() } label: {
-                Image(systemName: fill ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 16))
+            Button(fill ? "Fit" : "Fill") { fill.toggle() }
+
+            // Chỉ hiện khi có cái để đổi: host một màn hình thì nút này là một câu hỏi
+            // không có câu trả lời.
+            if model.sources.count > 1 {
+                Button("Display") { pickerOpen = true }
+                    .popover(isPresented: $pickerOpen, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(model.sources) { source in
+                                Button {
+                                    model.switchSource(to: source.id)
+                                    pickerOpen = false
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: source.id == model.currentSourceId
+                                            ? "largecircle.fill.circle"
+                                            : "circle")
+                                        Text(sourceLabel(source))
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(12)
+                        .frame(minWidth: 240)
+                    }
             }
-            .buttonStyle(DSIconButtonStyle(side: 34, radius: DS.radiusPill, active: fill))
 
-            HudDivider()
+            Spacer()
 
-            // Nhãn nói rõ CÁCH thoát, không chỉ trạng thái: người dùng khoá chuột xong
-            // không còn con trỏ để bấm lại nút này. Host không nhận điều khiển (GĐ9)
-            // thì cũng phải NÓI ra — "gõ không ăn" im lặng nhìn y hệt lỗi mạng.
-            Chip(text: tr(model.viewOnly
-                     ? "viewOnly"
-                     : (!model.hostAcceptsInput
-                         ? "viewOnlySession"
-                         : (model.mouseLocked ? "mouseLocked" : "mouseFree"))),
-            active: model.mouseLocked)
-
-            HudDivider()
-
-            Button(tr("end")) { end() }
-                .buttonStyle(DSButtonStyle(variant: .danger, size: .sm, pill: true))
+            Button("End") { end() }
+                .buttonStyle(.borderedProminent)
         }
-        .padding(.bottom, 26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
+
+    private func sourceLabel(_ source: Source) -> String {
+        let name = source.name.isEmpty ? "Source \(source.id)" : source.name
+        return "\(name) — \(source.width)×\(source.height)"
+    }
+
+    // MARK: - Lớp phủ
 
     private var connectingOverlay: some View {
         VStack(spacing: 12) {
-            Spinner(size: 22)
-            MonoText(text: "\(tr("connecting")) \(model.address)", color: DS.textPrimary)
+            ProgressView()
+            Text("Connecting to \(model.address)…")
+                .foregroundStyle(.white)
         }
-        .padding(26)
-        .background(DS.surfacePanel, in: RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous)
-                .strokeBorder(DS.borderHairline, lineWidth: DS.hairline)
-        )
     }
 
     private var endedOverlay: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Eyebrow(text: trU("sessionEnded"))
+        VStack(spacing: 12) {
+            Text("Session ended").font(.headline).foregroundStyle(.white)
             Text(model.endReason)
-                .font(DS.ui(DS.textBodyLg))
-                .foregroundStyle(DS.textPrimary)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(tr("back")) { end() }
-                .buttonStyle(DSButtonStyle(variant: .primary))
+            Button("Back") { end() }
+                .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: 420, alignment: .leading)
-        .padding(26)
-        .background(DS.surfacePanel, in: RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous)
-                .strokeBorder(DS.borderHairline, lineWidth: DS.hairline)
-        )
+        .frame(maxWidth: 420)
+        .padding(24)
     }
 
     private func end() {

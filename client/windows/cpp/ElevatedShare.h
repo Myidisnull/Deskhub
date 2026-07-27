@@ -1,6 +1,6 @@
 #pragma once
 // =============================================================================
-// ElevatedShare.h — xin quyền admin cho vai trò HOST khi bật điều khiển.
+// ElevatedShare.h — xin quyền admin cho vai trò HOST.
 //
 // VẤN ĐỀ: UIPI (User Interface Privilege Isolation)
 //   Windows không cho một tiến trình ở mức toàn vẹn THẤP gửi input tới cửa sổ của
@@ -10,18 +10,19 @@
 //   có gì xảy ra. (Xem docs/07-input.md.)
 //
 // GIẢI PHÁP: TỰ KHỞI ĐỘNG LẠI Ở MỨC CAO HƠN
-//   Khi người dùng bấm Share có tick "cho phép điều khiển", ta chạy lại chính exe
-//   này qua ShellExecuteEx với verb "runas" — Windows bung hộp thoại UAC. Instance
-//   mới nhận nguyên phiên share qua DÒNG LỆNH nên người dùng KHÔNG phải chọn nguồn
-//   lần thứ hai.
+//   Khi người dùng bấm Share, ta chạy lại chính exe này qua ShellExecuteEx với verb
+//   "runas" — Windows bung hộp thoại UAC. Instance mới nhận nguyên phiên share qua
+//   DÒNG LỆNH nên người dùng KHÔNG phải chọn nguồn lần thứ hai.
 //
 // LUỒNG ĐẦY ĐỦ
 //   Instance thường: MainMenu → chọn nguồn → RelaunchElevatedShare() → thoát
 //   Instance admin:  main() → ParseElevatedShareArgs() → RunAgent() → MainMenu
 //
-// VÌ SAO CHỈ XIN QUYỀN KHI CẦN
-//   Chia sẻ chỉ-xem không cần admin. Bắt nâng quyền ngay từ đầu vừa phiền vừa tạo
-//   thói quen bấm Yes ở UAC mà không đọc. Chỉ xin đúng lúc tính năng thật sự đòi.
+// VÌ SAO GIỜ LẦN NÀO CHIA SẺ CŨNG XIN
+//   Trước 2026-07-27 việc nâng quyền chỉ xảy ra khi người dùng tick "cho phép điều
+//   khiển"; giờ điều khiển luôn bật, nên mọi phiên chia sẻ đều cần nó. Người dùng
+//   từ chối UAC thì phiên VẪN CHẠY — chỉ là input không tới được các ứng dụng chạy
+//   admin (MainMenuWindow::DoShare nói rõ điều đó rồi mới đi tiếp).
 //
 // LIÊN QUAN: main.cpp (đường vào của instance admin), ui/MainMenuWindow.cpp (nơi
 //            gọi relaunch), input/InputInjector.h, docs/07-input.md

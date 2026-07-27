@@ -45,27 +45,21 @@ std::string NetAddr::ToString() const {
     return b;
 }
 
-// "192.168.1.5" hoặc "192.168.1.5:47777" -> NetAddr. Người dùng gõ chuỗi này vào ô
-// địa chỉ trên UI nên nó là dữ liệu không tin được: mọi đường sai đều trả false để
-// tầng trên báo lỗi tử tế, không có đường nào cho ra địa chỉ rác trông như hợp lệ.
+// "192.168.1.5" -> NetAddr. Người dùng gõ chuỗi này vào ô địa chỉ trên UI nên nó là
+// dữ liệu không tin được: mọi đường sai đều trả false để tầng trên báo lỗi tử tế,
+// không có đường nào cho ra địa chỉ rác trông như hợp lệ.
 // Chỉ IPv4, không phân giải tên miền — app này dùng trong mạng LAN.
-bool ParseNetAddr(const std::string& s, uint16_t defaultPort, NetAddr& out) {
-    std::string ipPart = s;
-    uint16_t port = defaultPort;
-    // Có dấu ':' thì phần sau là cổng; không có thì dùng cổng mặc định của caller.
-    if (const size_t colon = s.find(':'); colon != std::string::npos) {
-        ipPart = s.substr(0, colon);
-        const int p = std::atoi(s.c_str() + colon + 1);
-        if (p <= 0 || p > 65535) return false;
-        port = uint16_t(p);
-    }
+bool ParseNetAddr(const std::string& s, NetAddr& out) {
+    // Cổng là hằng số của sản phẩm (kDeskhubPort). Chuỗi có ':' bị từ chối thẳng:
+    // im lặng cắt bỏ phần cổng sẽ khiến người dán "ip:50000" tưởng mình đã đổi cổng.
+    if (s.find(':') != std::string::npos) return false;
     // inet_pton chứ không phải inet_addr: inet_addr trả về INADDR_NONE (0xFFFFFFFF)
     // khi lỗi, mà đó cũng là giá trị hợp lệ của 255.255.255.255 — không phân biệt
     // được. inet_pton trả về mã lỗi riêng nên chặt chẽ hơn.
     in_addr a{};
-    if (inet_pton(AF_INET, ipPart.c_str(), &a) != 1) return false;
+    if (inet_pton(AF_INET, s.c_str(), &a) != 1) return false;
     out.ip = ntohl(a.s_addr);
-    out.port = port;
+    out.port = kDeskhubPort;
     return true;
 }
 

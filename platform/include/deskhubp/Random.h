@@ -3,34 +3,28 @@
 // Random.h — số ngẫu nhiên dùng cho MÃ HOÁ, một tên cho mọi OS.
 //
 // NHIỆM VỤ
-//   RandomBytes(): lấp một bộ đệm bằng byte không đoán được. Ba nơi tiêu thụ:
-//     1. nonce của AUTH_CHALLENGE — chống phát lại (replay) một lời đáp cũ;
-//     2. salt của mật khẩu — chống bảng tra dựng sẵn (rainbow table);
-//     3. sessionId và deviceToken — hai bí mật mà đoán trúng là đoạt được phiên.
+//   RandomBytes(): lấp một bộ đệm bằng byte không đoán được. Nơi tiêu thụ chính là
+//   sessionId (HostCallbacks::randomBytes) — bí mật mà đoán trúng là chen được gói
+//   giả vào phiên, vì sessionId là hàng rào duy nhất trên UDP.
 //
 // VỊ TRÍ TRONG KIẾN TRÚC
 //   core/ (thuần C++20, cấm đụng OS)  ←── byte ──  **platform/Random.h**  ──→ OS API
 //   Cùng ranh giới với Clock.h và cùng một lý do: core/ phải biên dịch được cho
-//   Windows, Android NDK, iOS, Ubuntu bằng cùng một mã nguồn.
-//
-//   Đây là thứ DUY NHẤT của tầng xác thực không nằm trong core/. SHA-256, HMAC và
-//   PBKDF2 là thuật toán thuần tuý nên core/ tự cài được (deskhub/crypto/Sha256.h);
-//   entropy thì không — nó phải xin từ nhân hệ điều hành.
+//   Windows, Android NDK, iOS, Ubuntu bằng cùng một mã nguồn — mà entropy thì
+//   không tự cài được, nó phải xin từ nhân hệ điều hành.
 //
 // VÌ SAO KHÔNG DÙNG std::mt19937 / rand() / đồng hồ
 //   Vì chúng ĐOÁN ĐƯỢC. mt19937 lộ trọn trạng thái nội bộ sau 624 lần xuất; rand()
-//   còn tệ hơn; và trộn đồng hồ vào — đúng cách HostSession::HandlePacket đang sinh
-//   sessionId hôm nay — cho ra một con số mà kẻ tấn công thu hẹp được xuống vài
-//   nghìn khả năng chỉ bằng cách biết máy vừa khởi động lúc nào.
+//   còn tệ hơn; và sessionId trộn từ đồng hồ là một con số mà kẻ tấn công thu hẹp
+//   được xuống vài nghìn khả năng chỉ bằng cách biết máy vừa khởi động lúc nào.
 //   Mọi hàm dưới đây đều là CSPRNG của nhân, đã gieo từ entropy phần cứng.
 //
 // KHÔNG CÓ ĐƯỜNG THẤT BẠI IM LẶNG
-//   Trả về bool. Người gọi PHẢI kiểm tra: một bộ đệm nonce toàn số 0 vì lời gọi
-//   thất bại trông y hệt một nonce hợp lệ, và nó sẽ vô hiệu hoá toàn bộ lớp bảo vệ
-//   mà không có triệu chứng nào. Đó là lý do hàm này không trả về void.
+//   Trả về bool. Người gọi PHẢI kiểm tra: một bộ đệm toàn số 0 vì lời gọi thất bại
+//   trông y hệt dữ liệu hợp lệ, và nó sẽ vô hiệu hoá lớp bảo vệ mà không có triệu
+//   chứng nào. Đó là lý do hàm này không trả về void.
 //
-// LIÊN QUAN: deskhub/crypto/Sha256.h, deskhub/auth/PasswordAuth.h,
-//            platform/include/deskhubp/Clock.h (cùng ranh giới, cùng lý do)
+// LIÊN QUAN: platform/include/deskhubp/Clock.h (cùng ranh giới, cùng lý do)
 // =============================================================================
 #include <cstddef>
 #include <cstdint>
@@ -133,7 +127,7 @@ inline bool RandomBytes(void* out, size_t n) {
 
 // Tiện ích: sinh một u32 không đoán được. Trả 0 khi thất bại — người gọi phải coi
 // 0 là lỗi, không phải một giá trị hợp lệ (mọi chỗ dùng nó trong dự án đều đã quy
-// ước sessionId/probeId khác 0).
+// ước sessionId khác 0).
 inline uint32_t RandomU32() {
     uint32_t v = 0;
     if (!RandomBytes(&v, sizeof(v))) return 0;

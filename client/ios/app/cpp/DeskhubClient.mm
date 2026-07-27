@@ -32,7 +32,6 @@ std::mutex g_mutex;
 char g_statusBuf[256];
 char g_reasonBuf[256];
 
-constexpr uint16_t kDefaultPort = 47777;
 
 } // namespace
 
@@ -40,7 +39,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     if (!address || !out || capacity <= 0) return 0;
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return 0;
     }
@@ -59,9 +58,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     return count;
 }
 
-bool dh_start(const char* address, uint8_t sourceId, uint32_t client_id,
-    const char* device_name, const char* password,
-    const uint8_t* device_token, int device_token_len) {
+bool dh_start(const char* address, uint8_t sourceId) {
     std::lock_guard<std::mutex> lk(g_mutex);
     if (g_client) {
         g_client->Stop();
@@ -69,48 +66,17 @@ bool dh_start(const char* address, uint8_t sourceId, uint32_t client_id,
     }
 
     NetAddr addr;
-    if (!ParseNetAddr(address, kDefaultPort, addr)) {
+    if (!ParseNetAddr(address, addr)) {
         LOGE("[Bridge] Invalid address: %s", address);
         return false;
     }
 
-    // GĐ10: mọi trường đều được phép rỗng — khi đó phiên đi đường "chưa có mật khẩu"
-    // và host sẽ hỏi (DHPhaseNeedPassword).
-    ClientLoop::Credentials creds;
-    creds.clientId = client_id;
-    if (device_name) creds.deviceName = device_name;
-    if (password) creds.password = password;
-    if (device_token && device_token_len > 0)
-        creds.deviceToken.assign(device_token, device_token + device_token_len);
-
     g_client = std::make_shared<ClientLoop>();
-    if (!g_client->Start(addr, sourceId, creds)) {
+    if (!g_client->Start(addr, sourceId)) {
         g_client.reset();
         return false;
     }
     return true;
-}
-
-void dh_submit_password(const char* password) {
-    std::lock_guard<std::mutex> lk(g_mutex);
-    if (g_client && password) g_client->SubmitPassword(password);
-}
-
-int dh_take_device_token(uint8_t* out, int cap) {
-    std::lock_guard<std::mutex> lk(g_mutex);
-    if (!g_client || !out || cap <= 0) return 0;
-    // Truyền cap xuống: token to hơn buffer thì ClientLoop GIỮ NGUYÊN và trả rỗng,
-    // chứ không tiêu huỷ — token chỉ đi trên dây đúng một lần, và chép một phần thì
-    // caller lưu nửa cái token sai xuống Keychain mà tưởng đã nhớ được thiết bị.
-    const std::vector<uint8_t> tok = g_client->TakeDeviceToken(size_t(cap));
-    if (tok.empty()) return 0;
-    std::memcpy(out, tok.data(), tok.size());
-    return int(tok.size());
-}
-
-int dh_reject_reason(void) {
-    std::lock_guard<std::mutex> lk(g_mutex);
-    return g_client ? int(g_client->rejectReason()) : 0;
 }
 
 void dh_stop(void) {

@@ -25,14 +25,14 @@
 //   false = không mở được socket, hoặc host im lặng suốt 3 giây. Caller hiểu là
 //   "host bản cũ / chỉ có một nguồn" và cứ xem nguồn 0 — KHÔNG coi là lỗi tử vong.
 //
-// LIÊN QUAN: deskhub/wire/Wire.h (BuildListSources/ParseSourceList), DeskhubBridge.mm
+// LIÊN QUAN: deskhub/protocol/Wire.h (BuildListSources/ParseSourceList), DeskhubBridge.mm
 //            (người gọi), client/ios/.../net/SourceQuery.h (bản song song)
 // =============================================================================
 #include <vector>
 
 #include "net/UdpSocket.h"
 
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 // CHẶN tới ~3 giây. Trả false nếu không mở được socket hoặc host im lặng — caller
 // hiểu là "host bản cũ / chỉ có một nguồn" và cứ xem nguồn 0.

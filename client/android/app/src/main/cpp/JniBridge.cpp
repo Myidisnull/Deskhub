@@ -45,7 +45,6 @@
 
 namespace {
 
-constexpr uint16_t kDefaultPort = 47777; // trùng client/windows/MainMenuWindow.cpp
 
 // Phiên đang chạy (null = chưa kết nối) và Surface đang giữ (null = app ở nền).
 // Hai thứ này ĐỘC LẬP về thời điểm xuất hiện: Surface có thể sẵn sàng trước khi
@@ -90,7 +89,7 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     const std::string addr = FromJString(env, addrStr);
     NetAddr server;
     std::vector<deskhub::SourceInfo> sources;
-    if (ParseNetAddr(addr, kDefaultPort, server)) {
+    if (ParseNetAddr(addr, server)) {
         QuerySources(server, sources);
     } else {
         LOGE("[JNI] Invalid host address: \"%s\"", addr.c_str());
@@ -110,66 +109,23 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
 // nativeStop — xem chú thích ở g_generation.
 JNIEXPORT jlong JNICALL
 Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addrStr,
-    jint sourceId, jint clientId, jstring deviceNameStr, jstring passwordStr,
-    jbyteArray deviceToken) {
+    jint sourceId) {
     const std::string addr = FromJString(env, addrStr);
 
     NetAddr server;
-    if (!ParseNetAddr(addr, kDefaultPort, server)) {
+    if (!ParseNetAddr(addr, server)) {
         LOGE("[JNI] Invalid host address: \"%s\"", addr.c_str());
         return 0;
     }
 
-    // GĐ10: danh tính + bí mật của máy này, do Credentials.kt nạp từ
-    // EncryptedSharedPreferences. Mọi trường đều được phép rỗng — khi đó phiên đi
-    // đường "chưa có mật khẩu" và host sẽ hỏi (Phase::NeedPassword).
-    ClientLoop::Credentials creds;
-    creds.clientId = uint32_t(clientId);
-    creds.deviceName = FromJString(env, deviceNameStr);
-    creds.password = FromJString(env, passwordStr);
-    if (deviceToken) {
-        const jsize n = env->GetArrayLength(deviceToken);
-        if (n > 0) {
-            creds.deviceToken.resize(size_t(n));
-            env->GetByteArrayRegion(deviceToken, 0, n,
-                reinterpret_cast<jbyte*>(creds.deviceToken.data()));
-        }
-    }
-
     g_client = std::make_unique<ClientLoop>();
-    if (!g_client->Start(server, uint8_t(sourceId), creds)) {
+    if (!g_client->Start(server, uint8_t(sourceId))) {
         g_client.reset();
         return 0;
     }
     // Surface có thể đã sẵn sàng trước khi bấm Connect (SurfaceView tạo xong trước).
     if (g_window) g_client->SetWindow(g_window);
     return jlong(++g_generation);
-}
-
-// --- Xác thực (GĐ10) ---
-
-JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeSubmitPassword(JNIEnv* env, jobject, jstring pwStr) {
-    if (g_client) g_client->SubmitPassword(FromJString(env, pwStr));
-}
-
-// Token host vừa cấp để nhớ máy này — ĐỌC RỒI XOÁ ở tầng C++, nên gọi lần hai trả
-// mảng rỗng. Kotlin phải cất ngay: token chỉ đi trên dây đúng một lần.
-JNIEXPORT jbyteArray JNICALL
-Java_com_deskhub_app_NativeClient_nativeTakeDeviceToken(JNIEnv* env, jobject) {
-    std::vector<uint8_t> tok;
-    if (g_client) tok = g_client->TakeDeviceToken();
-    jbyteArray arr = env->NewByteArray(jsize(tok.size()));
-    if (arr && !tok.empty()) {
-        env->SetByteArrayRegion(arr, 0, jsize(tok.size()),
-            reinterpret_cast<const jbyte*>(tok.data()));
-    }
-    return arr;
-}
-
-JNIEXPORT jint JNICALL
-Java_com_deskhub_app_NativeClient_nativeRejectReason(JNIEnv*, jobject) {
-    return g_client ? jint(g_client->rejectReason()) : 0;
 }
 
 // Stop() chờ cả hai thread thoát hẳn rồi reset mới hủy đối tượng — nên sau khi hàm

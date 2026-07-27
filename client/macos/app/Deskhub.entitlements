@@ -9,7 +9,7 @@
          Accessibility không cấp cho tiến trình sandboxed.
       2. NSEvent global monitor (cơ chế "host thắng") — cùng lý do.
       3. Bind một cổng UDP CỐ ĐỊNH để máy kia gọi tới.
-    Đây cũng là lý do các app điều khiển từ xa (AnyDesk, TeamViewer) đều phát hành
+    Đây cũng là lý do các app điều khiển từ xa nói chung đều phát hành
     ngoài Mac App Store. Vai client một mình thì sandbox được, nhưng dự án là MỘT app
     chứa cả hai vai (docs/01 §1) nên phải theo mẫu số chung.
 

@@ -10,7 +10,7 @@ capture (per-platform UI) → InputSender (core) → UDP ~~~> InputReceiver (cor
 
 ## 1. Event model
 
-`deskhub::InputEvent` (core/include/deskhub/wire/Wire.h) is the single event type, 19 bytes on the
+`deskhub::InputEvent` (core/include/deskhub/protocol/Wire.h) is the single event type, 19 bytes on the
 wire (`kInputEventSize`), with four kinds (`InputType`):
 
 | Type | `a` | `b` | `state` / `absolute` |
@@ -73,9 +73,9 @@ game engines read scancodes only — a `SendInput` with just `wVk` is invisible 
 
 Three sources of key codes exist:
 
-1. **Windows client** (client/windows/csharp/Views/ViewerPage.xaml.cs, `SendKey`): the WinUI
-   `KeyRoutedEventArgs` provides the real scancode
-   (`e.KeyStatus.ScanCode | (IsExtendedKey ? 0x100 : 0)`) — sent as-is.
+1. **Windows client** (client/windows/win32/ViewerInput.cpp): Raw Input (`WM_INPUT`) provides the
+   real scancode (`RAWKEYBOARD.MakeCode`, with `RI_KEY_E0` mapped to the `kScanExtended` bit) —
+   sent as-is via `dh_client_key`.
 2. **macOS client** (client/macos/app/cpp/input/MacKeyMap.h/.cpp): a single ~110-row table maps
    Carbon virtual keycodes ↔ (VK, scancode) covering letters, digits, OEM punctuation, modifiers
    (left/right variants first so generic `VK_SHIFT`/`VK_CONTROL`/`VK_MENU` resolve to the left
@@ -106,12 +106,10 @@ last pixel.
 This exists because games ignore absolute coordinates; they read raw motion deltas and apply their
 own sensitivity. Per-platform:
 
-- *Windows client* (ViewerPage.xaml.cs): F9 (or the HUD lock button) toggles `_locked`. While
-  locked the cursor is hidden (`ProtectedCursor`), anchored with `GetCursorPos`/`SetCursorPos`
-  (every `PointerMoved` measures the delta from the anchor, sends `MouseMoveRel(dx, dy)`, then
-  snaps the cursor back), and `ClipCursor` confines it to a 128×128 px box around the anchor so a
-  fast flick cannot escape between events. **F9 is consumed locally and never forwarded** — it is
-  the only exit from lock mode. Locking is refused for view-only sessions.
+- *Windows client* (client/windows/win32/ViewerInput.cpp): F9 (`kToggleRelativeKey`) toggles
+  relative mode. While locked the cursor is hidden and confined to the viewer window with
+  `ClipCursor`, and Raw Input mouse deltas are sent via `dh_client_mouse_move_rel`. **F9 is
+  consumed locally and never forwarded** — it is the only exit from lock mode.
 - *macOS client* (client/macos/app/swift/RemoteView.swift): same two modes; lock uses
   `CGAssociateMouseAndMouseCursorPosition(0)` to detach the cursor from the physical mouse and
   sends `NSEvent.deltaX/deltaY` (raw device deltas, no pointer acceleration). F9 (keyCode 0x65)
@@ -157,26 +155,25 @@ and deliberately not sent.
   back to `wVk`. Scancode-first injection is the point of the whole feature: it is what makes
   DirectInput/Raw Input games see remote keys.
 - **Absolute moves**: two distinct 0..65535 scales are involved. The incoming coordinates are
-  relative to the captured region — for a window source that is the DWM *extended frame bounds*
-  (`DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)`, the exact region WGC captures, title bar
-  included; `GetWindowRect` is only a fallback), for a monitor source the monitor rect. They are
+  relative to the captured region — always the shared monitor's rect (`GetMonitorInfoW`), since
+  displays are the only source kind (the window path via `DWMWA_EXTENDED_FRAME_BOUNDS` was
+  removed 2026-07-27). They are
   converted to screen pixels, then re-normalized to the **virtual desktop** for
   `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` (`ScreenToVirtualDesk`) — mandatory on
   multi-monitor machines.
 - **Relative moves**: `MOUSEEVENTF_MOVE` without `ABSOLUTE` — a raw delta, which is what games
   read.
-- **Foreground handling**: `SendInput` targets whatever window is foreground, so `Init(hwnd)`
-  best-efforts the shared window to the front via `ForceForeground` (the standard
-  `AttachThreadInput` trick, using only the *asynchronous* variants `ShowWindowAsync` /
-  `SWP_ASYNCWINDOWPOS` — the synchronous ones can deadlock the Recv thread against a modal loop in
-  the target, a hang observed in practice). `FocusTarget()` re-raises the window when a client
-  switches sources (`SET_FOCUS = 0x35`, see §6 in 04-protocol.md).
+- **No foreground handling**: `SendInput` targets whatever window is foreground, which is by
+  definition on some display — and displays are all that is shared. The old
+  `ForceForeground`/`FocusTarget`/`TargetHasFocus` machinery (raising the shared window via the
+  `AttachThreadInput` trick) was removed 2026-07-27 along with window sharing; `SET_FOCUS(true)`
+  now requires no host action (04-protocol.md §4.13).
 - **UIPI/elevation caveat**: `SendInput` from a normal-privilege agent cannot reach elevated
   windows, and the `WH_*_LL` hooks of LocalInputMonitor likewise cannot see input going into them
   (noted in LocalInputMonitor.h). Both halves degrade together; see 02-agent.md for the elevated
   share path.
 
-### macOS (client/macos/app/cpp/agent/InputInjector.mm)
+### macOS (client/macos/app/cpp/input/InputInjector.mm)
 
 Injection uses Quartz Event Services: events are posted to `kCGHIDEventTap` (the earliest point in
 the event pipeline, so low-level HID readers and fullscreen games see them), from a
@@ -184,14 +181,15 @@ the event pipeline, so low-level HID readers and fullscreen games see them), fro
 Details:
 
 - **Accessibility permission is required.** `Init()` warns but does not fail without it — macOS
-  silently drops injected events until the user grants it (effective immediately, no restart);
-  sharing continues view-only. See 14-macos-app.md.
+  silently drops injected events until the user grants it (effective immediately, no restart).
+  Video keeps flowing meanwhile, but control simply does not work, so the UI has to say so —
+  there is no longer a view-only mode this could be mistaken for. See 14-macos-app.md.
 - VK → macOS keycode via `mackeys::WinVkToMac`; unmappable keys are skipped. Modifier state is
   tracked in `modsDown_` and stamped as `CGEventFlags` on *every* event (required — without flags
   Shift+A produces 'a'); the bookkeeping happens before building the event so the Shift-down event
   itself carries the Shift flag.
-- Absolute moves map 0..65535 into the source rect (display bounds or `CGWindowListCopyWindowInfo`
-  bounds, cached for `kRectCacheUs = 200'000` µs). Relative moves advance the current cursor
+- Absolute moves map 0..65535 into the shared display's bounds (`Init(displayId)`; the
+  `CGWindowListCopyWindowInfo` window-bounds path was removed 2026-07-27 with window sharing). Relative moves advance the current cursor
   position, clamp to the union of all screens, and also set `kCGMouseEventDeltaX/Y` — the raw
   delta fields FPS games read. Moves while buttons are held become proper drag event types.
 - Buttons synthesize `kCGMouseEventClickState` (double-click) using a 500 ms /
@@ -199,30 +197,26 @@ Details:
 - Every posted event is stamped with `LocalInputMonitor::kUserData`
   (`0x4445534B'48554200`, "DESKHUB\0") in `kCGEventSourceUserData` so the local-input monitor can
   filter out our own injections.
-- Foreground gate: `TargetHasFocus()` compares the window's owner PID with
-  `NSWorkspace.frontmostApplication`; `FocusTarget()` activates the owning app asynchronously on
-  the main queue (activation can take hundreds of ms and must not block the Recv thread).
+- No foreground gate: the old `TargetHasFocus()`/`FocusTarget()` pair (PID comparison against
+  `NSWorkspace.frontmostApplication`, async app activation) was removed 2026-07-27 — with a whole
+  display as the source there is no owning app to gate on.
 
 ## 5. Safety mechanisms
 
-Both injectors implement the same three-layer policy (documented at the top of each
-InputInjector.h):
+Both injectors implement the same two-layer policy (documented at the top of each
+InputInjector.h). A third layer — a *foreground gate* that injected only while the shared window
+was frontmost — was removed 2026-07-27 together with window sharing: with whole displays as the
+only source kind there is no "other application outside the share" to protect, so the gate had
+nothing left to guard. `skipped_` now counts only events yielded under "host wins".
 
-1. **Foreground gate.** Input is injected only while the shared window (or a child/popup of it) is
-   actually foreground/frontmost; otherwise events are counted in `skipped_`. This prevents remote
-   keystrokes from landing in the host owner's browser or terminal. On the *transition* to
-   unfocused, `ReleaseAll()` runs — a remote-held W must not stay stuck while the host owner is
-   alt-tabbed away. Monitor (full-screen) sources skip the gate entirely: there is no
-   "other application outside the share" to protect.
-2. **Stuck-key release (`ReleaseAll`).** The injector remembers every currently-down key and
+1. **Stuck-key release (`ReleaseAll`).** The injector remembers every currently-down key and
    button — on Windows keyed by scancode+E0 (`keysDown_`; two keys can share a VK, e.g. left/right
    Ctrl, but never a scancode), on macOS by VK. `ReleaseAll()` synthesizes the missing up events
    and is called on client disconnect (BYE/timeout — `HostSession` fires `onDisconnect`, wired in
    client/windows/cpp/AgentLoop.cpp and the macOS AgentLoop.cpp), on `SetEnabled(false)`, on
-   focus loss, on `SET_FOCUS(false)` (client switched away from this source), and on source/agent
-   shutdown. It deliberately does *not* check the foreground gate — the moment you most need to
-   release is exactly when focus was lost.
-3. **"Host wins" (LocalInputMonitor).** When the person physically at the host machine touches
+   `SET_FOCUS(false)` (the client's preview lost focus or it switched away from this source), on
+   entry to the "host wins" suppressed state, and on source/agent shutdown.
+2. **"Host wins" (LocalInputMonitor).** When the person physically at the host machine touches
    the real mouse or keyboard, remote input yields for ~1 s (`kHostWinsGraceUs` /
    `kQuietUs = 1'000'000` µs) and `ReleaseAll()` runs on entry to the suppressed state. This
    prevents cursor tug-of-war and cross-contaminated modifiers (host holds real Ctrl + remote
@@ -232,17 +226,15 @@ InputInjector.h):
      event **without** `LLKHF_INJECTED`/`LLMHF_INJECTED` — those flags mark our own `SendInput`
      traffic, and filtering them is what prevents a self-suppression feedback loop. If the hooks
      fail to install, `LastPhysicalUs()` stays 0 and the mechanism silently disables itself.
-   - *macOS* (client/macos/app/cpp/agent/LocalInputMonitor.h/.mm): an `NSEvent` global monitor on
+   - *macOS* (client/macos/app/cpp/input/LocalInputMonitor.h/.mm): an `NSEvent` global monitor on
      the main run loop (listen-only, cannot swallow events), filtering events stamped with
      `kUserData`.
 
 Additional guards along the path:
 
-- The client stops queueing input entirely when the host declared `inputAccepted = 0` in HELLO_ACK
-  (`ClientSession::QueueInput` in core/src/session/ClientSession.cpp) — mouse moves would
-  otherwise fight video for bandwidth for nothing. UIs also gate at their layer
-  (`NativeClient.viewOnly` on Android, `SessionModel` checks on iOS, hidden lock button on
-  Windows).
+- There is **no view-only path any more** (removed 2026-07-27). `ClientSession::QueueInput` only
+  checks that the session is streaming, and `HostSession` accepts every `INPUT_EVENT`. The one
+  remaining exception is iOS, whose UI still carries its own local view-only checkbox.
 - On session teardown the host resets `InputReceiver` and calls `ReleaseAll`, so a reconnecting
   client restarting at seq 0 is handled cleanly.
 - Mobile tap events split press/release across time: the release of a tap is scheduled
@@ -258,13 +250,14 @@ mechanisms above.
 
 ## 6. Client-side capture per platform
 
-- **Windows** (client/windows/csharp/Views/ViewerPage.xaml.cs → C API in
-  client/windows/cpp/DeskhubApi.h, ClientApi.cpp): the WinUI `SwapChainPanel` page captures
-  pointer and key events — there is no low-level hook or Raw Input registration on the client
-  side. `PointerMoved` normalizes against the panel (or measures deltas from the lock anchor),
-  `PointerPressed/Released` map `PointerUpdateKind` to left/right/middle (X1/X2 are not captured),
-  `PointerWheel` forwards `MouseWheelDelta`, and `KeyDown/KeyUp` forward VK + scancode with keys
-  marked handled so they don't operate the viewer UI. F9 is intercepted (§3). The
+- **Windows** (client/windows/win32/ViewerInput.cpp → C API in
+  client/windows/cpp/DeskhubApi.h, ClientApi.cpp): the viewer window registers Raw Input for
+  mouse + keyboard (no `RIDEV_NOLEGACY`, so ordinary messages still work; no `RIDEV_INPUTSINK`,
+  so alt-tabbing away types into the local machine as normal). Keys come from `WM_INPUT`
+  (`RAWKEYBOARD` VK + scancode + E0), absolute mouse from `WM_MOUSEMOVE` normalized against the
+  client rect, relative deltas from Raw Input while locked; while input forwarding is on, nearly
+  all key messages (including ESC) are swallowed so they reach the remote machine — F9 is the
+  local escape hatch (§3). The
   `dh_client_mouse_move[_rel]/mouse_button/wheel/key` C functions build `InputEvent`s into a
   mutex-guarded queue that the Recv thread drains into `ClientSession::QueueInput`; the session's
   `Tick` calls `InputSender::Flush`. See 03-client.md.
@@ -292,10 +285,12 @@ mechanisms above.
   native loops share the queue design: UI threads push into `inputQueue_` under `inputMutex_`, the
   Net thread drains it (plus due entries of `delayedInput_`) into `ClientSession::QueueInput`
   every iteration. Any queued input also sets `wantFocus_`, which makes the session send
-  `SET_FOCUS` so the host raises the source window before injecting. See 12-ios-client.md.
+  `SET_FOCUS` — the host no longer raises anything on `true` (that behavior left with window
+  sharing, 2026-07-27); only the `false` edge matters, releasing held keys. See 12-ios-client.md.
 
-Mobile hotkey lists intentionally exclude Alt+Tab and the Win key: they would move focus off the
-shared window and the host's foreground gate would then discard all further input.
+Mobile hotkey lists still exclude Alt+Tab and the Win key — originally because they would move
+focus off the shared window and trip the (since-removed) foreground gate; today simply because
+app switching on the host is rarely what a trackpad user wants from a hotkey bar.
 
 ## 7. Testing
 
@@ -304,7 +299,5 @@ shared window and the host's foreground gate would then discard all further inpu
   loss, reorder rejection, loss accounting, batch splitting past `kInputBatchMax`, history-trim
   seq continuity, `Reset` on both ends, and the full `CharToKeyChord` table (every printable ASCII
   character must map).
-- `InputInjector::SelfTest` (Windows, `--injecttest`) exercises the injection half without any
-  network: it types an ASCII string into a target window through the real scancode path
-  (`VkKeyScanA` + `MapVirtualKeyW`, 40 ms holds because games sample per frame), refusing to run
-  if the target is not foreground.
+- `InputInjector::SelfTest` (`--injecttest`) was removed 2026-07-27 with the foreground/window
+  machinery it depended on; the injection half is now exercised only through real sessions.

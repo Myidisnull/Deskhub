@@ -33,7 +33,7 @@
 // LIÊN QUAN: deskhub/input/InputSender.h (đầu kia), deskhub/session/HostSession.h
 // =============================================================================
 //
-#include "deskhub/wire/Wire.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <functional>

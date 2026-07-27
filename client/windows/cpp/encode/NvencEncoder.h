@@ -24,7 +24,7 @@
 //
 // PIMPL
 //   Toàn bộ kiểu dữ liệu của NVENC SDK nằm trong .cpp, header này sạch — cùng lý do
-//   như WindowCapture giấu winrt.
+//   như ScreenCapture giấu winrt.
 //
 // LIÊN QUAN: encode/IVideoEncoder.h (giao diện), encode/MfEncoder.h (đường lùi),
 //            encode/EncoderFactory.cpp

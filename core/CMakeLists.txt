@@ -6,22 +6,14 @@ cmake_minimum_required(VERSION 3.20)
 project(DeskhubCore LANGUAGES CXX)
 
 # Nhóm theo tầng, dưới lên trên:
-#   wire/      — khung byte trên dây (header chung, build/parse từng loại message)
+#   protocol/  — khung byte trên dây (header chung, build/parse từng loại message)
 #   transport/ — cắt/ghép frame thành datagram, FEC, chống trùng & mất gói
 #   session/   — handshake + vòng đời phiên hai phía (host/client)
 #   input/     — chuỗi sự kiện chuột/phím có thứ tự trên nền transport
 #   control/   — policy điều tiết: bitrate/FEC phía host, gom số liệu phía client
-#   discovery/ — hỏi-đáp một nhịp TRƯỚC khi có phiên: dò host, liệt kê nguồn, ping dò
-#   crypto/    — SHA-256/HMAC/PBKDF2 thuần, tự cài để không phải link thư viện crypto
-#                khác nhau ở mỗi nền tảng (xem deskhub/crypto/Sha256.h)
-#   auth/      — xác thực mật khẩu kiểu challenge-response + thiết bị tin cậy (GĐ10)
+#   session/   — kèm Beacon: hỏi-đáp một nhịp TRƯỚC khi có phiên (liệt kê nguồn, ping dò)
 add_library(core STATIC
-    src/wire/Wire.cpp
-
-    src/crypto/Sha256.cpp
-
-    src/auth/PasswordAuth.cpp
-    src/auth/AuthGuard.cpp
+    src/protocol/Wire.cpp
 
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
@@ -29,18 +21,14 @@ add_library(core STATIC
 
     src/session/HostSession.cpp
     src/session/ClientSession.cpp
-    src/session/ClipboardAssembler.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
 
     src/control/BitrateController.cpp
     src/control/LinkStats.cpp
-    src/control/ClockSync.cpp
-    src/control/LatencyTrace.cpp
 
-    src/discovery/Beacon.cpp
-    src/discovery/HostRegistry.cpp
+    src/session/Beacon.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -67,11 +55,7 @@ if(DESKHUB_CORE_TESTS)
         tests/TestMain.cpp
         tests/support/TestSupport.cpp
 
-        tests/wire/WireTests.cpp
-
-        tests/crypto/CryptoTests.cpp
-
-        tests/auth/AuthTests.cpp
+        tests/protocol/WireTests.cpp
 
         tests/transport/ReassemblerTests.cpp
         tests/transport/FecTests.cpp
@@ -83,7 +67,7 @@ if(DESKHUB_CORE_TESTS)
 
         tests/control/ControlTests.cpp
 
-        tests/discovery/DiscoveryTests.cpp
+        tests/session/BeaconTests.cpp
     )
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)

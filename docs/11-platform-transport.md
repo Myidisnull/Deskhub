@@ -8,13 +8,13 @@ code. Siblings: 01-architecture.md (layering), 04-protocol.md (wire format),
 
 ## 1. Platform capability matrix
 
-Like AnyDesk, each desktop OS ships **one app containing both roles** (see
+Each desktop OS ships **one app containing both roles** (see
 `make/windows.mk`, `make/macos.mk`); mobile apps are client-only.
 
 | Platform | Agent (host)? | Client? | App form | Current state |
 |---|---|---|---|---|
-| Windows | Yes | Yes | WinUI 3 frontend (`client/windows/csharp/`) over `deskhub_native.dll` (`client/windows/cpp/`, C API in `DeskhubApi.h`) | **Both roles shipped.** Full net layer incl. LAN discovery, firewall helper, pacer. |
-| macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles implemented**, not yet verified between two physical machines. LAN discovery not ported yet: no `Discovery` on macOS and `agent/AgentLoop.cpp` does not answer DISCOVER (noted in `client/macos/app/swift/HomeView.swift`). |
+| Windows | Yes | Yes | Plain Win32 app (`client/windows/win32/`) — ONE statically linked exe, standard Windows controls; host role drives `AgentLoop` directly, client role goes through the C API (`client/windows/cpp/DeskhubApi.h`, `dh_client_start_hwnd`). (The WinUI 3 frontend and `deskhub_native.dll` were removed 2026-07-27.) | **Both roles shipped.** Full net layer incl. firewall helper, pacer. |
+| macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles tested and working.** |
 | Android | No | Yes | Kotlin UI + NDK `libdeskhub.so` (`client/android/app/src/main/cpp/ClientLoop.cpp`) | **Client-only, shipped to store testing** (see 13-release-mobile.md, `make/android.mk`). |
 | iOS | No | Yes | SwiftUI + C++ (`client/ios/app/cpp/ClientLoop.cpp`, VideoToolbox decode) | **Client-only, shipped to store testing** (Simulator build via `make/ios.mk`; device/App Store via Xcode). |
 | Web | No | Planned | Browser (WebTransport + WebCodecs + WASM `core/`) | **Design only** — see 10-web-client.md. No web code exists in the repo. |
@@ -27,7 +27,7 @@ app:
 
 1. **Synthetic input injection.** The agent must inject remote mouse/keyboard events
    system-wide: `SendInput` on Windows (`client/windows/cpp/input/`), CGEvent posting on
-   macOS (`client/macos/app/cpp/agent/InputInjector.mm`, gated by the Accessibility
+   macOS (`client/macos/app/cpp/input/InputInjector.mm`, gated by the Accessibility
    permission — `agent/Permissions.mm`). iOS has no API for this at all; Android would
    require an AccessibilityService with severe restrictions. No injection, no remote
    control.
@@ -38,7 +38,7 @@ app:
    can hold persistently; iOS/Android offer no equivalent entitlement for a background
    remote-control host.
 3. **Binding a fixed, advertised port.** The host must listen on a well-known port
-   (default 47777) that the user can read out to the other machine. The macOS
+   (always 47777) that the user can read out to the other machine. The macOS
    `UdpSocket.cpp` header comment records this explicitly: the host role calls
    `Open(port)` with a fixed port — something the iOS sandbox does not permit — while
    clients everywhere pass `Open(0)` and take an ephemeral port.
@@ -51,27 +51,23 @@ app:
   live in `core/` — see 06-transport.md).
 - **One port, channel multiplexing.** All traffic — control, video, input — shares a
   single socket and port, demultiplexed by the `chan` byte of the common header
-  (04-protocol.md §2). Default host port **47777**; if busy, the host walks forward up
-  to 64 ports (`FindFreeUdpPort` in `client/windows/cpp/net/UdpSocket.cpp`; an inline
-  `kPortTries = 64` loop in `client/macos/app/cpp/agent/AgentLoop.cpp`) and displays the
-  port it actually bound.
-- **LAN discovery = UDP broadcast, split core/platform.** Protocol logic is shared in
-  `core/`: `deskhub::Beacon` (`core/include/deskhub/discovery/Beacon.h`) builds host-side
-  replies to DISCOVER / LIST_SOURCES / pre-session PING; `deskhub::HostRegistry`
-  (`core/include/deskhub/discovery/HostRegistry.h`) merges ANNOUNCEs per `hostId`,
-  orders them stably, and expires stale hosts. The socket side is per-platform: on
-  Windows, `ScanForHosts` (`client/windows/cpp/net/Discovery.cpp`) sends DISCOVER to the
-  **directed broadcast address of every adapter** (`ListLocalBroadcasts` in
-  `net/NetInfo.h`) and collects replies for ~1.2 s. Today this is **end-to-end on
-  Windows only**; macOS, Android and iOS connect by typed address and still query
-  sources pre-session via their `net/SourceQuery.cpp`.
+  (04-protocol.md §2). Host port is **fixed at 47777** (`kDeskhubPort`, defined once per
+  platform in `net/UdpSocket.h`). If it is busy the host **fails with an explicit error**
+  instead of binding elsewhere — the port-walking of earlier versions (`FindFreeUdpPort`,
+  a `kPortTries = 64` loop) was deleted 2026-07-27, because clients only ever type a bare
+  IP: a host that quietly moved to 47778 was a host nobody could reach.
+- **No LAN discovery, no auth — removed 2026-07-27.** The DISCOVER/ANNOUNCE broadcast
+  beacon, `HostRegistry`, and the whole password/auth layer (GĐ10) were removed: the
+  app targets trusted LANs, and every connection starts from a typed `ip:port` read
+  off the host's share screen. What remains of `core/discovery` is `deskhub::Beacon`,
+  now only answering pre-session **LIST_SOURCES** (feeds the source picker) and
+  **PING** probes on the host's session socket.
 - **NAT / Internet: Tailscale, not built-in traversal.** Verified: the repo contains
   **no STUN, TURN, ICE, hole-punching or relay code**. The strategy, recorded in code
-  comments (`core/include/deskhub/wire/Wire.h`, `client/macos/app/cpp/net/NetInfo.h`),
+  comments (`core/include/deskhub/protocol/Wire.h`, `client/macos/app/cpp/net/NetInfo.h`),
   is to let a VPN such as Tailscale provide a flat address space; the user types the
-  Tailscale address manually (broadcast discovery cannot cross it — a /32 has no
-  broadcast address, per `client/windows/cpp/net/Discovery.h`). `NetInfo` deliberately
-  lists `utun*`/VPN interfaces so that path stays visible.
+  Tailscale address manually. `NetInfo` deliberately lists `utun*`/VPN interfaces so
+  that path stays visible.
 - **QUIC / WebTransport: design only.** Verified by grepping `msquic`, `quic`,
   `WebTransport` across the repo: **zero hits in source code** — the terms appear only
   in docs. The plan to carry the same datagram protocol over WebTransport (QUIC
@@ -108,8 +104,7 @@ Windows-only differences: `WSAStartup`/`WSACleanup` lifecycle owned by the objec
 `recvfrom` fail with `WSAECONNRESET` forever), with `RecvFrom` swallowing
 `WSAETIMEDOUT`/`WSAECONNRESET`/`WSAEMSGSIZE` as a second line of defense; timeout as a
 `DWORD` rather than a `timeval`; plus API extras the other platforms don't have yet:
-`SetBroadcast` (required for discovery — winsock rejects broadcast `sendto` with
-`WSAEACCES` otherwise), `FindFreeUdpPort`, and `lastBindAddrInUse()` (distinguishes
+`FindFreeUdpPort`, and `lastBindAddrInUse()` (distinguishes
 "port taken by an old host" for a friendly UI message). The POSIX copies differ from
 each other only in comments; iOS/macOS additionally require the Local Network permission
 (`NSLocalNetworkUsageDescription` in the Xcode projects) at the app-bundle level.
@@ -128,20 +123,14 @@ in each). No epoll/kqueue/IOCP; a single socket per session doesn't need them.
   profiles; adding requires admin, so it rides the Share button's UAC elevation
   (`ElevatedShare.h`). Cures the classic "host reachable but every HELLO times out".
 - `NetInfo.{h,cpp}` — `ListLocalIPv4` (per-adapter addresses for the "your address" UI,
-  filtering loopback/APIPA) and `ListLocalBroadcasts` (per-adapter directed broadcast
-  for discovery). macOS has its own `NetInfo` (getifaddrs-based, maps `en0`/`utun*`
-  device names to friendly labels); Android/iOS have none.
-- `HostIdent.{h,cpp}` — `LocalHostId()` (stable 32-bit machine id hashed from the
-  registry `MachineGuid`, fallback: hashed hostname) and `LocalHostName()`. Feeds
-  `Beacon`'s ANNOUNCE and lets the scanning client exclude itself. Not a security
-  identifier.
+  filtering loopback/APIPA). macOS has its own `NetInfo` (getifaddrs-based, maps
+  `en0`/`utun*` device names to friendly labels); Android/iOS have none.
 - `Pacer.{h,cpp}` — rate-limits `sendto` on the host's dedicated send thread so an IDR
   burst doesn't tail-drop at a Wi-Fi bottleneck (rationale and measurements in the
   header; policy discussion in 06-transport.md). Windows-only today; the macOS
   `AgentLoop` has no equivalent class yet.
-- `Discovery.{h,cpp}` / `SourceQuery.{h,cpp}` — blocking one-shot scans (~1.2 s / ~3 s),
-  called off the UI thread (`Task.Run` from C#), exposed as `dh_discover_scan` /
-  `dh_client_list_sources` in `DeskhubApi.h`.
+- `SourceQuery.{h,cpp}` — blocking one-shot query of what the host shares (~3 s),
+  called off the UI thread, exposed as `dh_client_list_sources` in `DeskhubApi.h`.
 
 ## 6. The `core/` boundary — what a platform must provide
 
@@ -170,29 +159,29 @@ directory (§4). `platform/CMakeLists.txt` notes the intent to eventually fold t
 per-OS `UdpSocket.cpp` into `platform/` as a STATIC library; today it is per-app.
 
 Build wiring: the root `CMakeLists.txt` adds `core/`, `platform/`, and (on Windows)
-`client/windows/cpp/`; Android's Gradle/NDK build adds `core/` itself
+`client/windows/cpp/` + `client/windows/win32/`; Android's Gradle/NDK build adds `core/` itself
 (`client/android/app/src/main/cpp/CMakeLists.txt`); macOS/iOS build through their Xcode
 projects via `make/macos.mk` / `make/ios.mk`; shared core targets (tests, coverage) are
 in `make/core.mk`.
 
 ## 7. Adding a new platform (e.g. Linux), concretely
 
-Reused as-is: **`core/`** (wire, transport, session, input, control, discovery, crypto,
-auth) and **`platform/`** (`Clock.h` and `Random.h` already have Linux branches).
+Reused as-is: **`core/`** (wire, transport, session, input, control, discovery) and
+**`platform/`** (`Clock.h` already has a Linux branch).
 
 To reimplement, following the existing pattern:
 
 1. **`net/UdpSocket.{h,cpp}`** — copy the Android version verbatim; its own header
-   labels it "BSD socket (Android/Linux)". Add `SetBroadcast`/`FindFreeUdpPort` from
-   the Windows header if discovery and the host role are wanted.
+   labels it "BSD socket (Android/Linux)". Add `FindFreeUdpPort` from the Windows
+   header if the host role is wanted.
 2. **`net/SourceQuery.cpp`** — copy from any client (all four are parallel copies).
-3. **Client role** — a `ClientLoop` following `client/macos/app/cpp/client/ClientLoop.cpp`
+3. **Client role** — a `ClientLoop` following `client/macos/app/cpp/ClientLoop.cpp`
    (net thread, 10 ms recv timeout, feed `ClientSession`) plus a hardware decoder
    (VA-API/Vulkan video filling the role VideoToolbox/MediaCodec/D3D11 play today).
-4. **Host role** — an `AgentLoop` (port walk-forward, `Beacon` for discovery replies),
-   screen capture + encoder (PipeWire/VA-API), input injection (uinput/XTEST), and the
-   Linux analogues of the Windows conveniences: a `NetInfo` (getifaddrs — the macOS one
-   is nearly reusable), a `HostIdent` (e.g. `/etc/machine-id`), and send pacing (port
+4. **Host role** — an `AgentLoop` (port walk-forward, `Beacon` for pre-session
+   LIST_SOURCES/PING replies), screen capture + encoder (PipeWire/VA-API), input
+   injection (uinput/XTEST), and the Linux analogues of the Windows conveniences: a
+   `NetInfo` (getifaddrs — the macOS one is nearly reusable) and send pacing (port
    `Pacer`, whose logic is not Windows-specific despite its location).
 5. **UI + glue** — a frontend over either the C API pattern (`DeskhubApi.h`) or the
    bridge pattern (`DeskhubBridge.mm`), plus a `make/linux.mk` and a `client/linux`

@@ -47,51 +47,22 @@ std::string NetAddr::ToString() const {
     return b;
 }
 
-// "192.168.1.5" hoặc "192.168.1.5:47777" -> NetAddr. Người dùng gõ chuỗi này vào ô
-// địa chỉ trên UI nên nó là dữ liệu không tin được: mọi đường sai đều trả false để
-// tầng trên báo lỗi tử tế, không có đường nào cho ra địa chỉ rác trông như hợp lệ.
+// "192.168.1.5" -> NetAddr. Người dùng gõ chuỗi này vào ô địa chỉ trên UI nên nó là
+// dữ liệu không tin được: mọi đường sai đều trả false để tầng trên báo lỗi tử tế,
+// không có đường nào cho ra địa chỉ rác trông như hợp lệ.
 // Chỉ IPv4, không phân giải tên miền — chương trình này dùng trong mạng LAN.
-bool ParseNetAddr(const std::string& s, uint16_t defaultPort, NetAddr& out) {
-    std::string ipPart = s;
-    uint16_t port = defaultPort;
-    // Có dấu ':' thì phần sau là cổng; không có thì dùng cổng mặc định của caller.
-    if (const size_t colon = s.find(':'); colon != std::string::npos) {
-        ipPart = s.substr(0, colon);
-        const int p = std::atoi(s.c_str() + colon + 1);
-        if (p <= 0 || p > 65535) return false;
-        port = uint16_t(p);
-    }
+bool ParseNetAddr(const std::string& s, NetAddr& out) {
+    // Cổng là hằng số của sản phẩm (kDeskhubPort). Chuỗi có ':' bị từ chối thẳng:
+    // im lặng cắt bỏ phần cổng sẽ khiến người dán "ip:50000" tưởng mình đã đổi cổng.
+    if (s.find(':') != std::string::npos) return false;
     // InetPtonA chứ không phải inet_addr: inet_addr trả về INADDR_NONE (0xFFFFFFFF)
     // khi lỗi, mà đó cũng là giá trị hợp lệ của 255.255.255.255 — không phân biệt
     // được. InetPtonA trả về mã lỗi riêng nên chặt chẽ hơn.
     IN_ADDR a{};
-    if (InetPtonA(AF_INET, ipPart.c_str(), &a) != 1) return false;
+    if (InetPtonA(AF_INET, s.c_str(), &a) != 1) return false;
     out.ip = ntohl(a.S_un.S_addr);
-    out.port = port;
+    out.port = kDeskhubPort;
     return true;
-}
-
-// Thử bind từng cổng trong dải, đóng ngay khi thấy trống. Không tái dùng Open() vì
-// Open() in log mỗi lần bind hỏng — dò cổng phải im lặng. WSAStartup đếm tham chiếu
-// nên gọi tạm ở đây không ảnh hưởng các UdpSocket khác.
-uint16_t FindFreeUdpPort(uint16_t start, int count) {
-    WSADATA wsa{};
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 0;
-    uint16_t found = 0;
-    for (int i = 0; i < count && !found; ++i) {
-        const int p = int(start) + i;
-        if (p <= 0 || p > 65535) break; // hết dải cổng hợp lệ
-        const SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (s == INVALID_SOCKET) continue;
-        sockaddr_in a{};
-        a.sin_family = AF_INET;
-        a.sin_addr.s_addr = htonl(INADDR_ANY);
-        a.sin_port = htons(uint16_t(p));
-        if (bind(s, (sockaddr*)&a, sizeof(a)) == 0) found = uint16_t(p);
-        closesocket(s);
-    }
-    WSACleanup();
-    return found;
 }
 
 UdpSocket::~UdpSocket() {
@@ -180,13 +151,6 @@ bool UdpSocket::SetRecvTimeout(uint32_t ms) {
     DWORD t = ms;
     return setsockopt(SOCKET(sock_), SOL_SOCKET, SO_RCVTIMEO,
                (const char*)&t, sizeof(t)) == 0;
-}
-
-bool UdpSocket::SetBroadcast(bool on) {
-    if (!IsOpen()) return false;
-    BOOL v = on ? TRUE : FALSE;
-    return setsockopt(SOCKET(sock_), SOL_SOCKET, SO_BROADCAST,
-               (const char*)&v, sizeof(v)) == 0;
 }
 
 bool UdpSocket::SendTo(const NetAddr& to, const uint8_t* data, size_t len) {

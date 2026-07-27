@@ -27,9 +27,9 @@
 //   Chữ cái và số luôn đúng; phím ký hiệu (OEM) đúng khi cả hai máy dùng layout US.
 //   Người dùng layout khác gõ ký hiệu có thể ra sai phím — chấp nhận ở bản đầu.
 //
-// LIÊN QUAN: deskhub/wire/Wire.h (InputEvent, kScanExtended),
+// LIÊN QUAN: deskhub/protocol/Wire.h (InputEvent, kScanExtended),
 //            deskhub/input/KeyMap.h (bảng ký tự → VK của core),
-//            agent/InputInjector.h (chiều VK → macOS),
+//            input/InputInjector.h (chiều VK → macOS),
 //            swift/InputCaptureView.swift (chiều macOS → VK)
 // =============================================================================
 #include <cstdint>

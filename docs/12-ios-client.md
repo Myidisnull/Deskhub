@@ -7,7 +7,7 @@ shortcut bar — over the standard UDP protocol described in `04-protocol.md`.
 
 Sources live in `client/ios/`:
 
-- `client/ios/app/swift/` — SwiftUI UI, session state, Keychain credentials.
+- `client/ios/app/swift/` — SwiftUI UI, session state, recents.
 - `client/ios/app/cpp/` — C facade, `ClientLoop`, `VtDecoder`, POSIX `UdpSocket`/`SourceQuery`.
 - `client/ios/Deskhub.xcodeproj` — a single `app` target; `app/` is a
   `PBXFileSystemSynchronizedRootGroup`, so files added on disk join the build automatically.
@@ -48,7 +48,7 @@ Three threads per session, documented in `ClientLoop.h`:
 - **Net** (`ClientLoop::NetThread`) — `recvfrom` with a 10 ms timeout; video-channel packets go
   straight into `deskhub::Reassembler` (hot path, bypassing `ClientSession` except for
   `NotifyVideoPacket`), everything else through `ClientSession::HandlePacket`. It also drains
-  the pending password, drains the input queue into `ClientSession`, calls `Tick`, requests
+  the input queue into `ClientSession`, calls `Tick`, requests
   keyframes, plans NACKs, and closes the 1-second stats window.
 - **Decode** (`ClientLoop::DecodeThread`) — pops reassembled frames from a bounded queue
   (`kMaxQueuedFrames = 3`; overflow drops the *oldest* frame and flags an IDR request) and
@@ -92,32 +92,28 @@ console and Console.app.
 
 ## 3. Connect flow
 
-1. **Address entry** — `ConnectView` (`client/ios/app/swift/ConnectView.swift`): a manual
-   address field (`192.168.1.7:47777` placeholder). There is **no network discovery**; the
-   default port 47777 is filled in by `ParseNetAddr` in the C++ layer when the string has no
-   `:port`. A "View only" checkbox persists to `UserDefaults`.
+1. **Address entry** — `ConnectView` (`client/ios/app/swift/ConnectView.swift`): a bare **IP
+   address** field and a Connect button, nothing else. There is **no network discovery**; the
+   port is the fixed constant `kDeskhubPort` = 47777 filled in by `ParseNetAddr` in the C++
+   layer, which **rejects** any string containing `:`. No view-only checkbox — input is always
+   shared (all of this was brought in line with the other clients on 2026-07-27).
 2. **Source query** — `SessionModel.connect()` runs `DeskhubClient.listSources` (blocking
-   `QuerySources`, LIST_SOURCES → SOURCE_LIST) in `Task.detached`. More than one source shows
+   `QuerySources`, LIST_SOURCES → SOURCE_LIST) in `Task.detached`. Every source is a shared
+   display (window sources were removed 2026-07-27; rows use the "display" icon). More than
+   one source shows
    `SourcePickerView` (radio-style rows, "Start viewing" button); exactly one — or a silent
    host, treated as "old host / single source", not an error — skips straight to source 0.
-3. **Recents** — `Recents` (`client/ios/app/swift/Recents.swift`) keeps up to 12 machines in
-   `UserDefaults` (tab/newline-separated string, most-recent first) with a guessed link label
-   ("LAN", "Tailscale" for 100.64/10). Shown as tappable cards under the address field.
-4. **Credentials** — `Credentials` (`client/ios/app/swift/Credentials.swift`) stores, in the
-   **Keychain** (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`): a stable random `clientId`
-   (host keys its "Trusted devices" list on it), a per-host password, and a per-host
-   `deviceToken` issued by the host after the first successful password. A non-secret address
-   index lives in `UserDefaults`. `startStream` passes any saved credential to `dh_start`;
-   an optional Face ID / Touch ID gate (`Credentials.unlock`, off by default) can guard the
-   use of saved secrets. ConnectView lists saved hosts with per-host and global "Forget".
-5. **Password challenge** — if the host requires a password the phase becomes
-   `.needPassword` (the session stays alive; `ClientSession` keeps re-sending HELLO every
-   0.5 s). `StreamView.passwordOverlay` collects the password, `dh_submit_password` injects it,
-   and the next HELLO retry carries the HMAC proof (`04-protocol.md` §5.1) — the password never
-   travels on the wire. It is saved to the Keychain only after the host accepts it
-   (`SessionModel.poll()` waits for `.streaming`); a rejected *saved* password
-   (`RejectReason.authFailed`) is deleted so it cannot burn the host's retry limit. The
-   device token is read-once via `dh_take_device_token` and stored immediately each poll.
+3. **Switching display mid-session** — the host shares *every* display, so `SessionModel`
+   keeps the whole source list and `StreamView` has a `Display` button (shown only when there
+   is more than one) that calls `switchSource`: `dh_stop` + `dh_start` with a different
+   `sourceId`, without leaving the stream screen. There is no "change source" protocol
+   message and none is needed — each (client, source) pair is already its own session.
+   (The **Recents** list of up to 12 machines was deleted 2026-07-27; only the last address is
+   remembered, pre-filled into the field.)
+4. **No password step** — the auth layer (passwords, Keychain credentials, device tokens)
+   was removed project-wide on 2026-07-27 (trusted-LAN decision, see 15-review-todo.md
+   §A1); `dh_start` takes just the address and `sourceId`, `clientId` is random per
+   session inside the native layer.
 
 ## 4. Streaming path
 
@@ -126,7 +122,7 @@ UdpSocket.RecvFrom → Reassembler (core, FEC + NACK) → decQueue_ (≤3)
   → VtDecoder (Annex-B → AVCC, CMSampleBuffer) → AVSampleBufferDisplayLayer
 ```
 
-`VtDecoder` (`client/ios/app/cpp/VtDecoder.h/.mm`) does **not** run an explicit
+`VtDecoder` (`client/ios/app/cpp/decode/VtDecoder.h/.mm`) does **not** run an explicit
 `VTDecompressionSession`: it enqueues H.264 `CMSampleBuffer`s directly into an
 `AVSampleBufferDisplayLayer`, which hardware-decodes and composites itself (the iOS analogue
 of Android's `releaseOutputBuffer(..., true)`). Details:
@@ -152,18 +148,22 @@ The UI layer is `VideoLayerView` (`client/ios/app/swift/VideoLayerView.swift`), 
 negotiated `videoWidth/Height`.
 
 **Stats HUD**: `NetThread` builds a one-line summary every second
-(`fps  Mbps  loss %  RTT ms  e2e ms`); `SessionModel.poll()` reads it via `dh_status_line`,
-parses the RTT number out of the string (`parseRtt`) into a 60-sample trace, and `StreamView`
-shows the line plus a `Sparkline`. The e2e figure is measured at *enqueue* time, not at
-display time — a known caveat noted in `VtDecoder.h` (`lastRenderedPtsUs`).
+(`fps  Mbps  loss %  RTT ms  e2e ms`); `SessionModel.poll()` reads it via `dh_status_line` and
+`StreamView` prints it as one line of text in the status bar. (It used to also be parsed for
+RTT and drawn as a sparkline; that went with the design system on 2026-07-27.) The e2e figure
+is measured at *enqueue* time, not at display time — a known caveat noted in `VtDecoder.h`
+(`lastRenderedPtsUs`).
 
 ## 5. Input
 
-All input funnels through `SessionModel`, which drops everything when `viewOnly` is set — one
-gate for all three sources. The C++ side queues events under `inputMutex_`; the Net thread
+All input funnels through `SessionModel`. There is no gate behind it any more — the `viewOnly`
+flag was removed 2026-07-27; the funnel stays so views never touch the facade directly. The
+C++ side queues events under `inputMutex_`; the Net thread
 drains them into `ClientSession`, which sequences and redundantly retransmits them
 (`InputSender`, see `07-input.md`). Any input sets `wantFocus_`, so the host receives
-SET_FOCUS and brings the shared window foreground. Input only takes effect while STREAMING.
+SET_FOCUS — since 2026-07-27 the host takes no action on `true` (it used to raise the shared
+window); only the `false` edge matters, releasing held keys. Input only takes effect while
+STREAMING.
 
 - **Touch → mouse** — `TouchInputView` (`client/ios/app/swift/TouchInputView.swift`) is a
   *trackpad*, not direct touch: a visible cursor (SF Symbol `cursorarrow`) is moved by pan
@@ -171,8 +171,9 @@ SET_FOCUS and brings the shared window foreground. Input only takes effect while
   within that rect. Gestures: drag = move cursor; single tap = left click (waits for the
   double-tap window to fail); double tap = right click; long-press-then-drag = hold left
   button and drag, released on lift. A move is re-sent immediately before every click so
-  clicks land under the visible cursor. The overlay covers the whole view including the
-  letterbox, and is simply not mounted in view-only mode.
+  clicks land under the visible cursor. The overlay fills the middle row of the screen —
+  letterbox included — but not the status/button bars above and below it, so a finger landing
+  on a button no longer jogs the cursor. It is mounted whenever the session is streaming.
 - **Virtual keyboard** — `KeyInputView` (`client/ios/app/swift/KeyInputView.swift`) is an
   invisible `UIKeyInput` view (ASCII keyboard, autocorrect off) toggled by the HUD keyboard
   button; a transparent accessory bar adds a "Done" dismiss button. Each typed scalar goes to
@@ -182,7 +183,8 @@ SET_FOCUS and brings the shared window foreground. Input only takes effect while
 - **Shortcut bar** — `StreamView`'s `kHotkeys` pill row supplies keys the iOS keyboard lacks:
   Esc, Tab, Enter, arrow keys, Del, Ctrl+C, Ctrl+V (Windows VK + scancode, bit 8 = E0 flag).
   Plain keys use `dh_key_tap`, combos use `dh_key_chord` (modifier held around the main key).
-  Alt+Tab/Win are deliberately excluded — they would move focus off the shared window.
+  Alt+Tab/Win are deliberately excluded (a rule from the per-window sharing era, kept because
+  they are rarely useful from a hotkey bar).
 - **Tap timing** — key-down is sent immediately; key-up is scheduled `kTapHoldUs` (50 ms)
   later in `delayedInput_`, so games polling the keyboard per frame still see the press.
 
@@ -195,7 +197,7 @@ SET_FOCUS and brings the shared window foreground. Input only takes effect while
   until the Decode thread lets go); on `.active` it is re-attached. While layerless the Decode
   thread drops frames; re-attachment triggers a decoder rebuild plus an IDR request. The
   session itself keeps running in the C++ threads.
-- `SessionModel.disconnect()` (End button, password-overlay Back, ended-overlay Back) calls
+- `SessionModel.disconnect()` (End button, ended-overlay Back) calls
   `dh_stop`: `ClientLoop::Stop` raises `quit_`, joins both threads, and the Net thread sends
   a one-shot BYE so the host frees the session immediately. Host BYE / timeout / socket error
   set `endReason`, phase `.ended`, and `StreamView` shows the ended overlay.

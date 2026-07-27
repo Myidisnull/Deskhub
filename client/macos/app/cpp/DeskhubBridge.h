@@ -25,8 +25,8 @@
 //   toàn và nhanh trên main thread.
 //
 // LIÊN QUAN: DeskhubBridge.mm (cài đặt), swift/DeskhubClient.swift +
-//            swift/DeskhubAgent.swift (bọc Swift), client/ClientLoop.h,
-//            agent/AgentLoop.h
+//            swift/DeskhubAgent.swift (bọc Swift), ClientLoop.h,
+//            AgentLoop.h
 // =============================================================================
 
 #include <stdbool.h>
@@ -91,20 +91,8 @@ void dh_mouse_button(int32_t button, bool down);
 // Con lăn. `delta` là bội của 120 (dương = cuộn lên), như WHEEL_DELTA của Windows.
 void dh_mouse_wheel(int32_t delta);
 
-// --- Clipboard hai chiều (GĐ8) ---
-
-// Máy này vừa copy văn bản -> gửi sang host.
-void dh_set_clipboard(const char* utf8);
-
-// Host vừa copy văn bản. Trả chuỗi RỖNG nếu không có gì mới; chuỗi tĩnh, hợp lệ tới
-// lần gọi kế. Đọc-và-xoá nên poll lặp là an toàn.
-const char* dh_take_remote_clipboard(void);
-
 // --- Trạng thái để UI vẽ ---
 DHPhase dh_phase(void);
-// GĐ9: host có nhận điều khiển không (cờ inputAccepted trong HELLO_ACK). Đáng tin
-// sau khi phiên đã đàm phán; trước đó trả true. UI giấu nút khoá chuột khi false.
-bool dh_input_accepted(void);
 // Dòng số liệu cho overlay (fps/kbps/RTT/e2e). Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dh_status_line(void);
 // Lý do phiên kết thúc. Rỗng nếu chưa kết thúc.
@@ -135,10 +123,9 @@ void dh_open_accessibility_settings(void);
 // Vai AGENT — chia sẻ máy này
 // ===========================================================================
 
-// Một thứ máy này chia sẻ được (một cửa sổ hoặc một màn hình).
+// Một màn hình máy này chia sẻ được (share theo cửa sổ đã bỏ 2026-07-27).
 typedef struct {
-    uint32_t id; // CGWindowID hoặc CGDirectDisplayID
-    bool isDisplay;
+    uint32_t id; // CGDirectDisplayID
     uint32_t width;
     uint32_t height;
     char name[256];
@@ -157,21 +144,17 @@ typedef struct {
     char name[256];
 } DHAgentStatus;
 
-// Liệt kê cửa sổ + màn hình chia sẻ được. CHẶN ~2s, gọi ngoài main thread.
+// Liệt kê màn hình chia sẻ được. CHẶN ~2s, gọi ngoài main thread.
 int dha_list_share_sources(DHShareSource* out, int capacity);
 
 // Bắt đầu chia sẻ. CHẶN tới ~10s (đợi frame đầu), gọi ngoài main thread.
-// `port` = 0 dùng mặc định 47777; cổng bận thì tự tăng dần (xem dha_port).
-// `share_clipboard` MẶC ĐỊNH phải là false (GĐ9): clipboard hay chứa mật khẩu/OTP,
-// người dùng phải tự tay bật.
-bool dha_start(const DHShareSource* sources, int count, uint16_t port, uint32_t fps,
-    uint32_t bitrate_mbps, bool allow_input, bool share_clipboard);
+// KHÔNG có tham số cổng và cũng KHÔNG có tham số "cho phép điều khiển": cổng luôn
+// là 47777 (kDeskhubPort, net/UdpSocket.h) và chuột/bàn phím luôn được chia sẻ.
+// false = cổng đã bị chiếm, thiếu quyền, hoặc không nguồn nào lên hình.
+bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps);
 
 void dha_stop(void);
 bool dha_running(void);
-
-// Cổng THẬT đang nghe — có thể khác cổng đã xin nếu cổng đó bận.
-uint16_t dha_port(void);
 
 // Dòng trạng thái tổng. Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dha_status_line(void);
@@ -183,9 +166,8 @@ int dha_status(DHAgentStatus* out, int capacity);
 // bằng '\n'. Chuỗi tĩnh, hợp lệ tới lần gọi kế.
 const char* dha_local_addresses(void);
 
-// Thêm/bớt nguồn GIỮA PHIÊN. Không chặn — thread Recv thi hành ở vòng kế tiếp.
-void dha_add_source(const DHShareSource* s);
-void dha_remove_source(uint8_t source_id);
+// KHÔNG có dha_add_source/dha_remove_source (bỏ 2026-07-27): phiên chia sẻ tất cả
+// màn hình và danh sách chốt lúc dha_start, nên không có lệnh nào đổi nó giữa chừng.
 
 #ifdef __cplusplus
 }

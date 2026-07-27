@@ -29,9 +29,6 @@
 package com.deskhub.app
 
 import android.view.Surface
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,27 +45,6 @@ object NativeClient {
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
 
-    /**
-     * GĐ10 — host đòi mật khẩu mà máy này chưa có. Phiên **vẫn sống**: tầng C++ tiếp
-     * tục phát lại HELLO, nên chỉ cần [nativeSubmitPassword] là nó đi tiếp. Đừng gọi
-     * [nativeStop] ở trạng thái này.
-     */
-    const val PHASE_NEED_PASSWORD = 4
-
-    /**
-     * Trùng `deskhub::RejectReason` bên C++ (Wire.h) — cùng kiểu enum tách đôi như
-     * PHASE_* ở trên. Dùng để hiện đúng thông báo: "sai mật khẩu" và "máy đang bận"
-     * đòi hai hành động hoàn toàn khác nhau từ người dùng.
-     */
-    object RejectReason {
-        const val NONE = 0
-        const val BUSY = 1
-        const val CODEC_MISMATCH = 2
-        const val AUTH_REQUIRED = 3
-        const val AUTH_FAILED = 4
-        const val LOCKED_OUT = 5
-    }
-
     // Nạp .so một lần, lần đầu có ai chạm tới object này. Phải chạy trước mọi lời
     // gọi external fun, và khối init của object bảo đảm đúng điều đó.
     init {
@@ -76,7 +52,7 @@ object NativeClient {
     }
 
     /**
-     * Host đang chia sẻ những cửa sổ nào. CHẶN tới ~3 giây (LIST_SOURCES đi trên UDP,
+     * Host đang chia sẻ những màn hình nào. CHẶN tới ~3 giây (LIST_SOURCES đi trên UDP,
      * phát lại vài lần) nên phải gọi ngoài main thread — dùng [listSources].
      */
     private external fun nativeListSources(addr: String): Array<String>
@@ -91,10 +67,6 @@ object NativeClient {
     external fun nativeStart(
         addr: String,
         sourceId: Int,
-        clientId: Int,
-        deviceName: String,
-        password: String,
-        deviceToken: ByteArray?,
     ): Long
 
     /**
@@ -102,22 +74,6 @@ object NativeClient {
      * phiên hiện tại là thế hệ khác thì không đụng. 0 = dừng vô điều kiện.
      */
     external fun nativeStop(generation: Long)
-
-    /**
-     * GĐ10 — người dùng vừa nhập mật khẩu ở hộp thoại. Có tác dụng ở lần phát lại
-     * HELLO kế tiếp (≤ 0.5 giây), không phải kết nối lại từ đầu.
-     */
-    external fun nativeSubmitPassword(password: String)
-
-    /**
-     * GĐ10 — token host vừa cấp để nhớ máy này. **Đọc rồi xoá**: gọi lần hai trả
-     * mảng rỗng. Gọi mỗi nhịp poll và cất ngay khi khác rỗng — token chỉ đi trên dây
-     * đúng một lần, bỏ lỡ là lần sau người dùng phải gõ mật khẩu lại.
-     */
-    external fun nativeTakeDeviceToken(): ByteArray
-
-    /** GĐ10 — vì sao host từ chối, theo `deskhub::RejectReason`. Xem [RejectReason]. */
-    external fun nativeRejectReason(): Int
 
     /**
      * Giao/thu hồi Surface. Truyền null CHẶN tới khi bộ giải mã buông surface ra,
@@ -138,15 +94,11 @@ object NativeClient {
     const val MOUSE_LEFT = 1
     const val MOUSE_RIGHT = 2
 
-    /**
-     * "Chỉ xem" — ô tick ở màn Kết nối. Chặn Ở ĐÂY chứ không ở từng chỗ gửi: input đi
-     * ra từ ba chỗ khác nhau (trackpad, bàn phím ảo, thanh phím tắt), và một chỗ quên
-     * kiểm tra là cả lựa chọn này thành vô nghĩa mà không ai biết. Vì thế các hàm
-     * `external` bên dưới là private, UI chỉ thấy các wrapper có cửa chặn.
-     * mutableStateOf để ô tick và HUD tự vẽ lại khi giá trị đổi; MainActivity lo phần
-     * lưu giữa các lần chạy (object này không có Context).
+    /*
+     * KHÔNG còn cờ "chỉ xem" (bỏ 2026-07-27): chuột/bàn phím luôn được gửi. Các hàm
+     * `external` vẫn để private và UI vẫn gọi qua wrapper — giữ đúng một cửa xuống
+     * JNI thì sau này thêm luật gì cũng chỉ phải sửa một chỗ.
      */
-    var viewOnly: Boolean by mutableStateOf(false)
 
     /**
      * Gõ một phím rời (nhấn + nhả ngay) sang host — phím đặc biệt của thanh phím tắt
@@ -174,7 +126,7 @@ object NativeClient {
 
     /**
      * Chuột tương đối — chế độ khoá chuột cho game FPS (nút Lock): delta thô,
-     * game tự áp sensitivity. Chưa có UI gọi; giữ lại cho GĐ sau, cùng cửa viewOnly.
+     * game tự áp sensitivity. Chưa có UI gọi; giữ lại cho GĐ sau.
      */
     private external fun nativeMouseMoveRel(
         dx: Int,
@@ -194,7 +146,7 @@ object NativeClient {
         vk: Int,
         scan: Int,
     ) {
-        if (!viewOnly) nativeKeyTap(vk, scan)
+        nativeKeyTap(vk, scan)
     }
 
     fun keyChord(
@@ -203,32 +155,32 @@ object NativeClient {
         vk: Int,
         scan: Int,
     ) {
-        if (!viewOnly) nativeKeyChord(modVk, modScan, vk, scan)
+        nativeKeyChord(modVk, modScan, vk, scan)
     }
 
     fun mouseMove(
         nx: Int,
         ny: Int,
     ) {
-        if (!viewOnly) nativeMouseMove(nx, ny)
+        nativeMouseMove(nx, ny)
     }
 
     fun mouseMoveRel(
         dx: Int,
         dy: Int,
     ) {
-        if (!viewOnly) nativeMouseMoveRel(dx, dy)
+        nativeMouseMoveRel(dx, dy)
     }
 
     fun mouseButton(
         button: Int,
         down: Boolean,
     ) {
-        if (!viewOnly) nativeMouseButton(button, down)
+        nativeMouseButton(button, down)
     }
 
     fun charTap(codepoint: Int) {
-        if (!viewOnly) nativeCharTap(codepoint)
+        nativeCharTap(codepoint)
     }
 
     external fun nativePhase(): Int
@@ -241,7 +193,7 @@ object NativeClient {
 
     external fun nativeVideoHeight(): Int
 
-    /** Một cửa sổ host đang chia sẻ. `name` chỉ để hiển thị. */
+    /** Một màn hình host đang chia sẻ. `name` chỉ để hiển thị. */
     data class Source(
         val id: Int,
         val width: Int,
@@ -260,7 +212,7 @@ object NativeClient {
     suspend fun listSources(addr: String): List<Source> =
         withContext(Dispatchers.IO) {
             nativeListSources(addr).mapNotNull { line ->
-                // limit = 4: tiêu đề cửa sổ có thể chứa tab, không được cắt tiếp.
+                // limit = 4: tên nguồn có thể chứa tab, không được cắt tiếp.
                 val f = line.split('\t', limit = 4)
                 if (f.size < 4) return@mapNotNull null
                 val id = f[0].toIntOrNull() ?: return@mapNotNull null

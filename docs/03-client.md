@@ -12,8 +12,8 @@ together: a UDP socket, the `deskhub::ClientSession` state machine, the
 
 | Platform | Client loop | UI |
 |----------|-------------|-----|
-| Windows | `client/windows/cpp/ClientApi.cpp` (`DhClientHandle::Run`) | WinUI3 (C#), `client/windows/csharp/` |
-| macOS | `client/macos/app/cpp/client/ClientLoop.cpp` | SwiftUI, `client/macos/app/swift/` |
+| Windows | `client/windows/cpp/ClientApi.cpp` (`DhClientHandle::Run`) | Plain Win32, `client/windows/win32/` (`Viewer.cpp`) |
+| macOS | `client/macos/app/cpp/ClientLoop.cpp` | SwiftUI, `client/macos/app/swift/` |
 | Android | `client/android/app/src/main/cpp/ClientLoop.cpp` | Jetpack Compose, `client/android/app/src/main/java/com/deskhub/app/` |
 | iOS | `client/ios/app/cpp/ClientLoop.cpp` | SwiftUI, `client/ios/app/swift/` |
 | Web | designed only — see 10-web-client.md; no code under `client/` yet | — |
@@ -23,69 +23,31 @@ together: a UDP socket, the `deskhub::ClientSession` state machine, the
 Four steps, each with its own mechanism. Steps 1–2 run *before* any session exists,
 on their own short-lived sockets.
 
-### 1a. LAN discovery (DISCOVER / ANNOUNCE)
+### 1a. No LAN discovery
 
-The client broadcasts `DISCOVER` on every local network interface and collects
-`ANNOUNCE` replies from agents running `deskhub::Beacon`. The platform half
-(`client/windows/cpp/net/Discovery.cpp`, `ScanForHosts`) opens the socket and blocks
-for a ~1.2 s window; the logic half is `deskhub::HostRegistry`
-(`core/include/deskhub/discovery/HostRegistry.h`), which:
-
-- merges replies **by `hostId`, not by address** (a machine on Wi-Fi + Ethernet
-  answers twice; the lower-RTT address wins),
-- keeps a stable sort order (name, then hostId) so the list doesn't reshuffle under
-  the user's finger,
-- expires hosts silent for `kHostStaleUs` (6 s), and discards late replies from a
-  previous scan via a per-scan `probeId` (`BeginScan`/`OnAnnounce`).
-
-Broadcast does not cross routers, so hosts reached over routed links (e.g. Tailscale
-/32) must be typed manually — a design limit, stated in `Discovery.h`.
-
-**Status per platform:** implemented only on Windows (`dh_discover_scan` in
-`client/windows/cpp/DeskhubApi.h`). The macOS UI deliberately omits the "found on
-your network" section until discovery is ported (see the header comment in
-`client/macos/app/swift/HomeView.swift`); Android and iOS rely on typed addresses
-and recents.
+LAN broadcast discovery (DISCOVER/ANNOUNCE, `HostRegistry`, `dh_discover_scan`) was
+removed 2026-07-27: every client connects by a typed `ip:port` (recents make retyping
+rare). Broadcast could not cross routers anyway, so Tailscale addresses were always
+typed by hand.
 
 ### 1b. Source listing (LIST_SOURCES / SOURCE_LIST)
 
 `QuerySources()` — one copy per platform (`client/*/…/net/SourceQuery.cpp`, same
 shape everywhere) — sends `LIST_SOURCES` to the host and waits for `SOURCE_LIST`:
-the set of displays/windows the host is sharing, each with a `sourceId`, name and
+the set of displays the host is sharing (whole monitors only — window sources were
+removed 2026-07-27), each with a `sourceId`, name and
 size. It is a blocking one-shot exchange (retries for up to ~3 s, must be called off
-the UI thread; Kotlin wraps it in a `suspend fun`, Swift in `Task.detached`, C# in
-`Task.Run`). A silent host is **not** an error: the caller assumes "old host /
+the UI thread; Kotlin wraps it in a `suspend fun`, Swift in `Task.detached`, the
+Win32 app in a worker thread). A silent host is **not** an error: the caller assumes "old host /
 single source" and connects to source 0.
 
-### 1c. Password auth (challenge–response)
+### 1c. No password auth
 
-Optional; the host decides. Primitives are in
-`core/include/deskhub/auth/PasswordAuth.h`, the client-side driver is inside
-`ClientSession`:
-
-```
-HELLO (+deviceToken if remembered)       →  host
-AUTH_CHALLENGE  salt(16) iters nonce(32) ←  host        (skipped if token matched)
-key   = PBKDF2(password, salt, iters)       — kAuthKdfIterations = 100 000
-proof = HMAC-SHA256(key, nonce ‖ clientId)
-AUTH_RESPONSE  proof(32)                 →  host
-HELLO_ACK (sessionId, + new deviceToken) ←  host
-```
-
-The password never crosses the wire; the nonce prevents replay, and mixing
-`clientId` into the proof binds it to one client. `ClientSession::SetPassword`
-caches the derived key across handshake retries (PBKDF2 costs ~100 ms while HELLO is
-resent every 0.5 s) and re-arms the 10 s give-up timer so a slow typist doesn't kill
-the session. `onPasswordNeeded` tells the UI to prompt; `onDeviceToken` delivers a
-remember-this-device token (sent over the wire exactly once). Note the scope,
-spelled out in `PasswordAuth.h`: this gates session *setup* only — the stream itself
-is not encrypted.
-
-**Status per platform:** fully wired on Android (`Phase::NeedPassword`,
-`NativeClient.nativeSubmitPassword`, storage in `ui/Credentials.kt`) and iOS
-(`DHPhaseNeedPassword`, `Credentials.swift`). The Windows viewer (`ClientApi.cpp`)
-and the macOS `ClientLoop` do not yet call `SetPassword` — they can only connect to
-hosts without a password.
+The password/auth layer (GĐ10: PBKDF2 challenge–response, device tokens) was
+**removed on 2026-07-27**: the app targets trusted LANs (or Tailscale, which is its
+own trust boundary), so the first HELLO goes straight to `HELLO_ACK`. Neither the
+handshake nor the stream is encrypted — do not expose the host port to untrusted
+networks.
 
 ### 1d. Session start (ClientSession)
 
@@ -100,8 +62,8 @@ Idle ─Start()→ Hello ─HELLO_ACK→ Starting ─first video packet→ Strea
 
 HELLO and START are resent every 0.5 s because UDP gives them no ACK; the first
 video packet is the only proof that START arrived. `onReady` delivers the
-`NegotiatedParams` (codec, size, fps, host timebase, `inputAccepted`,
-`clipboardEnabled`) so the caller can build its decoder; `onReconfig` fires when the
+`NegotiatedParams` (codec, size, fps, host timebase)
+so the caller can build its decoder; `onReconfig` fires when the
 host changes resolution mid-session. `Dead` is terminal — reconnecting means a new
 session.
 
@@ -114,7 +76,7 @@ All four platforms use the same two-native-thread shape (plus the UI thread):
   session), with `ClientSession::NotifyVideoPacket` called for timeout/state
   purposes; everything else goes to `ClientSession::HandlePacket`. Completed frames
   pop via `PopReady` and are queued for decode. The same thread drains the input
-  queue, handles clipboard, and calls `session.Tick(now)`.
+  queue and calls `session.Tick(now)`.
 - **Decode thread** — pops frames from a bounded queue (`kMaxQueuedFrames = 3`,
   drop-oldest, never block the producer) and feeds the platform decoder.
 
@@ -127,8 +89,8 @@ On Android/macOS/iOS the render target (Surface / `AVSampleBufferDisplayLayer`) 
 owned by the main thread, so handover uses a generation-counted handshake
 (`SetWindow`/`SetLayer` block until the decode thread acknowledges releasing the old
 target — destroying an `ANativeWindow` while the codec renders into it is a
-use-after-free). On Windows there is no handover: `dh_client_start` creates the
-composition swapchain on the caller's (UI) thread and C# attaches it once.
+use-after-free). On Windows there is no handover: `dh_client_start_hwnd` creates the
+device and for-HWND swapchain on the caller's (UI) thread before the loop starts.
 
 ### Loss handling, feedback, and clock sync (all on the net thread)
 
@@ -140,26 +102,24 @@ composition swapchain on the caller's (UI) thread and C# attaches it once.
   that `Tick` re-sends every 250 ms until an IDR arrives (`CancelKeyframeRequest`).
 - **Stats feedback:** `deskhub::LinkStats`
   (`core/include/deskhub/control/LinkStats.h`) turns the Reassembler's cumulative
-  counters into one-second windows (fps, kbps, loss %, loss-run histogram, e2e).
+  counters into one-second windows (fps, kbps, loss %, loss-run histogram).
   Once per second the client sends `MakeFeedback(window, rtt)` via `SendFeedback` —
   even at zero loss, because the host's `BitrateController` treats silence as a
   dead link and will not raise the bitrate without a "path is clean" signal.
 - **RTT / e2e estimate:** `Tick` sends PING every second; each PONG updates
   `lastRttUs`. End-to-end latency is estimated inline in each loop from atomics:
   `ackDelta` (local clock − host `timebaseUs` at HELLO_ACK) minus `minRTT/2` gives
-  the clock offset, and `e2e = now − offset − frame pts`. The dedicated
-  `deskhub::ClockSync` (min-filter with 10 s refresh) and `deskhub::LatencyTrace`
-  (60-sample, 320 ms chart buffer) classes exist in `core/include/deskhub/control/`
-  with tests, but are **not yet wired into any client loop** — the inline estimate
-  is what ships today.
+  the clock offset, and `e2e = now − offset − frame pts`. (The unused
+  `ClockSync`/`LatencyTrace` classes in core that duplicated this were removed
+  2026-07-27 — the inline estimate is the only implementation.)
 
 ## 3. Decode / render backends
 
 | Platform | Decoder | Render path |
 |----------|---------|-------------|
-| Windows | `MfDecoder` (`client/windows/cpp/decode/MfDecoder.h`) — Media Foundation sync MFT with D3D11VA, `MF_LOW_LATENCY`; only implementation of `IVideoDecoder` | NV12 texture-array slice → `PanelRenderer` (D3D11 Video Processor NV12→BGRA) into a composition swapchain attached to a WinUI3 `SwapChainPanel` |
-| macOS | `VtDecoder` (`client/macos/app/cpp/client/VtDecoder.mm`) — VideoToolbox via `AVSampleBufferDisplayLayer`; converts Annex-B → AVCC and builds `CMVideoFormatDescription` from in-band SPS/PPS | the layer decodes **and** presents through the compositor; enqueueing a `CMSampleBuffer` is the entire render step |
-| iOS | `VtDecoder` (`client/ios/app/cpp/VtDecoder.mm`) — the macOS file is a copy of this one | same `AVSampleBufferDisplayLayer` path, layer hosted by `VideoLayerView.swift` |
+| Windows | `MfDecoder` (`client/windows/cpp/decode/MfDecoder.h`) — Media Foundation sync MFT with D3D11VA, `MF_LOW_LATENCY`; only implementation of `IVideoDecoder` | NV12 texture-array slice → `PanelRenderer` (D3D11 Video Processor NV12→BGRA) into a for-HWND swapchain on a child window of the Win32 app (`dh_client_start_hwnd` — the only render path since the WinUI3/composition path was removed 2026-07-27) |
+| macOS | `VtDecoder` (`client/macos/app/cpp/decode/VtDecoder.mm`) — VideoToolbox via `AVSampleBufferDisplayLayer`; converts Annex-B → AVCC and builds `CMVideoFormatDescription` from in-band SPS/PPS | the layer decodes **and** presents through the compositor; enqueueing a `CMSampleBuffer` is the entire render step |
+| iOS | `VtDecoder` (`client/ios/app/cpp/decode/VtDecoder.mm`) — the macOS file is a copy of this one | same `AVSampleBufferDisplayLayer` path, layer hosted by `VideoLayerView.swift` |
 | Android | `MediaCodecDecoder` (`client/android/app/src/main/cpp/decode/MediaCodecDecoder.h`) — NDK `AMediaCodec` configured directly with the `ANativeWindow` | `AMediaCodec_releaseOutputBuffer(..., true)` *is* the render; frames never touch the CPU |
 | Web | WebCodecs `VideoDecoder` + WebTransport + WASM core — **design only**, see 10-web-client.md | canvas/WebGL (designed) |
 
@@ -188,36 +148,28 @@ key stuck. Details in 07-input.md.
   right click, long-press-drag = held left drag. Characters from the soft keyboard
   go through `QueueCharTap` (core `KeyMap`, US layout → Shift sequences); a
   shortcut bar sends discrete key taps, with key-up delayed 50 ms (`kTapHoldUs`) so
-  frame-polling games see the press. A view-only toggle gates all senders in one
-  place (`NativeClient.viewOnly`).
+  frame-polling games see the press. Every sender still funnels through
+  `NativeClient`, but there is no gate in it any more — the view-only toggle was
+  removed 2026-07-27.
 
-`SET_FOCUS` is sent event-driven (3 repeats, 50 ms apart) so the host brings the
-viewed window to the foreground before injecting. The `inputAccepted` flag from
-HELLO_ACK tells the UI to hide input affordances for view-only hosts.
+`SET_FOCUS` is still sent event-driven (3 repeats, 50 ms apart) when the preview
+gains or loses focus; the host now acts only on `false`, releasing any held keys for
+the session (the raise-to-foreground behavior on `true` was removed 2026-07-27 with
+window sharing). Clients no longer ask whether the host accepts input: it always
+does, and the `inputAccepted` flag was removed from HELLO_ACK on 2026-07-27.
 
-## 5. Clipboard (client side)
+## 5. Clipboard — removed
 
-`ClientSession` carries both directions: `onClipboard` delivers host-copied text
-(fragments reassembled by `ClipboardAssembler`), `SendClipboard` ships local copies,
-gated on the host's `clipboardEnabled` flag from HELLO_ACK.
-
-Wired today on the two desktop viewers only: Windows (`ClipboardSync` in
-`ClientApi.cpp`, bidirectional with content-based echo suppression) and macOS
-(`ClientLoop::SetLocalClipboard` / `TakeRemoteClipboard` bridged to `NSPasteboard`).
-The Android and iOS client loops have no clipboard path yet.
+Two-way clipboard sync (GĐ8) was removed 2026-07-27 along with `ClipboardAssembler`
+and the desktop pasteboard wiring.
 
 ## 6. Shared UX features
 
 - **Recents** — persisted list of previously connected machines, deduplicated by
   address, with a link-type guess for display: `ui/Recents.kt` (SharedPreferences,
-  max 12), `Recents.swift` on iOS and macOS (UserDefaults), `Recents.cs` on Windows.
+  max 12), `Recents.swift` on iOS and macOS (UserDefaults). (The Windows `Recents.cs`
+  went with the WinUI3 app, removed 2026-07-27; the Win32 app has no recents list.)
   Tapping a recent pre-fills the connect screen rather than connecting directly.
-- **Stored credentials** (Android/iOS) — `ui/Credentials.kt` (Android Keystore
-  AES-GCM) and `Credentials.swift` (Keychain, `WhenUnlockedThisDeviceOnly`) persist
-  three things: a *stable* `clientId` (the host keys its trusted-device list on it),
-  an optional per-host password, and the per-host `deviceToken`. The token is
-  read-once from the native layer (`TakeDeviceToken`) and must be stored
-  immediately.
 - **Stats overlay** — every loop produces a 1 Hz `StatusLine()`
   (`fps · Mbps · loss % · RTT · e2e`) that the UI polls; Android additionally
   parses RTT out of it for a signal indicator in `StreamActivity.kt`.
@@ -226,7 +178,7 @@ The Android and iOS client loops have no clipboard path yet.
 
 | Platform | Binding | Doc |
 |----------|---------|-----|
-| Windows | Direct C++; a flat C API (`client/windows/cpp/DeskhubApi.h`, `dh_client_*`) exported from `deskhub_native.dll`, P/Invoked by the WinUI3 app | 01-architecture.md |
+| Windows | Flat C API (`client/windows/cpp/DeskhubApi.h`, `dh_client_*`) — statically linked into the Win32 app's exe (the `deskhub_native.dll` export surface for the WinUI3 app was removed 2026-07-27) | 01-architecture.md |
 | Android | JNI: `NativeClient.kt` (single Kotlin `object`, name-mangled to `JniBridge.cpp`); one global `ClientLoop`, start/stop guarded by generation tokens against overlapping Activity lifecycles | 08-android-client.md |
 | iOS | Flat C facade `client/ios/app/cpp/DeskhubClient.h`/`.mm` (ObjC++), imported through the Swift bridging header; one global session | 12-ios-client.md |
 | macOS | ObjC++ bridge `client/macos/app/cpp/DeskhubBridge.mm` wrapping `ClientLoop` for SwiftUI | 14-macos-app.md |

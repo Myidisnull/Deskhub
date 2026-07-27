@@ -3,9 +3,8 @@
 //
 // BÀI TOÁN TRUYỀN DỮ LIỆU QUA DÒNG LỆNH
 //   Instance mới do UAC dựng lên là một TIẾN TRÌNH KHÁC, nên không chia sẻ được bộ
-//   nhớ. Kênh duy nhất là dòng lệnh. Mà nội dung phải truyền lại là tên cửa sổ —
-//   tiêu đề tự do do người dùng và ứng dụng khác đặt: có dấu tiếng Việt, khoảng
-//   trắng, dấu nháy kép, ký tự điều khiển.
+//   nhớ. Kênh duy nhất là dòng lệnh. Mà nội dung phải truyền lại là tên nguồn —
+//   chuỗi tự do: có dấu tiếng Việt, khoảng trắng, dấu nháy kép.
 //
 //   Luật quoting của CommandLineToArgvW nổi tiếng rắc rối (dấu gạch chéo ngược
 //   trước dấu nháy có nghĩa đặc biệt, và số lượng lẻ/chẵn cho kết quả khác nhau).
@@ -42,9 +41,9 @@ namespace {
 
 constexpr wchar_t kFlagShare[] = L"--elevated-share";
 
-// Tên nguồn là UTF-8 tự do (tiêu đề cửa sổ - có dấu, có khoảng trắng, có cả dấu
-// nháy). Mã hex hoá cả chuỗi để mỗi token dòng lệnh chỉ còn [0-9a-f] - không phải
-// đụng tới luật quoting của CommandLineToArgvW.
+// Tên nguồn là UTF-8 tự do (có dấu, có khoảng trắng). Mã hex hoá cả chuỗi để mỗi
+// token dòng lệnh chỉ còn [0-9a-f] - không phải đụng tới luật quoting của
+// CommandLineToArgvW.
 std::wstring HexEncode(const std::string& s) {
     static const wchar_t* kDigits = L"0123456789abcdef";
     std::wstring out;
@@ -78,21 +77,18 @@ std::wstring SelfPath() {
     return (n == 0 || n >= MAX_PATH) ? std::wstring() : std::wstring(path, n);
 }
 
-// HWND/HMONITOR là handle cấp phiên đăng nhập (session-global), không phải
-// per-process như HANDLE của kernel object - nên truyền giá trị sang instance
-// admin cùng session vẫn trỏ đúng cửa sổ/màn hình đó.
+// HMONITOR là handle cấp phiên đăng nhập (session-global), không phải per-process
+// như HANDLE của kernel object - nên truyền giá trị sang instance admin cùng
+// session vẫn trỏ đúng màn hình đó. Tiền tố "m:" giữ nguyên từ thời còn nguồn cửa
+// sổ ("w:") để format tự mô tả.
 std::wstring EncodeSource(const AgentSource& s) {
-    const bool isWindow = s.target.hwnd != nullptr;
-    const uintptr_t handle = isWindow ? (uintptr_t)s.target.hwnd : (uintptr_t)s.target.monitor;
     wchar_t buf[32];
-    swprintf(buf, 32, L"%llx", (unsigned long long)handle);
-    return std::wstring(isWindow ? L"w:" : L"m:") + buf + L":" + HexEncode(s.name);
+    swprintf(buf, 32, L"%llx", (unsigned long long)(uintptr_t)s.monitor);
+    return std::wstring(L"m:") + buf + L":" + HexEncode(s.name);
 }
 
 bool DecodeSource(const std::wstring& tok, AgentSource& out) {
-    if (tok.size() < 4 || tok[1] != L':') return false;
-    const bool isWindow = tok[0] == L'w';
-    if (!isWindow && tok[0] != L'm') return false;
+    if (tok.size() < 4 || tok[0] != L'm' || tok[1] != L':') return false;
 
     const size_t sep = tok.find(L':', 2);
     if (sep == std::wstring::npos) return false;
@@ -102,8 +98,7 @@ bool DecodeSource(const std::wstring& tok, AgentSource& out) {
     if (handle == 0) return false;
     if (!HexDecode(tok.substr(sep + 1), out.name)) return false;
 
-    out.target = isWindow ? CaptureTarget::Window((HWND)handle)
-                          : CaptureTarget::Monitor((HMONITOR)handle);
+    out.monitor = (HMONITOR)handle;
     return true;
 }
 
@@ -128,12 +123,10 @@ bool RelaunchElevatedShare(std::span<const AgentSource> sources,
     if (exe.empty()) return false;
 
     wchar_t nums[128];
-    swprintf(nums, 128, L" --port %u --fps %u --bitrate %u",
-        unsigned(opt.port), unsigned(opt.fps), unsigned(opt.bitrateMbps));
+    swprintf(nums, 128, L" --fps %u --bitrate %u", unsigned(opt.fps), unsigned(opt.bitrateMbps));
 
     std::wstring args = kFlagShare;
     args += nums;
-    if (opt.allowInput) args += L" --allow-input";
     // Instance admin tự mở file log riêng (pid trong tên file), không cần truyền cờ.
     for (const auto& s : sources) args += L" --src " + EncodeSource(s);
 
@@ -161,27 +154,21 @@ bool ParseElevatedShareArgs(int adeskhub, wchar_t** argv,
     if (!isShare) return false;
 
     AgentOptions opt;
-    opt.allowInput = false;
     std::vector<AgentSource> sources;
 
+    // Không còn --port và --allow-input: cổng là hằng số, điều khiển thì luôn bật.
+    // Bản cũ có cả hai, nên chuỗi tham số ở đây chỉ khớp với chính exe này —
+    // RelaunchElevatedShare luôn chạy lại ĐÚNG file đang chạy nên không lệch được.
     for (int i = 1; i < adeskhub; ++i) {
         const std::wstring a = argv[i];
         const bool hasNext = (i + 1) < adeskhub;
-        if (a == L"--allow-input") {
-            opt.allowInput = true;
-        } else if (a == L"--port" && hasNext) {
-            opt.port = uint16_t(wcstoul(argv[++i], nullptr, 10));
-        } else if (a == L"--fps" && hasNext) {
+        if (a == L"--fps" && hasNext) {
             opt.fps = uint32_t(wcstoul(argv[++i], nullptr, 10));
         } else if (a == L"--bitrate" && hasNext) {
             opt.bitrateMbps = uint32_t(wcstoul(argv[++i], nullptr, 10));
         } else if (a == L"--src" && hasNext) {
             AgentSource s;
-            // Cửa sổ có thể đã đóng trong lúc bung UAC - bỏ nguồn chết, còn nguồn
-            // nào share nguồn đó.
-            if (DecodeSource(argv[++i], s) &&
-                (s.target.monitor != nullptr || IsWindow(s.target.hwnd)))
-                sources.push_back(std::move(s));
+            if (DecodeSource(argv[++i], s)) sources.push_back(std::move(s));
         }
     }
 

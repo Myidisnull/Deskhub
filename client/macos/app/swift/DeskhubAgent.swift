@@ -7,17 +7,15 @@
 // =============================================================================
 import Foundation
 
-// Một thứ máy này chia sẻ được. `id` là CGWindowID hoặc CGDirectDisplayID —
-// Identifiable phải phân biệt được cả hai, nên khoá gồm cả cờ isDisplay (một cửa sổ
-// và một màn hình hoàn toàn có thể trùng số).
+// Một màn hình máy này chia sẻ được. `id` là CGDirectDisplayID (share theo cửa sổ
+// đã bỏ 2026-07-27, nguồn chỉ còn là màn hình).
 struct ShareSource: Identifiable, Hashable, Sendable {
     let rawId: UInt32
-    let isDisplay: Bool
     let width: UInt32
     let height: UInt32
     let name: String
 
-    var id: String { "\(isDisplay ? "d" : "w")\(rawId)" }
+    var id: UInt32 { rawId }
 }
 
 // Trạng thái một nguồn đang chia sẻ, cho ShareView vẽ.
@@ -61,7 +59,6 @@ nonisolated enum DeskhubAgent {
             let info = buf[idx]
             return ShareSource(
                 rawId: info.id,
-                isDisplay: info.isDisplay,
                 width: info.width,
                 height: info.height,
                 name: cString(info.name)
@@ -73,27 +70,22 @@ nonisolated enum DeskhubAgent {
 
     // CHẶN tới ~10s (đợi frame đầu của từng nguồn) — gọi ngoài main thread.
     // Chữ ký chép 1-1 từ C API dha_start; gom thành struct chỉ thêm một lớp vỏ
-    // cho đúng một call site.
+    // cho đúng một call site. Không có tham số cổng / cho-phép-điều-khiển: cổng
+    // luôn 47777 và chuột+bàn phím luôn được chia sẻ (chốt 2026-07-27).
     @discardableResult
-    // swiftlint:disable:next function_parameter_count
     static func start(
         sources: [ShareSource],
-        port: UInt16,
         fps: UInt32,
-        bitrateMbps: UInt32,
-        allowInput: Bool,
-        shareClipboard: Bool
+        bitrateMbps: UInt32
     ) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
-            dha_start(ptr.baseAddress, Int32(ptr.count), port, fps, bitrateMbps, allowInput,
-                      shareClipboard)
+            dha_start(ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps)
         }
     }
 
     static func stop() { dha_stop() }
     static var isRunning: Bool { dha_running() }
-    static var port: UInt16 { dha_port() }
     static func statusLine() -> String { String(cString: dha_status_line()) }
 
     static func status() -> [AgentSourceStatus] {
@@ -125,21 +117,14 @@ nonisolated enum DeskhubAgent {
             .map(String.init)
     }
 
-    static func addSource(_ source: ShareSource) {
-        var raw = toRaw(source)
-        dha_add_source(&raw)
-    }
-
-    static func removeSource(id: UInt8) {
-        dha_remove_source(id)
-    }
+    // Không có addSource/removeSource: phiên chia sẻ tất cả màn hình và danh sách
+    // chốt lúc start (bỏ 2026-07-27).
 
     // --- Tiện ích chuyển đổi ---
 
     private static func toRaw(_ source: ShareSource) -> DHShareSource {
         var raw = DHShareSource()
         raw.id = source.rawId
-        raw.isDisplay = source.isDisplay
         raw.width = source.width
         raw.height = source.height
         // Mảng char cố định trong struct C: Swift phơi nó ra thành tuple, không có

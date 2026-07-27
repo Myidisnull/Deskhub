@@ -2,13 +2,13 @@
 
 Specification of the v1 wire protocol between a Deskhub host (Agent) and its clients.
 
-This document and `core/include/deskhub/wire/Wire.h` are two forms of the same
-specification. `Wire.h` (with `core/src/wire/Wire.cpp`) is the **single implementation**
+This document and `core/include/deskhub/protocol/Wire.h` are two forms of the same
+specification. `Wire.h` (with `core/src/protocol/Wire.cpp`) is the **single implementation**
 of every byte layout described here — no other module in the project is allowed to read
 or write raw datagram bytes — and its header comment names this file as the source of
 truth. **The two must change together**: a change to either one that is not mirrored in
 the other creates two conflicting specifications. Round-trip and malformed-input tests
-for every message live in `core/tests/wire/WireTests.cpp`.
+for every message live in `core/tests/protocol/WireTests.cpp`.
 
 Related documents: 01-architecture.md (where the wire layer sits in the system),
 06-transport.md (video transport policy in depth), 07-input.md (input pipeline),
@@ -17,14 +17,14 @@ Related documents: 01-architecture.md (where the wire layer sits in the system),
 ## 1. Overview
 
 - **Transport**: UDP, one single port. All traffic — control, video, input — is
-  multiplexed on that port via the `chan` byte of the common header. The default host
-  port is **47777** (a platform-level constant, e.g. `kDefaultPort` in
-  `client/android/app/src/main/cpp/JniBridge.cpp` and `AgentLoop.h` on each host
-  platform; if the port is busy the host probes up to 64 consecutive ports — see
-  11-platform-transport.md). The core protocol code never opens sockets; bytes enter
+  multiplexed on that port via the `chan` byte of the common header. The host port is
+  **always 47777** — a fixed platform-level constant (`kDeskhubPort` in each platform's
+  `net/UdpSocket.h`), not a default: there is no setting for it, clients type a bare IP,
+  and a busy port is a hard error rather than a walk to the next one (changed 2026-07-27;
+  see 11-platform-transport.md). The core protocol code never opens sockets; bytes enter
   through `HandlePacket`/`Reply` and leave through `send` callbacks.
 - **Byte order**: every multi-byte integer field is **big-endian** (network byte
-  order). The only code allowed to know this is `core/include/deskhub/wire/ByteOrder.h`
+  order). The only code allowed to know this is `core/include/deskhub/protocol/ByteOrder.h`
   (`PutU16/PutU32/PutU64`, `GetU16/GetU32/GetU64`); `Wire.cpp` calls down into it.
   Byte-by-byte shifts are used deliberately — no pointer casts, so unaligned payloads
   are safe on ARM.
@@ -61,9 +61,9 @@ Every datagram starts with the same 8-byte header (`kCommonHeaderSize = 8`,
 |-------|------|---------|
 | `ver` | u8 | Protocol version. Must equal `kProtocolVersion` (1); `ParseCommonHeader` rejects anything else. |
 | `type` | u8 | Message type (`MsgType`, table in §3). Unknown values are not rejected at parse time — receivers `switch` on the type and silently ignore unrecognized ones, so a later version can add types without breaking old peers. |
-| `flags` | u8 | Type-specific flags. Used by VIDEO_PACKET/FEC_PACKET (`kVideoFlagIdr`, `kVideoFlagFrameEnd`) and SOURCE_LIST (`kSourceListFlagKind`); 0 elsewhere. |
+| `flags` | u8 | Type-specific flags. Used by VIDEO_PACKET/FEC_PACKET (`kVideoFlagIdr`, `kVideoFlagFrameEnd`); 0 elsewhere. |
 | `chan` | u8 | Logical channel (`Chan`): `0 = Control`, `1 = Video`, `2 = Input`, `3 = Audio` (reserved — no audio messages exist in v1). |
-| `sessionId` | u32 | Session identifier. `0` in every pre-session message (HELLO, HELLO_ACK, AUTH_CHALLENGE, AUTH_RESPONSE, LIST_SOURCES, SOURCE_LIST, DISCOVER, ANNOUNCE, and probe PINGs); assigned by the host in HELLO_ACK for everything after. |
+| `sessionId` | u32 | Session identifier. `0` in every pre-session message (HELLO, HELLO_ACK, LIST_SOURCES, SOURCE_LIST, and probe PINGs); assigned by the host in HELLO_ACK for everything after. |
 
 `PayloadOf` returns the bytes after the header (empty if the datagram is shorter than
 8 bytes).
@@ -100,11 +100,7 @@ All `MsgType` values in `Wire.h`. Direction: C = client, H = host (Agent).
 | 0x03 | START | Control | C→H | Repeated every 500 ms until the first video packet arrives (the only proof the host received it). |
 | 0x04 | BYE | Control | both | Sent once, best-effort, on orderly shutdown. |
 | 0x05 | LIST_SOURCES | Control | C→H | Best-effort request; client re-asks on its own schedule. Pre-session (sessionId 0), answered by `Beacon`. |
-| 0x06 | SOURCE_LIST | Control | H→C | Best-effort reply. Header flag `kSourceListFlagKind` marks the 7-byte record layout (§4.6). |
-| 0x07 | DISCOVER | Control | C→broadcast | Best-effort; client re-broadcasts each scan round. |
-| 0x08 | ANNOUNCE | Control | H→C | Best-effort reply to DISCOVER, unicast back to the asker. |
-| 0x09 | AUTH_CHALLENGE | Control | H→C | One per received HELLO while password-gated; HELLO repeats regenerate it, which is also the loss-recovery mechanism. |
-| 0x0A | AUTH_RESPONSE | Control | C→H | Sent in reply to each AUTH_CHALLENGE. |
+| 0x06 | SOURCE_LIST | Control | H→C | Best-effort reply. Single 6-byte record layout (§4.6). |
 | 0x10 | VIDEO_PACKET | Video | H→C | Unreliable; protected by FEC (§6.3) and NACK retransmission (§6.4). |
 | 0x11 | FEC_PACKET | Video | H→C | Unreliable parity; only present when FEC is enabled. |
 | 0x20 | INPUT_EVENT | Input | C→H | "Lightly reliable": each event is sent ~3× via redundancy tails and repeats; the receiver deduplicates by sequence number (§4.9). |
@@ -113,12 +109,14 @@ All `MsgType` values in `Wire.h`. Direction: C = client, H = host (Agent).
 | 0x32 | FEEDBACK | Control | C→H | Periodic (~1 s), best-effort. Input to `BitrateController`. |
 | 0x33 | REQUEST_KEYFRAME | Control | C→H | Repeated every 250 ms (`kKeyframeRetryUs`) while an IDR is wanted. |
 | 0x34 | RECONFIG | Control | H→C | Best-effort; host follows it with an IDR so the decoder resyncs. |
-| 0x35 | SET_FOCUS | Control | C→H | Event-driven, sent `kFocusRepeats = 3` times, 50 ms apart (`kFocusRetryUs`). Never periodic. |
+| 0x35 | SET_FOCUS | Control | C→H | Event-driven, sent `kFocusRepeats = 3` times, 50 ms apart (`kFocusRetryUs`). Never periodic. Host acts only on `false` (release held keys, §4.13). |
 | 0x36 | NACK | Control | C→H | Best-effort; self-throttled (§6.4). |
 | 0x37 | INVALIDATE_REF | Control | C→H | Best-effort, sent once per abandoned frame. |
-| 0x38 | CLIPBOARD | Control | both | Best-effort chunks, no ACK, no retransmit: a lost chunk kills that copy, the next copy replaces it. |
 
-`Chan::Audio` (3) is reserved: no message type uses it in v1. Messages with no payload
+`Chan::Audio` (3) is reserved: no message type uses it in v1. Values 0x07–0x0A were
+DISCOVER/ANNOUNCE/AUTH_CHALLENGE/AUTH_RESPONSE and 0x38 was CLIPBOARD — all removed
+2026-07-27 (LAN discovery, the auth layer, and clipboard sync); the values stay
+unassigned. Messages with no payload
 (START, BYE, LIST_SOURCES, REQUEST_KEYFRAME) consist of the common header alone
 (`BuildEmpty` in `Wire.cpp`).
 
@@ -135,25 +133,18 @@ yet — HELLO_ACK creates it).
 
 ```
 off  size  field
- 0    4    clientId        client-chosen identifier, echoed in AUTH_RESPONSE
+ 0    4    clientId        client-chosen identifier (random per session)
  4    2    codecMask       bit0 = H.264 (kCodecMaskH264), bit1 = HEVC, bit2 = AV1
  6    2    maxWidth
  8    2    maxHeight
 10    1    desiredFps
 11    2    features        reserved feature bits
 13    1    sourceId        source to view (from SOURCE_LIST; 0 = first source)
---- tail-appended (auth, Phase 10) ---
-14    1    tokenLen        0 or 32; any other declared length is dropped by both ends
-15    n    deviceToken     trusted-device token from a previous HELLO_ACK
-15+n  1    nameLen         0..48 (kMaxDeviceNameBytes, UTF-8-boundary truncated)
-16+n  m    deviceName      display-only, shown in the host's "Trusted devices" list
 ```
 
-Compatibility: `ParseHello` accepts a 13-byte payload (pre-`sourceId` clients,
-`sourceId` defaults to 0) and a 14-byte payload (pre-auth clients — no token, no name,
-a legitimate "never remembered" state, not an error). Tokens are only accepted at
-exactly 32 bytes (`kAuthTokenBytes`); `BuildHello` likewise refuses to send a
-wrong-sized token.
+Fixed 14 bytes. Compatibility: `ParseHello` accepts a 13-byte payload
+(pre-`sourceId` clients, `sourceId` defaults to 0). The Phase-10 tail
+(deviceToken/deviceName) was removed 2026-07-27 with the auth layer.
 
 ### 4.2 HELLO_ACK (0x02) — session grant or rejection
 
@@ -169,60 +160,30 @@ off  size  field
  9    1    fps
 10    4    bitrateBps      starting bitrate
 14    8    timebaseUs      host clock at the moment the ACK was built (µs) — seeds
-                           ClockSync (§5.4)
+                           the client's e2e-latency offset estimate (§5.4)
 --- tail-appended (Phase 9) ---
-22    2    flags           bit0 = kAckFlagInputAccepted, bit1 = kAckFlagClipboard.
-                           Absent ⇒ parsed as kAckFlagInputAccepted (old hosts always
-                           accepted input; assuming otherwise would disable control
-                           against every un-updated host).
---- tail-appended (Phase 10) ---
+22    2    reserved        Always written as 0, always ignored on read. This used to be
+                           `flags`: bit0 = kAckFlagInputAccepted, bit1 = clipboard.
+                           Clipboard went 2026-07-27, the input flag went with it the
+                           same day (input is always accepted now). The two bytes STAY
+                           so `reason` keeps offset 24 — dropping them would make every
+                           already-released build read the reject reason as flags.
+--- tail-appended ---
 24    1    reason          RejectReason, meaningful only when codec = Rejected:
-                           0 None, 1 Busy, 2 CodecMismatch, 3 AuthRequired,
-                           4 AuthFailed, 5 LockedOut. Out-of-range values are ignored.
-25    1    tokenLen        0 or 32
-26    n    deviceToken     trusted-device token; sent exactly ONCE, in the first ACK
-                           after a correct password answer, never in ACK repeats
+                           0 None, 1 Busy, 2 CodecMismatch. Out-of-range values are
+                           read as None. (Auth reasons 3–5 removed 2026-07-27.)
 ```
 
 A rejection is a HELLO_ACK with `codec = Codec::Rejected` and all other fixed fields
 zero (`HostSession::SendReject`) — reusing the message the client is already waiting
 for gives it an immediate, definitive answer instead of a 10-second timeout.
 
-### 4.3 AUTH_CHALLENGE (0x09) — host→client, sessionId 0
+### 4.3–4.4 (removed)
 
-`struct AuthChallenge`, `BuildAuthChallenge`/`ParseAuthChallenge`.
-
-```
-off  size  field
- 0   16    salt            kAuthSaltBytes; fixed per configured password
-16    4    iterations      PBKDF2 rounds. On the wire so the host can raise it later
-                           without breaking old clients. Build refuses iterations = 0;
-                           Parse rejects 0 and CLAMPS values above
-                           kMaxKdfIterations = 2,000,000 (a hostile host declaring 4
-                           billion rounds would otherwise hang the client for hours
-                           inside an uncancelable KDF). The real value used is
-                           kAuthKdfIterations = 100,000 (PasswordAuth.h).
-20   32    nonce           kAuthNonceBytes; fresh per challenge — replay protection
-```
-
-### 4.4 AUTH_RESPONSE (0x0A) — client→host, sessionId 0
-
-`struct AuthResponse`, `BuildAuthResponse`/`ParseAuthResponse`.
-
-```
-off  size  field
- 0    4    clientId        echoed so a proof from client A cannot be pasted into
-                           client B's handshake (sessionId is still 0, so nothing
-                           else identifies the sender)
- 4   32    proof           kAuthProofBytes = HMAC-SHA256(key, nonce ‖ clientId_be32)
-                           where key = PBKDF2-HMAC-SHA256(password, salt, iterations)
-                           (deskhub/auth/PasswordAuth.h: DeriveKey / ComputeProof;
-                           primitives in deskhub/crypto/Sha256.h)
-```
-
-The password never travels on the wire. Note the scope honestly stated in
-`PasswordAuth.h`: this handshake gates who may **open** a session; the session itself
-(video, input, clipboard) is **not encrypted** in v1.
+AUTH_CHALLENGE (0x09) / AUTH_RESPONSE (0x0A) — the PBKDF2 challenge–response
+handshake — were removed 2026-07-27 together with the whole auth layer (trusted-LAN
+decision, see 15-review-todo.md §A1). Neither the handshake nor the session is
+encrypted; do not expose the host port to untrusted networks.
 
 ### 4.5 START (0x03), BYE (0x04), LIST_SOURCES (0x05), REQUEST_KEYFRAME (0x33)
 
@@ -238,46 +199,25 @@ UTF-8 character boundary (`Utf8TruncLen`).
 
 ```
 payload: count(u8), then count records:
-  sourceId(u8) width(u16) height(u16) kind(u8) nameLen(u8) name(nameLen)
+  sourceId(u8) width(u16) height(u16) nameLen(u8) name(nameLen)
 ```
 
-`kind` is `SourceKind`: 0 = Window, 1 = Display (drawn with different icons and
-different privacy implications, so it must be on the wire). The record contains `kind`
-only when the common-header flag `kSourceListFlagKind` (bit 0) is set; hosts predating
-it send 6-byte records without the flag, and `ParseSourceList` reads both layouts,
-defaulting kind to Window. The flag lives in the header rather than being inferred
-from packet length because names make the length ambiguous. The declared `count` is
-untrusted: parsing clamps to the output span and stops at the first record that would
-cross the real payload boundary.
+Each record is 6 fixed bytes plus the name. Every source is a display — the host
+shares whole monitors only, one `sourceId` per monitor. (A per-record `kind` byte
+plus the `kSourceListFlagKind` header flag used to distinguish windows from
+displays; window sharing and the kind byte were removed 2026-07-27, leaving this
+single layout.) The declared `count` is untrusted: parsing clamps to the output
+span and stops at the first record that would cross the real payload boundary.
 
-### 4.7 DISCOVER (0x07) / ANNOUNCE (0x08) — LAN discovery, sessionId 0
+### 4.7 The pre-session Beacon (DISCOVER/ANNOUNCE removed)
 
-`BuildDiscover`/`ParseDiscover`, `struct HostAnnounce`,
-`BuildAnnounce`/`ParseAnnounce`. DISCOVER is broadcast to the host port; every
-listening host answers with a unicast ANNOUNCE **to the datagram's source address**
-(`deskhub/discovery/Beacon.h` — the Beacon builds the reply, the caller `sendto`s it).
-There is no directory server, and ANNOUNCE only reaches the local broadcast domain.
-
-```
-DISCOVER payload:  probeId(u32)     client-generated per scan round
-
-ANNOUNCE payload:
- 0    4    probeId       echoed verbatim — lets the client discard stragglers from a
-                         previous scan (HostRegistry::BeginScan/OnAnnounce)
- 4    4    hostId        stable per machine, key for merging multi-NIC answers
- 8    2    port          the port the host actually listens on (the reply's source
-                         port is not authoritative)
-10    1    flags         bit0 = kAnnounceFlagAcceptsInput, bit1 = kAnnounceFlagBusy
-11    1    sourceCount
-12    1    nameLen       0..48 (kMaxHostNameBytes, UTF-8-boundary truncated)
-13    n    name          machine name, display only
-```
-
-The Beacon also answers LIST_SOURCES (even with an empty list) and PING with
-sessionId 0 (liveness/RTT probe for saved-machine cards); a PING with a non-zero
-sessionId is session business and is left to `HostSession`. Client-side aggregation
-constants (`deskhub/discovery/HostRegistry.h`): at most `kMaxDiscoveredHosts = 32`
-entries, expired after `kHostStaleUs = 6 s` of silence.
+DISCOVER (0x07) / ANNOUNCE (0x08) — the LAN broadcast discovery pair — and the
+client-side `HostRegistry` were removed 2026-07-27; connections start from a typed
+address. What remains is `deskhub::Beacon` (`deskhub/discovery/Beacon.h`) on the
+host: it answers LIST_SOURCES (even with an empty list) and PING with sessionId 0
+(liveness/RTT probe); a PING with a non-zero sessionId is session business and is
+left to `HostSession`. The Beacon builds the reply, the caller `sendto`s it back to
+the datagram's source address.
 
 ### 4.8 VIDEO_PACKET (0x10) and FEC_PACKET (0x11) — Video channel
 
@@ -397,10 +337,11 @@ width/height or bitrate rather than reconfigure to nonsense.
 ### 4.13 SET_FOCUS (0x35) — client→host
 
 `BuildSetFocus`/`ParseSetFocus`. One payload byte: `1` = this source's preview just
-gained focus (host raises the source window to the foreground before input arrives),
-`0` = focus left (host releases any held keys for this session). Sent on **events
-only**, 3× with 50 ms spacing — a periodic repeat would keep stealing the host user's
-foreground forever.
+gained focus — the host takes **no action** (it used to raise the shared window to
+the foreground; that behavior went with window sharing, removed 2026-07-27);
+`0` = focus left — the host releases any held keys for this session, so a client
+that backgrounds mid-keypress cannot leave a key stuck down. Sent on **events
+only**, 3× with 50 ms spacing.
 
 ### 4.14 NACK (0x36) — client→host retransmit request
 
@@ -422,101 +363,49 @@ this frame entirely — stop using it as a reference." Lets an encoder that supp
 reference invalidation recover with a cheap P-frame instead of a full IDR; a host
 whose encoder cannot do it falls back to forcing an IDR.
 
-### 4.16 CLIPBOARD (0x38) — both directions, chunked text
+### 4.16 (removed)
 
-`BuildClipboardChunk`/`ParseClipboardChunk`, reassembled by
-`deskhub/session/ClipboardAssembler.h`. **Off by default on the host**
-(`HostSession::SetClipboardEnabled`); when off, incoming chunks are dropped
-unassembled and nothing is sent. The HELLO_ACK `kAckFlagClipboard` flag tells the
-client whether to bother.
-
-```
- 0    4    updateId       increments per copy operation — the reassembly key
- 4    2    chunkIndex     0..chunkCount−1
- 6    2    chunkCount     ≥ 1
- 8    …    data           1..kMaxClipboardChunk (= 1184) bytes of UTF-8
-```
-
-(`kClipboardHeaderSize = 8`.) One copy is capped at `kMaxClipboardBytes = 65536`
-(64 KiB, ~56 datagrams). The assembler keeps only **one** update in flight (a newer
-updateId replaces a half-built older one — only the latest copy matters), delivers the
-text exactly once when all chunks are present (any order), silently drops chunks of
-the already-applied updateId, and aborts an update whose declared total exceeds the
-cap. Best-effort throughout: no ACK, no retransmission.
+CLIPBOARD (0x38) — two-way chunked clipboard-text sync (GĐ8) — was removed
+2026-07-27 together with `ClipboardAssembler` and every client's pasteboard wiring.
 
 ## 5. Protocol flows
 
-State machines: `deskhub/session/HostSession.h` (Idle → Authenticating → Ready →
+State machines: `deskhub/session/HostSession.h` (Idle → Ready →
 Streaming) and `deskhub/session/ClientSession.h` (Idle → Hello → Starting →
 Streaming → Dead).
 
-### 5.1 Connection and authentication
+### 5.1 Connection
 
 ```
 client                                                        host (Agent)
   |                                                                |
-  |-- DISCOVER (broadcast, probeId) ------------------------------>|   optional:
-  |<------------------------- ANNOUNCE (probeId, hostId, port) ----|   LAN discovery
   |-- LIST_SOURCES ----------------------------------------------->|   optional:
   |<--------------------------------- SOURCE_LIST (sources) -------|   pick sourceId
   |                                                                |
-  |-- HELLO (clientId, codecMask, sourceId, [deviceToken]) ------->|
+  |-- HELLO (clientId, codecMask, sourceId) ---------------------->|
   |        repeated every 500 ms; give up after 10 s               |
+  |<-------------------- HELLO_ACK (sessionId, params, flags) -----|  IDLE → READY
   |                                                                |
-  |            no password required, or trusted token matches:     |
-  |<-------------------- HELLO_ACK (sessionId, params, flags) -----|
-  |                                                                |
-  |            password required:                                  |
-  |<------------- AUTH_CHALLENGE (salt, iterations, nonce) --------|  state: AUTHENTICATING
-  |   key   = PBKDF2(password, salt, iterations)                   |  (sessionId still 0)
-  |   proof = HMAC(key, nonce ‖ clientId)                          |
-  |-- AUTH_RESPONSE (clientId, proof) ---------------------------->|
-  |<----- HELLO_ACK (sessionId, params, [reason], [deviceToken]) --|  correct → READY
-  |                                                                |  wrong → reject, IDLE
   |-- START (sessionId) ------------------------------------------>|  READY → STREAMING,
   |        repeated every 500 ms until video arrives               |  onStart forces an IDR
   |<===================== VIDEO_PACKET / FEC_PACKET ==============>|  client: Starting →
   |                                                                |  Streaming on first
   |   steady state: PING 1/s, FEEDBACK ~1/s, INPUT_EVENT,          |  video packet
-  |   SET_FOCUS, NACK, CLIPBOARD, REQUEST_KEYFRAME as needed       |
+  |   SET_FOCUS, NACK, REQUEST_KEYFRAME as needed                  |
   |-- BYE / <-- BYE ---------------------------------------------- |  either side, once
 ```
 
-Rules, exactly as implemented:
+There is **no authentication step**: the auth layer (PBKDF2 challenge–response,
+trusted-device tokens, lockout) was removed 2026-07-27 — the app targets trusted
+LANs. Rules, exactly as implemented:
 
 - **HELLO handling** (`HostSession::HandlePacket`): a HELLO from a different clientId
   while READY/STREAMING is rejected with `Busy` (v1 serves one client per session). A
   client without H.264 in `codecMask` is rejected with `CodecMismatch` (v1 streams
   H.264 only). A repeated HELLO from the current client just re-sends HELLO_ACK.
-- **Auth gate** (`deskhub/auth/AuthGuard.h`): `OnHello` returns Allow (no password
-  required, or a 32-byte token whose SHA-256 matches a remembered device — compared in
-  constant time), NeedChallenge, or Reject. Lockout is checked **before** the token
-  path, so a stolen token cannot bypass an active lockout. Each received HELLO —
-  including 500 ms repeats — generates a **fresh** challenge; that repetition is also
-  how a lost challenge or response self-heals. AUTH_RESPONSE is only meaningful in the
-  Authenticating state and for the expected clientId; anything else is dropped without
-  touching the wrong-try counter (three garbage packets from a stranger must not lock
-  the real owner out).
-- **Failure accounting** (`AuthGuard`): a wrong proof, or a wrong token for a
-  remembered clientId, counts as a failure; `kMaxWrongTries = 3` failures trigger a
-  lockout of `kLockoutUs = 5 min` (when lockout is enabled — it is by default).
-  Rejections carry `AuthFailed` or `LockedOut` accordingly. A challenge is one-shot —
-  consumed on any answer, right or wrong (re-answering the same nonce would be offline
-  password search) — and expires after `kChallengeTimeoutUs = 30 s`. Disconnect clears
-  the pending challenge but **not** the wrong-try counter, so reconnecting is not a
-  lockout bypass.
-- **Trusted devices**: after the first correct answer the host generates a random
-  32-byte token, stores only its SHA-256 (`HashToken`), and sends the original in that
-  one HELLO_ACK; up to `kMaxTrustedDevices = 32` are kept (oldest evicted). The client
-  presents it in future HELLOs to skip the password prompt.
-- **Client-side password flow** (`ClientSession`): on the first challenge with no
-  stored password, `onPasswordNeeded` fires once and the 10-second give-up clock is
-  re-armed when the user submits (`SetPassword`); the derived key is cached and only
-  re-derived when salt/iterations actually change (PBKDF2 costs ~100 ms and HELLO
-  repeats every 500 ms). On `AuthFailed` the stored password is cleared and re-asked.
 - **Entropy fail-closed**: if `randomBytes` fails, the host refuses to issue a
-  challenge nonce or a sessionId — it rejects the session rather than proceed with
-  predictable values.
+  sessionId — it rejects the session rather than proceed with a predictable value
+  (the random sessionId is the only fence against blind packet forgery on UDP).
 
 ### 5.2 IDR on demand
 
@@ -540,23 +429,19 @@ Two mechanisms, both deliberately avoiding clock synchronization:
 
 - **RTT**: PING carries the client's own `sendTimeUs`; PONG echoes it verbatim, so
   `rtt = now − sendTimeUs` is a pure client-side subtraction.
-- **End-to-end latency estimate** (`deskhub/control/ClockSync.h`): video timestamps
-  are host-clock. The client seeds an offset from `HelloAck::timebaseUs` vs. its local
-  receive time, then runs a **minimum filter** over
-  `(client_arrival − host_timestamp)` per frame — the minimum approximates
-  clock offset + minimum one-way delay — and adds back `rtt/2` as the estimate of that
-  minimum one-way delay. The window minimum is refreshed every
-  `kClockRefreshUs = 10 s` to track clock drift in both directions. This is an
-  estimate assuming a symmetric path, not a measurement (see the header for the
-  honest caveats). Results are aggregated per 1-second window by
-  `deskhub/control/LinkStats.h` and never travel on the wire.
+- **End-to-end latency estimate** (inline in each ClientLoop): video timestamps are
+  host-clock. The client records `ackDelta = local clock − HelloAck::timebaseUs` at
+  HELLO_ACK, subtracts `minRTT/2` to approximate the clock offset, and reads
+  `e2e = now − offset − frame pts` when a frame is presented. This is an estimate
+  assuming a symmetric path, not a measurement; it is display-only and never travels
+  on the wire.
 
 ### 5.5 Disconnect and timeouts
 
 | Constant | Value | Where | Meaning |
 |----------|-------|-------|---------|
 | `kHelloRetryUs` | 500 ms | ClientSession.h | HELLO and START repeat interval. |
-| `kHelloGiveUpUs` | 10 s | ClientSession.h | Give up connecting if the host stays silent. Suspended (replaced by the 5 s silence rule) while waiting for the user to type a password, and re-armed from the moment of submission. |
+| `kHelloGiveUpUs` | 10 s | ClientSession.h | Give up connecting if the host stays silent. |
 | `kPingIntervalUs` | 1 s | ClientSession.h | In-session PING cadence; PINGs are what keep an idle session alive. |
 | `kSessionTimeoutUs` | 5 s | HostSession.h (shared by both sides) | No valid in-session packet for 5 s → host returns to Idle (`onDisconnect` — the caller must release any held keys), client goes Dead. |
 | `kKeyframeRetryUs` | 250 ms | ClientSession.h | REQUEST_KEYFRAME repeat interval. |
@@ -564,9 +449,7 @@ Two mechanisms, both deliberately avoiding clock synchronization:
 
 BYE is sent once, best-effort, by whichever side leaves first; the other side treats
 it as an immediate disconnect. Loss of BYE simply degrades to the 5-second timeout.
-Every valid in-session packet of any type feeds the timeout on both sides — including
-INPUT_EVENT packets that the host is dropping because input is disallowed (a view-only
-session with a user wiggling the mouse is still a live session).
+Every valid in-session packet of any type feeds the timeout on both sides.
 
 ## 6. Video channel
 
@@ -664,25 +547,23 @@ All enforced in `Wire.cpp`; new code must follow the same patterns.
    fall through on `default`, so new types can be added within v1.
 3. **Payloads grow at the tail only.** Parsers use `<` (minimum length), never `!=`,
    and supply defaults for absent tail fields. Precedents: HELLO accepts 13/14/N
-   bytes; HELLO_ACK accepts 22 bytes (flags default to `kAckFlagInputAccepted` —
-   assuming anything else would disable input against every old host), 24 bytes
-   (`reason` stays `None`), and longer.
+   bytes; HELLO_ACK accepts 22 bytes, 24 bytes (`reason` stays `None`), and longer.
+   Note the corollary at bytes 22-23: once a tail field ships, its *slot* is permanent
+   even after the field itself dies — it becomes reserved, not reclaimed.
 4. **Layout changes inside a message are signaled by a header flag**, not inferred
-   from length — `kSourceListFlagKind` is the precedent (§4.6).
+   from length — the video flags (`kVideoFlagIdr`, `kVideoFlagFrameEnd`, §4.8) show
+   the pattern: per-datagram meaning rides in the header, never in guessed payload
+   sizes. (The former precedent, `kSourceListFlagKind`, was removed 2026-07-27 with
+   window sharing.)
 5. **Network-supplied lengths and counts are never trusted**: every declared
    `count`/`len` is checked against the real payload size, clamped to receiver
-   capacity, and oversized video/FEC/clipboard payloads are rejected outright.
-6. **Network-supplied cost parameters are capped at the wire layer**: AUTH_CHALLENGE
-   `iterations` is clamped to `kMaxKdfIterations = 2,000,000` (20× the real value,
-   leaving headroom to raise the KDF cost without touching old clients).
-7. **Secrets cross the wire at most once**: the device token appears once in a
-   HELLO_ACK and is presented back in HELLOs; only its hash is stored host-side.
+   capacity, and oversized video/FEC payloads are rejected outright.
 
 ## 8. Source of truth
 
-`core/include/deskhub/wire/Wire.h` is the single implementation of this
+`core/include/deskhub/protocol/Wire.h` is the single implementation of this
 specification, and its header comment designates this document as the textual source
 of truth. Any change to a constant, layout, or rule in one **must** be made in the
 other in the same change, with the round-trip tests in
-`core/tests/wire/WireTests.cpp` updated to match — two diverging copies of a wire
+`core/tests/protocol/WireTests.cpp` updated to match — two diverging copies of a wire
 protocol are the hardest kind of bug to diagnose over UDP.

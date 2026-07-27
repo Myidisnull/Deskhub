@@ -153,7 +153,7 @@ v1 flow:
 1. The host generates a **temporary ECDSA P-256 certificate** (~13-day validity),
    self-signed, and computes its SHA-256. Rotate before expiry.
 2. The host **prints / serves** the `ip:port` + hash pair — the same place users get the
-   address to connect (the counterpart of the "AnyDesk-style ID"). Package it compactly as
+   address to connect. Package it compactly as
    **one connection string** or a **QR code** for a single copy.
 3. The web page opens:
    ```js
@@ -239,7 +239,7 @@ host module (not in `core/`); see `11-platform-transport.md` §3.
   WebTransport endpoint on a temporary ECDSA certificate; the browser connects via
   `serverCertificateHashes`, and the HELLO/HELLO_ACK handshake completes a full round trip
   over datagrams. The QUIC library is finalized here.
-- ⬜ **M3 — Real video e2e on LAN.** Host shares a window → the web client displays it;
+- ⬜ **M3 — Real video e2e on LAN.** Host shares a display → the web client displays it;
   measure fps/kbps/packet loss/RTT/e2e latency like the Windows overlay. Compare latency
   milestones against native UDP.
 - ⬜ **M4 — Input.** Pointer Lock + scancode keyboard controlling a regular application and

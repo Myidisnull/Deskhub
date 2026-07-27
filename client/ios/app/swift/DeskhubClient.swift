@@ -12,19 +12,6 @@ nonisolated enum Phase: Int, Sendable {
     case connecting = 1
     case streaming = 2
     case ended = 3
-    /// GĐ10 — host đòi mật khẩu mà máy này chưa có. Phiên **vẫn sống**: tầng C++ tiếp
-    /// tục phát lại HELLO, nên chỉ cần `submitPassword` là nó đi tiếp. Đừng gọi `stop`.
-    case needPassword = 4
-}
-
-/// Vì sao host từ chối. Trùng `deskhub::RejectReason` bên C++ (Wire.h).
-nonisolated enum RejectReason: Int, Sendable {
-    case none = 0
-    case busy = 1
-    case codecMismatch = 2
-    case authRequired = 3
-    case authFailed = 4
-    case lockedOut = 5
 }
 
 // Nút chuột theo deskhub::MouseButton (Wire.h).
@@ -58,47 +45,9 @@ nonisolated enum DeskhubClient {
         }
     }
 
-    /// GĐ10 — `credential` là bí mật đã lưu cho host này (nil = chưa có gì; khi đó
-    /// host đòi mật khẩu sẽ đưa phiên vào `.needPassword`).
     @discardableResult
-    static func start(
-        address: String,
-        sourceId: UInt8,
-        credential: HostCredential? = nil
-    ) -> Bool {
-        let token = credential?.deviceToken ?? Data()
-        return token.withUnsafeBytes { raw in
-            dh_start(
-                address,
-                sourceId,
-                Credentials.clientId,
-                Credentials.deviceName,
-                credential?.password ?? "",
-                raw.isEmpty ? nil : raw.bindMemory(to: UInt8.self).baseAddress,
-                Int32(token.count)
-            )
-        }
-    }
-
-    // MARK: — Xác thực (GĐ10)
-
-    static func submitPassword(_ password: String) {
-        dh_submit_password(password)
-    }
-
-    /// Token host vừa cấp để nhớ máy này. **Đọc rồi xoá**: gọi lần hai trả nil. Gọi
-    /// mỗi nhịp poll và cất ngay — token chỉ đi trên dây đúng một lần.
-    static func takeDeviceToken() -> Data? {
-        var buf = [UInt8](repeating: 0, count: 64)
-        let len = buf.withUnsafeMutableBufferPointer { ptr in
-            dh_take_device_token(ptr.baseAddress, Int32(ptr.count))
-        }
-        guard len > 0 else { return nil }
-        return Data(buf.prefix(Int(len)))
-    }
-
-    static func rejectReason() -> RejectReason {
-        RejectReason(rawValue: Int(dh_reject_reason())) ?? .none
+    static func start(address: String, sourceId: UInt8) -> Bool {
+        dh_start(address, sourceId)
     }
 
     static func stop() {

@@ -1,29 +1,20 @@
 // =============================================================================
-// MainActivity.kt — màn hình đầu tiên: nhập địa chỉ host rồi chọn cửa sổ muốn xem.
-//                   Giao diện dựng trên hệ thiết kế Deskhub (ui/Tokens.kt +
-//                   ui/Components.kt), đối ứng ConnectView/SourcePickerView bên iOS.
+// MainActivity.kt — màn hình đầu tiên: nhập IP host rồi chọn màn hình muốn xem.
 //
-// NHIỆM VỤ
-//   Dẫn người dùng qua ba bước tới lúc mở được StreamActivity. Nhớ danh sách máy đã
-//   kết nối (ui/Recents.kt — tối đa 12, thay cho một địa chỉ duy nhất trước đây) để
-//   lần sau chỉ cần một cú chạm thay vì gõ lại IP trên bàn phím ảo.
+// GIAO DIỆN TRẦN (2026-07-27)
+//   Material 3 dựng sẵn, không hệ thiết kế riêng, không chữ hướng dẫn, không danh
+//   sách máy gần đây. Màn này còn đúng hai thứ: một ô nhập và một nút.
 //
 // BA BƯỚC, MÔ HÌNH HOÁ BẰNG sealed interface Step
 //   Address  — gõ địa chỉ.
-//   Querying — đang hỏi host có những nguồn nào (chặn tới 3 giây, có vòng quay).
+//   Querying — đang hỏi host có những nguồn nào (chặn tới 3 giây).
 //   Picking  — host trả về nhiều nguồn, cho chọn.
 //   Dùng sealed interface thay cho vài biến boolean rời rạc: trình dịch bắt buộc
 //   `when` phải phủ hết mọi nhánh, nên thêm bước mới sau này không thể quên chỗ nào.
 //
 // ĐƯỜNG TẮT: BỎ QUA BƯỚC CHỌN
-//   Host im lặng (bản trước GĐ6 không biết LIST_SOURCES) hoặc chỉ chia sẻ một cửa
-//   sổ → vào thẳng, không bắt chọn giữa một lựa chọn duy nhất. Lỗi thật, nếu có, sẽ
-//   do tầng dưới báo lên ở StreamActivity.
-//
-// "CHỈ XEM" LÀ CỜ TOÀN CỤC PHÍA KOTLIN (NativeClient.viewOnly)
-//   Được tick ở màn này, đọc ở StreamActivity. Chặn ở NativeClient — cửa duy nhất
-//   xuống C++ — chứ không ở từng chỗ gửi input: một chỗ quên kiểm tra là cả lựa chọn
-//   này thành vô nghĩa mà không ai biết.
+//   Host im lặng (bản trước GĐ6 không biết LIST_SOURCES) hoặc chỉ chia sẻ một màn
+//   hình → vào thẳng. Lỗi thật, nếu có, sẽ do tầng dưới báo lên ở StreamActivity.
 //
 // VÌ SAO CÓ ĐƯỜNG CHẠY THẲNG TỪ adb
 //   Truyền extra "addr" là mở luôn StreamActivity, bỏ qua mọi bước. Dùng để test
@@ -40,23 +31,28 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,54 +60,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import com.deskhub.app.ui.AppMark
-import com.deskhub.app.ui.AppState
-import com.deskhub.app.ui.Credentials
-import com.deskhub.app.ui.DeskhubTheme
-import com.deskhub.app.ui.Ds
-import com.deskhub.app.ui.DsButton
-import com.deskhub.app.ui.DsButtonSize
-import com.deskhub.app.ui.DsButtonVariant
-import com.deskhub.app.ui.DsCheckbox
-import com.deskhub.app.ui.HeroField
-import com.deskhub.app.ui.LockIcon
-import com.deskhub.app.ui.MachineCard
-import com.deskhub.app.ui.MonoText
-import com.deskhub.app.ui.Panel
-import com.deskhub.app.ui.PillTone
-import com.deskhub.app.ui.Recents
-import com.deskhub.app.ui.ScreenHeader
-import com.deskhub.app.ui.SectionHeader
-import com.deskhub.app.ui.SourceRow
-import com.deskhub.app.ui.Spinner
-import com.deskhub.app.ui.StatBlock
-import com.deskhub.app.ui.StatusDot
-import com.deskhub.app.ui.TopBar
-import com.deskhub.app.ui.cobaltGlow
-import com.deskhub.app.ui.tr
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        AppState.init(this)
-        Recents.init(this)
-        Credentials.init(this)
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
-        // NativeClient không có Context nên phần lưu "chỉ xem" nằm ở đây.
-        NativeClient.viewOnly = prefs.getBoolean("viewOnly", false)
 
         // Vẫn cho chạy thẳng từ adb để test nhanh (bỏ qua bước chọn nguồn):
-        //   am start -n com.deskhub.app/.MainActivity --es addr 10.0.2.2:47777
+        //   am start -n com.deskhub.app/.MainActivity --es addr 10.0.2.2
         // CHỈ ở bản debug: activity này exported (launcher), nên trên bản phát hành
         // bất kỳ app nào cũng có thể ném extra "addr" vào và lặng lẽ kích hoạt một
-        // kết nối — kèm tên thiết bị và, nếu có credential đã lưu cho đúng chuỗi đó,
-        // cả HMAC proof + device token — tới địa chỉ do nó chọn.
+        // kết nối tới địa chỉ do nó chọn.
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (debuggable) {
             intent?.getStringExtra("addr")?.let { addr ->
@@ -121,40 +83,39 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            DeskhubTheme(dark = AppState.isDark) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .background(Ds.colors.bgWindow)
-                            .cobaltGlow()
-                            .safeDrawingPadding(),
-                ) {
-                    MainScreen(
-                        initialAddress = prefs.getString("addr", "").orEmpty(),
-                        onRemember = { addr ->
-                            prefs.edit().putString("addr", addr).apply()
-                            Recents.remember(addr)
-                        },
-                        onViewOnlyChange = { on ->
-                            NativeClient.viewOnly = on
-                            prefs.edit().putBoolean("viewOnly", on).apply()
-                        },
-                        onOpenStream = ::openStream,
-                    )
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.safeDrawingPadding()) {
+                        MainScreen(
+                            // Địa chỉ lần trước điền sẵn vào ô — không có giao diện
+                            // nào cho việc này, chỉ là giá trị khởi tạo.
+                            initialAddress = prefs.getString("addr", "").orEmpty(),
+                            onRemember = { addr -> prefs.edit().putString("addr", addr).apply() },
+                            onOpenStream = ::openStream,
+                        )
+                    }
                 }
             }
         }
     }
 
+    // Danh sách nguồn đi kèm sang StreamActivity để màn xem tự đổi màn hình được mà
+    // không phải quay ra hỏi lại host (mất 3 giây). Truyền dạng bốn mảng song song —
+    // NativeClient.Source không Parcelable, và bọc nó lại chỉ để đi qua một Intent thì
+    // đắt hơn là chép bốn trường.
     private fun openStream(
         addr: String,
         sourceId: Int,
+        sources: List<NativeClient.Source> = emptyList(),
     ) {
         startActivity(
             Intent(this, StreamActivity::class.java)
                 .putExtra("addr", addr)
-                .putExtra("source", sourceId),
+                .putExtra("source", sourceId)
+                .putExtra("srcIds", sources.map { it.id }.toIntArray())
+                .putExtra("srcW", sources.map { it.width }.toIntArray())
+                .putExtra("srcH", sources.map { it.height }.toIntArray())
+                .putExtra("srcNames", sources.map { it.name }.toTypedArray()),
         )
     }
 }
@@ -181,8 +142,7 @@ private sealed interface Step {
 private fun MainScreen(
     initialAddress: String,
     onRemember: (String) -> Unit,
-    onViewOnlyChange: (Boolean) -> Unit,
-    onOpenStream: (String, Int) -> Unit,
+    onOpenStream: (String, Int, List<NativeClient.Source>) -> Unit,
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
     var address by remember { mutableStateOf(initialAddress) }
@@ -210,7 +170,7 @@ private fun MainScreen(
                 // chọn. Cả hai vào thẳng, để tầng dưới báo lỗi thật nếu có.
                 if (sources.size <= 1) {
                     step = Step.Address
-                    onOpenStream(addr, sources.firstOrNull()?.id ?: 0)
+                    onOpenStream(addr, sources.firstOrNull()?.id ?: 0, sources)
                 } else {
                     step = Step.Picking(sources)
                 }
@@ -224,18 +184,14 @@ private fun MainScreen(
                 address = address,
                 onAddressChange = { address = it },
                 busy = false,
-                onViewOnlyChange = onViewOnlyChange,
                 onConnect = connect,
             )
 
-        // Bước hỏi giữ nguyên bố cục màn địa chỉ (chỉ đổi dòng phụ + vòng quay trong
-        // ô): nhảy sang một màn "đang tìm…" trống trải rồi quay lại là hai lần giật.
         is Step.Querying ->
             AddressScreen(
                 address = address,
                 onAddressChange = {},
                 busy = true,
-                onViewOnlyChange = onViewOnlyChange,
                 onConnect = {},
             )
 
@@ -243,10 +199,9 @@ private fun MainScreen(
             SourcePickerScreen(
                 address = address,
                 sources = s.sources,
-                onViewOnlyChange = onViewOnlyChange,
                 onPick = { source ->
                     step = Step.Address // quay lại từ StreamActivity là thấy ô địa chỉ
-                    onOpenStream(address, source.id)
+                    onOpenStream(address, source.id, s.sources)
                 },
             )
     }
@@ -257,316 +212,104 @@ private fun AddressScreen(
     address: String,
     onAddressChange: (String) -> Unit,
     busy: Boolean,
-    onViewOnlyChange: (Boolean) -> Unit,
     onConnect: (String) -> Unit,
 ) {
     val trimmed = address.trim()
     val go = { if (trimmed.isNotEmpty() && !busy) onConnect(trimmed) }
-    var recents by remember { mutableStateOf(Recents.all) }
-    // GĐ10 — mật khẩu/token đã lưu, cho mục "Saved passwords" bên dưới.
-    var savedCreds by remember { mutableStateOf(Credentials.all) }
 
-    // Hai danh sách trên là snapshot, mà StreamActivity ghi thêm vào cả hai kho
-    // (savePassword/saveToken/remember) trong lúc composition này vẫn sống bên dưới.
-    // Không đọc lại lúc quay về thì "Saved passwords" cứ hiển thị trạng thái trước
-    // phiên cho tới khi process chết. ON_RESUME là đúng thời điểm quay về.
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer =
-            LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) {
-                    recents = Recents.all
-                    savedCreds = Credentials.all
-                }
-            }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopBar()
-
-        Column(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
-        ) {
-            ScreenHeader(eyebrow = tr("clientMode"), title = tr("connectTitle"))
-
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                HeroField(
-                    value = address,
-                    onValueChange = onAddressChange,
-                    placeholder = tr("addressPlaceholder"),
-                    onGo = go,
-                ) {
-                    if (busy) Spinner(size = 18.dp)
-                }
-                MonoText(text = if (busy) tr("askingSources") else tr("connectHint"))
-            }
-
-            // "Gần đây" đứng NGAY DƯỚI ô nhập, trên cả các panel hướng dẫn: lần mở
-            // app thứ hai trở đi, thứ người dùng cần là một cú chạm vào cái máy hôm
-            // qua vừa dùng — không phải đọc lại hướng dẫn.
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionHeader(label = tr("recentConnections")) {
-                    DsButton(
-                        text = tr("forgetAll"),
-                        onClick = {
-                            Recents.forgetAll()
-                            recents = Recents.all
-                        },
-                        variant = DsButtonVariant.GHOST,
-                        size = DsButtonSize.SM,
-                        enabled = recents.isNotEmpty(),
-                    )
-                }
-                if (recents.isEmpty()) {
-                    MonoText(text = tr("nothingRemembered"))
-                } else {
-                    recents.forEach { machine ->
-                        // Máy đã lưu: ta chưa dò lại nên KHÔNG khẳng định nó đang
-                        // sống — MachineCard vẽ chấm "không sống", không bịa độ trễ.
-                        MachineCard(
-                            name = machine.displayName,
-                            address = machine.address,
-                            link = machine.link,
-                            onTap = { onAddressChange(machine.address) },
-                        )
-                    }
-                }
-            }
-
-            // GĐ10 — "Saved passwords" của màn `05 · settings / password`. Đặt ở đây
-            // thay vì dựng một màn Settings riêng: chỉ có đúng một việc để làm (xoá),
-            // và nó thuộc cùng một câu hỏi với danh sách trên ("máy nào tôi đã dùng").
-            // Ẩn hẳn khi chưa lưu gì — một mục rỗng chỉ làm màn hình dài thêm.
-            if (savedCreds.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionHeader(label = tr("savedHosts")) {
-                        MonoText(text = tr("savedCountFmt").format(savedCreds.size))
-                        DsButton(
-                            text = tr("forgetAll"),
-                            onClick = {
-                                Credentials.forgetAll()
-                                savedCreds = Credentials.all
-                            },
-                            variant = DsButtonVariant.GHOST,
-                            size = DsButtonSize.SM,
-                        )
-                    }
-                    savedCreds.forEach { cred ->
-                        // Dựng tay thay vì dùng SourceRow: SourceRow là dòng CHỌN
-                        // nguồn (cả dòng là một nút, có ô tick), còn dòng này chỉ
-                        // hiển thị và có một nút riêng ở đuôi. Nhét thêm slot vào
-                        // SourceRow sẽ làm hỏng ý nghĩa của nó ở ba chỗ đang dùng.
-                        val shape = RoundedCornerShape(Ds.radiusMd)
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(Ds.colors.surfaceCard, shape)
-                                    .border(Ds.hairline, Ds.colors.borderHairline, shape)
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            LockIcon(size = 18.dp, color = Ds.colors.accent)
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                MonoText(
-                                    text = cred.address,
-                                    color = Ds.colors.textPrimary,
-                                    maxLines = 1,
-                                )
-                                // Nói rõ máy này đang được nhớ bằng CÁI GÌ: có token
-                                // thì lần sau vào thẳng, chỉ có mật khẩu thì vẫn phải
-                                // qua challenge. Hai trạng thái đó khác nhau thật.
-                                MonoText(
-                                    text =
-                                        if (cred.hasToken) {
-                                            tr("savePassword")
-                                        } else {
-                                            tr("connectPassword")
-                                        },
-                                    maxLines = 1,
-                                )
-                            }
-                            DsButton(
-                                text = tr("forget"),
-                                onClick = {
-                                    Credentials.forget(cred.address)
-                                    savedCreds = Credentials.all
-                                },
-                                variant = DsButtonVariant.SECONDARY,
-                                size = DsButtonSize.SM,
-                            )
-                        }
-                    }
-                }
-            }
-
-            HelpPanels()
-        }
-
-        // Thanh đáy: vùng DUY NHẤT ngón cái với tới thoải mái khi cầm một tay — nút
-        // chính của màn nằm ở đây, cao 52.
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(Ds.hairline)
-                    .background(Ds.colors.borderHairline),
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        OutlinedTextField(
+            value = address,
+            onValueChange = onAddressChange,
+            label = { Text("Host IP address") },
+            singleLine = true,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { go() }),
         )
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(Ds.colors.surfaceCard)
-                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            DsCheckbox(
-                checked = NativeClient.viewOnly,
-                onToggle = onViewOnlyChange,
-                label = tr("viewOnlyOption"),
-            )
-            DsButton(
-                text = tr("connect"),
-                onClick = go,
-                variant = DsButtonVariant.PRIMARY,
-                size = DsButtonSize.LG,
-                enabled = trimmed.isNotEmpty() && !busy,
-                fullWidth = true,
-            )
-        }
-    }
-}
 
-@Composable
-private fun HelpPanels() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Panel(label = tr("onOtherMachine")) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = tr("openAndShare"),
-                    fontSize = Ds.textBody,
-                    fontWeight = FontWeight.Medium,
-                    color = Ds.colors.textPrimary,
-                )
-                MonoText(text = tr("shareOrExe"))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = go,
+                enabled = trimmed.isNotEmpty() && !busy,
+            ) { Text("Connect") }
+
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             }
         }
-        Panel(label = tr("whereAddress")) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = tr("printedOnShare"),
-                    fontSize = Ds.textBody,
-                    fontWeight = FontWeight.Medium,
-                    color = Ds.colors.textPrimary,
-                )
-                MonoText(text = tr("onePerInterfaceLong"))
-            }
-        }
-        Panel(label = tr("port")) {
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                StatBlock(label = tr("udp"), value = "47777")
-                MonoText(text = tr("portChangeable"))
-            }
-        }
-        MonoText(text = tr("emulatorHint"))
     }
 }
 
 /**
- * Danh sách cửa sổ host đang chia sẻ, ô tick hành xử như radio — dh_start nhận MỘT
- * sourceId, chọn cái mới là bỏ cái cũ. Nút "Bắt đầu xem" ở thanh đáy chốt lựa chọn.
+ * Danh sách màn hình host đang chia sẻ. Chọn kiểu radio — nativeStart nhận MỘT
+ * sourceId, chọn cái mới là bỏ cái cũ.
  */
 @Composable
 private fun SourcePickerScreen(
     address: String,
     sources: List<NativeClient.Source>,
-    onViewOnlyChange: (Boolean) -> Unit,
     onPick: (NativeClient.Source) -> Unit,
 ) {
     var pickedId by remember { mutableStateOf(sources.first().id) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TopBar {
-            AppMark()
-        }
-
         Column(
             modifier =
                 Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ScreenHeader(eyebrow = tr("clientMode"), title = tr("pickTitle"), aside = address)
+            Text(text = address, style = MaterialTheme.typography.titleMedium)
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionHeader(label = tr("sharedByHost")) {
-                    StatusDot(live = sources.isNotEmpty())
-                    MonoText(
-                        text = tr("publishedCountFmt").format(sources.size, 1),
-                        maxLines = 1,
+            sources.forEach { source ->
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { pickedId = source.id }
+                            .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    RadioButton(
+                        selected = source.id == pickedId,
+                        onClick = { pickedId = source.id },
                     )
+                    Column {
+                        // Host cắt tên ở 64 byte; tên rỗng thì hiện "Source N".
+                        Text(
+                            text = source.name.ifBlank { "Source %d".format(source.id) },
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            text = "${source.width}×${source.height}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
-
-                sources.forEach { source ->
-                    val selected = source.id == pickedId
-                    SourceRow(
-                        // Host cắt tên ở 64 byte và có cửa sổ không có tiêu đề.
-                        name = source.name.ifBlank { tr("unnamedSourceFmt").format(source.id) },
-                        detail = "${source.width}×${source.height}",
-                        selected = selected,
-                        state = if (selected) tr("streaming") else tr("idle"),
-                        tone = if (selected) PillTone.LIVE else PillTone.NEUTRAL,
-                        onSelect = { pickedId = source.id },
-                    )
-                }
-
-                MonoText(text = tr("pickHint"))
             }
         }
 
-        Box(
+        Button(
+            onClick = { sources.firstOrNull { it.id == pickedId }?.let(onPick) },
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(Ds.hairline)
-                    .background(Ds.colors.borderHairline),
-        )
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(Ds.colors.surfaceCard)
-                    .padding(horizontal = Ds.screenGutter, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            DsCheckbox(
-                checked = !NativeClient.viewOnly,
-                onToggle = { onViewOnlyChange(!it) },
-                label = tr("allowInput"),
-            )
-            DsButton(
-                text = tr("startViewing"),
-                onClick = { sources.firstOrNull { it.id == pickedId }?.let(onPick) },
-                variant = DsButtonVariant.PRIMARY,
-                size = DsButtonSize.LG,
-                fullWidth = true,
-            )
-        }
+                    .padding(16.dp),
+        ) { Text("Start viewing") }
     }
 }

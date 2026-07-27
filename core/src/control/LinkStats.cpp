@@ -17,12 +17,6 @@
 
 namespace deskhub {
 
-void LinkStats::AddE2e(uint32_t e2eUs) {
-    e2eSumUs_ += e2eUs;
-    if (e2eUs > e2eMaxUs_) e2eMaxUs_ = e2eUs;
-    ++e2eCount_;
-}
-
 LinkWindow LinkStats::Close(const Reassembler::Stats& cur, uint64_t videoBytes,
     uint32_t renderedFrames, uint64_t nowUs) {
     LinkWindow w;
@@ -60,18 +54,6 @@ LinkWindow LinkStats::Close(const Reassembler::Stats& cur, uint64_t videoBytes,
         w.fps = renderedFrames / w.secs;
         w.kbps = videoBytes * 8.0 / 1000.0 / w.secs;
     }
-
-    // Trễ e2e: quy từ micro-giây sang mili-giây ở đây (một chỗ) thay vì ở overlay
-    // của từng client. e2eSamples = 0 nghĩa là giây này không hiện được frame nào —
-    // giao diện phải vẽ "—" chứ không phải "0 ms", hai thứ đó nghĩa ngược nhau.
-    w.e2eSamples = e2eCount_;
-    if (e2eCount_) {
-        w.e2eMsAvg = double(e2eSumUs_) / double(e2eCount_) / 1000.0;
-        w.e2eMsMax = uint32_t((e2eMaxUs_ + 500) / 1000); // làm tròn tới ms gần nhất
-    }
-    e2eSumUs_ = 0;
-    e2eMaxUs_ = 0;
-    e2eCount_ = 0;
 
     // Chốt ảnh chụp và mốc thời gian cho cửa sổ kế tiếp — xem ghi chú về tác dụng
     // phụ ở đầu file.

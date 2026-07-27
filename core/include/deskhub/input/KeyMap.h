@@ -23,7 +23,7 @@
 //   Input/DirectInput, vì engine loại đó chỉ nhìn scancode, wVk suông là vô hình.
 //   Tra ở host đúng hơn tra ở client: scancode phụ thuộc layout của HOST.
 //
-// LIÊN QUAN: deskhub/wire/Wire.h (InputEvent), deskhub/input/InputSender.h,
+// LIÊN QUAN: deskhub/protocol/Wire.h (InputEvent), deskhub/input/InputSender.h,
 //            client/windows/input/InputInjector.cpp (đầu nhận, thứ tự ưu tiên scan/vk)
 // =============================================================================
 #include <cstdint>

@@ -1,24 +1,27 @@
 // =============================================================================
-// StreamView.swift — màn hình XEM + ĐIỀU KHIỂN. Dựng theo `DesktopViewer` trong
-//                    desktop.jsx; đối ứng client/macos/app/swift/StreamView.swift và
-//                    StreamActivity bên Android.
+// StreamView.swift — màn hình XEM + ĐIỀU KHIỂN.
 //
-// KHÔNG CÒN HEADER VÀ THANH ĐÁY ĐẶC — CHỈ CÒN HUD NỔI
-//   Bản cũ có một dải xám đặc trên cùng cho dòng trạng thái và một dải nữa dưới đáy
-//   cho nút; hai dải ấy ăn khoảng 15% chiều cao màn hình của đúng thứ duy nhất người
-//   ta mở màn này ra để nhìn. Bản thiết kế bỏ hẳn chúng: hình từ máy kia chiếm TRỌN
-//   màn hình, mọi thứ khác nổi lên trên dưới dạng HUD bo pill.
+// GIAO DIỆN TRẦN (2026-07-27)
+//   Chrome từng dựng trên hệ thiết kế riêng (HUD kính bo pill, chip, chấm sống, biểu
+//   đồ RTT). Cả bộ đó đã xoá — giờ chỉ còn `Text`/`Button` dựng sẵn của SwiftUI.
 //
-// NỀN LUÔN ĐEN, KỂ CẢ Ở GIAO DIỆN SÁNG
-//   Cả màn này ép colorScheme = .dark: mọi thứ nổi trên video giữ bảng màu tối, đúng
-//   như theme-light.css quy định cho `.om-video`. Vùng letterbox phải là màu KHÔNG
-//   CÓ, chứ không phải một màu nhạt — nếu không, mắt sẽ đọc nó thành một phần của hình.
+// BỐ CỤC: BA HÀNG XẾP DỌC, KHÔNG CHỒNG NHAU
+//     [thanh trên]  địa chỉ + dòng số liệu
+//     [ô giữa]      video + trackpad phủ đúng ô này
+//     [thanh dưới]  phím tắt + Display/Keyboard/End
+//   Hai thanh từng là HUD nổi ĐÈ lên video; tách hẳn ra để không có gì nằm chắn lên
+//   nội dung đang xem, và rê tay lên thanh nút không làm con trỏ nhảy. Đánh đổi:
+//   khung hình mất đúng phần chiều cao của hai thanh.
 //
 // THANH PHÍM TẮT LÀ THỨ DESKTOP KHÔNG CÓ
 //   macOS/Windows bắt trọn bàn phím thật và gửi thẳng, kể cả Esc, Tab, F-key. Bàn
-//   phím ảo của iOS KHÔNG có những phím đó, nên hàng pill cuộn ngang ở đây là đường
+//   phím ảo của iOS KHÔNG có những phím đó, nên hàng nút cuộn ngang ở đây là đường
 //   duy nhất tới chúng. Nó không phải bản sao của một thứ trên desktop — nó là cái
 //   giá của việc không có bàn phím thật.
+//
+// NHIỀU MÀN HÌNH: ĐỔI NGAY TẠI ĐÂY
+//   Host chia sẻ TẤT CẢ màn hình. Nút "Display" (chỉ hiện khi có >1 nguồn) đổi tại
+//   chỗ qua SessionModel.switchSource — không phải thoát phiên rồi kết nối lại.
 //
 // Video sống trong AVSampleBufferDisplayLayer (qua VideoLayerView); SwiftUI chỉ vẽ
 // phần chrome, cập nhật mỗi 500ms từ SessionModel.
@@ -39,8 +42,8 @@ private struct Hotkey {
     var modScan: Int32 = 0
 }
 
-// Không đưa Alt+Tab/phím Win vào: chúng chuyển focus khỏi cửa sổ đang chia sẻ,
-// host sẽ ngừng nhận input (xem TargetHasFocus bên InputInjector).
+// Không đưa Alt+Tab/phím Win vào: chúng đổi ngữ cảnh trên máy host, host sẽ ngừng
+// nhận input.
 private let kHotkeys: [Hotkey] = [
     Hotkey(label: "Esc", vk: 0x1B, scan: 0x01),
     Hotkey(label: "Tab", vk: 0x09, scan: 0x0F),
@@ -59,31 +62,17 @@ struct StreamView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var layer: AVSampleBufferDisplayLayer?
     @State private var keyboardOn = false
-    @State private var hintVisible = true
+    @State private var pickerOpen = false
 
     private var streaming: Bool { model.phase == .streaming }
 
     var body: some View {
-        ZStack {
-            DS.bgVideo.ignoresSafeArea()
-
-            videoStack
-
-            statusHud
-            bottomHud
-
-            // GĐ10: host đòi mật khẩu. Đặt TRƯỚC connectingOverlay vì lúc đó phiên
-            // vẫn đang "connecting" ở tầng dưới — hiện cả hai sẽ chồng lên nhau.
-            if model.phase == .needPassword, model.endReason.isEmpty {
-                PasswordOverlay(model: model)
-            } else if !streaming, model.endReason.isEmpty {
-                connectingOverlay
-            }
-            if !model.endReason.isEmpty {
-                endedOverlay
-            }
+        VStack(spacing: 0) {
+            statusBar
+            videoArea
+            bottomBar
         }
-        .environment(\.colorScheme, .dark)
+        .background(Color.black)
         // Không đẩy/nén layout khi bàn phím ảo mở — bàn phím đè lên video, khung hình
         // đứng yên (người dùng chọn vậy).
         .ignoresSafeArea(.keyboard)
@@ -111,21 +100,39 @@ struct StreamView: View {
             releaseLayer()
             model.streamViewDisappeared()
         }
-        // Cử chỉ trackpad không tự nói ra được, và không có chỗ nào khác để nói: một
-        // dòng hướng dẫn nằm mãi trên màn hình thì thành rác ngay từ phiên thứ hai.
-        // Hiện 6 giây kể từ lúc có hình rồi tự tắt.
-        .task(id: streaming) {
-            guard streaming else { return }
-            hintVisible = true
-            try? await Task.sleep(for: .seconds(6))
-            hintVisible = false
-        }
         .statusBarHidden()
     }
 
-    // MARK: - Video
+    // MARK: - Thanh trên
 
-    private var videoStack: some View {
+    private var statusBar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(hostTitle)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if streaming, !model.statusLine.isEmpty {
+                Text(model.statusLine)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private var hostTitle: String {
+        guard model.videoWidth > 0 else { return model.address }
+        return "\(model.address) — \(model.videoWidth)×\(model.videoHeight)"
+    }
+
+    // MARK: - Ô giữa: video
+
+    private var videoArea: some View {
         ZStack {
             VideoLayerView { newLayer in
                 layer = newLayer
@@ -133,14 +140,10 @@ struct StreamView: View {
             }
             .aspectRatio(aspectRatio, contentMode: .fit)
 
-            // Trackpad phủ CẢ ZStack — gồm vùng đen letterbox quanh video: rê tay ở
+            // Trackpad phủ trọn ô giữa — gồm vùng đen letterbox quanh video: rê tay ở
             // đâu cũng di được chuột (trackpad chạy theo delta). Con trỏ và toạ độ gửi
             // đi vẫn bám khung video thật (overlay tự tính rect từ videoAspect).
-            //
-            // "Chỉ xem" thì KHÔNG dựng lớp này: model đã chặn mọi lời gọi input ở cửa
-            // xuống C++, nhưng để lại một con trỏ chuột di được mà máy kia không nhúc
-            // nhích là nói dối người dùng.
-            if streaming, !model.viewOnly {
+            if streaming {
                 TouchInputView(model: model, videoAspect: aspectRatio)
             }
 
@@ -150,6 +153,13 @@ struct StreamView: View {
                 .frame(width: 1, height: 1)
                 .opacity(0)
                 .allowsHitTesting(false)
+
+            // Lớp phủ trạng thái nằm TRONG ô video, không che hai thanh.
+            if !model.endReason.isEmpty {
+                endedOverlay
+            } else if !streaming {
+                connectingOverlay
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -161,103 +171,55 @@ struct StreamView: View {
         return width / height
     }
 
-    // MARK: - HUD trên: máy đang xem + số liệu
+    // MARK: - Thanh dưới: phím tắt + điều khiển
 
-    private var statusHud: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HudBar {
-                StatusDot(live: streaming)
-                MonoText(text: hostTitle, size: DS.textMonoSm, color: DS.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                StatePill(
-                    text: model.viewOnly ? tr("viewOnly") : (streaming ? tr("streaming") : tr("connecting")),
-                    tone: streaming ? .live : .neutral
-                )
-            }
-
-            // Dòng số liệu là HUD RIÊNG, không nhét chung hàng trên: gộp lại thì trên
-            // màn dọc nó dài quá bề ngang máy và cả cụm bị co chữ xuống mức không đọc
-            // được. Nó cũng chỉ có nghĩa khi đã có hình.
-            if streaming, !model.statusLine.isEmpty {
-                HudBar {
-                    MonoText(text: model.statusLine, color: DS.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    if model.rttTrace.count >= 2 {
-                        HudDivider()
-                        Sparkline(values: model.rttTrace)
-                            .frame(width: 64, height: 18)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
-    }
-
-    private var hostTitle: String {
-        guard model.videoWidth > 0 else { return model.address }
-        return "\(model.address) — \(model.videoWidth)×\(model.videoHeight)"
-    }
-
-    // MARK: - HUD dưới: phím tắt + điều khiển
-
-    private var bottomHud: some View {
-        VStack(spacing: 10) {
-            if hintVisible, streaming, !model.viewOnly {
-                MonoText(text: tr("trackpadHint"), color: DS.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(.horizontal, 12)
-                    .transition(.opacity)
-            }
-
-            // Phím tắt là những pill RỜI chứ không nằm chung một HUD: cả hàng dài hơn
-            // bề ngang máy nên phải cuộn được, mà một cái pill kính dài gấp đôi màn
-            // hình trượt qua trượt lại thì trông như thanh HUD bị hỏng.
+    private var bottomBar: some View {
+        VStack(spacing: 8) {
+            // Phím tắt cuộn ngang: cả hàng dài hơn bề ngang máy.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(kHotkeys, id: \.label) { hotkey in
                         Button(hotkey.label) { send(hotkey) }
-                            .buttonStyle(DSButtonStyle(variant: .secondary, size: .sm, pill: true))
+                            .buttonStyle(.bordered)
                     }
                 }
                 .padding(.horizontal, 12)
             }
-            .disabled(!streaming || model.viewOnly)
-            .opacity(!streaming || model.viewOnly ? 0.45 : 1)
+            .disabled(!streaming)
+            .opacity(streaming ? 1 : 0.45)
 
-            HudBar(spacing: 10) {
-                Button {
-                    keyboardOn.toggle()
-                } label: {
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 16))
+            HStack(spacing: 10) {
+                Button(keyboardOn ? "Hide keyboard" : "Keyboard") { keyboardOn.toggle() }
+                    .buttonStyle(.bordered)
+                    .disabled(!streaming)
+
+                // Chỉ hiện khi có cái để đổi: host một màn hình thì nút này là một câu
+                // hỏi không có câu trả lời.
+                if model.sources.count > 1 {
+                    Button("Display") { pickerOpen = true }
+                        .buttonStyle(.bordered)
                 }
-                .buttonStyle(DSIconButtonStyle(side: 34, radius: DS.radiusPill, active: keyboardOn))
-                .accessibilityLabel(tr("keys"))
-                .disabled(!streaming || model.viewOnly)
 
-                HudDivider()
+                Spacer()
 
-                Chip(text: chipText, active: keyboardOn)
-
-                HudDivider()
-
-                Button(tr("end")) { model.disconnect() }
-                    .buttonStyle(DSButtonStyle(variant: .danger, size: .sm, pill: true))
+                Button("End") { model.disconnect() }
+                    .buttonStyle(.borderedProminent)
             }
+            .padding(.horizontal, 12)
         }
-        .padding(.bottom, 10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.vertical, 6)
+        .confirmationDialog("Display", isPresented: $pickerOpen, titleVisibility: .visible) {
+            ForEach(model.sources) { source in
+                Button(sourceLabel(source)) { model.switchSource(to: source.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
-    private var chipText: String {
-        if model.viewOnly { return tr("viewOnly") }
-        return keyboardOn ? tr("keysOn") : tr("keys")
+    private func sourceLabel(_ source: Source) -> String {
+        let name = source.name.isEmpty ? "Source \(source.id)" : source.name
+        let mark = source.id == model.currentSourceId ? "✓ " : ""
+        return "\(mark)\(name) — \(source.width)×\(source.height)"
     }
 
     private func send(_ hotkey: Hotkey) {
@@ -275,35 +237,25 @@ struct StreamView: View {
 
     private var connectingOverlay: some View {
         VStack(spacing: 12) {
-            Spinner(size: 22)
-            MonoText(text: "\(tr("connecting")) \(model.address)", color: DS.textPrimary)
+            ProgressView()
+            Text("Connecting to \(model.address)…")
+                .foregroundStyle(.white)
         }
-        .padding(22)
-        .background(DS.surfacePanel, in: RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous)
-                .strokeBorder(DS.borderHairline, lineWidth: DS.hairline)
-        )
     }
 
     private var endedOverlay: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Eyebrow(text: trU("sessionEnded"))
+        VStack(spacing: 12) {
+            Text("Session ended")
+                .font(.headline)
+                .foregroundStyle(.white)
             Text(model.endReason)
-                .font(DS.ui(DS.textBodyLg))
-                .foregroundStyle(DS.textPrimary)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(tr("back")) { model.disconnect() }
-                .buttonStyle(DSButtonStyle(variant: .primary, fullWidth: true))
+            Button("Back") { model.disconnect() }
+                .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: 360, alignment: .leading)
-        .padding(22)
-        .background(DS.surfacePanel, in: RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.radiusXl, style: .continuous)
-                .strokeBorder(DS.borderHairline, lineWidth: DS.hairline)
-        )
-        .padding(.horizontal, 24)
+        .padding(24)
     }
 
     private func releaseLayer() {

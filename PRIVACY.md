@@ -37,7 +37,6 @@ party.
 |---|---|---|---|
 | Screen content of your PC (video frames) | Displaying your PC screen on your phone | Sent directly from your PC to your phone, encrypted in transit only by your own network/VPN layer | Never stored; exists only in memory during the session |
 | Mouse, keyboard, and touch input | Controlling your PC from your phone | Sent directly from your phone to your PC | Never stored; discarded after injection |
-| Clipboard content | Copy/paste between phone and PC when you use the clipboard feature | Sent directly between your devices | Held only in the system clipboard of the receiving device |
 | The PC address (IP/hostname) you type | Connecting to your PC | Stays on your phone | Kept locally until you change it |
 | Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your phone and your PC | Never stored; discarded when the session ends |
 
@@ -59,6 +58,20 @@ number, contacts, location, photos, files (other than what is visible on the
 PC screen you choose to stream), microphone, camera, advertising identifiers,
 or any device identifiers beyond what the operating system needs to run the
 app.
+
+### 3.3 Scope of screen sharing and remote control
+
+Sharing streams the **entire selected display**: everything that appears on
+that monitor is visible to the connected viewer, including notifications,
+pop-ups, and any window you open while sharing. (Sharing a single application
+window was removed on 2026-07-27; the Software now shares whole displays
+only.) When you allow remote control, the viewer's input is injected as if
+they were sitting at the PC and can reach **any application visible on the
+shared display** — it is no longer limited to one window. Two safety
+mechanisms remain active: if the person at the PC touches the real mouse or
+keyboard, remote input pauses ("host wins"), and any keys held by the remote
+side are automatically released when the connection ends or the viewer
+switches away.
 
 ## 4. Permissions the apps request
 
@@ -181,7 +194,6 @@ các thiết bị của chính bạn**, không gửi cho nhà phát triển hay 
 |---|---|---|---|
 | Nội dung màn hình PC (khung hình video) | Hiển thị màn hình PC trên điện thoại | Truyền thẳng PC → điện thoại | Không lưu; chỉ tồn tại trong bộ nhớ lúc đang stream |
 | Thao tác chuột, phím, cảm ứng | Điều khiển PC từ điện thoại | Truyền thẳng điện thoại → PC | Không lưu; bỏ ngay sau khi thực thi |
-| Nội dung clipboard | Copy/paste giữa hai thiết bị khi bạn dùng tính năng này | Truyền thẳng giữa hai thiết bị | Chỉ nằm trong clipboard hệ thống của máy nhận |
 | Địa chỉ PC bạn nhập (IP/hostname) | Kết nối tới PC | Ở lại trên điện thoại của bạn | Lưu cục bộ tới khi bạn đổi |
 | Số liệu kết nối (bitrate, mất gói, độ trễ) | Tự điều chỉnh chất lượng stream; hiện trên thanh trạng thái | Chỉ trao đổi giữa điện thoại và PC | Không lưu; xoá khi hết phiên |
 
@@ -194,6 +206,18 @@ dữ liệu về nhà phát triển.
 **Dữ liệu KHÔNG xử lý:** họ tên, email, số điện thoại, danh bạ, vị trí, ảnh,
 tệp tin (ngoài những gì hiển thị trên màn hình PC bạn chọn stream), micro,
 camera, mã định danh quảng cáo.
+
+**Phạm vi chia sẻ màn hình & điều khiển từ xa:** chia sẻ nghĩa là stream
+**toàn bộ màn hình được chọn** — mọi thứ hiện trên màn hình đó (kể cả thông
+báo, cửa sổ bật lên, cửa sổ bạn mở trong lúc chia sẻ) đều hiển thị cho người
+xem. (Tính năng chia sẻ từng cửa sổ ứng dụng đã bị bỏ ngày 27/07/2026; Phần
+mềm giờ chỉ chia sẻ nguyên màn hình.) Khi bạn cho phép điều khiển, thao tác
+của người xem được đưa vào máy như thể họ đang ngồi tại PC và có thể tác động
+tới **bất kỳ ứng dụng nào đang hiển thị trên màn hình được chia sẻ** — không
+còn giới hạn theo cửa sổ. Hai cơ chế an toàn vẫn hoạt động: người ngồi tại PC
+chạm chuột/phím thật thì input từ xa tạm dừng ("chủ máy thắng"), và phím mà
+phía điều khiển đang giữ sẽ tự động được nhả khi kết nối kết thúc hoặc người
+xem chuyển đi nơi khác.
 
 ## 4. Quyền hệ thống app xin
 

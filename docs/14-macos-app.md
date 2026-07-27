@@ -1,19 +1,19 @@
 # 14 — macOS App
 
 **One app, both roles.** Like the Windows reference build (01-architecture.md §1), the
-macOS app is a single SwiftUI application that can act as **Agent/host** (share a
-window or display of this Mac) and as **Client** (view and control another machine) —
+macOS app is a single SwiftUI application that can act as **Agent/host** (share one or
+more displays of this Mac — per-window sharing was removed 2026-07-27) and as
+**Client** (view and control another machine) —
 even both at the same time, since the two roles are independent objects behind the
 bridge. This is the fundamental difference from iOS/Android, which are client-only
 (11-platform-transport.md).
 
-**Status: implemented, both roles, but not yet verified between two physical
-machines** — see §8.
+**Status: implemented and tested, both roles** — remaining known gaps in §8.
 
 ## 1. Architecture and layering
 
 ```
-SwiftUI views (App/ContentView/HomeView/ShareView/ConnectView/SourcePickerView/StreamView/RemoteView)
+SwiftUI views (App/ContentView/ShareView/ConnectView/SourcePickerView/StreamView/RemoteView)
         │  read models, call actions
 Swift models: SessionModel (client role), AgentModel (host role)   — @MainActor @Observable
         │  the ONLY callers of the C facade
@@ -29,10 +29,17 @@ C++/ObjC++ role stacks: cpp/client/*, cpp/agent/*, cpp/net/*, cpp/input/*
 - `client/macos/app/swift/App.swift` — entry point; one `WindowGroup` (default
   1280×840, min 1040×680), no custom title bar.
 - `client/macos/app/swift/ContentView.swift` — navigation via a `Route` enum:
-  `home → connect → sourcePicker → stream` (client branch) and `home → share` (host
-  branch). A left `SideRail` (home / connect / share + theme and EN‑VI language
-  toggles, backed by `AppState`) is hidden on the `stream` route. `SessionModel` and
-  `AgentModel` are owned here so sessions survive navigation.
+  `connect → sourcePicker → stream` (client branch) and `share` (host branch), switched
+  by a stock segmented `Picker` at the top; the stream route takes the whole window.
+  `SessionModel` and `AgentModel` are owned here so sessions survive navigation.
+
+  **The bespoke design system is gone (2026-07-27).** `AppState.swift`, `Strings.swift`,
+  `Recents.swift`, `HomeView.swift`, the left `SideRail` and all seven `Design*.swift`
+  files (~1,230 lines: tokens, buttons, controls, rows, surfaces, text, layout) were
+  deleted in favour of stock SwiftUI — `TextField`, `Button`, `Picker`, `ProgressView`,
+  `Text`. One appearance (dark, forced via `.preferredColorScheme(.dark)`), one
+  language, English written straight into the views. The macOS Swift tree went from
+  3,365 to ~1,500 lines.
 - `DeskhubBridge.h` documents which facade calls **block**: `dh_list_sources` (~3 s),
   `dha_list_share_sources` (~2 s), `dha_start` (up to ~10 s). Swift calls these via
   `Task.detached`; everything else is safe on the main thread. `dh_set_layer`
@@ -72,22 +79,21 @@ Recv thread and returns. Notable behavior, all as coded:
   pending IDR request on a static source re-encodes the cached frame (after 200 ms of
   silence), and a ~2 fps keepalive re-encode keeps the client's presentation clock
   running. `forceIdr` is an atomic flag consumed on the capture path.
-- **Resize / minimize handling.** Size changes rebuild the encoder and send
-  `RECONFIG` + IDR; sources smaller than 160×64 (`kMinEncodeW/H`) are *paused*, not
-  failed, and resume when the window grows back. A closed window shuts down only that
-  pipeline; the session keeps running.
+- **Resize handling.** Size changes (display mode switches) rebuild the encoder and
+  send `RECONFIG` + IDR; sources smaller than 160×64 (`kMinEncodeW/H`) are *paused*,
+  not failed, and resume when the size comes back. A vanished display shuts down only
+  that pipeline; the session keeps running.
 - **Congestion control & recovery.** Per-source `deskhub::BitrateController` acts on
   `FEEDBACK` (bitrate changes via `VtEncoder::SetBitrate`, FEC toggle), and a
   `RetransmitCache` answers NACKs (GĐ7) instead of forcing an IDR.
 
 Component specifics:
 
-- **`agent/SourceEnum.mm` — enumeration.** Uses `SCShareableContent`
-  (excluding desktop windows, on-screen only) rather than `CGWindowList`, so the list
-  matches exactly what ScreenCaptureKit can capture. Displays first (pixel sizes from
-  `SCDisplay`), then windows labeled "App — Title", converted points→pixels with the
-  backing scale of the screen with the largest overlap. Filters out Deskhub's own
-  windows, untitled windows, and anything under 120 px. Synchronous wrapper over the
+- **`agent/SourceEnum.mm` — enumeration.** Uses `SCShareableContent`, so the list
+  matches exactly what ScreenCaptureKit can capture, and lists its `SCDisplay`s only
+  (pixel sizes from `SCDisplay`). The window walk — "App — Title" labels,
+  points→pixels conversion, self/untitled/tiny filtering — was removed 2026-07-27
+  with window sharing. Synchronous wrapper over the
   async API with a 2 s semaphore timeout — must be called off the main thread.
 - **`agent/ScreenCapture.mm` — capture.** One `SCStream` per source. Configuration:
   pixel format `420v` (NV12 video-range, fed straight to VideoToolbox with no color
@@ -96,10 +102,10 @@ Component specifics:
   cache, VideoToolbox holds another), `scalesToFit = NO`, no audio. Only
   `SCFrameStatusComplete` frames are forwarded; timestamps are the project clock
   (`NowUs()`), not the sample buffer PTS. Frames are delivered on a per-source serial
-  `USER_INTERACTIVE` queue. A 500 ms dispatch timer compares the real source size
-  (`CGWindowListCopyWindowInfo` / `CGDisplayPixelsWide`×scale) with the buffer size
+  `USER_INTERACTIVE` queue. A 500 ms dispatch timer compares the real display size
+  (`CGDisplayPixelsWide`×scale) with the buffer size
   and calls `updateConfiguration` on mismatch — SCStream does not resize itself — and
-  the same timer detects a vanished window/display (`Closed()`). Sizes are rounded
+  the same timer detects a vanished display (`Closed()`). Sizes are rounded
   down to even numbers (H.264 chroma requirement).
 - **`agent/VtEncoder.mm` — encoding.** H.264 via `VTCompressionSession` (hardware
   requested but not required; `BackendName()` reports which was used). Low-latency
@@ -118,25 +124,19 @@ Component specifics:
   `cpp/input/MacKeyMap.cpp` (the single key table, shared by both roles; VK is
   preferred over scancode since macOS has no scancode concept); modifier flags are
   rebuilt from the injector's own held-modifier ledger and attached to every event.
-  Absolute mouse coords (0..65535) map into the source rect *in points* (200 ms
-  cache); relative moves carry raw deltas in `kCGMouseEventDeltaX/Y` and clamp to the
+  Absolute mouse coords (0..65535) map into the shared display's bounds *in points*
+  (`Init(displayId)`); relative moves carry raw deltas in `kCGMouseEventDeltaX/Y` and clamp to the
   union of all screens. Click counting (`kCGMouseEventClickState`, 500 ms / 4 pt) is
-  synthesized so double-clicks work; wheel deltas convert 120 → 3 lines. Three safety
-  gates in `Apply()`: enabled flag, **foreground gate** (`TargetHasFocus` — window
-  sources only inject while the owning app is frontmost; `FocusTarget()` activates it
-  on `SET_FOCUS`), and **host wins** (below). `ReleaseAll()` un-sticks held keys on
-  disconnect. Every injected event is stamped with
+  synthesized so double-clicks work; wheel deltas convert 120 → 3 lines. Two safety
+  gates in `Apply()`: enabled flag and **host wins** (below) — the third, the
+  foreground gate (`TargetHasFocus`/`FocusTarget`), was removed 2026-07-27 with
+  window sharing. `ReleaseAll()` un-sticks held keys on
+  disconnect and on `SET_FOCUS(false)`. Every injected event is stamped with
   `LocalInputMonitor::kUserData` in `kCGEventSourceUserData`.
 - **`agent/LocalInputMonitor.h/.mm` — "host wins".** An NSEvent global monitor (not a
   CGEventTap) records the last *physical* mouse/keyboard activity; injected events
   are recognized by the `kUserData` stamp and ignored. While the local user is active
   (`kQuietUs` = 1 s), remote input is suppressed and held keys are released.
-- **`agent/ClipboardSync.h/.mm` — host clipboard (GĐ8).** Text only (≤ 64 KB). macOS
-  has no clipboard-change event, so a background thread polls
-  `NSPasteboard.changeCount` every 300 ms; loop prevention is two-layered
-  (remembering the changeCount after self-writes + comparing against the last remote
-  text). Sharing clipboard is **off by default** (GĐ9) and must be enabled per
-  session.
 
 ## 3. Permissions (`agent/Permissions.h/.mm`)
 
@@ -144,14 +144,15 @@ Exactly two system permissions, both host-role only, both **silent failures** on
 macOS:
 
 - **Screen Recording** — checked with `CGPreflightScreenCaptureAccess()`, requested
-  with `CGRequestScreenCaptureAccess()`. Without it, `SCShareableContent` returns
-  only the app's own windows (which SourceEnum filters out), so the source list is
+  with `CGRequestScreenCaptureAccess()`. Without it, `SCShareableContent` yields no
+  shareable displays, so the source list is
   simply empty with no error. The request dialog appears **once per app install**;
   after granting, macOS requires an app restart. Required for any sharing.
 - **Accessibility** — checked with `AXIsProcessTrusted()`, requested with
   `AXIsProcessTrustedWithOptions(kAXTrustedCheckOptionPrompt)`. Without it,
   `CGEventPost` "succeeds" but no event reaches any app. Takes effect immediately, no
-  restart. Needed only when *Allow input* is on; view-only sharing works without it.
+  restart. Required for every share since 2026-07-27 — mouse and keyboard are always
+  shared, so there is no view-only mode that avoids this permission.
 
 `OpenScreenRecordingSettings`/`OpenAccessibilitySettings` open the exact
 `x-apple.systempreferences:…Privacy_ScreenCapture` / `…Privacy_Accessibility` panes.
@@ -166,7 +167,7 @@ the permission may have just been granted while preflight still caches the old v
 
 - **`cpp/client/ClientLoop.h/.cpp`** — a close port of the iOS ClientLoop with a
   desktop-grade input channel (separate key down/up with VK+scancode, mouse wheel,
-  true relative mouse, two-way clipboard, `ReleaseAllInput`). Net thread: video-channel
+  true relative mouse, `ReleaseAllInput`). Net thread: video-channel
   packets bypass `ClientSession` straight into the `Reassembler` (session only gets
   `NotifyVideoPacket`); assembled frames go into a 3-deep queue toward the Decode
   thread, dropping the *oldest* on overflow; all keyframe-request reasons (loss,
@@ -197,47 +198,45 @@ the permission may have just been granted while preflight still caches the old v
   (top-right), control HUD (mouse lock, aspect-fit/fill toggle, state chip, End)
   bottom-center; connecting and "session ended" overlays (reason from
   `dh_end_reason`). `onDisappear` revokes the layer and disconnects.
-- **`swift/SessionModel.swift`** — the single choke point for input: everything is
-  gated on `viewOnly || !hostAcceptsInput` (the latter polled from the HELLO_ACK
-  `inputAccepted` flag, GĐ9). Its 500 ms poll also runs two-way clipboard sync
-  against `NSPasteboard` (receive before send, changeCount bookkeeping to break the
-  echo loop) and parses `"RTT n ms"` out of the status line for the sparkline.
+- **`swift/SessionModel.swift`** — still the single door for input, but with no gate
+  behind it: `viewOnly` and `hostAcceptsInput` were both removed 2026-07-27. Its
+  500 ms poll parses `"RTT n ms"` out of the status line for the sparkline.
 - **`cpp/net/`** — `UdpSocket` (BSD sockets, host-byte-order `NetAddr`,
-  `ParseNetAddr` supplies the default port 47777), `SourceQuery` (pre-session
+  `ParseNetAddr` takes a bare IP and supplies the fixed port 47777), `SourceQuery` (pre-session
   LIST_SOURCES exchange, ~3 s with retries), `NetInfo` (`getifaddrs` IPv4 list with
   friendly interface labels for the share screen).
 
 ## 5. UX flows as implemented
 
-- **Home (`HomeView.swift`).** Two tiles (Connect / Share) plus "Recent connections"
-  from `Recents.swift`: up to 12 entries in `UserDefaults` (tab/newline separated, no
-  JSON), most-recent first, with a link label guessed from the IP range (LAN /
-  Tailscale CGNAT). Clicking a recent pre-fills the address and opens Connect — it
-  never dials directly, so the view-only choice is not skipped. There is **no
-  "found on network" section**: the macOS C++ layer has no Discovery/Beacon yet
-  (noted explicitly in the HomeView header comment).
-- **Connect (`ConnectView.swift`).** One hero address field (`ip[:port]`, default
-  port 47777 filled by C++), a *View only* checkbox, helper panels. Connect runs
-  `SessionModel.listSources()` (SourceQuery) and remembers the address; **0 or 1
-  sources → stream immediately** (source 0 — a silent/old host is not an error),
-  **>1 → `SourcePickerView`**, where selection is radio-style (the C facade streams
-  one `sourceId` at a time) and "Allow input" is the inverse of `viewOnly`. There is
-  **no password prompt**: core's GĐ10 password gate exists
-  (`ClientSession::SetPassword`, `onPasswordNeeded`) but is not wired into the macOS
-  bridge or UI, and the host side never sets a password (it wires only the mandatory
-  `randomBytes` callback, without which `HostSession` fails closed).
-- **Share (`ShareView.swift`).** One combined screen (no separate session screen):
-  permission banners on top; address panel listing every local IPv4 with the *actual*
-  bound port appended; viewer panel (connected/not, send fps, Mbps, capture fps, send
-  sparkline — the host cannot measure RTT, only the client can); source grid with
-  **live checkboxes** (ticking during a session calls `dha_add_source`, unticking
-  `dha_remove_source` — the viewer never drops). Bottom bar: fps 30/60/120, bitrate
-  8/20/40 Mbps, port 47777/47778/52000 (all locked while sharing), *Allow input*
-  (default on), *Share clipboard* (default off), and two stop levels: **Stop** (keep
-  ticks) vs **Stop all** (danger, clears selection). All options persist in
-  `UserDefaults`. Start failures surface a reason line (`startError`) instead of
-  failing silently. There is no firewall step in the app; the generated Info.plist
-  only carries `NSLocalNetworkUsageDescription` for the OS local-network prompt.
+There is no Home screen: the segmented picker in `ContentView` *is* the launcher. `HomeView`
+and its "Recent connections" list were deleted 2026-07-27; only the last address is remembered
+(`UserDefaults`, pre-filled into the field). There is **no "found on network" section** either
+— LAN discovery was removed project-wide the same day, so connections start from a typed
+address.
+
+- **Connect (`ConnectView.swift`).** One `TextField` (bare IP — the fixed port 47777 is
+  filled by C++, which rejects any string containing `:`) and a Connect button. Connect runs
+  `SessionModel.listSources()` (SourceQuery); **0 or 1 sources → stream immediately**
+  (source 0 — a silent/old host is not an error), **>1 → `SourcePickerView`**, radio-style
+  (the C facade streams one `sourceId` at a time). There is **no password prompt**: the auth
+  layer was removed from core on 2026-07-27 (trusted-LAN decision) — no client has one.
+- **Stream (`StreamView.swift`).** Three stacked rows — status text, video, button bar —
+  since 2026-07-27; the bars used to float on top of the video. Buttons: lock mouse (F9),
+  Fit/Fill, **Display** (only when the host published more than one source; a popover that
+  calls `SessionModel.switchSource` = `dh_stop` + `dh_start` with another `sourceId`, without
+  leaving the screen), and End.
+- **Share (`ShareView.swift`).** One combined screen (no separate session screen): permission
+  banners on top; every local IPv4 listed bare (the port is always 47777 and the other side
+  never types it); a viewer line (connected/not, send fps, Mbps, capture fps as text — the
+  host cannot measure RTT, only the client can); and a **read-only** display list. There is
+  nothing to tick: Share hands over every attached display, so the list only states what is
+  being seen — the live checkboxes and `dha_add_source`/`dha_remove_source` were removed
+  2026-07-27, as were the port picker, the *Allow input* checkbox and the send sparkline.
+  Controls: fps 30/60/120 and bitrate 8/20/40 Mbps (both locked while sharing, persisted in
+  `UserDefaults`) and a single **Stop sharing** button. Start failures surface a reason line
+  (`startError`) instead of failing silently. There is no firewall step in the app; the
+  generated Info.plist only carries `NSLocalNetworkUsageDescription` for the OS
+  local-network prompt.
 
 ## 6. Build, project layout, signing
 
@@ -283,12 +282,9 @@ mouse) · 11-platform-transport.md (per-platform capabilities, POSIX socket reus
 
 ## 8. Verification status — honest notes
 
-- Both roles **have not been verified between two physical machines**
-  (docs/README.md status table). Everything above is what the code does, not what has
-  been proven end-to-end over a real network.
-- No LAN discovery on macOS (client cannot list hosts; agent does not answer
-  DISCOVER) — deliberate gap, documented in `HomeView.swift`.
-- No password/auth UI, although core supports it (GĐ10) — see §5.
+- Both roles are **tested and working** (docs/README.md status table).
+- No LAN discovery and no password/auth UI — both layers were removed project-wide
+  on 2026-07-27 (trusted-LAN decision; see 15-review-todo.md §A1).
 - H.264 only (encoder and HELLO codec mask); no HEVC path exists in this app.
 - Key map is US-layout for symbol keys (`cpp/input/MacKeyMap.h`, accepted
   limitation).

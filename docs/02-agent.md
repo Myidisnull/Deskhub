@@ -1,6 +1,7 @@
 # 02 — Agent (Host) Role
 
-The Agent is the sharing side of Deskhub: it captures one or more windows/displays, encodes them
+The Agent is the sharing side of Deskhub: it captures one or more displays (whole monitors —
+per-window sharing was removed 2026-07-27), encodes them
 as H.264, packetizes and sends the stream over UDP, and injects the viewer's input back into the
 machine. Both desktop apps contain the Agent and the Client role side by side; this document covers
 the Agent. System overview: `01-architecture.md`. The viewer side: `03-client.md`.
@@ -9,43 +10,47 @@ There are two full implementations of the same orchestration:
 
 | | Windows | macOS |
 |---|---|---|
-| Orchestrator | `client/windows/cpp/AgentLoop.cpp` (`RunAgent`) | `client/macos/app/cpp/agent/AgentLoop.cpp` (`AgentLoop` class) |
-| Capture | Windows Graphics Capture (`capture/WindowCapture`) | ScreenCaptureKit (`agent/ScreenCapture`) |
+| Orchestrator | `client/windows/cpp/AgentLoop.cpp` (`RunAgent`) | `client/macos/app/cpp/AgentLoop.cpp` (`AgentLoop` class) |
+| Capture | Windows Graphics Capture (`capture/ScreenCapture`) | ScreenCaptureKit (`agent/ScreenCapture`) |
 | Encode | NVENC → Media Foundation (`encode/EncoderFactory`) | VideoToolbox (`agent/VtEncoder`) |
 | Inject | `SendInput` (`input/InputInjector`) | CGEvent (`agent/InputInjector`) |
-| UI frontend | WinUI3/C# via C API (`AgentApi.cpp`) | SwiftUI via `AgentLoop` methods |
+| UI frontend | Win32 app (`SessionWindow` drives `AgentLoop` directly) | SwiftUI via `AgentLoop` methods |
 
-Session state, auth, packet formats, congestion policy and clipboard reassembly are platform-neutral
-and live in `core/` (`deskhub::HostSession`, `deskhub::AuthGuard`, `deskhub::Beacon`,
+Session state, packet formats and congestion policy are platform-neutral
+and live in `core/` (`deskhub::HostSession`, `deskhub::Beacon`,
 `deskhub::BitrateController`, `deskhub::Packetizer`). The agent loops own only the OS-specific
 parts: sockets, threads, GPU, capture and injection.
 
 ## 1. Entry points
 
-**Windows.** The WinUI3 app drives the native DLL through the C API in
-`client/windows/cpp/DeskhubApi.h`. `dh_agent_start` (implemented in `AgentApi.cpp`) copies the
+**Windows.** The Win32 app (`client/windows/win32/`) — the only Windows frontend since the WinUI3
+and ImGui apps were removed 2026-07-27 — drives `RunAgent` directly with a
+`SessionWindow` as its `AgentControl`: it copies the
 selected sources, spawns a background thread, calls `capture::InitRuntime()` (WinRT MTA — WGC
-requires it on the thread that creates `WindowCapture`), then calls `RunAgent`, which blocks until
+requires it on the thread that creates `ScreenCapture`), then calls `RunAgent`, which blocks until
 the session ends. `RunAgent(sources, opt, ctl)` takes:
 
-- `AgentOptions` (`AgentLoop.h`): `port` (default 47777), `fps` (60), `bitrateMbps` (20),
-  `allowInput`, `shareClipboard` (default **off** — clipboards carry passwords and OTPs, so sharing
-  is an explicit user decision).
+- `AgentOptions` (`AgentLoop.h`): `fps` (60) and `bitrateMbps` (20) — that is all. There is no
+  `port` (it is the constant `kDeskhubPort` = 47777 in `net/UdpSocket.h`; a busy port is a hard
+  error, the host never walks to another one) and no `allowInput` (mouse and keyboard are always
+  shared). Both were removed 2026-07-27 when the app narrowed to plain remote desktop.
 - `AgentControl&` (`AgentControl.h`) — the abstract frontend interface: `active()`,
-  `stopRequested()`, `SetRows()`, `TakeAdds()`, `TakeRemoves()`, `OnBound()`, `OnFailed()`.
-  `AgentApi.cpp` provides `HeadlessAgentControl`, a mutex-guarded mailbox between the C# UI thread
-  and the Recv loop. The historical Win32 implementation (`SessionWindow`) was removed with the old
-  Win32 UI; `SessionRow.h` (`SessionSourceRow`) remains as the row type `SetRows` pushes to the UI
-  (per-source name, size, viewer address, fps/kbps/RTT, HWND/HMONITOR keys).
+  `stopRequested()`, `SetRows()`, `OnBound()`, `OnFailed()`.
+  The Win32 app implements it as `SessionWindow` (a small always-on-top session window).
+  `SessionRow.h` (`SessionSourceRow`) is the row type `SetRows`
+  pushes to the UI (per-source name, size, viewer address, fps/kbps/RTT, HMONITOR key).
 
-Mid-session control flows through the same handle: `dh_agent_add_window`, `dh_agent_remove`,
-`dh_agent_stop`. If `RunAgent` exits on its own (no free port, GPU init failure, socket error), the
-thread invokes the `stoppedCb` with the `OnFailed` reason so the UI can leave the "sharing" state.
+`sources` is the **final** list, not an initial one. Pressing Share hands over *every*
+attached display, and the roster cannot change afterwards — the Add / Stop-selected buttons and
+their `TakeAdds`/`TakeRemoves` channel were removed 2026-07-27, along with the source picker
+itself. Plugging in a monitor mid-session means stopping and sharing again. The only thing
+still flowing UI → Recv is `stopRequested()`. If `RunAgent` exits on its own (port busy, GPU
+init failure, socket error), the UI is told via `OnFailed` so it can leave the "sharing" state.
 
 **macOS.** SwiftUI cannot be blocked, so `agent/AgentLoop.h` exposes a class instead:
 `Start(sources, opt)` binds the port, starts the pipelines, launches the Recv thread and returns
 (`Start` itself still blocks a few seconds waiting for first frames — call it off the main thread).
-The UI polls `Status()`/`StatusLine()` and uses `AddSource`/`RemoveSource`/`Stop`. `Start` refuses
+The UI polls `Status()`/`StatusLine()`; the only command it can issue is `Stop`. `Start` refuses
 to run without the Screen Recording permission (`macperm::HasScreenRecording`).
 
 ## 2. The main loop
@@ -64,7 +69,7 @@ before touching either file):
 So N sources means N+1 threads on Windows; every field crossing that boundary in `SourcePipeline`
 is atomic or mutex-protected, and each field's owner thread is annotated in the struct.
 
-**Packet routing** (one socket, many sources): discovery-type packets are answered first (see §7);
+**Packet routing** (one socket, many sources): pre-session queries (LIST_SOURCES, probe PING) are answered first (see §7);
 `HELLO` is routed by `hello.sourceId` (no sessionId exists yet); everything else is routed by
 matching `sessionId` against each source's `HostSession`. A valid in-session packet also updates the
 stored peer address (`peerPacked`), which is how a client that roams to a new IP/port keeps its
@@ -73,7 +78,9 @@ session.
 **HostSession drives state.** The loop never interprets control messages itself. It hands every
 routed packet to `deskhub::HostSession::HandlePacket` and reacts through `HostCallbacks`: `onStart`
 (set the `forceIdr` atomic), `onKeyframeRequest` (same), `onInput` → `InputInjector::Apply`,
-`onNack` → replay datagrams from `deskhub::RetransmitCache`, `onFocus`, `onClipboard`,
+`onNack` → replay datagrams from `deskhub::RetransmitCache`, `onFocus` (only
+`focused=false` matters now: `InputInjector::ReleaseAll` — the raise-to-foreground
+action went with window sharing, removed 2026-07-27),
 `onFeedback` → `deskhub::BitrateController` (adjusts encoder bitrate via `SetBitrate`, toggles FEC,
 floor 1 Mbps), `onDisconnect` → clear peer, `ReleaseAll`, reset the retransmit cache. `forceIdr` is
 an atomic flag on purpose: it is set on the Recv thread and consumed by the next `Encode` on the
@@ -97,8 +104,8 @@ the last output until the next input).
 **Resize and minimum size.** A size change on the hot path tears down the encoder and cache and
 sets `sizeChanged`; the Recv loop then updates the offer (`HostSession::SetOffer`), sends `RECONFIG`
 and forces an IDR. Sources smaller than 160×64 (`kMinEncodeW/H` — hardware encoders reject tiny
-frames) enter a reversible `paused` state, distinct from the one-way `failed` state, so a window
-that is shrunk and later restored resumes streaming.
+frames) enter a reversible `paused` state, distinct from the one-way `failed` state, so a display
+that momentarily reports a degenerate mode and later restores resumes streaming.
 
 **Pacing.** `client/windows/cpp/net/Pacer.h/.cpp` implements a credit-clock pacer with a
 high-resolution waitable timer, built to spread IDR bursts that overflow bottleneck queues (its
@@ -111,20 +118,19 @@ FEC, NACK/retransmit details: `04-protocol.md` and `06-transport.md`.
 
 ## 3. Sources: enumeration and selection
 
-- **Windows windows** — `capture/WindowFinder.h`: `ListCapturableWindows()` filters EnumWindows
-  results down to visible, unowned, titled, non-cloaked top-level windows (excluding Deskhub
-  itself), sorted by area descending; `FindWindowByProcessName()` serves the CLI path. Exposed to
-  C# as `dh_list_windows`.
-- **Windows displays** — `capture/DisplayFinder.h`: `ListDisplays()` returns `HMONITOR`s with
-  synthetic names ("Display 1 (primary)"), primary first. Exposed as `dh_list_displays`.
-- **macOS** — `agent/SourceEnum.h`: `GetShareSources()` asks `SCShareableContent` (the same source
-  of truth ScreenCaptureKit captures from, so the list can never contain uncapturable windows),
-  displays listed before windows, self/untitled/tiny windows filtered. Blocks ~2 s; returns an
-  empty list when Screen Recording permission is missing.
+Only displays can be shared (per-window sharing, `WindowFinder`, and the wire-level
+`SourceInfo.kind` byte were all removed 2026-07-27):
 
-A `CaptureTarget` holds exactly one of window/display handle (`capture/WindowCapture.h`,
-`agent/CaptureTypes.h`). Wire-level `deskhub::SourceInfo.kind` distinguishes `Window` from
-`Display` because their privacy implications differ. Source ids are assigned incrementally and
+- **Windows** — `capture/DisplayFinder.h`: `ListDisplays()` is the single source of
+  enumeration; it returns `HMONITOR`s with synthetic names ("Display 1 (primary)"),
+  primary first.
+- **macOS** — `agent/SourceEnum.h`: `GetShareSources()` asks `SCShareableContent` (the same source
+  of truth ScreenCaptureKit captures from) and lists its `SCDisplay`s only. Blocks ~2 s; returns
+  an empty list when Screen Recording permission is missing.
+
+An `AgentSource` is just a display handle plus its name (`HMONITOR` on Windows,
+`CGDirectDisplayID` on macOS); `deskhub::SourceInfo` carries {sourceId, width, height,
+name}. Source ids are assigned incrementally and
 **never reused** within a run, so a client holding a stale `SOURCE_LIST` cannot HELLO into the
 wrong source. Sources added mid-session go through a `pendingAdds` list with a 10 s first-frame
 deadline before `attachSession` promotes them.
@@ -167,30 +173,14 @@ every IDR, matching the NVENC `repeatSPSPPS` contract that mid-stream joiners de
 ## 5. Session lifecycle and security
 
 `deskhub::HostSession` (`core/include/deskhub/session/HostSession.h`) is a per-source state
-machine: `Idle → (Authenticating →) Ready → Streaming`. One client per source-session (v1): a HELLO
+machine: `Idle → Ready → Streaming`. One client per source-session (v1): a HELLO
 from a different `clientId` while Ready/Streaming is rejected with `HELLO_ACK codec=Rejected,
 reason=Busy`. A HELLO without H.264 in its codec mask is rejected with `CodecMismatch`. Rejects
 reuse the `HELLO_ACK` message so clients get an immediate, reasoned answer instead of a timeout.
 
-**Password gate** (`core/include/deskhub/auth/AuthGuard.h` + `PasswordAuth.h`). On HELLO,
-`AuthGuard::OnHello` returns one of three outcomes: `Allow` (no password required, or the
-presented 32-byte device token hashes to a remembered trusted device), `NeedChallenge`, or
-`Reject`. The challenge flow is classic challenge-response so the password never crosses the wire:
-host sends `AUTH_CHALLENGE` (16-byte salt, iteration count — 100 000, carried on the wire rather
-than hard-coded — and a fresh 32-byte nonce); client computes `key = PBKDF2(password, salt, iters)`
-and `proof = HMAC-SHA256(key, nonce ‖ clientId)`; host verifies with a constant-time compare. Wrong
-answers count toward a lockout (3 tries → 5 minutes, `kMaxWrongTries`/`kLockoutUs`); a pending
-challenge expires after 30 s and only one exists at a time. On first success the host mints a random
-device token, stores only its SHA-256 (`Remember`, max 32 devices) and sends the original **once**
-in the `HELLO_ACK` — retransmitted ACKs never carry it again. `PasswordAuth.h` states the limits
-plainly: the stored key is password-equivalent for this host, and nothing here encrypts the
-session — video/input/clipboard still travel in the clear.
-
-**Wiring status:** the gate is fully implemented and enforced in core, but neither desktop frontend
-currently calls `HostSession::auth()` configuration (`SetPassword`/`SetKey`/`SetRequirePassword`),
-nor `SetAskBeforeInput`/`GrantInput`, nor persists `onTrustedDevicesChanged`. With defaults
-(`requirePassword()` false) every HELLO takes the `Allow` path today; the Settings UI that turns
-the gate on has not landed.
+**No password gate.** The auth layer (GĐ10) was removed 2026-07-27 (trusted-LAN
+decision, 15-review-todo.md §A1): every HELLO goes straight through, and nothing on
+the wire is encrypted — keep the host port inside trusted networks.
 
 **Session integrity.** Session ids come from the OS CSPRNG via the `randomBytes` callback
 (`deskhubp::RandomBytes` — core cannot touch the OS). If entropy is unavailable the host **fails
@@ -210,70 +200,55 @@ mid-keypress must not leave keys stuck), and resets the retransmit cache. Shutti
 Injection details live in `07-input.md`; the agent-loop contract is:
 
 - `cb.onInput` hands sanitized, in-order `deskhub::InputEvent`s (via `deskhub::InputReceiver`
-  inside `HostSession`) to `InputInjector::Apply` on the Recv thread. `HostSession` drops
-  `INPUT_EVENT` entirely when input is disallowed and advertises that in `HELLO_ACK`
-  (`kAckFlagInputAccepted`), so view-only clients never draw input UI.
-- **Focus gating.** `SendInput`/`CGEventPost` deliver to whatever is foreground, so the injector
-  only injects while the shared window (or its owning app on macOS) is actually foreground;
-  otherwise events are dropped and counted in `skipped()`. `SET_FOCUS` from the client triggers
-  `cb.onFocus` → `InputInjector::FocusTarget()` to raise the right source window (only when input
-  is enabled); focus-loss releases held keys. Full-screen sources skip the gate — there is no
-  "other app" outside what is shared.
+  inside `HostSession`) to `InputInjector::Apply` on the Recv thread. There is no gate in front
+  of this: `HostSession` always accepts `INPUT_EVENT` (the `SetInputAllowed` switch and the
+  `kAckFlagInputAccepted` bit in HELLO_ACK were both removed 2026-07-27).
+- **No foreground gate.** With whole displays as the only source kind there is no "other app"
+  outside what is shared, so the old foreground gate (`TargetHasFocus`/`FocusTarget`, which
+  dropped or redirected input when the shared window was not foreground) was removed 2026-07-27
+  along with window sharing. Two safety mechanisms remain: `ReleaseAll` (stuck-key prevention —
+  triggered by `SET_FOCUS(false)`, BYE, session timeout, and shutdown) and "host wins"
+  (`LocalInputMonitor`, next bullet). `SET_FOCUS(true)` requires no host action; `skipped()` now
+  counts only events yielded to the local user.
 - **`LocalInputMonitor` ("host wins").** Watches *physical* mouse/keyboard activity (Windows:
   low-level hooks on a dedicated message-pump thread, filtering `LLKHF_INJECTED`; macOS: an NSEvent
   global monitor filtering events stamped with Deskhub's `kCGEventSourceUserData` marker). While
   the local user is active, remote input yields for ~1 s — preventing cursor tug-of-war and
-  cross-contaminated modifiers. Started only when `allowInput` is on.
+  cross-contaminated modifiers. Always started — every session accepts input.
 
 ## 7. Windows specifics
 
 - **`ElevatedShare.h` / UAC.** UIPI silently swallows `SendInput` aimed at higher-integrity
-  processes (admin games), a symptom indistinguishable from network failure. The current relaunch
-  flow lives in the C# app (`client/windows/csharp/ElevationHelper.cs`): when starting a share that
-  needs control or a missing firewall rule, it relaunches `Deskhub.exe` with the `runas` verb,
-  passing the share request on the command line so the elevated instance resumes without
-  re-picking sources. The native `IsProcessElevated()` backs `dh_is_elevated` and the "input will
-  NOT reach apps running as administrator" warning in `RunAgent`; the older native
-  `RelaunchElevatedShare`/`ParseElevatedShareArgs` remain in `ElevatedShare.cpp` but have no
-  callers since the Win32 UI was removed.
+  processes (admin games), a symptom indistinguishable from network failure. The relaunch flow
+  is native: `RelaunchElevatedShare`/`ParseElevatedShareArgs` in `ElevatedShare.cpp`, driven by
+  the Win32 UI (`client/windows/win32/MainMenuWindow.cpp` + `main.cpp`) — when starting a share
+  that needs control or a missing firewall rule, the app relaunches `Deskhub.exe` with the
+  `runas` verb, passing the share request on the command line so the elevated instance resumes
+  without re-picking sources. `IsProcessElevated()` backs the "input will
+  NOT reach apps running as administrator" warning in `RunAgent`.
 - **`net/Firewall.h`.** The host binds `INADDR_ANY` and Windows Firewall drops unsolicited inbound
   UDP by default — the classic "LAN connect just times out". `EnsureHostFirewallRule()` adds a
   program-scoped allow rule via `INetFwPolicy2` covering all three profiles (port-independent, so
   the user can change ports). Adding requires admin (hence the UAC flow above); failure is a
-  warning, not fatal. `HostFirewallRulePresent()` is the read-only probe behind
-  `dh_host_firewall_rule_present`.
-- **`net/HostIdent.h`.** `LocalHostId()` is a stable per-machine 32-bit id (hashed registry
-  MachineGuid, falling back to the machine name) and `LocalHostName()` the display name. It only
-  exists so clients can merge ANNOUNCEs and de-duplicate saved machines — explicitly *not* a
-  security identifier.
-- **Discovery beacon.** `RunAgent` owns a `deskhub::Beacon`
-  (`core/include/deskhub/discovery/Beacon.h`) answering the three pre-session queries:
-  `DISCOVER → ANNOUNCE`, `LIST_SOURCES → SOURCE_LIST`, and probe `PING (sid=0) → PONG`. The beacon
-  only *builds* reply bytes; the Recv loop sends them back to the datagram's origin — deliberately
-  before `replyAddr` is updated, so a stranger probing the network can never hijack the session's
-  send path. `publishRows` refreshes the beacon's source list and `busy` flag each second, and
-  `SetAcceptsInput` mirrors the allow-input option so scanners can label view-only hosts. The
-  client-side counterpart (`net/Discovery.h`, `ScanForHosts`) broadcasts per-NIC; see
-  `04-protocol.md` §4.7.
+  warning, not fatal. `HostFirewallRulePresent()` is the read-only probe the Win32 UI
+  uses to decide whether elevation is needed.
+- **Pre-session beacon.** `RunAgent` owns a `deskhub::Beacon`
+  (`core/include/deskhub/discovery/Beacon.h`) answering the two pre-session queries:
+  `LIST_SOURCES → SOURCE_LIST` and probe `PING (sid=0) → PONG`. (The `DISCOVER → ANNOUNCE`
+  branch was removed on 2026-07-27 together with all LAN discovery.) The beacon only *builds*
+  reply bytes; the Recv loop sends them back to the datagram's origin — deliberately before
+  `replyAddr` is updated, so a stranger probing the network can never hijack the session's
+  send path. `publishRows` refreshes the beacon's source list each second.
 
-## 8. Clipboard sync (host side)
+## 8. Clipboard sync — removed
 
-Off by default (`AgentOptions::shareClipboard`); when off, `HostSession` drops incoming
-`CLIPBOARD` chunks without assembling them and `SendClipboard` is a no-op. When on:
-
-- **Outbound:** the platform `ClipboardSync` (Windows `ClipboardSync.h`: a clipboard-listener
-  thread with a message-only window; macOS `agent/ClipboardSync.h`: a 300 ms `changeCount` poll —
-  macOS has no change notification) reports local copies into a mutex-guarded mailbox; the Recv
-  loop drains it and calls `HostSession::SendClipboard` on the *first* streaming session (all
-  sessions belong to the same client, and receivers de-duplicate by content). Core chunks the text
-  (`kMaxClipboardChunk`, cap `kMaxClipboardBytes` = 64 KB, UTF-8 text only — no images/files in v1).
-- **Inbound:** `cb.onClipboard` (fired once `deskhub::ClipboardAssembler` completes a chunk set)
-  calls `ClipboardSync::SetRemoteText`. Both platform classes suppress the echo loop (setting the
-  clipboard re-triggers your own listener) by remembering the last set/seen text.
+Two-way clipboard sync (GĐ8/9) was removed 2026-07-27: no `ClipboardSync` classes,
+no `CLIPBOARD` message, no `shareClipboard` option. (The "Copy address" buttons that
+write to the LOCAL clipboard are unrelated and remain.)
 
 ## 9. macOS agent specifics
 
-The macOS agent (`client/macos/app/cpp/agent/`) is a deliberate port of the Windows loop — same
+The macOS agent (`client/macos/app/cpp/`) is a deliberate port of the Windows loop — same
 pipeline-per-source structure, same routing, same cached-frame/keepalive/resize/pause logic — with
 these differences:
 
@@ -282,7 +257,7 @@ these differences:
   Screen Recording means `SCShareableContent` only returns the app's own windows; no Accessibility
   means `CGEventPost` "succeeds" without delivering anything. `Start` therefore refuses to run
   without Screen Recording, and `InputInjector::Init` checks `HasAccessibility` and logs plainly.
-  Accessibility is only needed when `allowInput` is on. App-level flow: `14-macos-app.md`.
+  Accessibility is required for every share (input is always on). App-level flow: `14-macos-app.md`.
 - The frame cache is a retained `CVPixelBufferRef` (SCStream's queue depth is raised to tolerate
   it) instead of a texture copy.
 - **No `Beacon`:** the macOS Recv loop answers `LIST_SOURCES` inline (`BuildSourceList`) but does

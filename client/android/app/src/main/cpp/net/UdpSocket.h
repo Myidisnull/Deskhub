@@ -50,8 +50,14 @@ struct NetAddr {
     std::string ToString() const;
 };
 
-// "ip[:port]" -> NetAddr (port mặc định nếu không ghi). false nếu sai cú pháp.
-bool ParseNetAddr(const std::string& s, uint16_t defaultPort, NetAddr& out);
+// CỔNG CỐ ĐỊNH CỦA TOÀN BỘ SẢN PHẨM — bản sao của hằng số cùng tên ở
+// client/windows/cpp/net/UdpSocket.h (lý do đầy đủ nằm ở đó). Đổi thì đổi cả ba
+// nền tảng cùng lúc.
+inline constexpr uint16_t kDeskhubPort = 47777;
+
+// "192.168.1.5" -> NetAddr với port = kDeskhubPort. false nếu sai cú pháp.
+// CHỈ nhận IP trần: chuỗi có ':' bị TỪ CHỐI chứ không bỏ qua phần cổng.
+bool ParseNetAddr(const std::string& s, NetAddr& out);
 
 class UdpSocket {
 public:
