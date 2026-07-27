@@ -37,8 +37,14 @@ ifeq ($(MACOS_SIGN),adhoc)
 MACOS_SIGN_FLAGS := CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
 endif
 ifeq ($(MACOS_SIGN),developerid)
+# Hai flag cuối là bắt buộc để qua notarization khi build bằng `xcodebuild build`
+# thường (không phải archive/export): mặc định Xcode inject entitlement debug
+# com.apple.security.get-task-allow và ký với --timestamp=none — Apple từ chối
+# cả hai (status: Invalid).
 MACOS_SIGN_FLAGS := CODE_SIGN_IDENTITY="Developer ID Application" CODE_SIGN_STYLE=Manual \
-                    DEVELOPMENT_TEAM=$(MACOS_TEAM)
+                    DEVELOPMENT_TEAM=$(MACOS_TEAM) \
+                    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+                    OTHER_CODE_SIGN_FLAGS=--timestamp
 endif
 
 # Tham số xcodebuild bơm từ ngoài — fastlane dùng để ĐÈ version (MARKETING_VERSION từ
@@ -52,6 +58,18 @@ MACOS_XCARGS ?=
 # ASC_KEY_P8 là ĐƯỜNG DẪN tới file .p8; CI giải base64 từ secret ASC_KEY_CONTENT ra
 # $RUNNER_TEMP rồi truyền vào đây (xem .github/workflows/deploy.yml).
 NOTARY_CREDS := --key "$(ASC_KEY_P8)" --key-id "$(ASC_KEY_ID)" --issuer "$(ASC_ISSUER_ID)"
+
+# Nộp $(1) cho Apple và chờ quét xong. notarytool exit 0 KỂ CẢ khi bị từ chối
+# (status: Invalid) — không tự kiểm tra thì make chạy tiếp và chết mù ở bước
+# staple ("Record not found"). Nên: đọc status từ output; nếu không phải Accepted
+# thì kéo log thẩm định của Apple về in ra (lý do từ chối nằm trong đó) rồi dừng.
+define notarize
+	xcrun notarytool submit $(1) --wait $(NOTARY_CREDS) | tee $(MACOS_DIST)/notary.txt; \
+	grep -q 'status: Accepted' $(MACOS_DIST)/notary.txt || { \
+	  sub_id=$$(awk '/^  id:/{print $$2; exit}' $(MACOS_DIST)/notary.txt); \
+	  echo "notarize: rejected, fetching Apple log for $$sub_id"; \
+	  xcrun notarytool log "$$sub_id" $(NOTARY_CREDS); exit 1; }
+endef
 
 build-macos:
 	xcodebuild -project $(MACOS_PROJ) -target app -configuration Debug SYMROOT=$(MACOS_OUT) $(MACOS_SIGN_FLAGS) $(MACOS_XCARGS) build
@@ -74,7 +92,7 @@ dist-macos:
 	mkdir -p $(MACOS_DIST)
 	# 1. Nộp .app (bọc trong zip) và chờ Apple quét xong.
 	ditto -c -k --keepParent $(MACOS_APP) $(MACOS_ZIP)
-	xcrun notarytool submit $(MACOS_ZIP) --wait $(NOTARY_CREDS)
+	$(call notarize,$(MACOS_ZIP))
 	# 2. Dán vé vào chính .app.
 	xcrun stapler staple $(MACOS_APP)
 	# 3. Dàn dmg: app đã staple + lối tắt /Applications để kéo-thả cài.
@@ -85,7 +103,7 @@ dist-macos:
 	hdiutil create -volname Deskhub -srcfolder $(MACOS_DMG_SRC) -ov -format UDZO $(MACOS_DMG)
 	# 4. dmg cũng phải ký + notarize + staple thì Gatekeeper mới nhận chính file tải về.
 	codesign --sign "Developer ID Application" --timestamp $(MACOS_DMG)
-	xcrun notarytool submit $(MACOS_DMG) --wait $(NOTARY_CREDS)
+	$(call notarize,$(MACOS_DMG))
 	xcrun stapler staple $(MACOS_DMG)
 	@echo "dist-macos: xong -> $(MACOS_DMG)"
 
