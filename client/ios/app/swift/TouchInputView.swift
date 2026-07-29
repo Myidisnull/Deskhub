@@ -21,6 +21,12 @@
 //   `videoAspect` — và toạ độ gửi đi chuẩn hoá 0..65535 theo rect đó, đúng hệ mà
 //   InputInjector bên host mong đợi.
 //
+// VÙNG MÙ CHO BẢNG ĐIỀU KHIỂN
+//   Overlay này phủ trọn màn hình, kể cả phần nằm dưới bảng điều khiển của StreamView.
+//   `blockedRect` (toạ độ cửa sổ) là khung bảng đang chiếm: mọi điểm rơi vào đó bị
+//   point(inside:) trả false, nên UIKit không hit-test vào view này và các gesture
+//   recognizer ở đây không hề thấy cú chạm — bấm nút không làm con trỏ nhảy.
+//
 // LIÊN QUAN: StreamView.swift (nơi đặt overlay), SessionModel (chuyển tiếp xuống C++)
 // =============================================================================
 import SwiftUI
@@ -29,6 +35,8 @@ import UIKit
 struct TouchInputView: UIViewRepresentable {
     let model: SessionModel
     let videoAspect: CGFloat
+    /// Khung của lớp điều khiển, toạ độ .global — xem `blockedRect` bên dưới.
+    var blockedRect: CGRect = .zero
 
     func makeUIView(context _: Context) -> TouchCaptureUIView {
         let view = TouchCaptureUIView()
@@ -39,6 +47,7 @@ struct TouchInputView: UIViewRepresentable {
     func updateUIView(_ uiView: TouchCaptureUIView, context _: Context) {
         uiView.model = model
         uiView.videoAspect = videoAspect
+        uiView.blockedRect = blockedRect
     }
 }
 
@@ -49,6 +58,10 @@ final class TouchCaptureUIView: UIView {
     var videoAspect: CGFloat = 0 {
         didSet { setNeedsLayout() }
     }
+
+    // Vùng không nhận chạm (toạ độ CỬA SỔ, do StreamView đo bằng .global) — chỗ bảng
+    // điều khiển đang đứng. .zero = không khoét gì.
+    var blockedRect: CGRect = .zero
 
     // Mũi tên con trỏ: SF Symbol trắng + bóng đen để nổi trên mọi nền video.
     private let cursorView: UIImageView = {
@@ -91,6 +104,15 @@ final class TouchCaptureUIView: UIView {
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // Chặn ngay từ HIT-TEST, không phải ở tầng gesture: view nào không "chứa" điểm
+    // chạm thì UIKit không giao touch cho nó, nên 4 recognizer ở đây không thấy gì
+    // cả. Quy về toạ độ cửa sổ vì blockedRect do SwiftUI đo bằng .global.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard super.point(inside: point, with: event) else { return false }
+        guard !blockedRect.isEmpty else { return true }
+        return !blockedRect.contains(convert(point, to: nil))
+    }
 
     // Khung video thật bên trong overlay: aspect-fit canh giữa — trùng công thức
     // letterbox của .aspectRatio bên StreamView.

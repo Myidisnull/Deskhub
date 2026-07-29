@@ -7,13 +7,21 @@
 //   Cả bộ đó đã xoá theo yêu cầu "trông cơ bản thôi, không cần màu mè" — giờ chỉ còn
 //   `Text` và `Button` mặc định của Material 3 trên nền đen.
 //
-// BỐ CỤC: BA HÀNG XẾP DỌC, KHÔNG CHỒNG NHAU
-//     [thanh trên]  địa chỉ + dòng số liệu
-//     [ô giữa]      video (weight 1f) + trackpad phủ đúng ô này
-//     [thanh dưới]  phím tắt + Display/Keyboard/End
-//   Hai thanh từng là HUD nổi ĐÈ lên video; tách hẳn ra 2026-07-27 theo yêu cầu.
-//   Đánh đổi: khung hình mất đúng phần chiều cao của hai thanh, đổi lại không còn gì
-//   nằm chắn lên nội dung đang xem, và rê tay lên thanh nút không làm con trỏ nhảy.
+// BỐ CỤC: VIDEO TRÀN MÀN HÌNH + BẢNG ĐIỀU KHIỂN THU/MỞ (2026-07-29)
+//   Trước đây là ba hàng xếp dọc — [thanh trên: địa chỉ + số liệu] / [video] /
+//   [thanh dưới: phím tắt + nút]. Không có gì che video, nhưng khung hình mất VĨNH
+//   VIỄN đúng chiều cao hai thanh, kể cả lúc chỉ ngồi xem.
+//
+//   Giờ video chiếm TRỌN màn hình và toàn bộ chrome dồn vào một lớp phủ góc dưới-phải:
+//     thu  → chỉ còn một nút tròn 48dp mờ. Gần như cả màn là khung hình.
+//     mở   → bảng phủ đáy: địa chỉ + dòng số liệu, hàng phím tắt, Keyboard/Display/End,
+//            và nút ✕ để thu lại.
+//   Đánh đổi đảo chiều so với bản trước: lúc MỞ, bảng đè lên phần đáy khung hình —
+//   nhưng phần bị đè chỉ tồn tại đúng lúc người dùng chủ động mở nó ra.
+//
+//   Trackpad vẫn phủ trọn màn hình, gồm cả phần dưới bảng — nên lớp điều khiển NUỐT
+//   trọn sự kiện chạm rơi vào nó (xem consumeTouches), kẻo mỗi lần bấm nút con trỏ
+//   lại nhảy một phát.
 //
 //   Phần CHỨC NĂNG giữ nguyên từng dòng: SurfaceView, tỉ lệ khung/letterbox, trackpad
 //   ảo, view hứng phím IME, hàng phím tắt. Chúng không phải trang trí.
@@ -53,6 +61,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -63,14 +72,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,6 +105,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.isSpecified
@@ -331,45 +348,33 @@ private fun StreamScreen(
         }
     }
 
-    // BA TẦNG XẾP DỌC, KHÔNG CHỒNG LÊN NHAU (2026-07-27)
-    //   Trước đây thanh trạng thái và thanh nút là HUD nổi ĐÈ lên video. Giờ chúng là
-    //   view riêng: video chiếm phần giữa (weight 1f) và không có gì phủ lên nó nữa.
-    //   Hệ quả có thật: khung hình nhỏ đi đúng bằng chiều cao hai thanh — đổi lại
-    //   không còn chữ hay nút nằm chắn lên nội dung đang xem.
-    //
-    // Bàn phím ảo vẫn ĐÈ lên (không imePadding/adjustResize) để khung hình đứng yên
-    // khi mở bàn phím, chứ không co layout.
-    Column(
+    // Bảng điều khiển: mặc định THU. Vào phiên là thấy ngay khung hình trọn vẹn,
+    // muốn nút thì mở ra.
+    var controlsOpen by remember { mutableStateOf(false) }
+
+    // VIDEO TRÀN VIỀN, CHROME NẰM TRONG MỘT LỚP PHỦ (2026-07-29)
+    //   Không safeDrawingPadding ở ngoài cùng nữa: video phải chạm tới mép màn hình.
+    //   Riêng lớp điều khiển mới né thanh hệ thống / tai thỏ / bàn phím ảo — chỗ đó
+    //   mới cần ngón tay bấm trúng.
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(Color.Black)
-                .safeDrawingPadding(),
+                .background(Color.Black),
     ) {
-        // --- Thanh trên: địa chỉ + dòng số liệu ---
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Text(
-                text = if (videoW > 0) "$address — $videoW×$videoH" else address,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White,
-                maxLines = 1,
-            )
-            if (streaming && statusLine.isNotEmpty()) {
-                Text(
-                    text = statusLine,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White,
-                    maxLines = 1,
-                )
-            }
-        }
-
-        // --- Giữa: chỉ video (+ trackpad phủ đúng vùng này) ---
+        // --- Video phủ trọn màn hình (+ trackpad phủ đúng vùng này) ---
+        //
+        // Trừ đúng phần notch ở HAI BÊN: nằm ngang thì notch nằm ở cạnh trái/phải và
+        // nó che mất pixel THẬT — rìa desktop biến mất, thấy rõ nhất với host siêu
+        // rộng (3440×1440 phủ hết bề ngang). Trên/dưới không trừ: ở đó chỉ có thanh
+        // điều hướng cử chỉ vẽ ĐÈ lên, không che mất gì.
         Box(
             modifier =
                 Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                    .fillMaxSize()
+                    .windowInsetsPadding(
+                        WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal),
+                    ),
             contentAlignment = Alignment.Center,
         ) {
             if (started) {
@@ -387,8 +392,8 @@ private fun StreamScreen(
                     )
                 }
 
-                // Trackpad phủ trọn ô giữa — gồm cả vùng đen letterbox, nhưng KHÔNG
-                // còn chạm tới hai thanh: rê tay lên nút không làm con trỏ nhảy nữa.
+                // Trackpad phủ trọn màn hình — gồm cả vùng đen letterbox. Phần nằm
+                // dưới lớp điều khiển không nhận chạm: lớp đó nuốt trước (consumeTouches).
                 if (streaming) {
                     TrackpadOverlay(
                         videoAspect = aspect,
@@ -407,7 +412,6 @@ private fun StreamScreen(
                 )
             }
 
-            // Lớp phủ trạng thái nằm TRONG ô video, không che hai thanh.
             if (!started || phase == NativeClient.PHASE_ENDED) {
                 EndedOverlay(
                     reason = if (!started) "Could not connect to $address" else endReason,
@@ -418,20 +422,58 @@ private fun StreamScreen(
             }
         }
 
-        // --- Thanh dưới: phím tắt + Display/Keyboard/End ---
-        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            BottomBar(
-                streaming = streaming,
-                keyboardOn = keyboardOn,
-                sources = sources,
-                currentSourceId = currentSourceId,
-                onToggleKeyboard = { keyboardOn = !keyboardOn },
-                onSwitchSource = onSwitchSource,
-                onEnd = onDismiss,
-            )
+        // --- Lớp điều khiển: nút tròn <-> bảng, góc dưới-phải ---
+        Box(
+            modifier =
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    // safeDrawing gồm cả IME, nên bảng tự trượt lên trên bàn phím ảo
+                    // trong khi khung hình phía sau đứng yên.
+                    .safeDrawingPadding()
+                    .consumeTouches()
+                    .padding(12.dp),
+        ) {
+            if (controlsOpen) {
+                ControlPanel(
+                    address = address,
+                    videoW = videoW,
+                    videoH = videoH,
+                    statusLine = statusLine,
+                    streaming = streaming,
+                    keyboardOn = keyboardOn,
+                    sources = sources,
+                    currentSourceId = currentSourceId,
+                    onToggleKeyboard = { keyboardOn = !keyboardOn },
+                    onSwitchSource = onSwitchSource,
+                    onEnd = onDismiss,
+                    onCollapse = { controlsOpen = false },
+                )
+            } else {
+                ExpandButton(onClick = { controlsOpen = true })
+            }
         }
     }
 }
+
+/**
+ * Nuốt trọn sự kiện chạm rơi vào vùng này.
+ *
+ * Trackpad là view ANH EM nằm dưới, phủ trọn màn hình. Compose dừng hit-test ở con
+ * trên cùng có pointerInput, nên chỉ cần lớp điều khiển CÓ một pointerInput là chạm
+ * không lọt xuống nữa — không có nó thì khoảng trống giữa các nút vẫn rơi thẳng
+ * xuống trackpad và mỗi lần bấm hụt là con trỏ nhảy.
+ *
+ * Consume ở pass Main (mặc định): nút con nhận sự kiện TRƯỚC cha, nên chúng vẫn bấm
+ * bình thường.
+ */
+private fun Modifier.consumeTouches(): Modifier =
+    pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                awaitPointerEvent().changes.forEach { it.consume() }
+            }
+        }
+    }
 
 /** Hộp thoại đổi màn hình — chỉ mở được khi host chia sẻ từ hai nguồn trở lên. */
 @Composable
@@ -482,9 +524,36 @@ private fun DisplayPickerDialog(
     )
 }
 
-/** Thanh dưới: hàng phím tắt cuộn ngang + nút đổi màn hình, bàn phím ảo và Kết thúc. */
+/**
+ * Trạng thái THU: một nút tròn mờ ở góc dưới-phải — thứ DUY NHẤT nằm trên khung hình
+ * khi người dùng chỉ ngồi xem.
+ */
 @Composable
-private fun BottomBar(
+private fun ExpandButton(onClick: () -> Unit) {
+    Box(
+        modifier =
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.45f))
+                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = "☰", color = Color.White)
+    }
+}
+
+/**
+ * Trạng thái MỞ: mọi thứ từng nằm ở hai thanh — địa chỉ + dòng số liệu, hàng phím tắt
+ * cuộn ngang, Keyboard/Display/End — gộp vào một bảng phủ đáy, kèm nút ✕ để thu lại.
+ */
+@Composable
+private fun ControlPanel(
+    address: String,
+    videoW: Int,
+    videoH: Int,
+    statusLine: String,
     streaming: Boolean,
     keyboardOn: Boolean,
     sources: List<NativeClient.Source>,
@@ -492,6 +561,7 @@ private fun BottomBar(
     onToggleKeyboard: () -> Unit,
     onSwitchSource: (Int) -> Unit,
     onEnd: () -> Unit,
+    onCollapse: () -> Unit,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
 
@@ -505,9 +575,52 @@ private fun BottomBar(
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                // Nền đen mờ chứ không trong suốt: chữ trắng phải đọc được trên MỌI
+                // khung hình chạy phía sau.
+                //
+                // background(color, shape) chứ KHÔNG clip(shape) rồi background(color):
+                // clip cắt cụt phần thò ra của con — khi chỗ trống theo chiều dọc chỉ
+                // vừa đúng nội dung (máy nằm ngang), hàng nút cuối bị xén mất đáy.
+                // Bo góc bằng shape của background thì không đụng tới con.
+                .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+                .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (videoW > 0) "$address — $videoW×$videoH" else address,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+                if (streaming && statusLine.isNotEmpty()) {
+                    Text(
+                        text = statusLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                    )
+                }
+            }
+            Box(
+                modifier =
+                    Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onCollapse),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "✕", color = Color.White)
+            }
+        }
+
         // Phím tắt cuộn ngang: hàng này dài hơn bề ngang máy.
         Row(
             modifier =

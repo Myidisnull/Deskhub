@@ -149,8 +149,31 @@ negotiated `videoWidth/Height`.
 
 **Stats HUD**: `NetThread` builds a one-line summary every second
 (`fps  Mbps  loss %  RTT ms  e2e ms`); `SessionModel.poll()` reads it via `dh_status_line` and
-`StreamView` prints it as one line of text in the status bar. (It used to also be parsed for
-RTT and drawn as a sparkline; that went with the design system on 2026-07-27.) The e2e figure
+`StreamView` prints it as one line of text at the top of the control panel. (It used to also be
+parsed for RTT and drawn as a sparkline; that went with the design system on 2026-07-27.)
+
+**Screen layout (2026-07-29)**: the video is full-bleed (`.ignoresSafeArea()`), and everything
+else lives in one collapsible control layer pinned bottom-trailing — collapsed it is a single
+44 pt round button, expanded it is an `.ultraThinMaterial` panel with the address + status
+line, the hotkey row, Keyboard/Display/End and an ✕ to collapse. It replaced three stacked rows
+(status bar / video / button bar), which cost the frame those two bar heights at all times.
+
+The whole `ZStack` takes `.ignoresSafeArea()`, so the stack's frame *is* the full screen and a
+`.bottomTrailing`-aligned child would sit under the home indicator (and run into the notch in
+landscape). The insets are therefore read from a `GeometryReader` placed **outside** the
+ignoring subtree — inside one, `proxy.safeAreaInsets` is always zero — and applied by hand,
+differently per layer:
+
+- **control layer + status overlay** — padded on all four edges, so buttons and text always
+  clear the notch and the home indicator. Those insets include the keyboard region, so opening
+  the soft keyboard nudges the panel up while the frame behind it stays put.
+- **video** — padded on the **leading/trailing edges only**. In landscape the notch sits on a
+  side edge and physically hides pixels, so a full-bleed frame loses the edges of the remote
+  desktop (very visible with an ultrawide host: a 3440×1440 source fills the width, so its left
+  and right columns disappear). Top and bottom stay unpadded: the only thing there is the home
+  indicator, which draws *over* the picture without hiding it. On a 13 Pro Max in landscape
+  that makes the frame 832×348 pt instead of 926×388 — about 10% smaller, in exchange for
+  nothing being swallowed by the notch. The e2e figure
 is measured at *enqueue* time, not at display time — a known caveat noted in `VtDecoder.h`
 (`lastRenderedPtsUs`).
 
@@ -171,12 +194,14 @@ STREAMING.
   within that rect. Gestures: drag = move cursor; single tap = left click (waits for the
   double-tap window to fail); double tap = right click; long-press-then-drag = hold left
   button and drag, released on lift. A move is re-sent immediately before every click so
-  clicks land under the visible cursor. The overlay fills the middle row of the screen —
-  letterbox included — but not the status/button bars above and below it, so a finger landing
-  on a button no longer jogs the cursor. It is mounted whenever the session is streaming.
+  clicks land under the visible cursor. The overlay fills the whole screen — letterbox
+  included — minus `blockedRect`, the frame of the control layer measured by `StreamView` in
+  `.global` coordinates: `point(inside:)` returns false there, so UIKit never hit-tests into
+  the view and its four gesture recognizers never see those touches. A finger landing on the
+  panel therefore cannot jog the cursor. It is mounted whenever the session is streaming.
 - **Virtual keyboard** — `KeyInputView` (`client/ios/app/swift/KeyInputView.swift`) is an
-  invisible `UIKeyInput` view (ASCII keyboard, autocorrect off) toggled by the HUD keyboard
-  button; a transparent accessory bar adds a "Done" dismiss button. Each typed scalar goes to
+  invisible `UIKeyInput` view (ASCII keyboard, autocorrect off) toggled by the control panel's
+  Keyboard button; a transparent accessory bar adds a "Done" dismiss button. Each typed scalar goes to
   `dh_char_tap`; `ClientLoop::QueueCharTap` uses core `CharToKeyChord` (`KeyMap.h`, US layout)
   to emit `[Shift↓] key↓ key↑ [Shift↑]`; backspace is sent as codepoint `0x08`. Non-ASCII
   characters are silently dropped.

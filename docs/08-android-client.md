@@ -130,10 +130,27 @@ paths (reassembler loss, `WaitingForIdr`, decode failure, queue overflow) funnel
 `session.RequestKeyframe()` with `[DIAG]` logging per 09-diagnostics.md.
 
 Stats surfaced to the UI: `nativeStatusLine` returns the one-per-second line built in
-`ClientLoop::NetThread` (`fps / Mbps / loss % / RTT / e2e`), printed as a plain line of text in
-the status bar above the video. The stream screen is three stacked rows — status bar, video
-(`weight(1f)`), button bar — since 2026-07-27; the bars used to float on top of the video and
-now sit outside it. (It used to also be parsed for RTT and drawn as a 60-sample
+`ClientLoop::NetThread` (`fps / Mbps / loss % / RTT / e2e`), printed as a plain line of text at
+the top of the control panel. The stream screen is **full-bleed video plus one collapsible
+control layer** since 2026-07-29: collapsed it is a single 48 dp round button in the
+bottom-right corner, expanded it is a translucent bottom panel holding the address + status
+line, the hotkey row, Keyboard/Display/End and an ✕ to collapse again. (Before that it was
+three stacked rows — status bar, video `weight(1f)`, button bar — which cost the frame those
+two bar heights permanently; before *that* the bars floated over the video with no way to
+hide them.) The control layer takes `safeDrawingPadding()` (which includes the IME, so the
+panel rides above the soft keyboard); the video takes only
+`windowInsetsPadding(WindowInsets.displayCutout.only(Horizontal))` — in landscape the cutout
+sits on a side edge and *hides* picture (the edges of an ultrawide desktop vanish), while the
+top/bottom gesture bar merely draws over it, so those edges stay full-bleed. The panel rounds
+its corners with `background(color, shape)` and **not** `clip(shape) + background(color)`: in
+landscape the vertical room is barely more than the panel needs, and `clip` sliced the bottom
+off the last button row.
+
+Note when testing on an emulator: unless the image is Android 15+ (or the activity opts in
+explicitly), the window is *not* edge-to-edge — the system already excludes the cutout and the
+navigation bar, `WindowInsets.safeDrawing` reads all-zero, and the cutout padding above is a
+no-op. Verifying it needs an edge-to-edge device/image plus
+`cmd overlay enable com.android.internal.display.cutout.emulation.tall`. (It used to also be parsed for RTT and drawn as a 60-sample
 sparkline; that went with the design system on 2026-07-27 — the numbers are still all there in
 the line itself.) `nativeVideoWidth/Height` drive the letterbox aspect ratio. Full per-second stats and `[DIAG]`
 events go to logcat, tag `Deskhub` (`cpp/Log.h`; `adb logcat -s Deskhub`).
@@ -154,9 +171,11 @@ matters, releasing held keys.)
 - **Trackpad** (`TrackpadOverlay` in `StreamActivity.kt`) — laptop-touchpad semantics: an
   always-visible drawn cursor (`CursorArrow`) moves by *delta*, never jumps to the touch point.
   Tap = left click at the cursor, double-tap = right click, long-press-then-drag = left-button
-  drag (mutually exclusive with plain drags by construction). The overlay fills the middle row
-  of the screen — letterbox included — but not the status/button bars above and below it, so a
-  finger landing on a button no longer jogs the cursor. The cursor itself is clamped to the
+  drag (mutually exclusive with plain drags by construction). The overlay fills the whole
+  screen — letterbox included — but the control layer sits on top of it and swallows every
+  pointer event that lands on it (`Modifier.consumeTouches`, a `pointerInput` that consumes on
+  the Main pass so child buttons still work), so a finger landing on the panel — or on the gap
+  between its buttons — cannot jog the cursor. The cursor itself is clamped to the
   actual video rect and positions are normalized to 0..65535 within it (`sendMouseMove` →
   `QueueMouseMoveAbs`). It is mounted whenever the session is streaming.
 - **Virtual keyboard** (`KeyInputView.kt`) — an invisible 1 dp view that holds IME focus and
