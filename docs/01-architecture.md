@@ -12,10 +12,12 @@ Two roles, OS-independent; each OS only swaps the hardware backends underneath:
 - **Agent (host role)** — runs where the shared application lives. Captures whole displays
   (per-window sharing was removed 2026-07-27), hardware-encodes H.264, sends video; receives
   input events and injects them
-  locally. Implemented today on **Windows** (`client/windows/cpp/AgentLoop.cpp`) and
-  **macOS** (`client/macos/app/cpp/AgentLoop.cpp`).
+  locally. Implemented today on **Windows** (`client/windows/cpp/AgentLoop.cpp`),
+  **macOS** (`client/macos/app/cpp/AgentLoop.cpp`) and **Ubuntu**
+  (`client/linux/cpp/AgentLoop.cpp`, not yet run on real hardware).
 - **Client role** — receives video, hardware-decodes and renders it, captures mouse /
-  keyboard / touch and sends them back. Implemented on **Windows, macOS, Android, iOS**.
+  keyboard / touch and sends them back. Implemented on **Windows, macOS, Ubuntu,
+  Android, iOS**.
 
 Android and iOS have no agent role (mobile OSes cannot host this kind of session), so their
 apps ship only the client pipeline. A desktop app can run both roles simultaneously — e.g.
@@ -147,16 +149,16 @@ Anything larger (sockets, capture, codecs, UI) lives in each client tree, not he
 
 All verified against the classes in each client directory:
 
-| Stage | Windows | macOS | Android | iOS |
-|---|---|---|---|---|
-| Capture (agent) | `ScreenCapture` — Windows Graphics Capture, monitor only, D3D11 textures (`client/windows/cpp/capture/`) | `ScreenCapture` — ScreenCaptureKit, NV12 `CVPixelBuffer` (`client/macos/app/cpp/capture/`) | — (client-only) | — (client-only) |
-| Encode (agent) | `NvencEncoder` (NVENC, DLL loaded at runtime) with fallback to `MfEncoder` (Media Foundation MFT); chosen by `EncoderFactory` | `VtEncoder` — VideoToolbox, AVCC→Annex-B conversion, SPS/PPS injected per IDR | — | — |
-| Decode | `MfDecoder` — sync MFT + D3D11VA, NV12 stays in VRAM | `VtDecoder` — VideoToolbox via `AVSampleBufferDisplayLayer` | `MediaCodecDecoder` — `AMediaCodec` configured directly on the `Surface` | `VtDecoder` — same design as macOS (macOS copy is derived from it) |
-| Render | `PanelRenderer` — D3D11 swapchain, for-HWND child window (Win32 app, `dh_client_start_hwnd`; the WinUI3 for-composition mode was removed 2026-07-27) | decode *is* render (layer enqueue) | decode *is* render (`releaseOutputBuffer(..., true)`) | decode *is* render (layer enqueue) |
-| Input capture (client) | `ViewerInput` (Raw Input + window messages on the video child HWND) → `dh_client_mouse_move/…/key` in `DeskhubApi.h` | SwiftUI views → `dh_key/dh_mouse_*` in `DeskhubBridge.h` | touch + soft keyboard (`StreamActivity.kt`, `KeyInputView.kt` → `ClientLoop::QueueCharTap` + core `KeyMap`) | touch + soft keyboard (`TouchInputView.swift`, `KeyInputView.swift`) |
-| Input inject (agent) | `InputInjector` — `SendInput` with scancodes (works with Raw-Input/DirectInput games); `LocalInputMonitor` gives the person at the machine priority | `InputInjector` — Quartz `CGEventPost`, `MacKeyMap` translates wire VKs to Carbon keycodes; `LocalInputMonitor` too | — | — |
-| Transport glue | `net/UdpSocket` (winsock) + `net/Pacer` (spreads a frame's burst — the project's biggest loss fix), `SourceQuery`, `NetInfo`, `Firewall` | `net/UdpSocket`, `SourceQuery`, `NetInfo` | `net/UdpSocket`, `SourceQuery` | `net/UdpSocket`, `SourceQuery` |
-| UI / bridge | Plain Win32 app (`client/windows/win32/`) — host role calls `AgentLoop`/`AgentControl` directly, client role statically links the C API `DeskhubApi.h` (the WinUI3/C# frontend and `deskhub_native.dll` were removed 2026-07-27) | SwiftUI + C bridge `DeskhubBridge.h` (`dh_*` client, `dha_*` agent) | Jetpack Compose/Kotlin → `NativeClient.kt` → `JniBridge.cpp` → `ClientLoop` | SwiftUI → `DeskhubClient.swift` → `DeskhubClient.mm` → `ClientLoop` |
+| Stage | Windows | macOS | Ubuntu | Android | iOS |
+|---|---|---|---|---|---|
+| Capture (agent) | `ScreenCapture` — Windows Graphics Capture, monitor only, D3D11 textures (`client/windows/cpp/capture/`) | `ScreenCapture` — ScreenCaptureKit, NV12 `CVPixelBuffer` (`client/macos/app/cpp/capture/`) | `PortalScreenCast` (xdg-desktop-portal over D-Bus) + `ScreenCapture` (PipeWire, dma-buf or mapped RGB) (`client/linux/cpp/capture/`) | — (client-only) | — (client-only) |
+| Encode (agent) | `NvencEncoder` (NVENC, DLL loaded at runtime) with fallback to `MfEncoder` (Media Foundation MFT); chosen by `EncoderFactory` | `VtEncoder` — VideoToolbox, AVCC→Annex-B conversion, SPS/PPS injected per IDR | `VaEncoder` — VA-API written directly, RGB→NV12 via VPP, hand-written SPS/PPS as packed headers; no software fallback | — | — |
+| Decode | `MfDecoder` — sync MFT + D3D11VA, NV12 stays in VRAM | `VtDecoder` — VideoToolbox via `AVSampleBufferDisplayLayer` | `AvDecoder` — libavcodec with the VA-API hwaccel (libavcodec owns parsing + DPB only) | `MediaCodecDecoder` — `AMediaCodec` configured directly on the `Surface` | `VtDecoder` — same design as macOS (macOS copy is derived from it) |
+| Render | `PanelRenderer` — D3D11 swapchain, for-HWND child window (Win32 app, `dh_client_start_hwnd`; the WinUI3 for-composition mode was removed 2026-07-27) | decode *is* render (layer enqueue) | `VideoRenderer` — VA surface → dma-buf → EGLImage → GL texture, BT.709 shader, drawn in a `GtkGLArea` | decode *is* render (`releaseOutputBuffer(..., true)`) | decode *is* render (layer enqueue) |
+| Input capture (client) | `ViewerInput` (Raw Input + window messages on the video child HWND) → `dh_client_mouse_move/…/key` in `DeskhubApi.h` | SwiftUI views → `dh_key/dh_mouse_*` in `DeskhubBridge.h` | GTK signals on `ViewerWindow` → `ClientLoop::Queue*`; `LinuxKeyMap` turns evdev codes into VK + scancode | touch + soft keyboard (`StreamActivity.kt`, `KeyInputView.kt` → `ClientLoop::QueueCharTap` + core `KeyMap`) | touch + soft keyboard (`TouchInputView.swift`, `KeyInputView.swift`) |
+| Input inject (agent) | `InputInjector` — `SendInput` with scancodes (works with Raw-Input/DirectInput games); `LocalInputMonitor` gives the person at the machine priority | `InputInjector` — Quartz `CGEventPost`, `MacKeyMap` translates wire VKs to Carbon keycodes; `LocalInputMonitor` too | `InputInjector` — three `/dev/uinput` virtual devices (keyboard, relative mouse, absolute mouse); `LocalInputMonitor` reads `/dev/input/event*` and skips its own devices | — | — |
+| Transport glue | `net/UdpSocket` (winsock) + `net/Pacer` (spreads a frame's burst — the project's biggest loss fix), `SourceQuery`, `NetInfo`, `Firewall` | `net/UdpSocket`, `SourceQuery`, `NetInfo` | `net/UdpSocket`, `SourceQuery`, `NetInfo` (all POSIX, copied from macOS) | `net/UdpSocket`, `SourceQuery` | `net/UdpSocket`, `SourceQuery` |
+| UI / bridge | Plain Win32 app (`client/windows/win32/`) — host role calls `AgentLoop`/`AgentControl` directly, client role statically links the C API `DeskhubApi.h` (the WinUI3/C# frontend and `deskhub_native.dll` were removed 2026-07-27) | SwiftUI + C bridge `DeskhubBridge.h` (`dh_*` client, `dha_*` agent) | GTK3 (`client/linux/gtk/`) calling `AgentLoop`/`ClientLoop` directly; the `cpp/` layer never includes GTK | Jetpack Compose/Kotlin → `NativeClient.kt` → `JniBridge.cpp` → `ClientLoop` | SwiftUI → `DeskhubClient.swift` → `DeskhubClient.mm` → `ClientLoop` |
 
 Mobile `ClientLoop`s (Android original, iOS a close port) run three threads — Main (UI /
 surface handoff), Net (recv → `ClientSession` + `Reassembler`), Decode — with a bounded
@@ -178,6 +180,8 @@ client/windows/
   win32/                plain Win32 frontend → ONE Deskhub.exe (root CMake)
                         (csharp/ WinUI3 and imgui/ frontends removed 2026-07-27)
 client/macos/           Xcode app: swift/ (SwiftUI, both roles) + cpp/ (agent/, client/, bridge)
+client/linux/           CMake app: gtk/ (GTK3 UI, both roles) + cpp/ (capture/ encode/
+                        decode/ render/ input/ net/) → ONE `deskhub` executable
 client/android/         Gradle app: src/main/java (Compose UI) + src/main/cpp (NDK client)
 client/ios/             Xcode app: swift/ (SwiftUI) + cpp/ (ClientLoop, VtDecoder)
 docs/                   this documentation set
@@ -186,9 +190,8 @@ third_party/nvenc-13.0  NVIDIA Video Codec SDK headers (NVENC loaded at runtime)
 tools/                  ktlint.jar, swiftformat binaries for `make lint/format`
 ```
 
-There is **no** `host-transport/` or standalone server directory, and no Linux/web client
-yet (`10-web-client.md` is a design proposal only; Ubuntu/Linux appears in the roadmap, not
-in the tree).
+There is **no** `host-transport/` or standalone server directory, and no web client yet
+(`10-web-client.md` is a design proposal only).
 
 ## 7. Where to go deeper
 
@@ -197,7 +200,8 @@ in the tree).
 - `04-protocol.md` — the normative wire spec; `Wire.h` must match it.
 - `06-transport.md` — packetization, FEC, NACK, loss policy in depth.
 - `07-input.md` — input model, key-stuck defense, host-wins arbitration.
-- `08-android-client.md`, `12-ios-client.md`, `14-macos-app.md` — per-platform apps.
+- `08-android-client.md`, `12-ios-client.md`, `14-macos-app.md`, `17-linux-app.md` —
+  per-platform apps.
 - `09-diagnostics.md` — stats, overlay, loss forensics (late vs lost packets).
 - `11-platform-transport.md` — sockets and platform networking notes.
 - `13-release-mobile.md` — mobile release/signing; `05-roadmap.md` — what is not built yet

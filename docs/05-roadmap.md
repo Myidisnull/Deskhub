@@ -19,8 +19,8 @@ The roadmap has **two dimensions**:
 | macOS | ✅ | ✅ | **Both roles tested and working** (SCK + VideoToolbox + CGEvent), clean build | 14 |
 | Android | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard); in testing on Google Play | 08 |
 | iOS | — | ✅ | **Video + input** (SwiftUI + VideoToolbox); in testing via TestFlight | 12 |
+| Ubuntu | 🔶 | 🔶 | **Both roles written, never run on real hardware** — builds clean, `17-linux-app.md` §8 lists what must be verified | 17 |
 | Web | — | 📐 | Design complete, no code yet | 10 |
-| Ubuntu | ⬜ | ⬜ | Not started | — |
 
 Matrix + why the agent is desktop-only: `11-platform-transport.md`. The phases below are the
 **depth work on Windows**; when opening up a new platform, the `core/` part (Phase 3–Phase 6)
@@ -307,6 +307,57 @@ Run self-tests: `make test` (or `out\build\x64-debug\core\core_tests.exe`).
 - ⬜ NAT traversal (ICE/STUN/TURN) to run over the Internet.
 - ⬜ Audio (Opus + WASAPI loopback).
 - ⬜ Adaptive resolution; multi-client.
+
+## Phase 7 — Ubuntu 🔶 code DONE, AWAITING first run on real hardware (design: `17-linux-app.md`)
+
+The third desktop platform, and the first one where the operating system actively
+*refuses* the two things the agent role needs. Both were solved without touching `core/`,
+which is the whole point of the breadth axis.
+
+- ✅ **Capture — the only platform where the OS says no.** Wayland does not let an
+  application read the screen, by design. The path is `xdg-desktop-portal` over D-Bus
+  (`CreateSession → SelectSources → Start → OpenPipeWireRemote`), then frames over
+  PipeWire. **This inverts source selection**: `GetShareSources()` does not enumerate,
+  it *runs the system dialog* and returns what the user chose — the opposite of Windows
+  and macOS. Two paths are negotiated: dma-buf (zero-copy) with a mapped-memory
+  fallback.
+- ✅ **Encode — VA-API written directly**, including hand-written SPS/PPS emitted as
+  packed headers, because the protocol needs parameter sets repeated on every IDR and
+  essentially no driver does that. Infinite GOP + on-demand IDR, one reference frame,
+  RGB→NV12 on the GPU via VPP. No software fallback: a machine without VA-API encode
+  cannot host.
+- ✅ **Decode — libavcodec with the VA-API hwaccel**, and the asymmetry with the encoder
+  is deliberate. Raw VA-API decoding would mean writing an H.264 parser, POC arithmetic
+  and DPB management by hand — half a decoder, for something libavcodec already does
+  correctly. It still decodes on the GPU.
+- ✅ **Render — dma-buf → EGLImage → GL texture** in a `GtkGLArea`, BT.709 limited-range
+  shader matched to what the encoder writes into the SPS. Nothing leaves VRAM.
+- ✅ **Input injection — three `/dev/uinput` virtual devices.** XTest is Xorg-only and
+  cannot reach native Wayland clients. Three devices rather than one because libinput
+  ignores the absolute axes of any device that also has relative ones. "Host wins" reads
+  `/dev/input/event*` and filters by device name — simpler than the `LLMHF_INJECTED` /
+  `kCGEventSourceUserData` tricks the other two platforms need.
+- ✅ **UI — GTK3**, same two buttons as everywhere else; the `cpp/` layer never includes
+  GTK.
+- ✅ **Verified so far**: builds clean under `-Wall -Wextra` with zero warnings on
+  Ubuntu 24.04, links to a 534 KB binary, `core_tests` passes on the same toolchain.
+- ⬜ **Remaining — everything that needs hardware.** In risk order: the hand-written
+  SPS/PPS agreeing with what the driver actually encodes; dma-buf import into VA-API
+  plus PipeWire modifier fixation; `vaExportSurfaceHandle` → EGLImage on the client;
+  uinput coordinate mapping on multi-monitor hosts; then **M3, two machines over LAN**.
+  Full list: `17-linux-app.md` §8.
+- ⬜ Known gaps kept on purpose: pointer lock is approximate on native Wayland (GTK3
+  exposes no pointer-constraints protocol), and the mapped-memory capture fallback is
+  slow at 4K. Both are written up in `17-linux-app.md` §6.
+
+**Files added in Phase 7:** `client/linux/cpp/` — `capture/{PortalScreenCast,
+ScreenCapture,SourceEnum,CaptureTypes}`, `encode/{VaDisplay,VaEncoder,BitWriter}`,
+`decode/AvDecoder`, `render/{VideoRenderer,VideoSink}`, `input/{InputInjector,
+LocalInputMonitor,LinuxKeyMap}`, `net/{UdpSocket,NetInfo,SourceQuery}`, `AgentLoop`,
+`ClientLoop`; `client/linux/gtk/` — `main`, `MainWindow`, `ShareWindow`, `ViewerWindow`,
+`GtkUtil`. Build: `client/linux/CMakeLists.txt`, `make/linux.mk`, apt packages in
+`scripts/bootstrap.sh`, a `linux` job in `.github/workflows/build.yml`.
+Run: `make run-linux` (after `make setup-linux-permissions` once).
 
 ## Phase 9 — Core foundation for the designed UI 🔶 core DONE, awaiting per-platform wiring
 

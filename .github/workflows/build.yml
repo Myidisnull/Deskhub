@@ -113,6 +113,82 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Ubuntu: MỘT app chứa cả hai vai (host + client) — một tệp `deskhub` (GTK3 +
+  # native, target deskhub_app). Đây là nơi DUY NHẤT CI biên dịch nhánh
+  # PipeWire/VA-API/uinput/OpenGL.
+  #
+  # ĐÂY CHỈ LÀ BUILD CHECK. Không có GPU, không có compositor và không có
+  # /dev/uinput trên runner, nên không chạy thử được — mọi thứ ngoài "biên dịch và
+  # link sạch" phải kiểm trên máy thật (docs/17-linux-app.md §8).
+  #
+  # ⚠ VÌ SAO CÓ MA TRẬN HAI PHIÊN BẢN, VÀ VÌ SAO ARTIFACT CHỈ LẤY TỪ 22.04
+  #
+  #   Binary C++ liên kết động chạy được trên bản Ubuntu MỚI HƠN bản dựng ra nó,
+  #   nhưng KHÔNG chạy ngược lại. Đo thật trên cây này:
+  #     dựng trên 24.04 -> đòi GLIBCXX_3.4.31   (Ubuntu 22.04 chỉ có tới 3.4.30)
+  #     dựng trên 22.04 -> đòi GLIBCXX_3.4.29   (chạy được 22.04 trở lên)
+  #   Nên bản PHÁT HÀNH phải dựng trên phiên bản CŨ NHẤT ta hứa hỗ trợ; lấy từ
+  #   ubuntu-latest thì người dùng 22.04 nhận đúng một dòng
+  #   "version `GLIBCXX_3.4.31' not found" và app không mở được.
+  #
+  #   Nhánh ubuntu-latest vẫn chạy vì nó phủ thứ 22.04 không phủ: toolchain mới
+  #   hơn (GCC 13+) và PipeWire 1.x. Hai bản PipeWire khác nhau đủ để một API
+  #   biên dịch được ở cả hai mà chỉ chạy đúng ở một bên — xem chú thích
+  #   "target_id" trong capture/ScreenCapture.cpp.
+  #
+  #   Nếu GitHub gỡ runner ubuntu-22.04: hạ mốc hỗ trợ trong README + docs/17 §1,
+  #   hoặc chuyển sang dựng trong container ubuntu:22.04.
+  #
+  # Cài gói -dev tay chứ không gọi bootstrap.sh: bootstrap kéo cả Android SDK/NDK,
+  # quá nặng cho một job build check. Danh sách phải khớp phần Ubuntu của
+  # scripts/bootstrap.sh — lệch thì CI xanh mà máy dev gãy (hoặc ngược lại).
+  # ---------------------------------------------------------------------------
+  linux:
+    needs: core-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04   # bản dựng ra artifact phát hành
+            release: true
+          - os: ubuntu-latest  # build check trên toolchain + PipeWire mới
+            release: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build pkg-config \
+            libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
+            libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev \
+            libavcodec-dev libavutil-dev
+
+      # Gốc CMakeLists đòi CMake >= 3.25 còn Ubuntu 22.04 chỉ đóng gói 3.22.
+      # Ảnh runner của GitHub có sẵn bản mới, nhưng kiểm tra tường minh để lỗi
+      # (nếu ảnh đổi) hiện ra ngay ở đây thay vì thành một lỗi cấu hình khó hiểu.
+      - name: Check CMake version
+        run: |
+          have=$(cmake --version | head -1 | awk '{print $3}')
+          need=3.25
+          echo "CMake $have (need >= $need)"
+          [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" = "$need" ] \
+            || { echo "::error::CMake $have is too old — the root CMakeLists needs $need"; exit 1; }
+
+      - name: Build the Ubuntu app (make release-linux)
+        run: make release-linux
+
+      # Chỉ đẩy artifact từ nhánh 22.04 — xem ⚠ ở trên.
+      - name: Upload app
+        if: matrix.release
+        uses: actions/upload-artifact@v4
+        with:
+          name: deskhub-linux
+          path: out/build/x64-release/client/linux/deskhub
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Android: apk debug (UI Kotlin + libdeskhub.so). NDK/CMake pin đúng phiên bản
   # build.gradle.kts đang khoá để khớp cách căn trang nhớ 16 KB.
   # ---------------------------------------------------------------------------
@@ -201,7 +277,7 @@ jobs:
   #     đi đường TestFlight / App Store
   # ---------------------------------------------------------------------------
   release:
-    needs: [windows]
+    needs: [windows, linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -218,17 +294,26 @@ jobs:
         run: |
           mkdir -p out
           mv dist/deskhub-windows/Deskhub.exe "out/deskhub-${GITHUB_REF_NAME}-windows.exe"
+          mv dist/deskhub-linux/deskhub "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
+          chmod +x "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: out/deskhub-${{ github.ref_name }}-windows.exe
+          files: |
+            out/deskhub-${{ github.ref_name }}-windows.exe
+            out/deskhub-${{ github.ref_name }}-linux-x86_64
           body: |
             | Platform | File / channel |
             |---|---|
             | Windows | `deskhub-${{ github.ref_name }}-windows.exe` — single file, just run it |
             | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — notarized, opens without warnings |
+            | Ubuntu | `deskhub-${{ github.ref_name }}-linux-x86_64` — `chmod +x` and run (Ubuntu 22.04+, x86_64) |
             | Android | `deskhub-${{ github.ref_name }}-android.apk` — release-signed, same key as the Google Play build |
             | iOS | TestFlight / App Store (ipa cannot be sideloaded) |
+
+            **Ubuntu:** the binary links against GTK3, PipeWire, libva and FFmpeg, which a stock Ubuntu desktop already has.
+            To *share* your screen you also need `xdg-desktop-portal-gnome` (or `-kde` / `-wlr`) and one-time permission for
+            `/dev/uinput` — see `docs/17-linux-app.md` §7.
 
             macOS/Android files are attached by the deploy workflow — they may show up a few minutes after the Windows build.

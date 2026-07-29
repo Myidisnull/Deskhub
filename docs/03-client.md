@@ -14,6 +14,7 @@ together: a UDP socket, the `deskhub::ClientSession` state machine, the
 |----------|-------------|-----|
 | Windows | `client/windows/cpp/ClientApi.cpp` (`DhClientHandle::Run`) | Plain Win32, `client/windows/win32/` (`Viewer.cpp`) |
 | macOS | `client/macos/app/cpp/ClientLoop.cpp` | SwiftUI, `client/macos/app/swift/` |
+| Ubuntu | `client/linux/cpp/ClientLoop.cpp` | GTK3, `client/linux/gtk/ViewerWindow.cpp` |
 | Android | `client/android/app/src/main/cpp/ClientLoop.cpp` | Jetpack Compose, `client/android/app/src/main/java/com/deskhub/app/` |
 | iOS | `client/ios/app/cpp/ClientLoop.cpp` | SwiftUI, `client/ios/app/swift/` |
 | Web | designed only — see 10-web-client.md; no code under `client/` yet | — |
@@ -121,6 +122,7 @@ device and for-HWND swapchain on the caller's (UI) thread before the loop starts
 | macOS | `VtDecoder` (`client/macos/app/cpp/decode/VtDecoder.mm`) — VideoToolbox via `AVSampleBufferDisplayLayer`; converts Annex-B → AVCC and builds `CMVideoFormatDescription` from in-band SPS/PPS | the layer decodes **and** presents through the compositor; enqueueing a `CMSampleBuffer` is the entire render step |
 | iOS | `VtDecoder` (`client/ios/app/cpp/decode/VtDecoder.mm`) — the macOS file is a copy of this one | same `AVSampleBufferDisplayLayer` path, layer hosted by `VideoLayerView.swift` |
 | Android | `MediaCodecDecoder` (`client/android/app/src/main/cpp/decode/MediaCodecDecoder.h`) — NDK `AMediaCodec` configured directly with the `ANativeWindow` | `AMediaCodec_releaseOutputBuffer(..., true)` *is* the render; frames never touch the CPU |
+| Ubuntu | `AvDecoder` (`client/linux/cpp/decode/AvDecoder.h`) — libavcodec with the VA-API hwaccel; the only platform using a third-party codec library, because raw VA-API decoding would mean writing an H.264 parser + DPB by hand (17-linux-app.md §4) | `VideoRenderer` (`client/linux/cpp/render/`) — `vaExportSurfaceHandle` → dma-buf → EGLImage → GL texture, BT.709 shader, drawn in a `GtkGLArea`; nothing leaves VRAM |
 | Web | WebCodecs `VideoDecoder` + WebTransport + WASM core — **design only**, see 10-web-client.md | canvas/WebGL (designed) |
 
 On Windows, decoded frames are only valid inside the decoder callback and must be
@@ -182,6 +184,7 @@ and the desktop pasteboard wiring.
 | Android | JNI: `NativeClient.kt` (single Kotlin `object`, name-mangled to `JniBridge.cpp`); one global `ClientLoop`, start/stop guarded by generation tokens against overlapping Activity lifecycles | 08-android-client.md |
 | iOS | Flat C facade `client/ios/app/cpp/DeskhubClient.h`/`.mm` (ObjC++), imported through the Swift bridging header; one global session | 12-ios-client.md |
 | macOS | ObjC++ bridge `client/macos/app/cpp/DeskhubBridge.mm` wrapping `ClientLoop` for SwiftUI | 14-macos-app.md |
+| Ubuntu | No bridge — GTK3 calls `ClientLoop` directly; the only abstraction is `VideoSink` (`client/linux/cpp/render/VideoSink.h`), which keeps `ClientLoop` free of GTK/OpenGL | 17-linux-app.md |
 
 Wire formats for every message named above are specified in 04-protocol.md;
 reassembly, FEC and NACK mechanics in 06-transport.md.

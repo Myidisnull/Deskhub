@@ -26,8 +26,8 @@ backend, never touching the core.**
 | macOS | ✅ | ✅ | one app, both roles (SwiftUI + core C++) | **Both roles tested and working** (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | Android | ❌ | ✅ | client-only (Kotlin + core C++ via JNI) | **Video + input**; in testing on Google Play |
 | iOS | ❌ | ✅ | client-only (SwiftUI + core C++) | **Video + input**; in testing via TestFlight |
+| Ubuntu/Linux | 🔶 | 🔶 | one app, both roles (`deskhub`, GTK3 + core C++) | **Code complete, never run on real hardware** (PipeWire + VA-API + libavcodec + uinput) — `17-linux-app.md` §8 |
 | Web | ❌ | 📐 | in the browser (WebTransport + WebCodecs) | Design only — no code yet (`10-web-client.md`) |
-| Ubuntu/Linux | ⬜ | ⬜ | one app, both roles (planned) | Not started |
 
 Transport today is **UDP everywhere** (one port, channels multiplexed in the header); the
 QUIC/WebTransport path exists only as the web-client design. Clients connect by a typed
@@ -54,6 +54,8 @@ client/windows/  cpp/ (capture WGC · encode NVENC/MF · decode MF+D3D11 · inpu
                  net · C API in DeskhubApi.h) + win32/ (plain Win32 UI, ONE exe)
                  (WinUI3/csharp and ImGui frontends removed 2026-07-27)   ✅ reference
 client/macos/    one app, both roles: cpp/{agent,client,input,net} + swift/   ✅
+client/linux/    one app, both roles: cpp/{capture,encode,decode,render,
+                 input,net} + gtk/ (GTK3 UI)                                  🔶
 client/android/  client-only: Kotlin UI + cpp/{decode,net} over JNI            ✅
 client/ios/      client-only: SwiftUI + cpp/{decode,net} via ObjC++ bridge     ✅
 client/web/      not started — design in 10-web-client.md                      📐
@@ -69,6 +71,9 @@ third_party/     pinned NVENC headers
   to Media Foundation.
 - **macOS / iOS**: macOS 14+, Xcode 26+. The macOS app needs **Screen Recording** (to
   share) and **Accessibility** (to inject input) — `14-macos-app.md`.
+- **Ubuntu**: 22.04+, GTK3 + PipeWire + VA-API + FFmpeg dev packages. Sharing needs an
+  `xdg-desktop-portal` backend and write access to `/dev/uinput`
+  (`make setup-linux-permissions`) — `17-linux-app.md`.
 - **Any OS**: `make bootstrap` installs every dependency (idempotent), including the
   Android SDK/NDK and pinned format/lint tools.
 
@@ -80,7 +85,9 @@ make lint        # style check for C++/Kotlin/Swift (matches CI)
 make build-android / run-android     # Gradle + NDK; run needs a device in `adb devices`
 make build-ios / run-ios             # Xcode, Simulator (needs macOS)
 make build-macos / run-macos         # Xcode (needs macOS)
-make release-windows / release-android / release-ios / release-macos
+make build-linux / run-linux         # CMake (needs Ubuntu + the dev packages)
+make setup-linux-permissions         # one-time: udev rule for /dev/uinput + 'input' group
+make release-windows / release-android / release-ios / release-macos / release-linux
 ```
 
 Or drive CMake directly: `cmake --preset x64-debug && cmake --build --preset x64-debug`.
@@ -108,6 +115,7 @@ native app): `16-release-macos.md`.
 | [14-macos-app.md](14-macos-app.md) | macOS app (both roles): ScreenCaptureKit, VideoToolbox, CGEvent, permissions |
 | [15-review-todo.md](15-review-todo.md) | Open work items from the 2026-07-26 core/platform review: security, correctness, build hygiene |
 | [16-release-macos.md](16-release-macos.md) | macOS release: why not the Mac App Store, Developer ID + notarization, dmg, cert setup, CI |
+| [17-linux-app.md](17-linux-app.md) | Ubuntu app (both roles): xdg-desktop-portal + PipeWire, VA-API encode, libavcodec decode, uinput injection, permissions, **what is still unverified** |
 
 Reading order for newcomers: 01 → 04 → 06 → 07, then the doc for the platform you are
 touching. `05-roadmap.md` explains how the codebase got here; `15-review-todo.md` lists

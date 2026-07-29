@@ -102,12 +102,35 @@ into Console.app when running on a device.
 roles** (client and agent). Read it in the Xcode console, or in the Terminal
 when the app is launched from the command line.
 
+### Ubuntu
+
+`client/linux/cpp/Log.h` is again the same stderr mechanism, both roles. Read
+it in the terminal that launched `deskhub`, or with
+`journalctl --user -f` when the desktop started it.
+
+Two host-side fields exist only on this platform, both on the per-source
+`evt=sum` line:
+
+- `zerocopy=1|0` — whether capture negotiated dma-buf (`1`) or fell back to
+  copying frames through RAM (`0`). A `0` here explains a capture fps far below
+  the requested rate, and is the first thing to check when 4K feels slow
+  (17-linux-app.md §6).
+- `skipped=` (already present elsewhere) counts input events dropped because
+  the person sitting at the machine was typing — on Ubuntu it *also* reads 0
+  permanently when `/dev/input/event*` is unreadable, in which case a
+  `[HostWins]` warning appears once at session start.
+
 ## Event catalog — host side
 
-Emitted by `RunAgent` in `client/windows/cpp/AgentLoop.cpp` and
-`client/macos/app/cpp/AgentLoop.cpp` (same event names and fields on
-both). Per-source events carry `[DIAG][<source>]`; loop-wide events carry
-`[DIAG][agent]`.
+Emitted by `RunAgent` in `client/windows/cpp/AgentLoop.cpp`,
+`client/macos/app/cpp/AgentLoop.cpp` and `client/linux/cpp/AgentLoop.cpp`
+(same event names and fields on all three). Per-source events carry
+`[DIAG][<source>]`; loop-wide events carry `[DIAG][agent]`.
+
+One reading difference on Ubuntu: `enc_ms_avg`/`enc_ms_max` mean **actual
+encode time** there, because VA-API encodes synchronously. On macOS the same
+fields only measure how long it took to *hand* the frame to VideoToolbox, so a
+near-zero value is normal there and would be suspicious on Ubuntu.
 
 | Stage | Event | Fields | Meaning |
 |---|---|---|---|

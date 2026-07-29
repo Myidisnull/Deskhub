@@ -25,8 +25,8 @@ desktop tools can't pull off.
 | **macOS** | ✅ | ✅ | Both roles working (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | **Android** | — | ✅ | Video + input (trackpad, keyboard) — testing on Google Play |
 | **iOS** | — | ✅ | Video + input (trackpad, keyboard) — testing via TestFlight |
+| **Ubuntu** | 🔶 | 🔶 | Both roles written (PipeWire + VA-API + uinput + GTK3) — builds clean, not yet run on real hardware |
 | **Web** | — | 📐 | Designed (QUIC/WebTransport + WASM), not yet implemented |
-| **Ubuntu** | ⬜ | ⬜ | Not started |
 
 Roadmap: [`docs/05-roadmap.md`](docs/05-roadmap.md)
 
@@ -35,6 +35,13 @@ Roadmap: [`docs/05-roadmap.md`](docs/05-roadmap.md)
 **🪟 Windows & 🍎 macOS** — grab a single `.exe` / `.dmg` from
 **[Releases](https://github.com/manhpham90vn/Deskhub/releases)** — no install, no setup.
 On Windows, sharing prompts for admin once and the app configures the firewall by itself.
+
+**🐧 Ubuntu** — a single binary from [Releases](https://github.com/manhpham90vn/Deskhub/releases):
+`chmod +x` and run. It links against GTK3, PipeWire, libva and FFmpeg, which a stock
+Ubuntu 22.04+ desktop already has. To **share** you also need a portal backend
+(`xdg-desktop-portal-gnome`, `-kde` or `-wlr`) and one-time permission for `/dev/uinput`
+(`make setup-linux-permissions`). Details and current limits:
+[`docs/17-linux-app.md`](docs/17-linux-app.md).
 
 **📱 iOS** — install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
 join the beta: **[testflight.apple.com/join/7qY7wgpd](https://testflight.apple.com/join/7qY7wgpd)**

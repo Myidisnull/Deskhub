@@ -23,7 +23,16 @@ if(WIN32)
     # client/windows/win32 = app Windows DUY NHẤT (Win32 thuần, một Deskhub.exe).
     add_subdirectory(client/windows/cpp)
     add_subdirectory(client/windows/win32)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # client/linux = app Ubuntu DUY NHẤT (GTK3 + native, một tệp `deskhub`), cả
+    # hai vai. Nó tự bỏ qua chính mình nếu máy thiếu gói -dev (PipeWire, VA-API,
+    # FFmpeg, GTK3) — lý do ở client/linux/CMakeLists.txt. Tắt hẳn bằng:
+    #   cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
+    option(DESKHUB_LINUX_APP "Build the Ubuntu desktop app" ON)
+    if(DESKHUB_LINUX_APP)
+        add_subdirectory(client/linux)
+    endif()
 endif()
 # client/android KHÔNG nằm ở đây: nó do Gradle/NDK dựng (client/android/, xem
 # docs/08-android-client.md), và CMakeLists của nó tự add_subdirectory(core).
-# Sau này: client/macos, client/linux, client/ios
+# client/macos và client/ios do Xcode dựng (xem make/macos.mk, make/ios.mk).

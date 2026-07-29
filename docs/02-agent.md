@@ -6,15 +6,18 @@ as H.264, packetizes and sends the stream over UDP, and injects the viewer's inp
 machine. Both desktop apps contain the Agent and the Client role side by side; this document covers
 the Agent. System overview: `01-architecture.md`. The viewer side: `03-client.md`.
 
-There are two full implementations of the same orchestration:
+There are three full implementations of the same orchestration:
 
-| | Windows | macOS |
-|---|---|---|
-| Orchestrator | `client/windows/cpp/AgentLoop.cpp` (`RunAgent`) | `client/macos/app/cpp/AgentLoop.cpp` (`AgentLoop` class) |
-| Capture | Windows Graphics Capture (`capture/ScreenCapture`) | ScreenCaptureKit (`agent/ScreenCapture`) |
-| Encode | NVENC → Media Foundation (`encode/EncoderFactory`) | VideoToolbox (`agent/VtEncoder`) |
-| Inject | `SendInput` (`input/InputInjector`) | CGEvent (`agent/InputInjector`) |
-| UI frontend | Win32 app (`SessionWindow` drives `AgentLoop` directly) | SwiftUI via `AgentLoop` methods |
+| | Windows | macOS | Ubuntu |
+|---|---|---|---|
+| Orchestrator | `client/windows/cpp/AgentLoop.cpp` (`RunAgent`) | `client/macos/app/cpp/AgentLoop.cpp` (`AgentLoop` class) | `client/linux/cpp/AgentLoop.cpp` (`AgentLoop` class, ported from macOS) |
+| Capture | Windows Graphics Capture (`capture/ScreenCapture`) | ScreenCaptureKit (`agent/ScreenCapture`) | xdg-desktop-portal + PipeWire (`capture/PortalScreenCast` + `capture/ScreenCapture`) |
+| Encode | NVENC → Media Foundation (`encode/EncoderFactory`) | VideoToolbox (`agent/VtEncoder`) | VA-API written directly (`encode/VaEncoder`), no fallback |
+| Inject | `SendInput` (`input/InputInjector`) | CGEvent (`agent/InputInjector`) | `/dev/uinput` virtual devices (`input/InputInjector`) |
+| UI frontend | Win32 app (`SessionWindow` drives `AgentLoop` directly) | SwiftUI via `AgentLoop` methods | GTK3 `ShareWindow` via `AgentLoop` methods |
+
+The Ubuntu one is code-complete but has never run on real hardware — see
+`17-linux-app.md` §8 before trusting anything it says about behaviour.
 
 Session state, packet formats and congestion policy are platform-neutral
 and live in `core/` (`deskhub::HostSession`, `deskhub::Beacon`,
@@ -94,12 +97,14 @@ for each source's first frame (the offer in `HELLO_ACK` needs real dimensions �
 produce a frame are dropped without killing the session); build `HostSession` + `InputInjector` per
 surviving source; then enter the Recv loop.
 
-**Static-source handling.** Both capture APIs only deliver frames when content changes, so each
-pipeline caches the last frame (Windows: a copied D3D11 texture; macOS: a retained
-`CVPixelBufferRef`). The Recv loop re-encodes the cached frame when (a) an IDR request has been
-pending >200 ms with no new frame — otherwise a client joining a static screen stays black forever —
-or (b) as a ~2 fps keepalive after 500 ms of silence, which flushes async encoders (QSV MFTs hold
-the last output until the next input).
+**Static-source handling.** All three capture APIs only deliver frames when content changes, so the
+last frame must remain re-encodable (Windows: a copied D3D11 texture; macOS: a retained
+`CVPixelBufferRef`; Ubuntu: nothing is copied at all — the encoder's own NV12 surface still holds
+the previous frame's VPP output, so `VaEncoder::EncodeLast()` simply re-submits it, which is why
+the Linux `SourcePipeline` has no cached-frame field). The Recv loop re-encodes it when (a) an IDR
+request has been pending >200 ms with no new frame — otherwise a client joining a static screen
+stays black forever — or (b) as a ~2 fps keepalive after 500 ms of silence, which flushes async
+encoders (QSV MFTs hold the last output until the next input).
 
 **Resize and minimum size.** A size change on the hot path tears down the encoder and cache and
 sets `sizeChanged`; the Recv loop then updates the offer (`HostSession::SetOffer`), sends `RECONFIG`
@@ -127,10 +132,15 @@ Only displays can be shared (per-window sharing, `WindowFinder`, and the wire-le
 - **macOS** — `agent/SourceEnum.h`: `GetShareSources()` asks `SCShareableContent` (the same source
   of truth ScreenCaptureKit captures from) and lists its `SCDisplay`s only. Blocks ~2 s; returns
   an empty list when Screen Recording permission is missing.
+- **Ubuntu** — `capture/SourceEnum.h`: **this one runs backwards.** Wayland exposes no way to
+  enumerate screens for capture, so `GetShareSources()` does not list anything — it opens an
+  `xdg-desktop-portal` session, which shows the compositor's own picker dialog, and returns
+  whatever the user selected there. Calling it *is* the Share button; never call it on a refresh
+  timer. Blocks until the user answers (17-linux-app.md §2).
 
 An `AgentSource` is just a display handle plus its name (`HMONITOR` on Windows,
-`CGDirectDisplayID` on macOS); `deskhub::SourceInfo` carries {sourceId, width, height,
-name}. Source ids are assigned incrementally and
+`CGDirectDisplayID` on macOS, a PipeWire node id plus its desktop position on Ubuntu);
+`deskhub::SourceInfo` carries {sourceId, width, height, name}. Source ids are assigned incrementally and
 **never reused** within a run, so a client holding a stale `SOURCE_LIST` cannot HELLO into the
 wrong source. Sources added mid-session go through a `pendingAdds` list with a 10 s first-frame
 deadline before `attachSession` promotes them.
@@ -169,6 +179,18 @@ and recover via NACK retransmit or a requested IDR.
 every Mac). Configured RealTime, no frame reordering, infinite GOP with IDR on demand, CBR-ish via
 data-rate limits. Its `.mm` converts VideoToolbox's AVCC output to Annex-B and prepends SPS/PPS to
 every IDR, matching the NVENC `repeatSPSPPS` contract that mid-stream joiners depend on.
+
+**Ubuntu.** `encode/VaEncoder` drives VA-API directly — also a single backend, but for the opposite
+reason to macOS: there is no second option, and no software fallback either (a machine without
+VA-API H.264 encode simply cannot host). Same low-latency shape: `ip_period = 1`, infinite GOP
+(`intra_period = intra_idr_period = 0`, so the driver never inserts a keyframe on its own), one
+reference frame, CBR with a half-second HRD buffer. Two Linux-specific consequences:
+RGB→NV12 conversion happens on the GPU through a VPP context (the compositor hands out RGB), and
+**SPS/PPS are written by hand** (`encode/BitWriter.h`) and submitted as packed headers, because
+drivers disagree about emitting parameter sets and none repeat them per IDR. That makes the stream
+constants shared state: they feed both the packed SPS and
+`VAEncSequenceParameterBufferH264`, and a mismatch decodes as garbage from the second frame on
+(17-linux-app.md §3).
 
 ## 5. Session lifecycle and security
 

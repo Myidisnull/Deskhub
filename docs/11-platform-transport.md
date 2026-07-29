@@ -17,8 +17,8 @@ Each desktop OS ships **one app containing both roles** (see
 | macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles tested and working.** |
 | Android | No | Yes | Kotlin UI + NDK `libdeskhub.so` (`client/android/app/src/main/cpp/ClientLoop.cpp`) | **Client-only, shipped to store testing** (see 13-release-mobile.md, `make/android.mk`). |
 | iOS | No | Yes | SwiftUI + C++ (`client/ios/app/cpp/ClientLoop.cpp`, VideoToolbox decode) | **Client-only, shipped to store testing** (Simulator build via `make/ios.mk`; device/App Store via Xcode). |
+| Ubuntu | Yes | Yes | GTK3 UI over a GTK-free C++ layer (`client/linux/gtk/` + `client/linux/cpp/`) — ONE `deskhub` executable, both roles | **Both roles written, never run on real hardware.** Capture needs xdg-desktop-portal; injection needs `/dev/uinput`. See 17-linux-app.md. |
 | Web | No | Planned | Browser (WebTransport + WebCodecs + WASM `core/`) | **Design only** — see 10-web-client.md. No web code exists in the repo. |
-| Linux | Planned | Planned | — | **No code.** Named only as a future target (root `CMakeLists.txt` comment; `core/` and the Android `UdpSocket.cpp` are already Linux-compatible). |
 
 ## 2. Why only desktops can host
 
@@ -28,15 +28,18 @@ app:
 1. **Synthetic input injection.** The agent must inject remote mouse/keyboard events
    system-wide: `SendInput` on Windows (`client/windows/cpp/input/`), CGEvent posting on
    macOS (`client/macos/app/cpp/input/InputInjector.mm`, gated by the Accessibility
-   permission — `agent/Permissions.mm`). iOS has no API for this at all; Android would
-   require an AccessibilityService with severe restrictions. No injection, no remote
-   control.
+   permission — `agent/Permissions.mm`), `/dev/uinput` virtual devices on Ubuntu
+   (`client/linux/cpp/input/InputInjector.cpp`, gated by a udev rule). iOS has no API for
+   this at all; Android would require an AccessibilityService with severe restrictions.
+   No injection, no remote control.
 2. **Unattended, long-lived capture and listening.** A host binds a UDP port and answers
    whenever a client shows up. Desktop processes may listen indefinitely; mobile OSes
    suspend backgrounded apps and their sockets. Screen capture is similarly gated: macOS
    needs the Screen Recording permission (`agent/ScreenCapture.mm`), which a desktop app
-   can hold persistently; iOS/Android offer no equivalent entitlement for a background
-   remote-control host.
+   can hold persistently; Ubuntu/Wayland needs an `xdg-desktop-portal` session, which is
+   the weakest of the three — it is granted per sharing session rather than persistently,
+   so the system dialog reappears every time (`17-linux-app.md` §2); iOS/Android offer no
+   equivalent entitlement for a background remote-control host.
 3. **Binding a fixed, advertised port.** The host must listen on a well-known port
    (always 47777) that the user can read out to the other machine. The macOS
    `UdpSocket.cpp` header comment records this explicitly: the host role calls
@@ -164,28 +167,44 @@ Build wiring: the root `CMakeLists.txt` adds `core/`, `platform/`, and (on Windo
 projects via `make/macos.mk` / `make/ios.mk`; shared core targets (tests, coverage) are
 in `make/core.mk`.
 
-## 7. Adding a new platform (e.g. Linux), concretely
+## 7. Adding a new platform, concretely
 
-Reused as-is: **`core/`** (wire, transport, session, input, control, discovery) and
-**`platform/`** (`Clock.h` already has a Linux branch).
+Reused as-is: **`core/`** (wire, transport, session, input, control) and **`platform/`**
+(`Clock.h`/`Random.h` already branch per OS).
 
-To reimplement, following the existing pattern:
+The recipe below is written from the **Ubuntu port**, which is the most recent one and
+the only one where the OS refused two of the capabilities outright — so it exercises
+every step (`client/linux/`, `17-linux-app.md`):
 
-1. **`net/UdpSocket.{h,cpp}`** — copy the Android version verbatim; its own header
-   labels it "BSD socket (Android/Linux)". Add `FindFreeUdpPort` from the Windows
-   header if the host role is wanted.
-2. **`net/SourceQuery.cpp`** — copy from any client (all four are parallel copies).
-3. **Client role** — a `ClientLoop` following `client/macos/app/cpp/ClientLoop.cpp`
-   (net thread, 10 ms recv timeout, feed `ClientSession`) plus a hardware decoder
-   (VA-API/Vulkan video filling the role VideoToolbox/MediaCodec/D3D11 play today).
-4. **Host role** — an `AgentLoop` (port walk-forward, `Beacon` for pre-session
-   LIST_SOURCES/PING replies), screen capture + encoder (PipeWire/VA-API), input
-   injection (uinput/XTEST), and the Linux analogues of the Windows conveniences: a
-   `NetInfo` (getifaddrs — the macOS one is nearly reusable) and send pacing (port
-   `Pacer`, whose logic is not Windows-specific despite its location).
-5. **UI + glue** — a frontend over either the C API pattern (`DeskhubApi.h`) or the
-   bridge pattern (`DeskhubBridge.mm`), plus a `make/linux.mk` and a `client/linux`
-   entry in the root `CMakeLists.txt`.
+1. **`net/UdpSocket.{h,cpp}`** — copy from any POSIX client verbatim; its own header
+   labels it "BSD socket". Ubuntu changed one comment and nothing else.
+2. **`net/SourceQuery.cpp`, `net/NetInfo.cpp`** — copy from macOS; only the
+   friendly-name table for network interfaces needs rewriting.
+3. **Client role** — a `ClientLoop` following `client/macos/app/cpp/ClientLoop.cpp` (net
+   thread with a 10 ms recv timeout feeding `ClientSession`, decode thread behind a
+   3-frame queue) plus a hardware decoder and, if the platform has no "decode is render"
+   layer, a renderer of your own.
+4. **Host role** — an `AgentLoop` (`Beacon` for pre-session LIST_SOURCES/PING replies,
+   one Recv thread routing packets to per-source pipelines), screen capture, an encoder,
+   and input injection.
+5. **UI + glue** — a frontend over the C API pattern (`DeskhubApi.h`), the bridge pattern
+   (`DeskhubBridge.mm`), or direct calls (Ubuntu: GTK3 calls `AgentLoop`/`ClientLoop`
+   straight, and the C++ layer never includes GTK). Plus a `make/<os>.mk` and an entry in
+   the root `CMakeLists.txt`.
 
-No transport work is required: the wire protocol (04-protocol.md) and everything above
-the socket already compile for Linux unchanged.
+**No transport work is required** — the wire protocol (04-protocol.md) and everything
+above the socket compiled for Linux unchanged, which is the breadth axis working as
+designed.
+
+Three lessons from the Ubuntu port worth carrying to the next platform:
+
+- **Capture may not be enumerable.** On Wayland the OS runs the source picker, so
+  `GetShareSources()` had to become "show the dialog and report the answer" rather than
+  "list what exists". Any platform with a permission broker will do the same.
+- **The static-source problem is universal.** Every compositor so far only emits a frame
+  when content changes, so a client joining a still screen sees black forever unless the
+  agent can re-encode the last frame. Windows and macOS keep a copy; Linux re-encodes the
+  encoder's existing NV12 surface, which is cheaper — check for that option first.
+- **Encoder and decoder need not use the same library.** Writing the encoder directly on
+  the platform API is reasonable (you choose the stream parameters); writing the decoder
+  directly often is not (you must parse someone else's stream and manage a DPB).

@@ -10,6 +10,11 @@ name: deploy
 # và docs/16-release-macos.md. Bản iOS thì có mặt trên Mac theo đường "Designed for
 # iPad" — cùng một ipa, không có job riêng ở đây.
 #
+# VÌ SAO KHÔNG CÓ JOB UBUNTU Ở FILE NÀY: bản Ubuntu không có chợ để đẩy lên và
+# không có bước ký nào, nên nó chỉ là một binary đính thẳng vào GitHub Release —
+# việc đó build.yml làm xong rồi (job `linux`, dựng trên ubuntu-22.04 để chạy được
+# trên 22.04 trở lên). File này chỉ dành cho những nền tảng CẦN secret.
+#
 # Danh tính/version app do FASTLANE quản làm nguồn chuẩn duy nhất:
 #   - bundle id iOS + team    : client/ios/fastlane/Appfile   (com.ios.deskhub)
 #   - bundle id macOS + team  : client/macos/fastlane/Appfile (com.deskhub.macos — KHÁC

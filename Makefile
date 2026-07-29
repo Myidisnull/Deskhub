@@ -8,6 +8,7 @@
 #   make/core.mk        cây CMake lõi dùng chung: debug/release/test/test-ctest/coverage
 #   make/windows.mk     app Windows  — CMake (app Win32, MỘT Deskhub.exe)
 #   make/macos.mk       app macOS    — xcodebuild
+#   make/linux.mk       app Ubuntu   — CMake (GTK3 + native, MỘT `deskhub`)
 #   make/ios.mk         app iOS      — xcodebuild (Simulator)
 #   make/android.mk     APK Android  — Gradle (tự dựng cả .so lẫn APK)
 #   make/codestyle.mk   format/lint C++ + Kotlin + Swift
@@ -21,6 +22,7 @@
 # Build/release RÕ theo từng nền tảng:
 #   make build-windows   / release-windows   app Windows native (Win32, một Deskhub.exe)
 #   make build-macos     / release-macos     app macOS — cả hai vai (cần macOS + Xcode)
+#   make build-linux     / release-linux     app Ubuntu — cả hai vai (cần Ubuntu + gói -dev)
 #   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
 #   make build-ios       / release-ios       app iOS cho Simulator (cần macOS + Xcode)
 #
@@ -30,6 +32,10 @@
 #
 #   make run            build + chạy Deskhub.exe (app Win32, mới có Windows), ARGS="--share ..."
 #   make run-macos      build + mở app macOS (cần macOS + Xcode)
+#   make run-linux      build + chạy app Ubuntu (cần Ubuntu)
+#
+# Ubuntu, cấp quyền MỘT LẦN cho vai host (bơm chuột/bàn phím qua /dev/uinput):
+#   make setup-linux-permissions    quy tắc udev + thêm user vào nhóm `input`
 #   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
 #   make run-ios        build + cài + mở app iOS trên Simulator (cần macOS + Xcode)
 #   make test           build core_tests rồi chạy (offline, không cần client/GPU)
@@ -53,6 +59,7 @@ include make/toolchain.mk
 include make/core.mk
 include make/windows.mk
 include make/macos.mk
+include make/linux.mk
 include make/ios.mk
 include make/android.mk
 include make/codestyle.mk
