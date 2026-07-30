@@ -213,6 +213,15 @@ struct SourcePipeline {
     // Sự kiện IDR gần nhất — luồng nén ghi, thread Recv in (giữ I/O ngoài đường
     // nóng, bài học Pacer ở docs/06 §7b). bytes==0 = không có sự kiện; ghi bytes
     // CUỐI CÙNG với release để hai trường kia nhìn thấy trước nó.
+    // ⚠ ĐỘ TRỄ THẬT CỦA BỘ NÉN — khoảng mù lớn nhất của toàn bộ chuỗi đo (thêm
+    //   30/07/2026). `enc_ms` ở trên KHÔNG phải cái này: nó chỉ đo thời gian NỘP
+    //   frame, mà cả ba bộ nén đều nén BẤT ĐỒNG BỘ. Frame nằm trong đường ống của
+    //   encoder bao lâu trước khi ra thành NAL thì trước nay không ai đếm.
+    //   Đây là con số quyết định: một đường ống sâu 4 frame ở 60fps là 67 ms độ trễ
+    //   HẰNG SỐ — và hằng số thì e2e phía client (bộ lọc min, xem ClockOffset.h)
+    //   trừ mất sạch. Máy đo báo 7 ms trong khi người dùng thấy lag chính là ca đó.
+    //   Đo từ mốc CHỤP (tsUs, đi xuyên qua encoder) tới lúc NAL về tay ta.
+    std::atomic<uint32_t> dgEncLatSum{0}, dgEncLatMax{0}, dgEncLatCount{0};
     std::atomic<uint64_t> dgIdrBytes{0};
     std::atomic<uint32_t> dgIdrPkts{0}, dgIdrBurstMs{0};
 
@@ -313,6 +322,14 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p) {
     auto onPacket = [p, sockPtr](const uint8_t* data, size_t size, uint64_t tsUs,
                         bool keyframe) {
         if (!p->session || p->session->state() != deskhub::HostSession::State::Streaming) return;
+        // Độ trễ THẬT của bộ nén: từ lúc chụp tới lúc NAL ra. Xem dgEncLatSum.
+        {
+            const uint64_t nowUs = NowUs();
+            const uint32_t latMs = nowUs > tsUs ? uint32_t((nowUs - tsUs) / 1000) : 0;
+            p->dgEncLatSum.fetch_add(latMs, std::memory_order_relaxed);
+            p->dgEncLatCount.fetch_add(1, std::memory_order_relaxed);
+            DiagAtomicMax(p->dgEncLatMax, latMs);
+        }
         const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
         if (!pp) return;
         const NetAddr peer = NetAddr::Unpack(pp);
@@ -994,10 +1011,15 @@ void AgentLoop::Impl::RecvLoop() {
                 const uint32_t ec = p->dgEncCount.exchange(0, std::memory_order_relaxed);
                 const uint32_t es = p->dgEncMsSum.exchange(0, std::memory_order_relaxed);
                 const uint32_t em = p->dgEncMsMax.exchange(0, std::memory_order_relaxed);
+                const uint32_t lc = p->dgEncLatCount.exchange(0, std::memory_order_relaxed);
+                const uint32_t ls = p->dgEncLatSum.exchange(0, std::memory_order_relaxed);
                 LOGI(
-                    "[DIAG][%s] evt=sum enc_ms_avg=%.1f enc_ms_max=%u idr=%u"
+                    "[DIAG][%s] evt=sum enc_ms_avg=%.1f enc_ms_max=%u"
+                    " enc_lat_ms=%.1f/%u idr=%u"
                     " burst_ms_max=%u send_fail=%u",
                     p->name.c_str(), ec ? double(es) / ec : 0.0, em,
+                    lc ? double(ls) / lc : 0.0,
+                    p->dgEncLatMax.exchange(0, std::memory_order_relaxed),
                     p->dgIdrCount.exchange(0, std::memory_order_relaxed),
                     p->dgBurstMsMax.exchange(0, std::memory_order_relaxed),
                     p->dgSendFail.exchange(0, std::memory_order_relaxed));
