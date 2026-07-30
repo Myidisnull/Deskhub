@@ -215,6 +215,22 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
     setNum(kVTCompressionPropertyKey_MaxKeyFrameInterval, INT32_MAX);
     setNum(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, INT32_MAX);
     setNum(kVTCompressionPropertyKey_ExpectedFrameRate, int64_t(cfg.fps));
+    // ⚠ TRẦN ĐỘ SÂU ĐƯỜNG ỐNG — thiếu núm này là gốc của HAI triệu chứng (30/07/2026).
+    //   Mặc định là kVTUnlimitedFrameDelayCount: VideoToolbox được giữ BAO NHIÊU FRAME
+    //   TUỲ NÓ trước khi nhả NAL đầu tiên. RealTime=true chỉ nói "ưu tiên đúng hạn",
+    //   nó KHÔNG đặt trần cho độ sâu.
+    //   Hậu quả đo được:
+    //     1. TRỄ. Đường ống sâu N frame ở 60fps là N×16,7 ms độ trễ HẰNG SỐ. Hằng số
+    //        thì e2e phía client (bộ lọc min) trừ mất sạch — máy đo báo 7 ms trong khi
+    //        người dùng thấy lag.
+    //     2. ĐỨNG HÌNH. Mỗi frame VideoToolbox giữ là một buffer của POOL SCStream bị
+    //        giữ theo. Pool có queueDepth slot; trừ 1 cho cache frame cuối của
+    //        AgentLoop và 1 cho cái đang trong callback. Encoder ăn nốt phần còn lại
+    //        là SCStream NGỪNG GIAO FRAME — host log ngày đó cho `capture 0-5 fps`
+    //        trong khi người dùng đang gõ, và client thấy khoảng lặng 500-600 ms.
+    //   1 = nhả xong frame này mới nhận frame kế. Đúng thứ một luồng trực tiếp cần;
+    //   chỉ có lookahead/B-frame mới hưởng lợi từ đường ống sâu, mà ta tắt cả hai rồi.
+    setNum(kVTCompressionPropertyKey_MaxFrameDelayCount, 1);
 
     if (!SetBitrate(cfg.bitrateBps)) {
         LOGW("[Encoder] Could not set initial bitrate %u bps.", cfg.bitrateBps);

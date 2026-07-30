@@ -100,6 +100,11 @@ public:
     // RECONFIG. An toàn gọi từ thread Recv.
     void SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW, uint32_t& outH);
 
+    // Số frame SCStream giao nhưng báo "không có nội dung mới", kể từ lần gọi trước.
+    // Đọc cùng `capture N fps` thì phân biệt được "màn hình đứng yên thật" với
+    // "macOS ngừng gọi ta" — xem Impl::idleFrames trong .mm.
+    uint32_t TakeIdleCount();
+
     // True khi màn hình mục tiêu đã biến mất (bị rút / đổi cấu hình) hoặc SCStream
     // báo lỗi không hồi phục được. AgentLoop dùng nó để gỡ nguồn khỏi phiên.
     bool Closed() const;

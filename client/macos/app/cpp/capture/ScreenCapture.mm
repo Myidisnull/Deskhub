@@ -84,6 +84,14 @@ struct ScreenCapture::Impl {
 
     std::atomic<bool> closed{false};
     std::atomic<bool> running{false};
+    // Số lần SCStream GỌI ta nhưng báo "không có nội dung mới" (status != Complete).
+    // Đây là con số phân biệt HAI nguyên nhân mà `capture N fps` gộp làm một:
+    //   idle CAO  -> macOS đang gọi đều, nó thật sự cho rằng màn hình không đổi.
+    //   idle ~0 mà capture cũng thấp -> macOS KHÔNG GỌI ta nữa: pool cạn buffer
+    //     (xem queueDepth), hoặc stream đã chết.
+    // Không có nó thì hai ca trên nhìn y hệt nhau trong log, và chúng đòi hai cách
+    // sửa hoàn toàn khác nhau (bài học 30/07/2026).
+    std::atomic<uint32_t> idleFrames{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -112,7 +120,10 @@ struct ScreenCapture::Impl {
     NSDictionary* info = attachments.count ? attachments[0] : nil;
     if (info) {
         NSNumber* st = info[SCStreamFrameInfoStatus];
-        if (st && SCFrameStatus(st.integerValue) != SCFrameStatusComplete) return;
+        if (st && SCFrameStatus(st.integerValue) != SCFrameStatusComplete) {
+            impl->idleFrames.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
     }
 
     CVPixelBufferRef pb = CMSampleBufferGetImageBuffer(sampleBuffer);
@@ -190,12 +201,22 @@ SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool sca
     cfg.minimumFrameInterval = CMTimeMake(1, int32_t(fps));
     // Người điều khiển từ xa cần thấy con trỏ của máy host để biết mình đang trỏ đâu.
     cfg.showsCursor = YES;
-    // Hàng đợi frame của SCStream. Sâu quá thì frame cũ dồn lại làm tăng độ trễ,
-    // nhưng 5 là con số tối thiểu ở đây vì AgentLoop GIỮ LẠI một buffer làm cache
-    // frame cuối (nguồn tĩnh mà client xin IDR thì phải có cái để nén — xem
-    // AgentLoop.cpp), và VideoToolbox giữ thêm một cái trong lúc nén. Đặt 3 thì hai
-    // chỗ đó ăn hết pool và SCStream bắt đầu bỏ frame.
-    cfg.queueDepth = 5;
+    // Hàng đợi frame của SCStream. Đây là POOL buffer, và mọi buffer bị ai đó giữ
+    // đều chiếm một slot:
+    //   - AgentLoop giữ 1 làm cache frame cuối (nguồn tĩnh mà client xin IDR thì phải
+    //     có cái để nén — xem AgentLoop.cpp),
+    //   - 1 đang nằm trong callback này,
+    //   - và VideoToolbox giữ phần còn lại trong lúc nén.
+    //
+    // ⚠ CON SỐ CŨ LÀ 5, DỰA TRÊN GIẢ ĐỊNH "VideoToolbox giữ THÊM MỘT CÁI". Giả định
+    //   đó SAI: MaxFrameDelayCount không được đặt nên nó mặc định không giới hạn, và
+    //   encoder ăn sạch 3 slot còn lại. Pool cạn thì SCStream KHÔNG BỎ FRAME — nó
+    //   ngừng gọi ta luôn. Host log 30/07/2026: `capture 0-5 fps` trong khi người
+    //   dùng đang gõ; client thấy khoảng lặng 500-600 ms và tưởng phiên bị treo.
+    //   Đã chặn ở gốc bằng MaxFrameDelayCount = 1 (VtEncoder.mm); 8 ở đây là biên an
+    //   toàn để một driver giữ nhiều hơn mức khai vẫn không làm chết luồng hình.
+    //   Sâu hơn KHÔNG tự sinh trễ: callback tiêu thụ ngay, pool chỉ là chống đói.
+    cfg.queueDepth = 8;
     cfg.capturesAudio = NO;
     // Chỉ bật co giãn khi ta CỐ Ý hạ độ phân giải (maxDim). Không có trần thì cỡ
     // buffer đúng bằng cỡ nguồn, và khi đó mọi phép co giãn đều là dấu hiệu bộ theo
@@ -252,6 +273,10 @@ ScreenCapture::ScreenCapture() : impl_(std::make_unique<Impl>()) {}
 
 ScreenCapture::~ScreenCapture() {
     Stop();
+}
+
+uint32_t ScreenCapture::TakeIdleCount() {
+    return impl_ ? impl_->idleFrames.exchange(0, std::memory_order_relaxed) : 0;
 }
 
 bool ScreenCapture::Closed() const {

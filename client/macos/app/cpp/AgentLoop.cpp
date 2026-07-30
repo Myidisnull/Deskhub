@@ -1015,11 +1015,12 @@ void AgentLoop::Impl::RecvLoop() {
                 const uint32_t ls = p->dgEncLatSum.exchange(0, std::memory_order_relaxed);
                 LOGI(
                     "[DIAG][%s] evt=sum enc_ms_avg=%.1f enc_ms_max=%u"
-                    " enc_lat_ms=%.1f/%u idr=%u"
+                    " enc_lat_ms=%.1f/%u cap_idle=%u idr=%u"
                     " burst_ms_max=%u send_fail=%u",
                     p->name.c_str(), ec ? double(es) / ec : 0.0, em,
                     lc ? double(ls) / lc : 0.0,
                     p->dgEncLatMax.exchange(0, std::memory_order_relaxed),
+                    p->capture.TakeIdleCount(),
                     p->dgIdrCount.exchange(0, std::memory_order_relaxed),
                     p->dgBurstMsMax.exchange(0, std::memory_order_relaxed),
                     p->dgSendFail.exchange(0, std::memory_order_relaxed));
