@@ -190,15 +190,49 @@ STREAMING.
 
 - **Touch → mouse** — `TouchInputView` (`client/ios/app/swift/TouchInputView.swift`) is a
   *trackpad*, not direct touch: a visible cursor (SF Symbol `cursorarrow`) is moved by pan
-  deltas and clamped to the aspect-fit video rect; coordinates sent are normalized 0..65535
-  within that rect. Gestures: drag = move cursor; single tap = left click (waits for the
+  deltas. It is stored in *normalized* 0..1 video coordinates and only rendered through the
+  current video rect, so zooming/panning the view cannot move it on the host; sending it is a
+  multiply by 65535. Gestures: drag = move cursor; single tap = left click (waits for the
   double-tap window to fail); double tap = right click; long-press-then-drag = hold left
   button and drag, released on lift. A move is re-sent immediately before every click so
   clicks land under the visible cursor. The overlay fills the whole screen — letterbox
   included — minus `blockedRect`, the frame of the control layer measured by `StreamView` in
   `.global` coordinates: `point(inside:)` returns false there, so UIKit never hit-tests into
-  the view and its four gesture recognizers never see those touches. A finger landing on the
+  the view and its gesture recognizers never see those touches. A finger landing on the
   panel therefore cannot jog the cursor. It is mounted whenever the session is streaming.
+- **Pinch zoom** (2026-07-30) — two fingers pinch to scale the frame 1×..5× and drag to move
+  to another region; a tap on the zoom pill (in the control layer, bottom-right) goes back to
+  1×. `ViewTransform` (`ViewTransform.swift`) owns the whole model: `frame(in:aspect:)`
+  returns the displayed video rect — aspect-fit, scaled about the viewport centre, then panned
+  with the pan clamped so no black gap opens — and `apply(...)` folds one gesture into an
+  absolute (zoom, pan). Photo-viewer semantics: the point between the fingers stays put and
+  the frame grows around it (`pan' = (centroid - centre)(1 - ratio) + pan * ratio + panDelta`),
+  with the pinch and the two-finger pan recognizers running together so a pinch that drifts
+  drags the picture along. Zoom is applied as *layout*: `StreamView` sizes/offsets the video
+  layer to that rect — cheap here because it is a `CALayer` frame change, unlike Android where
+  resizing the `SurfaceView` per frame costs a relayout plus a surface reallocation (see
+  `08-android-client.md`). The trackpad overlay itself is never scaled.
+
+  The frame never moves *on its own*. (The first cut had the cursor drag it along when the
+  cursor reached a screen edge; in practice that threw away the region you had just zoomed
+  into the moment you touched the screen, because the cursor was somewhere off-view.) The
+  cursor is clamped to the *visible* part of the video — `videoRect ∩ bounds`,
+  `clampToVisible` — rather than the whole frame, so it can never end up off-screen. The clamp
+  never sends anything: every click re-sends the cursor position first anyway.
+
+  **One finger has two jobs, so there is a switch.** Once zoomed, the thing you most want is a
+  one-finger swipe to look somewhere else — but one finger is the trackpad, and the swipe
+  itself carries no hint of which was meant. `panMode` decides: on, one finger moves the
+  frame; off, one finger moves the pointer. It is a "Pan"/"Pointer" pill in the control layer
+  (`ZoomControls`), shown only while zoomed (at 1× there is nothing to move), and it flips to
+  Pan automatically on zooming in and back to Pointer at 1×. While Pan is on, *every*
+  one-finger gesture is silent, taps included — misfiring a click on the host while you are
+  swiping to look around is worse than having to tap the switch. Pinch and the two-finger pan
+  work in both modes.
+
+  Pinch and the two-finger pan are the only recognizers allowed to run simultaneously — the
+  one-finger gestures keep UIKit's default exclusion, so a long-press drag cannot survive a
+  zoom.
 - **Virtual keyboard** — `KeyInputView` (`client/ios/app/swift/KeyInputView.swift`) is an
   invisible `UIKeyInput` view (ASCII keyboard, autocorrect off) toggled by the control panel's
   Keyboard button; a transparent accessory bar adds a "Done" dismiss button. Each typed scalar goes to
@@ -229,7 +263,8 @@ STREAMING.
 
 ## 7. Known limitations (as coded)
 
-- **No scroll**: no gesture maps to mouse wheel; only move/left/right/drag exist.
+- **No scroll**: no gesture maps to mouse wheel; only move/left/right/drag exist. (Pinch is
+  taken by view zoom, which is view-side only and never reaches the host.)
 - **Relative mouse is a stub**: `dh_mouse_move_rel` / `QueueMouseMoveRel` exist for an
   FPS-style pointer-lock mode, but no UI calls them (the "Lock" button was removed).
 - **US-ASCII typing only**: `CharToKeyChord` covers the US layout; other characters are

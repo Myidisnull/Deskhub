@@ -29,6 +29,18 @@
 //   Insets này gồm cả vùng bàn phím ảo, nên mở bàn phím là bảng tự nhích lên trong khi
 //   khung hình đứng yên.
 //
+// PHÓNG TO KHUNG HÌNH (2026-07-30)
+//   Host 4K co vào màn 6 inch thì chữ nhỏ như hạt vừng. Chụm hai ngón để phóng 1×..5×
+//   kiểu xem ảnh (điểm giữa hai ngón dính ở đó), rê hai ngón để dời sang khu vực khác.
+//   Khung hình KHÔNG bao giờ tự dịch: nó chỉ đổi khi hai ngón bảo nó đổi (xem
+//   TouchInputView).
+//   Zoom làm bằng LAYOUT chứ không phải transform: `ViewTransform` (ViewTransform.swift)
+//   tính ra khung và view này đặt lớp video đúng bằng khung đó. Lớp trackpad KHÔNG
+//   bị phóng — nó luôn phủ trọn vùng nhìn, và con trỏ lưu toạ độ chuẩn hoá nên
+//   phóng/kéo không hề đụng tới vị trí trên desktop host.
+//   Đang phóng thì lớp điều khiển mọc thêm hai viên thuốc (ZoomControls): công tắc
+//   Pan/Pointer cho cử chỉ MỘT ngón, và mức phóng — chạm để về 1×.
+//
 // BẢNG KHÔNG ĐƯỢC LÀM CON TRỎ NHẢY
 //   Trackpad (TouchInputView) phủ trọn màn hình, gồm cả phần nằm DƯỚI bảng. Nếu cú
 //   chạm vào bảng lọt xuống được lớp đó thì mỗi lần bấm nút con trỏ lại nhảy một
@@ -38,10 +50,8 @@
 //   muộn ở tầng gesture.
 //
 // THANH PHÍM TẮT LÀ THỨ DESKTOP KHÔNG CÓ
-//   macOS/Windows bắt trọn bàn phím thật và gửi thẳng, kể cả Esc, Tab, F-key. Bàn
-//   phím ảo của iOS KHÔNG có những phím đó, nên hàng nút cuộn ngang trong bảng là
-//   đường duy nhất tới chúng. Nó không phải bản sao của một thứ trên desktop — nó là
-//   cái giá của việc không có bàn phím thật.
+//   Hàng nút cuộn ngang trong bảng là đường DUY NHẤT tới Esc/Tab/mũi tên — xem
+//   Hotkeys.swift.
 //
 // NHIỀU MÀN HÌNH: ĐỔI NGAY TẠI ĐÂY
 //   Host chia sẻ TẤT CẢ màn hình. Nút "Display" (chỉ hiện khi có >1 nguồn) đổi tại
@@ -53,33 +63,6 @@
 import AVFoundation
 import SwiftUI
 import UIKit
-
-/// Một phím tắt gửi thẳng sang host — bàn phím ảo không có những phím này.
-/// `modVk` != 0 -> tổ hợp (giữ phím bổ trợ rồi gõ phím chính): Ctrl+C, Ctrl+V...
-/// Thêm phím mới = thêm một dòng: mã phím ảo Windows + scancode US (bit8 = cờ E0
-/// cho phím mở rộng như mũi tên/Del).
-private struct Hotkey {
-    let label: String
-    let vk: Int32
-    let scan: Int32
-    var modVk: Int32 = 0
-    var modScan: Int32 = 0
-}
-
-// Không đưa Alt+Tab/phím Win vào: chúng đổi ngữ cảnh trên máy host, host sẽ ngừng
-// nhận input.
-private let kHotkeys: [Hotkey] = [
-    Hotkey(label: "Esc", vk: 0x1B, scan: 0x01),
-    Hotkey(label: "Tab", vk: 0x09, scan: 0x0F),
-    Hotkey(label: "Enter", vk: 0x0D, scan: 0x1C),
-    Hotkey(label: "↑", vk: 0x26, scan: 0x148),
-    Hotkey(label: "↓", vk: 0x28, scan: 0x150),
-    Hotkey(label: "←", vk: 0x25, scan: 0x14B),
-    Hotkey(label: "→", vk: 0x27, scan: 0x14D),
-    Hotkey(label: "Del", vk: 0x2E, scan: 0x153),
-    Hotkey(label: "Ctrl+C", vk: 0x43, scan: 0x2E, modVk: 0x11, modScan: 0x1D),
-    Hotkey(label: "Ctrl+V", vk: 0x56, scan: 0x2F, modVk: 0x11, modScan: 0x1D),
-]
 
 struct StreamView: View {
     @Bindable var model: SessionModel
@@ -94,6 +77,13 @@ struct StreamView: View {
 
     // Khung mà lớp điều khiển đang chiếm, toạ độ cửa sổ — trackpad phải mù ở đó.
     @State private var controlsRect: CGRect = .zero
+
+    // Mức phóng + đoạn kéo của khung nhìn — xem ViewTransform.swift.
+    @State private var transform = ViewTransform()
+
+    // Một ngón đang làm gì: dời khung (true) hay di chuột (false). Chỉ có nghĩa lúc
+    // đang phóng; vào/ra khỏi trạng thái phóng thì tự đặt lại — xem onChange bên dưới.
+    @State private var panMode = false
 
     private var streaming: Bool { model.phase == .streaming }
 
@@ -114,7 +104,7 @@ struct StreamView: View {
                     .padding(.trailing, safeArea.trailing)
                 // maxWidth/Height: ZStack canh .bottomTrailing, không có frame này thì
                 // lớp phủ dồn vào góc thay vì đứng giữa màn hình.
-                statusOverlay
+                StatusOverlay(model: model, streaming: streaming)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(safeArea)
                 // Đệm tay đúng bằng insets thay vì trông cậy vào safe area của
@@ -144,6 +134,16 @@ struct StreamView: View {
                 break
             }
         }
+        // Đổi màn hình = đổi hẳn kích thước desktop; giữ lại mức phóng của nguồn cũ
+        // thì người dùng rơi vào một góc ngẫu nhiên của nguồn mới.
+        .onChange(of: model.currentSourceId) { _, _ in
+            transform = ViewTransform()
+        }
+        // Phóng lên là để NGẮM, nên vào trạng thái phóng thì một ngón mặc định dời
+        // khung; về 1× thì không còn gì để dời, trả lại cho trackpad.
+        .onChange(of: transform.isZoomed) { _, zoomed in
+            panMode = zoomed
+        }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             model.streamViewAppeared()
@@ -165,42 +165,54 @@ struct StreamView: View {
     // MARK: - Video toàn màn hình
 
     private var videoArea: some View {
-        ZStack {
-            VideoLayerView { newLayer in
-                layer = newLayer
-                DeskhubClient.setLayer(newLayer)
+        // GeometryReader để biết vùng nhìn THẬT của khu video (đã trừ safe area hai
+        // bên): ViewTransform cần nó, và lớp trackpad cũng phải phủ đúng bằng nó.
+        GeometryReader { proxy in
+            let viewport = proxy.size
+            let frame = transform.frame(in: viewport, aspect: aspectRatio)
+            // Canh .topLeading để .offset đặt khung theo đúng toạ độ đã tính; canh
+            // giữa thì offset lại cộng thêm vào phần canh, sai gấp đôi.
+            ZStack(alignment: .topLeading) {
+                VideoLayerView { newLayer in
+                    layer = newLayer
+                    DeskhubClient.setLayer(newLayer)
+                }
+                // Đặt frame thay cho .aspectRatio(.fit): lúc 1× hai cách cho ra đúng
+                // một kết quả, nhưng cách này còn dựng được khung đã phóng/kéo.
+                .frame(width: max(frame.width, 1), height: max(frame.height, 1))
+                .offset(x: frame.minX, y: frame.minY)
+
+                // Trackpad phủ trọn vùng nhìn — gồm vùng đen letterbox: rê tay ở đâu
+                // cũng di được chuột (trackpad chạy theo delta). Nó KHÔNG bị phóng
+                // theo video; con trỏ bám khung video qua `frame`. `blockedRect`
+                // khoét đúng chỗ lớp điều khiển đang đứng.
+                if streaming {
+                    TouchInputView(
+                        model: model,
+                        videoRect: frame,
+                        blockedRect: controlsRect,
+                        panMode: panMode,
+                        onTransform: { factor, centroid, panDelta in
+                            transform.apply(
+                                factor: factor, centroid: centroid, panDelta: panDelta,
+                                viewport: viewport, aspect: aspectRatio
+                            )
+                        }
+                    )
+                    .frame(width: viewport.width, height: viewport.height)
+                }
+
+                // View hứng phím: vô hình, chỉ tồn tại để giữ first responder.
+                // allowsHitTesting(false): không được nuốt cú chạm của lớp touch.
+                KeyInputView(model: model, active: $keyboardOn)
+                    .frame(width: 1, height: 1)
+                    .opacity(0)
+                    .allowsHitTesting(false)
             }
-            .aspectRatio(aspectRatio, contentMode: .fit)
-
-            // Trackpad phủ trọn màn hình — gồm vùng đen letterbox: rê tay ở đâu cũng
-            // di được chuột (trackpad chạy theo delta). Con trỏ và toạ độ gửi đi vẫn
-            // bám khung video thật (overlay tự tính rect từ videoAspect). `blockedRect`
-            // khoét đúng chỗ lớp điều khiển đang đứng.
-            if streaming {
-                TouchInputView(
-                    model: model, videoAspect: aspectRatio, blockedRect: controlsRect
-                )
-            }
-
-            // View hứng phím: vô hình, chỉ tồn tại để giữ first responder.
-            // allowsHitTesting(false): không được nuốt cú chạm của lớp touch.
-            KeyInputView(model: model, active: $keyboardOn)
-                .frame(width: 1, height: 1)
-                .opacity(0)
-                .allowsHitTesting(false)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Lớp phủ trạng thái
-
-    /// Tách khỏi videoArea để được đệm safe area như lớp điều khiển — chữ "Session
-    /// ended" và nút Back không được chui vào tai thỏ khi máy nằm ngang.
-    @ViewBuilder private var statusOverlay: some View {
-        if !model.endReason.isEmpty {
-            endedOverlay
-        } else if !streaming {
-            connectingOverlay
+            .frame(width: viewport.width, height: viewport.height)
+            // Phóng to là khung tràn ra ngoài vùng nhìn — cắt đi, không thì nó vẽ
+            // lấn vào phần safe area hai bên (chỗ tai thỏ) mà cả bố cục đang cố né.
+            .clipped()
         }
     }
 
@@ -214,7 +226,20 @@ struct StreamView: View {
     // MARK: - Lớp điều khiển: nút tròn <-> bảng
 
     private var controlsLayer: some View {
-        Group {
+        // Viên thuốc zoom nằm TRONG lớp này chứ không phải một lớp phủ riêng: khung
+        // đo bên dưới bao luôn nó, nên trackpad tự động mù ở chỗ đó — không phải
+        // thêm vùng chặn thứ hai.
+        VStack(alignment: .trailing, spacing: 8) {
+            if transform.isZoomed {
+                ZoomControls(
+                    zoom: transform.zoom,
+                    panMode: panMode,
+                    onToggleMode: { panMode.toggle() },
+                    onReset: {
+                        withAnimation(.easeOut(duration: 0.18)) { transform = ViewTransform() }
+                    }
+                )
+            }
             if controlsOpen {
                 controlPanel
             } else {
@@ -340,31 +365,6 @@ struct StreamView: View {
         } else {
             model.keyTap(vk: hotkey.vk, scan: hotkey.scan)
         }
-    }
-
-    // MARK: - Lớp phủ
-
-    private var connectingOverlay: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text("Connecting to \(model.address)…")
-                .foregroundStyle(.white)
-        }
-    }
-
-    private var endedOverlay: some View {
-        VStack(spacing: 12) {
-            Text("Session ended")
-                .font(.headline)
-                .foregroundStyle(.white)
-            Text(model.endReason)
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Back") { model.disconnect() }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(24)
     }
 
     private func releaseLayer() {

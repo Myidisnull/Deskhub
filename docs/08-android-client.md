@@ -175,9 +175,48 @@ matters, releasing held keys.)
   screen — letterbox included — but the control layer sits on top of it and swallows every
   pointer event that lands on it (`Modifier.consumeTouches`, a `pointerInput` that consumes on
   the Main pass so child buttons still work), so a finger landing on the panel — or on the gap
-  between its buttons — cannot jog the cursor. The cursor itself is clamped to the
-  actual video rect and positions are normalized to 0..65535 within it (`sendMouseMove` →
+  between its buttons — cannot jog the cursor. The cursor is stored in *normalized* 0..1
+  video coordinates and only rendered through the current video rect, so zooming and panning
+  cannot move it on the host; sending it is a multiply by 65535 (`sendMove` →
   `QueueMouseMoveAbs`). It is mounted whenever the session is streaming.
+
+- **Pinch zoom** (2026-07-30) — two fingers pinch to scale the frame 1×..5× and drag to move
+  to another region; a tap on the zoom pill (in the control layer, bottom-right) goes back to
+  1×. Photo-viewer semantics: the point between the fingers stays put and the frame grows
+  around it (`pan' = (centroid - centre)(1 - ratio) + pan * ratio + panDelta`), and zoom and
+  pan apply together so a pinch that drifts drags the picture along. `videoFrame(viewport,
+  aspect, zoom, pan)` returns the displayed rect; pan is clamped so the frame never leaves a
+  gap at the edges. The gesture is detected on the *parent* of the video (`detectZoomPan`) and
+  consumed on the `Initial` pass, which is what keeps it out of the trackpad below.
+
+  **The zoom is a view transform, not a layout change.** The `SurfaceView` is laid out once at
+  the 1× rect (`base`); zoom/pan ride on its own `scaleX`/`scaleY` + `translationX`/`Y` with
+  the pivot at its top-left. Sizing the `SurfaceView` per frame instead — the first cut — is a
+  `requestLayout` and therefore a measure/layout pass over the view tree *plus* a surface
+  reallocation on every frame of the pinch, which lags the picture visibly behind the fingers;
+  it reads as "the screen chases my hand", and it is invisible while panning because an offset
+  change is the cheap position-only path (the same one `SurfaceView` uses to track scrolling).
+  Transform updates skip measurement entirely: the RenderThread hands the new rect to
+  `SurfaceControl` and the hardware composer does the rest. Supported since API 24, and
+  `minSdk` is exactly 24. A Compose `graphicsLayer` is still not an option — that transform
+  lives on a Compose RenderNode, while the surface is positioned from the view's real place in
+  the view tree, so the punch-hole would separate from the picture.
+
+  The frame never moves *on its own*. (The first cut had the cursor drag it along when the
+  cursor reached a screen edge; in practice that threw away the region you had just zoomed
+  into the moment you touched the screen, because the cursor was somewhere off-view.) The
+  cursor is clamped to the *visible* part of the video — `videoRect ∩ screen`,
+  `clampToVisible` — rather than the whole frame, so it can never end up off-screen. The clamp
+  never sends anything: every click re-sends the cursor position first anyway.
+
+  **One finger has two jobs, so there is a switch.** Once zoomed, the thing you most want is a
+  one-finger swipe to look somewhere else — but one finger is the trackpad, and the swipe
+  itself carries no hint of which was meant. `panMode` decides: on, one finger moves the
+  frame; off, one finger moves the pointer. It is a "Pan"/"Pointer" pill in the control layer,
+  shown only while zoomed (at 1× there is nothing to move), and it flips to Pan automatically
+  on zooming in and back to Pointer at 1×. While Pan is on, *every* one-finger gesture is
+  silent, taps included — misfiring a click on the host while you are swiping to look around
+  is worse than having to tap the switch. Two-finger pinch and pan work in both modes.
 - **Virtual keyboard** (`KeyInputView.kt`) — an invisible 1 dp view that holds IME focus and
   captures both input paths: `commitText`/`deleteSurroundingText` on a dummy
   `BaseInputConnection` (Gboard-style IMEs) and raw `onKeyDown` (physical/Bluetooth keyboards).
@@ -224,10 +263,10 @@ Both screens now use **stock Material 3** (`MaterialTheme(colorScheme = darkColo
 remaining Kotlin files are `MainActivity` (~290), `StreamActivity` (~600), `NativeClient`
 (~220) and `KeyInputView` (~94).
 
-What was **kept** because it is functional, not decoration: the SurfaceView + `aspectRatio`
-letterbox, `TrackpadOverlay` with its drawn `CursorArrow` (delta cursor, tap / double-tap /
-long-press-drag), the invisible `KeyInputView` that holds IME focus, and the horizontally
-scrolling hotkey row. The RTT sparkline went with the design system — the status line still
+What was **kept** because it is functional, not decoration: the SurfaceView + its letterbox
+(now `videoFrame`, which also carries zoom/pan), `TrackpadOverlay` with its drawn `CursorArrow`
+(delta cursor, tap / double-tap / long-press-drag), the invisible `KeyInputView` that holds IME
+focus, and the horizontally scrolling hotkey row. The RTT sparkline went with the design system — the status line still
 shows the same numbers as text.
 
 ## Known limitations
@@ -236,7 +275,8 @@ shows the same numbers as text.
   pointer-lock, the Windows client's F9 mode) exist end-to-end but no UI calls them — the Lock
   button was removed.
 - Virtual-keyboard typing is limited to US-ASCII; anything `CharToKeyChord` cannot map is
-  dropped. No scroll-wheel or pinch-zoom gesture exists.
+  dropped. No scroll-wheel gesture exists (pinch zoom does, but it is view-side only — it
+  never reaches the host).
 - No host discovery (no mDNS/broadcast); the address is typed by hand (the last one is pre-filled).
 - One session at a time by design: a single global `ClientLoop` behind JNI.
 - No pause/resume — backgrounding terminates the session (see Lifecycle).
