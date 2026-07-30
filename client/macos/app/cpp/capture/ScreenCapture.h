@@ -33,6 +33,18 @@
 //      so kích thước nguồn và gọi updateConfiguration khi lệch; frame sau đó về với
 //      cỡ mới và AgentLoop thấy nó qua đúng đường "sizeChanged" như bản Windows.
 //
+//   5. TRẦN ĐỘ PHÂN GIẢI (`maxDim`). Màn Retina cho ra khung KHỔNG LỒ: một MacBook
+//      Pro 14" là 3024×1964 = 5.9 Mpixel, gấp gần ba lần 1080p, và màn XDR 6K thì
+//      gấp bảy. Ở 60fps đó là 356 Mpixel/s đổ vào VideoToolbox, và ở 20 Mbps mặc
+//      định thì chỉ còn 0.06 bit/pixel — encoder nghẹt, mỗi IDR phình ra vài trăm
+//      KB bắn thành gần nghìn datagram liên tiếp làm tràn buffer gửi, mất gói,
+//      BitrateController tụt rate, hình càng nát. Nên ta CO NGAY TỪ NGUỒN: đặt cỡ
+//      buffer của SCStream nhỏ hơn và để WindowServer co trên GPU — miễn phí, và
+//      encoder chỉ còn thấy đúng số pixel ta muốn trả tiền.
+//
+//      Co ở đây KHÔNG đụng tới chuột: toạ độ trên wire là chuẩn hoá 0..65535 rồi
+//      map qua CGDisplayBounds (input/InputInjector.mm), không dính gì cỡ khung.
+//
 // ⚠ CALLBACK CHẠY TRÊN QUEUE CỦA SCStream
 //   Hai hệ quả bắt buộc phải nhớ:
 //     - Phải xử lý NHANH. Queue này cũng là nơi frame kế tiếp xếp hàng.
@@ -61,8 +73,32 @@ public:
     // tới ~2 giây (phải hỏi SCShareableContent để tìm đối tượng SCDisplay) → gọi
     // ngoài main thread. false = không tìm thấy màn hình, thiếu quyền, hoặc stream
     // không khởi động được.
-    bool Start(uint32_t displayId, uint32_t fps, FrameHandler onFrame);
+    //
+    // `maxDim` = trần cho CẠNH DÀI của khung, giữ nguyên tỉ lệ (quyết định 5).
+    // 0 = không co, bắt đúng độ phân giải native của màn hình.
+    bool Start(uint32_t displayId, uint32_t fps, uint32_t maxDim, FrameHandler onFrame);
     void Stop();
+
+    // Client vừa HELLO và báo màn hình nó `clientW`×`clientH` pixel (0×0 = không
+    // biết, hoặc client vừa rời đi). Co luồng cho vừa cả nó lẫn `maxDim` và trả cỡ
+    // buffer sau khi tính ra `outW`/`outH` — AgentLoop chào ĐÚNG cỡ này trong
+    // HELLO_ACK, nên client dựng bộ giải mã đúng một lần.
+    //
+    // An toàn gọi từ thread khác thread capture (thực tế là thread Recv). Đổi cỡ
+    // thật sự chỉ xảy ra khi kết quả khác cỡ đang chạy; gọi lại với cùng số là no-op.
+    void SetClientSize(uint32_t clientW, uint32_t clientH, uint32_t& outW, uint32_t& outH);
+
+    // Áp một bậc của thang chất lượng (deskhub::QualityLadder): `scalePct` co thêm
+    // trên cỡ đã qua hai trần ở trên, `fps` là trần khung hình mới.
+    //
+    // ⚠ HAI THỨ NÀY ĐI CÙNG NHAU, KHÔNG TÁCH RA ĐƯỢC. Cả hai đều nằm trong CÙNG một
+    //   SCStreamConfiguration, nên đổi riêng lẻ vẫn tốn đúng một lần
+    //   updateConfiguration; tách thành hai API chỉ tạo ra khả năng gọi nửa vời và
+    //   để capture chạy ở một bậc không tồn tại trên thang.
+    //
+    // Trả cỡ buffer sau khi tính qua `outW`/`outH` — AgentLoop cần nó để dựng
+    // RECONFIG. An toàn gọi từ thread Recv.
+    void SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW, uint32_t& outH);
 
     // True khi màn hình mục tiêu đã biến mất (bị rút / đổi cấu hình) hoặc SCStream
     // báo lỗi không hồi phục được. AgentLoop dùng nó để gỡ nguồn khỏi phiên.

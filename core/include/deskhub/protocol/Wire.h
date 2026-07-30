@@ -154,6 +154,19 @@ struct SourceInfo {
 struct Hello {
     uint32_t clientId;
     uint16_t codecMask;
+    // Cỡ MÀN HÌNH của client, tính bằng PIXEL. Host co luồng cho vừa nó — gửi to hơn
+    // thứ client vẽ nổi là phí thuần tuý băng thông lẫn sức nén (deskhub::FitStreamSize).
+    //
+    // ⚠ NGỮ NGHĨA ĐỔI 2026-07-30. Trước đây hai trường này mang nghĩa "trần bộ giải mã
+    //   của tôi" và MỌI client trừ Windows đều hardcode 3840×2160 — trong khi KHÔNG
+    //   host nào từng đọc tới. Đổi được mà không vỡ tương thích chính vì thế: host cũ
+    //   vẫn bỏ qua, còn client cũ gửi 3840×2160 thì rộng hơn mọi trần thực tế nên
+    //   host mới tính ra đúng kết quả như khi không có thương lượng.
+    //
+    //   Gửi cỡ màn hình chứ KHÔNG phải cỡ cửa sổ đang mở: cửa sổ co giãn và máy xoay
+    //   được, mà giao thức không có đường cho client báo lại giữa phiên — chốt theo
+    //   một con số không đổi thì không bao giờ sai theo hướng thiếu pixel.
+    //   0 = không biết/không nói, host bỏ qua trần này.
     uint16_t maxWidth;
     uint16_t maxHeight;
     uint8_t desiredFps;
@@ -204,6 +217,18 @@ struct Reconfig {
     uint16_t width;
     uint16_t height;
     uint32_t bitrateBps;
+    // fps mới. NỐI THÊM 30/07/2026 khi host bắt đầu tự hạ fps theo băng thông
+    // (deskhub::QualityLadder) — trước đó fps chốt lúc HELLO_ACK và không bao giờ đổi.
+    //
+    // ⚠ CLIENT PHẢI ĐỌC TRƯỜNG NÀY. Nó không chỉ để hiển thị: Reassembler dùng
+    //   1e6/fps làm hạn chờ trước khi khai tử một frame thiếu mảnh. Host tụt xuống
+    //   20fps mà client vẫn tưởng 60 thì hạn đó là 33ms thay vì 100ms — client bỏ
+    //   frame lành, xin IDR, host phát IDR nặng, đường truyền vốn đã yếu càng nghẽn.
+    //   Đúng vòng xoáy tử thần mà việc hạ fps sinh ra để tránh.
+    //
+    // TƯƠNG THÍCH NGƯỢC: ParseReconfig chỉ đòi payload ≥ 8 byte, nên host cũ (8 byte)
+    // gặp client mới vẫn parse được — fps = 0 nghĩa là "không nói", client giữ nguyên.
+    uint8_t fps;
 };
 
 // ---- Kênh input (GĐ4) ----

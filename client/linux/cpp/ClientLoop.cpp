@@ -159,10 +159,13 @@ void ClientLoop::QueueMouseWheel(int32_t delta) {
     PushLocked(e);
 }
 
-bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, VideoSink* sink) {
+bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, VideoSink* sink,
+    uint32_t screenW, uint32_t screenH) {
     server_ = server;
     sourceId_ = sourceId;
     sink_ = sink;
+    screenW_ = screenW;
+    screenH_ = screenH;
     if (!sock_.Open(0)) { // cổng ngẫu nhiên
         LOGE("[Client] Failed to open socket.");
         return false;
@@ -202,6 +205,9 @@ void ClientLoop::Stop() {
 // đàm phán, mà con số đó tới từ thread Net và không theo lịch cố định.
 void ClientLoop::DecodeThread() {
     AvDecoder decoder;
+    // Phiên mới = một máy host khác (hoặc cùng máy nhưng đã khởi động lại), tức một
+    // độ lệch đồng hồ khác. Mẫu của phiên trước là rác đối với phiên này.
+    clockOffset_.Reset();
 
     while (!quit_.load()) {
         // 1) Lấy frame kế tiếp. Chờ có giới hạn để còn kiểm tra quit_ đều đặn.
@@ -246,6 +252,20 @@ void ClientLoop::DecodeThread() {
         if (!ok) {
             decodeFailed_.store(true, std::memory_order_release);
             decoder.Shutdown(); // dựng lại ở vòng sau
+            continue;
+        }
+
+        // Trễ e2e: chốt NGAY TẠI ĐÂY, trên frame vừa vẽ xong — xem lastE2eUs_ ở .h
+        // về việc vì sao không được tính ở nhịp thống kê 1s, và
+        // deskhub/control/ClockOffset.h về vì sao là bộ lọc min.
+        // Chỉ thread này chạm clockOffset_ — nó không tự khoá.
+        if (const uint64_t pts = sink_ ? sink_->lastRenderedPtsUs() : 0) {
+            clockOffset_.AddSample(pts, NowUs());
+            // Cộng lại sàn mạng đo được (nửa RTT nhỏ nhất). RTT chưa về thì để 0:
+            // thà hụt sàn còn hơn bịa ra nó.
+            lastE2eUs_.store(
+                clockOffset_.LatencyUs(minRttUs_.load(std::memory_order_relaxed) / 2),
+                std::memory_order_relaxed);
         }
     }
 
@@ -266,15 +286,22 @@ void ClientLoop::NetThread() {
     deskhub::ClientCallbacks cb;
     cb.send = [this](std::span<const uint8_t> d) { sock_.SendTo(server_, d.data(), d.size()); };
     cb.onReady = [this](const deskhub::NegotiatedParams& np) {
-        ackDeltaUs_.store(int64_t(NowUs()) - int64_t(np.timebaseUs), std::memory_order_relaxed);
+        // HelloAck::timebaseUs KHÔNG còn được dùng để ước lượng độ lệch đồng hồ nữa:
+        // một mẫu duy nhất, lấy từ gói đầu tiên của phiên, là mẫu tệ nhất có thể lấy
+        // (xem deskhub/control/ClockOffset.h). Bộ lọc min ở thread Decode thay nó.
         LOGI("[Client] Negotiation done: H264 %ux%u @%ufps, %.1f Mbps", np.width, np.height,
             np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
     };
-    cb.onReconfig = [this](const deskhub::NegotiatedParams& np) {
-        LOGI("[Client] Host reconfigured: %ux%u, %.1f Mbps", np.width, np.height,
-            np.bitrateBps / 1e6);
+    cb.onReconfig = [this, &reasm](const deskhub::NegotiatedParams& np) {
+        // fps mới phải tới được Reassembler, không chỉ để hiển thị: nó là hạn chờ
+        // trước khi khai tử một frame thiếu mảnh. Giữ hạn của fps cũ khi host đã hạ
+        // fps = bỏ frame LÀNH rồi xin IDR, đúng lúc đường truyền yếu nhất
+        // (xem deskhub::Reconfig::fps).
+        if (reasm) reasm->SetFps(np.fps);
+        LOGI("[Client] Host reconfigured: %ux%u @%ufps, %.1f Mbps", np.width, np.height,
+            np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
         // libavcodec tự nhận ra SPS mới và đổi kích thước, nhưng dựng lại decoder
@@ -304,10 +331,10 @@ void ClientLoop::NetThread() {
     // clientId chỉ cần phân biệt hai client — đồng hồ micro-giây đủ ngẫu nhiên.
     hello.clientId = uint32_t(NowUs());
     hello.codecMask = deskhub::kCodecMaskH264;
-    // Chưa biết kích thước cửa sổ lúc gửi HELLO (và host đằng nào cũng stream đúng
-    // kích thước nguồn) -> khai trần rộng, để host tự quyết.
-    hello.maxWidth = 3840;
-    hello.maxHeight = 2160;
+    // Cỡ MÀN HÌNH máy này (pixel). Host co luồng cho vừa thay vì gửi nguyên độ phân
+    // giải nguồn — xem deskhub::Hello::maxWidth. 0 = tầng GTK không lấy được cỡ.
+    hello.maxWidth = uint16_t(screenW_);
+    hello.maxHeight = uint16_t(screenH_);
     hello.desiredFps = 60;
     hello.features = 0;
     hello.sourceId = sourceId_;
@@ -463,20 +490,8 @@ void ClientLoop::NetThread() {
             const uint32_t rendered = sink_ ? sink_->TakeRenderedCount() : 0;
             const deskhub::LinkWindow w = linkStats.Close(st, stBytes, rendered, now);
 
-            // Trễ e2e: đo trên frame vừa VẼ, theo đồng hồ host đã hiệu chỉnh.
-            // Hai đồng hồ không đồng bộ, nên ước lượng độ lệch:
-            //   ackDeltaUs_ = đồng hồ ta - timebaseUs của host, chụp lúc nhận HELLO_ACK.
-            //   offset      = ackDelta - rtt/2 (bù nửa vòng HELLO_ACK mất để tới nơi).
-            //   e2e         = bây giờ - offset - pts của frame.
-            // Dùng RTT NHỎ NHẤT từng thấy vì mẫu nhỏ nhất ít bị hàng đợi làm nhiễu nhất.
-            int64_t e2e = -1;
-            const uint32_t rtt = minRttUs_.load(std::memory_order_relaxed);
-            const uint64_t pts = sink_ ? sink_->lastRenderedPtsUs() : 0;
-            if (rtt && pts) {
-                const int64_t offset = ackDeltaUs_.load(std::memory_order_relaxed) -
-                                       int64_t(rtt) / 2;
-                e2e = int64_t(now) - offset - int64_t(pts);
-            }
+            // Thread Decode đã chốt sẵn ở đúng thời điểm vẽ; đây chỉ đọc ra.
+            const int64_t e2e = lastE2eUs_.load(std::memory_order_relaxed);
 
             LOGI("[Client] %2.0f fps | %6.0f kbps | dropped %" PRIu64
                  " frame | lost %4.1f%% pkts"
@@ -504,10 +519,11 @@ void ClientLoop::NetThread() {
                 LOGI(
                     "[DIAG] evt=sum asm_ms=%.1f/%u dec_ms=%.1f/%u dq_drop=%u"
                     " late=%" PRIu64 " late_ms_avg=%.0f late_ms_max=%" PRIu64
-                    " gap_ms_max=%u loop_busy_ms_max=%u",
+                    " gap_ms_max=%u loop_busy_ms_max=%u min_rtt_ms=%.1f e2e_ms=%.1f",
                     dgAsmCount ? double(dgAsmMsSum) / dgAsmCount : 0.0, dgAsmMsMax,
                     dc ? double(ds) / dc : 0.0, dm, dgDqDrop, w.latePackets, w.lateMsAvg,
-                    w.lateMsMax, reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs);
+                    w.lateMsMax, reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs,
+                    minRttUs_.load(std::memory_order_relaxed) / 1000.0, e2e / 1000.0);
                 dgAsmMsSum = dgAsmMsMax = dgAsmCount = 0;
                 dgDqDrop = 0;
                 dgLoopBusyMaxMs = 0;

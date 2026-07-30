@@ -23,6 +23,7 @@ add_library(deskhub_win_core STATIC
     net/SourceQuery.cpp
 
     capture/ScreenCapture.cpp
+    capture/Downscaler.cpp
     capture/DisplayFinder.cpp
     capture/GpuSelect.cpp
 

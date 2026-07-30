@@ -10,4 +10,7 @@ void RunRetransmitCacheTests();
 void RunSessionTests();
 void RunInputTests();
 void RunControlTests();
+void RunStreamSizeTests();
+void RunClockOffsetTests();
+void RunQualityLadderTests();
 void RunBeaconTests();

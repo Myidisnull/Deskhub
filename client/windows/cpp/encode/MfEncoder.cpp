@@ -413,6 +413,20 @@ struct MfEncoder::Impl {
         return SUCCEEDED(codecApi->SetValue(&CODECAPI_AVEncCommonMeanBitRate, &v));
     }
 
+    // Đổi fps. Media Foundation không có đường chỉnh khi đang chạy: MF_MT_FRAME_RATE
+    // nằm trong media type vào/ra (ConfigureTransform), và cỡ VBV ở
+    // ConfigureRateControl cũng tính từ nó. Nên đường DUY NHẤT đúng là dựng lại
+    // transform — cùng đường mà force-keyframe đã phải đi trên driver QSV.
+    //
+    // Hệ quả caller phải biết: frame kế tiếp là một IDR. Chấp nhận được vì thang chỉ
+    // đổi bậc sau vài giây ổn định, không phải mỗi giây.
+    bool SetFps(uint32_t fps) {
+        if (!fps || fps == cfg.fps) return fps == cfg.fps;
+        cfg.fps = fps;
+        if (!mft) return true; // chưa dựng: Init sau sẽ lấy số mới
+        return ReinitTransform();
+    }
+
     // Xin IDR. true = sẵn sàng nhận frame kế tiếp (có thể vừa tạo lại transform).
     // false = hỏng hoàn toàn.
     bool RequestKeyFrame() {
@@ -874,6 +888,10 @@ bool MfEncoder::Encode(ID3D11Texture2D* frame, uint64_t timestampUs, bool forceK
 
 bool MfEncoder::SetBitrate(uint32_t bitrateBps) {
     return impl_ && impl_->SetBitrate(bitrateBps);
+}
+
+bool MfEncoder::SetFps(uint32_t fps) {
+    return impl_ && impl_->SetFps(fps);
 }
 
 void MfEncoder::Finish() {

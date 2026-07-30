@@ -72,11 +72,12 @@ nonisolated enum DeskhubAgent {
     static func start(
         sources: [ShareSource],
         fps: UInt32,
-        bitrateMbps: UInt32
+        bitrateMbps: UInt32,
+        maxDim: UInt32
     ) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
-            dha_start(ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps)
+            dha_start(ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps, maxDim)
         }
     }
 

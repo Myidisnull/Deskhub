@@ -159,9 +159,12 @@ void ClientLoop::QueueMouseWheel(int32_t delta) {
     PushLocked(e);
 }
 
-bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId) {
+bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW,
+    uint32_t screenH) {
     server_ = server;
     sourceId_ = sourceId;
+    screenW_ = screenW;
+    screenH_ = screenH;
     if (!sock_.Open(0)) { // cổng ngẫu nhiên
         LOGE("[Client] Failed to open socket.");
         return false;
@@ -217,6 +220,9 @@ void ClientLoop::SetLayer(void* layer) {
 // và không theo thứ tự cố định.
 void ClientLoop::DecodeThread() {
     VtDecoder decoder;
+    // Phiên mới = một máy host khác (hoặc cùng máy nhưng đã khởi động lại), tức một
+    // độ lệch đồng hồ khác. Mẫu của phiên trước là rác đối với phiên này.
+    clockOffset_.Reset();
 
     for (;;) {
         // 1) Layer đổi? Buông decoder cũ rồi ack cho main. Decoder luôn được dựng lại
@@ -301,18 +307,16 @@ void ClientLoop::DecodeThread() {
         if (const uint32_t n = decoder.TakeRenderedCount())
             stRendered_.fetch_add(n, std::memory_order_relaxed);
 
-        // Trễ e2e: đo trên frame vừa enqueue, theo đồng hồ host đã hiệu chỉnh.
-        // (Xem VtDecoder::lastRenderedPtsUs về caveat "enqueue vs lên màn hình".)
-        // Hai đồng hồ không đồng bộ, nên ước lượng độ lệch:
-        //   ackDeltaUs_ = đồng hồ ta - timebaseUs của host, chụp lúc nhận HELLO_ACK.
-        //   offset      = ackDelta - rtt/2 (bù nửa vòng HELLO_ACK mất để tới nơi).
-        //   e2e         = bây giờ - offset - pts của frame.
-        // Dùng RTT NHỎ NHẤT từng thấy vì mẫu nhỏ nhất ít bị hàng đợi làm nhiễu nhất.
-        const uint32_t rtt = minRttUs_.load(std::memory_order_relaxed);
-        const uint64_t pts = decoder.lastRenderedPtsUs();
-        if (rtt && pts) {
-            const int64_t offset = ackDeltaUs_.load(std::memory_order_relaxed) - int64_t(rtt) / 2;
-            lastE2eUs_.store(int64_t(NowUs()) - offset - int64_t(pts));
+        // Trễ e2e: đo trên frame vừa enqueue, qua bộ lọc min ở core.
+        // (Xem VtDecoder::lastRenderedPtsUs về caveat "enqueue vs lên màn hình",
+        //  và deskhub/control/ClockOffset.h về vì sao là bộ lọc min.)
+        // Chỉ thread này chạm clockOffset_ — nó không tự khoá.
+        if (const uint64_t pts = decoder.lastRenderedPtsUs()) {
+            clockOffset_.AddSample(pts, NowUs());
+            // Cộng lại sàn mạng đo được (nửa RTT nhỏ nhất). RTT chưa về thì để 0:
+            // thà hụt sàn còn hơn bịa ra nó.
+            lastE2eUs_.store(
+                clockOffset_.LatencyUs(minRttUs_.load(std::memory_order_relaxed) / 2));
         }
     }
 
@@ -340,15 +344,22 @@ void ClientLoop::NetThread() {
         sock_.SendTo(server_, d.data(), d.size());
     };
     cb.onReady = [this](const deskhub::NegotiatedParams& np) {
-        ackDeltaUs_.store(int64_t(NowUs()) - int64_t(np.timebaseUs), std::memory_order_relaxed);
+        // HelloAck::timebaseUs KHÔNG còn được dùng để ước lượng độ lệch đồng hồ nữa:
+        // một mẫu duy nhất, lấy từ gói đầu tiên của phiên, là mẫu tệ nhất có thể lấy
+        // (xem deskhub/control/ClockOffset.h). Bộ lọc min ở thread Decode thay nó.
         LOGI("[Client] Negotiation done: H264 %ux%u @%ufps, %.1f Mbps",
             np.width, np.height, np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
     };
-    cb.onReconfig = [this](const deskhub::NegotiatedParams& np) {
-        LOGI("[Client] Host reconfigured: %ux%u, %.1f Mbps",
-            np.width, np.height, np.bitrateBps / 1e6);
+    cb.onReconfig = [this, &reasm](const deskhub::NegotiatedParams& np) {
+        // fps mới phải tới được Reassembler, không chỉ để hiển thị: nó là hạn chờ
+        // trước khi khai tử một frame thiếu mảnh. Giữ hạn của fps cũ khi host đã hạ
+        // fps = bỏ frame LÀNH rồi xin IDR, đúng lúc đường truyền yếu nhất
+        // (xem deskhub::Reconfig::fps).
+        if (reasm) reasm->SetFps(np.fps);
+        LOGI("[Client] Host reconfigured: %ux%u @%ufps, %.1f Mbps",
+            np.width, np.height, np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
         // VtDecoder dựng CMVideoFormatDescription cứng theo SPS cũ; đổi kích thước
@@ -378,10 +389,10 @@ void ClientLoop::NetThread() {
     // clientId chỉ cần phân biệt hai client — đồng hồ micro-giây đủ ngẫu nhiên.
     hello.clientId = uint32_t(NowUs());
     hello.codecMask = deskhub::kCodecMaskH264;
-    // Chưa biết kích thước cửa sổ lúc gửi HELLO (và host đằng nào cũng stream đúng
-    // kích thước nguồn) -> khai trần rộng, để host tự quyết.
-    hello.maxWidth = 3840;
-    hello.maxHeight = 2160;
+    // Cỡ MÀN HÌNH máy này (pixel). Host co luồng cho vừa thay vì gửi nguyên độ phân
+    // giải nguồn — xem deskhub::Hello::maxWidth. 0 = bridge không lấy được cỡ.
+    hello.maxWidth = uint16_t(screenW_);
+    hello.maxHeight = uint16_t(screenH_);
     hello.desiredFps = 60;
     hello.features = 0;
     hello.sourceId = sourceId_;
@@ -568,15 +579,21 @@ void ClientLoop::NetThread() {
                 const uint32_t dc = dgDecCount_.exchange(0, std::memory_order_relaxed);
                 const uint32_t ds = dgDecMsSum_.exchange(0, std::memory_order_relaxed);
                 const uint32_t dm = dgDecMsMax_.exchange(0, std::memory_order_relaxed);
+                // min_rtt_ms / e2e_ms là ĐẦU VÀO và ĐẦU RA của phép ước lượng e2e —
+                // không có chúng thì con số "e2e ~N ms" ở dòng [Client] không kiểm
+                // chứng được từ log. Phần XẾP HÀNG (thứ ta tác động được) suy ra
+                // bằng phép trừ: e2e_ms - min_rtt_ms/2. e2e_ms = -0.0 nghĩa là chưa
+                // có mẫu nào, không phải "trễ bằng 0".
                 LOGI(
                     "[DIAG] evt=sum asm_ms=%.1f/%u dec_ms=%.1f/%u dq_drop=%u"
                     " late=%" PRIu64 " late_ms_avg=%.0f late_ms_max=%" PRIu64
-                    " gap_ms_max=%u loop_busy_ms_max=%u",
+                    " gap_ms_max=%u loop_busy_ms_max=%u min_rtt_ms=%.1f e2e_ms=%.1f",
                     dgAsmCount ? double(dgAsmMsSum) / dgAsmCount : 0.0, dgAsmMsMax,
                     dc ? double(ds) / dc : 0.0, dm,
                     dgDqDrop,
                     w.latePackets, w.lateMsAvg, w.lateMsMax,
-                    reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs);
+                    reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs,
+                    minRttUs_.load(std::memory_order_relaxed) / 1000.0, e2e / 1000.0);
                 dgAsmMsSum = dgAsmMsMax = dgAsmCount = 0;
                 dgDqDrop = 0;
                 dgLoopBusyMaxMs = 0;

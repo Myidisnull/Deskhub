@@ -235,6 +235,29 @@ struct NvencEncoder::Impl {
         return true;
     }
 
+    // Đổi fps không dựng lại session. Phải sửa CẢ HAI chỗ fps xuất hiện:
+    // frameRateNum (mẫu số chia ngân sách bit) và vbvBufferSize (~một frame, tính từ
+    // bitrate/fps). Sửa mỗi cái đầu thì VBV vẫn theo nhịp cũ và cỡ frame lệch hẳn.
+    bool SetFps(uint32_t fps) {
+        if (!enc || !fps) return false;
+        if (fps == cfg.fps) return true;
+        cfg.fps = fps;
+        initParams.frameRateNum = fps;
+        initParams.frameRateDen = 1;
+        encCfg.rcParams.vbvBufferSize = cfg.bitrateBps / fps;
+        encCfg.rcParams.vbvInitialDelay = encCfg.rcParams.vbvBufferSize;
+
+        NV_ENC_RECONFIGURE_PARAMS rp{};
+        rp.version = NV_ENC_RECONFIGURE_PARAMS_VER;
+        rp.reInitEncodeParams = initParams; // encodeConfig vẫn trỏ vào encCfg
+        // resetEncoder = 0: giữ nguyên chuỗi inter-frame, không cần IDR. Đây chính là
+        // chỗ NVENC hơn hẳn MF, nơi cùng thao tác này bắt dựng lại cả transform.
+        rp.resetEncoder = 0;
+        NVENCSTATUS s = nv.nvEncReconfigureEncoder(enc, &rp);
+        if (s != NV_ENC_SUCCESS) return Fail("ReconfigureEncoder(fps)", s);
+        return true;
+    }
+
     NV_ENC_REGISTERED_PTR RegisterTex(ID3D11Texture2D* tex) {
         auto it = registered.find(tex);
         if (it != registered.end()) return it->second;
@@ -380,6 +403,10 @@ bool NvencEncoder::Encode(ID3D11Texture2D* frame, uint64_t ts, bool forceKeyfram
 }
 bool NvencEncoder::SetBitrate(uint32_t bitrateBps) {
     return impl_ && impl_->SetBitrate(bitrateBps);
+}
+
+bool NvencEncoder::SetFps(uint32_t fps) {
+    return impl_ && impl_->SetFps(fps);
 }
 void NvencEncoder::Finish() {
     if (impl_) impl_->Finish();

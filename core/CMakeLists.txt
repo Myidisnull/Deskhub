@@ -27,6 +27,9 @@ add_library(core STATIC
 
     src/control/BitrateController.cpp
     src/control/LinkStats.cpp
+    src/control/StreamSize.cpp
+    src/control/ClockOffset.cpp
+    src/control/QualityLadder.cpp
 
     src/session/Beacon.cpp
 )
@@ -66,6 +69,9 @@ if(DESKHUB_CORE_TESTS)
         tests/input/InputTests.cpp
 
         tests/control/ControlTests.cpp
+        tests/control/StreamSizeTests.cpp
+        tests/control/ClockOffsetTests.cpp
+        tests/control/QualityLadderTests.cpp
 
         tests/session/BeaconTests.cpp
     )

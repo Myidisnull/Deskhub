@@ -35,6 +35,15 @@ int main() {
     std::printf("--- control: bitrate + link stats ---\n");
     RunControlTests();
 
+    std::printf("--- control: stream size negotiation ---\n");
+    RunStreamSizeTests();
+
+    std::printf("--- control: clock offset / one-way latency ---\n");
+    RunClockOffsetTests();
+
+    std::printf("--- control: quality ladder (fps + resolution vs bandwidth) ---\n");
+    RunQualityLadderTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 

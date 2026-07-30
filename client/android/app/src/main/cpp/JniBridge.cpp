@@ -108,7 +108,7 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
 // nativeStop — xem chú thích ở g_generation.
 JNIEXPORT jlong JNICALL
 Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addrStr,
-    jint sourceId) {
+    jint sourceId, jint screenW, jint screenH) {
     const std::string addr = FromJString(env, addrStr);
 
     NetAddr server;
@@ -117,8 +117,13 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
         return 0;
     }
 
+    // Cỡ màn hình lấy ở tầng Kotlin (WindowManager) rồi truyền xuống — JNI thuần
+    // không có đường hỏi. Số âm/0 = không biết, ClientLoop bỏ qua trần này.
+    const uint32_t sw = screenW > 0 ? uint32_t(screenW) : 0;
+    const uint32_t sh = screenH > 0 ? uint32_t(screenH) : 0;
+
     g_client = std::make_unique<ClientLoop>();
-    if (!g_client->Start(server, uint8_t(sourceId))) {
+    if (!g_client->Start(server, uint8_t(sourceId), sw, sh)) {
         g_client.reset();
         return 0;
     }

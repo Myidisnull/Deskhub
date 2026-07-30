@@ -15,6 +15,8 @@
 #include <mutex>
 #include <utility>
 
+#include "deskhubp/Clock.h"
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
@@ -62,6 +64,26 @@ struct PanelRenderer::Impl {
         ComPtr<IDXGIFactory2> factory;
         PR_CHECK(adapter->GetParent(IID_PPV_ARGS(&factory)), "GetParent(Factory2)");
 
+        // ⚠ ĐỘ TRỄ TRÌNH BÀY — hai núm dưới đây quyết định phần lớn e2e phía viewer.
+        //
+        //   MaximumFrameLatency: DXGI mặc định cho phép xếp hàng BA frame đã Present
+        //   nhưng chưa lên màn. Ở 60 Hz đó là ~50 ms trễ cộng thẳng vào, hằng số, có
+        //   mặt ngay từ frame đầu — và không có gì trong log lộ ra nó. Viewer không
+        //   phải game: ta không cần đệm để giấu frame time dao động, ta cần frame mới
+        //   nhất lên màn sớm nhất. 1 = trình bày xong cái này mới nhận cái kế.
+        //
+        //   FLIP_DISCARD (thay cho FLIP_SEQUENTIAL): khi frame mới tới trong lúc frame
+        //   cũ còn đang chờ quét, DWM được phép VỨT cái cũ thay vì trình bày lần lượt
+        //   cả hai. Với luồng màn hình từ xa, frame cũ đã hết giá trị — trình bày nó
+        //   chỉ làm frame mới phải chờ thêm một nhịp.
+        //
+        // Không dùng ALLOW_TEARING: nó bỏ hẳn hàng đợi nhưng đổi lấy xé hình, và hai
+        // núm trên đã cắt gần hết phần trễ có thể cắt mà không mất gì.
+        {
+            ComPtr<IDXGIDevice1> dxgiDev1;
+            if (SUCCEEDED(dxgiDev.As(&dxgiDev1))) dxgiDev1->SetMaximumFrameLatency(1);
+        }
+
         DXGI_SWAP_CHAIN_DESC1 sd{};
         sd.Width = bbW;
         sd.Height = bbH;
@@ -69,7 +91,7 @@ struct PanelRenderer::Impl {
         sd.SampleDesc.Count = 1;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.BufferCount = 2;
-        sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         sd.Scaling = DXGI_SCALING_STRETCH;
         sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
         PR_CHECK(factory->CreateSwapChainForHwnd(device.Get(), hwnd, &sd, nullptr, nullptr,
@@ -153,7 +175,8 @@ struct PanelRenderer::Impl {
         return true;
     }
 
-    bool RenderNV12(ID3D11Texture2D* tex, UINT subresource, uint32_t w, uint32_t h) {
+    bool RenderNV12(ID3D11Texture2D* tex, UINT subresource, uint32_t w, uint32_t h,
+        uint64_t* outReadyUs) {
         std::lock_guard<std::mutex> lk(renderMutex);
         if (!swapchain) return false;
         if ((w != bbW || h != bbH) && !Resize(w, h)) return false;
@@ -177,6 +200,9 @@ struct PanelRenderer::Impl {
         stream.pInputSurface = it->second.Get();
         PR_CHECK(videoContext->VideoProcessorBlt(vp.Get(), outView.Get(), 0, 1, &stream),
             "VideoProcessorBlt");
+        // Frame đã nằm trong backbuffer — từ đây trở đi là thời gian CHỜ TRÌNH BÀY,
+        // không phải thời gian đi đường. Xem PanelRenderer.h về `outReadyUs`.
+        if (outReadyUs) *outReadyUs = NowUs();
         PR_CHECK(swapchain->Present(0, 0), "Present"); // Present(0): không chờ VSync
         return true;
     }
@@ -196,6 +222,6 @@ bool PanelRenderer::InitForHwnd(ID3D11Device* device, void* hwnd, uint32_t initi
 }
 
 bool PanelRenderer::RenderNV12(ID3D11Texture2D* tex, unsigned subresource, uint32_t width,
-    uint32_t height) {
-    return impl_ && impl_->RenderNV12(tex, subresource, width, height);
+    uint32_t height, uint64_t* outReadyUs) {
+    return impl_ && impl_->RenderNV12(tex, subresource, width, height, outReadyUs);
 }

@@ -73,6 +73,7 @@
 #include "net/UdpSocket.h"
 
 #include "deskhub/control/BitrateController.h"
+#include "deskhub/control/QualityLadder.h"
 #include "deskhub/session/Beacon.h" // trả lời LIST_SOURCES / PING dò trước phiên
 #include "deskhub/session/HostSession.h"
 #include "deskhub/transport/Packetizer.h"
@@ -133,8 +134,16 @@ struct SourcePipeline {
     // --- Chia sẻ giữa queue capture / thread nén và thread Recv ---
     std::atomic<uint32_t> srcW{0}, srcH{0};
     std::atomic<bool> sizeChanged{false};
+    // Thang vừa đổi bậc. Tách khỏi sizeChanged vì bậc chỉ-đổi-fps KHÔNG đổi cỡ
+    // buffer, nên onFrame không bao giờ thấy — mà client vẫn bắt buộc phải nhận fps
+    // mới (deskhub::Reconfig::fps). Thread Recv đặt, chính nó tiêu thụ.
+    std::atomic<bool> qualityChanged{false};
     std::atomic<bool> wantFec{false};
     std::atomic<uint32_t> curBitrateBps{0};
+    // fps của bậc đang chạy. Thread Recv ghi (thang đổi bậc), queue capture đọc khi
+    // dựng lại encoder — không có nó thì encoder dựng lại sau một lần đổi độ phân
+    // giải sẽ quay về fps ban đầu và lệch hẳn với cỡ đang phát.
+    std::atomic<uint32_t> curFps{0};
     std::atomic<bool> netReady{false};
     // failed = HỎNG THẬT, một chiều: capture không start được, nguồn biến mất.
     // Nguồn coi như chết tới hết phiên.
@@ -157,6 +166,15 @@ struct SourcePipeline {
     // cách bao xa". Thread Recv ghi; đọc từ PublishStatus cùng thread, nhưng để
     // atomic cho thống nhất với phần còn lại (giống uiRttMs bản Windows).
     std::atomic<uint32_t> uiRttMs{0};
+    // Hai số còn lại của FEEDBACK. CHỈ để in ra log mỗi giây, không lên UI.
+    //
+    // Trước 30/07/2026 host không ghi lại chất lượng đường truyền ở đâu cả: dòng
+    // "Bitrate X -> Y (loss N%, RTT N ms)" chỉ in khi bitrate ĐỔI, nên một đường
+    // truyền xấu ỔN ĐỊNH không để lại dấu vết nào trong log host. Khi đó chẩn đoán
+    // buộc phải có log của cả hai máy mới nói được gì — mà người dùng thường chỉ
+    // gửi một bên.
+    std::atomic<uint32_t> uiLossPct{0}, uiRecvKbps{0};
+    std::atomic<bool> haveFeedback{false};
 
     std::mutex encMutex; // bảo vệ encoder + cachedPb giữa hai luồng
     std::unique_ptr<VtEncoder> encoder;
@@ -170,6 +188,12 @@ struct SourcePipeline {
     std::atomic<bool> haveCached{false};
     std::atomic<uint64_t> lastFrameUs{0};
     uint64_t lastKeepaliveUs = 0; // chỉ thread Recv chạm
+
+    // Thang chất lượng (fps + độ phân giải theo băng thông). Dựng SAU khi biết trần
+    // — tức sau HELLO, khi cỡ đã chốt — nên phải là con trỏ. Chỉ thread Recv chạm.
+    std::unique_ptr<deskhub::QualityLadder> ladder;
+    // Bậc đang áp, để log và để biết lần đổi tới có phải đổi độ phân giải không.
+    deskhub::QualityStep step;
 
     // --- Congestion control, chỉ thread Recv chạm ---
     // Policy thuần ở core; curBitrateBps/wantFec ở trên là bản sao atomic cho luồng
@@ -324,13 +348,18 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p) {
     };
 
     const uint32_t fps = opt.fps;
+    p->curFps.store(fps, std::memory_order_relaxed);
     // Tạo encoder nếu chưa có. GỌI DƯỚI encMutex. false = không dựng được session.
     auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h) -> bool {
         if (p->encoder && p->encoder->IsOpen()) return true;
         EncoderConfig cfg;
         cfg.width = w;
         cfg.height = h;
-        cfg.fps = fps;
+        // fps của BẬC HIỆN TẠI, không phải trần người dùng: encoder dựng lại sau một
+        // lần đổi độ phân giải phải khớp với nhịp thật đang chạy (xem VtEncoder::SetFps
+        // về hậu quả của việc lệch).
+        cfg.fps = p->curFps.load(std::memory_order_relaxed);
+        if (!cfg.fps) cfg.fps = fps;
         cfg.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
         cfg.onPacket = onPacket;
         auto enc = std::make_unique<VtEncoder>();
@@ -417,7 +446,7 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p) {
             p->forceIdr.exchange(false));
     };
 
-    if (!p->capture.Start(p->displayId, opt.fps, onFrame)) {
+    if (!p->capture.Start(p->displayId, opt.fps, opt.maxDim, onFrame)) {
         LOGE("[Agent][%s] Failed to start capture — skipping this source.", p->name.c_str());
         p->failed.store(true);
     }
@@ -449,6 +478,31 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     // này thì HostSession từ chối MỌI kết nối (fail closed) — xem BeginSession.
     cb.randomBytes = [](std::span<uint8_t> out) {
         return RandomBytes(out.data(), out.size());
+    };
+    // Client mới vừa chào và kèm cỡ màn hình của nó. Co luồng cho vừa NGAY BÂY GIỜ,
+    // trước khi HELLO_ACK đi ra, rồi sửa lời chào theo cỡ vừa tính — client nhờ vậy
+    // dựng bộ giải mã đúng một lần thay vì dựng rồi phải dựng lại sau một RECONFIG.
+    //
+    // Không đụng tới srcW/srcH ở đây: chúng là cỡ FRAME ĐANG VỀ, và frame cỡ mới còn
+    // chưa tới. onFrame sẽ thấy chênh lệch ở frame kế tiếp và đi đúng đường
+    // sizeChanged như mọi lần đổi độ phân giải khác — dựng lại encoder, phát RECONFIG.
+    const uint32_t maxFps = opt.fps;
+    cb.onHello = [p, maxFps](const deskhub::Hello& h) {
+        uint32_t w = 0, hgt = 0;
+        p->capture.SetClientSize(h.maxWidth, h.maxHeight, w, hgt);
+        if (!w || !hgt) return;
+        p->offer.width = uint16_t(w);
+        p->offer.height = uint16_t(hgt);
+        p->offer.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
+        p->session->SetOffer(p->offer);
+        // Cỡ VỪA chốt xong -> đây là lúc duy nhất biết được TRẦN của thang. Dựng lại
+        // mỗi lần có client mới: client khác thì trần khác, và một thang neo vào trần
+        // của client trước sẽ co nhầm cỡ.
+        p->ladder = std::make_unique<deskhub::QualityLadder>(uint16_t(w), uint16_t(hgt),
+            uint8_t(maxFps));
+        p->step = p->ladder->current();
+        LOGI("[Agent][%s] Quality ladder: ceiling %ux%u @%ufps, %u rung(s).",
+            p->name.c_str(), w, hgt, maxFps, p->ladder->rungCount());
     };
     cb.onStart = [p] {
         p->forceIdr.store(true); // IDR mở màn (kèm SPS/PPS — xem VtEncoder.h)
@@ -491,6 +545,9 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     cb.onFeedback = [p](const deskhub::Feedback& fb) {
         // RTT chỉ đo được ở phía client — FEEDBACK là đường duy nhất nó tới host.
         p->uiRttMs.store(fb.rttMs, std::memory_order_relaxed);
+        p->uiLossPct.store(fb.lossPct, std::memory_order_relaxed);
+        p->uiRecvKbps.store(fb.recvBitrateKbps, std::memory_order_relaxed);
+        p->haveFeedback.store(true, std::memory_order_release);
 
         const deskhub::BitrateDecision d = p->rate.Update(fb, NowUs());
 
@@ -500,17 +557,47 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
                 d.fecEnabled ? "on" : "off", fb.lossPct);
         }
 
-        if (!d.changeBitrate) return;
-
-        const uint32_t cur = p->rate.bitrateBps();
-        std::lock_guard<std::mutex> lk(p->encMutex);
-        // Encoder từ chối thì KHÔNG commit: lần Feedback sau tính lại từ mức cũ.
-        if (p->encoder && p->encoder->SetBitrate(d.bitrateBps)) {
-            p->rate.CommitBitrate(d.bitrateBps);
-            p->curBitrateBps.store(d.bitrateBps, std::memory_order_relaxed);
-            LOGI("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)",
-                p->name.c_str(), cur / 1e6, d.bitrateBps / 1e6, fb.lossPct, fb.rttMs);
+        if (d.changeBitrate) {
+            const uint32_t cur = p->rate.bitrateBps();
+            std::lock_guard<std::mutex> lk(p->encMutex);
+            // Encoder từ chối thì KHÔNG commit: lần Feedback sau tính lại từ mức cũ.
+            if (p->encoder && p->encoder->SetBitrate(d.bitrateBps)) {
+                p->rate.CommitBitrate(d.bitrateBps);
+                p->curBitrateBps.store(d.bitrateBps, std::memory_order_relaxed);
+                LOGI("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)",
+                    p->name.c_str(), cur / 1e6, d.bitrateBps / 1e6, fb.lossPct, fb.rttMs);
+            }
         }
+
+        // Bitrate mới chỉ là NGÂN SÁCH. Thang quyết định tiêu ngân sách đó vào đâu —
+        // pixel hay khung hình. Chạy MỖI lần Feedback, kể cả khi bitrate không đổi:
+        // thang có dwell riêng và cần nhịp đều để đếm, còn changeBitrate thì thưa.
+        //
+        // Không đụng encoder ở đây. Đổi bậc = đổi cỡ capture (SetQuality) → frame cỡ
+        // mới về → onFrame thấy lệch cỡ và đi đúng đường sizeChanged như mọi lần đổi
+        // độ phân giải khác, tức là dựng lại encoder + phát RECONFIG + IDR trên thread
+        // Recv. Gọi thẳng encoder từ đây là chạm vào luồng khác (docs/06 §4).
+        if (!p->ladder) return;
+        if (!p->ladder->Update(p->rate.bitrateBps(), NowUs())) return;
+        const deskhub::QualityStep prev = p->step;
+        p->step = p->ladder->current();
+        p->curFps.store(p->step.fps, std::memory_order_relaxed);
+        {
+            // Encoder đang sống thì nói thẳng fps mới cho nó — bậc chỉ-đổi-fps không
+            // dựng lại encoder, nên đây là đường DUY NHẤT con số đó tới được bộ điều
+            // khiển tốc độ.
+            std::lock_guard<std::mutex> lk(p->encMutex);
+            if (p->encoder) p->encoder->SetFps(p->step.fps);
+        }
+        uint32_t w = 0, hgt = 0;
+        p->capture.SetQuality(p->step.scalePct, p->step.fps, w, hgt);
+        LOGI("[Agent][%s] Quality %u%%@%ufps -> %u%%@%ufps (%ux%u, budget %.1f Mbps)",
+            p->name.c_str(), prev.scalePct, prev.fps, p->step.scalePct, p->step.fps, w, hgt,
+            p->rate.bitrateBps() / 1e6);
+        // Bậc chỉ đổi fps thì cỡ buffer y nguyên, nên onFrame KHÔNG thấy gì và không
+        // có RECONFIG nào được phát — mà client thì bắt buộc phải biết fps mới
+        // (deskhub::Reconfig::fps). Đặt cờ để vòng Recv phát RECONFIG bất kể cỡ.
+        p->qualityChanged.store(true, std::memory_order_release);
     };
 
     p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
@@ -815,19 +902,25 @@ void AgentLoop::Impl::RecvLoop() {
             // `paused` đứng TRƯỚC exchange là cố ý: short-circuit giữ nguyên cờ
             // sizeChanged trong lúc tạm dừng, nên client không phải dựng lại decoder
             // cho một cỡ suy biến rồi lát nữa dựng lại lần nữa.
-            if (!p->paused.load(std::memory_order_acquire) &&
-                p->sizeChanged.exchange(false, std::memory_order_acq_rel)) {
+            const bool sized = p->sizeChanged.exchange(false, std::memory_order_acq_rel);
+            const bool qual = p->qualityChanged.exchange(false, std::memory_order_acq_rel);
+            if (!p->paused.load(std::memory_order_acquire) && (sized || qual)) {
                 p->offer.width = uint16_t(p->srcW.load());
                 p->offer.height = uint16_t(p->srcH.load());
+                p->offer.fps = uint8_t(p->step.fps ? p->step.fps : opt.fps);
                 p->offer.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
                 p->session->SetOffer(p->offer); // HELLO phát lại sau phải mang số mới
                 const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
                 if (pp && p->session->state() == deskhub::HostSession::State::Streaming) {
-                    deskhub::Reconfig rc{p->offer.width, p->offer.height, p->offer.bitrateBps};
+                    deskhub::Reconfig rc{p->offer.width, p->offer.height, p->offer.bitrateBps,
+                        p->offer.fps};
                     uint8_t rbuf[deskhub::kMaxDatagram];
                     const size_t rn = deskhub::BuildReconfig(rbuf, p->session->sessionId(), rc);
                     if (rn) sock.SendTo(NetAddr::Unpack(pp), rbuf, rn);
-                    p->forceIdr.store(true);
+                    // IDR chỉ cần khi CỠ đổi (SPS mới, decoder client dựng lại). Bậc
+                    // chỉ-đổi-fps không đụng SPS — ép IDR ở đó là tự bắn một frame nặng
+                    // gấp hàng chục lần vào đúng đường truyền vừa báo là đang yếu.
+                    if (sized) p->forceIdr.store(true);
                 }
             }
 
@@ -873,12 +966,22 @@ void AgentLoop::Impl::RecvLoop() {
                 // vứt tiếp ở cổng tiêu điểm — `skipped` là con số duy nhất lộ ra
                 // chuyện đó. Thiếu nó thì "gõ không ăn" không phân biệt được với
                 // "không nhận được gói".
+                // Nửa sau của dòng là SỐ LIỆU CỦA CLIENT (từ FEEDBACK, ~1s/lần), tức
+                // thứ duy nhất host biết về đầu kia. In "-" khi chưa có feedback nào
+                // để không nhầm "chưa nghe được gì" với "0% mất gói, RTT 0".
+                char link[64] = " | client -";
+                if (p->haveFeedback.load(std::memory_order_acquire))
+                    std::snprintf(link, sizeof(link),
+                        " | client loss %u%%, RTT %u ms, recv %u kbps",
+                        p->uiLossPct.load(std::memory_order_relaxed),
+                        p->uiRttMs.load(std::memory_order_relaxed),
+                        p->uiRecvKbps.load(std::memory_order_relaxed));
                 LOGI(
                     "[Agent][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
-                    " | input %" PRIu64 " (lost %" PRIu64 ", skipped %" PRIu64 ")",
+                    " | input %" PRIu64 " (lost %" PRIu64 ", skipped %" PRIu64 ")%s",
                     p->name.c_str(), StateName(p->session->state()),
                     p->statCaptureFps, p->statSendFps, p->statSendKbps,
-                    ist.applied, ist.lost, p->injector.skipped());
+                    ist.applied, ist.lost, p->injector.skipped(), link);
                 p->lastCaptured = cap;
                 p->lastBytes = by;
                 p->lastFrames = fr;

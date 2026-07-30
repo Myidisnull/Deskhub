@@ -27,6 +27,10 @@ final class AgentModel {
     // luôn 47777 và chuột/bàn phím luôn được chia sẻ (chốt 2026-07-27).
     var fps: Int = UserDefaults.standard.object(forKey: "shareFps") as? Int ?? 60
     var bitrateMbps: Int = UserDefaults.standard.object(forKey: "shareBitrate") as? Int ?? 20
+    // Trần cạnh dài của khung gửi đi; 0 = gửi đúng độ phân giải native. Màn Mac là
+    // Retina nên native gần như luôn quá to cho một đường truyền thật — lý do đầy
+    // đủ ở AgentOptions::maxDim (cpp/AgentLoop.h).
+    var maxDim: Int = UserDefaults.standard.object(forKey: "shareMaxDim") as? Int ?? 1920
 
     // Địa chỉ IPv4 của máy này, hiện ngay ở màn chính (giống MainMenuWindow).
     var addresses: [LocalAddress] = []
@@ -68,15 +72,24 @@ final class AgentModel {
         startError = ""
         UserDefaults.standard.set(fps, forKey: "shareFps")
         UserDefaults.standard.set(bitrateMbps, forKey: "shareBitrate")
+        UserDefaults.standard.set(maxDim, forKey: "shareMaxDim")
 
         let fpsNum = UInt32(max(1, fps))
         let bitrateNum = UInt32(max(1, bitrateMbps))
+        // 0 đi thẳng xuống (= native); mọi giá trị khác kẹp dưới ở 640 để không ai
+        // gõ tay ra một trần nhỏ hơn cả kMinEncode* rồi ngồi nhìn phiên treo.
+        let maxDimNum = maxDim <= 0 ? UInt32(0) : UInt32(max(640, maxDim))
 
         // Quét (~2s) + start (~10s) đều chặn — dồn cả hai xuống nền.
         let ok = await Task.detached {
             let picked = DeskhubAgent.listShareSources()
             guard !picked.isEmpty else { return false }
-            return DeskhubAgent.start(sources: picked, fps: fpsNum, bitrateMbps: bitrateNum)
+            return DeskhubAgent.start(
+                sources: picked,
+                fps: fpsNum,
+                bitrateMbps: bitrateNum,
+                maxDim: maxDimNum
+            )
         }.value
 
         isStarting = false

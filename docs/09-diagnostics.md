@@ -37,7 +37,8 @@ send-side events), 02-agent.md (host pipeline), 03-client.md (viewer pipeline).
 
 Two per-second **status lines** accompany the `[DIAG]` stream and are part of
 the same diagnosis workflow: `[Agent][<source>] <state> | capture N fps |
-send N fps, N kbps | input N (lost N, skipped N)` on the host, and
+send N fps, N kbps | input N (lost N, skipped N) | client loss N%, RTT N ms,
+recv N kbps` on the host, and
 `[Client] N fps | N kbps | dropped N frame | lost N% pkts | fec+N | RTT N ms |
 e2e ~N ms` on the client. The input triple is the input-stage telemetry:
 `applied` counts events delivered to the injector, `lost` counts sequence
@@ -45,6 +46,14 @@ gaps, and `skipped` counts events yielded because the local user was active
 ("host wins" — since the foreground gate was removed 2026-07-27 that is the
 only skip reason) — the only number that distinguishes "typing does nothing"
 from "packets never arrived".
+
+The `client …` tail is everything the host knows about the far end, taken from
+the last `FEEDBACK` (~1 s). It reads `client -` until the first one arrives, so
+"nothing heard yet" is never mistaken for "0% loss, 0 ms RTT". Added
+2026-07-30: before that, link quality reached the host log only through the
+`Bitrate X -> Y (loss N%, RTT N ms)` line, which prints **only when the bitrate
+changes** — so a link that was bad but *steady* left no trace at all, and
+diagnosing it required logs from both machines when users typically send one.
 
 ## Capturing the log
 
@@ -189,11 +198,12 @@ encode/send; a sagging capture rate points at the source.
 ## Event catalog — client side
 
 Emitted by `ClientLoop` in `client/android/app/src/main/cpp/ClientLoop.cpp`,
-`client/ios/app/cpp/ClientLoop.cpp`, and
-`client/macos/app/cpp/ClientLoop.cpp` (identical names and fields).
-The Windows viewer (`client/windows/cpp/ClientApi.cpp`, headless) computes
-the same stats and e2e estimate but currently emits **no** client-side
-`[DIAG]` lines.
+`client/ios/app/cpp/ClientLoop.cpp`, `client/macos/app/cpp/ClientLoop.cpp`,
+and `client/windows/cpp/ClientApi.cpp` (identical names and fields). The
+Windows viewer emitted none of these until 2026-07-30 — which is exactly why
+a constant latency floor sitting in its presentation path went unattributed
+for so long. It is the only viewer with a `present_ms` field, because it is
+the only one that owns its swap chain (see the e2e section below).
 
 | Stage | Event | Fields | Meaning |
 |---|---|---|---|
@@ -201,12 +211,14 @@ the same stats and e2e estimate but currently emits **no** client-side
 | Receive/assemble | `evt=sum` (1 s) | `asm_ms=<avg>/<max>` | Assembly time per completed frame: first piece arrived → frame complete (`Reassembler::Frame::firstSeenUs`). |
 | Receive/assemble | `evt=sum` (cont.) | `late`, `late_ms_avg`, `late_ms_max` | Packets that arrived **after** their frame was already dropped as "lost" (`Reassembler::Stats::latePackets` via `LinkWindow`). This is the arbiter of "real loss vs late arrival": if `late` accounts for most of the loss, the packets exist — the reassembly deadline just expires before the tail arrives. |
 | Receive/assemble | `evt=sum` (cont.) | `gap_ms_max` | Longest silence between two consecutive video packets in the window (`Reassembler::TakeMaxGapMs`). Gaps of ~100+ ms point at Wi-Fi congestion/power-save: packets bunch up somewhere and arrive in a clump. |
-| Decode | `evt=sum` (cont.) | `dec_ms=<avg>/<max>` | Decode(+enqueue) wall time per frame, measured on the decode thread. |
+| Decode | `evt=sum` (cont.) | `dec_ms=<avg>/<max>` | Decode(+enqueue) wall time per frame, measured on the decode thread. On Windows this **includes** blit and `Present`, which run synchronously inside `Decode` — subtract `present_ms` to isolate the MFT. |
+| Present | `evt=sum` (cont., **Windows only**) | `present_ms=<avg>/<max>` | Time blocked inside `IDXGISwapChain::Present` per frame (`PanelRenderer::RenderNV12`). This is queueing for the display, not transit, so it is deliberately **excluded** from `e2e`. A value near one refresh interval (~16 ms at 60 Hz) is normal and is the floor a non-tearing presenter can reach; values several times that mean the DXGI present queue is backed up. |
 | Decode | `evt=sum` (cont.) | `dq_drop` | Frames discarded because the decode queue was full (the oldest frame is dropped, never the newest) — the decoder is not keeping up with the network. |
 | Recovery | `evt=kf_req` | `reason` | The client started asking the host for a keyframe. `reason` ∈ `loss` (`Reassembler::TakeLossEvent`), `wait_idr` (still swallowing frames until an IDR arrives), `dec_fail` (decoder failed and was torn down), `q_overflow` (decode queue overflowed). Logged only on the transition into the pending state, however often the request is re-sent. |
 | Recovery | `evt=idr_rx` | `bytes`, `after_ms` | The requested IDR arrived: its size and the time since the matching `kf_req` — the picture-recovery time the user actually experienced. |
 | Loop health | `evt=sum` (cont.) | `loop_busy_ms_max` | Longest net-loop iteration in the window. |
 | Loop health | `evt=recv_stall` | `busy_ms` | Immediate warning when one net-loop iteration exceeded 50 ms. While the loop is stalled the kernel UDP buffer is the only slack — overflow there is real, self-inflicted packet loss. |
+| Latency | `evt=sum` (cont.) | `min_rtt_ms`, `e2e_ms` | The **input and the output** of the e2e estimate below. Without them the `e2e ~N ms` on the `[Client]` line cannot be checked against anything. Note `min_rtt_ms` is the minimum-ever RTT — *not* the `RTT` printed on the `[Client]` line, which is the most recent sample. The pure queueing term is `e2e_ms − min_rtt_ms/2`; that subtraction is the single most useful number on the line. `e2e_ms = -0.0` means no sample yet, not zero latency. |
 
 ## End-to-end latency
 
@@ -219,22 +231,113 @@ negotiation. On the client, the `Reassembler` records `firstSeenUs` per frame
 `dec_ms`), and RTT comes from the session ping/pong (`onRtt` callback /
 `lastRttUs`).
 
-**How e2e is computed** (identical in all four viewer loops — e.g.
-`ClientLoop::DecodeThread` on macOS and the mirrored block in
-`client/windows/cpp/ClientApi.cpp`): the two machines' clocks are not
-synchronized, so the client estimates the offset —
+**How e2e is computed.** The two machines' clocks share no epoch
+(`NowUs()` is monotonic-since-boot on both, `platform/include/deskhubp/Clock.h`),
+so the unknown constant `C = client clock − host clock` has to be cancelled
+before any subtraction means anything. All five viewers do it with one shared
+implementation — `deskhub::ClockOffset`
+(`core/include/deskhub/control/ClockOffset.h`), a **sliding-window min filter**
+over the one-way delay:
 
 ```
-ackDeltaUs = client clock at HELLO_ACK − HelloAck::timebaseUs
-offset     = ackDeltaUs − minRTT/2        // minimum RTT ever seen
-e2e        = now − offset − frame timestampUs
+raw    = client clock when the frame reached its destination − frame timestampUs
+       = C + (that frame's true latency)          // C is constant, so:
+floor  = min(raw) over a sliding 10 s window      // = C + best latency observed
+e2e    = (raw − floor)  +  minRTT/2
+          └── exact ──┘     └─ measured floor added back ─┘
 ```
 
-The minimum RTT is used because the smallest sample is the least polluted by
-queueing. Known limit: this **assumes a symmetric path**; asymmetry (common
-on Wi-Fi and Tailscale) shifts the number by exactly the asymmetric part.
-Treat e2e as an estimate of "host capture → client display", shown on the
-`[Client]` status line and the on-screen overlay. (The dedicated
+`raw − floor` is **exact**: `C` cancels completely, no clock sync is assumed,
+no path symmetry is assumed, and the result is always ≥ 0. It is the *queueing*
+delay — the part that varies, and the only part anything can be done about.
+`minRTT/2` adds back the one piece of the floor that *is* measurable
+independently (RTT needs no clock sync — the host echoes the client's own
+stamp). This is not double-counting: the min filter removed the floor, and this
+adds back the measured share of it.
+
+What it still misses is the rest of the floor: best-case encode, and best-case
+decode/present. Those are not guessed at — they are measured separately and
+printed as `enc_ms` (host), `dec_ms` and `present_ms` (client), so a full
+picture is a sum across two log lines rather than a single fabricated number.
+
+The window is 10 s and rotates through two buckets, so the floor is **re-learnt
+within 10–20 s** when the path degrades mid-session (Wi-Fi roam, a VPN dropping
+to a relay). A min-since-session-start never forgets, and would report every
+frame after such a change as permanently late.
+
+**What this replaced, and why** (2026-07-30). Until this change the offset came
+from a single sample: `ackDeltaUs = client clock at HELLO_ACK −
+HelloAck::timebaseUs`, minus `minRTT/2`. That is the only host clock value on
+the wire, it was captured once, and it was never refined. It is also the *first
+packet exchange of the session* — systematically the slowest one (ARP/ND
+resolution, Wi-Fi waking from power-save, firewall first-packet, Tailscale still
+on DERP before it upgrades to a direct path). The residual bias was
+`minRTT/2 − (one-way delay of that ACK)`: unknown magnitude, usually negative
+(so e2e read low), fixed for the whole session, and invisible in any log. Better
+a number that is short by a floor you know the shape of than a number that is
+wrong by an amount nobody can see. `HelloAck::timebaseUs` is still on the wire
+and still sent; no viewer reads it any more.
+
+**⚠ Where each viewer stops the clock — read this before comparing two
+platforms.** `now` above is not the same instant everywhere, and the gap is
+large enough to look like a network problem:
+
+| Viewer | Clock stops at | Excluded from the number |
+|---|---|---|
+| iOS / macOS | `enqueueSampleBuffer` into `AVSampleBufferDisplayLayer` (`VtDecoder::lastRenderedPtsUs`) | the decode itself, and the layer's presentation delay — there is no per-frame "on screen" callback to hook |
+| Android | `AMediaCodec_releaseOutputBuffer(…, true)` — frame handed to the `Surface` (`MediaCodecDecoder::lastRenderedPtsUs`) | compositor presentation |
+| Ubuntu | the GL draw actually completing (`VideoRenderer::lastRenderedPtsUs`) | compositor presentation |
+| Windows | after `VideoProcessorBlt`, **before** `Present` (`PanelRenderer::RenderNV12`, `outReadyUs`) | the `Present` block only, reported separately as `present_ms` |
+
+The Apple number is therefore structurally optimistic, and until 2026-07-30
+the Windows number was structurally pessimistic — it stopped the clock *after*
+`Present`, so a stalled DXGI present queue was charged to the link. Comparing
+"iOS is fine but Windows is terrible" across those two definitions is not a
+valid comparison; compare `present_ms` and `dec_ms` instead.
+
+All five viewers now stop the clock **at the moment the frame is dealt with**, on
+the decode thread. Ubuntu was the exception until 2026-07-30: it computed e2e
+inside the 1 s stats block, as `now − offset − (PTS of the last frame drawn)`.
+Those are two different instants, so the number carried however long ago that
+last frame was drawn — on a *static* source, where the host only sends a
+keepalive at ~2 fps, that inflated e2e by up to 500 ms. The stiller the screen,
+the worse the reported latency, which is precisely backwards.
+
+**Known limits of the estimate.** Two remain, both bounded and both known-signed
+— which is the whole point of the design:
+
+- **The floor is excluded.** `e2e` reports queueing plus `minRTT/2`, so it is
+  short by the best-case encode + decode + present. Read `enc_ms`, `dec_ms` and
+  `present_ms` alongside it; those cover the missing terms. An absolute number
+  that includes the floor is mathematically unavailable without a synchronised
+  clock — the only honest options are "short by a known amount" or "wrong by an
+  unknown one".
+- **`min_rtt` never decays.** It is the minimum ever seen, so a path that
+  degrades mid-session leaves the *added-back floor term* anchored to the old
+  path. The error is bounded by `minRTT/2` and only affects that one term — the
+  queueing part is unaffected, because `ClockOffset` has its own sliding window.
+
+`Feedback::rttMs` — the only RTT the **host** ever sees — is a `uint16` in whole
+milliseconds, so a sub-millisecond wired-LAN RTT rounds to 0 or 1. The client
+keeps microseconds internally (`ClientSession::lastRttUs`); only the number
+crossing to the host is that coarse. It rounds rather than truncates: truncation
+turned every sub-millisecond LAN into a permanent `RTT 0 ms` on the host, which
+reads as "no data" rather than "very fast".
+
+**Reading the numbers.** `e2e_ms` near `min_rtt_ms/2` means there is no queueing
+anywhere — the pipeline is at its floor and nothing in the viewer will improve
+it. `e2e_ms` well above that is queueing, and the other fields on the same line
+say where: `asm_ms` (waiting for packets), `dq_drop` (decoder behind the
+network), `present_ms` (display, Windows only), `gap_ms_max` (packets arriving
+in clumps).
+
+That presentation floor is a real cost, not just a measurement artifact.
+`PanelRenderer` therefore sets `IDXGIDevice1::SetMaximumFrameLatency(1)` (DXGI
+defaults to **three** queued frames — ~50 ms at 60 Hz, constant, present from
+the very first frame) and uses `DXGI_SWAP_EFFECT_FLIP_DISCARD` so a stale
+frame is dropped rather than shown ahead of a newer one.
+
+(The dedicated
 `ClockSync`/`LatencyTrace` classes in core — a drift-tracking min filter and
 the sparkline ring buffer — were removed 2026-07-27: no client ever wired
 them in, and this inline estimate is what ships.)

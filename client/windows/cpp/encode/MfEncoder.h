@@ -37,6 +37,7 @@ public:
     bool Init(ID3D11Device* device, const EncoderConfig& cfg) override;
     bool Encode(ID3D11Texture2D* frame, uint64_t timestampUs, bool forceKeyframe) override;
     bool SetBitrate(uint32_t bitrateBps) override;
+    bool SetFps(uint32_t fps) override;
     void Finish() override;
     const wchar_t* BackendName() const override {
         return L"Media Foundation (HW/SW auto)";

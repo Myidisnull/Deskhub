@@ -69,7 +69,14 @@ Feedback MakeFeedback(const LinkWindow& w, uint32_t rttUs) {
     Feedback fb;
     fb.lostFrames = uint16_t(w.framesDropped);
     fb.lossPct = uint8_t(w.lossPct + 0.5); // làm tròn, kênh chỉ có 1 byte
-    fb.rttMs = uint16_t(rttUs / 1000);
+    // LÀM TRÒN, không cắt cụt. Kênh chỉ có 1 trường uint16 mili-giây, mà RTT trong
+    // mạng LAN có dây thường DƯỚI 1 ms — cắt cụt cho ra 0 và host hiện "RTT 0 ms"
+    // vĩnh viễn, trông y như số liệu chưa về. Làm tròn ít nhất phân biệt được
+    // "dưới nửa mili-giây" với "chưa đo được".
+    // ⚠ Độ phân giải 1 ms là GIỚI HẠN CỦA WIRE, không phải của phép đo: client vẫn
+    //   giữ micro-giây (ClientSession::lastRttUs) và tự in ra với một chữ số thập
+    //   phân. Chỉ con số ĐI TỚI HOST mới thô như vậy.
+    fb.rttMs = uint16_t((rttUs + 500) / 1000);
     fb.recvBitrateKbps = uint32_t(w.kbps);
     return fb;
 }

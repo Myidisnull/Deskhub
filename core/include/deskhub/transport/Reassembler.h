@@ -142,6 +142,13 @@ public:
     explicit Reassembler(uint64_t frameIntervalUs = 16'667)
         : frameIntervalUs_(frameIntervalUs ? frameIntervalUs : 16'667) {}
 
+    // Đổi hạn chờ khi host báo fps mới (RECONFIG). BẮT BUỘC gọi — xem Reconfig::fps:
+    // giữ hạn của fps cũ trong khi host đã hạ fps là bỏ frame LÀNH rồi xin IDR, đúng
+    // lúc đường truyền yếu nhất. Bỏ qua fps = 0 (host đời cũ không nói).
+    void SetFps(uint32_t fps) {
+        if (fps) frameIntervalUs_ = 1'000'000ull / fps;
+    }
+
     void Push(const VideoPacketView& pkt, uint64_t nowUs);
 
     // Gói parity FEC. Nếu nhóm nó phủ đang thiếu ĐÚNG một mảnh thì mảnh đó được

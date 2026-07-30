@@ -60,6 +60,7 @@
 #include "decode/MediaCodecDecoder.h"
 #include "net/UdpSocket.h"
 
+#include "deskhub/control/ClockOffset.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -79,7 +80,11 @@ public:
 
     // `sourceId` lấy từ SOURCE_LIST (xem SourceQuery.h); 0 = nguồn đầu tiên, cũng là
     // thứ host bản cũ (một nguồn) hiểu được.
-    bool Start(const NetAddr& server, uint8_t sourceId);
+    // `screenW`/`screenH` là cỡ MÀN HÌNH THIẾT BỊ tính bằng pixel, đi vào HELLO để
+    // host co luồng cho vừa (deskhub::Hello::maxWidth). Truyền 0 nếu không biết —
+    // host sẽ chỉ dùng trần của riêng nó. Cỡ MÀN HÌNH chứ không phải cỡ Surface:
+    // Surface co giãn và máy xoay được, mà giao thức không có đường báo lại giữa phiên.
+    bool Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW, uint32_t screenH);
     void Stop();
 
     // Giao Surface mới, hoặc nullptr khi hệ điều hành thu hồi (APP_CMD_TERM_WINDOW).
@@ -148,6 +153,7 @@ private:
 
     NetAddr server_{};
     uint8_t sourceId_ = 0;
+    uint32_t screenW_ = 0, screenH_ = 0; // cỡ màn hình thiết bị (pixel), 0 = không biết
     UdpSocket sock_;
 
     std::thread netThread_;
@@ -204,7 +210,9 @@ private:
     std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
 
     // Ước lượng trễ e2e (docs/06 §7): Net ghi, Decode đọc.
-    std::atomic<int64_t> ackDeltaUs_{0};
     std::atomic<uint32_t> minRttUs_{0};
     std::atomic<int64_t> lastE2eUs_{-1};
+    // CHỈ thread Decode chạm — không tự khoá, và phải bơm mẫu ở ĐÚNG MỘT điểm
+    // trong đường dẫn (xem ClockOffset::AddSample).
+    deskhub::ClockOffset clockOffset_;
 };

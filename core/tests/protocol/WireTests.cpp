@@ -236,10 +236,21 @@ void TestWireCoverage() {
               fb->recvBitrateKbps == 1234,
         "FEEDBACK round-trip");
 
-    n = BuildReconfig(buf, 7, Reconfig{1280, 720, 5'000'000});
+    n = BuildReconfig(buf, 7, Reconfig{1280, 720, 5'000'000, 30});
     auto rc = ParseReconfig(PayloadOf(std::span<const uint8_t>(buf, n)));
-    Check(rc && rc->width == 1280 && rc->height == 720 && rc->bitrateBps == 5'000'000,
-        "RECONFIG round-trip");
+    Check(rc && rc->width == 1280 && rc->height == 720 && rc->bitrateBps == 5'000'000 &&
+              rc->fps == 30,
+        "RECONFIG round-trip (kèm fps)");
+
+    // TƯƠNG THÍCH NGƯỢC với host đời cũ: nó gửi đúng 8 byte, không có fps. Client
+    // mới phải parse được và hiểu fps = 0 là "host không nói", chứ không phải
+    // "0 fps" — dựng Reassembler với hạn chờ 1e6/0 là chia cho 0.
+    {
+        const uint8_t legacy[8] = {0x05, 0x00, 0x02, 0xD0, 0x00, 0x4C, 0x4B, 0x40};
+        auto old = ParseReconfig(std::span<const uint8_t>(legacy, 8));
+        Check(old && old->width == 0x0500 && old->height == 0x02D0 && old->fps == 0,
+            "RECONFIG 8 byte của host cũ vẫn parse, fps = 0 = không nói");
+    }
 
     n = BuildSetFocus(buf, 7, true);
     auto sf = ParseSetFocus(PayloadOf(std::span<const uint8_t>(buf, n)));

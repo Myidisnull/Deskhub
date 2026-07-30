@@ -89,6 +89,21 @@ public:
     // false = backend không đổi được, caller cứ chạy tiếp với bitrate cũ.
     virtual bool SetBitrate(uint32_t bitrateBps) = 0;
 
+    // Đổi fps kỳ vọng giữa chừng (deskhub::QualityLadder hạ bậc).
+    //
+    // VÌ SAO PHẢI NÓI cho encoder biết khi ta chỉ đơn giản là NỘP ÍT FRAME HƠN:
+    //   fps là MẪU SỐ bộ điều khiển tốc độ dùng để chia ngân sách bit cho từng frame,
+    //   và cũng là mẫu số tính cỡ VBV. Nộp 20 frame/giây mà nó vẫn tưởng 60 thì mỗi
+    //   frame chỉ được tiêu một phần ba số bit đáng ra được tiêu — ta hạ fps để hình
+    //   NÉT HƠN mà nhận về hình MỜ HƠN, đúng ngược mục đích của cả cái thang.
+    //
+    // ⚠ CHI PHÍ KHÁC NHAU GIỮA HAI BACKEND, và caller phải biết:
+    //   NVENC  — nvEncReconfigureEncoder, KHÔNG dựng lại session, không cần IDR.
+    //   MF     — Media Foundation không có núm chỉnh fps khi đang chạy; fps nằm trong
+    //            media type, nên đổi nó là dựng lại transform => frame kế tiếp LÀ MỘT
+    //            IDR. Đó là lý do thang chỉ đổi bậc mỗi vài giây chứ không mỗi giây.
+    virtual bool SetFps(uint32_t fps) = 0;
+
     // Flush + finalize (ghi xong file / đóng stream).
     virtual void Finish() = 0;
 

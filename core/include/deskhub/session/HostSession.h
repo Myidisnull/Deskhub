@@ -63,9 +63,20 @@ struct StreamParams {
 
 struct HostCallbacks {
     std::function<void(std::span<const uint8_t>)> send; // giao datagram cho tầng socket
-    std::function<void()> onStart;                      // nhận START → force IDR, bắt đầu đẩy video
-    std::function<void()> onKeyframeRequest;            // REQUEST_KEYFRAME từ client
-    std::function<void()> onDisconnect;                 // BYE hoặc timeout → đã quay về IDLE
+    // HELLO của một client MỚI, gọi NGAY TRƯỚC khi HELLO_ACK được dựng. Đây là cửa sổ
+    // duy nhất để caller nhìn thấy client báo gì về mình (cỡ màn hình — xem
+    // Hello::maxWidth) và chỉnh lại lời chào bằng SetOffer() trước khi nó lên dây.
+    //
+    // Chỉnh Ở ĐÂY chứ không phải sau ACK là có lý do: client dựng bộ giải mã và khung
+    // hiển thị theo đúng cỡ trong ACK. Chào cỡ này rồi RECONFIG sang cỡ khác ngay sau
+    // đó nghĩa là mọi phiên đều bắt đầu bằng một lần dựng lại decoder + một IDR thừa.
+    //
+    // KHÔNG gọi cho HELLO phát lại của client đang có phiên (mất ACK): lúc đó cỡ đã
+    // chốt rồi, gọi lại chỉ khiến capture bị cấu hình lại giữa chừng vô cớ.
+    std::function<void(const Hello&)> onHello;
+    std::function<void()> onStart;           // nhận START → force IDR, bắt đầu đẩy video
+    std::function<void()> onKeyframeRequest; // REQUEST_KEYFRAME từ client
+    std::function<void()> onDisconnect;      // BYE hoặc timeout → đã quay về IDLE
     // FEEDBACK từ client (~1s/lần): mất gói, RTT, bitrate nhận thực tế. Caller
     // dùng để siết/nới bitrate encoder (GĐ5). Số liệu là của cửa sổ 1s vừa qua.
     std::function<void(const Feedback&)> onFeedback;

@@ -89,6 +89,39 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     return count;
 }
 
+namespace {
+
+// Màn hình LỚN NHẤT đang gắn vào máy này, tính bằng PIXEL. Đi vào HELLO để host co
+// luồng cho vừa (deskhub::Hello::maxWidth).
+//
+// Lấy cái LỚN NHẤT chứ không phải màn chính: laptop cắm màn ngoài 4K thì người dùng
+// gần như chắc chắn xem ở màn ngoài, và khai theo panel laptop sẽ khoá luồng ở một
+// độ phân giải thấp hơn thứ họ đang nhìn.
+//
+// CoreGraphics chứ không phải NSScreen, có chủ ý: hàm này chạy từ Task.detached (xem
+// đầu file), tức KHÔNG phải main thread, mà AppKit thì không hứa gì ngoài main thread.
+// CGDisplayModeGetPixelWidth cho thẳng số pixel thật của chế độ đang chạy — không
+// phải nhân backingScaleFactor như đường CGDisplayPixelsWide đời cũ.
+void LargestScreenPixels(uint32_t& outW, uint32_t& outH) {
+    outW = outH = 0;
+    CGDirectDisplayID ids[16];
+    uint32_t n = 0;
+    if (CGGetActiveDisplayList(16, ids, &n) != kCGErrorSuccess || !n) return;
+    uint64_t bestArea = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        CGDisplayModeRef m = CGDisplayCopyDisplayMode(ids[i]);
+        if (!m) continue;
+        const uint64_t w = CGDisplayModeGetPixelWidth(m), h = CGDisplayModeGetPixelHeight(m);
+        CGDisplayModeRelease(m);
+        if (!w || !h || w * h <= bestArea) continue;
+        bestArea = w * h;
+        outW = uint32_t(w);
+        outH = uint32_t(h);
+    }
+}
+
+} // namespace
+
 DHSession* dh_session_start(const char* address, uint8_t sourceId) {
     if (!address) return nullptr;
     NetAddr addr;
@@ -96,8 +129,10 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId) {
         LOGE("[Bridge] Invalid address: %s", address);
         return nullptr;
     }
+    uint32_t sw = 0, sh = 0;
+    LargestScreenPixels(sw, sh);
     auto s = std::make_unique<DHSession>();
-    if (!s->loop.Start(addr, sourceId)) return nullptr;
+    if (!s->loop.Start(addr, sourceId, sw, sh)) return nullptr;
     return s.release();
 }
 
@@ -216,7 +251,8 @@ AgentSource ToAgentSource(const DHShareSource& s) {
 }
 } // namespace
 
-bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps) {
+bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
+    uint32_t max_dim) {
     if (!sources || count <= 0) return false;
 
     std::vector<AgentSource> list;
@@ -226,6 +262,9 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     AgentOptions opt;
     opt.fps = fps ? fps : 60;
     opt.bitrateMbps = bitrate_mbps ? bitrate_mbps : 20;
+    // 0 ở đây là LỰA CHỌN THẬT ("gửi native"), không phải "chưa đặt" — nên không có
+    // phép thay-0-bằng-mặc-định như hai tham số trên.
+    opt.maxDim = max_dim;
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {

@@ -37,7 +37,14 @@ public:
 
     // Vẽ một frame NV12 (texture + array slice từ decoder). Tự ResizeBuffers nếu w/h
     // khác cỡ backbuffer hiện tại (host đổi độ phân giải). Gọi trên thread decode.
-    bool RenderNV12(ID3D11Texture2D* tex, unsigned subresource, uint32_t width, uint32_t height);
+    //
+    // `outReadyUs` (tuỳ chọn) nhận NowUs() tại thời điểm frame ĐÃ SẴN SÀNG TRÌNH BÀY —
+    // sau VideoProcessorBlt, ngay TRƯỚC Present. Đó là mốc dừng đồng hồ e2e: Present
+    // có thể chặn tới cả một nhịp quét màn hình, và khoảng chặn đó là thời gian frame
+    // NẰM CHỜ chứ không phải thời gian nó đi từ host về đây. Người gọi đo tiếp từ mốc
+    // này tới lúc RenderNV12 trả về để có `present_ms` (docs/09).
+    bool RenderNV12(ID3D11Texture2D* tex, unsigned subresource, uint32_t width, uint32_t height,
+        uint64_t* outReadyUs = nullptr);
 
 private:
     struct Impl;

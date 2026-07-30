@@ -411,7 +411,10 @@ bool VaEncoder::CreateContexts() {
             "vaCreateBuffer(coded)"))
         return false;
 
-    // --- Config + context VPP (đổi màu RGB → NV12) ---
+    // --- Config + context VPP (đổi màu RGB → NV12, và CO nếu cỡ vào lớn hơn) ---
+    // Context dựng theo cỡ RA (alignedW_/alignedH_): đó là hình học của surface đích.
+    // Cỡ VÀO không cần khai ở đây — nó đi theo từng lời gọi qua surface_region, nên
+    // cùng một context phục vụ được mọi cỡ nguồn (xem ConvertToNv12).
     if (!VaCheck(vaCreateConfig(dpy_, VAProfileNone, VAEntrypointVideoProc, nullptr, 0,
                      &vppConfig_),
             "vaCreateConfig(vpp)"))
@@ -664,7 +667,12 @@ bool VaEncoder::UploadMapped(const LinuxFrameInfo& fi) {
 }
 
 bool VaEncoder::ConvertToNv12(VASurfaceID rgb) {
-    VARectangle srcRect{0, 0, uint16_t(cfg_.width), uint16_t(cfg_.height)};
+    // Vùng NGUỒN theo cỡ khung thật, vùng ĐÍCH theo cỡ nén. Hai số khác nhau thì
+    // chính bước này co ảnh — không cần một bộ co riêng như bản Windows, vì Linux
+    // chỉ có MỘT backend mã hoá và nó đã sẵn một pipeline VPP cho việc đổi màu.
+    const uint32_t sw = srcW_ ? srcW_ : cfg_.width;
+    const uint32_t sh = srcH_ ? srcH_ : cfg_.height;
+    VARectangle srcRect{0, 0, uint16_t(sw), uint16_t(sh)};
     VARectangle dstRect{0, 0, uint16_t(cfg_.width), uint16_t(cfg_.height)};
 
     VAProcPipelineParameterBuffer pp{};
@@ -674,9 +682,11 @@ bool VaEncoder::ConvertToNv12(VASurfaceID rgb) {
     pp.surface_color_standard = VAProcColorStandardNone; // nguồn RGB, không có chuẩn
     // Phải KHỚP với colour_description ta ghi trong SPS — xem BuildParameterSets.
     pp.output_color_standard = VAProcColorStandardBT709;
-    // Không đổi kích thước (nguồn và đích cùng cỡ) nên chất lượng scaling không
-    // quan trọng; DEFAULT là giá trị mọi driver chắc chắn nhận.
-    pp.filter_flags = VA_FILTER_SCALING_DEFAULT;
+    // Có co thật thì xin bộ lọc CHẤT LƯỢNG CAO: nội dung màn hình là chữ, và co
+    // bằng bilinear thô làm chữ nhoè đúng thứ mà cả việc co pixel đang cố cứu.
+    // Cùng cỡ thì DEFAULT — giá trị mọi driver chắc chắn nhận.
+    pp.filter_flags = (sw != cfg_.width || sh != cfg_.height) ? VA_FILTER_SCALING_HQ
+                                                             : VA_FILTER_SCALING_DEFAULT;
 
     VABufferID buf = VA_INVALID_ID;
     if (!VaCheck(vaCreateBuffer(dpy_, vppContext_, VAProcPipelineParameterBufferType, sizeof(pp),
@@ -1028,7 +1038,10 @@ bool VaEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forc
     // (fi.width & ~1) nhưng so ở đây là fi.width THÔ, nên một nguồn có bề rộng LẺ
     // cho ra vòng lặp mọi frame đều false mà không một dòng log nào. Nhìn từ ngoài
     // y hệt ca dma-buf: capture chạy, encode hỏng 100%, không manh mối.
-    if (fi.width != cfg_.width || fi.height != cfg_.height) {
+    // Khung TO HƠN cỡ nén là hợp lệ: bước VPP ngay dưới vừa đổi màu vừa co
+    // (deskhub::StreamSize / QualityLadder quyết định co bao nhiêu). Chỉ khung NHỎ
+    // HƠN mới là lỗi — phóng to ở host chỉ đốt bitrate cho pixel nội suy.
+    if (fi.width < cfg_.width || fi.height < cfg_.height) {
         static thread_local bool warned = false;
         if (!warned) {
             warned = true;
@@ -1039,6 +1052,10 @@ bool VaEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forc
         }
         return false;
     }
+    // VPP đọc hai số này để biết vùng nguồn. Ghi ở đây, ngay trước khi surface RGB
+    // được dựng/nhập theo đúng cỡ đó.
+    srcW_ = fi.width;
+    srcH_ = fi.height;
 
     // Frame đầu tiên của một chuỗi BẮT BUỘC là IDR: không có nó thì client nhận
     // một chuỗi P-frame không có gốc và giải ra rác.

@@ -104,6 +104,8 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             const auto m = ParseReconfig(payload);
             if (!m) return false;
             lastRecvUs_ = nowUs;
+            // fps 0 = host đời cũ không gửi trường này; giữ nguyên fps đang dùng.
+            if (m->fps) params_.fps = m->fps;
             // Kích thước 0 = host gửi hỏng; giữ nguyên còn hơn dựng decoder 0x0.
             if (m->width && m->height) {
                 params_.width = m->width;

@@ -51,6 +51,9 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
                 }
                 clientId_ = m->clientId;
                 if (!BeginSession(nowUs)) return false;
+                // Trước ACK, không phải sau: caller có thể co luồng cho vừa màn hình
+                // client rồi SetOffer(), và ACK đi ra đã mang cỡ cuối cùng.
+                if (cb_.onHello) cb_.onHello(*m);
                 SendHelloAck(nowUs);
                 return true;
             }
@@ -174,7 +177,11 @@ void HostSession::SendHelloAck(uint64_t nowUs) {
     a.height = offer_.height;
     a.fps = offer_.fps;
     a.bitrateBps = offer_.bitrateBps;
-    a.timebaseUs = nowUs; // mốc đồng hồ host để client ước lượng trễ e2e (§7)
+    // Mốc đồng hồ host. KHÔNG client nào còn đọc nó từ 30/07/2026: một mẫu duy nhất,
+    // lấy từ gói đầu tiên của phiên, là mẫu tệ nhất để ước lượng độ lệch đồng hồ —
+    // deskhub::ClockOffset thay bằng bộ lọc min trên chính luồng frame. Vẫn gửi vì
+    // nó là một trường CỐ ĐỊNH trong HELLO_ACK: bỏ đi là đổi wire, mà không được gì.
+    a.timebaseUs = nowUs;
     const size_t n = BuildHelloAck(buf_, a);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }

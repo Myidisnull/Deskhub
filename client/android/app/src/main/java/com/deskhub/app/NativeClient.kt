@@ -28,7 +28,10 @@
 // =============================================================================
 package com.deskhub.app
 
+import android.content.Context
+import android.os.Build
 import android.view.Surface
+import android.view.WindowManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -52,6 +55,34 @@ object NativeClient {
     }
 
     /**
+     * Cỡ MÀN HÌNH máy tính bằng pixel, để đưa vào [nativeStart]. Host dùng nó để co
+     * luồng cho vừa thay vì gửi nguyên độ phân giải Retina của mình rồi để máy này
+     * vẽ xuống một khung bé hơn nhiều — xem `deskhub::FitStreamSize`.
+     *
+     * Lấy cỡ TOÀN MÀN HÌNH, không trừ thanh trạng thái và không theo hướng đang cầm:
+     * cỡ luồng chốt một lần lúc bắt tay và giao thức không có đường sửa lại khi máy
+     * xoay, nên phải khai theo hướng ngốn pixel nhất. `maximumWindowMetrics` cho
+     * đúng con số đó trên API 30+; dưới nữa thì `defaultDisplay` + `getRealSize`
+     * (bị bỏ từ API 30 nhưng là đường duy nhất còn lại).
+     *
+     * Trả (0, 0) nếu không lấy được — [nativeStart] hiểu đó là "không biết".
+     */
+    @Suppress("DEPRECATION")
+    fun screenSizePx(context: Context): Pair<Int, Int> {
+        val wm =
+            context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                ?: return 0 to 0
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val b = wm.maximumWindowMetrics.bounds
+            b.width() to b.height()
+        } else {
+            val p = android.graphics.Point()
+            wm.defaultDisplay.getRealSize(p)
+            p.x to p.y
+        }
+    }
+
+    /**
      * Host đang chia sẻ những màn hình nào. CHẶN tới ~3 giây (LIST_SOURCES đi trên UDP,
      * phát lại vài lần) nên phải gọi ngoài main thread — dùng [listSources].
      */
@@ -63,10 +94,16 @@ object NativeClient {
      * cú pháp) — giữ nó lại và đưa cho [nativeStop], để onDestroy trễ của một
      * StreamActivity cũ không giết nhầm phiên mà activity mới vừa mở (vòng đời hai
      * activity chồng lấn nhau, Android không hứa gì về thứ tự).
+     *
+     * `screenW`/`screenH` là cỡ MÀN HÌNH máy tính bằng pixel — xem [screenSizePx].
+     * Nó đi vào HELLO và host co luồng cho vừa, nên một máy 1080p không phải nhận
+     * (rồi vứt đi) khung 3024×1964 của một MacBook Retina. 0 = không biết.
      */
     external fun nativeStart(
         addr: String,
         sourceId: Int,
+        screenW: Int,
+        screenH: Int,
     ): Long
 
     /**

@@ -7,6 +7,7 @@
 // LIÊN QUAN: DeskhubClient.h (hợp đồng), ClientLoop.h, net/SourceQuery.h
 // =============================================================================
 #import <AVFoundation/AVFoundation.h>
+#import <UIKit/UIKit.h>
 
 #include "DeskhubClient.h"
 #include "ClientLoop.h"
@@ -58,6 +59,29 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     return count;
 }
 
+namespace {
+
+// Cỡ màn hình thiết bị tính bằng PIXEL, để host co luồng cho vừa (Hello::maxWidth).
+//
+// nativeBounds chứ không phải bounds: bounds trả về ĐIỂM và xoay theo thiết bị.
+// nativeBounds là pixel thật và LUÔN ở hướng dọc, tức là một con số không đổi khi
+// người dùng xoay máy — đúng thứ ta cần, vì cỡ luồng chốt một lần lúc HELLO và
+// không có đường sửa lại khi máy xoay.
+//
+// Gọi trên MAIN THREAD (UIKit đòi thế): dh_start chỉ được gọi từ SessionModel, và
+// lớp đó là @MainActor.
+void DeviceScreenPixels(uint32_t& w, uint32_t& h) {
+    w = h = 0;
+    UIScreen* s = UIScreen.mainScreen;
+    if (!s) return;
+    const CGRect r = s.nativeBounds;
+    if (r.size.width <= 0 || r.size.height <= 0) return;
+    w = uint32_t(r.size.width);
+    h = uint32_t(r.size.height);
+}
+
+} // namespace
+
 bool dh_start(const char* address, uint8_t sourceId) {
     std::lock_guard<std::mutex> lk(g_mutex);
     if (g_client) {
@@ -71,8 +95,11 @@ bool dh_start(const char* address, uint8_t sourceId) {
         return false;
     }
 
+    uint32_t sw = 0, sh = 0;
+    DeviceScreenPixels(sw, sh);
+
     g_client = std::make_shared<ClientLoop>();
-    if (!g_client->Start(addr, sourceId)) {
+    if (!g_client->Start(addr, sourceId, sw, sh)) {
         g_client.reset();
         return false;
     }

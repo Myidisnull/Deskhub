@@ -61,6 +61,7 @@
 #include "net/UdpSocket.h"
 
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/control/ClockOffset.h"
 #include "deskhub/transport/Reassembler.h"
 
 class VideoSink;
@@ -81,7 +82,12 @@ public:
 
     // `sourceId` lấy từ SOURCE_LIST (xem net/SourceQuery.h); 0 = nguồn đầu tiên.
     // `sink` PHẢI sống lâu hơn ClientLoop — xem ⚠ ở đầu file.
-    bool Start(const NetAddr& server, uint8_t sourceId, VideoSink* sink);
+    // `screenW`/`screenH` là cỡ MÀN HÌNH máy này tính bằng pixel, đi vào HELLO để
+    // host co luồng cho vừa (deskhub::Hello::maxWidth). 0 = không biết, host chỉ dùng
+    // trần của riêng nó. Cỡ MÀN HÌNH chứ không phải cỡ cửa sổ: cửa sổ co giãn được
+    // mà giao thức không có đường báo lại giữa phiên.
+    bool Start(const NetAddr& server, uint8_t sourceId, VideoSink* sink, uint32_t screenW,
+        uint32_t screenH);
     void Stop();
 
     Phase phase() const {
@@ -143,6 +149,7 @@ private:
 
     NetAddr server_{};
     uint8_t sourceId_ = 0;
+    uint32_t screenW_ = 0, screenH_ = 0; // cỡ màn hình máy này (pixel), 0 = không biết
     UdpSocket sock_;
     VideoSink* sink_ = nullptr;
 
@@ -185,8 +192,17 @@ private:
     // đọc-và-reset. ---
     std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
 
-    // Ước lượng trễ e2e (docs/06 §7): Net ghi và Net đọc, nhưng để atomic cho
-    // thống nhất với bản macOS.
-    std::atomic<int64_t> ackDeltaUs_{0};
+    // Ước lượng trễ e2e (docs/06 §7): Net ghi minRttUs_, Decode ghi hai cái dưới.
     std::atomic<uint32_t> minRttUs_{0};
+    // ⚠ CHỐT NGAY SAU KHI VẼ, KHÔNG PHẢI Ở NHỊP THỐNG KÊ 1s (sửa 2026-07-30)
+    //   Bản trước tính e2e trong khối linkStats.Due() bằng `now` của vòng Net trừ đi
+    //   PTS của frame VẼ GẦN NHẤT. Hai mốc đó không cùng thời điểm: nếu frame cuối
+    //   được vẽ từ 400 ms trước (nguồn tĩnh — host chỉ phát keepalive ~2 fps) thì
+    //   400 ms đó bị cộng thẳng vào e2e. Tức là màn hình càng ĐỨNG YÊN, e2e báo càng
+    //   cao — đúng ngược với sự thật. Nay Decode chốt ngay tại chỗ, Net chỉ đọc ra.
+    //   -1 = chưa có mẫu nào.
+    std::atomic<int64_t> lastE2eUs_{-1};
+    // CHỈ thread Decode chạm — không tự khoá, và phải bơm mẫu ở ĐÚNG MỘT điểm trong
+    // đường dẫn (xem ClockOffset::AddSample).
+    deskhub::ClockOffset clockOffset_;
 };

@@ -159,8 +159,10 @@ int dha_list_share_sources(DHShareSource* out, int capacity);
 // Bắt đầu chia sẻ. CHẶN tới ~10s (đợi frame đầu), gọi ngoài main thread.
 // KHÔNG có tham số cổng và cũng KHÔNG có tham số "cho phép điều khiển": cổng luôn
 // là 47777 (kDeskhubPort, net/UdpSocket.h) và chuột/bàn phím luôn được chia sẻ.
+// `max_dim` = trần cạnh dài của khung gửi đi, 0 = gửi native (xem AgentOptions).
 // false = cổng đã bị chiếm, thiếu quyền, hoặc không nguồn nào lên hình.
-bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps);
+bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
+    uint32_t max_dim);
 
 void dha_stop(void);
 bool dha_running(void);

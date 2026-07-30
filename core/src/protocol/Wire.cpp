@@ -245,13 +245,16 @@ size_t BuildInvalidateRef(std::span<uint8_t> out, uint32_t sessionId, uint32_t f
 // RECONFIG: host báo đổi kích thước nguồn hoặc bitrate GIỮA phiên, client không
 // phải bắt tay lại. Host gửi kèm một IDR ngay sau đó để decoder bám được.
 size_t BuildReconfig(std::span<uint8_t> out, uint32_t sessionId, const Reconfig& m) {
-    constexpr size_t kPayload = 8; // w(2) h(2) bitrate(4)
+    constexpr size_t kPayload = 9; // w(2) h(2) bitrate(4) fps(1)
     const size_t total = WriteCommon(out, MsgType::Reconfig, 0, Chan::Control, sessionId, kPayload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
     PutU16(p, m.width);
     PutU16(p + 2, m.height);
     PutU32(p + 4, m.bitrateBps);
+    // fps NỐI VÀO CUỐI, có chủ ý: client đời cũ đọc đúng 8 byte đầu và bỏ qua byte
+    // thứ 9, nên host mới vẫn nói chuyện được với chúng. Xem Reconfig::fps.
+    p[8] = m.fps;
     return total;
 }
 
@@ -441,7 +444,9 @@ std::optional<Feedback> ParseFeedback(std::span<const uint8_t> payload) {
 std::optional<Reconfig> ParseReconfig(std::span<const uint8_t> payload) {
     if (payload.size() < 8) return std::nullopt;
     const uint8_t* p = payload.data();
-    return Reconfig{GetU16(p), GetU16(p + 2), GetU32(p + 4)};
+    // Host đời cũ gửi đúng 8 byte. fps = 0 = "không nói gì" -> client giữ fps đang có.
+    const uint8_t fps = payload.size() >= 9 ? p[8] : 0;
+    return Reconfig{GetU16(p), GetU16(p + 2), GetU32(p + 4), fps};
 }
 
 std::optional<bool> ParseSetFocus(std::span<const uint8_t> payload) {

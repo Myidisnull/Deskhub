@@ -67,7 +67,11 @@ struct NegotiatedParams {
     uint16_t height = 0;
     uint8_t fps = 60;
     uint32_t bitrateBps = 0;
-    uint64_t timebaseUs = 0; // đồng hồ host tại thời điểm HELLO_ACK
+    // Đồng hồ host tại thời điểm HELLO_ACK. ⚠ KHÔNG dùng nó để ước lượng độ lệch
+    // đồng hồ: một mẫu, lấy từ gói đầu tiên của phiên (chậm nhất một cách hệ thống),
+    // và không bao giờ hiệu chỉnh lại. deskhub::ClockOffset làm việc đó bằng bộ lọc
+    // min trên chính luồng frame. Trường này giữ lại vì nó thuộc wire format.
+    uint64_t timebaseUs = 0;
 };
 
 struct ClientCallbacks {

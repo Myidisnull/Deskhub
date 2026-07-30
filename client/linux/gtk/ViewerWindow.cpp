@@ -52,6 +52,34 @@ GdkRectangle WorkArea(GtkWidget* w) {
     return wa;
 }
 
+// Màn hình LỚN NHẤT đang gắn vào máy, tính bằng PIXEL. Đi vào HELLO để host co luồng
+// cho vừa (deskhub::Hello::maxWidth).
+//
+// Lấy cái LỚN NHẤT chứ không phải màn chứa cửa sổ: người dùng kéo cửa sổ sang màn
+// khác giữa phiên được, mà cỡ luồng thì chốt một lần lúc bắt tay.
+//
+// geometry × scale_factor: GDK trả hình học theo ĐIỂM logic, còn thứ host cần là
+// pixel thật — trên màn HiDPI hai số đó chênh nhau đúng một lần scale.
+void LargestScreenPixels(GtkWidget* w, uint32_t& outW, uint32_t& outH) {
+    outW = outH = 0;
+    GdkDisplay* d = gtk_widget_get_display(w);
+    if (!d) return;
+    const int n = gdk_display_get_n_monitors(d);
+    long bestArea = 0;
+    for (int i = 0; i < n; ++i) {
+        GdkMonitor* m = gdk_display_get_monitor(d, i);
+        if (!m) continue;
+        GdkRectangle g{};
+        gdk_monitor_get_geometry(m, &g);
+        const int s = gdk_monitor_get_scale_factor(m);
+        const long pw = long(g.width) * (s > 0 ? s : 1), ph = long(g.height) * (s > 0 ? s : 1);
+        if (pw <= 0 || ph <= 0 || pw * ph <= bestArea) continue;
+        bestArea = pw * ph;
+        outW = uint32_t(pw);
+        outH = uint32_t(ph);
+    }
+}
+
 } // namespace
 
 ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
@@ -114,7 +142,9 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     g_signal_connect(window_, "focus-out-event", G_CALLBACK(OnFocusOut), this);
     g_signal_connect(window_, "destroy", G_CALLBACK(OnDestroy), this);
 
-    if (!loop_.Start(server, sourceId, &renderer_)) {
+    uint32_t sw = 0, sh = 0;
+    LargestScreenPixels(window_, sw, sh);
+    if (!loop_.Start(server, sourceId, &renderer_, sw, sh)) {
         gtk_widget_destroy(window_);
         return false;
     }

@@ -108,6 +108,17 @@ struct MainMenuView: View {
                 TextField("20", value: $agent.bitrateMbps, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 52)
+                // Màn Mac là Retina, nên "Native" gần như luôn là lựa chọn TỆ trên
+                // một đường truyền thật — 3024×1964 ở 20 Mbps mờ hơn hẳn 1920×1246
+                // ở cùng bitrate. Để nó trong danh sách cho ai có LAN 10Gb và màn
+                // 5K, nhưng mặc định là 1080p. Lý do đầy đủ ở AgentOptions::maxDim.
+                Picker("Quality", selection: $agent.maxDim) {
+                    Text("720p").tag(1280)
+                    Text("1080p").tag(1920)
+                    Text("1440p").tag(2560)
+                    Text("Native").tag(0)
+                }
+                .frame(width: 150)
             }
 
             Button {

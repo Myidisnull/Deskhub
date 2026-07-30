@@ -187,6 +187,10 @@ private:
     VAImage rgbImage_{};
     bool haveRgbImage_ = false;
     uint32_t rgbFourcc_ = 0; // VA_FOURCC đang dùng cho rgbSurface_/rgbImage_
+    // Cỡ THẬT của khung đang vào. Có thể LỚN HƠN cfg_.width/height — khi đó bước
+    // VPP vừa đổi màu vừa CO (xem ConvertToNv12). Phải nhớ riêng vì cfg_ mang cỡ
+    // NÉN, còn surface RGB thì dựng theo cỡ khung tới.
+    uint32_t srcW_ = 0, srcH_ = 0;
 
     // --- Trạng thái chuỗi mã hoá ---
     uint64_t frameCount_ = 0;

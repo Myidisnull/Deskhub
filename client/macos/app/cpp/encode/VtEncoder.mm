@@ -254,6 +254,18 @@ bool VtEncoder::SetBitrate(uint32_t bitrateBps) {
     return st1 == noErr;
 }
 
+bool VtEncoder::SetFps(uint32_t fps) {
+    if (!session_ || !fps) return false;
+    auto session = static_cast<VTCompressionSessionRef>(session_);
+    const int64_t v = int64_t(fps);
+    CFNumberRef n = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &v);
+    const OSStatus st =
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_ExpectedFrameRate, n);
+    CFRelease(n);
+    if (st == noErr) cfg_.fps = fps;
+    return st == noErr;
+}
+
 bool VtEncoder::Encode(void* pixelBuffer, uint64_t timestampUs, bool forceKeyframe) {
     if (!session_ || !pixelBuffer) return false;
     auto session = static_cast<VTCompressionSessionRef>(session_);

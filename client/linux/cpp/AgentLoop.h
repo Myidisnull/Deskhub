@@ -51,6 +51,11 @@
 struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
+    // Trần cho CẠNH DÀI của khung gửi đi, giữ nguyên tỉ lệ. 0 = gửi native.
+    // Cùng lý do và cùng mặc định với bản macOS/Windows: một màn 4K ở 20 Mbps chỉ
+    // còn 0.04 bit/pixel — quá ít để nén ra hình xem được. Chi tiết ở
+    // deskhub/control/StreamSize.h.
+    uint32_t maxDim = 1920;
 
     // Bao hình của TOÀN BỘ desktop (mọi màn hình ghép lại), theo pixel. Tầng UI
     // đo bằng GDK. Để 0 nếu không đo được — InputInjector sẽ coi desktop chỉ có

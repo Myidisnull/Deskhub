@@ -44,6 +44,19 @@
 struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
+    // Trần cho CẠNH DÀI của khung gửi đi, giữ nguyên tỉ lệ. 0 = gửi native.
+    //
+    // VÌ SAO MẶC ĐỊNH 1920 CHỨ KHÔNG PHẢI NATIVE
+    //   Màn Mac là Retina: MacBook Pro 14" cho 3024×1964 = 5.9 Mpixel, gấp gần ba
+    //   lần 1080p; màn XDR 6K gấp bảy. Ở 60fps và 20 Mbps thì đó là 0.06 bit/pixel —
+    //   quá ít để nén ra hình xem được, mà vẫn đủ nặng để làm nghẹt VideoToolbox và
+    //   thổi mỗi IDR lên gần nghìn datagram. Kết quả là stream vừa mờ vừa giật.
+    //   1920 giữ khung ở ~2.4 Mpixel, cùng cỡ với một host Windows 1080p — mức mà
+    //   toàn bộ phần còn lại của pipeline (bitrate mặc định, kích cỡ IDR, congestion
+    //   control) đã được chỉnh cho.
+    //   Ai muốn nét tối đa và biết mình có đủ băng thông thì đặt 0.
+    //   Chi tiết cơ chế: capture/ScreenCapture.h quyết định 5.
+    uint32_t maxDim = 1920;
 };
 
 // Một màn hình được chia sẻ. `name` là tên hiện ở danh sách phía client (UTF-8).

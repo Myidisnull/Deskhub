@@ -102,7 +102,7 @@ Component specifics:
   pixel format `420v` (NV12 video-range, fed straight to VideoToolbox with no color
   conversion), `minimumFrameInterval = 1/fps` (a *cap* — frames arrive only on
   change), `showsCursor = YES`, `queueDepth = 5` (AgentLoop retains one buffer as
-  cache, VideoToolbox holds another), `scalesToFit = NO`, no audio. Only
+  cache, VideoToolbox holds another), no audio. Only
   `SCFrameStatusComplete` frames are forwarded; timestamps are the project clock
   (`NowUs()`), not the sample buffer PTS. Frames are delivered on a per-source serial
   `USER_INTERACTIVE` queue. A 500 ms dispatch timer compares the real display size
@@ -110,6 +110,18 @@ Component specifics:
   and calls `updateConfiguration` on mismatch — SCStream does not resize itself — and
   the same timer detects a vanished display (`Closed()`). Sizes are rounded
   down to even numbers (H.264 chroma requirement).
+- **Resolution cap (`AgentOptions::maxDim`, default 1920).** Mac panels are Retina, so
+  native capture is enormous: a 14" MacBook Pro is 3024×1964 = 5.9 Mpixel, ~2.9× a
+  1080p host, and a 6K XDR is 20 Mpixel. At 60 fps and the default 20 Mbps that is
+  0.06 bit/pixel — too little to encode a watchable picture, yet heavy enough to choke
+  VideoToolbox and inflate every IDR into hundreds of back-to-back datagrams that
+  overflow the send buffer and drive `BitrateController` down. So the stream is shrunk
+  *at the source*: the `SCStreamConfiguration` buffer is sized to fit `maxDim` on the
+  long edge (aspect preserved, `scalesToFit = YES`) and WindowServer does the scaling
+  on the GPU before the frame ever reaches us. `maxDim = 0` captures native. The
+  500 ms timer tracks the native size and the buffer size separately, and only
+  reconfigures when the *buffer* size changes. Mouse coordinates are unaffected —
+  they travel normalized 0..65535 and are mapped through `CGDisplayBounds`.
 - **`agent/VtEncoder.mm` — encoding.** H.264 via `VTCompressionSession` (hardware
   requested but not required; `BackendName()` reports which was used). Low-latency
   knobs: `RealTime = true`, `AllowFrameReordering = false` (no B-frames), profile
@@ -235,8 +247,9 @@ address.
   nothing to tick: Share hands over every attached display, so the list only states what is
   being seen — the live checkboxes and `dha_add_source`/`dha_remove_source` were removed
   2026-07-27, as were the port picker, the *Allow input* checkbox and the send sparkline.
-  Controls: fps 30/60/120 and bitrate 8/20/40 Mbps (both locked while sharing, persisted in
-  `UserDefaults`) and a single **Stop sharing** button. Start failures surface a reason line
+  Controls: fps 30/60/120, bitrate 8/20/40 Mbps and a quality picker
+  (720p/1080p/1440p/Native → `AgentOptions::maxDim`, default 1080p; all locked while
+  sharing, persisted in `UserDefaults`) and a single **Stop sharing** button. Start failures surface a reason line
   (`startError`) instead of failing silently. There is no firewall step in the app; the
   generated Info.plist only carries `NSLocalNetworkUsageDescription` for the OS
   local-network prompt.

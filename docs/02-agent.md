@@ -192,6 +192,105 @@ constants shared state: they feed both the packed SPS and
 `VAEncSequenceParameterBufferH264`, and a mismatch decodes as garbage from the second frame on
 (17-linux-app.md §3).
 
+### 4b. Adapting quality: fps and resolution, not just bitrate
+
+**The three knobs are one knob.** What decides whether a picture is usable is bits
+per pixel per frame:
+
+```
+bpp = bitrate / (width × height × fps)
+```
+
+fps, bitrate and resolution only mean anything *together* in that expression. Until
+2026-07-30 they were three independent things: bitrate adapted
+(`BitrateController`, AIMD on loss), **fps never changed at all**, and resolution
+was fixed once at HELLO by `FitStreamSize`. So the only way the system could answer
+a bad link was to lower bitrate while still sending the same pixels at the same
+rate. 1920×1246@60 dropped to the 1 Mbps floor is 0.007 bpp — not "blurry", mush.
+
+`deskhub::QualityLadder` (`core/include/deskhub/control/QualityLadder.h`) closes
+that. `BitrateController` still decides the *budget*; the ladder decides how to
+spend it, picking a rung whose pixel rate the budget can actually carry at ~0.08
+bpp. Rungs, best to worst:
+
+| Rung | Scale | fps | Needs (from a 1920×1246 ceiling) |
+|---|---|---|---|
+| 0 | 100% | 60 | 11.5 Mbps |
+| 1 | 100% | 30 | 5.7 Mbps |
+| 2 | 100% | 20 | 3.8 Mbps |
+| 3 | 75% | 20 | 2.2 Mbps |
+| 4 | 50% | 20 | 1.0 Mbps |
+| 5 | 50% | 12 | 0.6 Mbps |
+
+**fps goes first, resolution last.** This is a remote-*control* tool: the content is
+text, windows, terminals. Blurry text ends the session's usefulness; sharp text at
+20 fps does not. (Same call WebRTC makes with `degradationPreference =
+maintain-resolution` for screen share.) fps does not go below ~20 while pixels are
+still full, because under that the pointer starts skipping and control feels broken
+regardless of actual latency.
+
+Down is immediate — the queue is already full. Up is one rung at a time, needs 20%
+headroom, and needs it held: 5 s for an fps-only rung, **15 s** for one that changes
+resolution, since that forces an encoder rebuild, an IDR, a `RECONFIG`, and a
+decoder rebuild on the client. Flapping between two resolutions is worse than
+sitting on the lower one.
+
+The ceiling never moves: the ladder is built from whatever `FitStreamSize` and the
+user's fps setting already allow, and only ever walks *down* from there. On a
+healthy link (the 20 Mbps default clears rung 0) nothing changes from before.
+
+**Lowering fps has to actually drop frames**, and only one of the three capture
+backends does that for you:
+
+| Host | How the fps cap is enforced |
+|---|---|
+| macOS | `SCStreamConfiguration.minimumFrameInterval` — `ScreenCapture::SetQuality` reconfigures the stream, so the frames never arrive |
+| Windows | **A pacing gate in `onFrame`.** WGC has no frame-rate cap at all; it fires `FrameArrived` whenever content changes |
+| Ubuntu | **A pacing gate in `onFrame`.** PipeWire's rate is negotiated at `Start` and is not cheap to renegotiate mid-stream |
+
+Without that gate, lowering fps only changes the rate controller's *denominator*:
+the same number of frames still gets encoded, each now granted more bits, so the
+real bitrate **exceeds** the budget — the exact opposite of what the step was for.
+
+**The cost of an fps step differs by encoder**, which is why the ladder's dwell is
+measured in seconds:
+
+| Encoder | fps change costs |
+|---|---|
+| VideoToolbox (macOS) | `ExpectedFrameRate` set live — no rebuild, no IDR |
+| NVENC (Windows) | `nvEncReconfigureEncoder` with `resetEncoder = 0` — no IDR |
+| Media Foundation (Windows) | `MF_MT_FRAME_RATE` lives in the media type → full transform rebuild → **next frame is an IDR** |
+| VA-API (Ubuntu) | fps feeds the SPS VUI `time_scale` → new SPS → encoder rebuild → **IDR required** |
+
+Resolution steps are handled differently per host too: macOS reconfigures the
+`SCStream` itself (WindowServer scales on the GPU before the frame ever reaches
+us); Windows runs `capture/Downscaler.h`, a standalone D3D11 video processor that
+sits *between* capture and encoder — it has to be outside the encoder because
+NVENC cannot scale and putting it in `MfEncoder` would make the resolution cap
+silently work on Intel/AMD and not on NVIDIA; Ubuntu gets it for free by widening
+the VPP pass it already runs for RGB→NV12 (`ConvertToNv12` sets a source region
+larger than the destination), since VA-API is the only backend there.
+
+Two protocol/encoder details worth knowing before touching this:
+
+- **`RECONFIG` now carries fps** (appended byte, backward compatible — old hosts
+  send 8 bytes and new clients read `fps = 0` as "not stated"). The client does not
+  just display it: `Reassembler` uses `1e6/fps` as the deadline before it gives up
+  on a frame that is missing pieces. A host at 20 fps with a client still assuming
+  60 gives up after 33 ms instead of 100 ms — dropping *intact* frames and asking
+  for IDRs, on a link that was already struggling. Exactly the spiral that lowering
+  fps exists to avoid.
+- **The encoder has to be told the new fps too** (`IVideoEncoder::SetFps`,
+  `VtEncoder::SetFps`). That value is the denominator its rate control divides the
+  bit budget by, and on several backends also the divisor for the VBV size;
+  submitting 20 fps while it still believes 60 makes each frame spend a third of the
+  bits it should — lowering fps to get a *sharper* picture and getting a blurrier
+  one instead.
+
+All three hosts run the ladder. The user's `fps` / `bitrateMbps` / `maxDim`
+settings are now the **ceiling** it starts from rather than fixed operating points,
+and on a link that clears rung 0 nothing about the stream changes.
+
 ## 5. Session lifecycle and security
 
 `deskhub::HostSession` (`core/include/deskhub/session/HostSession.h`) is a per-source state

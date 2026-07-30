@@ -64,11 +64,14 @@
 #include "deskhubp/Clock.h"
 #include "deskhubp/Random.h"
 #include "net/UdpSocket.h"
+#include "capture/Downscaler.h"
 #include "capture/ScreenCapture.h"
 #include "AgentControl.h"
 #include "Diag.h"
 
 #include "deskhub/control/BitrateController.h"
+#include "deskhub/control/QualityLadder.h"
+#include "deskhub/control/StreamSize.h"
 #include "deskhub/session/Beacon.h" // trả lời LIST_SOURCES / PING dò trước phiên
 #include "deskhub/session/HostSession.h"
 #include "deskhub/transport/Packetizer.h"
@@ -140,7 +143,34 @@ struct SourcePipeline {
 
     // --- Chia sẻ giữa thread FrameArrived và thread Recv ---
     std::atomic<uint32_t> srcW{0}, srcH{0};       // kích thước NÉN (đã làm chẵn)
-    std::atomic<uint32_t> srcTexW{0}, srcTexH{0}; // kích thước texture WGC thật
+    std::atomic<uint32_t> srcTexW{0}, srcTexH{0}; // kích thước texture đưa vào encoder
+    // Cỡ NATIVE của màn hình (chưa co) — thread FrameArrived ghi, thread Recv đọc để
+    // tính lại trần. Tách khỏi srcW/srcH vì hai cái đó là cỡ NÉN: gộp một biến thì
+    // màn 3840 co xuống 1920 sẽ trông như "vừa đổi độ phân giải" ở mỗi frame.
+    std::atomic<uint32_t> nativeW{0}, nativeH{0};
+    // Cỡ MUỐN nén, đã qua cả trần người dùng, trần màn hình client, lẫn bậc thang
+    // chất lượng. Thread Recv ghi, thread FrameArrived đọc. 0 = chưa tính (frame đầu
+    // tiên tự tính lấy từ trần người dùng).
+    std::atomic<uint32_t> wantW{0}, wantH{0};
+    // fps của bậc đang chạy — thread FrameArrived đọc khi dựng lại encoder, không thì
+    // encoder dựng lại sau một lần đổi cỡ sẽ quay về trần ban đầu.
+    std::atomic<uint32_t> curFps{0};
+    // Thang vừa đổi bậc. Tách khỏi sizeChanged vì bậc chỉ-đổi-fps KHÔNG đổi cỡ, nên
+    // onFrame không bao giờ thấy — mà client vẫn bắt buộc phải nhận fps mới
+    // (deskhub::Reconfig::fps). Thread Recv đặt, chính nó tiêu thụ.
+    std::atomic<bool> qualityChanged{false};
+    // Mốc frame gần nhất ĐÃ NÉN — cổng nhịp của thang. Chỉ thread FrameArrived chạm.
+    std::atomic<uint64_t> lastEncodeUs{0};
+
+    // Bộ co pixel trên GPU. CHỈ thread FrameArrived chạm (dưới encMutex, cùng chỗ
+    // với encoder). Xem capture/Downscaler.h về vì sao nó nằm ở đây chứ không trong
+    // encoder.
+    Downscaler scaler;
+
+    // Cỡ màn hình client báo trong HELLO, và thang chất lượng. Chỉ thread Recv chạm.
+    uint32_t cliW = 0, cliH = 0;
+    std::unique_ptr<deskhub::QualityLadder> ladder;
+    deskhub::QualityStep step;
     std::atomic<bool> sizeChanged{false};
     std::atomic<bool> wantFec{false};
     std::atomic<uint32_t> curBitrateBps{0};
@@ -164,6 +194,14 @@ struct SourcePipeline {
     // in log (khỏi tính hai lần hai chỗ rồi lệch nhau). Chỉ thread Recv ghi; đọc từ
     // publishRows cùng thread, nhưng để atomic cho thống nhất với phần còn lại.
     std::atomic<uint32_t> uiFps{0}, uiKbps{0}, uiRttMs{0};
+    // Hai số còn lại của FEEDBACK. CHỈ để in ra log mỗi giây, không lên UI.
+    //
+    // Trước 30/07/2026 host không ghi lại chất lượng đường truyền ở đâu cả: dòng
+    // "Bitrate X -> Y (loss N%, RTT N ms)" chỉ in khi bitrate ĐỔI, nên một đường
+    // truyền xấu ỔN ĐỊNH không để lại dấu vết nào trong log host — chẩn đoán buộc
+    // phải có log của cả hai máy, mà người dùng thường chỉ gửi một bên.
+    std::atomic<uint32_t> uiLossPct{0}, uiRecvKbps{0};
+    std::atomic<bool> haveFeedback{false};
     std::atomic<uint32_t> captured{0};
     std::atomic<uint32_t> nextFrameId{0};
 
@@ -382,7 +420,11 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             cfg.height = h;
             cfg.srcWidth = sw;
             cfg.srcHeight = sh;
-            cfg.fps = opt.fps;
+            // fps của BẬC HIỆN TẠI, không phải trần người dùng: encoder dựng lại sau
+            // một lần đổi cỡ phải khớp nhịp thật đang chạy (xem IVideoEncoder::SetFps
+            // về hậu quả của việc lệch).
+            cfg.fps = p->curFps.load(std::memory_order_relaxed);
+            if (!cfg.fps) cfg.fps = opt.fps;
             cfg.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
             cfg.outputPath.clear(); // không file — NAL chỉ đi qua onPacket
             cfg.onPacket = onPacket;
@@ -407,31 +449,50 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         //   4. Encode.
         // Giữ encMutex suốt từ bước 2: thread Recv cũng chạm vào encoder và cachedTex
         // khi nó phải encode lại frame tĩnh lúc client xin IDR.
-        auto onFrame = [p, &gpu, ensureEncoder](const FrameInfo& fi) {
+        const uint32_t maxDim = opt.maxDim;
+        auto onFrame = [p, &gpu, ensureEncoder, maxDim](const FrameInfo& fi) {
             p->captured.fetch_add(1, std::memory_order_relaxed);
             if (p->failed.load()) return;
+            if (!fi.width || !fi.height) return;
 
-            // NV12 lấy mẫu chroma 2x2 -> bề rộng/cao lẻ làm CreateTexture2D(NV12) trả
-            // E_INVALIDARG. Nén ở kích thước chẵn nhỏ hơn; cột/hàng lẻ dư bị cắt.
-            const uint32_t encW = fi.width & ~1u, encH = fi.height & ~1u;
+            // Cỡ native, để thread Recv tính lại trần khi client HELLO hoặc khi thang
+            // đổi bậc.
+            p->nativeW.store(fi.width, std::memory_order_relaxed);
+            p->nativeH.store(fi.height, std::memory_order_relaxed);
+
+            // Cỡ MUỐN nén. Thread Recv chưa kịp tính (frame đầu tiên, chưa có client)
+            // thì tự tính lấy từ trần người dùng — như vậy khung ra đúng cỡ ngay từ
+            // frame ĐẦU, không có một quãng ngắn phát nguyên native rồi mới co lại.
+            uint32_t encW = p->wantW.load(std::memory_order_relaxed);
+            uint32_t encH = p->wantH.load(std::memory_order_relaxed);
+            if (!encW || !encH) {
+                const deskhub::StreamSize t =
+                    deskhub::FitStreamSize(fi.width, fi.height, maxDim, 0, 0);
+                encW = t.width;
+                encH = t.height;
+            }
+            // Không bao giờ phóng to, và NV12 lấy mẫu chroma 2x2 nên cạnh phải chẵn.
+            if (encW > fi.width) encW = fi.width;
+            if (encH > fi.height) encH = fi.height;
+            encW &= ~1u;
+            encH &= ~1u;
             if (!encW || !encH) return;
 
             std::lock_guard<std::mutex> lk(p->encMutex);
 
-            // Nguồn đổi kích thước (đổi độ phân giải / scale màn hình). Encoder và
-            // texture cache đều gắn chặt với kích thước cũ -> vứt
-            // cả hai, dựng lại ngay ở frame này. Cờ sizeChanged để thread Recv báo
-            // RECONFIG + IDR cho client.
+            // Cỡ NÉN đổi. Hai nguyên nhân, cùng một cách xử lý: nguồn đổi độ phân
+            // giải thật, hoặc thang chất lượng vừa đổi bậc (wantW/wantH). Encoder và
+            // texture cache đều gắn chặt với cỡ cũ -> vứt cả hai, dựng lại ngay ở
+            // frame này. Cờ sizeChanged để thread Recv báo RECONFIG + IDR cho client.
             if (p->srcW.load() != encW || p->srcH.load() != encH) {
                 if (p->srcW.load())
                     std::printf(
-                        "[Agent][%s] Source resized %ux%u -> %ux%u,"
+                        "[Agent][%s] Encode size %ux%u -> %ux%u (source %ux%u),"
                         " rebuilding encoder.\n",
-                        p->name.c_str(), p->srcW.load(), p->srcH.load(), encW, encH);
+                        p->name.c_str(), p->srcW.load(), p->srcH.load(), encW, encH,
+                        fi.width, fi.height);
                 p->srcW.store(encW);
                 p->srcH.store(encH);
-                p->srcTexW.store(fi.width);
-                p->srcTexH.store(fi.height);
                 p->encoder.reset();
                 p->cachedTex.Reset();
                 p->haveCached.store(false, std::memory_order_release);
@@ -462,13 +523,48 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                 std::printf("[Agent][%s] Source back to %ux%u — resuming.\n",
                     p->name.c_str(), encW, encH);
 
+            // ⚠ CỔNG NHỊP — thứ thực sự thi hành fps của thang.
+            //   WGC KHÔNG có trần fps nào cả: nó bắn FrameArrived mỗi khi nội dung
+            //   đổi, nhanh đến đâu tuỳ màn hình. Không có cổng này thì hạ fps CHỈ
+            //   đổi mẫu số của bộ điều khiển tốc độ: vẫn nén đúng bấy nhiêu frame,
+            //   mỗi frame lại được cấp nhiều bit hơn → bitrate thật VƯỢT ngân sách,
+            //   đúng ngược điều thang định làm.
+            //   Đặt sau nhánh paused và trước bước co: bỏ frame ở đây là bỏ trước khi
+            //   tốn GPU, còn phần ghi nhận kích thước bên trên vẫn phải chạy.
+            const uint64_t frameUs = NowUs();
+            if (const uint32_t gateFps = p->curFps.load(std::memory_order_relaxed)) {
+                const uint64_t minGapUs = 1'000'000ull / gateFps;
+                const uint64_t last = p->lastEncodeUs.load(std::memory_order_relaxed);
+                // Dung sai nửa mili-giây: frame tới sớm hơn hạn vài chục micro-giây là
+                // chuyện thường, bỏ nó đi sẽ tụt nhịp thật xuống dưới mức mong muốn
+                // một cách hệ thống.
+                if (last && frameUs > last && frameUs - last + 500 < minGapUs) return;
+                p->lastEncodeUs.store(frameUs, std::memory_order_relaxed);
+            }
+
+            // --- CO PIXEL, nếu cỡ nén khác cỡ native ---
+            // Chạy TRƯỚC cache và trước encoder, nên cả hai chỉ từng nhìn thấy khung
+            // đã đúng cỡ và không cái nào phải biết chuyện gì vừa xảy ra
+            // (capture/Downscaler.h). Hỏng thì bỏ frame chứ KHÔNG lùi về native: gửi
+            // một khung to bất ngờ vào giữa một stream đang ở cỡ nhỏ là đúng thứ làm
+            // decoder client vỡ hình.
+            ID3D11Texture2D* encTex = fi.texture;
+            if (encW != fi.width || encH != fi.height) {
+                if (!p->scaler.Configure(gpu.device.Get(), fi.width, fi.height, encW, encH))
+                    return;
+                encTex = p->scaler.Scale(fi.texture);
+                if (!encTex) return;
+            }
+            p->srcTexW.store(encW);
+            p->srcTexH.store(encH);
+
             // Lưu bản SAO của frame cuối. Bắt buộc phải copy chứ không giữ con trỏ:
             // texture của WGC chỉ sống trong phạm vi callback (xem CaptureTypes.h).
             // Đây là thứ cứu trường hợp nguồn đứng yên — xem "cache frame cuối" ở
             // đầu file. Texture cache tạo lười, một lần, rồi CopyResource mỗi frame.
             if (!p->cachedTex) {
                 D3D11_TEXTURE2D_DESC d{};
-                fi.texture->GetDesc(&d);
+                encTex->GetDesc(&d);
                 d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
                 d.MiscFlags = 0;
                 d.Usage = D3D11_USAGE_DEFAULT;
@@ -477,20 +573,20 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                     p->cachedTex.Reset();
             }
             if (p->cachedTex) {
-                gpu.context->CopyResource(p->cachedTex.Get(), fi.texture);
+                gpu.context->CopyResource(p->cachedTex.Get(), encTex);
                 p->haveCached.store(true, std::memory_order_release);
             }
-            p->lastFrameUs.store(NowUs(), std::memory_order_relaxed);
+            p->lastFrameUs.store(frameUs, std::memory_order_relaxed);
 
             // Chặn ở đây chứ không sớm hơn: mọi bước trên (cache frame, ghi nhận
             // kích thước) vẫn phải chạy TRƯỚC khi có client, vì giai đoạn 4 của
             // RunAgent đang đợi đúng srcW để dựng offer.
             if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!ensureEncoder(encW, encH, fi.width, fi.height)) return;
+            if (!ensureEncoder(encW, encH, encW, encH)) return;
             // Encode liên tục kể cả khi chưa có client (đơn giản, VBV ổn định);
             // NAL bị bỏ ở onPacket nếu chưa STREAMING. DiagEncode = Encode + đo
             // thời gian cho cửa sổ chẩn đoán (H1).
-            p->DiagEncode(p->encoder.get(), fi.texture, p->forceIdr.exchange(false));
+            p->DiagEncode(p->encoder.get(), encTex, p->forceIdr.exchange(false));
         };
 
         if (!p->capture.Start(p->monitor, gpu.device.Get(), onFrame)) {
@@ -591,6 +687,54 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         cb.randomBytes = [](std::span<uint8_t> out) {
             return RandomBytes(out.data(), out.size());
         };
+        // Tính lại cỡ MUỐN nén từ ba đầu vào: cỡ native, hai trần (người dùng +
+        // màn hình client), và bậc thang hiện tại. MỘT đường duy nhất cho cả onHello
+        // lẫn onFeedback — hai bản của cùng chính sách là hai bản sẽ lệch nhau, và
+        // bản lệch chỉ lộ ra khi người dùng vừa đổi độ phân giải vừa có client kết
+        // nối. Chỉ thread Recv gọi.
+        auto retarget = [p, &opt]() -> deskhub::StreamSize {
+            const uint32_t nw = p->nativeW.load(std::memory_order_relaxed);
+            const uint32_t nh = p->nativeH.load(std::memory_order_relaxed);
+            if (!nw || !nh) return {0, 0};
+            deskhub::StreamSize t =
+                deskhub::FitStreamSize(nw, nh, opt.maxDim, p->cliW, p->cliH);
+            // Bậc chất lượng áp SAU CÙNG: hai trần trên trả lời "được phép gửi bao
+            // nhiêu pixel", bậc này trả lời "đường truyền lúc này tải nổi bao nhiêu".
+            const uint32_t pct = p->step.scalePct ? p->step.scalePct : 100;
+            if (pct < 100) {
+                t.width = (t.width * pct / 100u) & ~1u;
+                t.height = (t.height * pct / 100u) & ~1u;
+            }
+            if (!t.width || !t.height) return {0, 0};
+            p->wantW.store(t.width, std::memory_order_relaxed);
+            p->wantH.store(t.height, std::memory_order_relaxed);
+            return t;
+        };
+
+        // Client mới vừa chào và kèm cỡ màn hình của nó. Co luồng cho vừa NGAY BÂY
+        // GIỜ, trước khi HELLO_ACK đi ra, rồi sửa lời chào theo cỡ vừa tính — client
+        // nhờ vậy dựng bộ giải mã đúng một lần thay vì dựng rồi phải dựng lại sau
+        // một RECONFIG.
+        cb.onHello = [p, &opt, retarget](const deskhub::Hello& h) {
+            p->cliW = h.maxWidth;
+            p->cliH = h.maxHeight;
+            // Thang dựng lại cho mỗi client: client khác thì trần khác, và một thang
+            // neo vào trần của client trước sẽ co nhầm cỡ.
+            p->step = deskhub::QualityStep{};
+            const deskhub::StreamSize t = retarget();
+            if (!t.width || !t.height) return;
+            p->ladder = std::make_unique<deskhub::QualityLadder>(uint16_t(t.width),
+                uint16_t(t.height), uint8_t(opt.fps));
+            p->step = p->ladder->current();
+            p->curFps.store(p->step.fps, std::memory_order_relaxed);
+            p->offer.width = uint16_t(t.width);
+            p->offer.height = uint16_t(t.height);
+            p->offer.fps = uint8_t(p->step.fps);
+            p->offer.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
+            p->session->SetOffer(p->offer);
+            std::printf("[Agent][%s] Quality ladder: ceiling %ux%u @%ufps, %d rung(s).\n",
+                p->name.c_str(), t.width, t.height, p->step.fps, p->ladder->rungCount());
+        };
         cb.onStart = [p] {
             p->forceIdr.store(true); // IDR mở màn (kèm SPS/PPS — repeatSPSPPS=1)
             std::printf("[Agent][%s] Client START — beginning video push.\n", p->name.c_str());
@@ -631,11 +775,14 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         // GD5 congestion control: policy nằm ở deskhub::BitrateController (core, test
         // được offline). Ở đây chỉ còn phần dính thiết bị — đẩy quyết định xuống
         // encoder, cập nhật atomic cho thread FrameArrived, và in log.
-        cb.onFeedback = [p](const deskhub::Feedback& fb) {
+        cb.onFeedback = [p, retarget](const deskhub::Feedback& fb) {
             // RTT chỉ đo được ở PHÍA CLIENT (nó phát PING và trừ khi PONG về), nên
             // FEEDBACK là đường duy nhất con số đó tới được host — và màn chia sẻ
             // cần nó để hiện "máy đang xem cách bao xa".
             p->uiRttMs.store(fb.rttMs, std::memory_order_relaxed);
+            p->uiLossPct.store(fb.lossPct, std::memory_order_relaxed);
+            p->uiRecvKbps.store(fb.recvBitrateKbps, std::memory_order_relaxed);
+            p->haveFeedback.store(true, std::memory_order_release);
 
             const deskhub::BitrateDecision d = p->rate.Update(fb, NowUs());
 
@@ -647,17 +794,43 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                     std::printf("[Agent][%s] FEC off (link clean).\n", p->name.c_str());
             }
 
-            if (!d.changeBitrate) return;
-
-            const uint32_t cur = p->rate.bitrateBps();
-            std::lock_guard<std::mutex> lk(p->encMutex);
-            // Encoder từ chối thì KHÔNG commit: lần Feedback sau tính lại từ mức cũ.
-            if (p->encoder && p->encoder->SetBitrate(d.bitrateBps)) {
-                p->rate.CommitBitrate(d.bitrateBps);
-                p->curBitrateBps.store(d.bitrateBps, std::memory_order_relaxed);
-                std::printf("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)\n",
-                    p->name.c_str(), cur / 1e6, d.bitrateBps / 1e6, fb.lossPct, fb.rttMs);
+            if (d.changeBitrate) {
+                const uint32_t cur = p->rate.bitrateBps();
+                std::lock_guard<std::mutex> lk(p->encMutex);
+                // Encoder từ chối thì KHÔNG commit: lần Feedback sau tính lại từ mức cũ.
+                if (p->encoder && p->encoder->SetBitrate(d.bitrateBps)) {
+                    p->rate.CommitBitrate(d.bitrateBps);
+                    p->curBitrateBps.store(d.bitrateBps, std::memory_order_relaxed);
+                    std::printf("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)\n",
+                        p->name.c_str(), cur / 1e6, d.bitrateBps / 1e6, fb.lossPct, fb.rttMs);
+                }
             }
+
+            // Bitrate mới chỉ là NGÂN SÁCH. Thang quyết định tiêu ngân sách đó vào
+            // đâu — pixel hay khung hình (deskhub::QualityLadder). Chạy MỖI lần
+            // Feedback kể cả khi bitrate không đổi: thang có dwell riêng và cần nhịp
+            // đều để đếm, còn changeBitrate thì thưa.
+            if (!p->ladder) return;
+            if (!p->ladder->Update(p->rate.bitrateBps(), NowUs())) return;
+            const deskhub::QualityStep prev = p->step;
+            p->step = p->ladder->current();
+            p->curFps.store(p->step.fps, std::memory_order_relaxed);
+            // Cỡ mới đi qua wantW/wantH; thread FrameArrived thấy lệch ở frame kế
+            // tiếp và đi đúng đường sizeChanged như mọi lần đổi độ phân giải khác
+            // (dựng lại encoder → RECONFIG + IDR trên thread Recv). Không gọi thẳng
+            // encoder từ đây cho phần CỠ — nó thuộc luồng kia.
+            const deskhub::StreamSize t = retarget();
+            {
+                // Nhưng fps thì PHẢI nói thẳng cho encoder: bậc chỉ-đổi-fps không đổi
+                // cỡ nên onFrame không thấy gì, và đây là đường duy nhất con số đó
+                // tới được bộ điều khiển tốc độ (xem IVideoEncoder::SetFps).
+                std::lock_guard<std::mutex> lk(p->encMutex);
+                if (p->encoder && prev.fps != p->step.fps) p->encoder->SetFps(p->step.fps);
+            }
+            std::printf("[Agent][%s] Quality %u%%@%ufps -> %u%%@%ufps (%ux%u, budget %.1f Mbps)\n",
+                p->name.c_str(), prev.scalePct, prev.fps, p->step.scalePct, p->step.fps,
+                t.width, t.height, p->rate.bitrateBps() / 1e6);
+            p->qualityChanged.store(true, std::memory_order_release);
         };
 
         p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
@@ -828,19 +1001,27 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             // sizeChanged trong lúc tạm dừng. Client không phải dựng lại decoder cho
             // một cỡ suy biến (146x20) rồi lát nữa dựng lại lần nữa; và lúc nguồn to
             // trở lại, onFrame set cờ lần nữa nên RECONFIG vẫn được gửi đúng cỡ mới.
-            if (!p->paused.load(std::memory_order_acquire) &&
-                p->sizeChanged.exchange(false, std::memory_order_acq_rel)) {
+            const bool sized = p->sizeChanged.exchange(false, std::memory_order_acq_rel);
+            const bool qual = p->qualityChanged.exchange(false, std::memory_order_acq_rel);
+            if (!p->paused.load(std::memory_order_acquire) && (sized || qual)) {
                 p->offer.width = uint16_t(p->srcW.load());
                 p->offer.height = uint16_t(p->srcH.load());
+                p->offer.fps = uint8_t(p->step.fps ? p->step.fps : opt.fps);
                 p->offer.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
                 p->session->SetOffer(p->offer); // HELLO phát lại sau phải mang số mới
                 const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
                 if (pp && p->session->state() == deskhub::HostSession::State::Streaming) {
-                    deskhub::Reconfig rc{p->offer.width, p->offer.height, p->offer.bitrateBps};
+                    deskhub::Reconfig rc{p->offer.width, p->offer.height, p->offer.bitrateBps,
+                        p->offer.fps};
                     uint8_t rbuf[deskhub::kMaxDatagram];
                     const size_t rn = deskhub::BuildReconfig(rbuf, p->session->sessionId(), rc);
                     if (rn) sock.SendTo(NetAddr::Unpack(pp), rbuf, rn);
-                    p->forceIdr.store(true);
+                    // IDR chỉ cần khi CỠ đổi (SPS mới, decoder client dựng lại). Bậc
+                    // chỉ-đổi-fps không đụng SPS trên NVENC — ép IDR ở đó là tự bắn
+                    // một frame nặng gấp hàng chục lần vào đúng đường truyền vừa báo
+                    // là đang yếu. (Trên MF thì SetFps đã tự dựng lại transform và
+                    // frame kế tiếp là IDR dù ta không xin — xem IVideoEncoder::SetFps.)
+                    if (sized) p->forceIdr.store(true);
                 }
             }
 
@@ -881,16 +1062,26 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                 // KHÔNG phải bằng chứng phím đã tới ứng dụng. Injector còn vứt tiếp ở
                 // cổng tiêu điểm — `skipped` là con số duy nhất lộ ra chuyện đó. Thiếu
                 // nó thì "gõ không ăn" không phân biệt được với "không nhận được gói".
+                // Nửa sau của dòng là SỐ LIỆU CỦA CLIENT (từ FEEDBACK, ~1s/lần), tức
+                // thứ duy nhất host biết về đầu kia. In "-" khi chưa có feedback nào
+                // để không nhầm "chưa nghe được gì" với "0% mất gói, RTT 0".
+                char link[64] = " | client -";
+                if (p->haveFeedback.load(std::memory_order_acquire))
+                    std::snprintf(link, sizeof(link),
+                        " | client loss %u%%, RTT %u ms, recv %u kbps",
+                        p->uiLossPct.load(std::memory_order_relaxed),
+                        p->uiRttMs.load(std::memory_order_relaxed),
+                        p->uiRecvKbps.load(std::memory_order_relaxed));
                 std::printf(
                     "[Agent][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
-                    " | input %llu (lost %llu, skipped %llu)\n",
+                    " | input %llu (lost %llu, skipped %llu)%s\n",
                     p->name.c_str(), StateName(p->session->state()),
                     (cap - p->lastCaptured) / secs,
                     (fr - p->lastFrames) / secs,
                     (by - p->lastBytes) * 8.0 / 1000.0 / secs,
                     (unsigned long long)ist.applied,
                     (unsigned long long)ist.lost,
-                    (unsigned long long)p->injector.skipped());
+                    (unsigned long long)p->injector.skipped(), link);
                 // Cùng phép tính vừa in ra log, giữ lại cho giao diện (panel "máy
                 // đang xem" của màn chia sẻ). Tính lại ở publishRows sẽ cho hai con
                 // số khác nhau vì hai chỗ đó chốt bộ đếm ở hai thời điểm khác nhau.

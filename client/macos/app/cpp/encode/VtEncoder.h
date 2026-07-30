@@ -81,6 +81,17 @@ public:
     // false = VideoToolbox từ chối, caller cứ chạy tiếp với bitrate cũ.
     bool SetBitrate(uint32_t bitrateBps);
 
+    // Đổi fps kỳ vọng giữa chừng (deskhub::QualityLadder hạ bậc). Không dựng lại
+    // session — chuỗi inter-frame giữ nguyên, không cần IDR, y như SetBitrate.
+    //
+    // VÌ SAO PHẢI NÓI CHO ENCODER BIẾT khi ta chỉ đơn giản là NỘP ÍT FRAME HƠN:
+    //   ExpectedFrameRate là mẫu số bộ điều khiển tốc độ dùng để chia ngân sách bit
+    //   cho từng frame. Nộp 20 frame/giây mà nó vẫn tưởng 60 thì nó chia ngân sách
+    //   thành 60 phần và mỗi frame chỉ tiêu một phần ba số bit đáng ra được tiêu —
+    //   tức là ta hạ fps để hình NÉT HƠN mà lại nhận về hình MỜ HƠN, đúng ngược mục
+    //   đích của cả cái thang.
+    bool SetFps(uint32_t fps);
+
     // Đẩy nốt frame còn trong session rồi đóng. Gọi được nhiều lần.
     void Finish();
 

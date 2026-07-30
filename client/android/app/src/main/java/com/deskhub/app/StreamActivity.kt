@@ -176,6 +176,12 @@ class StreamActivity : ComponentActivity() {
     // và giao diện phải vẽ lại theo (xoá số liệu cũ, poll lại từ đầu).
     private var session by mutableStateOf(0L)
 
+    // Cỡ màn hình máy (pixel), đo MỘT LẦN ở onCreate và dùng lại cho mọi lần
+    // nativeStart của activity này — kể cả switchSource. Không phải Compose state:
+    // nó không đổi trong vòng đời activity (xoay máy là config change → activity mới,
+    // và `maximumWindowMetrics` vốn không phụ thuộc hướng cầm).
+    private var screenPx: Pair<Int, Int> = 0 to 0
+
     // Nguồn đang xem + danh sách host đang chia sẻ (do MainActivity truyền sang, xem
     // openStream). Rỗng hoặc một phần tử = không có gì để đổi, nút Display ẩn.
     private var currentSourceId by mutableIntStateOf(0)
@@ -215,7 +221,8 @@ class StreamActivity : ComponentActivity() {
         // Không có "source" (vd. chạy thẳng từ adb) -> nguồn 0, như trước.
         currentSourceId = intent.getIntExtra("source", 0)
         sources = readSources(intent)
-        session = NativeClient.nativeStart(address, currentSourceId)
+        screenPx = NativeClient.screenSizePx(this)
+        session = NativeClient.nativeStart(address, currentSourceId, screenPx.first, screenPx.second)
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -258,7 +265,7 @@ class StreamActivity : ComponentActivity() {
         if (sourceId == currentSourceId) return
         if (session != 0L) NativeClient.nativeStop(session)
         currentSourceId = sourceId
-        session = NativeClient.nativeStart(address, sourceId)
+        session = NativeClient.nativeStart(address, sourceId, screenPx.first, screenPx.second)
     }
 
     override fun onStop() {

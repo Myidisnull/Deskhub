@@ -40,6 +40,17 @@
 struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
+    // Trần cho CẠNH DÀI của khung gửi đi, giữ nguyên tỉ lệ. 0 = gửi native.
+    //
+    // VÌ SAO MẶC ĐỊNH 1920 CHỨ KHÔNG PHẢI NATIVE
+    //   Một màn 4K là 8.3 Mpixel, gấp bốn 1080p. Ở 60fps và 20 Mbps thì đó là
+    //   0.04 bit/pixel — quá ít để nén ra hình xem được, mà vẫn đủ nặng để thổi mỗi
+    //   IDR lên hàng trăm datagram bắn liên tiếp, tràn buffer gửi, mất gói,
+    //   BitrateController tụt rate. Hình vừa mờ vừa giật.
+    //   Ai muốn nét tối đa và biết mình có đủ băng thông thì đặt 0.
+    //   Chi tiết cơ chế: capture/Downscaler.h (bên thi hành),
+    //   deskhub/control/StreamSize.h (bên quyết định).
+    uint32_t maxDim = 1920;
 };
 
 // Một màn hình được chia sẻ. `name` là tên hiện ở danh sách phía client (UTF-8).
