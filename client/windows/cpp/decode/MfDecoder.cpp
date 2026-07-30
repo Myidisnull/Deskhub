@@ -64,6 +64,11 @@ struct MfDecoder::Impl {
     bool mfStarted = false;
     bool streaming = false;
     uint32_t outWidth = 0, outHeight = 0;
+    // Mốc thời gian của frame VỪA NẠP VÀO. Đây là đồng hồ host thật, đi thẳng từ
+    // Reassembler xuống; mốc MFT trả ra ở output có thể là số nó tự dựng theo
+    // SampleDuration (xem Deliver).
+    uint64_t lastInputTsUs = 0;
+    bool tsMismatchLogged = false; // evt=mft_ts_drift in đúng một lần
     uint64_t framesOut = 0;
 
     ~Impl() {
@@ -224,7 +229,15 @@ struct MfDecoder::Impl {
         MFD_CHECK(MFCreateSample(&sample), "MFCreateSample");
         MFD_CHECK(sample->AddBuffer(buffer.Get()), "AddBuffer");
         sample->SetSampleTime((LONGLONG)(timestampUs * 10ull)); // 100ns
+        // ⚠ SampleDuration LÀ MỘT LỜI NÓI DỐI KHI NGUỒN TĨNH, và đó là chuyện có
+        //   thật: host chỉ phát keepalive ~2 frame/giây, nhưng ta vẫn khai mỗi mẫu
+        //   dài 1/fps (~16 ms ở 60fps). Ta vẫn khai vì MFT low-latency muốn có
+        //   duration, nhưng KHÔNG được để con số đó quay lại làm timestamp — xem
+        //   `lastInputTsUs` ở Deliver.
         sample->SetSampleDuration(10'000'000ll / (cfg.fps ? cfg.fps : 60));
+        // Nhớ mốc ĐẦU VÀO. Đây mới là đồng hồ host thật; cái đọc ra từ MFT có thể
+        // là số nó tự dựng.
+        lastInputTsUs = timestampUs;
 
         HRESULT hr = mft->ProcessInput(0, sample.Get(), 0);
         if (hr == MF_E_NOTACCEPTING) {
@@ -293,15 +306,46 @@ struct MfDecoder::Impl {
         UINT subresource = 0;
         dxgiBuf->GetSubresourceIndex(&subresource);
 
+        // ⚠ DÙNG MỐC ĐẦU VÀO, KHÔNG PHẢI MỐC MFT TRẢ RA (sửa 30/07/2026).
+        //   Bản trước lấy sample->GetSampleTime() của output. Nghe hợp lý — nhưng nó
+        //   giả định MFT chép nguyên mốc từ input sang output, mà đó là hành vi của
+        //   DRIVER, không phải hợp đồng. Khi nguồn tĩnh (host phát keepalive ~2fps)
+        //   trong khi ta khai SampleDuration = 1/60s, một MFT tự dựng mốc output theo
+        //   duration sẽ cho PTS bò lên 16 ms mỗi frame trong khi đồng hồ thật đi 500 ms
+        //   — tức PTS TỤT LẠI ~950 ms mỗi giây, TÍCH LUỸ.
+        //   Đúng triệu chứng đo được 30/07: màn hình đứng yên thì e2e leo đều tới 5,7
+        //   GIÂY rồi sập về ~40 ms ngay khi có hoạt động; và CHỈ client Windows bị,
+        //   vì VtDecoder (Apple) dùng thẳng `ptsUs` truyền vào, không hỏi lại decoder.
+        //   Ta vốn đã BIẾT mốc đúng — nó là tham số của Decode(). Đừng đi hỏi lại
+        //   một bên có thể trả lời khác.
+        //
+        //   Một lời gọi Decode có thể sinh nhiều output, nên về lý thuyết mốc này chỉ
+        //   đúng cho cái cuối. Chuỗi của ta không có B-frame và MF_LOW_LATENCY đang
+        //   bật nên thực tế là một-đổi-một; và kể cả khi không, mốc đầu vào GẦN NHẤT
+        //   vẫn sát hơn nhiều so với một đồng hồ tổng hợp trôi mãi.
         LONGLONG timeHns = 0;
         sample->GetSampleTime(&timeHns);
+        const uint64_t mftTsUs = (uint64_t)timeHns / 10ull;
+        // Đo, không đoán: nếu MFT thực sự chép nguyên mốc thì dòng này không bao giờ
+        // in ra. In MỘT LẦN mỗi decoder — đây là chẩn đoán, không phải đường nóng.
+        if (!tsMismatchLogged && lastInputTsUs && mftTsUs) {
+            const uint64_t diff =
+                mftTsUs > lastInputTsUs ? mftTsUs - lastInputTsUs : lastInputTsUs - mftTsUs;
+            if (diff > 100'000) { // >100ms: quá lớn để là làm tròn
+                tsMismatchLogged = true;
+                std::printf(
+                    "[DIAG] evt=mft_ts_drift input_us=%llu mft_us=%llu diff_ms=%llu\n",
+                    (unsigned long long)lastInputTsUs, (unsigned long long)mftTsUs,
+                    (unsigned long long)(diff / 1000));
+            }
+        }
 
         DecodedFrame df{};
         df.texture = tex.Get();
         df.subresource = subresource;
         df.width = outWidth;
         df.height = outHeight;
-        df.timestampUs = (uint64_t)timeHns / 10ull;
+        df.timestampUs = lastInputTsUs ? lastInputTsUs : mftTsUs;
         ++framesOut;
         if (onFrame) onFrame(df);
         return true;
