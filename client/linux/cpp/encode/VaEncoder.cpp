@@ -38,9 +38,11 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "Log.h"
+#include "deskhubp/Clock.h"
 #include "encode/BitWriter.h"
 #include "encode/VaDisplay.h"
 
@@ -123,6 +125,70 @@ VAPictureH264 InvalidPic() {
     p.flags = VA_PICTURE_H264_INVALID;
     return p;
 }
+
+// --- ĐIỀU TIẾT BITRATE KHI CHỈ CÓ CQP ---------------------------------------
+//
+// VÌ SAO PHẢI TỰ LÀM
+//   Entrypoint LP của iHD chỉ nhận VA_RC_CQP (docs/17 §3). CQP nghĩa là "QP cố
+//   định": driver phát ra bao nhiêu bit là hệ quả của QP, và cfg_.bitrateBps
+//   không có đường nào tác động vào đó. Hậu quả đo được trên máy thật: mục tiêu
+//   20 Mbps ra ~35 Mbps, và khi BitrateController hạ mục tiêu xuống 1 Mbps để
+//   chữa nghẽn thì luồng vẫn phát ~14 Mbps — congestion control mất hoàn toàn
+//   tác dụng, mất gói không giảm, client xin IDR mỗi 250ms, mỗi IDR ~360 KB lại
+//   nạp thêm vào đúng chỗ đang nghẽn. Vòng xoáy đó chỉ cắt được từ gốc: làm cho
+//   bitrate mục tiêu THẬT SỰ điều khiển kích thước frame.
+//
+// ⚠ HAI CÁCH LÀM SAI ĐÃ THỬ VÀ ĐO — ĐỪNG QUAY LẠI
+//   (1) So kích thước TỪNG frame với hạn mức rồi nhích QP theo mức lệch. Dao động
+//       ngay: nội dung desktop chênh cả chục lần giữa hai frame liền nhau (con trỏ
+//       nhích một ô ≈ 2 KB, kéo cửa sổ ≈ 50 KB), nên bộ điều khiển đuổi theo NHIỄU
+//       chứ không theo tốc độ bit. Quỹ đạo đo được: QP 26→28→24→28→24→21→25 với
+//       kích thước 12 KB→1.9 KB→18 KB→1.9 KB. Tệ hơn: bitrate đo được KHÔNG đơn
+//       điệu theo mục tiêu (mục tiêu 20 Mbps ra ÍT bit hơn mục tiêu 5 Mbps).
+//   (2) Cộng dồn lệch vào một bộ đệm ảo rồi CỘNG THÊM vào QP mỗi frame theo độ đầy.
+//       Windup kinh điển: độ đầy ĐÃ LÀ tích phân của sai lệch, cộng dồn nó lần nữa
+//       là tích phân hai lần. Đo được QP leo 27→28→…→45 và ở đó, trong khi frame
+//       chỉ còn 354 B trên hạn mức 10 417 B — nợ của một IDR mất mười mấy frame mới
+//       trả xong, mà mỗi frame đó lại +1 QP.
+//
+// CÁCH DÙNG Ở ĐÂY
+//   Lọc TÍN HIỆU rồi mới tích phân MỘT lần. Giữ trung bình trượt của
+//   ln(kích thước / hạn mức) trên các P-frame; mỗi frame nhích QP nhiều nhất ±1 theo
+//   trung bình đó. Log domain vì kích thước ~ 2^(-QP/6): mỗi +1 QP giảm ~12%, nên
+//   ln(tỉ lệ)/ln(1.125) đổi trực tiếp "lệch bao nhiêu lần" thành "lệch bao nhiêu QP".
+//   Gần cân bằng thì trung bình trượt về 0, bước làm tròn về 0, QP đứng yên.
+constexpr int kQpMin = 16; // dưới mức này gần như vô nghĩa với nội dung desktop
+constexpr int kQpMax = 45; // trên mức này hình nhoè tới mức không dùng được
+// Bước tối đa mỗi frame. ±1 là CỐ Ý: tín hiệu đã được lọc, còn đây là khâu tích
+// phân — cho nó nhảy nhiều chính là lỗi (1) ở trên.
+constexpr int kQpStepMax = 1;
+// IDR nén thô hơn P-frame một chút. Ngược với quy ước phát video (ở đó keyframe
+// được ưu tiên nét), và có lý do: một IDR là một BURST, và burst vượt sức đường
+// truyền chính là thứ đã gây chuỗi mất gói → client xin IDR → burst nữa. Dự án ưu
+// tiên độ trễ hơn độ nét của keyframe (docs/06 §5), nên đánh đổi theo chiều này.
+constexpr int kIdrQpDelta = 2;
+// Hằng số thời gian của trung bình trượt, tính bằng số frame ở fps danh nghĩa.
+// ~0.25s: đủ dài để lọc nhiễu nội dung, đủ ngắn để không thành độ trễ điều khiển.
+constexpr double kEmaFrames = 15.0;
+// ⚠ IDR CÓ HẠN MỨC RIÊNG, TÍNH THEO GIÂY
+//   Chỉ để IDR thừa hưởng qp_ của P-frame là không đủ, và đây là chỗ đo được: trên
+//   desktop tĩnh, vòng P đúng khi hạ QP xuống sàn (P-frame còn thừa hạn mức), nhưng
+//   IDR thừa hưởng QP thấp đó nên vẫn ~220 KB — và trên toàn dải mục tiêu 1..20 Mbps
+//   nó chỉ co từ 224 KB xuống 149 KB, tức 1.5 lần cho 20 lần mục tiêu. Trên màn hình
+//   ít thay đổi, IDR chiếm quá nửa tổng số byte, nên chính nó quyết định bitrate —
+//   và chính nó là cú burst đã gây vòng xoáy mất gói trong log.
+//   Hạn mức tính theo THỜI GIAN (bao nhiêu giây bitrate mục tiêu) chứ không theo số
+//   frame: cùng một lý lẽ độ trễ với hrd->buffer_size, và nó co giãn đúng theo mục
+//   tiêu — đó là tính chất còn thiếu.
+constexpr double kIdrSeconds = 0.25;
+// Trần dịch chuyển QP giữa hai IDR liên tiếp. IDR thưa nên mỗi cái là một quan sát
+// đáng tin, sửa thẳng tới đích được; vẫn chặn để một IDR dị thường không kéo cái
+// sau đi quá xa.
+constexpr int kIdrQpJump = 6;
+// Trần thời gian được tính hạn mức cho MỘT frame. Sau một quãng màn hình đứng im,
+// elapsed có thể là vài giây; cấp hạn mức theo cả quãng đó sẽ đẩy QP xuống sát
+// kQpMin rồi frame động đầu tiên phình ra đúng lúc không nên.
+constexpr double kMaxBudgetFrames = 4.0;
 
 } // namespace
 
@@ -232,6 +298,7 @@ bool VaEncoder::Init(const EncoderConfig& cfg) {
 
     cfg_ = cfg;
     dpy_ = vd.handle();
+    encEntrypoint_ = vd.encodeEntrypoint();
     mbW_ = (cfg_.width + 15) / 16;
     mbH_ = (cfg_.height + 15) / 16;
     alignedW_ = mbW_ * 16;
@@ -245,6 +312,12 @@ bool VaEncoder::Init(const EncoderConfig& cfg) {
     refSurface_ = VA_INVALID_SURFACE;
     pendingBitrate_ = 0;
     haveSource_ = false;
+    qp_ = kPicInitQp;
+    lastIdrQp_ = 0;
+    lastIdrBytes_ = 0;
+    logRatioEma_ = 0.0;
+    haveRatio_ = false;
+    lastEncodeUs_ = 0;
 
     BuildParameterSets();
     if (!CreateContexts()) {
@@ -266,7 +339,7 @@ bool VaEncoder::CreateContexts() {
     attrs[0].type = VAConfigAttribRTFormat;
     attrs[1].type = VAConfigAttribRateControl;
     attrs[2].type = VAConfigAttribEncPackedHeaders;
-    if (!VaCheck(vaGetConfigAttributes(dpy_, VAProfileH264Main, VAEntrypointEncSlice, attrs, 3),
+    if (!VaCheck(vaGetConfigAttributes(dpy_, VAProfileH264Main, encEntrypoint_, attrs, 3),
             "vaGetConfigAttributes"))
         return false;
 
@@ -278,9 +351,17 @@ bool VaEncoder::CreateContexts() {
     // đặt bitrate mục tiêu, và nó giả định encoder bám sát con số đó. Driver nào
     // chỉ có CQP thì SetBitrate sẽ không có tác dụng — vẫn chạy, nhưng congestion
     // control mất răng, nên nói rõ trong log.
+    //
+    // ⚠ ĐÂY LÀ ĐƯỜNG BÌNH THƯỜNG, KHÔNG PHẢI CA HIẾM. Entrypoint LP của iHD chỉ
+    // khai CQP (đo trên Rocket Lake / iHD 26.1.2: CBR, VBR, VCM đều bị từ chối),
+    // nên mọi máy Intel Gen11+ rơi vào nhánh này. Đo thực tế: mục tiêu 20 Mbps ra
+    // ~35 Mbps ở 1080p60 với nội dung động mạnh. Xem docs/17-linux-app.md §3.
     const bool haveCbr = (attrs[1].value != VA_ATTRIB_NOT_SUPPORTED) &&
                          (attrs[1].value & VA_RC_CBR);
-    if (!haveCbr) LOGW("[VaEnc] Driver has no CBR rate control — bitrate feedback will be weak.");
+    cqpMode_ = !haveCbr;
+    if (cqpMode_)
+        LOGI("[VaEnc] Driver offers no CBR — using constant QP with software rate control "
+             "(QP %d..%d).", kQpMin, kQpMax);
 
     packedHeaders_ = (attrs[2].value != VA_ATTRIB_NOT_SUPPORTED) &&
                      (attrs[2].value & VA_ENC_PACKED_HEADER_SEQUENCE) &&
@@ -301,7 +382,7 @@ bool VaEncoder::CreateContexts() {
             VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE;
     }
 
-    if (!VaCheck(vaCreateConfig(dpy_, VAProfileH264Main, VAEntrypointEncSlice, cfgAttrs, nCfgAttrs,
+    if (!VaCheck(vaCreateConfig(dpy_, VAProfileH264Main, encEntrypoint_, cfgAttrs, nCfgAttrs,
                      &encConfig_),
             "vaCreateConfig(encode)"))
         return false;
@@ -380,8 +461,40 @@ void VaEncoder::Finish() {
     dpy_ = nullptr;
 }
 
+int VaEncoder::IdrQp() const {
+    const double budget = double(cfg_.bitrateBps) / 8.0 * kIdrSeconds;
+    int q = qp_ + kIdrQpDelta;
+    if (lastIdrBytes_ > 0 && budget > 1.0) {
+        // Một bước sửa thẳng tới đích: kích thước ~ 2^(-QP/6) nên từ (QP, byte) của
+        // IDR trước suy ra ngay QP đáng lẽ phải dùng để vừa hạn mức. Không lọc trung
+        // bình trượt như P-frame vì IDR thưa — đợi lọc là đợi mấy giây, đúng lúc
+        // client đang xin IDR 4 lần/giây. Đây cũng là chỗ một lần hạ bitrate có tác
+        // dụng NGAY ở IDR kế tiếp: budget đã tính theo mục tiêu mới.
+        const int predicted = lastIdrQp_ +
+            int(std::lround(std::log(double(lastIdrBytes_) / budget) / std::log(1.125)));
+        q = std::clamp(predicted, lastIdrQp_ - kIdrQpJump, lastIdrQp_ + kIdrQpJump);
+    }
+    // IDR không bao giờ mịn hơn P-frame: ưu tiên độ trễ hơn độ nét của keyframe.
+    return std::clamp(std::max(q, qp_ + kIdrQpDelta), kQpMin, kQpMax);
+}
+
 bool VaEncoder::SetBitrate(uint32_t bitrateBps) {
     if (!IsOpen() || bitrateBps < 100'000) return false;
+    // Ở chế độ CQP, nhích QP NGAY theo tỉ lệ mục tiêu vừa đổi thay vì đợi vòng đo
+    // của EncodeNv12. Lý do là ca đã thấy trong log: khi nghẽn, BitrateController
+    // hạ mục tiêu rất nhanh (20 → 15 → 11 → 8 Mbps trong vài giây) đúng lúc client
+    // đang xin IDR mỗi 250ms. Đợi phản hồi từng frame nghĩa là mấy IDR đầu tiên vẫn
+    // to như cũ — mà chính chúng là thứ đang gây nghẽn. Nhích trước thì frame kế
+    // tiếp, kể cả IDR, đã ở QP mới.
+    if (cqpMode_ && cfg_.bitrateBps && bitrateBps != cfg_.bitrateBps) {
+        const int step = int(std::lround(
+            std::log(double(cfg_.bitrateBps) / double(bitrateBps)) / std::log(1.125)));
+        qp_ = std::clamp(qp_ + step, kQpMin, kQpMax);
+        // Trung bình trượt cũ đo theo hạn mức CŨ; giữ lại là điều theo một mục tiêu
+        // đã hết hiệu lực. Xoá để nó nạp lại từ hạn mức mới.
+        logRatioEma_ = 0.0;
+        haveRatio_ = false;
+    }
     cfg_.bitrateBps = bitrateBps;
     pendingBitrate_ = bitrateBps; // áp ở lần nộp frame kế tiếp
     return true;
@@ -396,45 +509,80 @@ bool VaEncoder::SetBitrate(uint32_t bitrateBps) {
 // Surface tạo ra chỉ sống trong một frame và người gọi phải huỷ nó — dma-buf fd
 // thuộc buffer của PipeWire và chỉ hợp lệ trong callback (CaptureTypes.h), nên
 // giữ surface lại cho frame sau là trỏ vào bộ nhớ đã được tái sử dụng.
+//
+// ⚠ HAI ĐƯỜNG IMPORT, CHỌN THEO MODIFIER — ĐỪNG GỘP LÀM MỘT
+//   DRM_PRIME_2 là đường import có modifier TƯỜNG MINH: ta nói cho driver layout
+//   chính xác của buffer. DRM_FORMAT_MOD_INVALID KHÔNG phải một layout — nó là
+//   giá trị lính canh của bước thoả thuận, nghĩa là "không nói, dùng layout ngầm
+//   định". Nhồi nó vào drm_format_modifier là đưa driver một giá trị vô nghĩa, và
+//   iHD từ chối thẳng (đo trên Rocket Lake: vaCreateSurfaces trả
+//   VA_STATUS_ERROR_ALLOCATION_FAILED với MỌI độ phân giải). Hệ quả nhìn từ ngoài
+//   rất khó lần: capture chạy 137 fps, encode hỏng 100%, và vì log chỉ báo MỘT
+//   lần nên phần còn lại chỉ là enc_fail lặng lẽ.
+//   Layout ngầm định phải đi bằng MEM_TYPE_DRM_PRIME (đường cũ) với
+//   VASurfaceAttribExternalBuffers — struct đó KHÔNG có trường modifier, đúng
+//   nghĩa "không nói".
 VASurfaceID VaEncoder::ImportDmaBuf(const LinuxFrameInfo& fi) {
     const uint32_t vaFourcc = DrmToVaFourcc(fi.drmFormat);
     if (!vaFourcc || !fi.planeCount) return VA_INVALID_SURFACE;
 
-    VADRMPRIMESurfaceDescriptor desc{};
-    desc.fourcc = vaFourcc;
-    desc.width = fi.width;
-    desc.height = fi.height;
-
-    // Mỗi mặt phẳng của SPA là một fd riêng trong trường hợp chung; với RGB đóng
-    // gói thì chỉ có một. Dùng lseek để biết kích thước thật của dma-buf: driver
-    // cần con số này và tính tay (offset + height*stride) sẽ SAI với layout có
-    // nén/tiling, đúng những layout mà modifier INVALID hay chọn.
-    desc.num_objects = fi.planeCount;
+    // Kích thước thật của mỗi dma-buf. Dùng lseek chứ không tính tay: công thức
+    // (offset + height*stride) SAI với mọi layout có nén/tiling.
+    uint32_t objSize[kMaxDmaPlanes]{};
     for (uint32_t i = 0; i < fi.planeCount; ++i) {
         const off_t sz = lseek(fi.planes[i].fd, 0, SEEK_END);
-        desc.objects[i].fd = fi.planes[i].fd;
-        desc.objects[i].size = sz > 0 ? uint32_t(sz)
-                                      : fi.planes[i].offset + fi.planes[i].stride * fi.height;
-        desc.objects[i].drm_format_modifier = fi.modifier;
-    }
-    desc.num_layers = 1;
-    desc.layers[0].drm_format = fi.drmFormat;
-    desc.layers[0].num_planes = fi.planeCount;
-    for (uint32_t i = 0; i < fi.planeCount; ++i) {
-        desc.layers[0].object_index[i] = i;
-        desc.layers[0].offset[i] = fi.planes[i].offset;
-        desc.layers[0].pitch[i] = fi.planes[i].stride;
+        objSize[i] = sz > 0 ? uint32_t(sz) : fi.planes[i].offset + fi.planes[i].stride * fi.height;
     }
 
     VASurfaceAttrib attrs[2]{};
     attrs[0].type = VASurfaceAttribMemoryType;
     attrs[0].flags = VA_SURFACE_ATTRIB_SETTABLE;
     attrs[0].value.type = VAGenericValueTypeInteger;
-    attrs[0].value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
     attrs[1].type = VASurfaceAttribExternalBufferDescriptor;
     attrs[1].flags = VA_SURFACE_ATTRIB_SETTABLE;
     attrs[1].value.type = VAGenericValueTypePointer;
-    attrs[1].value.value.p = &desc;
+
+    // Cả hai descriptor khai ở đây để chúng sống tới lúc vaCreateSurfaces đọc.
+    VADRMPRIMESurfaceDescriptor prime2{};
+    VASurfaceAttribExternalBuffers legacy{};
+    uintptr_t legacyFds[kMaxDmaPlanes]{};
+
+    if (fi.modifier == DRM_FORMAT_MOD_INVALID) {
+        legacy.pixel_format = vaFourcc;
+        legacy.width = fi.width;
+        legacy.height = fi.height;
+        legacy.data_size = objSize[0];
+        legacy.num_planes = fi.planeCount;
+        for (uint32_t i = 0; i < fi.planeCount; ++i) {
+            legacy.pitches[i] = fi.planes[i].stride;
+            legacy.offsets[i] = fi.planes[i].offset;
+            legacyFds[i] = uintptr_t(fi.planes[i].fd);
+        }
+        legacy.buffers = legacyFds;
+        legacy.num_buffers = fi.planeCount;
+        attrs[0].value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME;
+        attrs[1].value.value.p = &legacy;
+    } else {
+        prime2.fourcc = vaFourcc;
+        prime2.width = fi.width;
+        prime2.height = fi.height;
+        prime2.num_objects = fi.planeCount;
+        for (uint32_t i = 0; i < fi.planeCount; ++i) {
+            prime2.objects[i].fd = fi.planes[i].fd;
+            prime2.objects[i].size = objSize[i];
+            prime2.objects[i].drm_format_modifier = fi.modifier;
+        }
+        prime2.num_layers = 1;
+        prime2.layers[0].drm_format = fi.drmFormat;
+        prime2.layers[0].num_planes = fi.planeCount;
+        for (uint32_t i = 0; i < fi.planeCount; ++i) {
+            prime2.layers[0].object_index[i] = i;
+            prime2.layers[0].offset[i] = fi.planes[i].offset;
+            prime2.layers[0].pitch[i] = fi.planes[i].stride;
+        }
+        attrs[0].value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
+        attrs[1].value.value.p = &prime2;
+    }
 
     VASurfaceID surf = VA_INVALID_SURFACE;
     const VAStatus st = vaCreateSurfaces(dpy_, VA_RT_FORMAT_RGB32, fi.width, fi.height, &surf, 1,
@@ -763,7 +911,13 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
     for (auto& r : slice.RefPicList1) r = InvalidPic();
     if (!idr && haveRef_) slice.RefPicList0[0] = pic.ReferenceFrames[0];
     slice.cabac_init_idc = 0;
-    slice.slice_qp_delta = 0;
+    // QP của frame này, tính TỪ kPicInitQp của PPS. Ở chế độ có CBR thì để 0 và
+    // driver tự chọn QP theo bộ điều tiết của nó — chen vào sẽ đánh nhau với nó.
+    // (iHD ở đường LP BỎ QUA pic_init_qp của picture param; slice_qp_delta mới là
+    // núm thật — đo được: QP 20→42 cho ra 64→13 Mbps qua delta, còn đổi pic_init_qp
+    // không làm kích thước nhúc nhích.)
+    const int frameQp = idr ? IdrQp() : std::clamp(qp_, kQpMin, kQpMax);
+    slice.slice_qp_delta = cqpMode_ ? int8_t(frameQp - kPicInitQp) : 0;
     slice.disable_deblocking_filter_idc = 0;
 
     {
@@ -810,6 +964,41 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
     }
     if (out_.empty()) return false;
 
+    // --- Vòng điều tiết QP ---
+    if (cqpMode_) {
+        const double fps = double(cfg_.fps ? cfg_.fps : 60);
+        const uint64_t nowUs = NowUs();
+        // Hạn mức theo THỜI GIAN THẬT đã trôi, không theo cfg_.fps. Capture bám theo
+        // damage của compositor nên fps thật dao động dữ dội — trong log đo được từ
+        // 2 tới 137 fps trên cùng một phiên. Cấp hạn mức theo fps danh nghĩa nghĩa
+        // là ở 137 fps ta phát gấp hơn hai lần mục tiêu, đúng lúc màn hình động
+        // nhất và đường truyền ít chịu nổi nhất.
+        const double frameUs = 1e6 / fps;
+        const double elapsedUs = lastEncodeUs_
+            ? std::clamp(double(nowUs - lastEncodeUs_), 0.0, frameUs * kMaxBudgetFrames)
+            : frameUs;
+        lastEncodeUs_ = nowUs;
+        const double budget = double(cfg_.bitrateBps) / 8.0 * elapsedUs / 1e6;
+
+        // IDR KHÔNG nuôi trung bình trượt. Nó lớn gấp cả chục lần P-frame vì bản
+        // chất I-frame, không phải vì QP sai, nên để nó vào là bơm một cú nhảy vào
+        // đúng tín hiệu ta vừa mất công lọc. Bù lại, IDR chịu +kIdrQpDelta và co
+        // giãn theo qp_ mà vòng này giữ — nên nó vẫn nhỏ đi khi mục tiêu nhỏ đi.
+        if (idr) {
+            lastIdrQp_ = frameQp;
+            lastIdrBytes_ = out_.size();
+        }
+        if (!idr && budget > 1.0) {
+            const double logRatio = std::log(double(out_.size() ? out_.size() : 1) / budget);
+            const double a = 1.0 / kEmaFrames;
+            logRatioEma_ = haveRatio_ ? logRatioEma_ * (1.0 - a) + logRatio * a : logRatio;
+            haveRatio_ = true;
+            const int step = std::clamp(int(std::lround(logRatioEma_ / std::log(1.125))),
+                -kQpStepMax, kQpStepMax);
+            qp_ = std::clamp(qp_ + step, kQpMin, kQpMax);
+        }
+    }
+
     // --- Cập nhật trạng thái chuỗi cho frame sau ---
     refSurface_ = recon;
     refFrameNum_ = frameNum_;
@@ -831,7 +1020,22 @@ bool VaEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forc
     // Kích thước nguồn đổi giữa chừng: AgentLoop chịu trách nhiệm dựng lại encoder
     // (nó theo dõi qua cờ sizeChanged). Ở đây chỉ từ chối, không tự dựng lại — tự
     // dựng lại sẽ nuốt mất tín hiệu mà AgentLoop cần để gửi RECONFIG cho client.
-    if (fi.width != cfg_.width || fi.height != cfg_.height) return false;
+    //
+    // Log MỘT LẦN, vì đây là đường hỏng IM LẶNG duy nhất còn lại của Encode và nó
+    // hỏng VĨNH VIỄN chứ không phải một frame: AgentLoop dựng encoder theo
+    // (fi.width & ~1) nhưng so ở đây là fi.width THÔ, nên một nguồn có bề rộng LẺ
+    // cho ra vòng lặp mọi frame đều false mà không một dòng log nào. Nhìn từ ngoài
+    // y hệt ca dma-buf: capture chạy, encode hỏng 100%, không manh mối.
+    if (fi.width != cfg_.width || fi.height != cfg_.height) {
+        static thread_local bool warned = false;
+        if (!warned) {
+            warned = true;
+            LOGE("[VaEnc] Frame is %ux%u but the encoder was built for %ux%u — dropping every "
+                 "frame until it is rebuilt.",
+                fi.width, fi.height, cfg_.width, cfg_.height);
+        }
+        return false;
+    }
 
     // Frame đầu tiên của một chuỗi BẮT BUỘC là IDR: không có nó thì client nhận
     // một chuỗi P-frame không có gốc và giải ra rác.

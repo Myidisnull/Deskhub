@@ -76,6 +76,11 @@ inline constexpr uint32_t kLog2MaxFrameNumMinus4 = 12; // frame_num quay vòng �
 inline constexpr uint32_t kLog2MaxPocLsbMinus4 = 12;   // POC lsb quay vòng ở 2^16
 inline constexpr uint32_t kMaxRefFrames = 1;           // đúng một khung tham chiếu
 
+// pic_init_qp của PPS. PHẢI khớp pic_init_qp_minus26 = 0 mà BuildParameterSets ghi:
+// QP mỗi frame được điều bằng slice_qp_delta TÍNH TỪ mốc này, và bộ giải mã đọc
+// mốc đó từ PPS. Đổi một bên mà quên bên kia là lệch QP toàn bộ chuỗi.
+inline constexpr int kPicInitQp = 26;
+
 class VaEncoder {
 public:
     VaEncoder() = default;
@@ -129,10 +134,19 @@ public:
     bool lastFrameWasDmaBuf() const {
         return lastDmaBuf_;
     }
+    // QP đang dùng khi driver chỉ có CQP; 0 nghĩa là driver tự điều tiết và QP
+    // không phải núm của ta. Cho dòng DIAG (docs/09): QP dán trần là dấu hiệu
+    // bitrate mục tiêu thấp hơn mức encoder với tới được ở độ phân giải này.
+    int currentQp() const {
+        return cqpMode_ ? qp_ : 0;
+    }
 
 private:
     bool CreateContexts();
     void BuildParameterSets();
+    // QP cho IDR kế tiếp ở chế độ CQP: chọn để vừa hạn mức burst, dự đoán từ chính
+    // IDR trước đó. Xem "IDR CÓ HẠN MỨC RIÊNG" ở .cpp.
+    int IdrQp() const;
     // Import dma-buf thành VA surface RGB. VA_INVALID_SURFACE = thất bại.
     VASurfaceID ImportDmaBuf(const LinuxFrameInfo& fi);
     // Chép frame trong RAM lên surface RGB dùng lại. false = thất bại.
@@ -151,6 +165,11 @@ private:
     uint32_t mbW_ = 0, mbH_ = 0;
 
     // --- Mã hoá ---
+    // Entrypoint VaDisplay đã dò ra (EncSlice hoặc EncSliceLP). Phải dùng ĐÚNG
+    // giá trị đó cho cả vaGetConfigAttributes và vaCreateConfig — hỏi năng lực
+    // của một entrypoint rồi tạo config bằng entrypoint khác là cách chắc chắn
+    // nhận VA_STATUS_ERROR_UNSUPPORTED_ENTRYPOINT. Xem VaDisplay.h.
+    VAEntrypoint encEntrypoint_ = VAEntrypointEncSlice;
     VAConfigID encConfig_ = VA_INVALID_ID;
     VAContextID encContext_ = VA_INVALID_ID;
     VABufferID codedBuf_ = VA_INVALID_ID;
@@ -181,6 +200,24 @@ private:
 
     // Bitrate cần báo cho driver ở lần nộp kế tiếp. 0 = không có gì đổi.
     uint32_t pendingBitrate_ = 0;
+
+    // --- Điều tiết bitrate bằng QP (CHỈ khi driver không có CBR) ---
+    // Driver chỉ có CQP thì bitrate mục tiêu là lời nói suông: nó phát ra bao nhiêu
+    // bit là do QP cố định quyết định, không phải do ta xin. Vòng điều khiển này
+    // biến mục tiêu thành hành động — xem "ĐIỀU TIẾT BITRATE KHI CHỈ CÓ CQP" ở .cpp.
+    // cqpMode_ = false thì cả khối này ngủ và driver tự lo.
+    bool cqpMode_ = false;
+    int qp_ = kPicInitQp; // QP cho P-frame; IDR dùng qp_ + kIdrQpDelta
+    // Trung bình trượt của ln(kích thước thật / hạn mức) trên các P-frame. Miền log
+    // để không phụ thuộc thang đo, và trượt để lọc nhiễu nội dung.
+    double logRatioEma_ = 0.0;
+    bool haveRatio_ = false;
+    // Mốc thời gian lần nộp frame thành công trước — hạn mức tính theo thời gian
+    // THẬT đã trôi, không theo cfg_.fps. Xem lý do ở .cpp.
+    uint64_t lastEncodeUs_ = 0;
+    // Quan sát của IDR gần nhất, để dự đoán QP cho IDR kế tiếp. 0 = chưa có.
+    int lastIdrQp_ = 0;
+    size_t lastIdrBytes_ = 0;
 
     bool packedHeaders_ = false; // driver nhận SPS/PPS của ta?
     bool lastDmaBuf_ = false;

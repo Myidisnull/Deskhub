@@ -79,8 +79,22 @@ bool VaDisplay::Open() {
             // Dò theo NĂNG LỰC, không lấy bừa node đầu tiên — xem VaDisplay.h.
             // Main đủ cho ta (VaEncoder chỉ phát bitstream Main); chấp nhận cả
             // High vì card nào làm được High thì chắc chắn làm được Main.
-            const bool canEncode = VaHasEntrypoint(dpy, VAProfileH264Main, VAEntrypointEncSlice) ||
-                                   VaHasEntrypoint(dpy, VAProfileH264High, VAEntrypointEncSlice);
+            //
+            // HAI entrypoint mã hoá, KHÔNG PHẢI MỘT. EncSlice là đường VME cổ
+            // điển; EncSliceLP là đường "low power" (VDEnc — khối mã hoá cứng
+            // riêng). Chỉ hỏi EncSlice là bỏ rơi cả một lớp máy: Intel Gen11+
+            // (Ice Lake, Tiger Lake, Rocket Lake — UHD 7xx) đã BỎ đường VME cho
+            // H.264, driver iHD ở đó chỉ khai EncSliceLP. Máy như thế mã hoá phần
+            // cứng tốt nhưng bị chuỗi dò cũ loại, rồi người dùng nhận đúng một
+            // thông điệp sai: "đi cài driver đi" — trong khi driver không thiếu gì.
+            VAEntrypoint ep = VAEntrypointEncSlice;
+            bool canEncode = VaHasEntrypoint(dpy, VAProfileH264Main, ep) ||
+                             VaHasEntrypoint(dpy, VAProfileH264High, ep);
+            if (!canEncode) {
+                ep = VAEntrypointEncSliceLP;
+                canEncode = VaHasEntrypoint(dpy, VAProfileH264Main, ep) ||
+                            VaHasEntrypoint(dpy, VAProfileH264High, ep);
+            }
             if (!canEncode) {
                 LOGI("[VA] %s: no H.264 encode entrypoint, skipping.", path.c_str());
                 vaTerminate(dpy);
@@ -91,17 +105,22 @@ bool VaDisplay::Open() {
             dpy_ = dpy;
             drmFd_ = fd;
             devicePath_ = path;
+            encEntrypoint_ = ep;
             const char* vendor = vaQueryVendorString(dpy);
             driverName_ = vendor ? vendor : "?";
-            LOGI("[VA] %s — VA-API %d.%d, driver: %s", path.c_str(), major, minor,
-                driverName_.c_str());
+            LOGI("[VA] %s — VA-API %d.%d, driver: %s, entrypoint: %s", path.c_str(), major, minor,
+                driverName_.c_str(), ep == VAEntrypointEncSliceLP ? "EncSliceLP (low power)"
+                                                                  : "EncSlice");
             return;
         }
 
         lastError_ =
-            "no GPU with VA-API H.264 encoding found — install the driver for your card "
-            "(intel-media-va-driver / mesa-va-drivers / nvidia-vaapi-driver) and make sure "
-            "your user is in the 'render' group";
+            "no GPU with VA-API H.264 encoding found — run `vainfo` to see what your card "
+            "reports: it needs VAProfileH264Main or High with VAEntrypointEncSlice or "
+            "EncSliceLP. If vainfo shows nothing, install the driver for your card "
+            "(intel-media-va-driver / mesa-va-drivers / nvidia-vaapi-driver) and make sure you "
+            "can open /dev/dri/renderD* (group 'render', or an ACL entry from your desktop "
+            "session)";
         LOGE("[VA] %s", lastError_.c_str());
     });
     return dpy_ != nullptr;

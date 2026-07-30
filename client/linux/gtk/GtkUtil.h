@@ -21,6 +21,7 @@
 #include <gtk/gtk.h>
 
 #include <functional>
+#include <string>
 #include <utility>
 
 // Chạy `fn` trên main loop của GTK. An toàn gọi từ thread bất kỳ.
@@ -36,12 +37,30 @@ inline void RunOnMain(std::function<void()> fn) {
         boxed);
 }
 
-// Hộp thoại lỗi một nút. `parent` có thể là nullptr.
-inline void ShowError(GtkWindow* parent, const char* title, const std::string& detail) {
-    GtkWidget* dlg = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR,
-        GTK_BUTTONS_CLOSE, "%s", title);
+// Hộp thoại một nút. `parent` có thể là nullptr.
+//
+// ⚠ CHẶN: gtk_dialog_run quay một main loop LỒNG NHAU. Mọi callback khác (timer,
+//   idle, sự kiện) vẫn nổ trong lúc hộp thoại mở — đừng gọi từ chỗ mà đối tượng gọi
+//   có thể bị huỷ trong khoảng đó.
+inline void ShowMessage(GtkWindow* parent, GtkMessageType type, const char* title,
+    const std::string& detail) {
+    GtkWidget* dlg = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, type, GTK_BUTTONS_CLOSE,
+        "%s", title);
     if (!detail.empty())
         gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s", detail.c_str());
     gtk_dialog_run(GTK_DIALOG(dlg));
     gtk_widget_destroy(dlg);
+}
+
+inline void ShowError(GtkWindow* parent, const char* title, const std::string& detail) {
+    ShowMessage(parent, GTK_MESSAGE_ERROR, title, detail);
+}
+
+// Cảnh báo / thông báo — đối ứng MB_ICONWARNING và MB_ICONINFORMATION bên Win32.
+inline void ShowWarning(GtkWindow* parent, const char* title, const std::string& detail) {
+    ShowMessage(parent, GTK_MESSAGE_WARNING, title, detail);
+}
+
+inline void ShowInfo(GtkWindow* parent, const char* title, const std::string& detail) {
+    ShowMessage(parent, GTK_MESSAGE_INFO, title, detail);
 }

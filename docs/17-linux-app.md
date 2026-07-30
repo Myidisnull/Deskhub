@@ -32,7 +32,9 @@ libavcodec-dev libavutil-dev  pkg-config  cmake  ninja-build
 | H.264 decoding | `libavcodec` + a VA-API driver (falls back to CPU decoding without one) | client |
 
 `vainfo` is the one-line check that the host role can work at all: it must list
-`VAProfileH264Main` with `VAEntrypointEncSlice`.
+`VAProfileH264Main` (or `High`) with **either** `VAEntrypointEncSlice` or
+`VAEntrypointEncSliceLP`. Both are accepted — see §3 on why asking for only the first
+one silently excludes most current Intel hardware.
 
 Ubuntu 22.04+ on Wayland is the target. An Xorg session works too **as long as the
 portal backend supports it** — the app never talks to X11 or Wayland directly.
@@ -93,6 +95,25 @@ PipeWire 0.3.64 while Ubuntu 22.04 ships 0.3.48 — where the constant exists, t
 succeeds, and the stream silently attaches to the default node instead of the screen the
 user picked. `target_id` is honoured by every version we support.
 
+⚠ **`DRM_FORMAT_MOD_INVALID` is a negotiation sentinel, not a layout.** The modifier
+priority list (`kModifiers`) offers `LINEAR` **before** `INVALID`, and the order is
+load-bearing. `INVALID` means "unspecified — use the implicit layout", which is widely
+accepted while *negotiating* but tells the import side nothing about how the buffer is
+arranged. Feeding it to `VADRMPRIMESurfaceDescriptor::drm_format_modifier` — the
+explicit-modifier path — hands the driver a meaningless value; iHD rejects it with
+`ALLOCATION_FAILED` at every resolution. `LINEAR` is unambiguous to both ends and always
+imports. `INVALID` is still accepted as a last resort for compositors that do not offer
+`LINEAR`, and `ImportDmaBuf` then routes it through the legacy `MEM_TYPE_DRM_PRIME` path
+(`VASurfaceAttribExternalBuffers`, which has no modifier field) — the honest way to say
+"unspecified". Both paths are verified pixel-exact at 1920×1080, 2560×1440, 3440×1440
+and 3840×2160.
+
+The symptom this produced is worth recognising, because it names no cause: capture runs
+at full speed, `evt=enc_fail ms=0` repeats for every frame, and there is exactly **one**
+explanatory log line — `ImportDmaBuf` deliberately logs once, not per frame, so it
+scrolls away and everything after it is silent. When encode fails 100% with `ms=0`,
+suspect frame import before suspecting the encoder.
+
 ## 3. Encode — VA-API, written directly
 
 `encode/VaEncoder.h`. One `VADisplay` for the whole process, opened from a DRM render
@@ -110,6 +131,61 @@ GOP with on-demand IDR** (`intra_period = intra_idr_period = 0` — the driver n
 inserts a keyframe on its own; `AgentLoop` decides, driven by the client's
 `REQUEST_KEYFRAME`), CBR, exactly one reference frame, and an HRD buffer of half a
 second so a single IDR cannot balloon and congest the link.
+
+**Two encode entrypoints, and both must be probed.** `VAEntrypointEncSlice` is the
+classic path (VME, running on the GPU's execution units); `VAEntrypointEncSliceLP` is
+the low-power path (VDEnc, a dedicated fixed-function block). Intel dropped VME for
+H.264 at Gen11 — on Ice Lake, Tiger Lake and Rocket Lake (the UHD 7xx parts) the iHD
+driver advertises **only** `EncSliceLP`. `VaDisplay` prefers `EncSlice` and falls back
+to `EncSliceLP`, and `VaEncoder` must pass back the same entrypoint `VaDisplay` settled
+on, because `vaCreateConfig` validates the `(profile, entrypoint)` pair rather than
+inferring it. Probing only `EncSlice` rejects perfectly capable hardware and — worse —
+reports it as a missing driver.
+
+⚠ **`EncSliceLP` on iHD is CQP-only**, so rate control is ours to do. Measured on
+Rocket Lake / iHD 26.1.2: the LP entrypoint rejects `VA_RC_CBR`, `VA_RC_VBR` and
+`VA_RC_VCM`, leaving `VA_RC_CQP`. Left alone that makes the target bitrate purely
+advisory, and the failure it produced was not subtle: a 3440×1440 session sent a steady
+~14 Mbps while `BitrateController` ratcheted the target 20 → 15 → 11 → … → 1.0 Mbps
+trying to clear 20–28% loss. Congestion control had no actuator, so nothing improved;
+the client asked for a keyframe every 250ms (`ClientSession::RequestKeyframe`), every
+IDR was ~360 KB / 313 packets regardless of the target, and each retry re-flooded the
+link it was reacting to.
+
+`VaEncoder` therefore runs a **software QP loop whenever `cqpMode_` is set** (and stays
+out of the way when the driver has real CBR). Three things make it work, each of which
+was arrived at by measuring a failure:
+
+- **`slice_qp_delta` is the knob, not `pic_init_qp`.** iHD's LP path ignores the
+  picture-parameter `pic_init_qp` entirely — QP 20→42 via the slice delta moves output
+  64→13 Mbps, while changing `pic_init_qp` moves nothing. `kPicInitQp` must stay equal
+  to the `pic_init_qp_minus26 = 0` that `BuildParameterSets` writes into the PPS, since
+  the delta is relative to it.
+- **Filter the signal, integrate once.** P-frame budget comes from *elapsed wall time*
+  (capture is damage-driven and was observed swinging 2–137 fps, so a nominal-fps budget
+  overshoots badly at the top end), and the controller tracks an EMA of
+  `ln(bytes / budget)`, stepping QP at most ±1 per frame. Two earlier attempts are
+  written up in the source as ⚠ warnings: per-frame error chasing (oscillated, and made
+  measured bitrate non-monotonic in the target) and adding buffer fullness into QP each
+  frame (integral windup — QP railed at 45 while frames were 354 B against a 10 417 B
+  budget).
+- **IDRs get their own time-based budget.** Inheriting the P-frame QP is not enough: on
+  a quiet desktop the P loop correctly drops QP to the floor, and IDRs inherited it, so
+  across a 1→20 Mbps target range IDR size moved only 224 KB → 149 KB. Since IDRs are
+  over half the bytes on a mostly-static screen — and are the burst that started the
+  spiral — `IdrQp()` sizes each IDR from the previous one against `kIdrSeconds` of
+  target bitrate, a one-step correction rather than a filtered one because IDRs are
+  sparse and a client in trouble is asking four times a second.
+
+Measured after the change at 3440×1440: QP settles 34 / 28 / 16 for 1 / 2 / 5 Mbps
+targets (monotonic, as it must be), busy content tracks the target to 0.91–1.10 at
+5–10 Mbps, and IDRs scale 64–75 KB at 1 Mbps against 216–224 KB at 20 Mbps.
+
+**Known limit:** QP is the only actuator. At low targets on high-entropy content it
+saturates at `kQpMax` and the encoder simply cannot reach the target — the remaining
+levers would be dropping frames or scaling resolution, neither of which is implemented.
+A QP pinned at `kQpMax` in the DIAG line (`VaEncoder::currentQp`) is the signal that
+this is what is happening.
 
 **We write SPS/PPS ourselves** (`encode/BitWriter.h`). VA-API encodes the slice, but
 drivers differ on whether they emit parameter sets and essentially none repeat them per
@@ -198,8 +274,8 @@ person at the machine simply loses priority.
   calling libwayland directly.
 - **Mapped-memory fallback is slow.** If the compositor and the GPU driver cannot agree
   on a DMA-BUF modifier, frames arrive in RAM and have to be copied to the GPU. At 4K
-  that is ~33 MB per frame; expect roughly 20–30 fps instead of 60. The share window and
-  the `[DIAG] zerocopy=` field say which path is live.
+  that is ~33 MB per frame; expect roughly 20–30 fps instead of 60. Each row's tooltip in
+  the sharing window, and the `[DIAG] zerocopy=` field, say which path is live.
 - **`SO_RCVBUF` is capped by the kernel.** Linux clamps it to `net.core.rmem_max`
   (often ~208 KB) — see §7.
 - **The portal dialog is not parented to the Deskhub window**, because anchoring it
@@ -242,7 +318,54 @@ build container. In rough order of risk:
 5. **Two machines over LAN** — the milestone every other platform calls M3.
 6. Multi-monitor sharing (M3 for GĐ6, still open on Windows too).
 
-## 9. Where to go deeper
+## 9. UI and flow — deliberately identical to the Windows app
+
+The GTK3 UI is a port of `client/windows/win32/`, screen for screen, so that it does not
+matter which machine you are sitting at: `MainWindow` ↔ `MainMenuWindow`, `ShareWindow` ↔
+`SessionWindow`, `ViewerWindow` ↔ `Viewer` + `ViewerInput`.
+
+**Main window** — two boxes and an Exit button, fixed size:
+
+| Box | Contents |
+|---|---|
+| *Host mode* | this machine's IPv4 addresses, one **Copy** button per row · `UDP port 47777` · **FPS** · **Bitrate (Mbps)** · **Share…** |
+| *Client mode* | **Host machine IP address** entry (Enter = Connect) · **Connect** |
+
+There is no port field and no view-only checkbox: the port is `kDeskhubPort` and
+mouse/keyboard are always shared, so either one would be a control with a single setting.
+
+**The main window hides for the duration of a session** and comes back when it ends —
+`ShowWindow(SW_HIDE)` / `SW_SHOW` around the blocking `RunAgent()` / `RunViewer()` on
+Windows. Nothing can block here (GTK owns the main thread), so the same effect is built
+from callbacks: `ShareWindow` fires one when it closes, and every `ViewerWindow` fires one
+when it is destroyed. `MainWindow::openViewers_` counts the open viewers and restores the
+window when the last one goes — what `g_openFrames` does in `Viewer.cpp`.
+
+**Choosing what to view is multi-select**, like `SourcePickerDialog`: every source starts
+selected and *each one you pick opens its own window*. A host sharing exactly one source
+skips the dialog.
+
+**Viewer windows are nothing but video.** Stats and the F9 hint live in the *title bar*
+(`Deskhub - viewing: <source> — <stats> · <hint>`), the window resizes itself to the
+negotiated video size on the first frame, and closing it ends the session — no overlay, no
+Disconnect button. F10 (pause input) is the one control Windows does not have; it stays
+because a Wayland pointer grab needs a visible way out.
+
+Two differences are forced by the platform rather than chosen:
+
+- **Share always goes through the compositor's dialog** (§2). Windows shares every attached
+  display the moment the button is pressed; here the portal asks first. Picking more than
+  `kMaxSources` (8) screens truncates to the first 8 with a warning, the same way Windows
+  truncates its display list.
+- **The sharing window cannot place itself** on native Wayland. It asks for the bottom-right
+  corner of the work area as `SessionWindow` does, which X11/XWayland honours and a Wayland
+  compositor ignores.
+
+Per-source stats (fps, kbps, RTT, zero-copy) are not on the face of the sharing window,
+because they are not on the Windows one either — they are on each row's **tooltip**, so the
+layout matches and no diagnostic information is lost.
+
+## 10. Where to go deeper
 
 - `01-architecture.md` — system model and the per-OS backend matrix.
 - `02-agent.md` / `03-client.md` — role internals, platform-independent.

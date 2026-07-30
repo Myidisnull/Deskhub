@@ -98,10 +98,19 @@ struct ScreenCapture::Impl {
     std::atomic<bool> closed{false};
     std::atomic<bool> dmaBufActive{false};
 
-    // Danh sách modifier ta chấp nhận, theo thứ tự ưu tiên. INVALID nghĩa là "để
-    // driver tự chọn layout ngầm định" — nó phải đứng đầu vì gần như mọi driver hỗ
-    // trợ, còn LINEAR là lối lùi chắc chắn import được nhưng có thể chậm hơn.
-    static constexpr uint64_t kModifiers[] = {DRM_FORMAT_MOD_INVALID, DRM_FORMAT_MOD_LINEAR};
+    // Danh sách modifier ta chấp nhận, theo thứ tự ưu tiên.
+    //
+    // ⚠ LINEAR ĐỨNG TRƯỚC INVALID, VÀ THỨ TỰ NÀY LÀ CÓ CHỦ Ý.
+    // Trước đây INVALID đứng đầu với lý do "gần như mọi driver hỗ trợ". Lý do đó
+    // lẫn hai phía: INVALID được chấp nhận rộng rãi ở bước THOẢ THUẬN, nhưng nó
+    // không phải một layout, nên phía IMPORT không thể nói cho driver buffer trông
+    // như thế nào. Kết quả trên Intel/iHD là import hỏng 100% (xem ⚠ ở
+    // VaEncoder.cpp::ImportDmaBuf). LINEAR thì không nhập nhằng: cả compositor và
+    // driver hiểu đúng một layout, nên import luôn chạy.
+    // INVALID vẫn giữ làm lối lùi cho compositor không chào LINEAR — ImportDmaBuf
+    // xử lý nó bằng đường DRM_PRIME cũ — nhưng đó là đường ĐOÁN layout, nên chỉ
+    // dùng khi không còn lựa chọn nào.
+    static constexpr uint64_t kModifiers[] = {DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_MOD_INVALID};
 };
 
 namespace {

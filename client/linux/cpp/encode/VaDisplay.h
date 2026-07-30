@@ -27,9 +27,19 @@
 //   Quét renderD128..renderD143 và lấy card ĐẦU TIÊN có entrypoint mã hoá H.264.
 //   Máy laptop lai (Intel iGPU + NVIDIA dGPU) thường có hai render node, và không
 //   phải node nào cũng mã hoá được — ví dụ máy chạy driver nouveau: node NVIDIA mở
-//   được nhưng không có VAEntrypointEncSlice. Dò theo NĂNG LỰC thay vì lấy bừa
+//   được nhưng không có entrypoint mã hoá nào. Dò theo NĂNG LỰC thay vì lấy bừa
 //   node đầu tiên là thứ tránh được ca đó. (Muốn ép một card cụ thể thì đặt biến
 //   môi trường DESKHUB_VA_DEVICE=/dev/dri/renderD129.)
+//
+// HAI ENTRYPOINT MÃ HOÁ — PHẢI HỎI CẢ HAI
+//   VAEntrypointEncSlice là đường mã hoá cổ điển (VME, chạy trên EU của GPU);
+//   VAEntrypointEncSliceLP là đường "low power" (VDEnc, khối mã hoá cứng riêng).
+//   Cùng cho ra H.264, khác chỗ cài đặt. Intel từ Gen11 (Ice Lake, Tiger Lake,
+//   Rocket Lake — dòng UHD 7xx) đã BỎ hẳn VME cho H.264: driver iHD trên các máy
+//   đó chỉ khai EncSliceLP. Chỉ hỏi EncSlice là tự loại một lớp máy hoàn toàn mã
+//   hoá được. Ưu tiên EncSlice khi có (nhiều driver cho nó nhiều núm điều khiển
+//   hơn), lùi về LP khi không — và encoder PHẢI dùng lại đúng entrypoint đã chọn,
+//   vì vaCreateConfig kiểm tra cặp (profile, entrypoint) chứ không tự suy ra.
 //
 // ⚠ KHÔNG CÓ ĐƯỜNG LÙI PHẦN MỀM
 //   Khác bản Windows (NVENC → Media Foundation → WARP), ở đây không có backend
@@ -73,6 +83,12 @@ public:
     const std::string& driverName() const {
         return driverName_;
     }
+    // Entrypoint mã hoá đã chọn được trên card này — VAEntrypointEncSlice hoặc
+    // VAEntrypointEncSliceLP. VaEncoder phải truyền chính giá trị này vào
+    // vaGetConfigAttributes/vaCreateConfig. Chỉ có nghĩa khi isOpen().
+    VAEntrypoint encodeEntrypoint() const {
+        return encEntrypoint_;
+    }
     const std::string& lastError() const {
         return lastError_;
     }
@@ -85,6 +101,7 @@ private:
 
     VADisplay dpy_ = nullptr;
     int drmFd_ = -1;
+    VAEntrypoint encEntrypoint_ = VAEntrypointEncSlice;
     std::string devicePath_, driverName_, lastError_;
 };
 

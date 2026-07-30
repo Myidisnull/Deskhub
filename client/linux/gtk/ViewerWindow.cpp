@@ -18,7 +18,9 @@
 
 #include <gdk/gdkkeysyms.h>
 
+#include <algorithm>
 #include <cstdio>
+#include <utility>
 
 #include "Log.h"
 #include "gtk/GtkUtil.h"
@@ -33,12 +35,33 @@ constexpr guint kKeyPauseInput = GDK_KEY_F10;
 // Một "nấc" con lăn theo quy ước Windows.
 constexpr int32_t kWheelDelta = 120;
 
+// Cỡ mở đầu, chép từ Viewer.cpp. Chỉ dùng tới lúc frame đầu báo cỡ thật.
+constexpr int kInitialW = 1024;
+constexpr int kInitialH = 600;
+
+// Vùng làm việc của màn hình đang chứa cửa sổ (đối ứng SPI_GETWORKAREA).
+GdkRectangle WorkArea(GtkWidget* w) {
+    GdkRectangle wa{0, 0, kInitialW, kInitialH};
+    GdkDisplay* d = gtk_widget_get_display(w);
+    if (!d) return wa;
+    GdkMonitor* m = nullptr;
+    if (GdkWindow* gw = gtk_widget_get_window(w)) m = gdk_display_get_monitor_at_window(d, gw);
+    if (!m) m = gdk_display_get_primary_monitor(d);
+    if (!m) m = gdk_display_get_monitor(d, 0);
+    if (m) gdk_monitor_get_workarea(m, &wa);
+    return wa;
+}
+
 } // namespace
 
 ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
-    const std::string& title) {
+    const std::string& sourceName, std::function<void()> onClosed) {
     auto* v = new ViewerWindow();
-    if (!v->Build(server, sourceId, title)) {
+    v->onClosed_ = std::move(onClosed);
+    if (!v->Build(server, sourceId, sourceName)) {
+        // HỢP ĐỒNG: Open trả nullptr thì `onClosed` KHÔNG BAO GIỜ chạy. Người gọi
+        // đếm cửa sổ đang mở, nên một callback "đã đóng" cho cửa sổ chưa từng mở sẽ
+        // làm lệch bộ đếm.
         delete v;
         return nullptr;
     }
@@ -53,30 +76,23 @@ ViewerWindow::~ViewerWindow() {
     loop_.Stop();
 }
 
-bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& title) {
+bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName) {
+    baseTitle_ = "Deskhub - viewing";
+    if (!sourceName.empty()) baseTitle_ += ": " + sourceName;
+
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window_), title.c_str());
-    gtk_window_set_default_size(GTK_WINDOW(window_), 1280, 720);
+    gtk_window_set_title(GTK_WINDOW(window_), baseTitle_.c_str());
+    gtk_window_set_default_size(GTK_WINDOW(window_), kInitialW, kInitialH);
 
-    // GtkOverlay để đặt dòng số liệu ĐÈ lên video thay vì chiếm chỗ bên cạnh.
-    GtkWidget* overlay = gtk_overlay_new();
-    gtk_container_add(GTK_CONTAINER(window_), overlay);
-
+    // Cả vùng nội dung là video, không widget nào khác: số liệu đi lên thanh tiêu
+    // đề (xem đầu ViewerWindow.h). Viền đen của letterbox do VideoRenderer vẽ.
     glArea_ = gtk_gl_area_new();
     gtk_gl_area_set_has_depth_buffer(GTK_GL_AREA(glArea_), FALSE);
     gtk_gl_area_set_has_stencil_buffer(GTK_GL_AREA(glArea_), FALSE);
     // Không tự xoá màn: VideoRenderer::Render tự glClear, và để GTK xoá thêm một
     // lần nữa là vẽ thừa toàn khung mỗi frame.
     gtk_gl_area_set_auto_render(GTK_GL_AREA(glArea_), FALSE);
-    gtk_container_add(GTK_CONTAINER(overlay), glArea_);
-
-    overlayLabel_ = gtk_label_new("");
-    gtk_widget_set_halign(overlayLabel_, GTK_ALIGN_START);
-    gtk_widget_set_valign(overlayLabel_, GTK_ALIGN_START);
-    gtk_widget_set_margin_start(overlayLabel_, 8);
-    gtk_widget_set_margin_top(overlayLabel_, 8);
-    gtk_label_set_use_markup(GTK_LABEL(overlayLabel_), TRUE);
-    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), overlayLabel_);
+    gtk_container_add(GTK_CONTAINER(window_), glArea_);
 
     g_signal_connect(glArea_, "render", G_CALLBACK(OnRender), this);
     g_signal_connect(glArea_, "realize", G_CALLBACK(OnRealize), this);
@@ -106,6 +122,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     tickId_ = gtk_widget_add_tick_callback(glArea_, OnTick, this, nullptr);
     statusTimer_ = g_timeout_add(500, OnStatusTimer, this);
 
+    UpdateTitle();
     gtk_widget_show_all(window_);
     return true;
 }
@@ -132,6 +149,14 @@ void ViewerWindow::VideoRect(int& x, int& y, int& w, int& h) const {
     y += (h - dh) / 2;
     w = dw;
     h = dh;
+}
+
+// Vùng nội dung = allocation của GtkGLArea. Xem ⚠ ở ViewerWindow.h — hàm này là
+// thứ giữ cho cửa sổ còn kéo được.
+bool ViewerWindow::InContent(double px, double py) const {
+    GtkAllocation a{};
+    gtk_widget_get_allocation(glArea_, &a);
+    return px >= a.x && py >= a.y && px < a.x + a.width && py < a.y + a.height;
 }
 
 bool ViewerWindow::ToNormalized(double px, double py, int32_t& nx, int32_t& ny) const {
@@ -183,26 +208,67 @@ gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer) {
 }
 
 gboolean ViewerWindow::OnStatusTimer(gpointer user) {
-    static_cast<ViewerWindow*>(user)->UpdateOverlay();
+    auto* self = static_cast<ViewerWindow*>(user);
+    // Phiên đứt: báo rồi đóng — kể từ đây không còn gì để cập nhật nữa.
+    if (self->loop_.phase() == ClientLoop::Phase::Ended) {
+        self->EndSession();
+        return G_SOURCE_REMOVE;
+    }
+    self->SizeToVideo();
+    self->UpdateTitle();
     return G_SOURCE_CONTINUE;
 }
 
-void ViewerWindow::UpdateOverlay() {
-    std::string line = loop_.StatusLine();
-    if (loop_.phase() == ClientLoop::Phase::Connecting) line = "Connecting…";
-    if (loop_.phase() == ClientLoop::Phase::Ended) {
-        const std::string why = loop_.EndReason();
-        line = "Session ended" + (why.empty() ? std::string() : " — " + why);
-    }
-    if (inputPaused_) line += "   [input paused — F10]";
-    if (pointerLocked_) line += "   [pointer locked — F9 or Esc to release]";
+// Đối ứng ViewerFrame::UpdateTitle bên Windows, kể cả cách ghép chuỗi.
+void ViewerWindow::UpdateTitle() {
+    std::string stats = loop_.StatusLine();
+    if (stats.empty()) stats = "connecting...";
 
-    // Nền mờ sau chữ: overlay nằm đè lên video, chữ trắng trên nền sáng thì không
-    // đọc được.
-    char markup[512];
-    std::snprintf(markup, sizeof(markup),
-        "<span background=\"#000000\" foreground=\"#FFFFFF\"> %s </span>", line.c_str());
-    gtk_label_set_markup(GTK_LABEL(overlayLabel_), markup);
+    std::string title = baseTitle_ + " — " + stats + " · " +
+                        (pointerLocked_ ? "Mouse locked - press F9 or Esc to release"
+                                        : "Press F9 to lock mouse");
+    // F10 KHÔNG có ở bản Windows và vẫn giữ lại ở đây: trên Wayland con trỏ có thể
+    // đang bị grab, nên cần một lối thoát nhìn thấy được để gõ vào chính máy này.
+    if (inputPaused_) title += " · input paused (F10)";
+
+    if (title == shownTitle_) return;
+    shownTitle_ = std::move(title);
+    gtk_window_set_title(GTK_WINDOW(window_), shownTitle_.c_str());
+}
+
+void ViewerWindow::SizeToVideo() {
+    if (sizedToVideo_) return;
+    const int vw = int(loop_.videoWidth()), vh = int(loop_.videoHeight());
+    if (vw <= 0 || vh <= 0) return;
+    sizedToVideo_ = true;
+
+    // Kẹp vào vùng làm việc GIỮ NGUYÊN TỈ LỆ: cắt riêng từng chiều như bản Win32
+    // thì cửa sổ 4K trên màn 1080p ra một khung méo, và người dùng phải tự kéo lại.
+    const GdkRectangle wa = WorkArea(window_);
+    const int maxW = std::max(320, wa.width - 48), maxH = std::max(240, wa.height - 48);
+    const double scale = std::min({1.0, double(maxW) / vw, double(maxH) / vh});
+    gtk_window_resize(GTK_WINDOW(window_), std::max(1, int(vw * scale)),
+        std::max(1, int(vh * scale)));
+}
+
+// ⚠ HÀM NÀY HUỶ CHÍNH `this` Ở GIỮA THÂN. gtk_widget_destroy chạy OnDestroy, và
+//   OnDestroy `delete self`. Sau dòng đó KHÔNG được chạm vào thành viên nào nữa —
+//   `why` là bản sao cục bộ, đúng vì thế.
+//
+//   Vì sao không báo TRƯỚC rồi mới đóng như bản Win32: MessageBoxW vô hiệu hoá cửa
+//   sổ cha, còn gtk_dialog_run chỉ quay một main loop LỒNG NHAU — người dùng vẫn
+//   bấm được nút đóng của cửa sổ xem (nút đó do WM xử lý, grab của GTK không chặn),
+//   và lúc hộp thoại trả về thì `this` đã tan. Đóng trước, báo sau, hết chuyện.
+void ViewerWindow::EndSession() {
+    if (ended_) return;
+    ended_ = true;
+    statusTimer_ = 0; // người gọi trả G_SOURCE_REMOVE — destructor đừng gỡ lần nữa
+
+    const std::string why = loop_.EndReason();
+    gtk_widget_destroy(window_); // <-- `this` chết ở đây
+    RunOnMain([why] {
+        ShowInfo(nullptr, "Connection ended", why.empty() ? std::string("disconnected") : why);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +293,7 @@ void ViewerWindow::SetPointerLocked(bool locked) {
         gdk_seat_ungrab(seat);
     }
     haveLastPos_ = false;
-    UpdateOverlay();
+    UpdateTitle();
 }
 
 gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
@@ -244,7 +310,7 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
         // Nhả hết khi TẠM DỪNG: người dùng có thể đang giữ phím lúc bấm F10, và
         // sự kiện nhả sẽ bị chặn ngay sau đó → kẹt phím ở đầu bên kia.
         if (self->inputPaused_) self->loop_.ReleaseAllInput();
-        self->UpdateOverlay();
+        self->UpdateTitle();
         return TRUE;
     }
     if (down && e->keyval == GDK_KEY_Escape && self->pointerLocked_) {
@@ -263,6 +329,8 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
 
 gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    // TRƯỚC cả kiểm tra inputPaused_: trả TRUE ở đây cũng khoá cứng cửa sổ.
+    if (!self->pointerLocked_ && !self->InContent(e->x, e->y)) return FALSE;
     if (self->inputPaused_) return TRUE;
 
     if (!self->pointerLocked_) {
@@ -299,6 +367,9 @@ gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
 
 gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    // Cú bấm trên thanh tiêu đề / viền phải để GtkWindow lo (xem ⚠ ở header) — đây
+    // chính là cú bấm bắt đầu thao tác kéo cửa sổ.
+    if (!self->pointerLocked_ && !self->InContent(e->x, e->y)) return FALSE;
     if (self->inputPaused_) return TRUE;
     if (e->type != GDK_BUTTON_PRESS && e->type != GDK_BUTTON_RELEASE) return TRUE;
 
@@ -326,6 +397,7 @@ gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
 
 gboolean ViewerWindow::OnScroll(GtkWidget*, GdkEventScroll* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (!self->pointerLocked_ && !self->InContent(e->x, e->y)) return FALSE;
     if (self->inputPaused_) return TRUE;
 
     int32_t delta = 0;
@@ -357,5 +429,10 @@ void ViewerWindow::OnDestroy(GtkWidget*, gpointer user) {
     // Cửa sổ đã đi; huỷ luôn đối tượng. tick callback gắn vào glArea_ đã bị GTK gỡ
     // cùng widget, nên không cần remove tay.
     self->tickId_ = 0;
+    self->window_ = nullptr;
+    // Lấy callback ra TRƯỚC khi delete, và gọi SAU: destructor còn join hai thread
+    // của phiên, và màn hình chính chỉ nên hiện lại khi phiên đã tắt hẳn.
+    auto done = std::move(self->onClosed_);
     delete self;
+    if (done) done();
 }
