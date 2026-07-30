@@ -946,6 +946,11 @@ void AgentLoop::Impl::RecvLoop() {
                     // chục giây (đúng lỗi bản Windows gặp ngày 21/07/2026).
                     p->DiagEncode(p->encoder.get(), p->cachedPb, now,
                         p->forceIdr.exchange(false));
+                    // ...rồi ÉP nó nhả ra ngay. Đặt mốc mới thôi chưa đủ: ở nhịp
+                    // 2fps VideoToolbox ngậm frame chờ thêm đầu vào và nhả chậm hơn
+                    // ta bơm, nên độ trễ tích luỹ dần — client đo được 5,6 GIÂY trên
+                    // một màn hình đứng yên (log 30/07/2026). Xem VtEncoder::Flush.
+                    p->encoder->Flush();
                     p->lastKeepaliveUs = now;
                 }
             }

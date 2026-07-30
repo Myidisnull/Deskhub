@@ -236,19 +236,40 @@ bool VtEncoder::SetBitrate(uint32_t bitrateBps) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_AverageBitRate, avg);
     CFRelease(avg);
 
-    // DataRateLimits là mảng [số byte, số giây]: "không quá N byte trong mỗi cửa sổ
-    // T giây". Cho phép 1.5× bitrate trong một giây — đủ rộng để cảnh đổi đột ngột
-    // không bị nghẹt, đủ chặt để không bắn ra cụm gói làm tràn buffer mạng.
+    // DataRateLimits là mảng các CẶP [số byte, số giây]: "không quá N byte trong mỗi
+    // cửa sổ T giây". Đặt HAI cặp, và cặp thứ hai mới là cặp quan trọng:
+    //
+    //   1. TRUNG BÌNH DÀI HẠN — 1.5× bitrate trong một giây. Đủ rộng để cảnh đổi đột
+    //      ngột không bị nghẹt.
+    //
+    //   2. TRẦN BURST NGẮN HẠN — ⚠ THIẾU CẶP NÀY LÀ LỖI ĐÃ ĐO ĐƯỢC 30/07/2026.
+    //      Một cửa sổ 1 giây KHÔNG ràng buộc được kích thước của MỘT frame: log
+    //      client hôm đó cho thấy IDR ~205 KB, gấp 5 lần ngân sách một frame
+    //      (20 Mbps / 60fps = 42 KB), bắn ra thành ~171 datagram liên tiếp. Client
+    //      không mất gói (0.0%) nhưng hàng đợi giải mã tràn -> nó xin IDR -> host
+    //      lại bắn 205 KB nữa: một vòng xoáy tự nuôi, 8 lần trong vài giây.
+    //      Cả hai encoder bên Windows đã chặn đúng chỗ này từ 21/07 (MfEncoder:
+    //      CODECAPI_AVEncCommonBufferSize = 2 frame; NvencEncoder: vbvBufferSize =
+    //      1 frame) — VideoToolbox bị bỏ sót.
+    //      Cho 2 frame trong 2 nhịp frame: IDR còn chỗ thở (nó vốn nặng hơn P-frame
+    //      thật), nhưng không còn cửa để phình gấp năm.
+    const uint32_t fps = cfg_.fps ? cfg_.fps : 60;
     const int64_t bytesPerSec = int64_t(double(bitrateBps) * 1.5 / 8.0);
     const double oneSecond = 1.0;
+    const int64_t burstBytes = int64_t(double(bitrateBps) / 8.0 / fps * 2.0);
+    const double burstSecs = 2.0 / double(fps);
     CFNumberRef b = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &bytesPerSec);
     CFNumberRef s = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &oneSecond);
-    const void* vals[2] = {b, s};
-    CFArrayRef limits = CFArrayCreate(kCFAllocatorDefault, vals, 2, &kCFTypeArrayCallBacks);
+    CFNumberRef b2 = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &burstBytes);
+    CFNumberRef s2 = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &burstSecs);
+    const void* vals[4] = {b, s, b2, s2};
+    CFArrayRef limits = CFArrayCreate(kCFAllocatorDefault, vals, 4, &kCFTypeArrayCallBacks);
     VTSessionSetProperty(session, kVTCompressionPropertyKey_DataRateLimits, limits);
     CFRelease(limits);
     CFRelease(b);
     CFRelease(s);
+    CFRelease(b2);
+    CFRelease(s2);
 
     if (st1 == noErr) cfg_.bitrateBps = bitrateBps;
     return st1 == noErr;
@@ -262,8 +283,13 @@ bool VtEncoder::SetFps(uint32_t fps) {
     const OSStatus st =
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ExpectedFrameRate, n);
     CFRelease(n);
-    if (st == noErr) cfg_.fps = fps;
-    return st == noErr;
+    if (st != noErr) return false;
+    cfg_.fps = fps;
+    // Trần burst tính theo fps (ngân sách một frame = bitrate/fps), nên đổi fps phải
+    // đặt lại DataRateLimits — không thì hạ xuống 20fps vẫn giữ trần burst của 60fps
+    // và cửa cho IDR phình lại mở ra.
+    SetBitrate(cfg_.bitrateBps);
+    return true;
 }
 
 bool VtEncoder::Encode(void* pixelBuffer, uint64_t timestampUs, bool forceKeyframe) {
@@ -287,6 +313,15 @@ bool VtEncoder::Encode(void* pixelBuffer, uint64_t timestampUs, bool forceKeyfra
         return false;
     }
     return true;
+}
+
+void VtEncoder::Flush() {
+    if (!session_) return;
+    // kCMTimeInvalid = "hoàn tất MỌI frame", không phải tới một mốc nào đó. Callback
+    // OnEncoded chạy trước khi hàm này trả về; nó chỉ lấy emitMutex_ nên không có
+    // nguy cơ kẹt với encMutex mà người gọi đang giữ.
+    VTCompressionSessionCompleteFrames(static_cast<VTCompressionSessionRef>(session_),
+        kCMTimeInvalid);
 }
 
 void VtEncoder::Finish() {

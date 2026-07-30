@@ -92,6 +92,24 @@ public:
     //   đích của cả cái thang.
     bool SetFps(uint32_t fps);
 
+    // Ép VideoToolbox nhả HẾT frame còn đang giữ, NGAY BÂY GIỜ. Chặn tới khi xong.
+    //
+    // ⚠ VÌ SAO CẦN — LỖI "e2e HÀNG GIÂY KHI MÀN HÌNH ĐỨNG YÊN" (đo 30/07/2026)
+    //   VTCompressionSession được khai ExpectedFrameRate = 60 nhưng nguồn tĩnh chỉ
+    //   được bơm ~2 frame/giây (keepalive). Ở nhịp đó nó GIỮ LẠI frame chờ thêm đầu
+    //   vào thay vì nhả ngay, và nhả chậm hơn tốc độ ta bơm vào — nên độ lệch giữa
+    //   "frame được chụp lúc nào" và "client nhận lúc nào" TÍCH LUỸ, mỗi giây thêm
+    //   vài trăm mili-giây. Log client 30/07 leo tới 5,6 giây rồi mới sập về ~140ms
+    //   ngay khi màn hình động trở lại.
+    //   Đây đúng là lỗi bản Windows đã gặp 21/07 với MFT bất đồng bộ của QSV; bên đó
+    //   chống bằng keepalive 2fps, nhưng 2fps chỉ đủ khi encoder giữ ĐÚNG một frame.
+    //   Gọi hàm này sau mỗi lần nén keepalive là cách chắc chắn: nó không phụ thuộc
+    //   vào việc đoán xem encoder đang ngậm mấy frame.
+    //
+    // KHÔNG gọi trên đường nóng: nó chặn, và ở nhịp bình thường frame tự ra đúng hạn
+    // nên chẳng có gì để xả. Chỉ dùng trên đường keepalive (nguồn tĩnh, ~2 lần/giây).
+    void Flush();
+
     // Đẩy nốt frame còn trong session rồi đóng. Gọi được nhiều lần.
     void Finish();
 

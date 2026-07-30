@@ -231,7 +231,16 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     // Layer nghẽn (chưa tiêu hết mẫu cũ): VỨT frame này thay vì dồn thêm — chính
     // sách của cả pipeline là thà rơi hình còn hơn tăng trễ, và hàng đợi của layer
     // dồn đầy có thể tự chuyển sang trạng thái Failed.
+    //
+    // ⚠ VỨT FRAME LÀ ĐỨT CHUỖI THAM CHIẾU. Trả true ở đây (decoder vẫn LÀNH, chỉ
+    //   đang bận) nhưng phải đếm lại: mọi frame sau đó tham chiếu vào frame vừa bị
+    //   bỏ, nên client BẮT BUỘC phải xin IDR — không thì hình lem luốc kéo dài tới
+    //   keyframe kế tiếp mà không ai biết vì sao. Bản trước bỏ frame IM LẶNG, không
+    //   đếm và không xin gì cả.
+    //   Đây KHÔNG phải đường `return false`: cái đó khiến ClientLoop tháo hẳn
+    //   decoder và dựng lại — quá nặng cho một cơn nghẽn thoáng qua.
     if (!l.isReadyForMoreMediaData) {
+        ++congestionDrops_;
         CFRelease(sb);
         return true;
     }

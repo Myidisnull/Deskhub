@@ -56,6 +56,19 @@ public:
     // Số frame đã thực sự đưa lên màn hình kể từ lần gọi trước.
     uint32_t TakeRenderedCount();
 
+    // Số frame bị VỨT vì codec đang nghẽn (không mượn nổi input buffer trong hạn),
+    // kể từ lần gọi trước.
+    //
+    // Khác `Decode() == false` (codec HỎNG, phải dựng lại): ở đây codec vẫn lành,
+    // chỉ là chưa tiêu kịp. Nhưng vứt frame là đứt chuỗi tham chiếu nên caller phải
+    // xin IDR — xem chỗ gọi trong ClientLoop::DecodeThread. Đối ứng
+    // VtDecoder::TakeCongestionDrops của bản Apple.
+    uint32_t TakeCongestionDrops() {
+        const uint32_t n = congestionDrops_;
+        congestionDrops_ = 0;
+        return n;
+    }
+
     // PTS (đồng hồ host) của frame vừa đưa lên màn hình gần nhất — mốc để tính trễ
     // e2e THẬT (tính lúc nạp vào codec sẽ bỏ sót cả phần decode + hiển thị).
     // 0 = chưa render frame nào.
@@ -71,4 +84,5 @@ private:
     bool sentCsd_ = false; // đã nạp SPS/PPS dưới cờ CODEC_CONFIG chưa
     uint32_t rendered_ = 0;
     uint64_t lastRenderedPtsUs_ = 0;
+    uint32_t congestionDrops_ = 0;
 };

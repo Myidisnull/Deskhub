@@ -182,6 +182,11 @@ private:
     std::deque<deskhub::Reassembler::Frame> decQueue_;
 
     std::atomic<bool> decodeFailed_{false};
+    // Tầng hiển thị vừa nghẽn và có frame bị vứt (VtDecoder::TakeCongestionDrops).
+    // TÁCH khỏi decodeFailed_ có chủ ý: decodeFailed_ nghĩa là decoder HỎNG và kéo
+    // theo tháo-dựng lại cả decoder, quá nặng cho một cơn nghẽn thoáng qua. Cái này
+    // chỉ cần một IDR để nối lại chuỗi tham chiếu vừa đứt.
+    std::atomic<bool> displayCongested_{false};
     std::atomic<bool> queueOverflow_{false};
     std::atomic<uint32_t> stRendered_{0};
 
@@ -200,6 +205,9 @@ private:
     // --- Chẩn đoán (docs/09): t_dec của cửa sổ 1s. Thread Decode ghi, thread Net
     // đọc-và-reset. ---
     std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
+    // Frame bị vứt vì tầng hiển thị nghẽn. Trên bản Apple đây là con số DUY NHẤT
+    // lộ ra ùn tắc: enqueueSampleBuffer bất đồng bộ nên dq_drop mãi bằng 0.
+    std::atomic<uint32_t> dgDispDrop_{0};
 
     // Ước lượng trễ e2e (docs/06 §7, deskhub/control/ClockOffset.h).
     // minRttUs_: Net ghi, Decode đọc. lastE2eUs_: Decode ghi, Net đọc.

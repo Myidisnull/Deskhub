@@ -188,6 +188,10 @@ private:
     std::deque<deskhub::Reassembler::Frame> decQueue_;
 
     std::atomic<bool> decodeFailed_{false};
+    // Codec vừa nghẽn và có frame bị vứt (MediaCodecDecoder::TakeCongestionDrops).
+    // TÁCH khỏi decodeFailed_: cái đó kéo theo tháo-dựng lại cả codec, quá nặng cho
+    // một cơn nghẽn thoáng qua. Cái này chỉ cần một IDR để nối lại chuỗi.
+    std::atomic<bool> displayCongested_{false};
     std::atomic<bool> queueOverflow_{false};
     std::atomic<uint32_t> stRendered_{0};
 
@@ -208,6 +212,7 @@ private:
     // đọc-và-reset. Max ghi kiểu load/store (một writer duy nhất là Decode) — đua
     // với lần reset cùng lắm rơi một mẫu, chấp nhận được cho số liệu chẩn đoán. ---
     std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
+    std::atomic<uint32_t> dgDispDrop_{0}; // frame vứt vì codec nghẽn
 
     // Ước lượng trễ e2e (docs/06 §7): Net ghi, Decode đọc.
     std::atomic<uint32_t> minRttUs_{0};

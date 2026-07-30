@@ -63,6 +63,22 @@ public:
     // Số frame đã enqueue để hiển thị kể từ lần gọi trước.
     uint32_t TakeRenderedCount();
 
+    // Số frame bị VỨT vì tầng hiển thị đang nghẽn, kể từ lần gọi trước.
+    //
+    // Khác `Decode() == false` (decoder HỎNG, phải dựng lại): ở đây decoder vẫn lành,
+    // chỉ là hàng đợi trình bày chưa tiêu kịp. Nhưng vứt frame là đứt chuỗi tham
+    // chiếu, nên caller phải xin IDR — xem chỗ gọi trong ClientLoop::DecodeThread.
+    //
+    // Đây cũng là con số DUY NHẤT lộ ra hiện tượng ùn tắc trên bản Apple:
+    // enqueueSampleBuffer bất đồng bộ nên hàng đợi decQueue_ không bao giờ đầy và
+    // `dq_drop` mãi bằng 0 — chỗ ùn tắc nằm bên trong layer, ngoài tầm mọi bộ đếm
+    // khác (bài học 30/07/2026).
+    uint32_t TakeCongestionDrops() {
+        const uint32_t n = congestionDrops_;
+        congestionDrops_ = 0;
+        return n;
+    }
+
     // PTS (đồng hồ host) của frame vừa đưa lên gần nhất — mốc tính trễ e2e.
     //
     // GIỚI HẠN (docs/14 §3): với AVSampleBufferDisplayLayer ta không có callback
@@ -79,6 +95,7 @@ private:
     void* formatDesc_ = nullptr; // CMVideoFormatDescriptionRef (sở hữu, CFRetain)
     uint32_t rendered_ = 0;
     uint64_t lastRenderedPtsUs_ = 0;
+    uint32_t congestionDrops_ = 0;
 
     // SPS/PPS đang dùng — so byte để biết khi nào phải dựng lại formatDesc_.
     uint8_t sps_[256] = {};

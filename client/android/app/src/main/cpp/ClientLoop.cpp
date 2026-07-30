@@ -340,6 +340,13 @@ void ClientLoop::DecodeThread() {
         if (const uint32_t n = decoder.TakeRenderedCount())
             stRendered_.fetch_add(n, std::memory_order_relaxed);
 
+        // Codec vừa nghẽn và nuốt mất frame -> chuỗi tham chiếu đứt, phải xin IDR.
+        // Không tháo codec: nó vẫn lành, chỉ bận.
+        if (const uint32_t n = decoder.TakeCongestionDrops()) {
+            dgDispDrop_.fetch_add(n, std::memory_order_relaxed);
+            displayCongested_.store(true, std::memory_order_release);
+        }
+
         // Trễ e2e: đo trên frame VỪA LÊN MÀN HÌNH, qua bộ lọc min ở core
         // (deskhub/control/ClockOffset.h giải thích vì sao là bộ lọc min).
         // Chỉ thread này chạm clockOffset_ — nó không tự khoá.
@@ -561,6 +568,8 @@ void ClientLoop::NetThread() {
         // Hai lý do còn lại đến từ thread Decode. exchange() đọc-và-xoá nguyên tử:
         // xin một lần cho mỗi sự cố, không lặp lại mãi ở các vòng sau.
         if (decodeFailed_.exchange(false, std::memory_order_acq_rel)) requestKf("dec_fail");
+        if (displayCongested_.exchange(false, std::memory_order_acq_rel))
+            requestKf("display_congested");
         if (queueOverflow_.exchange(false, std::memory_order_acq_rel)) requestKf("q_overflow");
 
         // GĐ7: xin host gửi lại các mảnh còn thiếu của frame đầu hàng (NACK). Bù cho
@@ -657,12 +666,14 @@ void ClientLoop::NetThread() {
                 LOGI(
                     "[DIAG] evt=sum asm_ms=%.1f/%u dec_ms=%.1f/%u dq_drop=%u"
                     " late=%" PRIu64 " late_ms_avg=%.0f late_ms_max=%" PRIu64
-                    " gap_ms_max=%u loop_busy_ms_max=%u min_rtt_ms=%.1f e2e_ms=%.1f",
+                    " gap_ms_max=%u loop_busy_ms_max=%u disp_drop=%u"
+                    " min_rtt_ms=%.1f e2e_ms=%.1f",
                     dgAsmCount ? double(dgAsmMsSum) / dgAsmCount : 0.0, dgAsmMsMax,
                     dc ? double(ds) / dc : 0.0, dm,
                     dgDqDrop,
                     w.latePackets, w.lateMsAvg, w.lateMsMax,
                     reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs,
+                    dgDispDrop_.exchange(0, std::memory_order_relaxed),
                     minRttUs_.load(std::memory_order_relaxed) / 1000.0, e2e / 1000.0);
                 dgAsmMsSum = dgAsmMsMax = dgAsmCount = 0;
                 dgDqDrop = 0;

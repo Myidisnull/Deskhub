@@ -157,14 +157,23 @@ bool MediaCodecDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
         // in-band là hợp lệ và mọi bộ giải mã đều bỏ qua bản trùng.
     }
 
-    // Chờ tối đa 100ms một input buffer. Nếu codec kẹt lâu hơn thế thì có chuyện
-    // thật sự — báo lỗi để caller dựng lại decoder và xin IDR, hơn là ngồi chặn
-    // thread Decode vô hạn.
-    const ssize_t idx = AMediaCodec_dequeueInputBuffer(codec_, 100'000);
+    // ⚠ HẠN CHỜ 20ms, VÀ HẾT HẠN KHÔNG PHẢI LÀ LỖI (sửa 30/07/2026).
+    //   Bản trước chờ 100ms rồi trả false. Hai vấn đề, cùng lúc:
+    //     1. 100ms là SÁU nhịp frame ở 60fps, trong khi hàng đợi giữa Net và Decode
+    //        chỉ sâu 3 frame — codec nghẽn một nhịp là hàng đợi tràn ngay, và tràn
+    //        cũng xin IDR. Một cơn nghẽn sinh ra HAI yêu cầu IDR.
+    //     2. Trả false khiến ClientLoop THÁO HẲN decoder rồi dựng lại. Nhưng codec
+    //        đâu có hỏng — nó chỉ đang bận. Dựng lại một MediaCodec tốn hơn nhiều
+    //        so với bỏ một frame, và nó xảy ra đúng lúc máy đang đuối.
+    //   Nay: chờ ngắn, hết hạn thì VỨT frame và đếm lại. Vứt frame là đứt chuỗi tham
+    //   chiếu nên vẫn phải xin IDR — nhưng qua đường `congestionDrops_`, không phải
+    //   qua đường tháo-dựng-lại. Cùng ngữ nghĩa với chốt isReadyForMoreMediaData của
+    //   bản Apple.
+    const ssize_t idx = AMediaCodec_dequeueInputBuffer(codec_, 20'000);
     if (idx < 0) {
-        LOGW("[Decoder] input buffer timeout.");
-        DrainOutput();
-        return false;
+        ++congestionDrops_;
+        DrainOutput(); // vét đầu ra: chỗ tắc thường tự thông ngay sau đó
+        return true;
     }
 
     // `cap` là sức chứa THẬT của buffer codec cho mượn, không phải kích thước ta
