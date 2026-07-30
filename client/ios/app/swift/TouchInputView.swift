@@ -29,10 +29,10 @@
 //   maximumNumberOfTouches = 1 nên ngón thứ hai chạm xuống là nó kết thúc, nhường
 //   cho pinch/pan-hai-ngón; hai cái sau chạy song song với nhau (xem delegate).
 //
-// ZOOM LÀM BẰNG LAYOUT, KHÔNG PHẢI TRANSFORM
+// KHUNG VIDEO LÀ MỘT RECT TÍNH SẴN, OVERLAY NÀY THÌ KHÔNG BỊ PHÓNG
 //   `ViewTransform.frame(in:aspect:)` (ViewTransform.swift) tính KHUNG video hiển thị
-//   (aspect-fit, phóng quanh tâm vùng nhìn, rồi dịch pan đã kẹp) và StreamView đặt lớp
-//   video ĐÚNG bằng khung đó. Overlay này thì KHÔNG bị phóng — nó luôn phủ trọn vùng
+//   (aspect-fit, phóng quanh tâm chụm, rồi dịch pan đã kẹp) và StreamView dựng lớp
+//   video đúng bằng khung đó. Overlay này thì KHÔNG bị phóng — nó luôn phủ trọn vùng
 //   nhìn.
 //   Vì thế con trỏ được lưu ở toạ độ CHUẨN HOÁ 0..1 theo khung video chứ không
 //   phải điểm ảnh màn hình: khung có phóng/kéo thế nào thì vị trí trên desktop của

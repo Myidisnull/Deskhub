@@ -34,6 +34,12 @@ struct ViewTransform {
     /// phóng, đừng bày huy hiệu ra.
     var isZoomed: Bool { zoom > 1.01 }
 
+    /// Khung ở mức 1× — chỉ letterbox, chưa phóng chưa kéo. StreamView layout lớp video
+    /// theo KÍCH THƯỚC của khung này rồi phủ transform lên trên; xem `videoArea`.
+    static func baseFrame(in size: CGSize, aspect: CGFloat) -> CGRect {
+        ViewTransform().frame(in: size, aspect: aspect)
+    }
+
     /// Khung video HIỂN THỊ bên trong vùng nhìn `size`.
     ///
     /// Không phóng: rect aspect-fit canh giữa, đúng như `.aspectRatio(contentMode: .fit)`

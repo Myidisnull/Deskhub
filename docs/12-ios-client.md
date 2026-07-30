@@ -208,10 +208,15 @@ STREAMING.
   absolute (zoom, pan). Photo-viewer semantics: the point between the fingers stays put and
   the frame grows around it (`pan' = (centroid - centre)(1 - ratio) + pan * ratio + panDelta`),
   with the pinch and the two-finger pan recognizers running together so a pinch that drifts
-  drags the picture along. Zoom is applied as *layout*: `StreamView` sizes/offsets the video
-  layer to that rect — cheap here because it is a `CALayer` frame change, unlike Android where
-  resizing the `SurfaceView` per frame costs a relayout plus a surface reallocation (see
-  `08-android-client.md`). The trackpad overlay itself is never scaled.
+  drags the picture along.
+
+  **The zoom is a transform, not a layout change**, mirroring Android. `StreamView` lays the
+  video layer out at the 1× rect (`ViewTransform.baseFrame`) and puts `.scaleEffect(zoom,
+  anchor: .topLeading)` + `.offset` on top. Setting the scaled frame directly instead changes
+  the layer's bounds, which costs a layout pass and makes the layer rebuild its contents on
+  every frame of the pinch; a transform is just a matrix, so the compositor samples the
+  decoded buffer straight — no relayout and no loss of sharpness. The trackpad overlay itself
+  is never scaled.
 
   The frame never moves *on its own*. (The first cut had the cursor drag it along when the
   cursor reached a screen edge; in practice that threw away the region you had just zoomed

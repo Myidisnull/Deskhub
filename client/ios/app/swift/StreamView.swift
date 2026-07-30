@@ -34,10 +34,11 @@
 //   kiểu xem ảnh (điểm giữa hai ngón dính ở đó), rê hai ngón để dời sang khu vực khác.
 //   Khung hình KHÔNG bao giờ tự dịch: nó chỉ đổi khi hai ngón bảo nó đổi (xem
 //   TouchInputView).
-//   Zoom làm bằng LAYOUT chứ không phải transform: `ViewTransform` (ViewTransform.swift)
-//   tính ra khung và view này đặt lớp video đúng bằng khung đó. Lớp trackpad KHÔNG
-//   bị phóng — nó luôn phủ trọn vùng nhìn, và con trỏ lưu toạ độ chuẩn hoá nên
-//   phóng/kéo không hề đụng tới vị trí trên desktop host.
+//   `ViewTransform` (ViewTransform.swift) tính khung hiển thị; lớp video được LAYOUT ở
+//   khung 1× rồi phủ scaleEffect + offset lên — đổi thẳng frame là đo lại và dựng lại
+//   lớp mỗi frame của cử chỉ. Lớp trackpad KHÔNG bị phóng — nó luôn phủ trọn vùng
+//   nhìn, và con trỏ lưu toạ độ chuẩn hoá nên phóng/kéo không đụng tới vị trí trên
+//   desktop host.
 //   Đang phóng thì lớp điều khiển mọc thêm hai viên thuốc (ZoomControls): công tắc
 //   Pan/Pointer cho cử chỉ MỘT ngón, và mức phóng — chạm để về 1×.
 //
@@ -170,6 +171,9 @@ struct StreamView: View {
         GeometryReader { proxy in
             let viewport = proxy.size
             let frame = transform.frame(in: viewport, aspect: aspectRatio)
+            // Khung 1× — chỉ lấy KÍCH THƯỚC để layout lớp video; chỗ đặt và mức phóng
+            // do `frame` quyết, phủ lên bằng transform.
+            let base = ViewTransform.baseFrame(in: viewport, aspect: aspectRatio)
             // Canh .topLeading để .offset đặt khung theo đúng toạ độ đã tính; canh
             // giữa thì offset lại cộng thêm vào phần canh, sai gấp đôi.
             ZStack(alignment: .topLeading) {
@@ -177,9 +181,19 @@ struct StreamView: View {
                     layer = newLayer
                     DeskhubClient.setLayer(newLayer)
                 }
-                // Đặt frame thay cho .aspectRatio(.fit): lúc 1× hai cách cho ra đúng
-                // một kết quả, nhưng cách này còn dựng được khung đã phóng/kéo.
-                .frame(width: max(frame.width, 1), height: max(frame.height, 1))
+                // LAYOUT ở khung 1×, PHÓNG bằng transform — không đặt thẳng frame đã
+                // phóng. Hai cách cho ra cùng một hình, nhưng đổi frame là đổi bounds
+                // của lớp video, tức là một lượt layout + lớp phải dựng lại nội dung
+                // mỗi frame của cử chỉ chụm. scaleEffect thì chỉ là một ma trận:
+                // compositor lấy thẳng buffer đã giải mã mà vẽ, không mất nét, không
+                // đo lại gì. (Đối ứng scaleX/scaleY của SurfaceView bên Android, nơi
+                // cùng vấn đề này gây trễ thấy rõ.)
+                //
+                // anchor .topLeading: phóng không tự dời gốc view, nên .offset chỉ việc
+                // đưa gốc đó tới frame.minX/minY. Theo định nghĩa base * zoom == kích
+                // thước frame, nên hai khung trùng khít.
+                .frame(width: max(base.width, 1), height: max(base.height, 1))
+                .scaleEffect(transform.zoom, anchor: .topLeading)
                 .offset(x: frame.minX, y: frame.minY)
 
                 // Trackpad phủ trọn vùng nhìn — gồm vùng đen letterbox: rê tay ở đâu
