@@ -16,8 +16,8 @@ There are three full implementations of the same orchestration:
 | Inject | `SendInput` (`input/InputInjector`) | CGEvent (`agent/InputInjector`) | `/dev/uinput` virtual devices (`input/InputInjector`) |
 | UI frontend | Win32 app (`SessionWindow` drives `AgentLoop` directly) | SwiftUI via `AgentLoop` methods | GTK3 `ShareWindow` via `AgentLoop` methods |
 
-The Ubuntu one is code-complete but has never run on real hardware — see
-`17-linux-app.md` §8 before trusting anything it says about behaviour.
+The Ubuntu one has been run on real hardware (a two-machine LAN session); multi-monitor
+sharing and every performance number are still unverified — see `17-linux-app.md` §8.
 
 Session state, packet formats and congestion policy are platform-neutral
 and live in `core/` (`deskhub::HostSession`, `deskhub::Beacon`,

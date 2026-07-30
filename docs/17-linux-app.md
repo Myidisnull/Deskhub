@@ -6,11 +6,11 @@ machine, chosen at runtime. Tree: `client/linux/` — `cpp/` (native layer, no G
 `gtk/` (GTK3 UI). All protocol logic is the shared `core/`; this document covers only
 the Linux backends.
 
-> **Status (2026-07-29): code complete, NOT yet run on a real machine.** Everything
-> here compiles clean (`-Wall -Wextra`, zero warnings) and links, and `core_tests`
-> passes, but the pipeline has never produced a frame on real hardware. §8 lists what
-> still has to be verified. Treat every performance number as a design target, not a
-> measurement.
+> **Status (2026-07-30): both roles run on real hardware.** A session between two real
+> machines over LAN works end to end — capture, encode, decode, display, and mouse and
+> keyboard injection — so the pipeline in §2–§7 is confirmed, not just compiled. §8
+> records what that first run settled and the two things it did not touch.
+> Performance numbers here are still **design targets**: nothing has been measured yet.
 
 ## 1. Requirements
 
@@ -19,8 +19,14 @@ the Linux backends.
 ```
 libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev
 libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev
-libavcodec-dev libavutil-dev  pkg-config  cmake  ninja-build
+nasm  pkg-config  cmake  ninja-build
 ```
+
+`libavcodec-dev` is deliberately **not** in that list. FFmpeg is built from source in a
+minimal configuration and linked **statically** — see `scripts/build-ffmpeg.sh` for the
+full reasoning, and "Why FFmpeg is vendored" below. `nasm` is what compiles its x86
+assembly. `make bootstrap` runs that build; on its own it is `scripts/build-ffmpeg.sh`,
+which is a no-op once the stamp matches.
 
 **Run:**
 
@@ -29,7 +35,7 @@ libavcodec-dev libavutil-dev  pkg-config  cmake  ninja-build
 | Screen capture permission | `xdg-desktop-portal` + a backend for your compositor: `-gnome`, `-kde` or `-wlr` | host |
 | H.264 encoding on the GPU | `va-driver-all` (pulls `intel-media-va-driver` / `mesa-va-drivers`); NVIDIA needs `nvidia-vaapi-driver` | host |
 | Injecting mouse/keyboard | write access to `/dev/uinput` — see §7 | host |
-| H.264 decoding | `libavcodec` + a VA-API driver (falls back to CPU decoding without one) | client |
+| H.264 decoding | nothing — the decoder is compiled into the binary. A VA-API driver moves it onto the GPU; without one it falls back to CPU decoding | client |
 
 `vainfo` is the one-line check that the host role can work at all: it must list
 `VAProfileH264Main` (or `High`) with **either** `VAEntrypointEncSlice` or
@@ -51,6 +57,39 @@ needs only `GLIBCXX_3.4.29` and therefore runs on 22.04 and everything after it.
 encodes this: `.github/workflows/build.yml` builds the Ubuntu app on **both**
 `ubuntu-22.04` and `ubuntu-latest` but only ships the artifact from the older one — the
 newer job exists to cover the newer toolchain and PipeWire 1.x.
+
+**Why FFmpeg is vendored.** That "older builds run on newer" rule holds for glibc and
+libstdc++ because their symbols are versioned, and for every other dependency here
+because their SONAMEs never change (`libgtk-3.so.0`, `libva.so.2`,
+`libpipewire-0.3.so.0`). libavcodec is the exception — it bumps its SONAME with each
+FFmpeg major:
+
+| | 22.04 | 24.04 | 26.04 |
+|---|---|---|---|
+| ships | `libavcodec.so.58` | `.so.60` | `.so.62` |
+| `apt-cache policy libavcodec58` | installed | **Candidate: (none)** | **Candidate: (none)** |
+
+So a 22.04 build asked for `.so.58` on a machine where no package can provide it, and
+simply did not start. `dlopen`-ing whichever SONAME exists does **not** fix this: the
+code reads `AVCodecContext` and `AVFrame` fields directly (`ctx->get_format`,
+`f->data[3]`), whose offsets come from the headers at *compile* time while the struct is
+allocated by the library at *run* time. Those layouts differ across majors — `avcodec.h`
+guards `AVCodecContext.properties` with `#if FF_API_CODEC_PROPS` (major < 63), and it
+sits mid-struct, so everything after it shifts. That failure is silent corruption, which
+is worse than not starting.
+
+`scripts/build-ffmpeg.sh` therefore builds FFmpeg 8.0 with `--disable-everything` plus
+exactly `--enable-decoder=h264 --enable-hwaccel=h264_vaapi`, and links the two resulting
+`.a` files in. Compile-time and run-time versions are then the same by construction. The
+binary grows from ~530 KB to ~2.6 MB and `readelf -d` shows no `libav*` at all — CI
+asserts that on every build. The configuration reports `LGPL version 2.1 or later` (no
+`--enable-gpl`, no libx264), and since this repo ships the build script and the sources
+are public, the LGPL relinking requirement is satisfied.
+
+(FFmpeg **7.1** cannot build in this configuration: `CONFIG_H264_SEI` pulls in
+`h2645_sei.o`, which calls `ff_aom_uninit_film_grain_params`, but `aom_film_grain.o` is
+only compiled when HEVC is enabled — the link fails on a missing symbol. 8.0 moved
+`aom_film_grain.o` into `CONFIG_H264_SEI`. Hence the pin.)
 
 ## 2. Capture — xdg-desktop-portal + PipeWire
 
@@ -301,22 +340,28 @@ sudo sysctl -w net.core.rmem_max=8388608   # let the 4 MB SO_RCVBUF request stic
 sudo ufw allow 47777/udp                   # only if ufw is enabled (off by default)
 ```
 
-## 8. What still has to be verified on real hardware
+## 8. What the first run on real hardware settled
 
-Nothing below has been exercised — no GPU, compositor, or `/dev/uinput` exists in the
-build container. In rough order of risk:
+A two-machine LAN session (2026-07-30) exercised the whole path in both directions, which
+retires the five risks this section used to list. Each was a place where the code could
+only be *believed* correct until a real GPU and compositor were involved:
 
-1. **VA-API encode produces a decodable stream.** The hand-written SPS/PPS must agree
-   with what the driver actually encodes. Failure mode: the first IDR decodes and
-   everything after it is garbage.
-2. **DMA-BUF import into VA-API**, and the two-step modifier fixation with PipeWire.
-   Failure mode: `ImportDmaBuf` fails every frame and the log says the driver and the
-   compositor disagree on buffer layout.
-3. **`vaExportSurfaceHandle` → EGLImage** on the client. Failure mode: black window with
-   one `eglCreateImageKHR failed` line.
-4. **uinput coordinate mapping** on single- and multi-monitor hosts.
+1. **VA-API encode produces a decodable stream** — the hand-written SPS/PPS agrees with
+   what the driver emits. (Feared failure: first IDR decodes, everything after is garbage.)
+2. **DMA-BUF import into VA-API**, including the two-step modifier fixation with PipeWire.
+   (Feared failure: `ImportDmaBuf` fails every frame, driver and compositor disagreeing
+   on buffer layout.)
+3. **`vaExportSurfaceHandle` → EGLImage** on the client. (Feared failure: black window
+   plus one `eglCreateImageKHR failed` line.)
+4. **uinput coordinate mapping** — on a single-monitor host.
 5. **Two machines over LAN** — the milestone every other platform calls M3.
-6. Multi-monitor sharing (M3 for GĐ6, still open on Windows too).
+
+Still open, because that run did not touch them:
+
+- **uinput mapping on a multi-monitor host** — only the single-monitor case was exercised.
+- **Multi-monitor sharing** (M3 for GĐ6, still open on Windows too).
+- **Every performance number in this document.** They are design targets; no latency,
+  bitrate, or frame-time measurement has been taken on Linux.
 
 ## 9. UI and flow — deliberately identical to the Windows app
 

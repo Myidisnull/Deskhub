@@ -157,13 +157,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Không cài libavcodec-dev: FFmpeg được dựng tối giản và link TĨNH ở bước
+      # dưới. `nasm` là để biên dịch phần assembly x86 của nó.
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ninja-build pkg-config \
+          sudo apt-get install -y ninja-build pkg-config nasm \
             libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
-            libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev \
-            libavcodec-dev libavutil-dev
+            libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev
+
+      # Dựng FFmpeg mất vài phút nên cache lại. Khoá gồm nội dung script: đổi
+      # version hay bộ cờ trong đó là cache tự hỏng, không phải nhớ bump tay.
+      - name: Cache minimal FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg-min
+          key: ffmpeg-min-${{ matrix.os }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+      - name: Build minimal FFmpeg (static, h264 decode only)
+        run: scripts/build-ffmpeg.sh
 
       # Gốc CMakeLists đòi CMake >= 3.25 còn Ubuntu 22.04 chỉ đóng gói 3.22.
       # Ảnh runner của GitHub có sẵn bản mới, nhưng kiểm tra tường minh để lỗi
@@ -178,6 +190,21 @@ jobs:
 
       - name: Build the Ubuntu app (make release-linux)
         run: make release-linux
+
+      # Chốt chặn cho đúng lý do tồn tại của bước dựng FFmpeg ở trên. Nếu binary
+      # lỡ link động vào libav* trở lại thì bản phát hành dựng trên 22.04 sẽ không
+      # khởi động nổi trên 24.04+ (soname .so.58 không có gói nào cài được ở đó) —
+      # thà gãy ở CI còn hơn để người dùng phát hiện.
+      - name: Assert no dynamic FFmpeg dependency
+        run: |
+          bin=out/build/x64-release/client/linux/deskhub
+          if readelf -d "$bin" | grep -q 'NEEDED.*libav'; then
+            echo "::error::$bin links libav* dynamically — the release would not start on newer Ubuntu"
+            readelf -d "$bin" | grep NEEDED
+            exit 1
+          fi
+          echo "OK — FFmpeg is linked statically. Dynamic dependencies:"
+          readelf -d "$bin" | grep NEEDED
 
       # Chỉ đẩy artifact từ nhánh 22.04 — xem ⚠ ở trên.
       - name: Upload app
@@ -312,8 +339,25 @@ jobs:
             | Android | `deskhub-${{ github.ref_name }}-android.apk` — release-signed, same key as the Google Play build |
             | iOS | TestFlight / App Store (ipa cannot be sideloaded) |
 
-            **Ubuntu:** the binary links against GTK3, PipeWire, libva and FFmpeg, which a stock Ubuntu desktop already has.
-            To *share* your screen you also need `xdg-desktop-portal-gnome` (or `-kde` / `-wlr`) and one-time permission for
-            `/dev/uinput` — see `docs/17-linux-app.md` §7.
+            **Ubuntu — connecting and viewing needs nothing installed.** The binary links only against GTK3, PipeWire and
+            libva, which a stock desktop already has; the H.264 decoder is compiled in, so it runs on 22.04 through 26.04
+            with no FFmpeg package involved.
+
+            **To share your screen** you need three more things:
+
+            ```bash
+            # 1. Portal backend — on Wayland an app cannot read the screen; the portal asks for you.
+            sudo apt install xdg-desktop-portal xdg-desktop-portal-gnome   # KDE: -kde · sway/wlroots: -wlr
+
+            # 2. VA-API driver — H.264 is encoded on the GPU, there is no software fallback.
+            sudo apt install va-driver-all vainfo
+            vainfo | grep -E 'H264.*Enc'      # must print ≥1 line, or this machine cannot host
+
+            # 3. Write access to /dev/uinput — how mouse and keyboard get injected.
+            echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
+              | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules
+            sudo udevadm control --reload-rules && sudo udevadm trigger
+            sudo usermod -aG input "$USER"    # then LOG OUT and back in
+            ```
 
             macOS/Android files are attached by the deploy workflow — they may show up a few minutes after the Windows build.

@@ -26,7 +26,7 @@ backend, never touching the core.**
 | macOS | ✅ | ✅ | one app, both roles (SwiftUI + core C++) | **Both roles tested and working** (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | Android | ❌ | ✅ | client-only (Kotlin + core C++ via JNI) | **Video + input**; in testing on Google Play |
 | iOS | ❌ | ✅ | client-only (SwiftUI + core C++) | **Video + input**; in testing via TestFlight |
-| Ubuntu/Linux | 🔶 | 🔶 | one app, both roles (`deskhub`, GTK3 + core C++) | **Code complete, never run on real hardware** (PipeWire + VA-API + libavcodec + uinput) — `17-linux-app.md` §8 |
+| Ubuntu/Linux | ✅ | ✅ | one app, both roles (`deskhub`, GTK3 + core C++) | **Both roles working** over LAN (PipeWire + VA-API + libavcodec + uinput); multi-monitor still open — `17-linux-app.md` §8 |
 | Web | ❌ | 📐 | in the browser (WebTransport + WebCodecs) | Design only — no code yet (`10-web-client.md`) |
 
 Transport today is **UDP everywhere** (one port, channels multiplexed in the header); the
@@ -71,8 +71,9 @@ third_party/     pinned NVENC headers
   to Media Foundation.
 - **macOS / iOS**: macOS 14+, Xcode 26+. The macOS app needs **Screen Recording** (to
   share) and **Accessibility** (to inject input) — `14-macos-app.md`.
-- **Ubuntu**: 22.04+, GTK3 + PipeWire + VA-API + FFmpeg dev packages. Sharing needs an
-  `xdg-desktop-portal` backend and write access to `/dev/uinput`
+- **Ubuntu**: 22.04+, GTK3 + PipeWire + VA-API dev packages, plus `nasm` — FFmpeg is built
+  from source minimally and linked statically (`scripts/build-ffmpeg.sh`), not taken from
+  apt. Sharing needs an `xdg-desktop-portal` backend and write access to `/dev/uinput`
   (`make setup-linux-permissions`) — `17-linux-app.md`.
 - **Any OS**: `make bootstrap` installs every dependency (idempotent), including the
   Android SDK/NDK and pinned format/lint tools.

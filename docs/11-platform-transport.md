@@ -17,7 +17,7 @@ Each desktop OS ships **one app containing both roles** (see
 | macOS | Yes | Yes | SwiftUI app over an Objective-C++ bridge (`client/macos/app/cpp/DeskhubBridge.mm`); host in `cpp/agent/`, client in `cpp/client/` | **Both roles tested and working.** |
 | Android | No | Yes | Kotlin UI + NDK `libdeskhub.so` (`client/android/app/src/main/cpp/ClientLoop.cpp`) | **Client-only, shipped to store testing** (see 13-release-mobile.md, `make/android.mk`). |
 | iOS | No | Yes | SwiftUI + C++ (`client/ios/app/cpp/ClientLoop.cpp`, VideoToolbox decode) | **Client-only, shipped to store testing** (Simulator build via `make/ios.mk`; device/App Store via Xcode). |
-| Ubuntu | Yes | Yes | GTK3 UI over a GTK-free C++ layer (`client/linux/gtk/` + `client/linux/cpp/`) — ONE `deskhub` executable, both roles | **Both roles written, never run on real hardware.** Capture needs xdg-desktop-portal; injection needs `/dev/uinput`. See 17-linux-app.md. |
+| Ubuntu | Yes | Yes | GTK3 UI over a GTK-free C++ layer (`client/linux/gtk/` + `client/linux/cpp/`) — ONE `deskhub` executable, both roles | **Both roles working**, verified between two machines over LAN. Capture needs xdg-desktop-portal; injection needs `/dev/uinput`. See 17-linux-app.md. |
 | Web | No | Planned | Browser (WebTransport + WebCodecs + WASM `core/`) | **Design only** — see 10-web-client.md. No web code exists in the repo. |
 
 ## 2. Why only desktops can host

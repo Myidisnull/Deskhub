@@ -25,7 +25,7 @@ desktop tools can't pull off.
 | **macOS** | ✅ | ✅ | Both roles working (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | **Android** | — | ✅ | Video + input (trackpad, keyboard) — testing on Google Play |
 | **iOS** | — | ✅ | Video + input (trackpad, keyboard) — testing via TestFlight |
-| **Ubuntu** | 🔶 | 🔶 | Both roles written (PipeWire + VA-API + uinput + GTK3) — builds clean, not yet run on real hardware |
+| **Ubuntu** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — verified between two machines over LAN |
 | **Web** | — | 📐 | Designed (QUIC/WebTransport + WASM), not yet implemented |
 
 Roadmap: [`docs/05-roadmap.md`](docs/05-roadmap.md)
@@ -36,11 +36,34 @@ Roadmap: [`docs/05-roadmap.md`](docs/05-roadmap.md)
 **[Releases](https://github.com/manhpham90vn/Deskhub/releases)** — no install, no setup.
 On Windows, sharing prompts for admin once and the app configures the firewall by itself.
 
-**🐧 Ubuntu** — a single binary from [Releases](https://github.com/manhpham90vn/Deskhub/releases):
-`chmod +x` and run. It links against GTK3, PipeWire, libva and FFmpeg, which a stock
-Ubuntu 22.04+ desktop already has. To **share** you also need a portal backend
-(`xdg-desktop-portal-gnome`, `-kde` or `-wlr`) and one-time permission for `/dev/uinput`
-(`make setup-linux-permissions`). Details and current limits:
+**🐧 Ubuntu** — a single binary from [Releases](https://github.com/manhpham90vn/Deskhub/releases).
+**To connect and view, that is all** — it links only against GTK3, PipeWire and libva, which
+a stock Ubuntu 22.04+ desktop already has, and the H.264 decoder is compiled in:
+
+```bash
+chmod +x deskhub && ./deskhub
+```
+
+**To share this machine's screen** you need three more things — Linux gives none of them
+away by default:
+
+```bash
+# 1. Portal backend — on Wayland an app cannot read the screen; the portal asks for you.
+sudo apt install xdg-desktop-portal xdg-desktop-portal-gnome   # KDE: -kde · sway/wlroots: -wlr
+
+# 2. VA-API driver — H.264 is encoded on the GPU, there is no software fallback.
+sudo apt install va-driver-all vainfo        # NVIDIA also needs: nvidia-vaapi-driver
+vainfo | grep -E 'H264.*Enc'                 # must print ≥1 line, or this machine cannot host
+
+# 3. Write access to /dev/uinput — how mouse and keyboard get injected.
+echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
+  | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+sudo usermod -aG input "$USER"               # then LOG OUT and back in
+```
+
+Building from source? Step 3 is just `make setup-linux-permissions`. If you enabled `ufw`,
+also `sudo ufw allow 47777/udp`. Details and current limits:
 [`docs/17-linux-app.md`](docs/17-linux-app.md).
 
 **📱 iOS** — install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then

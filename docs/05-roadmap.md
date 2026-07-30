@@ -19,7 +19,7 @@ The roadmap has **two dimensions**:
 | macOS | ✅ | ✅ | **Both roles tested and working** (SCK + VideoToolbox + CGEvent), clean build | 14 |
 | Android | — | ✅ | **Video + input** (virtual trackpad, virtual keyboard); in testing on Google Play | 08 |
 | iOS | — | ✅ | **Video + input** (SwiftUI + VideoToolbox); in testing via TestFlight | 12 |
-| Ubuntu | 🔶 | 🔶 | **Both roles written, never run on real hardware** — builds clean, `17-linux-app.md` §8 lists what must be verified | 17 |
+| Ubuntu | ✅ | ✅ | **Both roles tested and working** on two machines over LAN; multi-monitor + performance numbers still open (`17-linux-app.md` §8) | 17 |
 | Web | — | 📐 | Design complete, no code yet | 10 |
 
 Matrix + why the agent is desktop-only: `11-platform-transport.md`. The phases below are the
@@ -308,7 +308,7 @@ Run self-tests: `make test` (or `out\build\x64-debug\core\core_tests.exe`).
 - ⬜ Audio (Opus + WASAPI loopback).
 - ⬜ Adaptive resolution; multi-client.
 
-## Phase 7 — Ubuntu 🔶 code DONE, AWAITING first run on real hardware (design: `17-linux-app.md`)
+## Phase 7 — Ubuntu ✅ DONE, running on real hardware (design: `17-linux-app.md`)
 
 The third desktop platform, and the first one where the operating system actively
 *refuses* the two things the agent role needs. Both were solved without touching `core/`,
@@ -339,13 +339,13 @@ which is the whole point of the breadth axis.
   `kCGEventSourceUserData` tricks the other two platforms need.
 - ✅ **UI — GTK3**, same two buttons as everywhere else; the `cpp/` layer never includes
   GTK.
-- ✅ **Verified so far**: builds clean under `-Wall -Wextra` with zero warnings on
-  Ubuntu 24.04, links to a 534 KB binary, `core_tests` passes on the same toolchain.
-- ⬜ **Remaining — everything that needs hardware.** In risk order: the hand-written
-  SPS/PPS agreeing with what the driver actually encodes; dma-buf import into VA-API
-  plus PipeWire modifier fixation; `vaExportSurfaceHandle` → EGLImage on the client;
-  uinput coordinate mapping on multi-monitor hosts; then **M3, two machines over LAN**.
-  Full list: `17-linux-app.md` §8.
+- ✅ **M3 reached — two machines over LAN**, both roles, video and input. That single run
+  retired every hardware risk this phase was waiting on: the hand-written SPS/PPS agrees
+  with what the driver encodes, dma-buf import into VA-API and PipeWire modifier fixation
+  hold, `vaExportSurfaceHandle` → EGLImage renders on the client, and uinput coordinates
+  land correctly on a single-monitor host. Detail: `17-linux-app.md` §8.
+- ⬜ **Still untouched**: uinput mapping on a *multi-monitor* host, multi-monitor sharing,
+  and every performance number — nothing has been measured on Linux yet.
 - ⬜ Known gaps kept on purpose: pointer lock is approximate on native Wayland (GTK3
   exposes no pointer-constraints protocol), and the mapped-memory capture fallback is
   slow at 4K. Both are written up in `17-linux-app.md` §6.

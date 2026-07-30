@@ -8,8 +8,9 @@
 #           pipx + JDK 17 (Temurin)
 #   Ubuntu: apt: toolchain C++ + clang/llvm (make coverage) + cmake ninja + JDK 17
 #           + pipx + unzip curl, VÀ dependency của app Ubuntu (client/linux):
-#           GTK3 + PipeWire + VA-API + FFmpeg + EGL/epoxy/libdrm, kèm driver
-#           VA-API và xdg-desktop-portal (xem docs/17-linux-app.md §1)
+#           GTK3 + PipeWire + VA-API + EGL/epoxy/libdrm, kèm driver VA-API và
+#           xdg-desktop-portal (xem docs/17-linux-app.md §1). FFmpeg KHÔNG lấy từ
+#           apt — build-ffmpeg.sh tự dựng bản tối giản để link tĩnh.
 #   Cả hai: clang-format ghim version qua pipx (khớp CI + VS LLVM bên Windows),
 #           ktlint + swiftformat bản ghim tải về tools/ (đã gitignore) cho codestyle.sh,
 #           Android SDK/NDK khớp client/android/app/build.gradle.kts (cần sdkmanager).
@@ -132,11 +133,14 @@ Linux)
     #   va        : mã hoá H.264 trên GPU (vai host)
     #   avcodec   : giải mã H.264 (vai client)
     #   gtk3/epoxy/egl/drm : giao diện + hiển thị
-    echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, FFmpeg, GTK3)..."
+    # KHÔNG có libavcodec-dev ở đây: FFmpeg được tự dựng tối giản và link TĨNH
+    # (scripts/build-ffmpeg.sh giải thích vì sao). `nasm` là để biên dịch phần
+    # assembly x86 của nó.
+    echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, GTK3, nasm)..."
     sudo apt-get install -y \
         libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
         libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev \
-        libavcodec-dev libavutil-dev
+        nasm
 
     # Runtime: driver VA-API cho card của máy + portal cho compositor đang dùng.
     # KHÔNG cài -wlr/-kde tự động: cài nhầm backend portal thì hộp thoại chia sẻ
@@ -144,6 +148,10 @@ Linux)
     # của mình — docs/17-linux-app.md §1 liệt kê đủ.
     echo "[install] VA-API drivers + GNOME portal (KDE/wlroots users: see docs/17 §1)..."
     sudo apt-get install -y va-driver-all vainfo xdg-desktop-portal xdg-desktop-portal-gnome || true
+
+    # FFmpeg tối giản link tĩnh — thay cho libavcodec của hệ thống. Lần đầu tốn
+    # vài phút, lần sau có stamp là thoát ngay.
+    scripts/build-ffmpeg.sh
 
     install_clang_format
     install_format_tools

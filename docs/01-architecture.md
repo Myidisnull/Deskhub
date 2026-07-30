@@ -14,7 +14,7 @@ Two roles, OS-independent; each OS only swaps the hardware backends underneath:
   input events and injects them
   locally. Implemented today on **Windows** (`client/windows/cpp/AgentLoop.cpp`),
   **macOS** (`client/macos/app/cpp/AgentLoop.cpp`) and **Ubuntu**
-  (`client/linux/cpp/AgentLoop.cpp`, not yet run on real hardware).
+  (`client/linux/cpp/AgentLoop.cpp`).
 - **Client role** — receives video, hardware-decodes and renders it, captures mouse /
   keyboard / touch and sends them back. Implemented on **Windows, macOS, Ubuntu,
   Android, iOS**.

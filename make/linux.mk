@@ -19,10 +19,17 @@ ifeq ($(UNAME),Linux)
 LINUX_APP_DEBUG   := out/build/x64-debug/client/linux/deskhub
 LINUX_APP_RELEASE := out/build/x64-release/client/linux/deskhub
 
-build-linux:
+# FFmpeg tối giản dựng trước mọi lần build. KHÔNG để CMake tự lo: gói apt thì
+# thiếu là lỗi của máy, còn cái này là artifact của chính dự án — bắt người dùng
+# chạy tay một script rồi mới build được là thừa một bước vô nghĩa. Có stamp khớp
+# thì nó thoát ngay, nên chi phí gần như bằng 0 từ lần thứ hai.
+ffmpeg-min:
+	@scripts/build-ffmpeg.sh
+
+build-linux: ffmpeg-min
 	@cmake --preset x64-debug && cmake --build --preset x64-debug --target deskhub_app
 
-release-linux:
+release-linux: ffmpeg-min
 	@cmake --preset x64-release && cmake --build --preset x64-release --target deskhub_app
 
 run-linux: build-linux
@@ -38,8 +45,8 @@ setup-linux-permissions:
 	@sudo usermod -aG input "$$USER"
 	@echo "setup-linux-permissions: done — LOG OUT and back in for the group change to apply."
 else
-build-linux release-linux run-linux setup-linux-permissions:
+build-linux release-linux run-linux setup-linux-permissions ffmpeg-min:
 	@echo "make $@: needs Ubuntu/Linux"; exit 1
 endif
 
-.PHONY: build-linux release-linux run-linux setup-linux-permissions
+.PHONY: build-linux release-linux run-linux setup-linux-permissions ffmpeg-min
