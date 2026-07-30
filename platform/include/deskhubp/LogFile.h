@@ -92,6 +92,36 @@ inline std::string LogFileName() {
     return std::string(name);
 }
 
+// Giờ ĐỊA PHƯƠNG dạng "HH:MM:SS", để đóng dấu các dòng trạng thái mỗi giây.
+//
+// ⚠ VÌ SAO CẦN — CHẨN ĐOÁN LUÔN PHẢI ĐỌC HAI LOG CÙNG LÚC.
+//   Mọi sự cố trong dự án này đều nằm giữa hai máy, nên cách làm việc thật là mở
+//   log host và log client cạnh nhau rồi tìm cùng một giây trên cả hai. Trước
+//   30/07/2026 các dòng mỗi-giây KHÔNG có mốc giờ nào: hai file chỉ có giờ bắt đầu
+//   ở tên file, mà hai tiến trình gần như không bao giờ khởi động cùng lúc — và chỉ
+//   cần một bên khởi động lại giữa chừng là mọi phép căn theo "dòng thứ N" sai hết.
+//   Đã mất vài vòng chẩn đoán vì đúng chuyện đó.
+//
+//   Chỉ đóng dấu các dòng MỖI GIÂY chứ không phải mọi dòng: nhánh Windows đổi hướng
+//   thẳng stdout bằng freopen (DiagLog.h) nên không có chỗ chen tiền tố vào từng
+//   dòng, còn các dòng mỗi-giây thì ta gọi tay nên đặt được ở cả ba nền — và chúng
+//   mới là thứ cần căn.
+//
+//   Giờ ĐỊA PHƯƠNG, khớp với quy ước của LogFileName() ở trên. Hai máy lệch múi giờ
+//   thì vẫn phải quy đổi bằng tay, nhưng ca thường gặp là hai máy cạnh nhau.
+inline std::string LocalTimeHms() {
+    const std::time_t now = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
+    return std::string(buf);
+}
+
 #ifdef _WIN32
 
 // ---------------------------------------------------------------------------

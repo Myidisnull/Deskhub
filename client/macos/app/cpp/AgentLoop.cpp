@@ -68,6 +68,7 @@
 #include "capture/ScreenCapture.h"
 #include "encode/VtEncoder.h"
 #include "deskhubp/Clock.h"
+#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 #include "deskhubp/Random.h"
 #include "net/NetInfo.h"
 #include "net/UdpSocket.h"
@@ -999,9 +1000,9 @@ void AgentLoop::Impl::RecvLoop() {
                         p->uiRttMs.load(std::memory_order_relaxed),
                         p->uiRecvKbps.load(std::memory_order_relaxed));
                 LOGI(
-                    "[Agent][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
+                    "[Agent t=%s][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
                     " | input %" PRIu64 " (lost %" PRIu64 ", skipped %" PRIu64 ")%s",
-                    p->name.c_str(), StateName(p->session->state()),
+                    deskhubp::LocalTimeHms().c_str(), p->name.c_str(), StateName(p->session->state()),
                     p->statCaptureFps, p->statSendFps, p->statSendKbps,
                     ist.applied, ist.lost, p->injector.skipped(), link);
                 p->lastCaptured = cap;

@@ -44,6 +44,7 @@
 
 #include "Log.h"
 #include "deskhubp/Clock.h"
+#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 
 #include "deskhub/control/LinkStats.h"
 #include "deskhub/input/KeyMap.h"
@@ -621,9 +622,10 @@ void ClientLoop::NetThread() {
             const deskhub::LinkWindow w = linkStats.Close(st, stBytes, rendered, now);
             const int64_t e2e = lastE2eUs_.load();
 
-            LOGI("[Client] %2.0f fps | %6.0f kbps | dropped %" PRIu64
+            LOGI("[Client t=%s] %2.0f fps | %6.0f kbps | dropped %" PRIu64
                  " frame | lost %4.1f%% pkts"
                  " | fec+%" PRIu64 " | RTT %.1f ms | e2e ~%.1f ms",
+                deskhubp::LocalTimeHms().c_str(),
                 w.fps,
                 w.kbps,
                 w.framesDropped,

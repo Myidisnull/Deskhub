@@ -33,6 +33,7 @@
 #include "Log.h"
 #include "decode/AvDecoder.h"
 #include "deskhubp/Clock.h"
+#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 #include "render/VideoSink.h"
 
 #include "deskhub/control/LinkStats.h"
@@ -493,9 +494,10 @@ void ClientLoop::NetThread() {
             // Thread Decode đã chốt sẵn ở đúng thời điểm vẽ; đây chỉ đọc ra.
             const int64_t e2e = lastE2eUs_.load(std::memory_order_relaxed);
 
-            LOGI("[Client] %2.0f fps | %6.0f kbps | dropped %" PRIu64
+            LOGI("[Client t=%s] %2.0f fps | %6.0f kbps | dropped %" PRIu64
                  " frame | lost %4.1f%% pkts"
                  " | fec+%" PRIu64 " | RTT %.1f ms | e2e ~%.1f ms",
+                deskhubp::LocalTimeHms().c_str(),
                 w.fps, w.kbps, w.framesDropped, w.lossPct, w.packetsRecovered,
                 session.lastRttUs() / 1000.0, e2e >= 0 ? e2e / 1000.0 : 0.0);
 

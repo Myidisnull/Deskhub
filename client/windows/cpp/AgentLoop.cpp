@@ -62,6 +62,7 @@
 #include "encode/IVideoEncoder.h"
 #include "net/NetInfo.h"
 #include "deskhubp/Clock.h"
+#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 #include "deskhubp/Random.h"
 #include "net/UdpSocket.h"
 #include "capture/Downscaler.h"
@@ -1089,9 +1090,9 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                         p->uiRttMs.load(std::memory_order_relaxed),
                         p->uiRecvKbps.load(std::memory_order_relaxed));
                 std::printf(
-                    "[Agent][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
+                    "[Agent t=%s][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
                     " | input %llu (lost %llu, skipped %llu)%s\n",
-                    p->name.c_str(), StateName(p->session->state()),
+                    deskhubp::LocalTimeHms().c_str(), p->name.c_str(), StateName(p->session->state()),
                     (cap - p->lastCaptured) / secs,
                     (fr - p->lastFrames) / secs,
                     (by - p->lastBytes) * 8.0 / 1000.0 / secs,

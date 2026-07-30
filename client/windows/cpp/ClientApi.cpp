@@ -38,6 +38,7 @@
 #include "decode/PanelRenderer.h"
 #include "net/UdpSocket.h"
 #include "deskhubp/Clock.h"
+#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/control/LinkStats.h"
@@ -407,10 +408,10 @@ void DhClientHandle::Run() {
 
             // Dòng trạng thái 1s, đối ứng [Client] của các client kia — đây là bản
             // duy nhất đi vào file log (statsCb chỉ vẽ lên thanh trên của cửa sổ).
-            std::printf("[Client] %2.0f fps | %6.0f kbps | dropped %" PRIu64
+            std::printf("[Client t=%s] %2.0f fps | %6.0f kbps | dropped %" PRIu64
                         " frame | lost %4.1f%% pkts | fec+%" PRIu64
                         " | RTT %.1f ms | e2e ~%.1f ms\n",
-                w.fps, w.kbps, w.framesDropped, w.lossPct, w.packetsRecovered,
+                deskhubp::LocalTimeHms().c_str(), w.fps, w.kbps, w.framesDropped, w.lossPct, w.packetsRecovered,
                 session.lastRttUs() / 1000.0, e2e >= 0 ? e2e / 1000.0 : 0.0);
 
             // Dòng chẩn đoán 1s (docs/09) — đọc-và-reset mọi bộ đếm cửa sổ.
