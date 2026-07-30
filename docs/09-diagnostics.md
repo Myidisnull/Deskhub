@@ -48,35 +48,58 @@ from "packets never arrived".
 
 ## Capturing the log
 
+### Where the log file lives — all three desktop platforms
+
+**`~/.deskhub/` (2026-07-30).** Windows, macOS and Ubuntu all write to the same
+place, so one instruction — *"send me the newest file in `~/.deskhub`"* — is
+correct everywhere. `platform/include/deskhubp/LogFile.h` owns the directory and
+the file-name convention; the per-platform `Log.h` files only decide how lines
+reach it.
+
+- **Path:** `%USERPROFILE%\.deskhub` on Windows, `$HOME/.deskhub` elsewhere
+  (falling back to `getpwuid` when `HOME` is unset, as it can be for processes
+  launched by launchd or a `.desktop` entry). Created on first use, mode `0700`
+  on POSIX — logs carry hostnames, IPs and display names.
+- **File name:** `deskhub-<yyyymmdd>-<hhmmss>-<pid>.log`, using **local**
+  time (users correlate with the wall clock: "it stuttered around 8:30").
+- **One file per process.** The pid keeps concurrent instances apart: on Windows
+  sharing-with-control relaunches `Deskhub.exe` under UAC (`runas` verb,
+  `client/windows/cpp/ElevatedShare.h`), and on any platform you may run two
+  copies to test host↔client. The role (agent/client) is already on every line,
+  so it is not encoded in the name.
+- **`deskhub-latest.log`** (POSIX only) is a symlink to the current process's
+  file, so `tail -f ~/.deskhub/deskhub-latest.log` works without looking up a
+  name. Windows has none — creating symlinks there needs a privilege.
+- **Hot-path safety:** the file gets a 256 KB full buffer (`_IOFBF`), so a log
+  call on the receive/encode path is a memcpy, not a disk write; a detached
+  background thread flushes every ~500 ms (at most one flush cycle is lost on a
+  crash).
+- **Why not next to the executable** (where Windows used to write): the install
+  directory is read-only in exactly the most standard installs — Program Files,
+  `/Applications` (writing inside a `.app` also breaks its signature),
+  `/usr/bin`. The old scheme meant the cleanest installs were the ones with no
+  log at all.
+
+Nothing prunes old logs — one file per run accumulates until the user deletes
+them.
+
 ### Windows
 
 `client/windows/cpp/DiagLog.h` / `DiagLog.cpp` (`StartProcessLog`) redirect
 the **entire process output** — every `printf`/`wprintf` on stdout and stderr,
-including all `[DIAG]` lines — into one file next to the executable, from
-process start until exit. There is no checkbox and no console window anymore:
-the log always exists when you need to send it. Redirection happens at
-startup rather than at session start because failures cluster around
-negotiation and session setup — enabling logging on demand would miss exactly
-the part that matters.
+including all `[DIAG]` lines — into that file, from process start until exit.
+Redirection (rather than the tee used on Unix) is what lets the hundreds of raw
+`printf` call sites stay untouched, and the app has no console to tee to anyway.
+There is no checkbox and no console window: the log always exists when you need
+to send it. Redirection happens at startup rather than at session start because
+failures cluster around negotiation and session setup — enabling logging on
+demand would miss exactly the part that matters.
 
-- **File name:** `deskhub-<yyyymmdd>-<hhmmss>-<pid>.log`, using **local**
-  time (users correlate with the wall clock: "it stuttered around 8:30").
-- **One file per process.** The pid keeps the normal instance and the
-  elevated instance apart when both start within the same second: sharing
-  with control relaunches `Deskhub.exe` under UAC (`runas` verb) with a
-  `--share` command line (`client/windows/cpp/ElevatedShare.h`, driven by
-  the Win32 UI), so two processes may be logging at
-  once. The role (agent/client) is already on every line, so it is not
-  encoded in the name.
-- **Hot-path safety:** stdout gets a 256 KB full buffer (`_IOFBF`), so a
-  `printf` on the receive/encode path is a memcpy, not a disk write; a
-  detached background thread flushes every ~500 ms (at most one flush cycle
-  is lost on a crash). stderr shares the same file but stays unbuffered so
-  rare errors hit disk immediately.
-- If the file cannot be created (read-only directory, e.g. the exe under
-  Program Files), `StartProcessLog` returns false and the app runs without a
-  log. The first line of a successful log is
-  `[DiagLog] <name> started YYYY-MM-DD HH:MM:SS`.
+- stderr shares the same file but stays unbuffered so rare errors hit disk
+  immediately.
+- If the directory or the file cannot be created, `StartProcessLog` returns
+  false and the app runs without a log. The first line of a successful log is
+  `[DiagLog] <full path> started YYYY-MM-DD HH:MM:SS`.
 
 ### Android
 
@@ -96,17 +119,33 @@ prefix (deliberately `fprintf`, not `os_log`, to keep the printf-style call
 sites shared with Android). stderr flows into the Xcode debug console, and
 into Console.app when running on a device.
 
+iOS and Android deliberately stay off the shared `~/.deskhub/` file: `~` there is
+inside the app sandbox, so a file written to it is unreachable for the user who
+would have to send it, while the Xcode console and logcat are the channels those
+platforms already provide.
+
 ### macOS
 
-`client/macos/app/cpp/Log.h` is the same stderr mechanism, shared by **both
-roles** (client and agent). Read it in the Xcode console, or in the Terminal
-when the app is launched from the command line.
+`client/macos/app/cpp/Log.h` writes every line **twice**, shared by **both
+roles** (client and agent): to stderr, and to `~/.deskhub/`. Read it wherever is
+convenient —
+
+```
+tail -f ~/.deskhub/deskhub-latest.log
+```
+
+— or in the Xcode console / the Terminal when the app is launched from the
+command line. The file matters because double-clicking `Deskhub.app` sends
+stderr nowhere: without it, bug reports from non-developers arrive with no log,
+which is precisely when a log is most needed. Teeing (rather than Windows-style
+redirection) keeps the Xcode and Terminal workflows intact, and is cheap here
+because every line already goes through one function, `deskhubp::LogEmit`.
 
 ### Ubuntu
 
-`client/linux/cpp/Log.h` is again the same stderr mechanism, both roles. Read
-it in the terminal that launched `deskhub`, or with
-`journalctl --user -f` when the desktop started it.
+`client/linux/cpp/Log.h` is the same tee, both roles: stderr — the terminal that
+launched `deskhub`, or `journalctl --user -f` when the desktop started it — plus
+`~/.deskhub/`, same `tail -f` command as macOS.
 
 Two host-side fields exist only on this platform, both on the per-source
 `evt=sum` line:

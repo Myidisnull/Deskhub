@@ -1,12 +1,18 @@
 #pragma once
 // =============================================================================
-// DiagLog.h — luôn chuyển toàn bộ log của tiến trình ra một file cạnh exe.
+// DiagLog.h — luôn chuyển toàn bộ log của tiến trình ra một file trong ~/.deskhub.
 //
 // NHIỆM VỤ
 //   client.exe là app GUI thuần (không console). Mọi thứ chương trình in ra bằng
 //   printf/wprintf trên stdout/stderr — kể cả dòng [DIAG] của docs/09 — được đổi
 //   hướng vào một file ngay khi tiến trình khởi động và ở đó tới lúc thoát. Không
 //   còn checkbox, không còn console: log LUÔN có sẵn khi cần gửi đi chẩn đoán.
+//
+// ⚠ THƯ MỤC LOG ĐÃ ĐỔI (2026-07-30)
+//   Trước: cạnh exe. Nay: %USERPROFILE%\.deskhub — cùng đường dẫn với bản macOS và
+//   Ubuntu, và ghi được cả khi exe nằm trong Program Files (chỗ mà cách cũ luôn
+//   thất bại, tức là đúng những lần cài chuẩn nhất lại không có log). Đường dẫn và
+//   quy ước đặt tên nằm ở deskhubp/LogFile.h, dùng chung ba nền.
 //
 // VÌ SAO REDIRECT NGAY LÚC KHỞI ĐỘNG, KHÔNG PHẢI KHI BẮT ĐẦU PHIÊN
 //   Sự cố hay xảy ra ở khâu đàm phán/đầu phiên. Bật log muộn (khi người dùng ra
@@ -28,8 +34,8 @@
 // =============================================================================
 #include <string>
 
-// Mở file log cạnh exe và đổi hướng stdout+stderr vào đó cho tới hết tiến trình.
-// Gọi MỘT LẦN ở đầu wWinMain. Trả false nếu không tạo được file (thư mục chỉ-đọc,
-// ví dụ exe nằm trong Program Files) — chương trình vẫn chạy tiếp, chỉ là không có
-// log. Khi `outPath` khác null, ghi đường dẫn file đã mở vào đó.
+// Mở file log trong ~/.deskhub và đổi hướng stdout+stderr vào đó cho tới hết tiến
+// trình. Gọi MỘT LẦN ở đầu wWinMain. Trả false nếu không dựng được thư mục hoặc
+// không tạo được file — chương trình vẫn chạy tiếp, chỉ là không có log. Khi
+// `outPath` khác null, ghi đường dẫn file đã mở vào đó.
 bool StartProcessLog(std::wstring* outPath = nullptr);

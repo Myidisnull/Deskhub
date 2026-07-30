@@ -47,8 +47,11 @@ C++/ObjC++ role stacks: cpp/client/*, cpp/agent/*, cpp/net/*, cpp/input/*
   otherwise main-thread status polls would deadlock (comment in `DeskhubBridge.mm`).
 - Prefixes: `dh_*` = client role + shared utilities (key map, permissions),
   `dha_*` = agent role.
-- Logging (`cpp/Log.h`) is `fprintf(stderr)` — visible in the Xcode console; user-facing
-  errors must instead travel through `StatusLine()`/`EndReason()`.
+- Logging (`cpp/Log.h`) is `fprintf` to **both** stderr (Xcode console, or Terminal when
+  the binary is run directly) and `~/.deskhub/deskhub-<date>-<pid>.log` — the file is what
+  makes logs exist at all for someone who just double-clicks the `.app`
+  (`platform/include/deskhubp/LogFile.h`, 09-diagnostics.md). User-facing errors must
+  instead travel through `StatusLine()`/`EndReason()`.
 
 **Threading model.** UI polls state on 500 ms `Timer`s in both models. Client role:
 three threads — Main (layer handover, polling, input queueing), Net (`recvfrom` with

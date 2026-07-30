@@ -32,21 +32,13 @@
 #include <io.h>
 #include <thread>
 
+#include "deskhubp/LogFile.h"
+
 namespace {
 
 // Buffer của stdout: đủ lớn để vài giây log dồn dập không làm nó tự đầy giữa hai
 // lần flush nền. Sống trọn đời tiến trình (BSS) vì stdout tham chiếu tới nó.
 char g_logBuf[256 * 1024];
-
-// Thư mục chứa exe. Log nằm cạnh exe để người dùng gửi kèm khỏi phải đi tìm.
-std::wstring ExeDir() {
-    wchar_t path[MAX_PATH] = {};
-    const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return std::wstring();
-    std::wstring s(path, n);
-    const size_t slash = s.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? std::wstring() : s.substr(0, slash + 1);
-}
 
 } // namespace
 
@@ -54,15 +46,24 @@ bool StartProcessLog(std::wstring* outPath) {
     SYSTEMTIME t{};
     GetLocalTime(&t);
 
-    // Giờ ĐỊA PHƯƠNG chứ không phải UTC: người dùng đối chiếu log với "lúc nãy nó
-    // giật khoảng 8 rưỡi", và họ đọc giờ trên đồng hồ máy mình. pid tách file của
-    // instance thường khỏi instance admin khi cùng khởi động trong một giây.
-    wchar_t name[80];
-    swprintf(name, 80, L"deskhub-%04u%02u%02u-%02u%02u%02u-%lu.log",
-        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond,
-        (unsigned long)GetCurrentProcessId());
+    // Tên file: quy ước dùng chung ba nền, giữ ở deskhubp::LogFileName() để không
+    // có hai chỗ định nghĩa cùng một định dạng tên. Giờ ĐỊA PHƯƠNG chứ không phải
+    // UTC (người dùng đối chiếu với đồng hồ máy mình) và có pid để tách file của
+    // instance thường khỏi instance admin — lý do đầy đủ ở LogFile.h.
+    // Tên toàn ASCII nên nới sang wchar_t bằng ép kiểu từng ký tự là đủ — ép TƯỜNG
+    // MINH chứ không dùng constructor theo cặp iterator, thứ để MSVC tự thu hẹp
+    // char→wchar_t và kêu C4244.
+    const std::string nameUtf8 = deskhubp::LogFileName();
+    std::wstring name;
+    name.reserve(nameUtf8.size());
+    for (char c : nameUtf8) name.push_back(static_cast<wchar_t>(c));
 
-    const std::wstring full = ExeDir() + name;
+    // ~/.deskhub chứ không còn cạnh exe (đổi 2026-07-30): cùng đường dẫn với bản
+    // macOS và Ubuntu, và ghi được kể cả khi exe nằm trong Program Files — chỗ mà
+    // cách cũ luôn thất bại.
+    const std::wstring dir = deskhubp::LogDirW();
+    if (dir.empty()) return false;
+    const std::wstring full = dir + L"\\" + name;
 
     if (!_wfreopen(full.c_str(), L"w", stdout)) return false;
     // Buffer lớn: hot path chỉ memcpy, không ghi đĩa từng dòng (xem đầu file).
@@ -75,8 +76,10 @@ bool StartProcessLog(std::wstring* outPath) {
 
     if (outPath) *outPath = full;
 
+    // In ĐƯỜNG DẪN ĐẦY ĐỦ, không chỉ tên file: log không còn nằm cạnh exe nên dòng
+    // đầu tiên phải tự nói ra nó đang ở đâu.
     std::printf("[DiagLog] %ls started %04u-%02u-%02u %02u:%02u:%02u\n",
-        name, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+        full.c_str(), t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 
     // Thread xả buffer ra đĩa định kỳ, KHÔNG trên luồng nóng. Detached: chạy tới khi
     // tiến trình thoát.

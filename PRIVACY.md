@@ -86,9 +86,11 @@ permission, it will be requested in-context and this policy will be updated.
 ## 5. Analytics, advertising, and third parties
 
 - **Analytics / telemetry:** none.
-- **Crash reporting:** none. Diagnostic logs (`[DIAG]`) exist only in the
-  app's local console output and never leave your device unless you copy and
-  send them yourself.
+- **Crash reporting:** none. Diagnostic logs (`[DIAG]`) exist only on your own
+  machine — in the app's console output and, on Windows, macOS and Ubuntu, in
+  plain-text files under `~/.deskhub/` (`%USERPROFILE%\.deskhub` on Windows).
+  They are never uploaded anywhere; they leave your device only if you copy and
+  send them yourself, and you can delete that folder at any time.
 - **Advertising:** none.
 - **Third-party SDKs:** none. The Software is built only from its own source
   code (available at the project page) and operating-system frameworks.
@@ -231,7 +233,9 @@ Không xin quyền nào khác.
 ## 5. Analytics, quảng cáo, bên thứ ba
 
 Không analytics/telemetry, không báo cáo crash (log chẩn đoán `[DIAG]` chỉ nằm
-trong console cục bộ của máy bạn), không quảng cáo, không SDK bên thứ ba.
+trên chính máy bạn: console của app, và trên Windows/macOS/Ubuntu là các tệp văn
+bản trong `~/.deskhub/` — xoá lúc nào cũng được, không bao giờ được gửi đi đâu),
+không quảng cáo, không SDK bên thứ ba.
 Apple App Store / Google Play có thể tự thu thập số liệu cài đặt theo chính
 sách riêng của họ — việc đó ngoài kiểm soát của chúng tôi. Nếu bạn dùng VPN
 (vd Tailscale), lưu lượng do chính sách của nhà cung cấp VPN đó điều chỉnh.
