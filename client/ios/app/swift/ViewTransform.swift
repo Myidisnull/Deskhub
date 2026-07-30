@@ -1,17 +1,19 @@
 // =============================================================================
-// ViewTransform.swift — mức phóng + đoạn kéo của khung nhìn, và huy hiệu hiển thị nó.
+// ViewTransform.swift — mức phóng + đoạn kéo của khung nhìn.
 //
 // Host 4K co vào màn 6 inch thì chữ nhỏ như hạt vừng, nên màn xem cho phép phóng
 // 1×..5×. Toàn bộ TOÁN của việc đó nằm ở đây, một chỗ duy nhất, vì hai nơi dùng nó
 // phải khớp nhau ĐẾN TỪNG PIXEL:
-//   StreamView          — đặt lớp video đúng bằng khung mà `frame(in:aspect:)` trả về.
+//   StreamView          — dựng lớp video đúng bằng khung mà `frame(in:aspect:)` trả về
+//                         (layout ở `baseFrame`, phần phóng phủ lên bằng transform).
 //   TouchCaptureUIView  — kẹp và chuẩn hoá con trỏ theo đúng khung đó.
 // Lệch một pixel là click rơi sai chỗ, mà kiểu sai đó rất khó nhìn ra.
 //
-// Cử chỉ nào sinh ra (factor, panDelta) là việc của TouchInputView.swift; ở đây chỉ
-// nhận số và quy về trạng thái tuyệt đối.
+// Cử chỉ nào sinh ra (factor, centroid, panDelta) là việc của TouchInputView.swift; ở
+// đây chỉ nhận số và quy về trạng thái tuyệt đối.
 //
-// LIÊN QUAN: TouchInputView.swift (nguồn cử chỉ), StreamView.swift (nơi dựng)
+// LIÊN QUAN: TouchInputView.swift (nguồn cử chỉ), StreamView.swift (nơi dựng),
+//            StreamOverlays.swift (ZoomControls — công tắc + mức phóng)
 // =============================================================================
 import SwiftUI
 

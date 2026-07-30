@@ -360,8 +360,10 @@ bool VaEncoder::CreateContexts() {
                          (attrs[1].value & VA_RC_CBR);
     cqpMode_ = !haveCbr;
     if (cqpMode_)
-        LOGI("[VaEnc] Driver offers no CBR — using constant QP with software rate control "
-             "(QP %d..%d).", kQpMin, kQpMax);
+        LOGI(
+            "[VaEnc] Driver offers no CBR — using constant QP with software rate control "
+            "(QP %d..%d).",
+            kQpMin, kQpMax);
 
     packedHeaders_ = (attrs[2].value != VA_ATTRIB_NOT_SUPPORTED) &&
                      (attrs[2].value & VA_ENC_PACKED_HEADER_SEQUENCE) &&
@@ -471,7 +473,7 @@ int VaEncoder::IdrQp() const {
         // client đang xin IDR 4 lần/giây. Đây cũng là chỗ một lần hạ bitrate có tác
         // dụng NGAY ở IDR kế tiếp: budget đã tính theo mục tiêu mới.
         const int predicted = lastIdrQp_ +
-            int(std::lround(std::log(double(lastIdrBytes_) / budget) / std::log(1.125)));
+                              int(std::lround(std::log(double(lastIdrBytes_) / budget) / std::log(1.125)));
         q = std::clamp(predicted, lastIdrQp_ - kIdrQpJump, lastIdrQp_ + kIdrQpJump);
     }
     // IDR không bao giờ mịn hơn P-frame: ưu tiên độ trễ hơn độ nét của keyframe.
@@ -975,8 +977,8 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
         // nhất và đường truyền ít chịu nổi nhất.
         const double frameUs = 1e6 / fps;
         const double elapsedUs = lastEncodeUs_
-            ? std::clamp(double(nowUs - lastEncodeUs_), 0.0, frameUs * kMaxBudgetFrames)
-            : frameUs;
+                                     ? std::clamp(double(nowUs - lastEncodeUs_), 0.0, frameUs * kMaxBudgetFrames)
+                                     : frameUs;
         lastEncodeUs_ = nowUs;
         const double budget = double(cfg_.bitrateBps) / 8.0 * elapsedUs / 1e6;
 
@@ -1030,8 +1032,9 @@ bool VaEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forc
         static thread_local bool warned = false;
         if (!warned) {
             warned = true;
-            LOGE("[VaEnc] Frame is %ux%u but the encoder was built for %ux%u — dropping every "
-                 "frame until it is rebuilt.",
+            LOGE(
+                "[VaEnc] Frame is %ux%u but the encoder was built for %ux%u — dropping every "
+                "frame until it is rebuilt.",
                 fi.width, fi.height, cfg_.width, cfg_.height);
         }
         return false;

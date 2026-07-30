@@ -109,8 +109,7 @@ bool VaDisplay::Open() {
             const char* vendor = vaQueryVendorString(dpy);
             driverName_ = vendor ? vendor : "?";
             LOGI("[VA] %s — VA-API %d.%d, driver: %s, entrypoint: %s", path.c_str(), major, minor,
-                driverName_.c_str(), ep == VAEntrypointEncSliceLP ? "EncSliceLP (low power)"
-                                                                  : "EncSlice");
+                driverName_.c_str(), ep == VAEntrypointEncSliceLP ? "EncSliceLP (low power)" : "EncSlice");
             return;
         }
 

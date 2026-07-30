@@ -115,6 +115,9 @@ final class TouchCaptureUIView: UIView {
     /// nhiều so với việc phải chạm công tắc một cái.
     var panMode = false
 
+    /// Báo lên StreamView khi khung nhìn phải đổi — xem `TouchInputView.onTransform`.
+    var onTransform: (CGFloat, CGPoint, CGSize) -> Void = { _, _, _ in }
+
     // Mũi tên con trỏ: SF Symbol trắng + bóng đen để nổi trên mọi nền video.
     private let cursorView: UIImageView = {
         let view = UIImageView(image: UIImage(systemName: "cursorarrow"))
