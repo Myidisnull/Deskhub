@@ -26,7 +26,23 @@ else()
 
     if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         list(APPEND deskhub_platform_os src/media/DisplayEnumMac.mm)
-    elseif(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_package(PkgConfig)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(DESKHUB_PORTAL IMPORTED_TARGET gio-2.0 gio-unix-2.0)
+        endif()
+        if(DESKHUB_PORTAL_FOUND)
+            list(APPEND deskhub_platform_os
+                src/media/PortalScreenCast.cpp
+                src/media/DisplayEnumLinux.cpp
+            )
+        else()
+            message(STATUS
+                "Deskhub: platform falls back to a stub display enumerator — "
+                "gio-2.0 development packages are missing. Run 'make bootstrap'.")
+            list(APPEND deskhub_platform_os src/media/DisplayEnumNone.cpp)
+        endif()
+    else()
         list(APPEND deskhub_platform_os src/media/DisplayEnumNone.cpp)
     endif()
 endif()
@@ -36,6 +52,7 @@ add_library(platform STATIC
     src/net/SourceQuery.cpp
     src/net/ClientNetLoop.cpp
     src/session/HostNetLoop.cpp
+    src/session/HostAgent.cpp
     src/ffi/ClientFfi.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -45,6 +62,10 @@ target_link_libraries(platform PUBLIC core)
 if(WIN32)
     target_link_libraries(platform PUBLIC ws2_32)
     target_compile_options(platform PRIVATE /W4 /permissive- /sdl)
+endif()
+
+if(DESKHUB_PORTAL_FOUND)
+    target_link_libraries(platform PRIVATE PkgConfig::DESKHUB_PORTAL)
 endif()
 
 if(ANDROID)

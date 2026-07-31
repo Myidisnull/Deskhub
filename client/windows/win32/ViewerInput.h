@@ -3,11 +3,13 @@
 #define NOMINMAX
 #include <windows.h>
 
-struct DhClientHandle;
+#include "deskhub/protocol/Wire.h"
+
+struct DHSession;
 
 class ViewerInput {
 public:
-    bool Attach(HWND hwnd, DhClientHandle* client);
+    bool Attach(HWND hwnd, DHSession* session);
     void Detach();
 
     bool OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
@@ -20,10 +22,10 @@ public:
 private:
     void SetRelativeMode(bool on);
     void OnRawInput(LPARAM lp);
-    void EmitButton(int button, bool down);
+    void EmitButton(deskhub::MouseButton button, bool down);
 
     HWND hwnd_ = nullptr;
-    DhClientHandle* client_ = nullptr;
+    DHSession* session_ = nullptr;
     bool relative_ = false;
     bool attached_ = false;
     int buttonsDown_ = 0;

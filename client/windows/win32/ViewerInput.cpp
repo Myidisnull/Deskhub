@@ -7,7 +7,7 @@
 #include <cstdio>
 
 #include "deskhubp/diag/Log.h"
-#include "DeskhubApi.h"
+#include "deskhubp/ffi/ClientSession.h"
 
 namespace {
 
@@ -21,12 +21,17 @@ int32_t Normalize(int v, uint32_t extent) {
     return deskhub::NormalizeAxis(double(v), double(extent));
 }
 
+deskhub::MouseButton XButtonOf(WPARAM wp) {
+    return GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? deskhub::MouseButton::X1
+                                              : deskhub::MouseButton::X2;
 }
 
-bool ViewerInput::Attach(HWND hwnd, DhClientHandle* client) {
+}
+
+bool ViewerInput::Attach(HWND hwnd, DHSession* session) {
     if (!hwnd) return false;
     hwnd_ = hwnd;
-    client_ = client;
+    session_ = session;
 
     RAWINPUTDEVICE rid[2] = {};
     rid[0].usUsagePage = kUsagePageGeneric;
@@ -56,7 +61,7 @@ void ViewerInput::Detach() {
     RegisterRawInputDevices(rid, 2, sizeof(RAWINPUTDEVICE));
     attached_ = false;
     hwnd_ = nullptr;
-    client_ = nullptr;
+    session_ = nullptr;
 }
 
 void ViewerInput::ToggleRelativeMode() {
@@ -83,13 +88,13 @@ void ViewerInput::SetRelativeMode(bool on) {
     }
 }
 
-void ViewerInput::EmitButton(int button, bool down) {
+void ViewerInput::EmitButton(deskhub::MouseButton button, bool down) {
     if (down) {
         if (buttonsDown_++ == 0) SetCapture(hwnd_);
     } else if (buttonsDown_ > 0) {
         if (--buttonsDown_ == 0 && !relative_ && GetCapture() == hwnd_) ReleaseCapture();
     }
-    if (client_) dh_client_mouse_button(client_, button, down ? 1 : 0);
+    if (session_) dh_session_mouse_button(session_, int32_t(button), down);
 }
 
 void ViewerInput::OnRawInput(LPARAM lp) {
@@ -114,15 +119,15 @@ void ViewerInput::OnRawInput(LPARAM lp) {
 
         int scan = kb.MakeCode;
         if (kb.Flags & RI_KEY_E0) scan |= kScanExtended;
-        if (client_) dh_client_key(client_, int(kb.VKey), scan, down ? 1 : 0);
+        if (session_) dh_session_key(session_, int32_t(kb.VKey), scan, down);
         return;
     }
 
     if (ri->header.dwType == RIM_TYPEMOUSE && relative_) {
         const RAWMOUSE& m = ri->data.mouse;
         if (m.usFlags & MOUSE_MOVE_ABSOLUTE) return;
-        if ((m.lLastX || m.lLastY) && client_)
-            dh_client_mouse_move_rel(client_, m.lLastX, m.lLastY);
+        if ((m.lLastX || m.lLastY) && session_)
+            dh_session_mouse_move_rel(session_, m.lLastX, m.lLastY);
     }
 }
 
@@ -138,28 +143,28 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (relative_) return true;
             RECT r{};
             GetClientRect(hwnd_, &r);
-            if (client_)
-                dh_client_mouse_move(client_,
-                    uint16_t(Normalize(GET_X_LPARAM(lp), uint32_t(r.right - r.left))),
-                    uint16_t(Normalize(GET_Y_LPARAM(lp), uint32_t(r.bottom - r.top))));
+            if (session_)
+                dh_session_mouse_move(session_,
+                    Normalize(GET_X_LPARAM(lp), uint32_t(r.right - r.left)),
+                    Normalize(GET_Y_LPARAM(lp), uint32_t(r.bottom - r.top)));
             return true;
         }
 
-        case WM_LBUTTONDOWN: EmitButton(0, true); return true;
-        case WM_LBUTTONUP: EmitButton(0, false); return true;
-        case WM_RBUTTONDOWN: EmitButton(1, true); return true;
-        case WM_RBUTTONUP: EmitButton(1, false); return true;
-        case WM_MBUTTONDOWN: EmitButton(2, true); return true;
-        case WM_MBUTTONUP: EmitButton(2, false); return true;
+        case WM_LBUTTONDOWN: EmitButton(deskhub::MouseButton::Left, true); return true;
+        case WM_LBUTTONUP: EmitButton(deskhub::MouseButton::Left, false); return true;
+        case WM_RBUTTONDOWN: EmitButton(deskhub::MouseButton::Right, true); return true;
+        case WM_RBUTTONUP: EmitButton(deskhub::MouseButton::Right, false); return true;
+        case WM_MBUTTONDOWN: EmitButton(deskhub::MouseButton::Middle, true); return true;
+        case WM_MBUTTONUP: EmitButton(deskhub::MouseButton::Middle, false); return true;
         case WM_XBUTTONDOWN:
-            EmitButton(GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? 3 : 4, true);
+            EmitButton(XButtonOf(wp), true);
             return true;
         case WM_XBUTTONUP:
-            EmitButton(GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? 3 : 4, false);
+            EmitButton(XButtonOf(wp), false);
             return true;
 
         case WM_MOUSEWHEEL:
-            if (client_) dh_client_wheel(client_, GET_WHEEL_DELTA_WPARAM(wp));
+            if (session_) dh_session_mouse_wheel(session_, GET_WHEEL_DELTA_WPARAM(wp));
             return true;
 
         case WM_KEYDOWN:

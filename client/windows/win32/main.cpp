@@ -29,10 +29,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         const bool elevatedShare = ParseElevatedShareArgs(argc, wargv, sources, opt);
         LocalFree(wargv);
         if (elevatedShare) {
-            SessionWindow session;
-            session.Start();
-            RunAgent(sources, opt, session);
-            session.Stop();
+            RunSharingSession(nullptr, sources, opt);
             return RunMainMenuWindow();
         }
     }

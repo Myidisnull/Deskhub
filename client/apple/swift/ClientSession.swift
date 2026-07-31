@@ -46,7 +46,7 @@ final class ClientSession: @unchecked Sendable {
     }
 
     static func start(address: String, sourceId: UInt8) -> ClientSession? {
-        guard let handle = dh_session_start(address, sourceId) else { return nil }
+        guard let handle = dh_session_start(address, sourceId, nil, nil) else { return nil }
         return ClientSession(handle: handle)
     }
 

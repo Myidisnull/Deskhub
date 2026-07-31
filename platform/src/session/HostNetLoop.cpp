@@ -56,8 +56,6 @@ void ReportWindow(deskhub::SourcePipelineState& st, const HostSourceHooks& hooks
     const bool zeroCopy = hooks.zeroCopy && hooks.zeroCopy(st);
     LOGI("%s", st.diag.FormatSum(line, lineBytes, hms.c_str(), st.name.c_str(), idleFrames,
                    zeroCopy));
-
-    if (hooks.onWindowClosed) hooks.onWindowClosed(st);
 }
 
 }

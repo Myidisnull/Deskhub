@@ -5,16 +5,13 @@
 
 #include <atomic>
 #include <cstdint>
-#include <mutex>
-#include <string>
 #include <thread>
 #include <vector>
 
-#include "AgentControl.h"
 #include "AgentLoop.h"
 #include "SessionRow.h"
 
-class SessionWindow : public AgentControl {
+class SessionWindow {
 public:
     SessionWindow() = default;
     ~SessionWindow() {
@@ -25,32 +22,31 @@ public:
 
     void Start();
 
+    void AttachAgent(AgentLoop& agent);
+
     void Stop();
 
-    bool active() const override {
-        return active_.load(std::memory_order_acquire);
-    }
-    bool stopRequested() const override {
+    bool stopRequested() const {
         return stopReq_.load(std::memory_order_acquire);
     }
-    void SetRows(std::vector<SessionSourceRow> rows) override;
 
 private:
     void ThreadMain();
     LRESULT HandleMsg(HWND h, UINT msg, WPARAM wp, LPARAM lp);
     static LRESULT CALLBACK WndProcThunk(HWND h, UINT msg, WPARAM wp, LPARAM lp);
+    void PullRows();
     void RefreshList();
 
+    std::atomic<AgentLoop*> agent_{nullptr};
     std::thread thread_;
-    std::atomic<bool> active_{false};
     std::atomic<bool> stopReq_{false};
     std::atomic<bool> quitReq_{false};
     std::atomic<HWND> hwnd_{nullptr};
 
-    std::mutex m_;
-    std::vector<SessionSourceRow> rows_;
-    bool dirty_ = false;
-
     std::vector<SessionSourceRow> uiRows_;
+    bool agentAttached_ = false;
     HWND list_ = nullptr;
 };
+
+void RunSharingSession(HWND owner, const std::vector<AgentSource>& sources,
+    const AgentOptions& opt);

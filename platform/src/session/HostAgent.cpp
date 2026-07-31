@@ -1,0 +1,142 @@
+#include "deskhubp/session/HostAgent.h"
+
+#include "deskhub/session/HostRouter.h"
+#include "deskhub/session/HostSession.h"
+#include "deskhub/protocol/Wire.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/net/NetInfo.h"
+#include "deskhubp/system/Clock.h"
+
+#include <chrono>
+#include <cinttypes>
+#include <mutex>
+#include <thread>
+
+namespace deskhubp {
+namespace {
+
+constexpr int kFirstFramePollMs = 10;
+constexpr int kFirstFramePolls = 1000;
+constexpr int kFirstFrameTimeoutSec = kFirstFramePolls * kFirstFramePollMs / 1000;
+
+bool AwaitingFirstFrame(const deskhub::SourcePipelineState& st, const SourcePredicate& closed) {
+    if (st.failed.load()) return false;
+    if (st.srcW.load()) return false;
+    return !(closed && closed(st));
+}
+
+}
+
+void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
+    std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe) {
+    if (!st.session || st.session->state() != deskhub::HostSession::State::Streaming) return;
+
+    const uint64_t nowUs = NowUs();
+    st.diag.encLatMs.Add(nowUs > timestampUs ? uint32_t((nowUs - timestampUs) / 1000) : 0);
+
+    const uint64_t packed = st.peerPacked.load(std::memory_order_acquire);
+    if (!packed) return;
+    const NetAddr peer = NetAddr::Unpack(packed);
+
+    st.packetizer.SetSessionId(st.session->sessionId());
+    st.packetizer.SetFecEnabled(st.wantFec.load(std::memory_order_relaxed));
+
+    const uint64_t sendT0 = NowUs();
+    const size_t pkts = st.packetizer.SendFrame(frame, st.nextFrameId++, timestampUs, keyframe,
+        [&st, &sock, &peer](std::span<const uint8_t> d) {
+            if (sock.SendTo(peer, d.data(), d.size()))
+                st.bytesSent.fetch_add(d.size(), std::memory_order_relaxed);
+            else
+                st.diag.sendFail.Add();
+            std::lock_guard<std::mutex> lk(st.retxMutex);
+            st.retxCache.Store(d);
+        });
+
+    const uint32_t burstMs = uint32_t((NowUs() - sendT0) / 1000);
+    st.diag.burstMs.Add(burstMs);
+    if (!pkts) return;
+
+    st.framesSent.fetch_add(1, std::memory_order_relaxed);
+    if (!keyframe) return;
+    st.diag.idr.Add();
+    st.diag.LatchIdr(frame.size(), uint32_t(pkts), burstMs);
+}
+
+void LogListeningAddresses() {
+    LOGI("[Agent] Listening on UDP port %u. On the other machine, enter one of:",
+        unsigned(kDeskhubPort));
+    for (const AdapterAddr& a : ListLocalIPv4())
+        LOGI("    %s    (%s)", a.ip.c_str(), a.name.c_str());
+}
+
+std::vector<deskhub::SourcePipelineState*> SelectLiveSources(
+    std::span<deskhub::SourcePipelineState* const> pipes, const SourcePredicate& closed,
+    const std::function<bool()>& aborted,
+    const std::function<void(deskhub::SourcePipelineState&)>& shutdown) {
+    for (int i = 0; i < kFirstFramePolls; ++i) {
+        if (aborted && aborted()) break;
+        bool allKnown = true;
+        for (deskhub::SourcePipelineState* p : pipes)
+            if (AwaitingFirstFrame(*p, closed)) allKnown = false;
+        if (allKnown) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(kFirstFramePollMs));
+    }
+
+    std::vector<deskhub::SourcePipelineState*> live;
+    for (deskhub::SourcePipelineState* p : pipes) {
+        if (!p->failed.load() && p->srcW.load()) {
+            live.push_back(p);
+            continue;
+        }
+        if (!p->failed.load())
+            LOGW("[Agent][%s] No frame within %ds — not sharing this source.", p->name.c_str(),
+                kFirstFrameTimeoutSec);
+        if (shutdown) shutdown(*p);
+    }
+    return live;
+}
+
+void EndHostSession(deskhub::SourcePipelineState& st, UdpSocket& sock) {
+    if (!st.session || st.session->state() == deskhub::HostSession::State::Idle) return;
+    const uint64_t packed = st.peerPacked.load();
+    if (!packed) return;
+
+    uint8_t bye[deskhub::kCommonHeaderSize];
+    const size_t n = deskhub::BuildBye(bye, st.session->sessionId());
+    if (n) sock.SendTo(NetAddr::Unpack(packed), bye, n);
+}
+
+std::vector<deskhub::media::AgentSourceStatus> PublishSourceStatus(
+    std::span<deskhub::SourcePipelineState* const> live, deskhub::Beacon& beacon,
+    const SourceStatusHooks& hooks) {
+    std::vector<deskhub::media::AgentSourceStatus> rows;
+    std::vector<deskhub::SourceInfo> infos;
+
+    for (deskhub::SourcePipelineState* p : live) {
+        if (p->failed.load()) continue;
+        if (hooks.closed && hooks.closed(*p)) continue;
+
+        deskhub::StatusExtras extras;
+        extras.zeroCopy = hooks.zeroCopy && hooks.zeroCopy(*p);
+        if (const uint64_t peer = p->peerPacked.load(std::memory_order_relaxed))
+            extras.viewerAddr = NetAddr::Unpack(peer).ToString();
+
+        rows.push_back(deskhub::MakeSourceStatus(*p, extras));
+        infos.push_back(deskhub::MakeSourceInfo(*p));
+    }
+
+    beacon.SetSources(infos);
+    return rows;
+}
+
+void LogTransferTotals(std::span<deskhub::SourcePipelineState* const> pipes) {
+    uint64_t frames = 0;
+    double megabytes = 0;
+    for (deskhub::SourcePipelineState* p : pipes) {
+        frames += p->framesSent.load();
+        megabytes += double(p->bytesSent.load()) / 1e6;
+    }
+    LOGI("[Agent] Stopped. Total: %" PRIu64 " frames sent, %.2f MB.", frames, megabytes);
+}
+
+}

@@ -6,7 +6,7 @@ add_executable(deskhub_app WIN32
     Viewer.cpp
     ViewerInput.cpp
 
-    ../cpp/ClientApi.cpp
+    ../cpp/ClientSessionWin.cpp
 )
 target_include_directories(deskhub_app PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(deskhub_app PRIVATE deskhub_win_core)

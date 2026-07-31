@@ -1,4 +1,4 @@
-﻿#include "capture/PortalScreenCast.h"
+﻿#include "deskhubp/media/PortalScreenCast.h"
 
 #include <gio/gio.h>
 #include <gio/gunixfdlist.h>
@@ -10,6 +10,7 @@
 
 #include "deskhubp/diag/Log.h"
 
+namespace deskhubp {
 namespace {
 
 constexpr const char* kBusName = "org.freedesktop.portal.Desktop";
@@ -368,4 +369,6 @@ void PortalScreenCast::Close() {
         sessionHandle_.clear();
     }
     streams_.clear();
+}
+
 }

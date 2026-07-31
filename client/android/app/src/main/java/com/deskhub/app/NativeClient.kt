@@ -187,6 +187,30 @@ object NativeClient {
         return Transform(r[0], r[1], r[2])
     }
 
+    private external fun nativeHotkeys(): Array<String>
+
+    data class Hotkey(
+        val label: String,
+        val vk: Int,
+        val scan: Int,
+        val modVk: Int,
+        val modScan: Int,
+    )
+
+    val hotkeys: List<Hotkey> by lazy {
+        nativeHotkeys().mapNotNull { line ->
+            val f = line.split('\t', limit = 5)
+            if (f.size < 5) return@mapNotNull null
+            Hotkey(
+                f[0],
+                f[1].toIntOrNull() ?: return@mapNotNull null,
+                f[2].toIntOrNull() ?: return@mapNotNull null,
+                f[3].toIntOrNull() ?: 0,
+                f[4].toIntOrNull() ?: 0,
+            )
+        }
+    }
+
     data class Source(
         val id: Int,
         val width: Int,

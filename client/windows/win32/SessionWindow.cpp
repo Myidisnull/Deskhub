@@ -1,6 +1,11 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#define _CRT_SECURE_NO_WARNINGS
 #include "SessionWindow.h"
+
+#include <cstdio>
+#include <string>
+#include <utility>
 
 namespace {
 
@@ -13,25 +18,54 @@ constexpr UINT kTimerId = 1;
 constexpr UINT kTimerMs = 300;
 constexpr UINT WM_APP_QUIT = WM_APP + 1;
 
+std::wstring FromUtf8(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
+    if (n <= 0) return {};
+    std::wstring w(size_t(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
+    return w;
+}
+
+SessionSourceRow ToRow(const AgentSourceStatus& status) {
+    wchar_t suffix[64];
+    swprintf(suffix, 64, L"  (%ux%u%ls)", status.width, status.height,
+        status.viewerConnected ? L", viewer connected" : L"");
+
+    SessionSourceRow row;
+    row.sourceId = status.sourceId;
+    row.label = FromUtf8(status.name) + suffix;
+    return row;
+}
+
 }
 
 void SessionWindow::Start() {
     thread_ = std::thread(&SessionWindow::ThreadMain, this);
 }
 
+void SessionWindow::AttachAgent(AgentLoop& agent) {
+    agent_.store(&agent, std::memory_order_release);
+}
+
 void SessionWindow::Stop() {
+    agent_.store(nullptr, std::memory_order_release);
     quitReq_.store(true, std::memory_order_release);
     if (HWND h = hwnd_.load(std::memory_order_acquire))
         PostMessageW(h, WM_APP_QUIT, 0, 0);
     if (thread_.joinable()) thread_.join();
-    active_.store(false, std::memory_order_release);
 }
 
-void SessionWindow::SetRows(std::vector<SessionSourceRow> rows) {
-    std::lock_guard<std::mutex> lk(m_);
-    if (rows == rows_) return;
-    rows_ = std::move(rows);
-    dirty_ = true;
+void SessionWindow::PullRows() {
+    AgentLoop* agent = agent_.load(std::memory_order_acquire);
+    if (!agent) return;
+
+    std::vector<SessionSourceRow> rows;
+    for (const AgentSourceStatus& status : agent->Status()) rows.push_back(ToRow(status));
+    if (agentAttached_ && rows == uiRows_) return;
+    agentAttached_ = true;
+    uiRows_ = std::move(rows);
+    RefreshList();
 }
 
 void SessionWindow::RefreshList() {
@@ -42,7 +76,8 @@ void SessionWindow::RefreshList() {
 
     SendMessageW(list_, LB_RESETCONTENT, 0, 0);
     if (uiRows_.empty()) {
-        SendMessageW(list_, LB_ADDSTRING, 0, (LPARAM)L"(nothing is being shared)");
+        SendMessageW(list_, LB_ADDSTRING, 0,
+            (LPARAM)(agentAttached_ ? L"(nothing is being shared)" : L"(starting…)"));
         SendMessageW(list_, LB_SETITEMDATA, 0, (LPARAM)-1);
         return;
     }
@@ -59,16 +94,7 @@ LRESULT SessionWindow::HandleMsg(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_TIMER: {
             if (wp != kTimerId) break;
-            bool need = false;
-            {
-                std::lock_guard<std::mutex> lk(m_);
-                if (dirty_) {
-                    uiRows_ = rows_;
-                    dirty_ = false;
-                    need = true;
-                }
-            }
-            if (need) RefreshList();
+            PullRows();
             return 0;
         }
         case WM_COMMAND: {
@@ -147,7 +173,6 @@ void SessionWindow::ThreadMain() {
     ShowWindow(hwnd, SW_SHOW);
 
     hwnd_.store(hwnd, std::memory_order_release);
-    active_.store(true, std::memory_order_release);
     if (quitReq_.load(std::memory_order_acquire)) DestroyWindow(hwnd);
 
     MSG msg;
@@ -161,6 +186,27 @@ void SessionWindow::ThreadMain() {
     }
 
     hwnd_.store(nullptr, std::memory_order_release);
-    active_.store(false, std::memory_order_release);
     list_ = nullptr;
+}
+
+void RunSharingSession(HWND owner, const std::vector<AgentSource>& sources,
+    const AgentOptions& opt) {
+    constexpr DWORD kIdleWaitMs = 100;
+
+    AgentLoop agent;
+    SessionWindow session;
+    session.Start();
+
+    const bool started = agent.Start(sources, opt);
+    if (started) {
+        session.AttachAgent(agent);
+        while (agent.running() && !session.stopRequested()) Sleep(kIdleWaitMs);
+    }
+
+    session.Stop();
+    agent.Stop();
+
+    if (started) return;
+    const std::wstring msg = L"Could not start sharing.\n\n" + FromUtf8(agent.LastError());
+    MessageBoxW(owner, msg.c_str(), L"Deskhub", MB_OK | MB_ICONERROR);
 }

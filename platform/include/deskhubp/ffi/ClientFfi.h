@@ -34,7 +34,17 @@ typedef struct {
     double panY;
 } DHViewTransform;
 
+typedef struct {
+    char label[16];
+    int32_t vk;
+    int32_t scan;
+    int32_t modVk;
+    int32_t modScan;
+} DHHotkey;
+
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);
+
+int dh_hotkeys(DHHotkey* out, int capacity);
 
 DHViewRect dh_video_rect(double viewportW, double viewportH, double aspect, DHViewTransform t);
 

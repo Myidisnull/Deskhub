@@ -45,6 +45,9 @@ int main() {
     std::printf("--- input: shared scancode table lookups ---\n");
     RunScancodeTableTests();
 
+    std::printf("--- input: shared on-screen hotkey bar ---\n");
+    RunHotkeysTests();
+
     std::printf("--- input: pointer mapping + shared injector dispatch ---\n");
     RunPointerMapTests();
 

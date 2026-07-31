@@ -11,7 +11,19 @@ extern "C" {
 
 typedef struct DHSession DHSession;
 
-DHSession* dh_session_start(const char* address, uint8_t sourceId);
+typedef void (*DHStatusCallback)(const char* statusUtf8, void* user);
+typedef void (*DHSizeCallback)(uint32_t width, uint32_t height, void* user);
+typedef void (*DHClosedCallback)(const char* reasonUtf8, void* user);
+
+typedef struct {
+    DHStatusCallback onStatus;
+    DHSizeCallback onSize;
+    DHClosedCallback onClosed;
+    void* user;
+} DHSessionCallbacks;
+
+DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
+    const DHSessionCallbacks* callbacks);
 
 void dh_session_stop(DHSession* s);
 

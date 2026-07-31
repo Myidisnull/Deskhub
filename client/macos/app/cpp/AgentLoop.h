@@ -7,8 +7,6 @@
 #include <thread>
 #include <vector>
 
-#include "capture/CaptureTypes.h"
-
 #include "deskhub/media/AgentTypes.h"
 
 using AgentSource = deskhub::media::ShareSource;
@@ -32,9 +30,13 @@ public:
 
     std::vector<AgentSourceStatus> Status();
 
+    std::string LastError();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 
     std::atomic<bool> running_{false};
+    std::mutex errMutex_;
+    std::string lastError_;
 };

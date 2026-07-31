@@ -67,6 +67,7 @@ if(DESKHUB_CORE_TESTS)
         tests/input/PressedInputTests.cpp
         tests/input/ClientInputQueueTests.cpp
         tests/input/ScancodeTableTests.cpp
+        tests/input/HotkeysTests.cpp
         tests/input/PointerMapTests.cpp
 
         tests/control/ControlTests.cpp

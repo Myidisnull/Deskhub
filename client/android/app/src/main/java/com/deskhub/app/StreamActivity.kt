@@ -158,28 +158,6 @@ class StreamActivity : ComponentActivity() {
     }
 }
 
-private data class Hotkey(
-    val label: String,
-    val vk: Int,
-    val scan: Int,
-    val modVk: Int = 0,
-    val modScan: Int = 0,
-)
-
-private val kHotkeys =
-    listOf(
-        Hotkey("Esc", 0x1B, 0x01),
-        Hotkey("Tab", 0x09, 0x0F),
-        Hotkey("Enter", 0x0D, 0x1C),
-        Hotkey("↑", 0x26, 0x148),
-        Hotkey("↓", 0x28, 0x150),
-        Hotkey("←", 0x25, 0x14B),
-        Hotkey("→", 0x27, 0x14D),
-        Hotkey("Del", 0x2E, 0x153),
-        Hotkey("Ctrl+C", 0x43, 0x2E, modVk = 0x11, modScan = 0x1D),
-        Hotkey("Ctrl+V", 0x56, 0x2F, modVk = 0x11, modScan = 0x1D),
-    )
-
 @Composable
 private fun StreamScreen(
     address: String,
@@ -599,7 +577,7 @@ private fun ControlPanel(
                     .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            kHotkeys.forEach { hk ->
+            NativeClient.hotkeys.forEach { hk ->
                 OutlinedButton(
                     onClick = {
                         if (hk.modVk != 0) {

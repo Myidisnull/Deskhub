@@ -1,5 +1,6 @@
 #include "deskhubp/ffi/ClientFfi.h"
 
+#include "deskhub/input/Hotkeys.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/diag/Log.h"
@@ -33,6 +34,25 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
         const size_t n = name.size() < room ? name.size() : room;
         std::memcpy(out[i].name, name.data(), n);
         out[i].name[n] = '\0';
+    }
+    return count;
+}
+
+int dh_hotkeys(DHHotkey* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+
+    const std::span<const deskhub::Hotkey> table = deskhub::TouchHotkeys();
+    const int count = int(table.size()) < capacity ? int(table.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        const deskhub::Hotkey& h = table[size_t(i)];
+        const size_t room = sizeof(out[i].label) - 1;
+        const size_t n = std::strlen(h.label) < room ? std::strlen(h.label) : room;
+        std::memcpy(out[i].label, h.label, n);
+        out[i].label[n] = '\0';
+        out[i].vk = h.vk;
+        out[i].scan = h.scan;
+        out[i].modVk = h.modVk;
+        out[i].modScan = h.modScan;
     }
     return count;
 }

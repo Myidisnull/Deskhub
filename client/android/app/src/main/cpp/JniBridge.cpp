@@ -3,11 +3,13 @@
 
 #include <cstdio>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "ClientLoop.h"
 
+#include "deskhub/input/Hotkeys.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/diag/Log.h"
@@ -50,6 +52,22 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
         const DHSourceInfo& s = sources[i];
         char row[320];
         std::snprintf(row, sizeof(row), "%u\t%u\t%u\t%s", s.sourceId, s.width, s.height, s.name);
+        env->SetObjectArrayElement(arr, jsize(i), ToJString(env, row));
+    }
+    return arr;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeHotkeys(JNIEnv* env, jobject) {
+    jclass stringClass = env->FindClass("java/lang/String");
+
+    const std::span<const deskhub::Hotkey> table = deskhub::TouchHotkeys();
+    jobjectArray arr = env->NewObjectArray(jsize(table.size()), stringClass, nullptr);
+    for (size_t i = 0; i < table.size(); ++i) {
+        const deskhub::Hotkey& h = table[i];
+        char row[96];
+        std::snprintf(row, sizeof(row), "%s\t%d\t%d\t%d\t%d", h.label, h.vk, h.scan, h.modVk,
+            h.modScan);
         env->SetObjectArrayElement(arr, jsize(i), ToJString(env, row));
     }
     return arr;

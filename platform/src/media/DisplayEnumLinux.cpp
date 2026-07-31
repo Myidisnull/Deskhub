@@ -2,7 +2,7 @@
 
 #include <utility>
 
-#include "capture/PortalScreenCast.h"
+#include "deskhubp/media/PortalScreenCast.h"
 
 namespace deskhubp {
 

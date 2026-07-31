@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+namespace deskhubp {
+
 struct PortalStream {
     uint32_t nodeId = 0;
     int32_t x = 0, y = 0;
@@ -46,3 +48,5 @@ private:
     std::vector<PortalStream> streams_;
     std::string lastError_;
 };
+
+}

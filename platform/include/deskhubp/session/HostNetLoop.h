@@ -36,7 +36,6 @@ struct HostSourceHooks {
     std::function<uint64_t(const deskhub::SourcePipelineState&)> inputSkipped;
     std::function<uint32_t(deskhub::SourcePipelineState&)> takeIdleFrames;
     std::function<bool(const deskhub::SourcePipelineState&)> zeroCopy;
-    std::function<void(deskhub::SourcePipelineState&)> onWindowClosed;
 };
 
 struct HostNetLoopHooks {

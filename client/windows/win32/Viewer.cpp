@@ -7,7 +7,7 @@
 #include <memory>
 #include <mutex>
 
-#include "DeskhubApi.h"
+#include "deskhubp/ffi/ClientSession.h"
 #include "ViewerInput.h"
 
 namespace {
@@ -34,7 +34,7 @@ std::wstring FromUtf8(const std::string& s) {
 struct ViewerFrame {
     HWND hwnd = nullptr;
     HWND video = nullptr;
-    DhClientHandle* client = nullptr;
+    DHSession* session = nullptr;
     ViewerInput input;
     std::wstring baseTitle;
     std::wstring shownTitle;
@@ -183,32 +183,41 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         f->hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     SetWindowLongPtrW(f->video, GWLP_USERDATA, (LONG_PTR)f.get());
 
-    f->client = dh_client_start_hwnd(addr.c_str(), sourceId, (uint64_t)(uintptr_t)f->video, [](const char* line, void* user) {
-            auto* fr = (ViewerFrame*)user;
-            {
-                std::lock_guard<std::mutex> lk(fr->mu);
-                fr->statsLine = line;
-            }
-            PostMessageW(fr->hwnd, WM_APP_STATS, 0, 0); }, [](uint32_t w, uint32_t h, void* user) {
-            auto* fr = (ViewerFrame*)user;
-            {
-                std::lock_guard<std::mutex> lk(fr->mu);
-                fr->videoW = w;
-                fr->videoH = h;
-            }
-            PostMessageW(fr->hwnd, WM_APP_SIZE, 0, 0); }, [](const char* reason, void* user) {
-            auto* fr = (ViewerFrame*)user;
-            {
-                std::lock_guard<std::mutex> lk(fr->mu);
-                fr->closedReason = reason ? reason : "disconnected";
-            }
-            PostMessageW(fr->hwnd, WM_APP_CLOSED, 0, 0); }, f.get());
-    if (!f->client) {
+    DHSessionCallbacks callbacks{};
+    callbacks.user = f.get();
+    callbacks.onStatus = [](const char* line, void* user) {
+        auto* fr = (ViewerFrame*)user;
+        {
+            std::lock_guard<std::mutex> lk(fr->mu);
+            fr->statsLine = line;
+        }
+        PostMessageW(fr->hwnd, WM_APP_STATS, 0, 0);
+    };
+    callbacks.onSize = [](uint32_t w, uint32_t h, void* user) {
+        auto* fr = (ViewerFrame*)user;
+        {
+            std::lock_guard<std::mutex> lk(fr->mu);
+            fr->videoW = w;
+            fr->videoH = h;
+        }
+        PostMessageW(fr->hwnd, WM_APP_SIZE, 0, 0);
+    };
+    callbacks.onClosed = [](const char* reason, void* user) {
+        auto* fr = (ViewerFrame*)user;
+        {
+            std::lock_guard<std::mutex> lk(fr->mu);
+            fr->closedReason = reason ? reason : "disconnected";
+        }
+        PostMessageW(fr->hwnd, WM_APP_CLOSED, 0, 0);
+    };
+
+    f->session = dh_session_start(addr.c_str(), sourceId, f->video, &callbacks);
+    if (!f->session) {
         DestroyWindow(f->hwnd);
         return nullptr;
     }
 
-    f->input.Attach(f->video, f->client);
+    f->input.Attach(f->video, f->session);
 
     ++g_openFrames;
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
@@ -250,5 +259,5 @@ void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInf
     }
 
     for (auto& f : frames)
-        if (f->client) dh_client_stop(f->client);
+        if (f->session) dh_session_stop(f->session);
 }

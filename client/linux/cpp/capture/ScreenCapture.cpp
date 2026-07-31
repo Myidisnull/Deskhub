@@ -1,6 +1,6 @@
 ﻿#include "capture/ScreenCapture.h"
 
-#include "capture/PortalScreenCast.h"
+#include "deskhubp/media/PortalScreenCast.h"
 
 #include <pipewire/pipewire.h>
 #include <spa/debug/types.h>
@@ -281,7 +281,7 @@ bool ScreenCapture::usingDmaBuf() const {
 
 bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOptions& opt,
     FrameHandler onFrame) {
-    const int portalFd = PortalScreenCast::Instance().pipewireFd();
+    const int portalFd = deskhubp::PortalScreenCast::Instance().pipewireFd();
     const uint32_t nodeId = uint32_t(targetId);
     const uint32_t fps = opt.fps;
     std::call_once(g_pwInit, [] { pw_init(nullptr, nullptr); });

@@ -130,10 +130,7 @@ void DoShare(MenuState& st) {
     }
 
     ShowWindow(st.hwnd, SW_HIDE);
-    SessionWindow session;
-    session.Start();
-    RunAgent(sources, ao, session);
-    session.Stop();
+    RunSharingSession(st.hwnd, sources, ao);
     ShowWindow(st.hwnd, SW_SHOW);
     SetForegroundWindow(st.hwnd);
 }
