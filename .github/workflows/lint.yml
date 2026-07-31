@@ -41,7 +41,7 @@ jobs:
         run: brew install swiftlint
 
       - name: SwiftLint check
-        run: swiftlint lint --strict client/ios/app/swift client/macos/app/swift
+        run: swiftlint lint --strict client/apple/swift client/ios/app/swift client/macos/app/swift
 
   android-lint:
     runs-on: ubuntu-latest

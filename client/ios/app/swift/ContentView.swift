@@ -11,7 +11,9 @@ struct ContentView: View {
             case let .sourcePicker(sources):
                 SourcePickerView(model: model, sources: sources)
             case .stream:
-                StreamView(model: model)
+                if let stream = model.stream {
+                    StreamView(session: model, model: stream)
+                }
             }
         }
         .preferredColorScheme(.dark)

@@ -3,7 +3,8 @@ import SwiftUI
 import UIKit
 
 struct StreamView: View {
-    @Bindable var model: SessionModel
+    @Bindable var session: SessionModel
+    @Bindable var model: StreamModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var layer: AVSampleBufferDisplayLayer?
     @State private var keyboardOn = false
@@ -26,7 +27,7 @@ struct StreamView: View {
                 videoArea
                     .padding(.leading, safeArea.leading)
                     .padding(.trailing, safeArea.trailing)
-                StatusOverlay(model: model, streaming: streaming)
+                StatusOverlay(model: model, streaming: streaming, onBack: session.disconnect)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(safeArea)
                 controlsLayer
@@ -41,7 +42,7 @@ struct StreamView: View {
                 releaseLayer()
             case .active:
                 if let layer {
-                    DeskhubClient.setLayer(layer)
+                    model.setLayer(layer)
                 }
             case .inactive:
                 break
@@ -49,7 +50,7 @@ struct StreamView: View {
                 break
             }
         }
-        .onChange(of: model.currentSourceId) { _, _ in
+        .onChange(of: model.sourceId) { _, _ in
             transform = ViewTransform()
         }
         .onChange(of: transform.isZoomed) { _, zoomed in
@@ -57,13 +58,13 @@ struct StreamView: View {
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            model.streamViewAppeared()
+            model.resumePolling()
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             keyboardOn = false
             releaseLayer()
-            model.streamViewDisappeared()
+            model.suspendPolling()
         }
         .statusBarHidden()
     }
@@ -81,7 +82,7 @@ struct StreamView: View {
             ZStack(alignment: .topLeading) {
                 VideoLayerView { newLayer in
                     layer = newLayer
-                    DeskhubClient.setLayer(newLayer)
+                    model.setLayer(newLayer)
                 }
                 .frame(width: max(base.width, 1), height: max(base.height, 1))
                 .scaleEffect(transform.zoom, anchor: .topLeading)
@@ -213,14 +214,14 @@ struct StreamView: View {
                     .buttonStyle(.bordered)
                     .disabled(!streaming)
 
-                if model.sources.count > 1 {
+                if session.sources.count > 1 {
                     Button("Display") { pickerOpen = true }
                         .buttonStyle(.bordered)
                 }
 
                 Spacer()
 
-                Button("End") { model.disconnect() }
+                Button("End") { session.disconnect() }
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -228,8 +229,8 @@ struct StreamView: View {
         .frame(maxWidth: .infinity)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .confirmationDialog("Display", isPresented: $pickerOpen, titleVisibility: .visible) {
-            ForEach(model.sources) { source in
-                Button(sourceLabel(source)) { model.switchSource(to: source.id) }
+            ForEach(session.sources) { source in
+                Button(sourceLabel(source)) { session.switchSource(to: source.id) }
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -237,7 +238,7 @@ struct StreamView: View {
 
     private func sourceLabel(_ source: Source) -> String {
         let name = source.name.isEmpty ? "Source \(source.id)" : source.name
-        let mark = source.id == model.currentSourceId ? "✓ " : ""
+        let mark = source.id == model.sourceId ? "✓ " : ""
         return "\(mark)\(name) — \(source.width)×\(source.height)"
     }
 
@@ -253,6 +254,6 @@ struct StreamView: View {
     }
 
     private func releaseLayer() {
-        DeskhubClient.setLayer(nil)
+        model.setLayer(nil)
     }
 }

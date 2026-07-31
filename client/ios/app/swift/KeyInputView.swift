@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct KeyInputView: UIViewRepresentable {
-    let model: SessionModel
+    let model: StreamModel
     @Binding var active: Bool
 
     func makeUIView(context _: Context) -> KeyCaptureUIView {
@@ -24,7 +24,7 @@ struct KeyInputView: UIViewRepresentable {
 }
 
 final class KeyCaptureUIView: UIView, UIKeyInput {
-    weak var model: SessionModel?
+    weak var model: StreamModel?
     var onKeyboardDismissed: (() -> Void)?
 
     override var inputAccessoryView: UIView? { accessoryBar }

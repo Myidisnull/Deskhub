@@ -36,13 +36,6 @@ nonisolated enum DeskhubClient {
             return Source(id: info.sourceId, width: info.width, height: info.height, name: name)
         }
     }
-
-    static func mapKey(_ macKeyCode: UInt16) -> (vk: Int32, scan: Int32)? {
-        var vk: Int32 = 0
-        var scan: Int32 = 0
-        guard dh_map_key(macKeyCode, &vk, &scan) else { return nil }
-        return (vk, scan)
-    }
 }
 
 final class ClientSession: @unchecked Sendable {
@@ -68,6 +61,18 @@ final class ClientSession: @unchecked Sendable {
 
     func key(vk: Int32, scan: Int32, down: Bool) {
         dh_session_key(handle, vk, scan, down)
+    }
+
+    func keyTap(vk: Int32, scan: Int32) {
+        dh_session_key_tap(handle, vk, scan)
+    }
+
+    func keyChord(modVk: Int32, modScan: Int32, vk: Int32, scan: Int32) {
+        dh_session_key_chord(handle, modVk, modScan, vk, scan)
+    }
+
+    func charTap(_ codepoint: UInt32) {
+        dh_session_char_tap(handle, codepoint)
     }
 
     func releaseAllInput() {

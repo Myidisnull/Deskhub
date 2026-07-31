@@ -27,6 +27,12 @@
 			path = app;
 			sourceTree = "<group>";
 		};
+		BBSG000100000001006CCD14 /* shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = shared;
+			path = ../apple/swift;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,6 +54,7 @@
 			isa = PBXGroup;
 			children = (
 				BB1620BD3011D2F4006CCD14 /* app */,
+				BBSG000100000001006CCD14 /* shared */,
 				BBGR000100000001006CCD14 /* Frameworks */,
 				BB1620BC3011D2F4006CCD14 /* Products */,
 			);
@@ -90,6 +97,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				BB1620BD3011D2F4006CCD14 /* app */,
+				BBSG000100000001006CCD14 /* shared */,
 			);
 			name = app;
 			packageProductDependencies = (
@@ -230,7 +238,6 @@
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/../../core/include",
 					"$(SRCROOT)/../../platform/include",
-					"$(SRCROOT)/app/cpp",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
@@ -292,7 +299,6 @@
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/../../core/include",
 					"$(SRCROOT)/../../platform/include",
-					"$(SRCROOT)/app/cpp",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
@@ -333,7 +339,11 @@
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
 				);
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-lplatform -lcore";
+				OTHER_LDFLAGS = (
+					"-lplatform",
+					"-lcore",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.ios.deskhub;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -378,7 +388,11 @@
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
 				);
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-lplatform -lcore";
+				OTHER_LDFLAGS = (
+					"-lplatform",
+					"-lcore",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.ios.deskhub;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

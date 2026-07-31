@@ -12,21 +12,14 @@
 #include "AgentLoop.h"
 #include "Permissions.h"
 #include "deskhubp/media/DisplayEnum.h"
-#include "ClientLoop.h"
 #include "input/MacKeyMap.h"
 #include "deskhubp/net/NetInfo.h"
-
-struct DHSession {
-    ClientLoop loop;
-};
 
 namespace {
 
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
-char g_statusBuf[256];
-char g_reasonBuf[256];
 char g_addrBuf[1024];
 
 void CopyToBuf(char* dst, size_t cap, const std::string& s) {
@@ -35,101 +28,6 @@ void CopyToBuf(char* dst, size_t cap, const std::string& s) {
     dst[n] = '\0';
 }
 
-}
-
-namespace {
-
-void LargestScreenPixels(uint32_t& outW, uint32_t& outH) {
-    outW = outH = 0;
-    CGDirectDisplayID ids[16];
-    uint32_t n = 0;
-    if (CGGetActiveDisplayList(16, ids, &n) != kCGErrorSuccess || !n) return;
-    uint64_t bestArea = 0;
-    for (uint32_t i = 0; i < n; ++i) {
-        CGDisplayModeRef m = CGDisplayCopyDisplayMode(ids[i]);
-        if (!m) continue;
-        const uint64_t w = CGDisplayModeGetPixelWidth(m), h = CGDisplayModeGetPixelHeight(m);
-        CGDisplayModeRelease(m);
-        if (!w || !h || w * h <= bestArea) continue;
-        bestArea = w * h;
-        outW = uint32_t(w);
-        outH = uint32_t(h);
-    }
-}
-
-}
-
-DHSession* dh_session_start(const char* address, uint8_t sourceId) {
-    if (!address) return nullptr;
-    NetAddr addr;
-    if (!ParseNetAddr(address, addr)) {
-        LOGE("[Bridge] Invalid address: %s", address);
-        return nullptr;
-    }
-    uint32_t sw = 0, sh = 0;
-    LargestScreenPixels(sw, sh);
-    auto s = std::make_unique<DHSession>();
-    if (!s->loop.Start(addr, sourceId, sw, sh)) return nullptr;
-    return s.release();
-}
-
-void dh_session_stop(DHSession* s) {
-    if (!s) return;
-    s->loop.Stop();
-    delete s;
-}
-
-void dh_session_set_layer(DHSession* s, void* layer) {
-    if (s) s->loop.SetLayer(layer);
-}
-
-void dh_session_key(DHSession* s, int32_t vk, int32_t scan, bool down) {
-    if (s) s->loop.QueueKey(vk, scan, down);
-}
-
-void dh_session_release_all_input(DHSession* s) {
-    if (s) s->loop.ReleaseAllInput();
-}
-
-void dh_session_mouse_move(DHSession* s, int32_t nx, int32_t ny) {
-    if (s) s->loop.QueueMouseMoveAbs(nx, ny);
-}
-
-void dh_session_mouse_move_rel(DHSession* s, int32_t dx, int32_t dy) {
-    if (s) s->loop.QueueMouseMoveRel(dx, dy);
-}
-
-void dh_session_mouse_button(DHSession* s, int32_t button, bool down) {
-    if (s) s->loop.QueueMouseButton(button, down);
-}
-
-void dh_session_mouse_wheel(DHSession* s, int32_t delta) {
-    if (s) s->loop.QueueMouseWheel(delta);
-}
-
-DHPhase dh_session_phase(DHSession* s) {
-    if (!s) return DHPhaseIdle;
-    return DHPhase(int(s->loop.phase()));
-}
-
-const char* dh_session_status_line(DHSession* s) {
-    g_statusBuf[0] = '\0';
-    if (s) CopyToBuf(g_statusBuf, sizeof(g_statusBuf), s->loop.StatusLine());
-    return g_statusBuf;
-}
-
-const char* dh_session_end_reason(DHSession* s) {
-    g_reasonBuf[0] = '\0';
-    if (s) CopyToBuf(g_reasonBuf, sizeof(g_reasonBuf), s->loop.EndReason());
-    return g_reasonBuf;
-}
-
-uint32_t dh_session_video_width(DHSession* s) {
-    return s ? s->loop.videoWidth() : 0;
-}
-
-uint32_t dh_session_video_height(DHSession* s) {
-    return s ? s->loop.videoHeight() : 0;
 }
 
 bool dh_map_key(uint16_t mac_key_code, int32_t* out_vk, int32_t* out_scan) {

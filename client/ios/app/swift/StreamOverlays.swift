@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct StatusOverlay: View {
-    let model: SessionModel
+    let model: StreamModel
     let streaming: Bool
+    let onBack: () -> Void
 
     var body: some View {
         if !model.endReason.isEmpty {
@@ -29,7 +30,7 @@ struct StatusOverlay: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Back") { model.disconnect() }
+            Button("Back", action: onBack)
                 .buttonStyle(.borderedProminent)
         }
         .padding(24)

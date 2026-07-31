@@ -69,8 +69,8 @@ if [ "$ONLY" = all ] || [ "$ONLY" = swift ]; then
             exit 1
         fi
     fi
-    echo "[swiftformat] $(git ls-files 'client/ios/*' 'client/macos/*' | grep -c '\.swift$') files ($SWIFTFORMAT)"
-    SF_ARGS="client/ios client/macos"
+    echo "[swiftformat] $(git ls-files 'client/apple/*' 'client/ios/*' 'client/macos/*' | grep -c '\.swift$') files ($SWIFTFORMAT)"
+    SF_ARGS="client/apple client/ios client/macos"
     if [ "$CHECK" = 1 ]; then SF_ARGS="--lint $SF_ARGS"; fi
     if "$SWIFTFORMAT" $SF_ARGS; then
         echo "  OK"

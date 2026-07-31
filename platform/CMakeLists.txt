@@ -21,7 +21,7 @@ else()
     endif()
 
     if(APPLE)
-        list(APPEND deskhub_platform_os src/media/VtDecoderApple.mm)
+        list(APPEND deskhub_platform_os src/media/VtDecoderApple.mm src/ffi/ClientSessionApple.mm)
     endif()
 
     if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")

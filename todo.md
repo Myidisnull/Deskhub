@@ -252,10 +252,9 @@ Ground rules while working through this:
 
 ---
 
-## Tier 4 — Swift, deferred
+## Tier 4 — Swift
 
-- [ ] **4.1 Unify the iOS and macOS Swift layers.** — *needs a Mac; see the handoff section
-      below for the suggested order and the `.pbxproj` caveat.*
+- [x] **4.1 Unify the iOS and macOS Swift layers.**
       `StreamView` differs by 333 lines, `SessionModel` by 184, `ConnectView` by 210 —
       but the root cause is that the two bridges have different shapes: iOS uses global
       functions over a singleton (`dh_start` / `dh_stop`), macOS uses a handle
@@ -263,13 +262,54 @@ Ground rules while working through this:
       after that `DeskhubClient.swift`, `SessionModel.swift` and `SourcePickerView.swift`
       can live in a shared `client/apple/swift/`. Large, needs a Mac. Do last.
 
+      *Done on a Mac. The session FFI went further down than planned: instead of giving iOS
+      its own copy of the handle-based bridge, the whole thing moved to `platform/` —
+      `deskhubp/ffi/ClientSession.h` + `platform/src/ffi/ClientSessionApple.mm`, compiled
+      once for both Apple targets (`if(APPLE)` in `platform/CMakeLists.txt`). It owns the
+      `DHSession` handle over `ClientEngine<VtDecoder, void*>` and the whole
+      `dh_session_*` surface — the union of what the two apps had, so iOS keeps
+      `key_tap`/`key_chord`/`char_tap` and macOS keeps `mouse_wheel`/`release_all_input`.
+      The one genuinely per-OS bit, the local screen size sent in HELLO, is a
+      `TARGET_OS_IPHONE` branch (`UIScreen.nativeBounds` vs the largest `CGDisplayMode`),
+      both preserved verbatim.
+      Deleted: `client/ios/app/cpp/` entirely (`DeskhubClient.{h,mm}`, `ClientLoop.h`) and
+      `client/macos/app/cpp/ClientLoop.h`. `DeskhubBridge.{h,mm}` keeps only what is
+      actually macOS — the agent (`dha_*`), `dh_map_key` and the permission shims — and
+      dropped 100 lines.
+      Shared Swift now lives in `client/apple/swift/`, reached by a second
+      `FileSystemSynchronizedRootGroup` (`path = ../apple/swift`) in both `.xcodeproj`:
+      - `ClientSession.swift` — `Phase`, `MouseButton`, `Source`, `DeskhubClient.listSources`
+        and the `ClientSession` handle wrapper. Both `DeskhubClient.swift` are gone;
+        `mapKey` stayed behind in `client/macos/app/swift/MacKeyMap.swift`.
+      - `StreamModel.swift` — session lifecycle, the 0.5 s poll, and every input forwarder.
+        macOS's `StreamModel` moved here as-is plus `switchSource(to:name:)` and
+        `resumePolling`/`suspendPolling`, which is what iOS needed.
+      iOS's `SessionModel` is now only navigation (screen, address, source list) and owns a
+      `StreamModel`; `StreamView` takes both, and `TouchInputView`/`KeyInputView`/
+      `StatusOverlay` take the `StreamModel`. `ConnectView`, `SourcePickerView` and
+      `StreamView` stayed per-OS — they diverged for real reasons (touch vs. pointer,
+      one screen vs. one window per source), so the model is shared and the views are not.
+
+      Three things fell out of it:
+      - iOS no longer starts the session on the main thread. `dh_start` used to be called
+        synchronously from `startStream`; the shared `StreamModel.start()` is `async` and
+        hops to a detached task, like macOS already did.
+      - The status/end-reason buffers are per-session now, not two file-scope `char[256]`.
+        macOS opens one window per source, so two viewers polling at once were writing the
+        same buffer; it was only safe because both polls happen on the main actor.
+      - Both platforms now poll on a `.common`-mode timer. macOS used
+        `Timer.scheduledTimer` (default mode), so its status line froze during live resize
+        and menu tracking.
+      Both apps build and run; the `-lc++` note below is the one build-setting change.*
+
 ---
 
 ## Where this stands
 
-Everything except Tier 4 is done.
+Everything is done. Windows, Android, macOS and iOS were all verified by running them, not
+just by compiling. Linux is still the one platform nobody has built.
 
-**Windows and Android are finished and verified by running them, not just compiling.**
+**Windows and Android.**
 
 - Clean rebuild from an empty `out/build/x64-debug`: 81/81 targets, no errors. `core_tests`
   passes standalone and through CTest. `make lint` (C++) is clean.
@@ -293,16 +333,41 @@ swap generation unacknowledged, so the decode thread treated it as a surface cha
 first iteration and fired a spurious `kf_req reason=dec_fail` at session start. `Start()` now
 syncs the acknowledgement — there is nothing to tear down before the first decoder exists.
 
-Not verified here — this machine has no toolchain for them, so these edits are written blind
-and need a build on their own hosts: `client/linux/**`, `client/macos/**`, `client/ios/**`.
-The Linux and macOS input injectors and `AgentLoop`s changed the most. Note that Linux sets
-its `VideoSink` before `Start()`, exactly the path the two `SetSurface` bugs above were on.
+**macOS and iOS**, verified later on a Mac, after Tier 4.1 landed:
+
+- `make test`, `make build-macos`, `make build-ios` and `make lint` are all clean. The
+  round-2 Apple edits that had been written blind on Windows compiled without a single
+  change — the `AgentLoop`, the `InputInjector`, `MacKeyMap`, the `ClientEngine` subclasses
+  and the moved FFI all built as written.
+- Both apps launch: the macOS window comes up, the iOS app runs in the simulator and
+  renders its connect screen.
+- The client path was exercised against a throwaway host that answers the `LIST_SOURCES`
+  beacon on 127.0.0.1, at two levels: a C++ driver over the new `dh_session_*` FFI, and a
+  Swift driver built from the real `client/apple/swift/` sources. Both saw the two
+  advertised sources come back through `dh_list_sources`, opened a session, polled a live
+  status line, queued every input kind, switched source mid-session (source 1 torn down,
+  source 2 negotiating), ended with `could not connect (timed out)` when the fake host
+  never completed the handshake, and stopped cleanly with the threads joined. No spurious
+  `kf_req` at session start on this path.
+
+Not verified: `client/linux/**` still has no build here. Note that Linux sets its
+`VideoSink` before `Start()`, exactly the path the two `SetSurface` bugs above were on.
+
+Not verified on Apple either, because both need something this machine cannot give a
+headless run: the macOS **host** path (ScreenCaptureKit is refused to a CLI — TCC denies
+display capture to anything but the signed app, so `ListDisplays()` returns 0 outside it),
+and therefore any real video end to end. The simulator has no touch-injection API and
+UI scripting is not permitted here, so the on-screen flows — Connect, the source picker,
+the stream view, the F9 mouse lock — were not clicked through. Sharing from the macOS app
+and viewing it from the iOS app is the one check left, and it needs a person.
 
 What the round removed, in round numbers: the three `AgentLoop.cpp` went 1845 → 1427 lines
 against 229 shared; the five `ClientLoop` implementations (1071 lines of `.cpp` plus 195
 inline in `ClientApi.cpp`) became one 474-line template plus five ~25-line subclasses;
 `ClientApi.cpp` went 351 → 156; the three input injectors lost their duplicated dispatch; the
-two Apple bridges lost 92 lines of copy-pasted FFI.
+two Apple bridges lost 92 lines of copy-pasted FFI, and then Tier 4.1 removed what was left of
+them — 698 deleted against 455 added, with the two `ClientLoop.h`, both `DeskhubClient.swift`
+and the whole of `client/ios/app/cpp/` gone.
 
 Bugs found while merging, all fixed:
 
@@ -319,98 +384,48 @@ Bugs found while merging, all fixed:
 
 ---
 
-## Handoff — picking this up on a Mac
+## Apple build notes — what a Mac build actually needed
 
-Windows and Android are finished and were verified by running them. **macOS and iOS were
-edited blind on a Windows machine and have never been compiled.** Everything below is what
-you need to finish them; work through it in order.
+Recorded from the run that finished Tier 4.1, so nobody re-investigates:
 
-### Build and verify
+- **The two `.xcodeproj` needed three edits, all in Tier 4.1.** A second
+  `PBXFileSystemSynchronizedRootGroup` (`name = shared; path = ../apple/swift`) in each
+  project, listed both in the project's main group and in the target's
+  `fileSystemSynchronizedGroups` — a synchronized group only covers `client/<os>/app`, so
+  `client/apple/swift` had to be named explicitly. Everything else, including deleting
+  `client/ios/app/cpp/` outright, is invisible to Xcode.
+- **iOS needs `-lc++` in `OTHER_LDFLAGS`.** Moving the session bridge into `platform/`
+  left the iOS target with no Objective-C++ source of its own, so Xcode links it with the
+  C driver and the C++ runtime `libplatform.a` needs stops being implicit. This is the
+  failure mode to remember if a target ever loses its last `.mm`.
+- **`make lint` does not run SwiftLint — CI does.** `scripts/codestyle.sh` only runs
+  clang-format, ktlint and swiftformat, but `.github/workflows/lint.yml` also runs
+  `swiftlint lint --strict`. That gap had been hiding two `identifier_name` violations in
+  `client/ios/app/swift/ViewTransform.swift` (`let r`, `let t`), which `--strict` turns
+  into errors; they are renamed now, and the workflow's path list gained
+  `client/apple/swift`. Worth folding SwiftLint into `codestyle.sh` — `bootstrap.sh`
+  already installs it on macOS — so the local loop matches CI.
+- **Everything else was already in place.** Both targets pass `-lplatform -lcore`, both
+  have `$(SRCROOT)/../../platform/include` in `HEADER_SEARCH_PATHS` (so the Swift bridging
+  header can `#import "deskhubp/ffi/ClientSession.h"`), both are `gnu++20`, and both run
+  the "Build libcore.a (CMake)" pre-build phase — the iOS one with
+  `-DCMAKE_SYSTEM_NAME=iOS`, which still sets `APPLE`, so the `if(APPLE)` sources in
+  `platform/CMakeLists.txt` reach both.
 
-From the repo root on the Mac:
+### If something breaks on Apple, look here first
 
-```sh
-make test                 # core_tests, offline — start here, it needs no Xcode
-make build-macos          # xcodebuild, Debug
-make run-macos
-make build-ios            # iphonesimulator, Debug
-make run-ios
-make lint                 # C++ / Kotlin / Swift, what CI enforces
-```
-
-`make test` should pass unchanged — it is the same `core_tests` that passes on Windows, and
-it covers the new `FrameGate`, `ClampEncodeSize`, `PointerMap`, `InputApplier` and
-status-projection logic. If it fails, the problem is in `core/`, not in the Apple code.
-
-### Build-system questions already answered
-
-These were checked against the two `.xcodeproj` files, so you do not need to re-investigate:
-
-- **No `project.pbxproj` edits are needed.** Both projects are `objectVersion = 77` with
-  `FileSystemSynchronizedRootGroup`, and neither ever referenced `ClientLoop.cpp` by name, so
-  deleting it and adding nothing new under `client/<os>/app` is invisible to Xcode.
-- **The new `platform/` sources are picked up automatically.** Both projects have a
-  "Build libcore.a (CMake)" pre-build phase that runs `cmake --build ... --target platform`,
-  and `platform/CMakeLists.txt` now lists `src/session/HostNetLoop.cpp` and
-  `src/ffi/ClientFfi.cpp`.
-- **The FFI symbols will link.** Both targets already pass `OTHER_LDFLAGS = "-lplatform -lcore"`,
-  so `dh_list_sources`, `dh_video_rect`, `dh_apply_gesture` and `dh_normalize_pointer` — which
-  moved out of the two `.mm` files into `platform/src/ffi/ClientFfi.cpp` — resolve from
-  `libplatform.a`.
-- **The new shared header is reachable.** `HEADER_SEARCH_PATHS` already contains
-  `$(SRCROOT)/../../platform/include` on both targets, which covers both the Objective-C++
-  compile and the Swift bridging-header import of `deskhubp/ffi/ClientFfi.h`.
-- **C++20 is on.** Both targets are `CLANG_CXX_LANGUAGE_STANDARD = "gnu++20"`, which the
-  `requires` clause on `ClientEngine` needs.
-
-### What changed on the Apple side
-
-| File | Change |
-|---|---|
-| `client/macos/app/cpp/ClientLoop.cpp`, `client/ios/app/cpp/ClientLoop.cpp` | **Deleted.** |
-| `client/macos/app/cpp/ClientLoop.h`, `client/ios/app/cpp/ClientLoop.h` | Now a ~25-line subclass of `deskhubp::ClientEngine<VtDecoder, void*>` that keeps the old method names (`SetLayer`, `Finished`, `Start(server, sourceId, w, h)`), so `DeskhubBridge.mm` / `DeskhubClient.mm` call sites are unchanged. |
-| `client/macos/app/cpp/AgentLoop.cpp` | `AttachSession` now builds its callbacks with `deskhubp::MakeHostCallbacks`; `RecvLoop` is now `deskhubp::RunHostNetLoop`; `PublishStatus` uses `deskhub::MakeSourceStatus` / `MakeSourceInfo`. 591 → 458 lines. |
-| `client/macos/app/cpp/input/InputInjector.{h,mm}` | Derives from `deskhub::InputApplier<InputInjector, uint16_t>`; `Apply()` is now three lines that call `DispatchInput`. `SendKey` gained an ignored `scan` parameter, and `OnLocalUserTookOver` / `OnLocalUserIdle` replaced the inline log lines. Uses `AbsCoordToAxis` and `WheelNotches`. |
-| `client/macos/app/cpp/input/MacKeyMap.cpp` | Raw VK literals replaced with the `kVk*` constants. Values are identical — worth a diff read, it is the one change with no compiler to catch a typo. |
-| `client/macos/app/cpp/DeskhubBridge.{h,mm}`, `client/ios/app/cpp/DeskhubClient.{h,mm}` | Shared C types and the three ViewFit shims moved to `deskhubp/ffi/ClientFfi.h`; the duplicate implementations were deleted from both `.mm` files. |
-
-### If something breaks, look here first
-
-1. **`MacKeyMap.cpp`.** A mistranscribed constant compiles fine and shows up as one wrong key.
-   Diff it against the previous revision before trusting it.
-2. **`InputInjector::ReleaseAll` on macOS.** It iterates a copy of `held_.heldKeys()` and calls
-   `SendKey(vk, 0, false)`, which writes back into `held_`. The copy makes that safe, but it is
-   the kind of thing to confirm under a debugger once.
+1. **`MacKeyMap.cpp`.** The raw VK literals became `kVk*` constants with no compiler able
+   to catch a mistranscription. It builds; a wrong constant shows up as one wrong key.
+   Nobody has typed on a real session through it yet.
+2. **`InputInjector::ReleaseAll` on macOS.** It iterates a copy of `held_.heldKeys()` and
+   calls `SendKey(vk, 0, false)`, which writes back into `held_`. The copy makes that safe,
+   but it is worth confirming under a debugger once.
 3. **`hooks.retarget` on macOS.** `MakeHostCallbacks` stores the client size into
    `st.cliW`/`st.cliH` and *then* calls `retarget()`, which reads them back and forwards to
    `capture.SetClientSize`. If negotiation comes out at the wrong size, this ordering is why.
-4. **Linux-style `SetSurface` timing.** macOS and iOS call `SetLayer` *after* `Start()`, which
-   is the safe order. Linux calls it before, which used to deadlock and then used to fire a
-   spurious keyframe request; both are fixed in `ClientEngine`, but if you touch that ordering
-   on Apple, that is the trap.
-
-### Then: Tier 4.1, the Swift unification
-
-This is the only backlog item still open, and it is the reason the two Swift layers still
-diverge (`StreamView` by 333 lines, `SessionModel` by 184, `ConnectView` by 210). The root
-cause is that the two bridges have different shapes:
-
-- iOS: global functions over a process singleton — `dh_start(addr, id)`, `dh_stop()`,
-  `dh_set_layer(layer)`, `dh_phase()`.
-- macOS: a handle — `dh_session_start(addr, id) -> DHSession*`, `dh_session_stop(s)`, …
-
-Suggested order:
-
-1. Move iOS to the handle-based bridge. `DeskhubClient.mm` already wraps a
-   `std::shared_ptr<ClientLoop>` in a file-scope global; the handle version is the same object
-   returned to the caller instead. Keep the C names macOS already uses so the Swift side
-   converges rather than gaining a third spelling.
-2. Once the two bridges match, `DeskhubClient.swift`, `SessionModel.swift` and
-   `SourcePickerView.swift` can move to a shared `client/apple/swift/`. **This step does need
-   `.pbxproj` edits** — a new `FileSystemSynchronizedRootGroup` for `client/apple/swift` in
-   both projects — because the synchronized groups only cover `client/<os>/app`.
-3. `StreamView` and `ConnectView` are genuinely different (touch vs. pointer, phone vs.
-   window). Do not force those together; share the model, not the view.
+4. **`SetLayer` timing.** macOS and iOS call it *after* `Start()`, which is the safe order.
+   Linux calls it before — the path that used to deadlock and then used to fire a spurious
+   keyframe request. Both are fixed in `ClientEngine`; don't reorder it on Apple.
 
 ---
 

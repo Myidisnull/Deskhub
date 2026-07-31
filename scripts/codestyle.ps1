@@ -65,9 +65,9 @@ if ($Only -in @('all', 'swift')) {
         if (-not (Test-Path $swiftformat)) { throw "tools\swiftformat.exe not found - run 'make bootstrap' first." }
     }
 
-    $swift = git ls-files 'client/ios/*' | Where-Object { $_ -match '\.swift$' }
+    $swift = git ls-files 'client/apple/*' 'client/ios/*' | Where-Object { $_ -match '\.swift$' }
     Write-Host "[swiftformat] $($swift.Count) files ($swiftformat)"
-    $sfArgs = @('client/ios')
+    $sfArgs = @('client/apple', 'client/ios')
     if ($Check) { $sfArgs += '--lint' }
     & $swiftformat @sfArgs
     if ($LASTEXITCODE -ne 0) { if ($Check) { $fail = 1 } }

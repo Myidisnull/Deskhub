@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct TouchInputView: UIViewRepresentable {
-    let model: SessionModel
+    let model: StreamModel
     let videoRect: CGRect
     var blockedRect: CGRect = .zero
     var panMode = false
@@ -24,7 +24,7 @@ struct TouchInputView: UIViewRepresentable {
 }
 
 final class TouchCaptureUIView: UIView {
-    weak var model: SessionModel?
+    weak var model: StreamModel?
 
     var videoRect: CGRect = .zero {
         didSet {
