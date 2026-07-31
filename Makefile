@@ -51,7 +51,8 @@
 #   make lint           check style for all three without fixing (run before pushing to match CI)
 #   make format-cpp     / lint-cpp      C++ only (clang-format: core/ platform/ client/)
 #   make format-kotlin  / lint-kotlin   Kotlin only (ktlint: client/android)
-#   make format-swift   / lint-swift    Swift only (swiftformat: client/ios + client/macos)
+#   make format-swift   / lint-swift    Swift only (swiftformat + swiftlint --strict:
+#                                       client/apple + client/ios + client/macos)
 #
 #   make clean
 

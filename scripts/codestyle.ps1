@@ -65,13 +65,25 @@ if ($Only -in @('all', 'swift')) {
         if (-not (Test-Path $swiftformat)) { throw "tools\swiftformat.exe not found - run 'make bootstrap' first." }
     }
 
-    $swift = git ls-files 'client/apple/*' 'client/ios/*' | Where-Object { $_ -match '\.swift$' }
+    $swift = git ls-files 'client/apple/*' 'client/ios/*' 'client/macos/*' | Where-Object { $_ -match '\.swift$' }
     Write-Host "[swiftformat] $($swift.Count) files ($swiftformat)"
-    $sfArgs = @('client/apple', 'client/ios')
+    $sfArgs = @('client/apple', 'client/ios', 'client/macos')
     if ($Check) { $sfArgs += '--lint' }
     & $swiftformat @sfArgs
     if ($LASTEXITCODE -ne 0) { if ($Check) { $fail = 1 } }
     else { Write-Host "  OK" }
+
+    $swiftlint = (Get-Command swiftlint -ErrorAction SilentlyContinue).Source
+    if (-not $swiftlint) {
+        Write-Host "[swiftlint] skipped (swiftlint not found)"
+    } else {
+        $slDirs = @('client/apple/swift', 'client/ios/app/swift', 'client/macos/app/swift')
+        Write-Host "[swiftlint] $($slDirs -join ' ') ($swiftlint)"
+        if (-not $Check) { & $swiftlint lint --fix --quiet @slDirs | Out-Null }
+        & $swiftlint lint --strict --quiet @slDirs
+        if ($LASTEXITCODE -ne 0) { if ($Check) { $fail = 1 } }
+        else { Write-Host "  OK" }
+    }
 }
 
 if ($fail) { Write-Host "codestyle: FAILED"; exit 1 }

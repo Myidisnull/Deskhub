@@ -208,13 +208,14 @@ private:
 
         const uint64_t generation = surfaceGen_;
         lk.unlock();
+        const bool hadDecoder = decoder.IsOpen();
         decoder.Shutdown();
         lk.lock();
 
         surfaceAckGen_ = generation;
         surfaceAckCv_.notify_all();
         rebuildDecoder_.store(false);
-        decodeFailed_.store(true, std::memory_order_release);
+        if (hadDecoder) decodeFailed_.store(true, std::memory_order_release);
         return true;
     }
 
