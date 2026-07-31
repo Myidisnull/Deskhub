@@ -10,15 +10,21 @@ add_library(core STATIC
 
     src/session/HostSession.cpp
     src/session/ClientSession.cpp
+    src/session/ClientPump.cpp
+    src/session/HostFeedback.cpp
+    src/session/HostRouter.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
+    src/input/ClientInputQueue.cpp
 
     src/control/BitrateController.cpp
     src/control/LinkStats.cpp
     src/control/StreamSize.cpp
     src/control/ClockOffset.cpp
     src/control/QualityLadder.cpp
+
+    src/media/ViewFit.cpp
 
     src/diag/ClientDiag.cpp
     src/diag/AgentDiag.cpp
@@ -49,10 +55,17 @@ if(DESKHUB_CORE_TESTS)
         tests/transport/ReassemblerTests.cpp
         tests/transport/FecTests.cpp
         tests/transport/RetransmitCacheTests.cpp
+        tests/transport/PacerTests.cpp
 
         tests/session/SessionTests.cpp
+        tests/session/ClientPumpTests.cpp
+        tests/session/HostFeedbackTests.cpp
+        tests/session/HostRouterTests.cpp
 
         tests/input/InputTests.cpp
+        tests/input/PressedInputTests.cpp
+        tests/input/ClientInputQueueTests.cpp
+        tests/input/ScancodeTableTests.cpp
 
         tests/control/ControlTests.cpp
         tests/control/StreamSizeTests.cpp
@@ -62,6 +75,8 @@ if(DESKHUB_CORE_TESTS)
         tests/diag/DiagTests.cpp
 
         tests/media/ContractTests.cpp
+        tests/media/BitWriterTests.cpp
+        tests/media/ViewFitTests.cpp
 
         tests/session/BeaconTests.cpp
     )

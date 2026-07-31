@@ -96,11 +96,11 @@ struct ScreenCapture::Impl {
             if (onFrame) {
                 FrameInfo info{};
                 info.texture = tex.get();
-                info.width = static_cast<uint32_t>(size.Width);
-                info.height = static_cast<uint32_t>(size.Height);
-                info.timestampUs =
+                info.meta.width = static_cast<uint32_t>(size.Width);
+                info.meta.height = static_cast<uint32_t>(size.Height);
+                info.meta.timestampUs =
                     static_cast<uint64_t>(frame.SystemRelativeTime().count()) / 10ull;
-                info.frameId = frameId.fetch_add(1);
+                info.meta.frameId = frameId.fetch_add(1);
                 onFrame(info);
             }
         }
@@ -113,7 +113,15 @@ ScreenCapture::~ScreenCapture() {
     Stop();
 }
 
-bool ScreenCapture::Start(HMONITOR monitor, ID3D11Device* device, FrameHandler onFrame) {
+void ScreenCapture::SetDevice(ID3D11Device* device) {
+    pendingDevice_ = device;
+}
+
+bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOptions& opt,
+    FrameHandler onFrame) {
+    (void)opt;
+    HMONITOR monitor = (HMONITOR)(uintptr_t)targetId;
+    ID3D11Device* device = pendingDevice_;
     if (!wgc::GraphicsCaptureSession::IsSupported()) {
         std::printf("Windows Graphics Capture is not supported on this machine.\n");
         return false;

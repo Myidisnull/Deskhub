@@ -53,9 +53,7 @@ add_executable(deskhub_app
 
     cpp/input/InputInjector.cpp
     cpp/input/LinuxKeyMap.cpp
-    cpp/input/LocalInputMonitor.cpp
 
-    cpp/net/NetInfo.cpp
 )
 
 set_target_properties(deskhub_app PROPERTIES OUTPUT_NAME deskhub)

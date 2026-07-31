@@ -3,10 +3,11 @@
 #define NOMINMAX
 #include <windows.h>
 #include <cstdint>
-#include <map>
-#include <set>
 
+#include "deskhub/input/PressedInputTracker.h"
 #include "deskhub/protocol/Wire.h"
+
+class LocalInputMonitor;
 
 class InputInjector {
 public:
@@ -21,11 +22,15 @@ public:
         return enabled_;
     }
 
+    void SetLocalMonitor(LocalInputMonitor* mon) {
+        localMon_ = mon;
+    }
+
     uint64_t applied() const {
-        return applied_;
+        return held_.applied();
     }
     uint64_t skipped() const {
-        return skipped_;
+        return held_.skipped();
     }
 
 private:
@@ -35,10 +40,8 @@ private:
     void SendMoveRelative(int32_t dx, int32_t dy);
 
     HMONITOR monitor_ = nullptr;
+    LocalInputMonitor* localMon_ = nullptr;
     bool enabled_ = true;
-    bool localSuppressed_ = false;
-    uint64_t applied_ = 0;
-    uint64_t skipped_ = 0;
-    std::map<int32_t, int32_t> keysDown_;
-    std::set<deskhub::MouseButton> buttonsDown_;
+
+    deskhub::PressedInputTracker<int32_t> held_;
 };

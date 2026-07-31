@@ -18,11 +18,32 @@ int main() {
     std::printf("--- transport: retransmit/NACK ---\n");
     RunRetransmitCacheTests();
 
+    std::printf("--- transport: send pacer ---\n");
+    RunPacerTests();
+
     std::printf("--- session ---\n");
     RunSessionTests();
 
+    std::printf("--- session: client pump (ingest + keyframes + reporting) ---\n");
+    RunClientPumpTests();
+
+    std::printf("--- session: host feedback policy (bitrate, FEC, quality, NACK) ---\n");
+    RunHostFeedbackTests();
+
+    std::printf("--- session: host router (demux, re-offer, keepalive timing) ---\n");
+    RunHostRouterTests();
+
     std::printf("--- input ---\n");
     RunInputTests();
+
+    std::printf("--- input: held keys/buttons + host-wins gate ---\n");
+    RunPressedInputTests();
+
+    std::printf("--- input: client-side queue (taps, chords, delayed release) ---\n");
+    RunClientInputQueueTests();
+
+    std::printf("--- input: shared scancode table lookups ---\n");
+    RunScancodeTableTests();
 
     std::printf("--- control: bitrate + link stats ---\n");
     RunControlTests();
@@ -41,6 +62,12 @@ int main() {
 
     std::printf("--- media: encoder/decoder signature contract ---\n");
     RunMediaContractTests();
+
+    std::printf("--- media: H.264 bit writer (exp-golomb + emulation prevention) ---\n");
+    RunBitWriterTests();
+
+    std::printf("--- media: view fit (letterbox, zoom/pan, pointer mapping) ---\n");
+    RunViewFitTests();
 
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();

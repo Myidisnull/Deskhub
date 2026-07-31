@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(Deskhub LANGUAGES CXX)
 
+# Objective-C++ sources in platform/: the local-input monitor (macOS) and the
+# VideoToolbox decoder (macOS + iOS).
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

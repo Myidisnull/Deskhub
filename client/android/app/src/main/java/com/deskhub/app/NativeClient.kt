@@ -130,6 +130,29 @@ object NativeClient {
 
     external fun nativeVideoHeight(): Int
 
+    external fun nativeVideoFrame(
+        viewportW: Float,
+        viewportH: Float,
+        aspect: Float,
+        zoom: Float,
+        panX: Float,
+        panY: Float,
+    ): FloatArray
+
+    external fun nativeApplyGesture(
+        zoom: Float,
+        panX: Float,
+        panY: Float,
+        factor: Float,
+        centroidX: Float,
+        centroidY: Float,
+        panDeltaX: Float,
+        panDeltaY: Float,
+        viewportW: Float,
+        viewportH: Float,
+        aspect: Float,
+    ): FloatArray
+
     data class Source(
         val id: Int,
         val width: Int,

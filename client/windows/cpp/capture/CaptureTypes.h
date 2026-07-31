@@ -5,10 +5,12 @@
 #include <d3d11.h>
 #include <cstdint>
 
+#include "deskhub/media/CaptureContract.h"
+
 struct FrameInfo {
-    ID3D11Texture2D* texture;
-    uint32_t width;
-    uint32_t height;
-    uint64_t timestampUs;
-    uint64_t frameId;
+    ID3D11Texture2D* texture = nullptr;
+    deskhub::media::FrameMeta meta;
 };
+
+static_assert(deskhub::media::CapturedFrameLike<FrameInfo>,
+    "FrameInfo must carry the shared frame metadata");

@@ -28,7 +28,7 @@ std::vector<ShareSource> GetShareSources() {
     int displayIndex = 1;
     for (SCDisplay* d in content.displays) {
         ShareSource s;
-        s.displayId = uint32_t(d.displayID);
+        s.targetId = uint64_t(d.displayID);
         s.width = uint32_t(d.width);
         s.height = uint32_t(d.height);
         char label[128];

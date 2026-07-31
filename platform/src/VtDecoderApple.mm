@@ -2,7 +2,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <VideoToolbox/VideoToolbox.h>
 
-#include "decode/VtDecoder.h"
+#include "deskhubp/VtDecoder.h"
 
 #include <cstring>
 #include <vector>
@@ -62,6 +62,7 @@ bool VtDecoder::Init(void* layer, int width, int height) {
     if (!layer) return false;
     layer_ = layer;
     rendered_ = 0;
+    lastRenderedPtsUs_ = 0;
     LOGI("[Decoder] VideoToolbox H.264 target %dx%d ready (AVSampleBufferDisplayLayer).",
         width, height);
     return true;
@@ -93,7 +94,12 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
         else if (x.type == 8)
             pps = &x;
     }
-    if (sps && pps && sps->len <= sizeof(sps_) && pps->len <= sizeof(pps_)) {
+    if (sps && pps && (sps->len > sizeof(sps_) || pps->len > sizeof(pps_))) {
+        LOGE("[Decoder] SPS/PPS too large (%zu/%zu bytes) — rejecting frame.",
+            sps->len, pps->len);
+        return false;
+    }
+    if (sps && pps) {
         const bool changed = !formatDesc_ || sps->len != spsLen_ || pps->len != ppsLen_ ||
                              std::memcmp(sps->ptr, sps_, spsLen_) != 0 ||
                              std::memcmp(pps->ptr, pps_, ppsLen_) != 0;

@@ -1,13 +1,11 @@
 #pragma once
 #include <cstdint>
 
+#include "deskhub/input/ScancodeTable.h"
+
 namespace linuxkeys {
 
-struct KeyEntry {
-    uint16_t evdev;
-    int32_t vk;
-    int32_t scan;
-};
+using KeyEntry = deskhub::ScancodeEntry<uint16_t>;
 
 inline uint16_t GdkKeycodeToEvdev(uint32_t hardwareKeycode) {
     return hardwareKeycode >= 8 ? uint16_t(hardwareKeycode - 8) : 0;

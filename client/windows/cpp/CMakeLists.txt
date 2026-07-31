@@ -4,9 +4,7 @@ set(NVENC_INTERFACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/nvenc-
 add_library(deskhub_win_core STATIC
     AgentLoop.cpp
     ElevatedShare.cpp
-    DiagLog.cpp
 
-    net/NetInfo.cpp
     net/Firewall.cpp
 
     capture/ScreenCapture.cpp
@@ -22,7 +20,6 @@ add_library(deskhub_win_core STATIC
     decode/PanelRenderer.cpp
 
     input/InputInjector.cpp
-    input/LocalInputMonitor.cpp
 )
 
 target_compile_definitions(deskhub_win_core PUBLIC UNICODE _UNICODE)

@@ -11,9 +11,8 @@
 #include "deskhubp/Clock.h"
 #include "deskhubp/LogFile.h"
 
-#include "deskhub/control/LinkStats.h"
 #include "deskhub/input/KeyMap.h"
-#include "deskhub/session/ClientSession.h"
+#include "deskhub/session/ClientPump.h"
 #include "deskhub/protocol/Wire.h"
 
 ClientLoop::~ClientLoop() {
@@ -31,108 +30,27 @@ std::string ClientLoop::EndReason() {
 }
 
 void ClientLoop::QueueKeyTap(int32_t vk, int32_t scan) {
-    const uint64_t now = NowUs();
-    deskhub::InputEvent down;
-    down.type = deskhub::InputType::Key;
-    down.timestampUs = now;
-    down.a = vk;
-    down.b = scan;
-    down.state = 1;
-    deskhub::InputEvent up = down;
-    up.state = 0;
-    {
-        std::lock_guard<std::mutex> lk(inputMutex_);
-        inputQueue_.push_back(down);
-        delayedInput_.emplace_back(now + kTapHoldUs, up);
-    }
-    wantFocus_.store(true, std::memory_order_release);
+    input_.KeyTap(vk, scan, NowUs());
 }
 
 void ClientLoop::QueueMouseMoveAbs(int32_t nx, int32_t ny) {
-    auto clamp = [](int32_t v) { return v < 0 ? 0 : (v > 65535 ? 65535 : v); };
-    deskhub::InputEvent e;
-    e.type = deskhub::InputType::MouseMove;
-    e.timestampUs = NowUs();
-    e.a = clamp(nx);
-    e.b = clamp(ny);
-    e.absolute = 1;
-    {
-        std::lock_guard<std::mutex> lk(inputMutex_);
-        inputQueue_.push_back(e);
-    }
-    wantFocus_.store(true, std::memory_order_release);
+    input_.MouseMoveAbsolute(nx, ny, NowUs());
 }
 
 void ClientLoop::QueueKeyChord(int32_t modVk, int32_t modScan, int32_t vk, int32_t scan) {
-    const uint64_t now = NowUs();
-    auto key = [now](int32_t kvk, int32_t kscan, bool down) {
-        deskhub::InputEvent e;
-        e.type = deskhub::InputType::Key;
-        e.timestampUs = now;
-        e.a = kvk;
-        e.b = kscan;
-        e.state = down ? 1 : 0;
-        return e;
-    };
-    {
-        std::lock_guard<std::mutex> lk(inputMutex_);
-        inputQueue_.push_back(key(modVk, modScan, true));
-        inputQueue_.push_back(key(vk, scan, true));
-        delayedInput_.emplace_back(now + kTapHoldUs, key(vk, scan, false));
-        delayedInput_.emplace_back(now + kTapHoldUs, key(modVk, modScan, false));
-    }
-    wantFocus_.store(true, std::memory_order_release);
+    input_.KeyChord(modVk, modScan, vk, scan, NowUs());
 }
 
 void ClientLoop::QueueMouseMoveRel(int32_t dx, int32_t dy) {
-    if (dx == 0 && dy == 0) return;
-    deskhub::InputEvent e;
-    e.type = deskhub::InputType::MouseMove;
-    e.timestampUs = NowUs();
-    e.a = dx;
-    e.b = dy;
-    e.absolute = 0;
-    {
-        std::lock_guard<std::mutex> lk(inputMutex_);
-        inputQueue_.push_back(e);
-    }
-    wantFocus_.store(true, std::memory_order_release);
+    input_.MouseMoveRelative(dx, dy, NowUs());
 }
 
 void ClientLoop::QueueMouseButton(int32_t button, bool down) {
-    deskhub::InputEvent e;
-    e.type = deskhub::InputType::MouseButton;
-    e.timestampUs = NowUs();
-    e.a = button;
-    e.state = down ? 1 : 0;
-    {
-        std::lock_guard<std::mutex> lk(inputMutex_);
-        inputQueue_.push_back(e);
-    }
-    wantFocus_.store(true, std::memory_order_release);
+    input_.MouseButtonEvent(button, down, NowUs());
 }
 
 void ClientLoop::QueueCharTap(uint32_t codepoint) {
-    const auto chord = deskhub::CharToKeyChord(codepoint);
-    if (!chord) return;
-    const uint64_t now = NowUs();
-    auto key = [now](int32_t vk, bool down) {
-        deskhub::InputEvent e;
-        e.type = deskhub::InputType::Key;
-        e.timestampUs = now;
-        e.a = vk;
-        e.b = 0;
-        e.state = down ? 1 : 0;
-        return e;
-    };
-    {
-        std::lock_guard<std::mutex> lk(inputMutex_);
-        if (chord->shift) inputQueue_.push_back(key(deskhub::kVkShift, true));
-        inputQueue_.push_back(key(chord->vk, true));
-        if (chord->shift) inputQueue_.push_back(key(deskhub::kVkShift, false));
-        delayedInput_.emplace_back(now + kTapHoldUs, key(chord->vk, false));
-    }
-    wantFocus_.store(true, std::memory_order_release);
+    input_.CharTap(codepoint, NowUs());
 }
 
 bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW,
@@ -268,55 +186,64 @@ void ClientLoop::DecodeThread() {
 }
 
 void ClientLoop::NetThread() {
-    std::unique_ptr<deskhub::Reassembler> reasm;
-
-    deskhub::ClientCallbacks cb;
+    deskhub::ClientPumpCallbacks cb;
     cb.send = [this](std::span<const uint8_t> d) {
         sock_.SendTo(server_, d.data(), d.size());
     };
-    cb.onReady = [this](const deskhub::NegotiatedParams& np) {
-        LOGI("[Client] Negotiation done: H264 %ux%u @%ufps, %.1f Mbps",
-            np.width, np.height, np.fps, np.bitrateBps / 1e6);
+    cb.onFrame = [this](deskhub::Reassembler::Frame&& f) {
+        {
+            std::lock_guard<std::mutex> lk(decMutex_);
+            if (decQueue_.size() >= kMaxQueuedFrames) {
+                decQueue_.pop_front();
+                queueOverflow_.store(true, std::memory_order_release);
+                diag_.dqDrop.Add();
+            }
+            decQueue_.push_back(std::move(f));
+        }
+        decCv_.notify_one();
+    };
+    cb.onParams = [this](const deskhub::NegotiatedParams& np, bool reconfigured) {
         negW_.store(np.width);
         negH_.store(np.height);
+        if (reconfigured) rebuildDecoder_.store(true);
     };
-    cb.onReconfig = [this, &reasm](const deskhub::NegotiatedParams& np) {
-        if (reasm) reasm->SetFps(np.fps);
-        LOGI("[Client] Host reconfigured: %ux%u @%ufps, %.1f Mbps",
-            np.width, np.height, np.fps, np.bitrateBps / 1e6);
-        negW_.store(np.width);
-        negH_.store(np.height);
-        rebuildDecoder_.store(true);
-    };
-    cb.onRtt = [this](uint32_t rttUs) {
-        diag_.minRttUs.Add(rttUs);
-    };
-    cb.onDisconnect = [this](const char* reason) {
-        LOGI("[Client] Disconnected: %s", reason);
+    cb.onEnded = [this](const char* reason) {
         {
             std::lock_guard<std::mutex> lk(textMutex_);
-            endReason_ = reason ? reason : "disconnected";
+            endReason_ = reason;
         }
         quit_.store(true);
     };
-    deskhub::ClientSession session(cb);
+    cb.takeRenderedCount = [this] {
+        return stRendered_.exchange(0, std::memory_order_relaxed);
+    };
+    cb.latencyUs = [this] { return lastE2eUs_.load(); };
+    cb.onStatus = [this](const char* compact) {
+        std::lock_guard<std::mutex> lk(textMutex_);
+        statusLine_ = compact;
+    };
+    cb.localTime = [] { return deskhubp::LocalTimeHms(); };
+    cb.log = [](bool warn, const char* line) {
+        if (warn)
+            LOGW("%s", line);
+        else
+            LOGI("%s", line);
+    };
 
-    deskhub::Hello hello;
-    hello.clientId = uint32_t(NowUs()) ^ uint32_t(getpid()) ^ (uint32_t(sourceId_) << 24);
-    hello.codecMask = deskhub::kCodecMaskH264;
-    hello.maxWidth = uint16_t(screenW_);
-    hello.maxHeight = uint16_t(screenH_);
-    hello.desiredFps = 60;
-    hello.features = 0;
-    hello.sourceId = sourceId_;
-    session.Start(hello, NowUs());
+    deskhub::ClientPump pump(std::move(cb), diag_);
+
+    deskhub::ClientPumpConfig pcfg;
+    pcfg.clientId = uint32_t(NowUs()) ^ uint32_t(getpid()) ^ (uint32_t(sourceId_) << 24);
+    pcfg.maxWidth = uint16_t(screenW_);
+    pcfg.maxHeight = uint16_t(screenH_);
+    pcfg.sourceId = sourceId_;
+    pcfg.desiredFps = 60;
+    pcfg.sendNacks = true;
+    pcfg.logLossRuns = true;
+    pump.Start(pcfg, NowUs());
 
     uint8_t buf[deskhub::kMaxDatagram];
-    uint64_t stBytes = 0;
-    deskhub::LinkStats linkStats(NowUs());
-
-    deskhub::diag::KeyframeRequestLog kfLog;
-    char kfLine[deskhub::diag::KeyframeRequestLog::kBufBytes];
+    std::vector<deskhub::InputEvent> inputBatch;
 
     while (!quit_.load()) {
         NetAddr from;
@@ -328,142 +255,31 @@ void ClientLoop::NetThread() {
             endReason_ = "socket error";
             break;
         }
+        if (n > 0) pump.OnDatagram(std::span<const uint8_t>(buf, size_t(n)), now);
 
-        if (n > 0) {
-            const auto span = std::span<const uint8_t>(buf, size_t(n));
-            const auto h = deskhub::ParseCommonHeader(span);
-            if (h && h->chan == deskhub::Chan::Video) {
-                if (h->sessionId == session.sessionId() && session.sessionId() != 0) {
-                    const auto pl = deskhub::PayloadOf(span);
-                    if (!reasm) {
-                        const uint32_t fps = session.params().fps ? session.params().fps : 60;
-                        reasm = std::make_unique<deskhub::Reassembler>(1'000'000 / fps);
-                        reasm->onFrameDrop = [](const deskhub::Reassembler::FrameDropInfo& d) {
-                            char line[deskhub::diag::ClientDiag::kFrameDropBufBytes];
-                            LOGW("%s", deskhub::diag::ClientDiag::FormatFrameDrop(line, sizeof(line), d));
-                        };
-                    }
-                    if (h->type == deskhub::MsgType::FecPacket) {
-                        if (const auto v = deskhub::ParseFecPacket(*h, pl)) {
-                            session.NotifyVideoPacket(now);
-                            reasm->PushFec(*v, now);
-                            stBytes += v->parity.size();
-                        }
-                    } else if (const auto v = deskhub::ParseVideoPacket(*h, pl)) {
-                        session.NotifyVideoPacket(now);
-                        reasm->Push(*v, now);
-                        stBytes += v->payload.size();
-                    }
-                }
-            } else if (h) {
-                session.HandlePacket(span, now);
-            }
-        }
-
-        auto requestKf = [&](const char* reason) {
-            if (const char* l = kfLog.Request(kfLine, sizeof(kfLine), now, reason))
-                LOGI("%s", l);
-            session.RequestKeyframe();
-        };
-
-        if (reasm) {
-            while (auto f = reasm->PopReady(now)) {
-                if (f->idr) {
-                    session.CancelKeyframeRequest();
-                    if (const char* l = kfLog.Arrived(kfLine, sizeof(kfLine), now, f->nal.size()))
-                        LOGI("%s", l);
-                }
-                if (f->firstSeenUs) {
-                    const uint32_t asmMs = uint32_t((now - f->firstSeenUs) / 1000);
-                    diag_.asmMs.Add(asmMs);
-                }
-                {
-                    std::lock_guard<std::mutex> lk(decMutex_);
-                    if (decQueue_.size() >= kMaxQueuedFrames) {
-                        decQueue_.pop_front();
-                        queueOverflow_.store(true, std::memory_order_release);
-                        diag_.dqDrop.Add();
-                    }
-                    decQueue_.push_back(std::move(*f));
-                }
-                decCv_.notify_one();
-            }
-            if (reasm->TakeLossEvent())
-                requestKf("loss");
-            else if (reasm->WaitingForIdr())
-                requestKf("wait_idr");
-        }
-        if (decodeFailed_.exchange(false, std::memory_order_acq_rel)) requestKf("dec_fail");
+        pump.PollFrames(now);
+        if (decodeFailed_.exchange(false, std::memory_order_acq_rel))
+            pump.RequestKeyframe("dec_fail", now);
         if (displayCongested_.exchange(false, std::memory_order_acq_rel))
-            requestKf("display_congested");
-        if (queueOverflow_.exchange(false, std::memory_order_acq_rel)) requestKf("q_overflow");
+            pump.RequestKeyframe("display_congested", now);
+        if (queueOverflow_.exchange(false, std::memory_order_acq_rel))
+            pump.RequestKeyframe("q_overflow", now);
 
-        if (reasm) {
-            uint16_t nackIdx[64];
-            uint32_t nackFrame = 0;
-            const size_t nn = reasm->PlanNack(now, diag_.minRttUs.value(),
-                nackFrame, nackIdx);
-            if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
-        }
+        pump.PlanNacks(now);
 
-        {
-            std::vector<deskhub::InputEvent> batch;
-            {
-                std::lock_guard<std::mutex> lk(inputMutex_);
-                for (auto it = delayedInput_.begin(); it != delayedInput_.end();) {
-                    if (it->first <= now) {
-                        inputQueue_.push_back(it->second);
-                        it = delayedInput_.erase(it);
-                    } else {
-                        ++it;
-                    }
-                }
-                batch.swap(inputQueue_);
-            }
-            for (const auto& e : batch) session.QueueInput(e);
-        }
-        if (wantFocus_.load(std::memory_order_acquire)) session.SetFocused(true);
+        input_.Drain(now, inputBatch);
+        for (const auto& e : inputBatch) pump.QueueInput(e);
+        if (input_.wantsFocus()) pump.SetFocused(true);
 
-        session.Tick(now);
-        if (session.state() == deskhub::ClientSession::State::Dead) break;
+        if (!pump.Tick(now)) break;
 
-        phase_.store(session.state() == deskhub::ClientSession::State::Streaming
-                         ? Phase::Streaming
-                         : Phase::Connecting,
+        phase_.store(pump.streaming() ? Phase::Streaming : Phase::Connecting,
             std::memory_order_release);
 
-        if (linkStats.Due(now)) {
-            const auto st = reasm ? reasm->stats() : deskhub::Reassembler::Stats{};
-            const uint32_t rendered = stRendered_.exchange(0, std::memory_order_relaxed);
-            const deskhub::LinkWindow w = linkStats.Close(st, stBytes, rendered, now);
-            const int64_t e2e = lastE2eUs_.load();
-
-            const std::string hms = deskhubp::LocalTimeHms();
-            char line[deskhub::diag::ClientDiag::kSumBufBytes];
-            LOGI("%s", deskhub::diag::ClientDiag::FormatStatus(line, sizeof(line), hms.c_str(), w,
-                           session.lastRttUs(), e2e));
-
-            char ui[deskhub::diag::ClientDiag::kCompactBufBytes];
-            deskhub::diag::ClientDiag::FormatCompact(ui, sizeof(ui), w, session.lastRttUs(), e2e);
-            {
-                std::lock_guard<std::mutex> lk(textMutex_);
-                statusLine_ = ui;
-            }
-
-            session.SendFeedback(deskhub::MakeFeedback(w, session.lastRttUs()));
-
-            LOGI("%s", diag_.FormatSum(line, sizeof(line), hms.c_str(), w,
-                           reasm ? reasm->TakeMaxGapMs() : 0, e2e));
-
-            stBytes = 0;
-        }
-
-        const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        diag_.loopBusyMs.Add(busyMs);
-        if (busyMs > 50) LOGW("[DIAG] evt=recv_stall busy_ms=%u", busyMs);
+        pump.CountLoopBusy(now, NowUs());
     }
 
-    session.SendBye();
+    pump.SendBye();
     quit_.store(true);
     decCv_.notify_all();
     {

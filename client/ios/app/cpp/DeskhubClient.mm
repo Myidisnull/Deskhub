@@ -5,6 +5,7 @@
 #include "ClientLoop.h"
 #include "deskhubp/SourceQuery.h"
 #include "deskhubp/Log.h"
+#include "deskhub/media/ViewFit.h"
 
 #include <cstring>
 #include <memory>
@@ -167,4 +168,26 @@ uint32_t dh_video_width(void) {
 uint32_t dh_video_height(void) {
     std::lock_guard<std::mutex> lk(g_mutex);
     return g_client ? g_client->videoHeight() : 0;
+}
+
+DHViewRect dh_video_rect(double viewportW, double viewportH, double aspect, DHViewTransform t) {
+    const deskhub::ViewRect r = deskhub::FitVideoRect(viewportW, viewportH, aspect,
+        deskhub::ViewTransform{t.zoom, t.panX, t.panY});
+    return DHViewRect{r.x, r.y, r.width, r.height};
+}
+
+DHViewTransform dh_apply_gesture(DHViewTransform cur, double factor, double centroidX,
+    double centroidY, double panDeltaX, double panDeltaY, double viewportW, double viewportH,
+    double aspect) {
+    const deskhub::ViewTransform t = deskhub::ApplyGesture(
+        deskhub::ViewTransform{cur.zoom, cur.panX, cur.panY}, factor, centroidX, centroidY,
+        panDeltaX, panDeltaY, viewportW, viewportH, aspect);
+    return DHViewTransform{t.zoom, t.panX, t.panY};
+}
+
+bool dh_normalize_pointer(double px, double py, DHViewRect rect, int32_t* nx, int32_t* ny) {
+    if (!nx || !ny) return false;
+    return deskhub::NormalizePointer(px, py, deskhub::ViewRect{rect.x, rect.y, rect.width,
+                                                 rect.height},
+        *nx, *ny);
 }

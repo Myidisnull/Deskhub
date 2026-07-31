@@ -48,7 +48,7 @@ std::wstring SelfPath() {
 
 std::wstring EncodeSource(const AgentSource& s) {
     wchar_t buf[32];
-    swprintf(buf, 32, L"%llx", (unsigned long long)(uintptr_t)s.monitor);
+    swprintf(buf, 32, L"%llx", (unsigned long long)s.targetId);
     return std::wstring(L"m:") + buf + L":" + HexEncode(s.name);
 }
 
@@ -63,7 +63,7 @@ bool DecodeSource(const std::wstring& tok, AgentSource& out) {
     if (handle == 0) return false;
     if (!HexDecode(tok.substr(sep + 1), out.name)) return false;
 
-    out.monitor = (HMONITOR)handle;
+    out.targetId = uint64_t(handle);
     return true;
 }
 

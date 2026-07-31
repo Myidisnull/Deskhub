@@ -8,7 +8,6 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <utility>
 #include <vector>
 
 #include "decode/MediaCodecDecoder.h"
@@ -16,6 +15,7 @@
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/diag/ClientDiag.h"
+#include "deskhub/input/ClientInputQueue.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -108,11 +108,7 @@ private:
     std::atomic<bool> queueOverflow_{false};
     std::atomic<uint32_t> stRendered_{0};
 
-    static constexpr uint64_t kTapHoldUs = 50'000;
-    std::mutex inputMutex_;
-    std::vector<deskhub::InputEvent> inputQueue_;
-    std::vector<std::pair<uint64_t, deskhub::InputEvent>> delayedInput_;
-    std::atomic<bool> wantFocus_{false};
+    deskhub::ClientInputQueue input_;
 
     deskhub::diag::ClientDiag diag_{deskhub::diag::ClientDiagCaps{
         false, true}};

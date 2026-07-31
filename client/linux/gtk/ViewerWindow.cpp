@@ -10,6 +10,8 @@
 #include "gtk/GtkUtil.h"
 #include "input/LinuxKeyMap.h"
 
+#include "deskhub/media/ViewFit.h"
+
 namespace {
 
 constexpr guint kKeyLockPointer = GDK_KEY_F9;
@@ -146,11 +148,8 @@ bool ViewerWindow::InContent(double px, double py) const {
 bool ViewerWindow::ToNormalized(double px, double py, int32_t& nx, int32_t& ny) const {
     int rx = 0, ry = 0, rw = 0, rh = 0;
     VideoRect(rx, ry, rw, rh);
-    if (rw <= 0 || rh <= 0) return false;
-    if (px < rx || py < ry || px >= rx + rw || py >= ry + rh) return false;
-    nx = int32_t((px - rx) * 65535.0 / rw);
-    ny = int32_t((py - ry) * 65535.0 / rh);
-    return true;
+    const deskhub::ViewRect rect{double(rx), double(ry), double(rw), double(rh)};
+    return deskhub::NormalizePointer(px, py, rect, nx, ny);
 }
 
 void ViewerWindow::OnRealize(GtkGLArea* area, gpointer user) {

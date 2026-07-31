@@ -9,16 +9,15 @@
 
 #include "capture/ScreenCapture.h"
 
+#include "deskhub/media/ShareSource.h"
+
 struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
     uint32_t maxDim = 1920;
 };
 
-struct AgentSource {
-    HMONITOR monitor = nullptr;
-    std::string name;
-};
+using AgentSource = deskhub::media::ShareSource;
 
 struct AgentControl;
 

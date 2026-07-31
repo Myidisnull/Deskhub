@@ -1,13 +1,11 @@
 #pragma once
 #include <cstdint>
 
+#include "deskhub/input/ScancodeTable.h"
+
 namespace mackeys {
 
-struct KeyEntry {
-    uint16_t mac;
-    int32_t vk;
-    int32_t scan;
-};
+using KeyEntry = deskhub::ScancodeEntry<uint16_t>;
 
 bool MacToWin(uint16_t macKeyCode, int32_t& vk, int32_t& scan);
 

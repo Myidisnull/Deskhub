@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+#include "deskhub/media/CaptureContract.h"
+
 enum class FrameMemory : uint8_t {
     Mapped,
     DmaBuf,
@@ -25,7 +27,8 @@ struct LinuxFrameInfo {
     uint64_t modifier = 0;
 
     uint32_t drmFormat = 0;
-    uint32_t width = 0;
-    uint32_t height = 0;
-    uint64_t timestampUs = 0;
+    deskhub::media::FrameMeta meta;
 };
+
+static_assert(deskhub::media::CapturedFrameLike<LinuxFrameInfo>,
+    "LinuxFrameInfo must carry the shared frame metadata");

@@ -71,10 +71,10 @@ struct ScreenCapture::Impl {
 
     MacFrameInfo fi;
     fi.pixelBuffer = (void*)pb;
-    fi.width = uint32_t(CVPixelBufferGetWidth(pb));
-    fi.height = uint32_t(CVPixelBufferGetHeight(pb));
-    fi.timestampUs = NowUs();
-    if (fi.width && fi.height && impl->onFrame) impl->onFrame(fi);
+    fi.meta.width = uint32_t(CVPixelBufferGetWidth(pb));
+    fi.meta.height = uint32_t(CVPixelBufferGetHeight(pb));
+    fi.meta.timestampUs = NowUs();
+    if (fi.meta.width && fi.meta.height && impl->onFrame) impl->onFrame(fi);
 }
 
 - (void)stream:(SCStream*)stream didStopWithError:(NSError*)error {
@@ -171,8 +171,11 @@ bool ScreenCapture::Closed() const {
     return impl_->closed.load(std::memory_order_acquire);
 }
 
-bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
+bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOptions& opt,
     FrameHandler onFrame) {
+    const uint32_t displayId = uint32_t(targetId);
+    const uint32_t fps = opt.fps;
+    const uint32_t maxDim = opt.maxDim;
     if (!displayId) return false;
     Stop();
 

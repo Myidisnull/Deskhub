@@ -11,6 +11,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <io.h>
+
+#include <chrono>
+#include <thread>
 #else
 #include <cerrno>
 #include <cstdarg>
@@ -76,6 +80,43 @@ inline std::string LogDir() {
     std::string out(size_t(n), '\0');
     WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()), out.data(), n, nullptr, nullptr);
     return out;
+}
+
+inline bool StartProcessLog(std::wstring* outPath = nullptr) {
+    static char buffer[256 * 1024];
+
+    const std::wstring dir = LogDirW();
+    if (dir.empty()) return false;
+
+    const std::string nameUtf8 = LogFileName();
+    std::wstring name;
+    name.reserve(nameUtf8.size());
+    for (char c : nameUtf8) name.push_back(static_cast<wchar_t>(c));
+
+    const std::wstring full = dir + L"\\" + name;
+
+    std::FILE* redirected = nullptr;
+    if (_wfreopen_s(&redirected, full.c_str(), L"w", stdout) != 0 || !redirected) return false;
+    std::setvbuf(stdout, buffer, _IOFBF, sizeof(buffer));
+
+    _dup2(_fileno(stdout), _fileno(stderr));
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+
+    if (outPath) *outPath = full;
+
+    SYSTEMTIME t{};
+    GetLocalTime(&t);
+    std::printf("[Deskhub] Log %ls started %04u-%02u-%02u %02u:%02u:%02u\n", full.c_str(),
+        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+
+    std::thread([] {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::fflush(stdout);
+        }
+    }).detach();
+
+    return true;
 }
 
 #else

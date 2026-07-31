@@ -71,11 +71,16 @@ final class RemoteVideoView: NSView {
 
     private func normalize(_ point: NSPoint) -> (nx: Int32, ny: Int32)? {
         let rect = videoRect
-        guard rect.width > 1, rect.height > 1 else { return nil }
-        guard rect.contains(point) else { return nil }
-        let nx = (point.x - rect.minX) / (rect.width - 1) * 65535
-        let ny = (point.y - rect.minY) / (rect.height - 1) * 65535
-        return (Int32(max(0, min(65535, nx))), Int32(max(0, min(65535, ny))))
+        var nx: Int32 = 0
+        var ny: Int32 = 0
+        let box = DHViewRect(
+            x: Double(rect.minX), y: Double(rect.minY),
+            width: Double(rect.width), height: Double(rect.height)
+        )
+        guard dh_normalize_pointer(Double(point.x), Double(point.y), box, &nx, &ny) else {
+            return nil
+        }
+        return (nx, ny)
     }
 
     func setMouseLocked(_ on: Bool, notify: Bool = true) {

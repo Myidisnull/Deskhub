@@ -1,14 +1,14 @@
 #pragma once
-#include <atomic>
 #include <cstdint>
+#include <memory>
 
 class LocalInputMonitor {
 public:
-    static constexpr int64_t kUserData = 0x4445534B'48554200LL;
-
     static constexpr uint64_t kQuietUs = 1'000'000;
 
-    LocalInputMonitor() = default;
+    static constexpr int64_t kInjectedUserData = 0x4445534B'48554200LL;
+
+    LocalInputMonitor();
     ~LocalInputMonitor();
     LocalInputMonitor(const LocalInputMonitor&) = delete;
     LocalInputMonitor& operator=(const LocalInputMonitor&) = delete;
@@ -16,9 +16,7 @@ public:
     void Start();
     void Stop();
 
-    uint64_t lastLocalUs() const {
-        return lastUs_.load(std::memory_order_relaxed);
-    }
+    uint64_t lastLocalUs() const;
 
     bool LocalActive(uint64_t nowUs) const {
         const uint64_t t = lastLocalUs();
@@ -26,6 +24,6 @@ public:
     }
 
 private:
-    std::atomic<uint64_t> lastUs_{0};
-    void* monitor_ = nullptr;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };

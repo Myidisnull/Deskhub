@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+namespace deskhub::media {
+
 class BitWriter {
 public:
     void StartNal(uint8_t nalRefIdc, uint8_t nalType) {
@@ -77,3 +79,5 @@ private:
     uint32_t bitCount_ = 0;
     uint32_t zeroRun_ = 0;
 };
+
+}

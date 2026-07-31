@@ -1,19 +1,29 @@
 #import <AppKit/AppKit.h>
 
-#include "input/LocalInputMonitor.h"
+#include "deskhubp/LocalInput.h"
 
-#include "deskhubp/Log.h"
+#include <atomic>
+
 #include "deskhubp/Clock.h"
+#include "deskhubp/Log.h"
+
+struct LocalInputMonitor::Impl {
+    std::atomic<uint64_t> lastUs{0};
+    void* monitor = nullptr;
+};
+
+LocalInputMonitor::LocalInputMonitor() : impl_(std::make_unique<Impl>()) {}
 
 LocalInputMonitor::~LocalInputMonitor() {
     Stop();
 }
 
 void LocalInputMonitor::Start() {
-    if (monitor_) return;
+    Impl* im = impl_.get();
+    if (im->monitor) return;
 
     dispatch_block_t install = ^{
-      if (monitor_) return;
+      if (im->monitor) return;
       const NSEventMask mask = NSEventMaskKeyDown | NSEventMaskKeyUp |
                                NSEventMaskFlagsChanged | NSEventMaskMouseMoved |
                                NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
@@ -24,26 +34,27 @@ void LocalInputMonitor::Start() {
                                                       CGEventRef cg = e.CGEvent;
                                                       if (cg &&
                                                           CGEventGetIntegerValueField(cg, kCGEventSourceUserData) ==
-                                                              LocalInputMonitor::kUserData)
+                                                              LocalInputMonitor::kInjectedUserData)
                                                           return;
-                                                      lastUs_.store(NowUs(), std::memory_order_relaxed);
+                                                      im->lastUs.store(NowUs(), std::memory_order_relaxed);
                                                     }];
-      monitor_ = (__bridge_retained void*)m;
+      im->monitor = (__bridge_retained void*)m;
     };
     if ([NSThread isMainThread])
         install();
     else
         dispatch_sync(dispatch_get_main_queue(), install);
 
-    if (!monitor_)
+    if (!im->monitor)
         LOGW("[Input] Could not install local input monitor — "
              "\"host wins\" arbitration is off (needs Accessibility permission).");
 }
 
 void LocalInputMonitor::Stop() {
-    if (!monitor_) return;
-    void* m = monitor_;
-    monitor_ = nullptr;
+    Impl* im = impl_.get();
+    if (!im->monitor) return;
+    void* m = im->monitor;
+    im->monitor = nullptr;
     dispatch_block_t remove = ^{
       [NSEvent removeMonitor:(__bridge_transfer id)m];
     };
@@ -51,4 +62,8 @@ void LocalInputMonitor::Stop() {
         remove();
     else
         dispatch_sync(dispatch_get_main_queue(), remove);
+}
+
+uint64_t LocalInputMonitor::lastLocalUs() const {
+    return impl_->lastUs.load(std::memory_order_relaxed);
 }

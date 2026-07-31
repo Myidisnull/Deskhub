@@ -5,14 +5,12 @@
 
 #include <cstdio>
 
-#include "input/LocalInputMonitor.h"
+#include "deskhubp/LocalInput.h"
 #include "deskhubp/Clock.h"
 
 #pragma comment(lib, "user32.lib")
 
 namespace {
-
-constexpr uint64_t kHostWinsGraceUs = 1'000'000;
 
 void ScreenToVirtualDesk(int px, int py, LONG& nx, LONG& ny) {
     const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -101,30 +99,23 @@ void InputInjector::SendMoveRelative(int32_t dx, int32_t dy) {
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_ || !monitor_) return;
 
-    const uint64_t lastLocal = LocalInputMonitor::LastPhysicalUs();
-    if (lastLocal && NowUs() - lastLocal < kHostWinsGraceUs) {
-        if (!localSuppressed_) {
-            localSuppressed_ = true;
+    const deskhub::InputGate gate = held_.Gate(localMon_ && localMon_->LocalActive(NowUs()));
+    if (!gate.allow) {
+        if (gate.justSuppressed) {
             std::printf(
                 "[Inject] Local user is active - pausing remote input (host wins).\n");
             ReleaseAll();
         }
-        ++skipped_;
         return;
     }
-    if (localSuppressed_) {
-        localSuppressed_ = false;
+    if (gate.justResumed)
         std::printf("[Inject] Local user idle - remote input resumed.\n");
-    }
-    ++applied_;
+    held_.CountApplied();
 
     switch (e.type) {
         case deskhub::InputType::Key: {
             const bool down = e.state != 0;
-            if (down)
-                keysDown_[e.b] = e.a;
-            else
-                keysDown_.erase(e.b);
+            held_.SetKey(e.b, e.a, down);
             SendKey(e.a, e.b, down);
             break;
         }
@@ -137,10 +128,7 @@ void InputInjector::Apply(const deskhub::InputEvent& e) {
         case deskhub::InputType::MouseButton: {
             const auto btn = deskhub::MouseButton(e.a);
             const bool down = e.state != 0;
-            if (down)
-                buttonsDown_.insert(btn);
-            else
-                buttonsDown_.erase(btn);
+            held_.SetButton(btn, down);
             SendButton(btn, down);
             break;
         }
@@ -156,11 +144,9 @@ void InputInjector::Apply(const deskhub::InputEvent& e) {
 }
 
 void InputInjector::ReleaseAll() {
-    if (keysDown_.empty() && buttonsDown_.empty()) return;
+    if (held_.nothingHeld()) return;
     std::printf("[Inject] Releasing %zu keys + %zu mouse buttons still held.\n",
-        keysDown_.size(), buttonsDown_.size());
-    for (const auto& [scan, vk] : keysDown_) SendKey(vk, scan, false);
-    for (auto btn : buttonsDown_) SendButton(btn, false);
-    keysDown_.clear();
-    buttonsDown_.clear();
+        held_.heldKeyCount(), held_.heldButtonCount());
+    for (const auto& key : held_.TakeHeldKeys()) SendKey(key.native, key.id, false);
+    for (deskhub::MouseButton btn : held_.TakeHeldButtons()) SendButton(btn, false);
 }

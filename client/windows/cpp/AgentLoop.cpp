@@ -18,9 +18,9 @@
 #include "ElevatedShare.h"
 #include "net/Firewall.h"
 #include "input/InputInjector.h"
-#include "input/LocalInputMonitor.h"
+#include "deskhubp/LocalInput.h"
 #include "encode/IVideoEncoder.h"
-#include "net/NetInfo.h"
+#include "deskhubp/NetInfo.h"
 #include "deskhubp/Clock.h"
 #include "deskhubp/LogFile.h"
 #include "deskhubp/Random.h"
@@ -34,7 +34,10 @@
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/session/Beacon.h"
+#include "deskhub/session/HostFeedback.h"
+#include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
+#include "deskhub/session/SourcePipelineState.h"
 #include "deskhub/transport/Packetizer.h"
 #include "deskhub/transport/RetransmitCache.h"
 
@@ -62,52 +65,25 @@ std::wstring FromUtf8(const std::string& s) {
 inline constexpr uint32_t kMinEncodeW = 160;
 inline constexpr uint32_t kMinEncodeH = 64;
 
-struct SourcePipeline {
+struct SourcePipeline : deskhub::SourcePipelineState {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : curBitrateBps(startBps), rate(startBps, minBps) {}
+        : deskhub::SourcePipelineState(startBps, minBps, deskhub::diag::AgentDiagCaps{}) {}
 
-    uint8_t sourceId = 0;
     HMONITOR monitor = nullptr;
-    std::string name;
 
     ScreenCapture capture;
     InputInjector injector;
-    std::unique_ptr<deskhub::HostSession> session;
-    deskhub::StreamParams offer;
-    deskhub::Packetizer packetizer;
 
-    deskhub::RetransmitCache retxCache;
-    std::mutex retxMutex;
-
-    std::atomic<uint32_t> srcW{0}, srcH{0};
     std::atomic<uint32_t> srcTexW{0}, srcTexH{0};
     std::atomic<uint32_t> nativeW{0}, nativeH{0};
     std::atomic<uint32_t> wantW{0}, wantH{0};
-    std::atomic<uint32_t> curFps{0};
-    std::atomic<bool> qualityChanged{false};
     std::atomic<uint64_t> lastEncodeUs{0};
 
     Downscaler scaler;
 
     uint32_t cliW = 0, cliH = 0;
-    std::unique_ptr<deskhub::QualityLadder> ladder;
-    deskhub::QualityStep step;
-    std::atomic<bool> sizeChanged{false};
-    std::atomic<bool> wantFec{false};
-    std::atomic<uint32_t> curBitrateBps{0};
-    std::atomic<bool> netReady{false};
-    std::atomic<bool> failed{false};
-    bool shutdownDone = false;
-    std::atomic<bool> paused{false};
-    std::atomic<bool> forceIdr{false};
-    std::atomic<uint64_t> peerPacked{0};
-    std::atomic<uint64_t> bytesSent{0}, framesSent{0};
 
-    std::atomic<uint32_t> uiFps{0}, uiKbps{0}, uiRttMs{0};
-    std::atomic<uint32_t> uiLossPct{0}, uiRecvKbps{0};
-    std::atomic<bool> haveFeedback{false};
-    std::atomic<uint32_t> captured{0};
-    std::atomic<uint32_t> nextFrameId{0};
+    std::atomic<uint32_t> uiFps{0}, uiKbps{0};
 
     std::mutex encMutex;
     std::unique_ptr<IVideoEncoder> encoder;
@@ -115,15 +91,6 @@ struct SourcePipeline {
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> cachedTex;
     std::atomic<bool> haveCached{false};
-    std::atomic<uint64_t> lastFrameUs{0};
-    uint64_t lastKeepaliveUs = 0;
-
-    deskhub::BitrateController rate;
-
-    deskhub::diag::SourceRate statRate;
-    deskhub::diag::SourceRate::Window statWindow;
-
-    deskhub::diag::SourceDiag diag;
 
     void DiagEncode(IVideoEncoder* enc, ID3D11Texture2D* tex, bool idr) {
         const uint64_t t0 = NowUs();
@@ -194,7 +161,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         " and enter one of:\n",
         unsigned(kDeskhubPort));
     for (const auto& a : ListLocalIPv4())
-        std::wprintf(L"    %hs    (%ls)\n", a.ip.c_str(), a.name.c_str());
+        std::printf("    %s    (%s)\n", a.ip.c_str(), a.name.c_str());
 
     const uint32_t startBitrate = opt.bitrateMbps * 1'000'000u;
     const uint32_t maxBitrate = startBitrate;
@@ -208,7 +175,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     auto makePipeline = [&](const AgentSource& s) -> SourcePipeline* {
         auto p = std::make_unique<SourcePipeline>(startBitrate, minBitrate);
         p->sourceId = nextSourceId++;
-        p->monitor = s.monitor;
+        p->monitor = (HMONITOR)(uintptr_t)s.targetId;
         p->name = s.name;
         pipes.push_back(std::move(p));
         return pipes.back().get();
@@ -278,21 +245,21 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         auto onFrame = [p, &gpu, ensureEncoder, maxDim](const FrameInfo& fi) {
             p->captured.fetch_add(1, std::memory_order_relaxed);
             if (p->failed.load()) return;
-            if (!fi.width || !fi.height) return;
+            if (!fi.meta.width || !fi.meta.height) return;
 
-            p->nativeW.store(fi.width, std::memory_order_relaxed);
-            p->nativeH.store(fi.height, std::memory_order_relaxed);
+            p->nativeW.store(fi.meta.width, std::memory_order_relaxed);
+            p->nativeH.store(fi.meta.height, std::memory_order_relaxed);
 
             uint32_t encW = p->wantW.load(std::memory_order_relaxed);
             uint32_t encH = p->wantH.load(std::memory_order_relaxed);
             if (!encW || !encH) {
                 const deskhub::StreamSize t =
-                    deskhub::FitStreamSize(fi.width, fi.height, maxDim, 0, 0);
+                    deskhub::FitStreamSize(fi.meta.width, fi.meta.height, maxDim, 0, 0);
                 encW = t.width;
                 encH = t.height;
             }
-            if (encW > fi.width) encW = fi.width;
-            if (encH > fi.height) encH = fi.height;
+            if (encW > fi.meta.width) encW = fi.meta.width;
+            if (encH > fi.meta.height) encH = fi.meta.height;
             encW &= ~1u;
             encH &= ~1u;
             if (!encW || !encH) return;
@@ -305,7 +272,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                         "[Agent][%s] Encode size %ux%u -> %ux%u (source %ux%u),"
                         " rebuilding encoder.\n",
                         p->name.c_str(), p->srcW.load(), p->srcH.load(), encW, encH,
-                        fi.width, fi.height);
+                        fi.meta.width, fi.meta.height);
                 p->srcW.store(encW);
                 p->srcH.store(encH);
                 p->encoder.reset();
@@ -335,8 +302,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             }
 
             ID3D11Texture2D* encTex = fi.texture;
-            if (encW != fi.width || encH != fi.height) {
-                if (!p->scaler.Configure(gpu.device.Get(), fi.width, fi.height, encW, encH))
+            if (encW != fi.meta.width || encH != fi.meta.height) {
+                if (!p->scaler.Configure(gpu.device.Get(), fi.meta.width, fi.meta.height, encW, encH))
                     return;
                 encTex = p->scaler.Scale(fi.texture);
                 if (!encTex) return;
@@ -365,7 +332,9 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             p->DiagEncode(p->encoder.get(), encTex, p->forceIdr.exchange(false));
         };
 
-        if (!p->capture.Start(p->monitor, gpu.device.Get(), onFrame)) {
+        p->capture.SetDevice(gpu.device.Get());
+        if (!p->capture.Start(uint64_t(uintptr_t(p->monitor)),
+                deskhub::media::CaptureOptions{opt.fps, opt.maxDim}, onFrame)) {
             std::printf("[Agent][%s] Failed to start capture — skipping this source.\n",
                 p->name.c_str());
             p->failed.store(true);
@@ -422,6 +391,8 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
 
     NetAddr replyAddr;
 
+    LocalInputMonitor localInputMon;
+
     deskhub::Beacon beacon;
     uint8_t beaconBuf[deskhub::kMaxDatagram];
 
@@ -434,6 +405,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             p->sourceId, p->name.c_str(), p->offer.width, p->offer.height,
             opt.fps, opt.bitrateMbps);
 
+        p->injector.SetLocalMonitor(&localInputMon);
         p->injector.SetEnabled(p->injector.Init(p->monitor));
 
         deskhub::HostCallbacks cb;
@@ -461,22 +433,17 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         };
 
         cb.onHello = [p, &opt, retarget](const deskhub::Hello& h) {
-            p->cliW = h.maxWidth;
-            p->cliH = h.maxHeight;
-            p->step = deskhub::QualityStep{};
-            const deskhub::StreamSize t = retarget();
-            if (!t.width || !t.height) return;
-            p->ladder = std::make_unique<deskhub::QualityLadder>(uint16_t(t.width),
-                uint16_t(t.height), uint8_t(opt.fps));
-            p->step = p->ladder->current();
-            p->curFps.store(p->step.fps, std::memory_order_relaxed);
-            p->offer.width = uint16_t(t.width);
-            p->offer.height = uint16_t(t.height);
-            p->offer.fps = uint8_t(p->step.fps);
-            p->offer.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
-            p->session->SetOffer(p->offer);
+            deskhub::NegotiationHooks hooks;
+            hooks.resolveSize = [p, retarget](uint16_t clientW, uint16_t clientH) {
+                p->cliW = clientW;
+                p->cliH = clientH;
+                return retarget();
+            };
+            const deskhub::NegotiationResult r =
+                deskhub::BeginNegotiation(*p, h, uint8_t(opt.fps), hooks);
+            if (!r.accepted) return;
             std::printf("[Agent][%s] Quality ladder: ceiling %ux%u @%ufps, %d rung(s).\n",
-                p->name.c_str(), t.width, t.height, p->step.fps, p->ladder->rungCount());
+                p->name.c_str(), r.size.width, r.size.height, p->step.fps, r.rungCount);
         };
         cb.onStart = [p] {
             p->forceIdr.store(true);
@@ -484,75 +451,60 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         };
         cb.onKeyframeRequest = [p] { p->forceIdr.store(true); };
         cb.onNack = [p, &sock](uint32_t frameId, std::span<const uint16_t> indices) {
-            const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
-            if (!pp) return;
-            const NetAddr peer = NetAddr::Unpack(pp);
-            std::lock_guard<std::mutex> lk(p->retxMutex);
-            for (uint16_t idx : indices) {
-                const auto d = p->retxCache.Find(frameId, idx);
-                if (!d.empty()) sock.SendTo(peer, d.data(), d.size());
-            }
+            const NetAddr peer = NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire));
+            deskhub::RespondToNack(*p, frameId, indices, [&sock, &peer](std::span<const uint8_t> d) {
+                sock.SendTo(peer, d.data(), d.size());
+            });
         };
         cb.onInput = [p](const deskhub::InputEvent& e) { p->injector.Apply(e); };
         cb.onFocus = [p](bool focused) {
             if (!focused) p->injector.ReleaseAll();
         };
         cb.onDisconnect = [p] {
-            p->peerPacked.store(0, std::memory_order_release);
+            deskhub::ForgetPeer(*p);
             p->injector.ReleaseAll();
-            {
-                std::lock_guard<std::mutex> lk(p->retxMutex);
-                p->retxCache.Reset();
-            }
             std::printf("[Agent][%s] Client left (BYE/timeout).\n", p->name.c_str());
         };
         cb.onFeedback = [p, retarget](const deskhub::Feedback& fb) {
-            p->uiRttMs.store(fb.rttMs, std::memory_order_relaxed);
-            p->uiLossPct.store(fb.lossPct, std::memory_order_relaxed);
-            p->uiRecvKbps.store(fb.recvBitrateKbps, std::memory_order_relaxed);
-            p->haveFeedback.store(true, std::memory_order_release);
+            deskhub::FeedbackHooks hooks;
+            hooks.setEncoderBitrate = [p](uint32_t bitrateBps) {
+                std::lock_guard<std::mutex> lk(p->encMutex);
+                return p->encoder && p->encoder->SetBitrate(bitrateBps);
+            };
+            hooks.applyQualityStep = [p, retarget](const deskhub::QualityStep& prev,
+                                         const deskhub::QualityStep& next) {
+                const deskhub::StreamSize t = retarget();
+                std::lock_guard<std::mutex> lk(p->encMutex);
+                if (p->encoder && prev.fps != next.fps) p->encoder->SetFps(next.fps);
+                return t;
+            };
 
-            const deskhub::BitrateDecision d = p->rate.Update(fb, NowUs());
+            const deskhub::FeedbackOutcome out = deskhub::ApplyFeedback(*p, fb, NowUs(), hooks);
 
-            if (d.fecToggled) {
-                p->wantFec.store(d.fecEnabled, std::memory_order_relaxed);
-                if (d.fecEnabled)
+            if (out.fecToggled) {
+                if (out.fecEnabled)
                     std::printf("[Agent][%s] FEC on (loss %u%%).\n", p->name.c_str(), fb.lossPct);
                 else
                     std::printf("[Agent][%s] FEC off (link clean).\n", p->name.c_str());
             }
-
-            if (d.changeBitrate) {
-                const uint32_t cur = p->rate.bitrateBps();
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                if (p->encoder && p->encoder->SetBitrate(d.bitrateBps)) {
-                    p->rate.CommitBitrate(d.bitrateBps);
-                    p->curBitrateBps.store(d.bitrateBps, std::memory_order_relaxed);
-                    std::printf("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)\n",
-                        p->name.c_str(), cur / 1e6, d.bitrateBps / 1e6, fb.lossPct, fb.rttMs);
-                }
-            }
-
-            if (!p->ladder) return;
-            if (!p->ladder->Update(p->rate.bitrateBps(), NowUs())) return;
-            const deskhub::QualityStep prev = p->step;
-            p->step = p->ladder->current();
-            p->curFps.store(p->step.fps, std::memory_order_relaxed);
-            const deskhub::StreamSize t = retarget();
-            {
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                if (p->encoder && prev.fps != p->step.fps) p->encoder->SetFps(p->step.fps);
-            }
-            std::printf("[Agent][%s] Quality %u%%@%ufps -> %u%%@%ufps (%ux%u, budget %.1f Mbps)\n",
-                p->name.c_str(), prev.scalePct, prev.fps, p->step.scalePct, p->step.fps,
-                t.width, t.height, p->rate.bitrateBps() / 1e6);
-            p->qualityChanged.store(true, std::memory_order_release);
+            if (out.bitrateChanged)
+                std::printf("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)\n",
+                    p->name.c_str(), out.previousBitrateBps / 1e6, out.bitrateBps / 1e6,
+                    fb.lossPct, fb.rttMs);
+            if (out.qualityChanged)
+                std::printf(
+                    "[Agent][%s] Quality %u%%@%ufps -> %u%%@%ufps (%ux%u, budget %.1f Mbps)\n",
+                    p->name.c_str(), out.previousStep.scalePct, out.previousStep.fps,
+                    out.step.scalePct, out.step.fps, out.size.width, out.size.height,
+                    p->rate.bitrateBps() / 1e6);
         };
 
         p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
         p->netReady.store(true, std::memory_order_release);
     };
     for (SourcePipeline* p : live) attachSession(p);
+
+    const std::vector<deskhub::SourcePipelineState*> liveStates(live.begin(), live.end());
 
     auto publishRows = [&] {
         std::vector<SessionSourceRow> rows;
@@ -591,7 +543,6 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     };
     publishRows();
 
-    LocalInputMonitor localInputMon;
     localInputMon.Start();
 
     {
@@ -634,23 +585,12 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                 sock.SendTo(from, beaconBuf, rn);
             } else if (h) {
                 replyAddr = from;
-                SourcePipeline* dst = nullptr;
-                if (h->type == deskhub::MsgType::Hello) {
-                    const auto m = deskhub::ParseHello(deskhub::PayloadOf(span));
-                    if (m)
-                        for (SourcePipeline* p : live)
-                            if (p->sourceId == m->sourceId) dst = p;
-                } else if (h->sessionId) {
-                    for (SourcePipeline* p : live)
-                        if (p->session->sessionId() == h->sessionId) dst = p;
-                }
+                SourcePipeline* dst = static_cast<SourcePipeline*>(
+                    deskhub::RouteDatagram(liveStates, *h, span));
                 if (dst && !dst->failed.load() && dst->session->HandlePacket(span, now)) {
-                    const uint64_t pk = from.Pack();
-                    if (dst->peerPacked.load(std::memory_order_relaxed) != pk) {
-                        dst->peerPacked.store(pk, std::memory_order_release);
+                    if (deskhub::AdoptPeer(*dst, from.Pack()))
                         std::printf("[Agent][%s] Peer: %s\n", dst->name.c_str(),
                             from.ToString().c_str());
-                    }
                 }
             }
         }
@@ -663,32 +603,16 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                     p->name.c_str()))
                 std::printf("%s\n", idrLine);
 
-            const bool sized = p->sizeChanged.exchange(false, std::memory_order_acq_rel);
-            const bool qual = p->qualityChanged.exchange(false, std::memory_order_acq_rel);
-            if (!p->paused.load(std::memory_order_acquire) && (sized || qual)) {
-                p->offer.width = uint16_t(p->srcW.load());
-                p->offer.height = uint16_t(p->srcH.load());
-                p->offer.fps = uint8_t(p->step.fps ? p->step.fps : opt.fps);
-                p->offer.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
-                p->session->SetOffer(p->offer);
-                const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
-                if (pp && p->session->state() == deskhub::HostSession::State::Streaming) {
-                    deskhub::Reconfig rc{p->offer.width, p->offer.height, p->offer.bitrateBps,
-                        p->offer.fps};
-                    uint8_t rbuf[deskhub::kMaxDatagram];
-                    const size_t rn = deskhub::BuildReconfig(rbuf, p->session->sessionId(), rc);
-                    if (rn) sock.SendTo(NetAddr::Unpack(pp), rbuf, rn);
-                    if (sized) p->forceIdr.store(true);
-                }
+            const deskhub::OfferUpdate u = deskhub::RefreshOffer(*p, uint8_t(opt.fps));
+            if (u.sendReconfig) {
+                uint8_t rbuf[deskhub::kMaxDatagram];
+                const size_t rn = deskhub::BuildReconfig(rbuf, p->session->sessionId(), u.reconfig);
+                if (rn) sock.SendTo(NetAddr::Unpack(p->peerPacked.load()), rbuf, rn);
+                p->forceIdr.store(true);
             }
 
-            const uint64_t sinceFrameUs = now - p->lastFrameUs.load(std::memory_order_relaxed);
-            const bool wantIdrFlush = p->forceIdr.load() && sinceFrameUs > 200'000;
-            const bool wantKeepalive = sinceFrameUs > 500'000 &&
-                                       now - p->lastKeepaliveUs >= 500'000;
-            if (p->session->state() == deskhub::HostSession::State::Streaming &&
-                p->haveCached.load(std::memory_order_acquire) &&
-                (wantIdrFlush || wantKeepalive)) {
+            if (p->haveCached.load(std::memory_order_acquire) &&
+                deskhub::DueForFlush(*p, now) != deskhub::FlushReason::None) {
                 std::lock_guard<std::mutex> lk(p->encMutex);
                 if (p->ensureEncoderFn(p->srcW.load(), p->srcH.load(),
                         p->srcTexW.load(), p->srcTexH.load())) {

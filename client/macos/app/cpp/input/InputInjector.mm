@@ -6,7 +6,7 @@
 #include <cmath>
 
 #include "deskhubp/Log.h"
-#include "input/LocalInputMonitor.h"
+#include "deskhubp/LocalInput.h"
 #include "Permissions.h"
 #include "deskhubp/Clock.h"
 #include "input/MacKeyMap.h"
@@ -137,7 +137,7 @@ void InputInjector::SetEnabled(bool on) {
 
 uint64_t InputInjector::CurrentFlags() const {
     CGEventFlags f = 0;
-    for (int32_t vk : modsDown_) {
+    for (const auto& [vk, keycode] : held_.heldKeys()) {
         switch (mackeys::ModifierOf(vk)) {
             case mackeys::Modifier::Shift: f |= kCGEventFlagMaskShift; break;
             case mackeys::Modifier::Control: f |= kCGEventFlagMaskControl; break;
@@ -153,19 +153,13 @@ uint64_t InputInjector::CurrentFlags() const {
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_) return;
 
-    if (localMon_ && localMon_->LocalActive(NowUs())) {
-        if (!localSuppressed_) {
-            localSuppressed_ = true;
-            LOGI("[Input] Someone is using this Mac — remote input paused.");
-        }
+    const deskhub::InputGate gate = held_.Gate(localMon_ && localMon_->LocalActive(NowUs()));
+    if (!gate.allow) {
+        if (gate.justSuppressed) LOGI("[Input] Someone is using this Mac — remote input paused.");
         ReleaseAll();
-        ++skipped_;
         return;
     }
-    if (localSuppressed_) {
-        localSuppressed_ = false;
-        LOGI("[Input] Remote input resumed.");
-    }
+    if (gate.justResumed) LOGI("[Input] Remote input resumed.");
 
     switch (e.type) {
         case deskhub::InputType::Key:
@@ -184,37 +178,30 @@ void InputInjector::Apply(const deskhub::InputEvent& e) {
             SendWheel(e.b);
             break;
     }
-    ++applied_;
+    held_.CountApplied();
 }
 
 void InputInjector::SendKey(int32_t vk, bool down) {
     uint16_t keycode = 0;
     if (!mackeys::WinVkToMac(vk, keycode)) return;
 
-    const mackeys::Modifier mod = mackeys::ModifierOf(vk);
-    if (down) {
-        keysDown_[vk] = keycode;
-        if (mod != mackeys::Modifier::None) modsDown_.insert(vk);
-    } else {
-        keysDown_.erase(vk);
-        if (mod != mackeys::Modifier::None) modsDown_.erase(vk);
-    }
+    held_.SetKey(vk, keycode, down);
 
     CGEventRef ev = CGEventCreateKeyboardEvent((CGEventSourceRef)source_,
         CGKeyCode(keycode), down);
     if (!ev) return;
     CGEventSetFlags(ev, CGEventFlags(CurrentFlags()));
-    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kUserData);
+    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kInjectedUserData);
     CGEventPost(kCGHIDEventTap, ev);
     CFRelease(ev);
 }
 
 void InputInjector::PostMouseAt(double x, double y, int32_t dx, int32_t dy) {
-    const CGEventType type = MoveTypeFor(buttonsDown_);
+    const CGEventType type = MoveTypeFor(held_.heldButtons());
     CGMouseButton which = kCGMouseButtonLeft;
-    if (buttonsDown_.count(deskhub::MouseButton::Right))
+    if (held_.ButtonIsDown(deskhub::MouseButton::Right))
         which = kCGMouseButtonRight;
-    else if (buttonsDown_.count(deskhub::MouseButton::Middle))
+    else if (held_.ButtonIsDown(deskhub::MouseButton::Middle))
         which = kCGMouseButtonCenter;
 
     CGEventRef ev = CGEventCreateMouseEvent((CGEventSourceRef)source_, type,
@@ -223,7 +210,7 @@ void InputInjector::PostMouseAt(double x, double y, int32_t dx, int32_t dy) {
     CGEventSetIntegerValueField(ev, kCGMouseEventDeltaX, dx);
     CGEventSetIntegerValueField(ev, kCGMouseEventDeltaY, dy);
     CGEventSetFlags(ev, CGEventFlags(CurrentFlags()));
-    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kUserData);
+    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kInjectedUserData);
     CGEventPost(kCGHIDEventTap, ev);
     CFRelease(ev);
 }
@@ -265,17 +252,15 @@ void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
         lastClickX_ = p.x;
         lastClickY_ = p.y;
         lastClickBtn_ = btn;
-        buttonsDown_.insert(btn);
-    } else {
-        buttonsDown_.erase(btn);
     }
+    held_.SetButton(btn, down);
 
     CGEventRef ev = CGEventCreateMouseEvent((CGEventSourceRef)source_,
         down ? downType : upType, p, which);
     if (!ev) return;
     CGEventSetIntegerValueField(ev, kCGMouseEventClickState, clickState_);
     CGEventSetFlags(ev, CGEventFlags(CurrentFlags()));
-    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kUserData);
+    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kInjectedUserData);
     CGEventPost(kCGHIDEventTap, ev);
     CFRelease(ev);
 }
@@ -288,21 +273,14 @@ void InputInjector::SendWheel(int32_t delta) {
         kCGScrollEventUnitLine, 1, lines);
     if (!ev) return;
     CGEventSetFlags(ev, CGEventFlags(CurrentFlags()));
-    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kUserData);
+    CGEventSetIntegerValueField(ev, kCGEventSourceUserData, LocalInputMonitor::kInjectedUserData);
     CGEventPost(kCGHIDEventTap, ev);
     CFRelease(ev);
 }
 
 void InputInjector::ReleaseAll() {
-    if (!keysDown_.empty()) {
-        const auto keys = keysDown_;
-        for (const auto& [vk, keycode] : keys) SendKey(vk, false);
-    }
-    if (!buttonsDown_.empty()) {
-        const auto btns = buttonsDown_;
-        for (deskhub::MouseButton b : btns) SendButton(b, false);
-    }
-    keysDown_.clear();
-    buttonsDown_.clear();
-    modsDown_.clear();
+    if (held_.nothingHeld()) return;
+    const auto keys = held_.heldKeys();
+    for (const auto& [vk, keycode] : keys) SendKey(vk, false);
+    for (deskhub::MouseButton b : held_.TakeHeldButtons()) SendButton(b, false);
 }

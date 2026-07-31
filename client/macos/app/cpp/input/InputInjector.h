@@ -1,8 +1,7 @@
 #pragma once
 #include <cstdint>
-#include <map>
-#include <set>
 
+#include "deskhub/input/PressedInputTracker.h"
 #include "deskhub/protocol/Wire.h"
 
 class LocalInputMonitor;
@@ -30,10 +29,10 @@ public:
     }
 
     uint64_t applied() const {
-        return applied_;
+        return held_.applied();
     }
     uint64_t skipped() const {
-        return skipped_;
+        return held_.skipped();
     }
 
 private:
@@ -51,16 +50,11 @@ private:
     LocalInputMonitor* localMon_ = nullptr;
 
     bool enabled_ = true;
-    bool localSuppressed_ = false;
-    uint64_t applied_ = 0;
-    uint64_t skipped_ = 0;
 
     double rectX_ = 0, rectY_ = 0, rectW_ = 0, rectH_ = 0;
     uint64_t rectUs_ = 0;
 
-    std::map<int32_t, uint16_t> keysDown_;
-    std::set<deskhub::MouseButton> buttonsDown_;
-    std::set<int32_t> modsDown_;
+    deskhub::PressedInputTracker<uint16_t> held_;
 
     uint64_t lastClickUs_ = 0;
     double lastClickX_ = 0, lastClickY_ = 0;

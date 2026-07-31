@@ -7,6 +7,8 @@
 #include <vector>
 
 #include "ClientLoop.h"
+
+#include "deskhub/media/ViewFit.h"
 #include "deskhubp/Log.h"
 #include "deskhubp/SourceQuery.h"
 #include "deskhubp/UdpSocket.h"
@@ -179,5 +181,29 @@ Java_com_deskhub_app_NativeClient_nativeVideoWidth(JNIEnv*, jobject) {
 JNIEXPORT jint JNICALL
 Java_com_deskhub_app_NativeClient_nativeVideoHeight(JNIEnv*, jobject) {
     return g_client ? jint(g_client->videoHeight()) : 0;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeVideoFrame(JNIEnv* env, jobject, jfloat viewportW,
+    jfloat viewportH, jfloat aspect, jfloat zoom, jfloat panX, jfloat panY) {
+    const deskhub::ViewRect r = deskhub::FitVideoRect(viewportW, viewportH, aspect,
+        deskhub::ViewTransform{zoom, panX, panY});
+    const jfloat out[4] = {jfloat(r.x), jfloat(r.y), jfloat(r.width), jfloat(r.height)};
+    jfloatArray arr = env->NewFloatArray(4);
+    if (arr) env->SetFloatArrayRegion(arr, 0, 4, out);
+    return arr;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeApplyGesture(JNIEnv* env, jobject, jfloat zoom,
+    jfloat panX, jfloat panY, jfloat factor, jfloat centroidX, jfloat centroidY,
+    jfloat panDeltaX, jfloat panDeltaY, jfloat viewportW, jfloat viewportH, jfloat aspect) {
+    const deskhub::ViewTransform t = deskhub::ApplyGesture(
+        deskhub::ViewTransform{zoom, panX, panY}, factor, centroidX, centroidY, panDeltaX,
+        panDeltaY, viewportW, viewportH, aspect);
+    const jfloat out[3] = {jfloat(t.zoom), jfloat(t.panX), jfloat(t.panY)};
+    jfloatArray arr = env->NewFloatArray(3);
+    if (arr) env->SetFloatArrayRegion(arr, 0, 3, out);
+    return arr;
 }
 }

@@ -1,33 +1,48 @@
 #include "capture/DisplayFinder.h"
 
 #include <algorithm>
+#include <string>
+#include <utility>
+
+using deskhub::media::ShareSource;
 
 namespace {
 
+struct Candidate {
+    bool primary = false;
+    ShareSource source;
+};
+
 BOOL CALLBACK EnumProc(HMONITOR mon, HDC, LPRECT, LPARAM lparam) {
-    auto* out = reinterpret_cast<std::vector<DisplayInfo>*>(lparam);
+    auto* out = reinterpret_cast<std::vector<Candidate>*>(lparam);
 
     MONITORINFOEXW mi{};
     mi.cbSize = sizeof(mi);
     if (!GetMonitorInfoW(mon, &mi)) return TRUE;
 
-    DisplayInfo d;
-    d.monitor = mon;
-    d.width = uint32_t(mi.rcMonitor.right - mi.rcMonitor.left);
-    d.height = uint32_t(mi.rcMonitor.bottom - mi.rcMonitor.top);
-    d.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
-    d.name = L"Display " + std::to_wstring(out->size() + 1);
-    if (d.primary) d.name += L" (primary)";
-    out->push_back(std::move(d));
+    Candidate c;
+    c.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    c.source.targetId = uint64_t(uintptr_t(mon));
+    c.source.x = int32_t(mi.rcMonitor.left);
+    c.source.y = int32_t(mi.rcMonitor.top);
+    c.source.width = uint32_t(mi.rcMonitor.right - mi.rcMonitor.left);
+    c.source.height = uint32_t(mi.rcMonitor.bottom - mi.rcMonitor.top);
+    c.source.name = "Display " + std::to_string(out->size() + 1);
+    if (c.primary) c.source.name += " (primary)";
+    out->push_back(std::move(c));
     return TRUE;
 }
 
 }
 
-std::vector<DisplayInfo> ListDisplays() {
-    std::vector<DisplayInfo> out;
-    EnumDisplayMonitors(nullptr, nullptr, EnumProc, reinterpret_cast<LPARAM>(&out));
-    std::stable_partition(out.begin(), out.end(),
-        [](const DisplayInfo& d) { return d.primary; });
+std::vector<ShareSource> ListDisplays() {
+    std::vector<Candidate> found;
+    EnumDisplayMonitors(nullptr, nullptr, EnumProc, reinterpret_cast<LPARAM>(&found));
+    std::stable_partition(found.begin(), found.end(),
+        [](const Candidate& c) { return c.primary; });
+
+    std::vector<ShareSource> out;
+    out.reserve(found.size());
+    for (Candidate& c : found) out.push_back(std::move(c.source));
     return out;
 }

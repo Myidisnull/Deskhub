@@ -7,6 +7,8 @@
 #include <thread>
 #include <vector>
 
+#include "deskhub/media/ShareSource.h"
+
 struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
@@ -16,12 +18,7 @@ struct AgentOptions {
     uint32_t desktopW = 0, desktopH = 0;
 };
 
-struct AgentSource {
-    uint32_t nodeId = 0;
-    std::string name;
-    int32_t x = 0, y = 0;
-    uint32_t width = 0, height = 0;
-};
+using AgentSource = deskhub::media::ShareSource;
 
 struct AgentSourceStatus {
     uint8_t sourceId = 0;

@@ -1,5 +1,7 @@
 #include "ViewerInput.h"
 
+#include "deskhub/media/ViewFit.h"
+
 #include <windowsx.h>
 #include <cstdio>
 
@@ -14,10 +16,7 @@ constexpr int kToggleRelativeKey = VK_F9;
 constexpr int kScanExtended = 0x100;
 
 int32_t Normalize(int v, uint32_t extent) {
-    if (extent <= 1) return 0;
-    if (v < 0) v = 0;
-    if (uint32_t(v) >= extent) v = int(extent) - 1;
-    return int32_t(int64_t(v) * 65535 / int64_t(extent - 1));
+    return deskhub::NormalizeAxis(double(v), double(extent));
 }
 
 }

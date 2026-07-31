@@ -142,30 +142,11 @@ const KeyEntry kTable[] = {
 }
 
 bool EvdevToWin(uint16_t evdevCode, int32_t& vk, int32_t& scan) {
-    for (const KeyEntry& e : kTable) {
-        if (e.evdev == evdevCode) {
-            vk = e.vk;
-            scan = e.scan;
-            return true;
-        }
-    }
-    return false;
+    return deskhub::ScancodeTable<uint16_t>(kTable).ToWindows(evdevCode, vk, scan);
 }
 
 bool WinVkToEvdev(int32_t vk, uint16_t& evdevCode) {
-    switch (vk) {
-        case 0x10: vk = VK_LSHIFT_; break;
-        case 0x11: vk = VK_LCONTROL_; break;
-        case 0x12: vk = VK_LMENU_; break;
-        default: break;
-    }
-    for (const KeyEntry& e : kTable) {
-        if (e.vk == vk) {
-            evdevCode = e.evdev;
-            return true;
-        }
-    }
-    return false;
+    return deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, evdevCode);
 }
 
 }

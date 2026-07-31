@@ -10,7 +10,7 @@
 #include "gtk/GtkUtil.h"
 #include "gtk/ShareWindow.h"
 #include "gtk/ViewerWindow.h"
-#include "net/NetInfo.h"
+#include "deskhubp/NetInfo.h"
 #include "deskhubp/SourceQuery.h"
 #include "deskhubp/UdpSocket.h"
 

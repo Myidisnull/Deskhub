@@ -1,5 +1,7 @@
 #include "capture/ScreenCapture.h"
 
+#include "capture/PortalScreenCast.h"
+
 #include <pipewire/pipewire.h>
 #include <spa/debug/types.h>
 #include <spa/param/video/format-utils.h>
@@ -215,9 +217,9 @@ void OnProcess(void* data) {
 
     LinuxFrameInfo fi;
     fi.drmFormat = im->drmFormat;
-    fi.width = im->format.size.width & ~1u;
-    fi.height = im->format.size.height & ~1u;
-    fi.timestampUs = NowUs();
+    fi.meta.width = im->format.size.width & ~1u;
+    fi.meta.height = im->format.size.height & ~1u;
+    fi.meta.timestampUs = NowUs();
 
     bool ok = false;
     if (sb->datas[0].type == SPA_DATA_DmaBuf) {
@@ -241,7 +243,7 @@ void OnProcess(void* data) {
 
     if (sb->datas[0].chunk->flags & SPA_CHUNK_FLAG_CORRUPTED) ok = false;
 
-    if (ok && fi.width && fi.height && im->onFrame) im->onFrame(fi);
+    if (ok && fi.meta.width && fi.meta.height && im->onFrame) im->onFrame(fi);
 
     pw_stream_queue_buffer(im->stream, b);
 }
@@ -277,7 +279,11 @@ bool ScreenCapture::usingDmaBuf() const {
     return impl_ && impl_->dmaBufActive.load(std::memory_order_relaxed);
 }
 
-bool ScreenCapture::Start(int portalFd, uint32_t nodeId, uint32_t fps, FrameHandler onFrame) {
+bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOptions& opt,
+    FrameHandler onFrame) {
+    const int portalFd = PortalScreenCast::Instance().pipewireFd();
+    const uint32_t nodeId = uint32_t(targetId);
+    const uint32_t fps = opt.fps;
     std::call_once(g_pwInit, [] { pw_init(nullptr, nullptr); });
 
     Impl* im = impl_.get();

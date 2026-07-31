@@ -809,22 +809,14 @@ private fun videoFrame(
     pan: Offset,
 ): Rect {
     if (viewport.width <= 0 || viewport.height <= 0) return Rect.Zero
-    val vw = viewport.width.toFloat()
-    val vh = viewport.height.toFloat()
-    var baseW = vw
-    var baseH = vh
-    if (aspect != null && aspect > 0f) {
-        baseH = vw / aspect
-        if (baseH > vh) {
-            baseH = vh
-            baseW = vh * aspect
-        }
-    }
-    val w = baseW * zoom
-    val h = baseH * zoom
-    val maxX = ((w - vw) / 2f).coerceAtLeast(0f)
-    val maxY = ((h - vh) / 2f).coerceAtLeast(0f)
-    val left = (vw - w) / 2f + pan.x.coerceIn(-maxX, maxX)
-    val top = (vh - h) / 2f + pan.y.coerceIn(-maxY, maxY)
-    return Rect(left, top, left + w, top + h)
+    val r =
+        NativeClient.nativeVideoFrame(
+            viewport.width.toFloat(),
+            viewport.height.toFloat(),
+            aspect ?: 0f,
+            zoom,
+            pan.x,
+            pan.y,
+        )
+    return Rect(r[0], r[1], r[0] + r[2], r[1] + r[3])
 }

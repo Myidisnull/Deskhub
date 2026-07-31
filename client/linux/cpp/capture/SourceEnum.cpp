@@ -10,7 +10,7 @@ std::vector<ShareSource> GetShareSources() {
 
     for (const PortalStream& s : portal.streams()) {
         ShareSource ss;
-        ss.nodeId = s.nodeId;
+        ss.targetId = s.nodeId;
         ss.name = s.name;
         ss.x = s.x;
         ss.y = s.y;

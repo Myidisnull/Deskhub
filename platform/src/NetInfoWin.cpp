@@ -1,15 +1,38 @@
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
-#include "net/NetInfo.h"
+#endif
+#include "deskhubp/NetInfo.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 
 #pragma comment(lib, "iphlpapi.lib")
+
+namespace {
+
+std::string ToUtf8(const wchar_t* w) {
+    if (!w || !*w) return std::string("?");
+    const int len = int(std::wcslen(w));
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w, len, nullptr, 0, nullptr, nullptr);
+    if (n <= 0) return std::string("?");
+    std::string s(size_t(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w, len, s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+bool IsVirtual(const AdapterAddr& a) {
+    return a.name.rfind("vEthernet", 0) == 0;
+}
+
+}
 
 std::vector<AdapterAddr> ListLocalIPv4() {
     std::vector<AdapterAddr> out;
@@ -39,12 +62,12 @@ std::vector<AdapterAddr> ListLocalIPv4() {
             char ip[32];
             if (!InetNtopA(AF_INET, &sin->sin_addr, ip, sizeof(ip))) continue;
             if (std::strncmp(ip, "169.254.", 8) == 0) continue;
-            out.push_back(AdapterAddr{a->FriendlyName ? a->FriendlyName : L"?", ip});
+            out.push_back(AdapterAddr{ToUtf8(a->FriendlyName), ip});
         }
     }
+
     std::stable_sort(out.begin(), out.end(), [](const AdapterAddr& x, const AdapterAddr& y) {
-        auto virt = [](const AdapterAddr& v) { return v.name.rfind(L"vEthernet", 0) == 0 ? 1 : 0; };
-        return virt(x) < virt(y);
+        return IsVirtual(x) < IsVirtual(y);
     });
     return out;
 }

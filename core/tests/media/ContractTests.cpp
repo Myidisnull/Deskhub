@@ -1,6 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/media/CaptureContract.h"
 #include "deskhub/media/VideoContract.h"
 
 #include <cstdio>
@@ -35,6 +36,53 @@ struct LinuxEncoderShape {
     void Finish();
     const char* BackendName() const;
 };
+
+struct LinuxCaptureShape {
+    void Stop();
+    bool Closed() const;
+    bool usingDmaBuf() const;
+};
+
+struct MacCaptureShape {
+    void Stop();
+    bool Closed() const;
+    void SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW, uint32_t& outH);
+};
+
+struct WinCaptureShape {
+    void Stop();
+    bool Closed() const;
+};
+
+struct NotACapture {
+    void Stop();
+};
+
+struct FrameWithMeta {
+    void* handle;
+    FrameMeta meta;
+};
+
+struct FrameWithLooseFields {
+    uint32_t width;
+    uint32_t height;
+};
+
+static_assert(ScreenCaptureLike<LinuxCaptureShape>);
+static_assert(ScreenCaptureLike<MacCaptureShape>);
+static_assert(ScreenCaptureLike<WinCaptureShape>);
+static_assert(!ScreenCaptureLike<NotACapture>);
+
+static_assert(ZeroCopyCapture<LinuxCaptureShape>);
+static_assert(!ZeroCopyCapture<MacCaptureShape>);
+static_assert(!ZeroCopyCapture<WinCaptureShape>);
+
+static_assert(QualityAwareCapture<MacCaptureShape>);
+static_assert(!QualityAwareCapture<LinuxCaptureShape>);
+static_assert(!QualityAwareCapture<WinCaptureShape>);
+
+static_assert(CapturedFrameLike<FrameWithMeta>);
+static_assert(!CapturedFrameLike<FrameWithLooseFields>);
 
 struct AppleDecoderShape {
     bool Decode(const uint8_t* nal, size_t len, uint64_t ptsUs);
@@ -121,6 +169,21 @@ static_assert(!VideoDecoderLike<DecoderTakingIntPts>);
 
 void RunMediaContractTests() {
     std::printf("[media] encoder/decoder signature contract for all five platforms (checked at compile time)...\n");
+
+    std::printf("[media] capture contract: the concepts reject a type that does not fit...\n");
+    Check(!ScreenCaptureLike<NotACapture>, "a capture with no Closed() is not a capture");
+    Check(!CapturedFrameLike<FrameWithLooseFields>,
+        "loose width/height fields do not satisfy the frame metadata contract");
+    Check(ZeroCopyCapture<LinuxCaptureShape> && !ZeroCopyCapture<WinCaptureShape>,
+        "zero-copy is opt-in, not assumed");
+    Check(QualityAwareCapture<MacCaptureShape> && !QualityAwareCapture<LinuxCaptureShape>,
+        "so is capture-side rescaling");
+
+    const FrameMeta fm;
+    Check(fm.width == 0 && fm.height == 0 && fm.timestampUs == 0 && fm.frameId == 0,
+        "FrameMeta starts zeroed, so a capture that forgets a field cannot leak stale values");
+    const CaptureOptions co;
+    Check(co.fps == 60 && co.maxDim == 0, "CaptureOptions: 60 fps, no cap, by default");
 
     std::printf("[media] EncoderConfig/DecoderConfig defaults...\n");
     const EncoderConfig ec;

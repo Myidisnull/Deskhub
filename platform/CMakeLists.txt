@@ -1,13 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
 
 if(WIN32)
-    set(deskhub_platform_socket src/UdpSocketWin.cpp)
+    set(deskhub_platform_os
+        src/UdpSocketWin.cpp
+        src/NetInfoWin.cpp
+        src/LocalInputWin.cpp
+    )
 else()
-    set(deskhub_platform_socket src/UdpSocketPosix.cpp)
+    set(deskhub_platform_os
+        src/UdpSocketPosix.cpp
+        src/NetInfoPosix.cpp
+    )
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND deskhub_platform_os src/LocalInputLinux.cpp)
+    elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        list(APPEND deskhub_platform_os src/LocalInputMac.mm)
+    else()
+        list(APPEND deskhub_platform_os src/LocalInputNone.cpp)
+    endif()
+
+    if(APPLE)
+        list(APPEND deskhub_platform_os src/VtDecoderApple.mm)
+    endif()
 endif()
 
 add_library(platform STATIC
-    ${deskhub_platform_socket}
+    ${deskhub_platform_os}
     src/SourceQuery.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

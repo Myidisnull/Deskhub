@@ -9,16 +9,15 @@
 
 #include "capture/CaptureTypes.h"
 
+#include "deskhub/media/ShareSource.h"
+
 struct AgentOptions {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
     uint32_t maxDim = 1920;
 };
 
-struct AgentSource {
-    uint32_t displayId = 0;
-    std::string name;
-};
+using AgentSource = deskhub::media::ShareSource;
 
 struct AgentSourceStatus {
     uint8_t sourceId = 0;

@@ -18,7 +18,10 @@ public:
     ScreenCapture(const ScreenCapture&) = delete;
     ScreenCapture& operator=(const ScreenCapture&) = delete;
 
-    bool Start(HMONITOR monitor, ID3D11Device* device, FrameHandler onFrame);
+    void SetDevice(ID3D11Device* device);
+
+    bool Start(uint64_t targetId, const deskhub::media::CaptureOptions& opt,
+        FrameHandler onFrame);
     void Stop();
 
     bool Closed() const;
@@ -27,6 +30,10 @@ public:
     ID3D11DeviceContext* Context() const;
 
 private:
+    ID3D11Device* pendingDevice_ = nullptr;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+static_assert(deskhub::media::ScreenCaptureLike<ScreenCapture>,
+    "ScreenCapture must match the shared capture signature");

@@ -1,0 +1,40 @@
+#pragma once
+#include <cstdint>
+
+namespace deskhub {
+
+inline constexpr int32_t kNormalizedMax = 65535;
+inline constexpr double kMaxViewZoom = 5.0;
+
+struct ViewRect {
+    double x = 0;
+    double y = 0;
+    double width = 0;
+    double height = 0;
+
+    constexpr double midX() const {
+        return x + width / 2;
+    }
+    constexpr double midY() const {
+        return y + height / 2;
+    }
+};
+
+struct ViewTransform {
+    double zoom = 1.0;
+    double panX = 0;
+    double panY = 0;
+};
+
+ViewRect FitVideoRect(double viewportW, double viewportH, double aspect,
+    const ViewTransform& t = {});
+
+ViewTransform ApplyGesture(const ViewTransform& cur, double factor, double centroidX,
+    double centroidY, double panDeltaX, double panDeltaY, double viewportW, double viewportH,
+    double aspect);
+
+int32_t NormalizeAxis(double offset, double extent);
+
+bool NormalizePointer(double px, double py, const ViewRect& rect, int32_t& nx, int32_t& ny);
+
+}

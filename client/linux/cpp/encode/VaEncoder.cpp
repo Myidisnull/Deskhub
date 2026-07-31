@@ -12,8 +12,11 @@
 
 #include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
-#include "encode/BitWriter.h"
 #include "encode/VaDisplay.h"
+
+#include "deskhub/media/BitWriter.h"
+
+using deskhub::media::BitWriter;
 
 namespace {
 
@@ -369,7 +372,7 @@ VASurfaceID VaEncoder::ImportDmaBuf(const LinuxFrameInfo& fi) {
     uint32_t objSize[kMaxDmaPlanes]{};
     for (uint32_t i = 0; i < fi.planeCount; ++i) {
         const off_t sz = lseek(fi.planes[i].fd, 0, SEEK_END);
-        objSize[i] = sz > 0 ? uint32_t(sz) : fi.planes[i].offset + fi.planes[i].stride * fi.height;
+        objSize[i] = sz > 0 ? uint32_t(sz) : fi.planes[i].offset + fi.planes[i].stride * fi.meta.height;
     }
 
     VASurfaceAttrib attrs[2]{};
@@ -386,8 +389,8 @@ VASurfaceID VaEncoder::ImportDmaBuf(const LinuxFrameInfo& fi) {
 
     if (fi.modifier == DRM_FORMAT_MOD_INVALID) {
         legacy.pixel_format = vaFourcc;
-        legacy.width = fi.width;
-        legacy.height = fi.height;
+        legacy.width = fi.meta.width;
+        legacy.height = fi.meta.height;
         legacy.data_size = objSize[0];
         legacy.num_planes = fi.planeCount;
         for (uint32_t i = 0; i < fi.planeCount; ++i) {
@@ -401,8 +404,8 @@ VASurfaceID VaEncoder::ImportDmaBuf(const LinuxFrameInfo& fi) {
         attrs[1].value.value.p = &legacy;
     } else {
         prime2.fourcc = vaFourcc;
-        prime2.width = fi.width;
-        prime2.height = fi.height;
+        prime2.width = fi.meta.width;
+        prime2.height = fi.meta.height;
         prime2.num_objects = fi.planeCount;
         for (uint32_t i = 0; i < fi.planeCount; ++i) {
             prime2.objects[i].fd = fi.planes[i].fd;
@@ -422,7 +425,7 @@ VASurfaceID VaEncoder::ImportDmaBuf(const LinuxFrameInfo& fi) {
     }
 
     VASurfaceID surf = VA_INVALID_SURFACE;
-    const VAStatus st = vaCreateSurfaces(dpy_, VA_RT_FORMAT_RGB32, fi.width, fi.height, &surf, 1,
+    const VAStatus st = vaCreateSurfaces(dpy_, VA_RT_FORMAT_RGB32, fi.meta.width, fi.meta.height, &surf, 1,
         attrs, 2);
     if (st != VA_STATUS_SUCCESS) {
         return VA_INVALID_SURFACE;
@@ -449,7 +452,7 @@ bool VaEncoder::UploadMapped(const LinuxFrameInfo& fi) {
         attr.flags = VA_SURFACE_ATTRIB_SETTABLE;
         attr.value.type = VAGenericValueTypeInteger;
         attr.value.value.i = int(vaFourcc);
-        if (!VaCheck(vaCreateSurfaces(dpy_, VA_RT_FORMAT_RGB32, fi.width, fi.height, &rgbSurface_,
+        if (!VaCheck(vaCreateSurfaces(dpy_, VA_RT_FORMAT_RGB32, fi.meta.width, fi.meta.height, &rgbSurface_,
                          1, &attr, 1),
                 "vaCreateSurfaces(RGB)"))
             return false;
@@ -464,7 +467,7 @@ bool VaEncoder::UploadMapped(const LinuxFrameInfo& fi) {
         fmt.green_mask = 0x0000FF00u;
         fmt.blue_mask = bgr ? 0x000000FFu : 0x00FF0000u;
         fmt.alpha_mask = 0xFF000000u;
-        if (!VaCheck(vaCreateImage(dpy_, &fmt, int(fi.width), int(fi.height), &rgbImage_),
+        if (!VaCheck(vaCreateImage(dpy_, &fmt, int(fi.meta.width), int(fi.meta.height), &rgbImage_),
                 "vaCreateImage(RGB)")) {
             vaDestroySurfaces(dpy_, &rgbSurface_, 1);
             rgbSurface_ = VA_INVALID_SURFACE;
@@ -478,15 +481,15 @@ bool VaEncoder::UploadMapped(const LinuxFrameInfo& fi) {
     if (!VaCheck(vaMapBuffer(dpy_, rgbImage_.buf, reinterpret_cast<void**>(&dst)), "vaMapBuffer"))
         return false;
     const uint32_t dstPitch = rgbImage_.pitches[0];
-    const uint32_t rowBytes = fi.width * 4;
+    const uint32_t rowBytes = fi.meta.width * 4;
     const uint32_t copyBytes = rowBytes < dstPitch ? rowBytes : dstPitch;
-    for (uint32_t y = 0; y < fi.height; ++y)
+    for (uint32_t y = 0; y < fi.meta.height; ++y)
         std::memcpy(dst + rgbImage_.offsets[0] + size_t(y) * dstPitch,
             fi.data + size_t(y) * fi.stride, copyBytes);
     vaUnmapBuffer(dpy_, rgbImage_.buf);
 
-    return VaCheck(vaPutImage(dpy_, rgbSurface_, rgbImage_.image_id, 0, 0, fi.width, fi.height, 0,
-                       0, fi.width, fi.height),
+    return VaCheck(vaPutImage(dpy_, rgbSurface_, rgbImage_.image_id, 0, 0, fi.meta.width, fi.meta.height, 0,
+                       0, fi.meta.width, fi.meta.height),
         "vaPutImage");
 }
 
@@ -799,19 +802,19 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
 
 bool VaEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forceKeyframe) {
     if (!IsOpen()) return false;
-    if (fi.width < cfg_.width || fi.height < cfg_.height) {
+    if (fi.meta.width < cfg_.width || fi.meta.height < cfg_.height) {
         static thread_local bool warned = false;
         if (!warned) {
             warned = true;
             LOGE(
                 "[VaEnc] Frame is %ux%u but the encoder was built for %ux%u — dropping every "
                 "frame until it is rebuilt.",
-                fi.width, fi.height, cfg_.width, cfg_.height);
+                fi.meta.width, fi.meta.height, cfg_.width, cfg_.height);
         }
         return false;
     }
-    srcW_ = fi.width;
-    srcH_ = fi.height;
+    srcW_ = fi.meta.width;
+    srcH_ = fi.meta.height;
 
     const bool idr = forceKeyframe || !haveRef_;
 

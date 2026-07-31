@@ -1,7 +1,5 @@
 #include "input/MacKeyMap.h"
 
-#include <cstddef>
-
 namespace mackeys {
 namespace {
 
@@ -81,27 +79,14 @@ constexpr KeyEntry kTable[] = {
 };
 // clang-format on
 
-constexpr size_t kCount = sizeof(kTable) / sizeof(kTable[0]);
-
 }
 
 bool MacToWin(uint16_t macKeyCode, int32_t& vk, int32_t& scan) {
-    for (size_t i = 0; i < kCount; ++i) {
-        if (kTable[i].mac != macKeyCode) continue;
-        vk = kTable[i].vk;
-        scan = kTable[i].scan;
-        return true;
-    }
-    return false;
+    return deskhub::ScancodeTable<uint16_t>(kTable).ToWindows(macKeyCode, vk, scan);
 }
 
 bool WinVkToMac(int32_t vk, uint16_t& macKeyCode) {
-    for (size_t i = 0; i < kCount; ++i) {
-        if (kTable[i].vk != vk) continue;
-        macKeyCode = kTable[i].mac;
-        return true;
-    }
-    return false;
+    return deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, macKeyCode);
 }
 
 Modifier ModifierOf(int32_t vk) {

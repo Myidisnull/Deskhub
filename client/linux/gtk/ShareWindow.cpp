@@ -129,18 +129,7 @@ void ShareWindow::Build(const std::vector<ShareSource>& sources, const AgentOpti
     AgentOptions opt = optIn;
     DesktopBounds(opt.desktopX, opt.desktopY, opt.desktopW, opt.desktopH);
 
-    std::vector<AgentSource> agentSources;
-    agentSources.reserve(sources.size());
-    for (const ShareSource& s : sources) {
-        AgentSource a;
-        a.nodeId = s.nodeId;
-        a.name = s.name;
-        a.x = s.x;
-        a.y = s.y;
-        a.width = s.width;
-        a.height = s.height;
-        agentSources.push_back(std::move(a));
-    }
+    const std::vector<AgentSource> agentSources = sources;
 
     starter_ = std::thread([this, agentSources, opt, alive = alive_] {
         const bool ok = agent_.Start(agentSources, opt);

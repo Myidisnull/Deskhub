@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "AgentLoop.h"
-#include "DiagLog.h"
+#include "deskhubp/LogFile.h"
 #include "ElevatedShare.h"
 #include "MainMenuWindow.h"
 #include "SessionWindow.h"
@@ -17,7 +17,7 @@
 #include "deskhub/protocol/Wire.h"
 
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    StartProcessLog();
+    deskhubp::StartProcessLog();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     std::setlocale(LC_ALL, ".UTF8");
     capture::InitRuntime();

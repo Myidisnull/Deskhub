@@ -1,4 +1,4 @@
-#include "net/NetInfo.h"
+#include "deskhubp/NetInfo.h"
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -8,15 +8,34 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace {
 
-bool StartsWith(const std::string& s, const char* p) {
-    return s.rfind(p, 0) == 0;
+bool StartsWith(const std::string& s, const char* prefix) {
+    return s.rfind(prefix, 0) == 0;
 }
 
-std::string FriendlyName(const char* ifname) {
-    const std::string n = ifname ? ifname : "?";
+#if defined(__APPLE__)
+
+std::string FriendlyName(const std::string& n) {
+    if (n == "en0") return "Wi-Fi (en0)";
+    if (StartsWith(n, "en")) return "Ethernet (" + n + ")";
+    if (StartsWith(n, "utun")) return "VPN/Tailscale (" + n + ")";
+    if (StartsWith(n, "bridge")) return "Bridge (" + n + ")";
+    if (StartsWith(n, "awdl") || StartsWith(n, "llw")) return "AirDrop (" + n + ")";
+    return n;
+}
+
+int Rank(const std::string& n) {
+    if (StartsWith(n, "en")) return 0;
+    if (StartsWith(n, "utun")) return 1;
+    return 2;
+}
+
+#else
+
+std::string FriendlyName(const std::string& n) {
     if (StartsWith(n, "en") || StartsWith(n, "eth")) return "Ethernet (" + n + ")";
     if (StartsWith(n, "wl")) return "Wi-Fi (" + n + ")";
     if (StartsWith(n, "ww")) return "Mobile (" + n + ")";
@@ -28,8 +47,7 @@ std::string FriendlyName(const char* ifname) {
     return n;
 }
 
-int Rank(const char* ifname) {
-    const std::string n = ifname ? ifname : "";
+int Rank(const std::string& n) {
     if (StartsWith(n, "docker") || StartsWith(n, "br-") || StartsWith(n, "virbr") ||
         StartsWith(n, "vmnet"))
         return 2;
@@ -37,6 +55,8 @@ int Rank(const char* ifname) {
         return 1;
     return 0;
 }
+
+#endif
 
 }
 
@@ -57,10 +77,8 @@ std::vector<AdapterAddr> ListLocalIPv4() {
         if (!inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip))) continue;
         if (std::strncmp(ip, "169.254.", 8) == 0) continue;
 
-        AdapterAddr a;
-        a.name = FriendlyName(ifa->ifa_name);
-        a.ip = ip;
-        ranked.emplace_back(Rank(ifa->ifa_name), std::move(a));
+        const std::string ifname = ifa->ifa_name ? ifa->ifa_name : "?";
+        ranked.emplace_back(Rank(ifname), AdapterAddr{FriendlyName(ifname), ip});
     }
     freeifaddrs(head);
 

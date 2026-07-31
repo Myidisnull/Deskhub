@@ -14,7 +14,7 @@
 #include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 #include "input/LinuxKeyMap.h"
-#include "input/LocalInputMonitor.h"
+#include "deskhubp/LocalInput.h"
 
 namespace {
 
@@ -137,15 +137,11 @@ bool InputInjector::Init(int32_t srcX, int32_t srcY, uint32_t srcW, uint32_t src
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_ || kbdFd_ < 0) return;
 
-    if (localMon_ && localMon_->LocalActive(NowUs())) {
-        ++skipped_;
-        if (!localSuppressed_) {
-            localSuppressed_ = true;
-            LOGI("[Inject] Local user is typing — remote input yields.");
-        }
+    const deskhub::InputGate gate = held_.Gate(localMon_ && localMon_->LocalActive(NowUs()));
+    if (!gate.allow) {
+        if (gate.justSuppressed) LOGI("[Inject] Local user is typing — remote input yields.");
         return;
     }
-    if (localSuppressed_) localSuppressed_ = false;
 
     switch (e.type) {
         case deskhub::InputType::Key: SendKey(e.a, e.state != 0); break;
@@ -161,24 +157,20 @@ void InputInjector::Apply(const deskhub::InputEvent& e) {
         case deskhub::InputType::MouseWheel: SendWheel(e.b); break;
         default: return;
     }
-    ++applied_;
+    held_.CountApplied();
 }
 
 void InputInjector::SendKey(int32_t vk, bool down) {
     uint16_t code = 0;
     if (!down) {
-        auto it = keysDown_.find(vk);
-        if (it != keysDown_.end()) code = it->second;
+        if (const uint16_t* stored = held_.FindKey(vk)) code = *stored;
     }
     if (!code && !linuxkeys::WinVkToEvdev(vk, code)) return;
 
     if (!Emit(kbdFd_, EV_KEY, code, down ? 1 : 0)) return;
     Sync(kbdFd_);
 
-    if (down)
-        keysDown_[vk] = code;
-    else
-        keysDown_.erase(vk);
+    held_.SetKey(vk, code, down);
 }
 
 void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
@@ -194,10 +186,7 @@ void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
     if (!Emit(mouseFd_, EV_KEY, code, down ? 1 : 0)) return;
     Sync(mouseFd_);
 
-    if (down)
-        buttonsDown_.insert(btn);
-    else
-        buttonsDown_.erase(btn);
+    held_.SetButton(btn, down);
 }
 
 void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
@@ -234,14 +223,9 @@ void InputInjector::SendWheel(int32_t delta) {
 
 void InputInjector::ReleaseAll() {
     if (kbdFd_ < 0) return;
-    const auto keys = keysDown_;
-    for (const auto& [vk, code] : keys) {
-        Emit(kbdFd_, EV_KEY, code, 0);
+    for (const auto& key : held_.TakeHeldKeys()) {
+        Emit(kbdFd_, EV_KEY, key.native, 0);
         Sync(kbdFd_);
     }
-    keysDown_.clear();
-
-    const auto buttons = buttonsDown_;
-    for (deskhub::MouseButton b : buttons) SendButton(b, false);
-    buttonsDown_.clear();
+    for (deskhub::MouseButton b : held_.TakeHeldButtons()) SendButton(b, false);
 }

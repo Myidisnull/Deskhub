@@ -1,6 +1,7 @@
 #import <AVFoundation/AVFoundation.h>
 
 #include "DeskhubBridge.h"
+#include "deskhub/media/ViewFit.h"
 
 #include <cstring>
 #include <memory>
@@ -14,7 +15,7 @@
 #include "capture/SourceEnum.h"
 #include "ClientLoop.h"
 #include "input/MacKeyMap.h"
-#include "net/NetInfo.h"
+#include "deskhubp/NetInfo.h"
 #include "deskhubp/SourceQuery.h"
 
 struct DHSession {
@@ -179,7 +180,7 @@ int dha_list_share_sources(DHShareSource* out, int capacity) {
     const std::vector<ShareSource> src = GetShareSources();
     const int count = int(src.size()) < capacity ? int(src.size()) : capacity;
     for (int i = 0; i < count; ++i) {
-        out[i].id = src[i].displayId;
+        out[i].id = uint32_t(src[i].targetId);
         out[i].width = src[i].width;
         out[i].height = src[i].height;
         std::strncpy(out[i].name, src[i].name.c_str(), sizeof(out[i].name) - 1);
@@ -191,8 +192,10 @@ int dha_list_share_sources(DHShareSource* out, int capacity) {
 namespace {
 AgentSource ToAgentSource(const DHShareSource& s) {
     AgentSource a;
-    a.displayId = s.id;
+    a.targetId = s.id;
     a.name = s.name;
+    a.width = s.width;
+    a.height = s.height;
     return a;
 }
 }
@@ -272,4 +275,26 @@ const char* dha_local_addresses(void) {
     }
     CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
     return g_addrBuf;
+}
+
+DHViewRect dh_video_rect(double viewportW, double viewportH, double aspect, DHViewTransform t) {
+    const deskhub::ViewRect r = deskhub::FitVideoRect(viewportW, viewportH, aspect,
+        deskhub::ViewTransform{t.zoom, t.panX, t.panY});
+    return DHViewRect{r.x, r.y, r.width, r.height};
+}
+
+DHViewTransform dh_apply_gesture(DHViewTransform cur, double factor, double centroidX,
+    double centroidY, double panDeltaX, double panDeltaY, double viewportW, double viewportH,
+    double aspect) {
+    const deskhub::ViewTransform t = deskhub::ApplyGesture(
+        deskhub::ViewTransform{cur.zoom, cur.panX, cur.panY}, factor, centroidX, centroidY,
+        panDeltaX, panDeltaY, viewportW, viewportH, aspect);
+    return DHViewTransform{t.zoom, t.panX, t.panY};
+}
+
+bool dh_normalize_pointer(double px, double py, DHViewRect rect, int32_t* nx, int32_t* ny) {
+    if (!nx || !ny) return false;
+    return deskhub::NormalizePointer(px, py, deskhub::ViewRect{rect.x, rect.y, rect.width,
+                                                 rect.height},
+        *nx, *ny);
 }

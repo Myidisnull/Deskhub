@@ -3,18 +3,17 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
-#include <map>
 #include <mutex>
-#include <set>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "decode/VtDecoder.h"
+#include "deskhubp/VtDecoder.h"
 #include "deskhubp/UdpSocket.h"
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/diag/ClientDiag.h"
+#include "deskhub/input/ClientInputQueue.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -65,7 +64,6 @@ public:
 private:
     void NetThread();
     void DecodeThread();
-    void PushLocked(const deskhub::InputEvent& e);
 
     NetAddr server_{};
     uint8_t sourceId_ = 0;
@@ -103,11 +101,7 @@ private:
     std::atomic<bool> queueOverflow_{false};
     std::atomic<uint32_t> stRendered_{0};
 
-    std::mutex inputMutex_;
-    std::vector<deskhub::InputEvent> inputQueue_;
-    std::atomic<bool> wantFocus_{false};
-    std::map<int32_t, int32_t> keysDown_;
-    std::set<int32_t> buttonsDown_;
+    deskhub::ClientInputQueue input_;
 
     deskhub::diag::ClientDiag diag_{deskhub::diag::ClientDiagCaps{
         false, true}};

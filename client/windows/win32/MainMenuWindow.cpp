@@ -14,7 +14,7 @@
 #include "Viewer.h"
 #include "capture/DisplayFinder.h"
 #include "net/Firewall.h"
-#include "net/NetInfo.h"
+#include "deskhubp/NetInfo.h"
 #include "deskhubp/SourceQuery.h"
 #include "deskhubp/UdpSocket.h"
 #include "deskhub/protocol/Wire.h"
@@ -73,14 +73,13 @@ struct MenuState {
     bool quit = false;
 };
 
-std::string ToUtf8(const std::wstring& w) {
-    if (w.empty()) return {};
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()),
-        nullptr, 0, nullptr, nullptr);
+std::wstring FromUtf8(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
     if (n <= 0) return {};
-    std::string s(size_t(n), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()), s.data(), n, nullptr, nullptr);
-    return s;
+    std::wstring w(size_t(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
+    return w;
 }
 
 void DoShare(MenuState& st) {
@@ -94,7 +93,7 @@ void DoShare(MenuState& st) {
             MessageBoxW(st.hwnd, msg, L"Deskhub", MB_OK | MB_ICONWARNING);
             break;
         }
-        sources.push_back(AgentSource{d.monitor, ToUtf8(d.name)});
+        sources.push_back(d);
     }
     if (sources.empty()) {
         MessageBoxW(st.hwnd, L"No display found to share.", L"Deskhub",
@@ -270,7 +269,7 @@ int RunMainMenuWindow() {
             const int rowY = hostTop + 44 + i * rowH;
             std::wstring addr(a.ip.begin(), a.ip.end());
             wchar_t line[192];
-            swprintf(line, 192, L"%-20ls %ls", a.name.c_str(), addr.c_str());
+            swprintf(line, 192, L"%-20ls %ls", FromUtf8(a.name).c_str(), addr.c_str());
             mk(L"STATIC", line, SS_LEFT | SS_ENDELLIPSIS, ix, rowY + 2, copyX - 8 - ix, 18, 0);
             mk(L"BUTTON", L"Copy", BS_PUSHBUTTON, copyX, rowY, kCopyW, kCopyH, kIdCopyBase + i);
             st.copyIps.push_back(std::move(addr));
