@@ -151,7 +151,14 @@ void VaEncoder::BuildParameterSets() {
         w.U(1, 0);
         w.U(1, 0);
         w.U(1, 0);
-        w.U(1, 0);
+        w.U(1, 1);
+        w.U(1, 1);
+        w.UE(0);
+        w.UE(0);
+        w.UE(kLog2MaxMvLength);
+        w.UE(kLog2MaxMvLength);
+        w.UE(0);
+        w.UE(kMaxRefFrames);
     }
     w.Trailing();
     sps_ = w.bytes();

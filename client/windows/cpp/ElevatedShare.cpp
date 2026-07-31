@@ -88,7 +88,8 @@ bool RelaunchElevatedShare(std::span<const AgentSource> sources,
     if (exe.empty()) return false;
 
     wchar_t nums[128];
-    swprintf(nums, 128, L" --fps %u --bitrate %u", unsigned(opt.fps), unsigned(opt.bitrateMbps));
+    swprintf(nums, 128, L" --fps %u --bitrate %u --maxdim %u", unsigned(opt.fps),
+        unsigned(opt.bitrateMbps), unsigned(opt.maxDim));
 
     std::wstring args = kFlagShare;
     args += nums;
@@ -127,6 +128,8 @@ bool ParseElevatedShareArgs(int adeskhub, wchar_t** argv,
             opt.fps = uint32_t(wcstoul(argv[++i], nullptr, 10));
         } else if (a == L"--bitrate" && hasNext) {
             opt.bitrateMbps = uint32_t(wcstoul(argv[++i], nullptr, 10));
+        } else if (a == L"--maxdim" && hasNext) {
+            opt.maxDim = uint32_t(wcstoul(argv[++i], nullptr, 10));
         } else if (a == L"--src" && hasNext) {
             AgentSource s;
             if (DecodeSource(argv[++i], s)) sources.push_back(std::move(s));

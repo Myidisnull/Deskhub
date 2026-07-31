@@ -10,8 +10,11 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <span>
 #include <string>
+#include <vector>
 
+#include "deskhub/media/H264Sps.h"
 #include "deskhubp/diag/Log.h"
 
 using PFN_CreateInstance = NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*);
@@ -27,6 +30,7 @@ struct NvencEncoder::Impl {
     uint32_t width = 0, height = 0;
     NV_ENC_CONFIG encCfg{};
     NV_ENC_INITIALIZE_PARAMS initParams{};
+    bool loggedZeroReorder = false;
     uint64_t frameCount = 0;
     uint64_t totalBytes = 0;
 
@@ -261,12 +265,28 @@ struct NvencEncoder::Impl {
         if (s != NV_ENC_SUCCESS) return Fail("LockBitstream", s);
 
         const bool keyframe = (lb.pictureType == NV_ENC_PIC_TYPE_IDR);
-        if (out) std::fwrite(lb.bitstreamBufferPtr, 1, lb.bitstreamSizeInBytes, out);
-        if (cfg.onPacket && lb.bitstreamSizeInBytes > 0) {
-            cfg.onPacket((const uint8_t*)lb.bitstreamBufferPtr, lb.bitstreamSizeInBytes,
-                lb.outputTimeStamp, keyframe);
+        const uint8_t* data = (const uint8_t*)lb.bitstreamBufferPtr;
+        size_t len = lb.bitstreamSizeInBytes;
+
+        std::vector<uint8_t> zeroReorder;
+        if (keyframe && len) {
+            zeroReorder =
+                deskhub::media::AnnexBStreamWithZeroReorder(std::span<const uint8_t>(data, len));
+            if (!zeroReorder.empty()) {
+                data = zeroReorder.data();
+                len = zeroReorder.size();
+                if (!loggedZeroReorder) {
+                    loggedZeroReorder = true;
+                    LOGI(
+                        "[NVENC] SPS did not signal a reorder limit -"
+                        " added max_num_reorder_frames=0.");
+                }
+            }
         }
-        totalBytes += lb.bitstreamSizeInBytes;
+
+        if (out) std::fwrite(data, 1, len, out);
+        if (cfg.onPacket && len > 0) cfg.onPacket(data, len, lb.outputTimeStamp, keyframe);
+        totalBytes += len;
         ++frameCount;
         if (frameCount <= 5 || frameCount % 60 == 0) {
             LOGI("[NVENC] frame %llu: %u byte%s", (unsigned long long)frameCount,

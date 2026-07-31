@@ -35,6 +35,7 @@ private:
     GtkWidget* addressEntry_ = nullptr;
     GtkWidget* fpsEntry_ = nullptr;
     GtkWidget* bitrateEntry_ = nullptr;
+    GtkWidget* qualityCombo_ = nullptr;
     GtkWidget* shareButton_ = nullptr;
     GtkWidget* connectButton_ = nullptr;
     GtkWidget* statusLabel_ = nullptr;

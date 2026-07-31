@@ -5,7 +5,10 @@
 #include "encode/VtEncoder.h"
 
 #include <cstring>
+#include <span>
+#include <vector>
 
+#include "deskhub/media/H264Sps.h"
 #include "deskhubp/diag/Log.h"
 
 namespace {
@@ -26,6 +29,16 @@ bool IsKeyframe(CMSampleBufferRef sb) {
 void AppendNal(std::vector<uint8_t>& out, const uint8_t* nal, size_t len) {
     out.insert(out.end(), kStartCode, kStartCode + 4);
     out.insert(out.end(), nal, nal + len);
+}
+
+void AppendParameterSet(std::vector<uint8_t>& out, const uint8_t* nal, size_t len) {
+    const std::vector<uint8_t> zeroReorderSps =
+        deskhub::media::AnnexBSpsWithZeroReorder(std::span<const uint8_t>(nal, len));
+    if (zeroReorderSps.empty()) {
+        AppendNal(out, nal, len);
+        return;
+    }
+    out.insert(out.end(), zeroReorderSps.begin(), zeroReorderSps.end());
 }
 
 void OutputCallback(void* refcon, void* , OSStatus status,
@@ -78,7 +91,7 @@ void VtEncoder::OnEncoded(void* sampleBufferOpaque, int32_t status, uint32_t inf
                     if (CMVideoFormatDescriptionGetH264ParameterSetAtIndex(fmt, i, &ps, &psSize,
                             nullptr, nullptr) == noErr &&
                         ps && psSize)
-                        AppendNal(out, ps, psSize);
+                        AppendParameterSet(out, ps, psSize);
                 }
             }
         }

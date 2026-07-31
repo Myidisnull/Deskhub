@@ -70,24 +70,27 @@ struct MainMenuView: View {
                 }
             }
 
+            Text("UDP port 47777")
+
             HStack(spacing: 8) {
-                Text("UDP port 47777")
-                Spacer().frame(width: 8)
-                Text("FPS")
+                Text("FPS").fixedSize()
                 TextField("60", value: $agent.fps, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 52)
-                Text("Bitrate (Mbps)")
+                Text("Bitrate (Mbps)").fixedSize()
                 TextField("20", value: $agent.bitrateMbps, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 52)
-                Picker("Quality", selection: $agent.maxDim) {
+                Text("Quality").fixedSize()
+                Picker("", selection: $agent.maxDim) {
                     Text("720p").tag(1280)
                     Text("1080p").tag(1920)
                     Text("1440p").tag(2560)
                     Text("Native").tag(0)
                 }
-                .frame(width: 150)
+                .labelsHidden()
+                .frame(width: 96)
+                Spacer(minLength: 0)
             }
 
             Button {

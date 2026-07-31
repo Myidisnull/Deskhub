@@ -14,6 +14,7 @@
 #include "deskhubp/net/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 
+#include "deskhub/media/QualityPreset.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -33,6 +34,12 @@ std::string Trim(const std::string& s) {
 uint32_t EntryUint(GtkWidget* entry, uint32_t fallback) {
     const int v = std::atoi(gtk_entry_get_text(GTK_ENTRY(entry)));
     return v > 0 ? uint32_t(v) : fallback;
+}
+
+uint32_t ComboMaxDim(GtkWidget* combo, uint32_t fallback) {
+    const gint active = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
+    if (active < 0 || size_t(active) >= deskhub::media::kQualityPresets.size()) return fallback;
+    return deskhub::media::kQualityPresets[size_t(active)].maxDim;
 }
 
 GtkWidget* Label(const char* text) {
@@ -196,13 +203,11 @@ GtkWidget* MainWindow::BuildHostBox() {
         gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
     }
 
-    GtkWidget* settings = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     char portText[32];
     std::snprintf(portText, sizeof(portText), "UDP port %u", unsigned(kDeskhubPort));
-    GtkWidget* portLabel = Label(portText);
-    gtk_widget_set_hexpand(portLabel, TRUE);
-    gtk_box_pack_start(GTK_BOX(settings), portLabel, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Label(portText), FALSE, FALSE, 0);
 
+    GtkWidget* settings = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_pack_start(GTK_BOX(settings), Label("FPS"), FALSE, FALSE, 0);
     fpsEntry_ = NumberEntry("60");
     gtk_box_pack_start(GTK_BOX(settings), fpsEntry_, FALSE, FALSE, 0);
@@ -210,6 +215,14 @@ GtkWidget* MainWindow::BuildHostBox() {
     gtk_box_pack_start(GTK_BOX(settings), Label("Bitrate (Mbps)"), FALSE, FALSE, 0);
     bitrateEntry_ = NumberEntry("20");
     gtk_box_pack_start(GTK_BOX(settings), bitrateEntry_, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(settings), Label("Quality"), FALSE, FALSE, 0);
+    qualityCombo_ = gtk_combo_box_text_new();
+    for (const auto& preset : deskhub::media::kQualityPresets)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(qualityCombo_), preset.label);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(qualityCombo_),
+        gint(deskhub::media::QualityPresetIndex(kShareDefaults.maxDim)));
+    gtk_box_pack_start(GTK_BOX(settings), qualityCombo_, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), settings, FALSE, FALSE, 0);
 
     shareButton_ = gtk_button_new_with_label("Share...  (pick the display to share)");
@@ -275,6 +288,7 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     AgentOptions opt;
     opt.fps = EntryUint(self->fpsEntry_, kShareDefaults.fps);
     opt.bitrateMbps = EntryUint(self->bitrateEntry_, kShareDefaults.bitrateMbps);
+    opt.maxDim = ComboMaxDim(self->qualityCombo_, kShareDefaults.maxDim);
 
     self->SetBusy(true, "Waiting for the screen-sharing dialog…");
 

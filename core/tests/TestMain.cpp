@@ -75,6 +75,12 @@ int main() {
     std::printf("--- media: H.264 bit writer (exp-golomb + emulation prevention) ---\n");
     RunBitWriterTests();
 
+    std::printf("--- media: H.264 SPS rewrite (VUI with zero reorder delay) ---\n");
+    RunH264SpsTests();
+
+    std::printf("--- media: share quality presets ---\n");
+    RunQualityPresetTests();
+
     std::printf("--- media: view fit (letterbox, zoom/pan, pointer mapping) ---\n");
     RunViewFitTests();
 

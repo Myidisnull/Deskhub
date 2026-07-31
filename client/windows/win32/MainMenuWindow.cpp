@@ -13,6 +13,7 @@
 #include "SourcePickerDialog.h"
 #include "Viewer.h"
 #include "WinText.h"
+#include "deskhub/media/QualityPreset.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "net/Firewall.h"
 #include "deskhubp/net/NetInfo.h"
@@ -26,6 +27,7 @@ constexpr wchar_t kWndClass[] = L"DeskhubMainMenu";
 
 constexpr int kIdEditFps = 199;
 constexpr int kIdEditBitrate = 198;
+constexpr int kIdComboQuality = 197;
 constexpr int kIdShare = 201;
 constexpr int kIdEditAddr = 202;
 constexpr int kIdConnect = 203;
@@ -49,6 +51,13 @@ uint32_t GetEditUint(HWND edit, uint32_t fallback) {
     return v > 0 ? (uint32_t)v : fallback;
 }
 
+uint32_t GetComboMaxDim(HWND combo, uint32_t fallback) {
+    const LRESULT sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    if (sel == CB_ERR) return fallback;
+    const LRESULT data = SendMessageW(combo, CB_GETITEMDATA, (WPARAM)sel, 0);
+    return data == CB_ERR ? fallback : (uint32_t)data;
+}
+
 void CopyTextToClipboard(HWND owner, const std::wstring& text) {
     if (text.empty() || !OpenClipboard(owner)) return;
     EmptyClipboard();
@@ -68,6 +77,7 @@ struct MenuState {
     HWND hwnd = nullptr;
     HWND editFps = nullptr;
     HWND editBitrate = nullptr;
+    HWND comboQuality = nullptr;
     HWND editAddr = nullptr;
     std::vector<std::wstring> copyIps;
     bool quit = false;
@@ -95,6 +105,7 @@ void DoShare(MenuState& st) {
     AgentOptions ao;
     ao.fps = GetEditUint(st.editFps, kShareDefaults.fps);
     ao.bitrateMbps = GetEditUint(st.editBitrate, kShareDefaults.bitrateMbps);
+    ao.maxDim = GetComboMaxDim(st.comboQuality, kShareDefaults.maxDim);
 
     if (!IsProcessElevated()) {
         const bool needFirewall = !HostFirewallRulePresent();
@@ -267,12 +278,27 @@ int RunMainMenuWindow() {
 
     const int sy = hostTop + settingsRel;
     mk(L"STATIC", L"UDP port 47777", SS_LEFT, ix, sy + 3, 100, 18, 0);
-    mk(L"STATIC", L"FPS", SS_LEFT, ix + 116, sy + 3, 30, 18, 0);
-    st.editFps = mk(L"EDIT", L"60", WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER, ix + 148, sy, 48, 24,
+    mk(L"STATIC", L"FPS", SS_LEFT, ix + 104, sy + 3, 26, 18, 0);
+    st.editFps = mk(L"EDIT", L"60", WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER, ix + 132, sy, 44, 24,
         kIdEditFps);
-    mk(L"STATIC", L"Bitrate (Mbps)", SS_LEFT, ix + 212, sy + 3, 90, 18, 0);
-    st.editBitrate = mk(L"EDIT", L"20", WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER, ix + 304, sy, 48,
+    mk(L"STATIC", L"Bitrate (Mbps)", SS_LEFT, ix + 182, sy + 3, 92, 18, 0);
+    st.editBitrate = mk(L"EDIT", L"20", WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER, ix + 276, sy, 44,
         24, kIdEditBitrate);
+    mk(L"STATIC", L"Quality", SS_LEFT, ix + 326, sy + 3, 48, 18, 0);
+    st.comboQuality = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, ix + 376, sy, 68, 140,
+        kIdComboQuality);
+    if (st.comboQuality) {
+        for (const auto& preset : deskhub::media::kQualityPresets) {
+            const std::wstring label = FromUtf8(preset.label);
+            const LRESULT at = SendMessageW(st.comboQuality, CB_ADDSTRING, 0,
+                (LPARAM)label.c_str());
+            if (at != CB_ERR)
+                SendMessageW(st.comboQuality, CB_SETITEMDATA, (WPARAM)at,
+                    (LPARAM)preset.maxDim);
+        }
+        SendMessageW(st.comboQuality, CB_SETCURSEL,
+            (WPARAM)deskhub::media::QualityPresetIndex(kShareDefaults.maxDim), 0);
+    }
 
     mk(L"BUTTON", L"Share...  (pick the display to share)", BS_PUSHBUTTON, ix,
         hostTop + shareRel, iw, 32, kIdShare);

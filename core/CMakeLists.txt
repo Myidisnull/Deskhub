@@ -26,6 +26,7 @@ add_library(core STATIC
     src/control/QualityLadder.cpp
 
     src/media/ViewFit.cpp
+    src/media/H264Sps.cpp
 
     src/diag/ClientDiag.cpp
     src/diag/AgentDiag.cpp
@@ -80,6 +81,8 @@ if(DESKHUB_CORE_TESTS)
 
         tests/media/ContractTests.cpp
         tests/media/BitWriterTests.cpp
+        tests/media/H264SpsTests.cpp
+        tests/media/QualityPresetTests.cpp
         tests/media/ViewFitTests.cpp
 
         tests/session/BeaconTests.cpp

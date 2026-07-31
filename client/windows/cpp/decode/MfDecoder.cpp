@@ -6,6 +6,7 @@
 #include <mfidl.h>
 #include <mftransform.h>
 #include <mferror.h>
+#include <codecapi.h>
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <cstdio>
@@ -15,6 +16,7 @@
 
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "strmiids.lib")
 
 using Microsoft::WRL::ComPtr;
 
@@ -94,6 +96,7 @@ struct MfDecoder::Impl {
             }
             attrs->SetUINT32(MF_LOW_LATENCY, TRUE);
         }
+        RequestLowLatencyMode();
         MFD_CHECK(MFCreateDXGIDeviceManager(&resetToken, &deviceManager),
             "MFCreateDXGIDeviceManager");
         MFD_CHECK(deviceManager->ResetDevice(device, resetToken), "ResetDevice");
@@ -123,6 +126,25 @@ struct MfDecoder::Impl {
         LOGI("[MfDecoder] Initialized: %s, D3D11VA, low-latency.",
             cfg.codec == Codec::HEVC ? "HEVC" : "H264");
         return true;
+    }
+
+    void RequestLowLatencyMode() {
+        ComPtr<ICodecAPI> codec;
+        if (FAILED(mft.As(&codec))) {
+            LOGW("[MfDecoder] No ICodecAPI - stream reorder delay stays at the DPB default.");
+            return;
+        }
+        VARIANT on;
+        VariantInit(&on);
+        on.vt = VT_BOOL;
+        on.boolVal = VARIANT_TRUE;
+        const HRESULT hr = codec->SetValue(&CODECAPI_AVLowLatencyMode, &on);
+        VariantClear(&on);
+        if (FAILED(hr))
+            LOGW(
+                "[MfDecoder] AVLowLatencyMode rejected: 0x%08lX - frames may be held for"
+                " reordering.",
+                (unsigned long)hr);
     }
 
     bool NegotiateOutputType() {

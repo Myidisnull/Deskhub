@@ -16,6 +16,7 @@ using deskhub::media::PacketHandler;
 inline constexpr uint32_t kLog2MaxFrameNumMinus4 = 12;
 inline constexpr uint32_t kLog2MaxPocLsbMinus4 = 12;
 inline constexpr uint32_t kMaxRefFrames = 1;
+inline constexpr uint32_t kLog2MaxMvLength = 15;
 
 inline constexpr int kPicInitQp = 26;
 

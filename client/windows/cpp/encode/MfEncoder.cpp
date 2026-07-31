@@ -14,8 +14,10 @@
 #include <wrl/client.h>
 #include <cstdio>
 #include <map>
+#include <utility>
 #include <vector>
 
+#include "deskhub/media/H264Sps.h"
 #include "deskhubp/diag/Log.h"
 
 #pragma comment(lib, "mfplat.lib")
@@ -428,8 +430,15 @@ struct MfEncoder::Impl {
         UINT32 size = 0;
         if (FAILED(curOut->GetBlobSize(MF_MT_MPEG_SEQUENCE_HEADER, &size)) || size == 0) return;
         spsPps.resize(size);
-        if (FAILED(curOut->GetBlob(MF_MT_MPEG_SEQUENCE_HEADER, spsPps.data(), size, nullptr)))
+        if (FAILED(curOut->GetBlob(MF_MT_MPEG_SEQUENCE_HEADER, spsPps.data(), size, nullptr))) {
             spsPps.clear();
+            return;
+        }
+        std::vector<uint8_t> zeroReorder =
+            deskhub::media::AnnexBStreamWithZeroReorder(spsPps);
+        if (zeroReorder.empty()) return;
+        spsPps = std::move(zeroReorder);
+        LOGI("[MfEncoder] SPS did not signal a reorder limit - added max_num_reorder_frames=0.");
     }
 
     static bool ContainsIdrNal(const uint8_t* data, size_t len) {
