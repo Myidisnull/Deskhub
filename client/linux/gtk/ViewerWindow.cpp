@@ -11,6 +11,7 @@
 #include "input/LinuxKeyMap.h"
 
 #include "deskhub/media/ViewFit.h"
+#include "deskhub/media/ViewerTitle.h"
 
 namespace {
 
@@ -128,15 +129,11 @@ void ViewerWindow::VideoRect(int& x, int& y, int& w, int& h) const {
     h = alloc.height;
     if (vw <= 0 || vh <= 0 || w <= 0 || h <= 0) return;
 
-    int dw = w, dh = int(int64_t(w) * vh / vw);
-    if (dh > h) {
-        dh = h;
-        dw = int(int64_t(h) * vw / vh);
-    }
-    x += (w - dw) / 2;
-    y += (h - dh) / 2;
-    w = dw;
-    h = dh;
+    const deskhub::ViewRect r = deskhub::FitVideoRect(w, h, double(vw) / double(vh));
+    x += int(r.x);
+    y += int(r.y);
+    w = int(r.width);
+    h = int(r.height);
 }
 
 bool ViewerWindow::InContent(double px, double py) const {
@@ -195,13 +192,10 @@ gboolean ViewerWindow::OnStatusTimer(gpointer user) {
 }
 
 void ViewerWindow::UpdateTitle() {
-    std::string stats = loop_.StatusLine();
-    if (stats.empty()) stats = "connecting...";
-
-    std::string title = baseTitle_ + " — " + stats + " · " +
-                        (pointerLocked_ ? "Mouse locked - press F9 or Esc to release"
-                                        : "Press F9 to lock mouse");
-    if (inputPaused_) title += " · input paused (F10)";
+    const char* hint = pointerLocked_ ? "Mouse locked - press F9 or Esc to release"
+                                      : deskhub::kViewerLockHint.data();
+    std::string title = deskhub::ComposeViewerTitle(baseTitle_, loop_.StatusLine(), hint);
+    if (inputPaused_) title += " \xC2\xB7 input paused (F10)";
 
     if (title == shownTitle_) return;
     shownTitle_ = std::move(title);
@@ -215,10 +209,9 @@ void ViewerWindow::SizeToVideo() {
     sizedToVideo_ = true;
 
     const GdkRectangle wa = WorkArea(window_);
-    const int maxW = std::max(320, wa.width - 48), maxH = std::max(240, wa.height - 48);
-    const double scale = std::min({1.0, double(maxW) / vw, double(maxH) / vh});
-    gtk_window_resize(GTK_WINDOW(window_), std::max(1, int(vw * scale)),
-        std::max(1, int(vh * scale)));
+    const deskhub::ViewSize fitted = deskhub::ScaleToFit(uint32_t(vw), uint32_t(vh),
+        uint32_t(std::max(320, wa.width - 48)), uint32_t(std::max(240, wa.height - 48)));
+    gtk_window_resize(GTK_WINDOW(window_), int(fitted.width), int(fitted.height));
 }
 
 void ViewerWindow::EndSession() {

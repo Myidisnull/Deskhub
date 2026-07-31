@@ -151,6 +151,26 @@ void TestPointerRoundTripAcrossTheWholeVideo() {
     Check(monotonic, "and moving right never moves the remote cursor left");
 }
 
+void TestScaleToFitNeverUpscales() {
+    std::printf("[viewfit] a window is shrunk to fit the work area but never blown up...\n");
+
+    Check(ScaleToFit(1920, 1080, 3840, 2160) == ViewSize{1920, 1080},
+        "a video smaller than the work area keeps its native size");
+
+    const ViewSize shrunk = ScaleToFit(3840, 2160, 1920, 1200);
+    Check(shrunk == ViewSize{1920, 1080}, "a 4K video is limited by width, aspect preserved");
+
+    const ViewSize byHeight = ScaleToFit(1000, 1000, 1920, 500);
+    Check(byHeight == ViewSize{500, 500}, "a square video is limited by height instead");
+
+    Check(ScaleToFit(0, 1080, 1920, 1080) == ViewSize{}, "an unknown size yields nothing");
+    Check(ScaleToFit(1920, 1080, 0, 0) == ViewSize{1920, 1080},
+        "an unknown work area leaves the size alone");
+
+    const ViewSize tiny = ScaleToFit(4000, 4, 100, 100);
+    Check(tiny.width >= 1 && tiny.height >= 1, "extreme aspect never collapses to zero");
+}
+
 }
 
 void RunViewFitTests() {
@@ -162,4 +182,5 @@ void RunViewFitTests() {
     TestNormalizeAxisSpansTheFullRange();
     TestNormalizePointerRejectsOutsideTheVideo();
     TestPointerRoundTripAcrossTheWholeVideo();
+    TestScaleToFitNeverUpscales();
 }

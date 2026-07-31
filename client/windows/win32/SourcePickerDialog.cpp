@@ -4,6 +4,9 @@
 
 #include <string>
 
+#include "deskhub/media/SourceLabel.h"
+#include "WinText.h"
+
 namespace {
 
 constexpr wchar_t kWndClass[] = L"DeskhubSourcePicker";
@@ -12,15 +15,6 @@ constexpr int kIdList = 300;
 constexpr int kIdOk = 301;
 constexpr int kIdCancel = 302;
 constexpr int kIdHint = 303;
-
-std::wstring FromUtf8(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
-    if (n <= 0) return {};
-    std::wstring w(size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
-    return w;
-}
 
 struct State {
     HWND hwnd = nullptr;
@@ -121,9 +115,9 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
         LBS_NOTIFY | LBS_HASSTRINGS | LBS_MULTIPLESEL | WS_VSCROLL | WS_BORDER,
         12, 12, kW - 24, kH - 92, kIdList);
     for (const auto& s : sources) {
-        wchar_t line[256];
-        swprintf(line, 256, L"%ls (%ux%u)", FromUtf8(s.name).c_str(), s.width, s.height);
-        SendMessageW(st.list, LB_ADDSTRING, 0, (LPARAM)line);
+        const std::wstring line =
+            FromUtf8(deskhub::media::SourcePickerLabel(s.name, s.sourceId, s.width, s.height));
+        SendMessageW(st.list, LB_ADDSTRING, 0, (LPARAM)line.c_str());
     }
     SendMessageW(st.list, LB_SETSEL, TRUE, 0);
     mk(L"STATIC", L"Each one you pick opens its own window.",

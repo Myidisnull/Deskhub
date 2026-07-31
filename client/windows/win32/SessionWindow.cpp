@@ -3,9 +3,11 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "SessionWindow.h"
 
-#include <cstdio>
 #include <string>
 #include <utility>
+
+#include "deskhub/media/SourceLabel.h"
+#include "WinText.h"
 
 namespace {
 
@@ -18,23 +20,11 @@ constexpr UINT kTimerId = 1;
 constexpr UINT kTimerMs = 300;
 constexpr UINT WM_APP_QUIT = WM_APP + 1;
 
-std::wstring FromUtf8(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
-    if (n <= 0) return {};
-    std::wstring w(size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
-    return w;
-}
-
 SessionSourceRow ToRow(const AgentSourceStatus& status) {
-    wchar_t suffix[64];
-    swprintf(suffix, 64, L"  (%ux%u%ls)", status.width, status.height,
-        status.viewerConnected ? L", viewer connected" : L"");
-
     SessionSourceRow row;
     row.sourceId = status.sourceId;
-    row.label = FromUtf8(status.name) + suffix;
+    row.label = FromUtf8(deskhub::media::SharedSourceLabel(status.name, status.width,
+        status.height, status.viewerConnected));
     return row;
 }
 

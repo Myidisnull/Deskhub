@@ -1,13 +1,8 @@
 #pragma once
-#include <atomic>
-#include <cstdint>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <thread>
-#include <vector>
+#include "deskhubp/session/HostEngine.h"
 
-#include "deskhub/media/AgentTypes.h"
+#include <string>
+#include <vector>
 
 using AgentSource = deskhub::media::ShareSource;
 using AgentOptions = deskhub::media::AgentOptions;
@@ -15,28 +10,28 @@ using AgentSourceStatus = deskhub::media::AgentSourceStatus;
 
 class AgentLoop {
 public:
-    AgentLoop();
-    ~AgentLoop();
+    AgentLoop() = default;
     AgentLoop(const AgentLoop&) = delete;
     AgentLoop& operator=(const AgentLoop&) = delete;
 
     bool Start(const std::vector<AgentSource>& sources, const AgentOptions& opt);
 
-    void Stop();
-
-    bool running() const {
-        return running_.load(std::memory_order_acquire);
+    void Stop() {
+        engine_.Stop();
     }
 
-    std::vector<AgentSourceStatus> Status();
+    bool running() const {
+        return engine_.running();
+    }
 
-    std::string LastError();
+    std::vector<AgentSourceStatus> Status() {
+        return engine_.Status();
+    }
+
+    std::string LastError() {
+        return engine_.LastError();
+    }
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-
-    std::atomic<bool> running_{false};
-    std::mutex errMutex_;
-    std::string lastError_;
+    deskhubp::HostEngine engine_;
 };

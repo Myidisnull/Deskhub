@@ -14,7 +14,7 @@ struct SourcePickerView: View {
             List {
                 ForEach(sources) { source in
                     HStack {
-                        Text(rowLabel(source))
+                        Text(source.pickerLabel)
                         Spacer()
                     }
                     .contentShape(Rectangle())
@@ -44,11 +44,6 @@ struct SourcePickerView: View {
         .onAppear {
             if picked.isEmpty, let first = sources.first { picked = [first.id] }
         }
-    }
-
-    private func rowLabel(_ source: Source) -> String {
-        let name = source.name.isEmpty ? "Source \(source.id)" : source.name
-        return "\(name) (\(source.width)x\(source.height))"
     }
 
     private func toggle(_ id: UInt8) {

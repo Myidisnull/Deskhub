@@ -26,6 +26,17 @@ struct ViewTransform {
     double panY = 0;
 };
 
+struct ViewSize {
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    friend bool operator==(const ViewSize& a, const ViewSize& b) {
+        return a.width == b.width && a.height == b.height;
+    }
+};
+
+ViewSize ScaleToFit(uint32_t width, uint32_t height, uint32_t maxWidth, uint32_t maxHeight);
+
 ViewRect FitVideoRect(double viewportW, double viewportH, double aspect,
     const ViewTransform& t = {});
 

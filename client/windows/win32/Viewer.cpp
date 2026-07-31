@@ -7,8 +7,11 @@
 #include <memory>
 #include <mutex>
 
+#include "deskhub/media/ViewFit.h"
+#include "deskhub/media/ViewerTitle.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "ViewerInput.h"
+#include "WinText.h"
 
 namespace {
 
@@ -22,21 +25,12 @@ constexpr UINT kTimerHint = 1;
 
 int g_openFrames = 0;
 
-std::wstring FromUtf8(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
-    if (n <= 0) return {};
-    std::wstring w(size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
-    return w;
-}
-
 struct ViewerFrame {
     HWND hwnd = nullptr;
     HWND video = nullptr;
     DHSession* session = nullptr;
     ViewerInput input;
-    std::wstring baseTitle;
+    std::string baseTitle;
     std::wstring shownTitle;
     bool sizedToVideo = false;
 
@@ -59,9 +53,9 @@ struct ViewerFrame {
             MoveWindow(video, 0, 0, std::max(1, aw), std::max(1, ah), TRUE);
             return;
         }
-        const double scale = std::min(double(aw) / w, double(ah) / h);
-        const int vw = std::max(1, int(w * scale)), vh = std::max(1, int(h * scale));
-        MoveWindow(video, (aw - vw) / 2, (ah - vh) / 2, vw, vh, TRUE);
+        const deskhub::ViewRect r = deskhub::FitVideoRect(aw, ah, double(w) / double(h));
+        MoveWindow(video, int(r.x), int(r.y), std::max(1, int(r.width)),
+            std::max(1, int(r.height)), TRUE);
     }
 
     void UpdateTitle() {
@@ -70,10 +64,9 @@ struct ViewerFrame {
             std::lock_guard<std::mutex> lk(mu);
             line = statsLine;
         }
-        const std::wstring stats = line.empty() ? L"connecting..." : FromUtf8(line);
-        const wchar_t* hint = input.relativeMode() ? L"Mouse locked - press F9 to release"
-                                                   : L"Press F9 to lock mouse";
-        std::wstring t = baseTitle + L" — " + stats + L" · " + hint;
+        const char* hint = input.relativeMode() ? "Mouse locked - press F9 to release"
+                                                : deskhub::kViewerLockHint.data();
+        std::wstring t = FromUtf8(deskhub::ComposeViewerTitle(baseTitle, line, hint));
         if (t == shownTitle) return;
         shownTitle = std::move(t);
         SetWindowTextW(hwnd, shownTitle.c_str());
@@ -92,9 +85,11 @@ struct ViewerFrame {
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
         RECT wr{0, 0, LONG(w), LONG(h)};
         AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
-        const int ww = std::min<int>(wr.right - wr.left, wa.right - wa.left - 48);
-        const int wh = std::min<int>(wr.bottom - wr.top, wa.bottom - wa.top - 48);
-        SetWindowPos(hwnd, nullptr, 0, 0, ww, wh, SWP_NOMOVE | SWP_NOZORDER);
+        const deskhub::ViewSize fitted = deskhub::ScaleToFit(uint32_t(wr.right - wr.left),
+            uint32_t(wr.bottom - wr.top), uint32_t(std::max<LONG>(1, wa.right - wa.left - 48)),
+            uint32_t(std::max<LONG>(1, wa.bottom - wa.top - 48)));
+        SetWindowPos(hwnd, nullptr, 0, 0, int(fitted.width), int(fitted.height),
+            SWP_NOMOVE | SWP_NOZORDER);
     }
 };
 
@@ -170,10 +165,11 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     const std::string& nameUtf8) {
     auto f = std::make_unique<ViewerFrame>();
 
-    f->baseTitle = L"Deskhub - viewing";
-    if (!nameUtf8.empty()) f->baseTitle += L": " + FromUtf8(nameUtf8);
+    f->baseTitle = "Deskhub - viewing";
+    if (!nameUtf8.empty()) f->baseTitle += ": " + nameUtf8;
 
-    f->hwnd = CreateWindowExW(0, kFrameClass, f->baseTitle.c_str(), WS_OVERLAPPEDWINDOW,
+    const std::wstring initialTitle = FromUtf8(f->baseTitle);
+    f->hwnd = CreateWindowExW(0, kFrameClass, initialTitle.c_str(), WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 1024, 600, nullptr, nullptr,
         GetModuleHandleW(nullptr), nullptr);
     if (!f->hwnd) return nullptr;

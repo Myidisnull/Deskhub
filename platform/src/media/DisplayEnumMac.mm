@@ -3,48 +3,55 @@
 #include "deskhubp/media/DisplayEnum.h"
 
 #include <cstdio>
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "deskhubp/diag/Log.h"
 
 namespace deskhubp {
+namespace {
+
+constexpr int64_t kQueryTimeoutSec = 2;
+
+}
 
 std::vector<deskhub::media::ShareSource> ListDisplays() {
-    std::vector<deskhub::media::ShareSource> out;
-
-    __block SCShareableContent* content = nil;
+    auto rows = std::make_shared<std::vector<deskhub::media::ShareSource>>();
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+
     [SCShareableContent getShareableContentExcludingDesktopWindows:YES
                                                onScreenWindowsOnly:YES
                                                  completionHandler:^(SCShareableContent* c, NSError* err) {
                                                    if (err)
                                                        LOGE("[Sources] SCShareableContent failed: %s",
                                                            err.localizedDescription.UTF8String);
-                                                   content = c;
+                                                   int displayIndex = 1;
+                                                   for (SCDisplay* d in c.displays) {
+                                                       deskhub::media::ShareSource s;
+                                                       s.targetId = uint64_t(d.displayID);
+                                                       s.width = uint32_t(d.width);
+                                                       s.height = uint32_t(d.height);
+                                                       char label[128];
+                                                       std::snprintf(label, sizeof(label),
+                                                           "Display %d (%ux%u)", displayIndex++,
+                                                           s.width, s.height);
+                                                       s.name = label;
+                                                       rows->push_back(std::move(s));
+                                                   }
                                                    dispatch_semaphore_signal(sem);
                                                  }];
-    if (dispatch_semaphore_wait(sem,
-            dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) != 0) {
-        LOGE("[Sources] SCShareableContent timed out (2s).");
-        return out;
-    }
-    if (!content) return out;
 
-    int displayIndex = 1;
-    for (SCDisplay* d in content.displays) {
-        deskhub::media::ShareSource s;
-        s.targetId = uint64_t(d.displayID);
-        s.width = uint32_t(d.width);
-        s.height = uint32_t(d.height);
-        char label[128];
-        std::snprintf(label, sizeof(label), "Display %d (%ux%u)", displayIndex++,
-            s.width, s.height);
-        s.name = label;
-        out.push_back(std::move(s));
+    const bool timedOut =
+        dispatch_semaphore_wait(sem,
+            dispatch_time(DISPATCH_TIME_NOW, kQueryTimeoutSec * NSEC_PER_SEC)) != 0;
+    if (timedOut) {
+        LOGE("[Sources] SCShareableContent timed out (%llds).", kQueryTimeoutSec);
+        return {};
     }
 
-    LOGI("[Sources] %zu shareable display(s).", out.size());
-    return out;
+    LOGI("[Sources] %zu shareable display(s).", rows->size());
+    return std::move(*rows);
 }
 
 std::string ListDisplaysError() {

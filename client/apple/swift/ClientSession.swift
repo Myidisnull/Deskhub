@@ -18,6 +18,10 @@ struct Source: Identifiable, Sendable, Hashable {
     let width: UInt16
     let height: UInt16
     let name: String
+
+    var displayName: String { name.isEmpty ? "Source \(id)" : name }
+    var sizeLabel: String { "\(width)x\(height)" }
+    var pickerLabel: String { "\(displayName) (\(sizeLabel))" }
 }
 
 nonisolated enum DeskhubClient {

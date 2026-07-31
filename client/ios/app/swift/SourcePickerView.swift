@@ -22,8 +22,8 @@ struct SourcePickerView: View {
                             ? "largecircle.fill.circle"
                             : "circle")
                         VStack(alignment: .leading) {
-                            Text(source.name.isEmpty ? "Source \(source.id)" : source.name)
-                            Text("\(source.width)×\(source.height)")
+                            Text(source.displayName)
+                            Text(source.sizeLabel)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

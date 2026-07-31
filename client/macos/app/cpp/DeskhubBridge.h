@@ -37,6 +37,14 @@ typedef struct {
     char name[256];
 } DHAgentStatus;
 
+typedef struct {
+    uint32_t fps;
+    uint32_t bitrateMbps;
+    uint32_t maxDim;
+} DHShareDefaults;
+
+DHShareDefaults dha_default_options(void);
+
 int dha_list_share_sources(DHShareSource* out, int capacity);
 
 bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,

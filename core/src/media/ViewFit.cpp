@@ -41,6 +41,15 @@ ViewRect FitVideoRect(double viewportW, double viewportH, double aspect,
     return r;
 }
 
+ViewSize ScaleToFit(uint32_t width, uint32_t height, uint32_t maxWidth, uint32_t maxHeight) {
+    if (!width || !height) return ViewSize{};
+    if (!maxWidth || !maxHeight) return ViewSize{width, height};
+
+    const double scale = std::min({1.0, double(maxWidth) / width, double(maxHeight) / height});
+    return ViewSize{std::max(1u, uint32_t(width * scale)),
+        std::max(1u, uint32_t(height * scale))};
+}
+
 ViewTransform ApplyGesture(const ViewTransform& cur, double factor, double centroidX,
     double centroidY, double panDeltaX, double panDeltaY, double viewportW, double viewportH,
     double aspect) {

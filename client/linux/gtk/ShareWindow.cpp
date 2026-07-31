@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "deskhub/media/SourceLabel.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "gtk/GtkUtil.h"
 #include "deskhubp/net/UdpSocket.h"
@@ -177,9 +178,8 @@ void ShareWindow::RefreshList(const std::vector<AgentSourceStatus>& rows) {
     }
 
     for (const AgentSourceStatus& r : rows) {
-        char text[320];
-        std::snprintf(text, sizeof(text), "%s  (%ux%u%s)", r.name.c_str(), r.width, r.height,
-            r.viewerConnected ? ", viewer connected" : "");
+        const std::string text =
+            deskhub::media::SharedSourceLabel(r.name, r.width, r.height, r.viewerConnected);
 
         char tip[512];
         if (r.viewerConnected)
@@ -193,7 +193,7 @@ void ShareWindow::RefreshList(const std::vector<AgentSourceStatus>& rows) {
                 "waiting for a viewer\ncapture %.0f fps · %s\nUDP port %u", r.captureFps,
                 r.zeroCopy ? "zero-copy" : "CPU copy", unsigned(kDeskhubPort));
 
-        gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow(text, tip));
+        gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow(text.c_str(), tip));
     }
     gtk_widget_show_all(rowsBox_);
 }

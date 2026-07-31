@@ -9,8 +9,9 @@
 #include <vector>
 
 #include "deskhubp/diag/Log.h"
-#include "AgentLoop.h"
+#include "deskhubp/session/AgentLoop.h"
 #include "Permissions.h"
+#include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "input/MacKeyMap.h"
 #include "deskhubp/net/NetInfo.h"
@@ -21,12 +22,6 @@ std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
 char g_addrBuf[1024];
-
-void CopyToBuf(char* dst, size_t cap, const std::string& s) {
-    const size_t n = s.size() < cap - 1 ? s.size() : cap - 1;
-    std::memcpy(dst, s.data(), n);
-    dst[n] = '\0';
-}
 
 }
 
@@ -46,6 +41,15 @@ bool dh_has_accessibility(void) {
 }
 void dh_open_accessibility_settings(void) {
     macperm::OpenAccessibilitySettings();
+}
+
+DHShareDefaults dha_default_options(void) {
+    const AgentOptions defaults;
+    DHShareDefaults out;
+    out.fps = defaults.fps;
+    out.bitrateMbps = defaults.bitrateMbps;
+    out.maxDim = defaults.maxDim;
+    return out;
 }
 
 int dha_list_share_sources(DHShareSource* out, int capacity) {
@@ -82,8 +86,8 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     for (int i = 0; i < count; ++i) list.push_back(ToAgentSource(sources[i]));
 
     AgentOptions opt;
-    opt.fps = fps ? fps : 60;
-    opt.bitrateMbps = bitrate_mbps ? bitrate_mbps : 20;
+    if (fps) opt.fps = fps;
+    if (bitrate_mbps) opt.bitrateMbps = bitrate_mbps;
     opt.maxDim = max_dim;
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
@@ -146,7 +150,7 @@ const char* dha_local_addresses(void) {
         if (!joined.empty()) joined += '\n';
         joined += a.ip + '\t' + a.name;
     }
-    CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
+    deskhubp::CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
     return g_addrBuf;
 }
 

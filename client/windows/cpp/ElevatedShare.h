@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "AgentLoop.h"
+#include "deskhubp/session/AgentLoop.h"
 
 bool IsProcessElevated();
 

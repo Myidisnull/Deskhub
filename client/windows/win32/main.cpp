@@ -8,7 +8,7 @@
 #include <shellapi.h>
 #include <vector>
 
-#include "AgentLoop.h"
+#include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/diag/LogFile.h"
 #include "ElevatedShare.h"
 #include "MainMenuWindow.h"

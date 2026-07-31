@@ -9,9 +9,14 @@ struct LocalAddress: Identifiable, Hashable {
 
 @MainActor @Observable
 final class AgentModel {
-    var fps: Int = UserDefaults.standard.object(forKey: "shareFps") as? Int ?? 60
-    var bitrateMbps: Int = UserDefaults.standard.object(forKey: "shareBitrate") as? Int ?? 20
-    var maxDim: Int = UserDefaults.standard.object(forKey: "shareMaxDim") as? Int ?? 1920
+    static let defaults = dha_default_options()
+
+    var fps: Int = UserDefaults.standard.object(forKey: "shareFps") as? Int
+        ?? Int(AgentModel.defaults.fps)
+    var bitrateMbps: Int = UserDefaults.standard.object(forKey: "shareBitrate") as? Int
+        ?? Int(AgentModel.defaults.bitrateMbps)
+    var maxDim: Int = UserDefaults.standard.object(forKey: "shareMaxDim") as? Int
+        ?? Int(AgentModel.defaults.maxDim)
 
     var addresses: [LocalAddress] = []
 

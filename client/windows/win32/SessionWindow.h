@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-#include "AgentLoop.h"
+#include "deskhubp/session/AgentLoop.h"
 #include "SessionRow.h"
 
 class SessionWindow {

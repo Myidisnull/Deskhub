@@ -7,11 +7,12 @@
 #include <string>
 #include <vector>
 
-#include "AgentLoop.h"
+#include "deskhubp/session/AgentLoop.h"
 #include "ElevatedShare.h"
 #include "SessionWindow.h"
 #include "SourcePickerDialog.h"
 #include "Viewer.h"
+#include "WinText.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "net/Firewall.h"
 #include "deskhubp/net/NetInfo.h"
@@ -31,8 +32,7 @@ constexpr int kIdConnect = 203;
 constexpr int kIdExit = 205;
 constexpr int kIdCopyBase = 300;
 
-constexpr uint32_t kDefaultFps = 60;
-constexpr uint32_t kDefaultBitrateMbps = 20;
+constexpr AgentOptions kShareDefaults{};
 
 std::wstring Trim(std::wstring s) {
     while (!s.empty() &&
@@ -73,15 +73,6 @@ struct MenuState {
     bool quit = false;
 };
 
-std::wstring FromUtf8(const std::string& s) {
-    if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
-    if (n <= 0) return {};
-    std::wstring w(size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
-    return w;
-}
-
 void DoShare(MenuState& st) {
     std::vector<AgentSource> sources;
     for (const auto& d : deskhubp::ListDisplays()) {
@@ -102,8 +93,8 @@ void DoShare(MenuState& st) {
     }
 
     AgentOptions ao;
-    ao.fps = GetEditUint(st.editFps, kDefaultFps);
-    ao.bitrateMbps = GetEditUint(st.editBitrate, kDefaultBitrateMbps);
+    ao.fps = GetEditUint(st.editFps, kShareDefaults.fps);
+    ao.bitrateMbps = GetEditUint(st.editBitrate, kShareDefaults.bitrateMbps);
 
     if (!IsProcessElevated()) {
         const bool needFirewall = !HostFirewallRulePresent();

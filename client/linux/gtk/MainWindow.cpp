@@ -14,12 +14,12 @@
 #include "deskhubp/net/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 
+#include "deskhub/media/SourceLabel.h"
 #include "deskhub/protocol/Wire.h"
 
 namespace {
 
-constexpr uint32_t kDefaultFps = 60;
-constexpr uint32_t kDefaultBitrateMbps = 20;
+constexpr AgentOptions kShareDefaults{};
 
 constexpr int kWinW = 496;
 
@@ -69,12 +69,11 @@ bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sour
 
     GtkListStore* store = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_INT);
     for (size_t i = 0; i < sources.size(); ++i) {
-        char line[288];
-        std::snprintf(line, sizeof(line), "%s (%ux%u)", sources[i].name.c_str(),
-            sources[i].width, sources[i].height);
+        const std::string line = deskhub::media::SourcePickerLabel(sources[i].name,
+            sources[i].sourceId, sources[i].width, sources[i].height);
         GtkTreeIter it;
         gtk_list_store_append(store, &it);
-        gtk_list_store_set(store, &it, 0, line, 1, int(i), -1);
+        gtk_list_store_set(store, &it, 0, line.c_str(), 1, int(i), -1);
     }
 
     GtkWidget* tree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
@@ -274,8 +273,8 @@ void MainWindow::OnExitClicked(GtkButton*, gpointer user) {
 void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
     AgentOptions opt;
-    opt.fps = EntryUint(self->fpsEntry_, kDefaultFps);
-    opt.bitrateMbps = EntryUint(self->bitrateEntry_, kDefaultBitrateMbps);
+    opt.fps = EntryUint(self->fpsEntry_, kShareDefaults.fps);
+    opt.bitrateMbps = EntryUint(self->bitrateEntry_, kShareDefaults.bitrateMbps);
 
     self->SetBusy(true, "Waiting for the screen-sharing dialog…");
 

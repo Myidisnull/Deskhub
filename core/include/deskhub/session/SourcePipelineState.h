@@ -18,6 +18,8 @@ struct SourcePipelineState {
     SourcePipelineState(uint32_t startBps, uint32_t minBps, diag::AgentDiagCaps caps = {})
         : curBitrateBps(startBps), rate(startBps, minBps), diag(caps) {}
 
+    virtual ~SourcePipelineState() = default;
+
     SourcePipelineState(const SourcePipelineState&) = delete;
     SourcePipelineState& operator=(const SourcePipelineState&) = delete;
 
