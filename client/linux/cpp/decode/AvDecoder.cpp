@@ -143,3 +143,11 @@ bool AvDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     }
     return true;
 }
+
+uint32_t AvDecoder::TakeRenderedCount() {
+    return sink_ ? sink_->TakeRenderedCount() : 0;
+}
+
+uint64_t AvDecoder::lastRenderedPtsUs() const {
+    return sink_ ? sink_->lastRenderedPtsUs() : 0;
+}

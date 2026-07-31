@@ -315,6 +315,41 @@ void TestNegotiationRejectsAnUnusableSize() {
     Check(!none.accepted, "a missing hook is refused rather than crashing");
 }
 
+void TestStatusProjection() {
+    std::printf("[router] a pipeline projects into the UI row and the beacon entry...\n");
+    auto p = MakePipe(3);
+    p->name = "Display 1";
+    p->srcW.store(1920);
+    p->srcH.store(1080);
+    p->uiRttMs.store(17);
+    p->statWindow.captureFps = 59.5;
+    p->statWindow.sendFps = 58.25;
+    p->statWindow.sendKbps = 12'500;
+
+    const media::AgentSourceStatus idle =
+        MakeSourceStatus(*p, StatusExtras{"192.168.1.7:47777", false});
+    Check(!idle.viewerConnected, "no peer adopted yet");
+    Check(idle.viewerAddr.empty(),
+        "and the address is dropped, so a stale peer cannot show up in the UI");
+    Check(idle.sourceId == 3 && idle.name == "Display 1", "identity is carried over");
+    Check(idle.width == 1920 && idle.height == 1080, "so is the encoded size");
+    Check(idle.rttMs == 17, "and the link RTT");
+    Check(idle.captureFps == 59.5 && idle.sendFps == 58.25 && idle.sendKbps == 12'500,
+        "the closed stats window is carried over verbatim");
+    Check(!idle.zeroCopy, "zero-copy is reported by the caller, not inferred");
+
+    p->peerPacked.store(0xC0A80107ull);
+    const media::AgentSourceStatus live =
+        MakeSourceStatus(*p, StatusExtras{"192.168.1.7:47777", true});
+    Check(live.viewerConnected, "an adopted peer marks the source as viewed");
+    Check(live.viewerAddr == "192.168.1.7:47777", "and the formatted address comes through");
+    Check(live.zeroCopy, "the zero-copy flag is passed through");
+
+    const SourceInfo info = MakeSourceInfo(*p);
+    Check(info.sourceId == 3 && info.name == "Display 1", "the beacon entry keeps the identity");
+    Check(info.width == 1920 && info.height == 1080, "and the advertised size");
+}
+
 }
 
 void RunHostRouterTests() {
@@ -330,4 +365,5 @@ void RunHostRouterTests() {
     TestFlushPrefersIdrOverKeepalive();
     TestBeginNegotiation();
     TestNegotiationRejectsAnUnusableSize();
+    TestStatusProjection();
 }

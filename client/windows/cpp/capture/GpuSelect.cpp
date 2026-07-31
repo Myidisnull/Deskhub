@@ -5,6 +5,8 @@
 #include <dxgi1_2.h>
 #include <cstdio>
 
+#include "deskhubp/diag/Log.h"
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
@@ -47,7 +49,7 @@ static bool TryCreateOnAdapter(IDXGIAdapter1* adapter, D3D_DRIVER_TYPE driverTyp
 bool CreateBestDevice(const std::vector<GpuVendor>& preference, GpuChoice& out) {
     ComPtr<IDXGIFactory1> factory;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
-        std::printf("CreateDXGIFactory1 failed.\n");
+        LOGE("CreateDXGIFactory1 failed.");
         return false;
     }
 
@@ -68,7 +70,7 @@ bool CreateBestDevice(const std::vector<GpuVendor>& preference, GpuChoice& out) 
         }
     }
 
-    std::printf("No preferred hardware GPU found; falling back to WARP (software).\n");
+    LOGW("No preferred hardware GPU found; falling back to WARP (software).");
     if (TryCreateOnAdapter(nullptr, D3D_DRIVER_TYPE_WARP, out)) {
         out.description = L"WARP (software rasterizer)";
         out.vendor = GpuVendor::Microsoft;

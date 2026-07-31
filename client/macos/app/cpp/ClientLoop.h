@@ -1,111 +1,27 @@
-﻿#pragma once
-#include <atomic>
-#include <condition_variable>
-#include <cstdint>
-#include <deque>
-#include <mutex>
-#include <string>
-#include <thread>
-#include <vector>
-
+#pragma once
 #include "deskhubp/media/VtDecoder.h"
-#include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/session/ClientEngine.h"
 
-#include "deskhub/control/ClockOffset.h"
-#include "deskhub/diag/ClientDiag.h"
-#include "deskhub/input/ClientInputQueue.h"
-#include "deskhub/transport/Reassembler.h"
-#include "deskhub/protocol/Wire.h"
-
-class ClientLoop {
+class ClientLoop : public deskhubp::ClientEngine<VtDecoder, void*> {
 public:
-    enum class Phase : int32_t { Idle = 0,
-        Connecting = 1,
-        Streaming = 2,
-        Ended = 3 };
+    using Phase = deskhubp::ClientPhase;
 
-    ClientLoop() = default;
-    ~ClientLoop();
-    ClientLoop(const ClientLoop&) = delete;
-    ClientLoop& operator=(const ClientLoop&) = delete;
+    ClientLoop() : ClientEngine(deskhub::diag::ClientDiagCaps{false, true}) {}
 
-    bool Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW, uint32_t screenH);
-    void Stop();
-
-    void SetLayer(void* layer);
-
-    Phase phase() const {
-        return phase_.load(std::memory_order_acquire);
+    bool Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW, uint32_t screenH) {
+        deskhubp::ClientEngineConfig cfg;
+        cfg.server = server;
+        cfg.sourceId = sourceId;
+        cfg.screenW = screenW;
+        cfg.screenH = screenH;
+        return ClientEngine::Start(cfg);
     }
 
-    std::string StatusLine();
-
-    std::string EndReason();
-
-    void QueueKey(int32_t vk, int32_t scan, bool down);
-
-    void ReleaseAllInput();
-
-    void QueueMouseMoveAbs(int32_t nx, int32_t ny);
-
-    void QueueMouseMoveRel(int32_t dx, int32_t dy);
-
-    void QueueMouseButton(int32_t button, bool down);
-
-    void QueueMouseWheel(int32_t delta);
-
-    uint32_t videoWidth() const {
-        return negW_.load();
-    }
-    uint32_t videoHeight() const {
-        return negH_.load();
+    void SetLayer(void* layer) {
+        SetSurface(layer);
     }
 
-private:
-    void NetThread();
-    void DecodeThread();
-
-    NetAddr server_{};
-    uint8_t sourceId_ = 0;
-    uint32_t screenW_ = 0, screenH_ = 0;
-    UdpSocket sock_;
-
-    std::thread netThread_;
-    std::thread decodeThread_;
-
-    std::atomic<bool> quit_{false};
-    std::atomic<Phase> phase_{Phase::Idle};
-
-    std::mutex textMutex_;
-    std::string statusLine_;
-    std::string endReason_;
-
-    std::atomic<uint32_t> negW_{0}, negH_{0};
-    std::atomic<bool> rebuildDecoder_{false};
-
-    std::mutex winMutex_;
-    std::condition_variable winCv_;
-    std::condition_variable winAckCv_;
-    void* layer_ = nullptr;
-    uint64_t winGen_ = 0;
-    uint64_t winAckGen_ = 0;
-    bool decodeExited_ = false;
-
-    static constexpr size_t kMaxQueuedFrames = 3;
-    std::mutex decMutex_;
-    std::condition_variable decCv_;
-    std::deque<deskhub::Reassembler::Frame> decQueue_;
-
-    std::atomic<bool> decodeFailed_{false};
-    std::atomic<bool> displayCongested_{false};
-    std::atomic<bool> queueOverflow_{false};
-    std::atomic<uint32_t> stRendered_{0};
-
-    deskhub::ClientInputQueue input_;
-
-    deskhub::diag::ClientDiag diag_{deskhub::diag::ClientDiagCaps{
-        false, true}};
-
-    std::atomic<int64_t> lastE2eUs_{-1};
-    deskhub::ClockOffset clockOffset_;
+    bool Finished() const {
+        return finished();
+    }
 };

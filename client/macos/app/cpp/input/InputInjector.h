@@ -1,12 +1,12 @@
 #pragma once
 #include <cstdint>
 
-#include "deskhub/input/PressedInputTracker.h"
+#include "deskhub/input/InputApplier.h"
 #include "deskhub/protocol/Wire.h"
 
 class LocalInputMonitor;
 
-class InputInjector {
+class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t> {
 public:
     InputInjector();
     ~InputInjector();
@@ -28,20 +28,16 @@ public:
         localMon_ = mon;
     }
 
-    uint64_t applied() const {
-        return held_.applied();
-    }
-    uint64_t skipped() const {
-        return held_.skipped();
-    }
-
-private:
-    bool SourceRect(double& x, double& y, double& w, double& h);
-    void SendKey(int32_t vk, bool down);
+    void SendKey(int32_t vk, int32_t scan, bool down);
     void SendButton(deskhub::MouseButton btn, bool down);
     void SendMoveAbsolute(int32_t nx, int32_t ny);
     void SendMoveRelative(int32_t dx, int32_t dy);
     void SendWheel(int32_t delta);
+    void OnLocalUserTookOver();
+    void OnLocalUserIdle();
+
+private:
+    bool SourceRect(double& x, double& y, double& w, double& h);
     void PostMouseAt(double x, double y, int32_t dx, int32_t dy);
     uint64_t CurrentFlags() const;
 
@@ -53,8 +49,6 @@ private:
 
     double rectX_ = 0, rectY_ = 0, rectW_ = 0, rectH_ = 0;
     uint64_t rectUs_ = 0;
-
-    deskhub::PressedInputTracker<uint16_t> held_;
 
     uint64_t lastClickUs_ = 0;
     double lastClickX_ = 0, lastClickY_ = 0;

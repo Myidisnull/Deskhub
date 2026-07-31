@@ -1,12 +1,12 @@
 #pragma once
 #include <cstdint>
 
-#include "deskhub/input/PressedInputTracker.h"
+#include "deskhub/input/InputApplier.h"
 #include "deskhub/protocol/Wire.h"
 
 class LocalInputMonitor;
 
-class InputInjector {
+class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t> {
 public:
     static constexpr const char* kKeyboardName = "Deskhub Keyboard";
     static constexpr const char* kPointerName = "Deskhub Mouse";
@@ -35,20 +35,15 @@ public:
         localMon_ = mon;
     }
 
-    uint64_t applied() const {
-        return held_.applied();
-    }
-    uint64_t skipped() const {
-        return held_.skipped();
-    }
-
-private:
-    void SendKey(int32_t vk, bool down);
+    void SendKey(int32_t vk, int32_t scan, bool down);
     void SendButton(deskhub::MouseButton btn, bool down);
     void SendMoveAbsolute(int32_t nx, int32_t ny);
     void SendMoveRelative(int32_t dx, int32_t dy);
     void SendWheel(int32_t delta);
+    void OnLocalUserTookOver();
+    void OnLocalUserIdle();
 
+private:
     int kbdFd_ = -1;
     int mouseFd_ = -1;
     int absFd_ = -1;
@@ -60,6 +55,4 @@ private:
 
     LocalInputMonitor* localMon_ = nullptr;
     bool enabled_ = true;
-
-    deskhub::PressedInputTracker<uint16_t> held_;
 };

@@ -21,6 +21,8 @@
 #include <atomic>
 #include <cstdio>
 
+#include "deskhubp/diag/Log.h"
+
 #pragma comment(lib, "windowsapp.lib")
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -70,7 +72,7 @@ struct ScreenCapture::Impl {
             levels, ARRAYSIZE(levels), D3D11_SDK_VERSION,
             d3dDevice.put(), nullptr, d3dContext.put());
         if (FAILED(hr)) {
-            std::printf("D3D11CreateDevice failed: 0x%08lX\n", (unsigned long)hr);
+            LOGE("D3D11CreateDevice failed: 0x%08lX", (unsigned long)hr);
             return false;
         }
         return true;
@@ -83,7 +85,7 @@ struct ScreenCapture::Impl {
             auto size = frame.ContentSize();
 
             if (size.Width != lastSize.Width || size.Height != lastSize.Height) {
-                std::printf("Window size changed: %dx%d\n", size.Width, size.Height);
+                LOGI("Window size changed: %dx%d", size.Width, size.Height);
                 lastSize = size;
                 framePool.Recreate(
                     winrtDevice, wgdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size);
@@ -123,11 +125,11 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
     HMONITOR monitor = (HMONITOR)(uintptr_t)targetId;
     ID3D11Device* device = pendingDevice_;
     if (!wgc::GraphicsCaptureSession::IsSupported()) {
-        std::printf("Windows Graphics Capture is not supported on this machine.\n");
+        LOGE("Windows Graphics Capture is not supported on this machine.");
         return false;
     }
     if (!monitor) {
-        std::printf("ScreenCapture::Start needs a monitor handle.\n");
+        LOGE("ScreenCapture::Start needs a monitor handle.");
         return false;
     }
 
@@ -151,12 +153,12 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
     const HRESULT hr = interop->CreateForMonitor(monitor,
         winrt::guid_of<wgc::GraphicsCaptureItem>(), winrt::put_abi(impl_->item));
     if (FAILED(hr)) {
-        std::printf("CreateForMonitor failed: 0x%08lX\n", (unsigned long)hr);
+        LOGE("CreateForMonitor failed: 0x%08lX", (unsigned long)hr);
         return false;
     }
 
     impl_->lastSize = impl_->item.Size();
-    std::printf("Capture source size: %dx%d\n", impl_->lastSize.Width, impl_->lastSize.Height);
+    LOGI("Capture source size: %dx%d", impl_->lastSize.Width, impl_->lastSize.Height);
 
     impl_->framePool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(
         impl_->winrtDevice, wgdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, impl_->lastSize);
@@ -181,7 +183,7 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
         [impl = impl_.get()](auto&&, auto&&) { impl->OnFrameArrived(); });
 
     impl_->session.StartCapture();
-    std::printf("Started capturing (via FrameArrived event).\n");
+    LOGI("Started capturing (via FrameArrived event).");
     return true;
 }
 

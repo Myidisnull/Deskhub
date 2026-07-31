@@ -6,6 +6,7 @@
 #include <windowsx.h>
 #include <cstdio>
 
+#include "deskhubp/diag/Log.h"
 #include "DeskhubApi.h"
 
 namespace {
@@ -35,7 +36,7 @@ bool ViewerInput::Attach(HWND hwnd, DhClientHandle* client) {
     rid[1].usUsage = kUsageKeyboard;
     rid[1].hwndTarget = hwnd;
     if (!RegisterRawInputDevices(rid, 2, sizeof(RAWINPUTDEVICE))) {
-        std::printf("[Input] RegisterRawInputDevices failed: %lu\n", GetLastError());
+        LOGE("[Input] RegisterRawInputDevices failed: %lu", GetLastError());
         return false;
     }
     attached_ = true;

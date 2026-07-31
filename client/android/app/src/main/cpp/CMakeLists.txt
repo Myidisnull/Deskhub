@@ -11,7 +11,6 @@ add_subdirectory(${DESKHUB_ROOT}/platform ${CMAKE_CURRENT_BINARY_DIR}/platform)
 
 add_library(deskhub SHARED
     JniBridge.cpp
-    ClientLoop.cpp
 
     decode/MediaCodecDecoder.cpp
 )

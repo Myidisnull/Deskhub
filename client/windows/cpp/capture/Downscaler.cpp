@@ -3,17 +3,19 @@
 #include <d3d11_1.h>
 #include <cstdio>
 
+#include "deskhubp/diag/Log.h"
+
 using Microsoft::WRL::ComPtr;
 
-#define DS_CHECK(expr, msg)                                         \
-    do {                                                            \
-        HRESULT _hr = (expr);                                       \
-        if (FAILED(_hr)) {                                          \
-            std::printf("[Downscaler] %s failed: 0x%08lX\n", (msg), \
-                (unsigned long)_hr);                                \
-            Reset();                                                \
-            return false;                                           \
-        }                                                           \
+#define DS_CHECK(expr, msg)                                \
+    do {                                                   \
+        HRESULT _hr = (expr);                              \
+        if (FAILED(_hr)) {                                 \
+            LOGE("[Downscaler] %s failed: 0x%08lX", (msg), \
+                (unsigned long)_hr);                       \
+            Reset();                                       \
+            return false;                                  \
+        }                                                  \
     } while (0)
 
 void Downscaler::Reset() {
@@ -62,7 +64,7 @@ bool Downscaler::Configure(ID3D11Device* device, uint32_t srcW, uint32_t srcH, u
     UINT fmtFlags = 0;
     HRESULT hr = vpEnum_->CheckVideoProcessorFormat(DXGI_FORMAT_B8G8R8A8_UNORM, &fmtFlags);
     if (FAILED(hr) || !(fmtFlags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT)) {
-        std::printf("[Downscaler] GPU cannot output BGRA from a video processor.\n");
+        LOGE("[Downscaler] GPU cannot output BGRA from a video processor.");
         Reset();
         return false;
     }
@@ -109,7 +111,7 @@ bool Downscaler::Configure(ID3D11Device* device, uint32_t srcW, uint32_t srcH, u
     srcH_ = srcH;
     dstW_ = dstW;
     dstH_ = dstH;
-    std::printf("[Downscaler] %ux%u -> %ux%u (GPU video processor).\n", srcW, srcH, dstW, dstH);
+    LOGI("[Downscaler] %ux%u -> %ux%u (GPU video processor).", srcW, srcH, dstW, dstH);
     return true;
 }
 
@@ -125,7 +127,7 @@ ID3D11Texture2D* Downscaler::Scale(ID3D11Texture2D* src) {
         const HRESULT hr =
             videoDevice_->CreateVideoProcessorInputView(src, vpEnum_.Get(), &vd, &view);
         if (FAILED(hr)) {
-            std::printf("[Downscaler] CreateVideoProcessorInputView failed: 0x%08lX\n",
+            LOGE("[Downscaler] CreateVideoProcessorInputView failed: 0x%08lX",
                 (unsigned long)hr);
             return nullptr;
         }
@@ -137,7 +139,7 @@ ID3D11Texture2D* Downscaler::Scale(ID3D11Texture2D* src) {
     stream.pInputSurface = it->second.Get();
     const HRESULT hr = videoContext_->VideoProcessorBlt(vp_.Get(), outView_.Get(), 0, 1, &stream);
     if (FAILED(hr)) {
-        std::printf("[Downscaler] VideoProcessorBlt failed: 0x%08lX\n", (unsigned long)hr);
+        LOGE("[Downscaler] VideoProcessorBlt failed: 0x%08lX", (unsigned long)hr);
         return nullptr;
     }
     return dstTex_.Get();

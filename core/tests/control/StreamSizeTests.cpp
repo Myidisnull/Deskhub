@@ -128,6 +128,32 @@ void TestRetargetStream() {
     Check(st.wantW.load() == 640, "but the last good size is left alone for the encoder");
 }
 
+void TestClampEncodeSize() {
+    std::printf("[size] the encoder size is clamped to the source, even, and floored...\n");
+    Check(ClampEncodeSize(0, 0, 1920, 1080, 1920).size == StreamSize{},
+        "no captured frame -> empty");
+
+    const EncodeSize fromCap = ClampEncodeSize(3840, 2160, 0, 0, 1920);
+    Check(fromCap.size == StreamSize{1920, 1080},
+        "no negotiated size yet -> the user cap decides");
+    Check(!fromCap.tooSmall, "1920x1080 is encodable");
+
+    Check(ClampEncodeSize(1280, 720, 1920, 1080, 1920).size == StreamSize{1280, 720},
+        "a negotiated size larger than the source is clamped to the source");
+
+    Check(ClampEncodeSize(1281, 721, 1281, 721, 0).size == StreamSize{1280, 720},
+        "odd edges are rounded down to even");
+
+    const EncodeSize tiny = ClampEncodeSize(320, 200, 100, 40, 0);
+    Check(tiny.size == StreamSize{100, 40}, "the requested size is honoured");
+    Check(tiny.tooSmall, "but it is flagged as below the encoder floor");
+
+    Check(!ClampEncodeSize(320, 200, kMinEncodeWidth, kMinEncodeHeight, 0).tooSmall,
+        "exactly on the floor is still encodable");
+    Check(ClampEncodeSize(320, 200, kMinEncodeWidth - 2, kMinEncodeHeight, 0).tooSmall,
+        "one even step under the width floor is not");
+}
+
 }
 
 void RunStreamSizeTests() {
@@ -139,4 +165,5 @@ void RunStreamSizeTests() {
     TestLegacyClientAndGarbage();
     TestQualityScale();
     TestRetargetStream();
+    TestClampEncodeSize();
 }

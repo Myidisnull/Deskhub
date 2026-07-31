@@ -5,6 +5,8 @@
 
 #include <cstdio>
 
+#include "deskhubp/diag/Log.h"
+#include "deskhub/input/PointerMap.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/system/Clock.h"
 
@@ -17,8 +19,8 @@ void ScreenToVirtualDesk(int px, int py, LONG& nx, LONG& ny) {
     const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
     const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    nx = vw > 1 ? LONG(int64_t(px - vx) * 65535 / (vw - 1)) : 0;
-    ny = vh > 1 ? LONG(int64_t(py - vy) * 65535 / (vh - 1)) : 0;
+    nx = LONG(deskhub::AxisToAbsCoord(px, vx, vw - 1));
+    ny = LONG(deskhub::AxisToAbsCoord(py, vy, vh - 1));
 }
 
 DWORD ButtonFlag(deskhub::MouseButton b, bool down) {
@@ -46,7 +48,17 @@ void InputInjector::SetEnabled(bool on) {
     enabled_ = on;
 }
 
+void InputInjector::OnLocalUserTookOver() {
+    LOGI("[Inject] Local user is active - pausing remote input (host wins).");
+}
+
+void InputInjector::OnLocalUserIdle() {
+    LOGI("[Inject] Local user idle - remote input resumed.");
+}
+
 void InputInjector::SendKey(int32_t vk, int32_t scan, bool down) {
+    held_.SetKey(scan, vk, down);
+
     INPUT in{};
     in.type = INPUT_KEYBOARD;
     in.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
@@ -62,6 +74,8 @@ void InputInjector::SendKey(int32_t vk, int32_t scan, bool down) {
 }
 
 void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
+    held_.SetButton(btn, down);
+
     INPUT in{};
     in.type = INPUT_MOUSE;
     in.mi.dwFlags = ButtonFlag(btn, down);
@@ -77,8 +91,8 @@ void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
     const int h = mi.rcMonitor.bottom - mi.rcMonitor.top;
     if (w <= 1 || h <= 1) return;
     POINT pt{};
-    pt.x = mi.rcMonitor.left + LONG(int64_t(nx) * (w - 1) / 65535);
-    pt.y = mi.rcMonitor.top + LONG(int64_t(ny) * (h - 1) / 65535);
+    pt.x = LONG(deskhub::AbsCoordToPixel(nx, mi.rcMonitor.left, w - 1));
+    pt.y = LONG(deskhub::AbsCoordToPixel(ny, mi.rcMonitor.top, h - 1));
 
     INPUT in{};
     in.type = INPUT_MOUSE;
@@ -98,54 +112,20 @@ void InputInjector::SendMoveRelative(int32_t dx, int32_t dy) {
 
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_ || !monitor_) return;
+    DispatchInput(e, localMon_ && localMon_->LocalActive(NowUs()));
+}
 
-    const deskhub::InputGate gate = held_.Gate(localMon_ && localMon_->LocalActive(NowUs()));
-    if (!gate.allow) {
-        if (gate.justSuppressed) {
-            std::printf(
-                "[Inject] Local user is active - pausing remote input (host wins).\n");
-            ReleaseAll();
-        }
-        return;
-    }
-    if (gate.justResumed)
-        std::printf("[Inject] Local user idle - remote input resumed.\n");
-    held_.CountApplied();
-
-    switch (e.type) {
-        case deskhub::InputType::Key: {
-            const bool down = e.state != 0;
-            held_.SetKey(e.b, e.a, down);
-            SendKey(e.a, e.b, down);
-            break;
-        }
-        case deskhub::InputType::MouseMove:
-            if (e.absolute)
-                SendMoveAbsolute(e.a, e.b);
-            else
-                SendMoveRelative(e.a, e.b);
-            break;
-        case deskhub::InputType::MouseButton: {
-            const auto btn = deskhub::MouseButton(e.a);
-            const bool down = e.state != 0;
-            held_.SetButton(btn, down);
-            SendButton(btn, down);
-            break;
-        }
-        case deskhub::InputType::MouseWheel: {
-            INPUT in{};
-            in.type = INPUT_MOUSE;
-            in.mi.dwFlags = MOUSEEVENTF_WHEEL;
-            in.mi.mouseData = DWORD(e.b);
-            SendInput(1, &in, sizeof(INPUT));
-            break;
-        }
-    }
+void InputInjector::SendWheel(int32_t delta) {
+    INPUT in{};
+    in.type = INPUT_MOUSE;
+    in.mi.dwFlags = MOUSEEVENTF_WHEEL;
+    in.mi.mouseData = DWORD(delta);
+    SendInput(1, &in, sizeof(INPUT));
 }
 
 void InputInjector::ReleaseAll() {
     if (held_.nothingHeld()) return;
-    std::printf("[Inject] Releasing %zu keys + %zu mouse buttons still held.\n",
+    LOGI("[Inject] Releasing %zu keys + %zu mouse buttons still held.",
         held_.heldKeyCount(), held_.heldButtonCount());
     for (const auto& key : held_.TakeHeldKeys()) SendKey(key.native, key.id, false);
     for (deskhub::MouseButton btn : held_.TakeHeldButtons()) SendButton(btn, false);

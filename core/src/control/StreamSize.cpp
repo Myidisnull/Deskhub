@@ -45,4 +45,23 @@ StreamSize ApplyQualityScale(StreamSize base, uint32_t scalePct) {
     return {(base.width * pct / 100u) & ~1u, (base.height * pct / 100u) & ~1u};
 }
 
+EncodeSize ClampEncodeSize(uint32_t nativeW, uint32_t nativeH, uint32_t wantW, uint32_t wantH,
+    uint32_t maxDim) {
+    if (!nativeW || !nativeH) return {};
+
+    uint32_t w = wantW, h = wantH;
+    if (!w || !h) {
+        const StreamSize fitted = FitStreamSize(nativeW, nativeH, maxDim, 0, 0);
+        w = fitted.width;
+        h = fitted.height;
+    }
+
+    if (w > nativeW) w = nativeW;
+    if (h > nativeH) h = nativeH;
+    w &= ~1u;
+    h &= ~1u;
+
+    return {{w, h}, w < kMinEncodeWidth || h < kMinEncodeHeight};
+}
+
 }

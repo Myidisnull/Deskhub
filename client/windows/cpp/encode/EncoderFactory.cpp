@@ -6,22 +6,24 @@
 
 #include <cstdio>
 
+#include "deskhubp/diag/Log.h"
+
 std::unique_ptr<IVideoEncoder> CreateEncoder(ID3D11Device* device, const EncoderConfig& cfg) {
     {
         auto enc = std::make_unique<NvencEncoder>();
         if (enc->Init(device, cfg)) {
-            std::printf("[Encoder] Using backend: %s\n", enc->BackendName());
+            LOGI("[Encoder] Using backend: %s", enc->BackendName());
             return enc;
         }
-        std::printf("[Encoder] NVENC unavailable, trying Media Foundation...\n");
+        LOGW("[Encoder] NVENC unavailable, trying Media Foundation...");
     }
     {
         auto enc = std::make_unique<MfEncoder>();
         if (enc->Init(device, cfg)) {
-            std::printf("[Encoder] Using backend: %s\n", enc->BackendName());
+            LOGI("[Encoder] Using backend: %s", enc->BackendName());
             return enc;
         }
     }
-    std::printf("[Encoder] Failed to initialize any backend.\n");
+    LOGE("[Encoder] Failed to initialize any backend.");
     return nullptr;
 }

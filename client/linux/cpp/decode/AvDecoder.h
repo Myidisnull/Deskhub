@@ -21,6 +21,10 @@ public:
 
     bool Decode(const uint8_t* nal, size_t len, uint64_t ptsUs);
 
+    uint32_t TakeRenderedCount();
+
+    uint64_t lastRenderedPtsUs() const;
+
     bool hardware() const {
         return hwDevice_ != nullptr;
     }
@@ -37,3 +41,7 @@ static_assert(deskhub::media::VideoDecoderLike<AvDecoder>,
     "AvDecoder must match the shared decoder signature");
 static_assert(deskhub::media::RestartableDecoder<AvDecoder>,
     "AvDecoder must be restartable in place (Shutdown + IsOpen)");
+static_assert(deskhub::media::SurfaceBoundDecoder<AvDecoder, VideoSink*>,
+    "AvDecoder is bound to the sink it renders into");
+static_assert(deskhub::media::RenderCountingDecoder<AvDecoder>,
+    "the renderer presents asynchronously, so Decode cannot count presented frames");

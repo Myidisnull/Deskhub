@@ -14,13 +14,10 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
 #include "input/LinuxKeyMap.h"
+#include "deskhub/input/PointerMap.h"
 #include "deskhubp/input/LocalInput.h"
 
 namespace {
-
-constexpr int32_t kAbsMax = 65535;
-
-constexpr int32_t kWheelDelta = 120;
 
 bool Emit(int fd, uint16_t type, uint16_t code, int32_t value) {
     if (fd < 0) return false;
@@ -65,7 +62,7 @@ int CreateDevice(const char* name, const uint16_t* keys, size_t keyCount, bool w
             uinput_abs_setup abs{};
             abs.code = axis;
             abs.absinfo.minimum = 0;
-            abs.absinfo.maximum = kAbsMax;
+            abs.absinfo.maximum = deskhub::kAbsCoordMax;
             ioctl(fd, UI_ABS_SETUP, &abs);
         }
     }
@@ -136,31 +133,18 @@ bool InputInjector::Init(int32_t srcX, int32_t srcY, uint32_t srcW, uint32_t src
 
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_ || kbdFd_ < 0) return;
-
-    const deskhub::InputGate gate = held_.Gate(localMon_ && localMon_->LocalActive(NowUs()));
-    if (!gate.allow) {
-        if (gate.justSuppressed) LOGI("[Inject] Local user is typing — remote input yields.");
-        return;
-    }
-
-    switch (e.type) {
-        case deskhub::InputType::Key: SendKey(e.a, e.state != 0); break;
-        case deskhub::InputType::MouseButton:
-            SendButton(deskhub::MouseButton(e.a), e.state != 0);
-            break;
-        case deskhub::InputType::MouseMove:
-            if (e.absolute)
-                SendMoveAbsolute(e.a, e.b);
-            else
-                SendMoveRelative(e.a, e.b);
-            break;
-        case deskhub::InputType::MouseWheel: SendWheel(e.b); break;
-        default: return;
-    }
-    held_.CountApplied();
+    DispatchInput(e, localMon_ && localMon_->LocalActive(NowUs()));
 }
 
-void InputInjector::SendKey(int32_t vk, bool down) {
+void InputInjector::OnLocalUserTookOver() {
+    LOGI("[Inject] Local user is typing — remote input yields.");
+}
+
+void InputInjector::OnLocalUserIdle() {
+    LOGI("[Inject] Local user idle — remote input resumed.");
+}
+
+void InputInjector::SendKey(int32_t vk, int32_t, bool down) {
     uint16_t code = 0;
     if (!down) {
         if (const uint16_t* stored = held_.FindKey(vk)) code = *stored;
@@ -191,18 +175,12 @@ void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
 
 void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
     if (!srcW_ || !srcH_ || !deskW_ || !deskH_) return;
-    const int32_t cx = nx < 0 ? 0 : (nx > kAbsMax ? kAbsMax : nx);
-    const int32_t cy = ny < 0 ? 0 : (ny > kAbsMax ? kAbsMax : ny);
 
-    const int64_t globalX = srcX_ + int64_t(cx) * srcW_ / kAbsMax;
-    const int64_t globalY = srcY_ + int64_t(cy) * srcH_ / kAbsMax;
-    int64_t ax = (globalX - deskX_) * kAbsMax / deskW_;
-    int64_t ay = (globalY - deskY_) * kAbsMax / deskH_;
-    ax = ax < 0 ? 0 : (ax > kAbsMax ? kAbsMax : ax);
-    ay = ay < 0 ? 0 : (ay > kAbsMax ? kAbsMax : ay);
+    const int64_t globalX = deskhub::AbsCoordToPixel(nx, srcX_, srcW_);
+    const int64_t globalY = deskhub::AbsCoordToPixel(ny, srcY_, srcH_);
 
-    Emit(absFd_, EV_ABS, ABS_X, int32_t(ax));
-    Emit(absFd_, EV_ABS, ABS_Y, int32_t(ay));
+    Emit(absFd_, EV_ABS, ABS_X, deskhub::AxisToAbsCoord(globalX, deskX_, deskW_));
+    Emit(absFd_, EV_ABS, ABS_Y, deskhub::AxisToAbsCoord(globalY, deskY_, deskH_));
     Sync(absFd_);
 }
 
@@ -214,15 +192,16 @@ void InputInjector::SendMoveRelative(int32_t dx, int32_t dy) {
 }
 
 void InputInjector::SendWheel(int32_t delta) {
-    const int32_t notches = delta / kWheelDelta;
-    const int32_t v = notches ? notches : (delta > 0 ? 1 : (delta < 0 ? -1 : 0));
+    const int32_t v = deskhub::WheelNotches(delta);
     if (!v) return;
     Emit(mouseFd_, EV_REL, REL_WHEEL, v);
     Sync(mouseFd_);
 }
 
 void InputInjector::ReleaseAll() {
-    if (kbdFd_ < 0) return;
+    if (kbdFd_ < 0 || held_.nothingHeld()) return;
+    LOGI("[Inject] Releasing %zu keys + %zu mouse buttons still held.", held_.heldKeyCount(),
+        held_.heldButtonCount());
     for (const auto& key : held_.TakeHeldKeys()) {
         Emit(kbdFd_, EV_KEY, key.native, 0);
         Sync(kbdFd_);

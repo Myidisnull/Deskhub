@@ -114,4 +114,30 @@ NegotiationResult BeginNegotiation(SourcePipelineState& st, const Hello& hello, 
     return out;
 }
 
+media::AgentSourceStatus MakeSourceStatus(const SourcePipelineState& st,
+    const StatusExtras& extras) {
+    media::AgentSourceStatus row;
+    row.sourceId = st.sourceId;
+    row.name = st.name;
+    row.width = st.srcW.load(std::memory_order_relaxed);
+    row.height = st.srcH.load(std::memory_order_relaxed);
+    row.viewerConnected = st.peerPacked.load(std::memory_order_relaxed) != 0;
+    row.viewerAddr = row.viewerConnected ? extras.viewerAddr : std::string();
+    row.captureFps = st.statWindow.captureFps;
+    row.sendFps = st.statWindow.sendFps;
+    row.sendKbps = st.statWindow.sendKbps;
+    row.rttMs = st.uiRttMs.load(std::memory_order_relaxed);
+    row.zeroCopy = extras.zeroCopy;
+    return row;
+}
+
+SourceInfo MakeSourceInfo(const SourcePipelineState& st) {
+    SourceInfo info;
+    info.sourceId = st.sourceId;
+    info.width = uint16_t(st.srcW.load(std::memory_order_relaxed));
+    info.height = uint16_t(st.srcH.load(std::memory_order_relaxed));
+    info.name = st.name;
+    return info;
+}
+
 }

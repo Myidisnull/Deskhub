@@ -1,11 +1,13 @@
 #pragma once
 #include "deskhub/control/StreamSize.h"
+#include "deskhub/media/AgentTypes.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/SourcePipelineState.h"
 
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <string>
 
 namespace deskhub {
 
@@ -56,5 +58,15 @@ struct NegotiationResult {
 
 NegotiationResult BeginNegotiation(SourcePipelineState& st, const Hello& hello, uint8_t maxFps,
     const NegotiationHooks& hooks);
+
+struct StatusExtras {
+    std::string viewerAddr;
+    bool zeroCopy = false;
+};
+
+media::AgentSourceStatus MakeSourceStatus(const SourcePipelineState& st,
+    const StatusExtras& extras);
+
+SourceInfo MakeSourceInfo(const SourcePipelineState& st);
 
 }

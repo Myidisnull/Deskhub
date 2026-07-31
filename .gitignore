@@ -43,6 +43,7 @@ local.properties
 *.aab
 *.keystore
 .idea
+.kotlin
 
 Thumbs.db
 Desktop.ini

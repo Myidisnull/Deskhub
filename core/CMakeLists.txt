@@ -21,6 +21,7 @@ add_library(core STATIC
     src/control/BitrateController.cpp
     src/control/LinkStats.cpp
     src/control/StreamSize.cpp
+    src/control/FrameGate.cpp
     src/control/ClockOffset.cpp
     src/control/QualityLadder.cpp
 
@@ -66,9 +67,11 @@ if(DESKHUB_CORE_TESTS)
         tests/input/PressedInputTests.cpp
         tests/input/ClientInputQueueTests.cpp
         tests/input/ScancodeTableTests.cpp
+        tests/input/PointerMapTests.cpp
 
         tests/control/ControlTests.cpp
         tests/control/StreamSizeTests.cpp
+        tests/control/FrameGateTests.cpp
         tests/control/ClockOffsetTests.cpp
         tests/control/QualityLadderTests.cpp
 

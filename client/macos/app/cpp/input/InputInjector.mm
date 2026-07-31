@@ -5,6 +5,7 @@
 
 #include <cmath>
 
+#include "deskhub/input/PointerMap.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "Permissions.h"
@@ -152,36 +153,18 @@ uint64_t InputInjector::CurrentFlags() const {
 
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_) return;
-
-    const deskhub::InputGate gate = held_.Gate(localMon_ && localMon_->LocalActive(NowUs()));
-    if (!gate.allow) {
-        if (gate.justSuppressed) LOGI("[Input] Someone is using this Mac — remote input paused.");
-        ReleaseAll();
-        return;
-    }
-    if (gate.justResumed) LOGI("[Input] Remote input resumed.");
-
-    switch (e.type) {
-        case deskhub::InputType::Key:
-            SendKey(e.a, e.state != 0);
-            break;
-        case deskhub::InputType::MouseMove:
-            if (e.absolute)
-                SendMoveAbsolute(e.a, e.b);
-            else
-                SendMoveRelative(e.a, e.b);
-            break;
-        case deskhub::InputType::MouseButton:
-            SendButton(deskhub::MouseButton(e.a), e.state != 0);
-            break;
-        case deskhub::InputType::MouseWheel:
-            SendWheel(e.b);
-            break;
-    }
-    held_.CountApplied();
+    DispatchInput(e, localMon_ && localMon_->LocalActive(NowUs()));
 }
 
-void InputInjector::SendKey(int32_t vk, bool down) {
+void InputInjector::OnLocalUserTookOver() {
+    LOGI("[Input] Someone is using this Mac — remote input paused.");
+}
+
+void InputInjector::OnLocalUserIdle() {
+    LOGI("[Input] Remote input resumed.");
+}
+
+void InputInjector::SendKey(int32_t vk, int32_t, bool down) {
     uint16_t keycode = 0;
     if (!mackeys::WinVkToMac(vk, keycode)) return;
 
@@ -218,8 +201,8 @@ void InputInjector::PostMouseAt(double x, double y, int32_t dx, int32_t dy) {
 void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
     double rx, ry, rw, rh;
     if (!SourceRect(rx, ry, rw, rh)) return;
-    const double x = rx + double(nx) / 65535.0 * rw;
-    const double y = ry + double(ny) / 65535.0 * rh;
+    const double x = deskhub::AbsCoordToAxis(nx, rx, rw);
+    const double y = deskhub::AbsCoordToAxis(ny, ry, rh);
     PostMouseAt(x, y, 0, 0);
 }
 
@@ -267,7 +250,7 @@ void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
 
 void InputInjector::SendWheel(int32_t delta) {
     if (!delta) return;
-    const int32_t lines = (delta / 120) * 3;
+    const int32_t lines = deskhub::WheelNotches(delta) * 3;
     if (!lines) return;
     CGEventRef ev = CGEventCreateScrollWheelEvent((CGEventSourceRef)source_,
         kCGScrollEventUnitLine, 1, lines);
@@ -281,6 +264,6 @@ void InputInjector::SendWheel(int32_t delta) {
 void InputInjector::ReleaseAll() {
     if (held_.nothingHeld()) return;
     const auto keys = held_.heldKeys();
-    for (const auto& [vk, keycode] : keys) SendKey(vk, false);
+    for (const auto& [vk, keycode] : keys) SendKey(vk, 0, false);
     for (deskhub::MouseButton b : held_.TakeHeldButtons()) SendButton(b, false);
 }

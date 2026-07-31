@@ -4,14 +4,6 @@
 
 namespace deskhub {
 
-namespace {
-
-int32_t ClampAbs(int32_t v) {
-    return v < 0 ? 0 : (v > kAbsCoordMax ? kAbsCoordMax : v);
-}
-
-}
-
 InputEvent ClientInputQueue::KeyEvent(int32_t vk, int32_t scan, bool down, uint64_t nowUs) {
     InputEvent e;
     e.type = InputType::Key;
@@ -68,8 +60,8 @@ void ClientInputQueue::MouseMoveAbsolute(int32_t nx, int32_t ny, uint64_t nowUs)
     InputEvent e;
     e.type = InputType::MouseMove;
     e.timestampUs = nowUs;
-    e.a = ClampAbs(nx);
-    e.b = ClampAbs(ny);
+    e.a = ClampAbsCoord(nx);
+    e.b = ClampAbsCoord(ny);
     e.absolute = 1;
     std::lock_guard<std::mutex> lk(mutex_);
     PushLocked(e);

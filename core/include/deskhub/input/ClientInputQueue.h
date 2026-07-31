@@ -1,4 +1,5 @@
 #pragma once
+#include "deskhub/input/PointerMap.h"
 #include "deskhub/protocol/Wire.h"
 
 #include <atomic>
@@ -12,7 +13,6 @@
 namespace deskhub {
 
 inline constexpr uint64_t kTapHoldUs = 50'000;
-inline constexpr int32_t kAbsCoordMax = 65535;
 
 class ClientInputQueue {
 public:

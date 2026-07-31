@@ -14,6 +14,7 @@
 
 #include <wrl/client.h>
 
+#include "deskhubp/diag/Log.h"
 #include "capture/GpuSelect.h"
 #include "ElevatedShare.h"
 #include "net/Firewall.h"
@@ -23,18 +24,18 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/diag/LogFile.h"
-#include "deskhubp/system/Random.h"
 #include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/session/HostNetLoop.h"
 #include "capture/Downscaler.h"
 #include "capture/ScreenCapture.h"
 #include "AgentControl.h"
 
 #include "deskhub/control/BitrateController.h"
+#include "deskhub/control/FrameGate.h"
 #include "deskhub/control/QualityLadder.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/session/Beacon.h"
-#include "deskhub/session/HostFeedback.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/session/SourcePipelineState.h"
@@ -62,9 +63,6 @@ std::wstring FromUtf8(const std::string& s) {
     return w;
 }
 
-inline constexpr uint32_t kMinEncodeW = 160;
-inline constexpr uint32_t kMinEncodeH = 64;
-
 struct SourcePipeline : deskhub::SourcePipelineState {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
         : deskhub::SourcePipelineState(startBps, minBps, deskhub::diag::AgentDiagCaps{}) {}
@@ -75,7 +73,7 @@ struct SourcePipeline : deskhub::SourcePipelineState {
     InputInjector injector;
 
     std::atomic<uint32_t> srcTexW{0}, srcTexH{0};
-    std::atomic<uint64_t> lastEncodeUs{0};
+    deskhub::FrameGate frameGate;
 
     Downscaler scaler;
 
@@ -94,7 +92,7 @@ struct SourcePipeline : deskhub::SourcePipelineState {
         const uint32_t ms = uint32_t((NowUs() - t0) / 1000);
         diag.encMs.Add(ms);
         if (!ok)
-            std::printf("[DIAG][%s] evt=enc_fail idr=%d ms=%u\n", name.c_str(), idr ? 1 : 0, ms);
+            LOGW("[DIAG][%s] evt=enc_fail idr=%d ms=%u", name.c_str(), idr ? 1 : 0, ms);
     }
 };
 
@@ -105,19 +103,19 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
     if (sources.empty()) {
-        std::printf("[Agent] No source selected.\n");
+        LOGE("[Agent] No source selected.");
         ctl.OnFailed("no source selected");
         return 1;
     }
     if (sources.size() > deskhub::kMaxSources) {
-        std::printf("[Agent] At most %zu sources can be shared at once.\n", deskhub::kMaxSources);
+        LOGE("[Agent] At most %zu sources can be shared at once.", deskhub::kMaxSources);
         ctl.OnFailed("too many sources");
         return 1;
     }
 
     GpuChoice gpu;
     if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, gpu)) {
-        std::printf("[Agent] Failed to create D3D11 device.\n");
+        LOGE("[Agent] Failed to create D3D11 device.");
         ctl.OnFailed("gpu init failed");
         return 1;
     }
@@ -130,13 +128,13 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     UdpSocket sock;
     if (!sock.Open(kDeskhubPort)) {
         if (sock.lastBindAddrInUse()) {
-            std::printf(
+            LOGE(
                 "[Agent] Cannot start sharing: UDP port %u is already in use. "
-                "Another Deskhub is probably still running — close it and try again.\n",
+                "Another Deskhub is probably still running — close it and try again.",
                 unsigned(kDeskhubPort));
             ctl.OnFailed("udp port 47777 is already in use");
         } else {
-            std::printf("[Agent] Cannot start sharing: could not open UDP port %u.\n",
+            LOGE("[Agent] Cannot start sharing: could not open UDP port %u.",
                 unsigned(kDeskhubPort));
             ctl.OnFailed("could not open udp port 47777");
         }
@@ -145,19 +143,19 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     sock.SetRecvTimeout(100);
 
     if (EnsureHostFirewallRule())
-        std::printf("[Agent] Windows Firewall: inbound rule verified (all profiles).\n");
+        LOGI("[Agent] Windows Firewall: inbound rule verified (all profiles).");
     else
-        std::printf(
+        LOGW(
             "[Agent] Could not add/verify a Windows Firewall rule (needs admin). "
             "If the other machine cannot connect, allow client.exe through Windows "
-            "Firewall for the current network.\n");
+            "Firewall for the current network.");
 
-    std::printf(
+    LOGI(
         "[Agent] Listening on UDP port %u. On the other machine, open Deskhub"
-        " and enter one of:\n",
+        " and enter one of:",
         unsigned(kDeskhubPort));
     for (const auto& a : ListLocalIPv4())
-        std::printf("    %s    (%s)\n", a.ip.c_str(), a.name.c_str());
+        LOGI("    %s    (%s)", a.ip.c_str(), a.name.c_str());
 
     const uint32_t startBitrate = opt.bitrateMbps * 1'000'000u;
     const uint32_t maxBitrate = startBitrate;
@@ -226,9 +224,9 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             cfg.onPacket = onPacket;
             p->encoder = CreateEncoder(gpu.device.Get(), cfg);
             if (!p->encoder) {
-                std::printf(
+                LOGE(
                     "[Agent][%s] No usable encoder backend (NVENC + Media Foundation"
-                    " both failed).\n",
+                    " both failed).",
                     p->name.c_str());
                 p->failed.store(true);
                 return false;
@@ -246,27 +244,19 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
             p->nativeW.store(fi.meta.width, std::memory_order_relaxed);
             p->nativeH.store(fi.meta.height, std::memory_order_relaxed);
 
-            uint32_t encW = p->wantW.load(std::memory_order_relaxed);
-            uint32_t encH = p->wantH.load(std::memory_order_relaxed);
-            if (!encW || !encH) {
-                const deskhub::StreamSize t =
-                    deskhub::FitStreamSize(fi.meta.width, fi.meta.height, maxDim, 0, 0);
-                encW = t.width;
-                encH = t.height;
-            }
-            if (encW > fi.meta.width) encW = fi.meta.width;
-            if (encH > fi.meta.height) encH = fi.meta.height;
-            encW &= ~1u;
-            encH &= ~1u;
+            const deskhub::EncodeSize target = deskhub::ClampEncodeSize(fi.meta.width,
+                fi.meta.height, p->wantW.load(std::memory_order_relaxed),
+                p->wantH.load(std::memory_order_relaxed), maxDim);
+            const uint32_t encW = target.width(), encH = target.height();
             if (!encW || !encH) return;
 
             std::lock_guard<std::mutex> lk(p->encMutex);
 
             if (p->srcW.load() != encW || p->srcH.load() != encH) {
                 if (p->srcW.load())
-                    std::printf(
+                    LOGI(
                         "[Agent][%s] Encode size %ux%u -> %ux%u (source %ux%u),"
-                        " rebuilding encoder.\n",
+                        " rebuilding encoder.",
                         p->name.c_str(), p->srcW.load(), p->srcH.load(), encW, encH,
                         fi.meta.width, fi.meta.height);
                 p->srcW.store(encW);
@@ -277,25 +267,20 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
                 p->sizeChanged.store(true, std::memory_order_release);
             }
 
-            if (encW < kMinEncodeW || encH < kMinEncodeH) {
+            if (target.tooSmall) {
                 if (!p->paused.exchange(true, std::memory_order_acq_rel))
-                    std::printf(
+                    LOGI(
                         "[Agent][%s] Source too small to encode (%ux%u) —"
-                        " paused, waiting for it to grow back.\n",
+                        " paused, waiting for it to grow back.",
                         p->name.c_str(), encW, encH);
                 return;
             }
             if (p->paused.exchange(false, std::memory_order_acq_rel))
-                std::printf("[Agent][%s] Source back to %ux%u — resuming.\n",
+                LOGI("[Agent][%s] Source back to %ux%u — resuming.",
                     p->name.c_str(), encW, encH);
 
             const uint64_t frameUs = NowUs();
-            if (const uint32_t gateFps = p->curFps.load(std::memory_order_relaxed)) {
-                const uint64_t minGapUs = 1'000'000ull / gateFps;
-                const uint64_t last = p->lastEncodeUs.load(std::memory_order_relaxed);
-                if (last && frameUs > last && frameUs - last + 500 < minGapUs) return;
-                p->lastEncodeUs.store(frameUs, std::memory_order_relaxed);
-            }
+            if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed), frameUs)) return;
 
             ID3D11Texture2D* encTex = fi.texture;
             if (encW != fi.meta.width || encH != fi.meta.height) {
@@ -331,7 +316,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         p->capture.SetDevice(gpu.device.Get());
         if (!p->capture.Start(uint64_t(uintptr_t(p->monitor)),
                 deskhub::media::CaptureOptions{opt.fps, opt.maxDim}, onFrame)) {
-            std::printf("[Agent][%s] Failed to start capture — skipping this source.\n",
+            LOGW("[Agent][%s] Failed to start capture — skipping this source.",
                 p->name.c_str());
             p->failed.store(true);
         }
@@ -372,7 +357,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     for (auto& p : pipes) {
         if (p->failed.load() || !p->srcW.load()) {
             if (!p->failed.load())
-                std::printf("[Agent][%s] No frame within 10s — not sharing this source.\n",
+                LOGW("[Agent][%s] No frame within 10s — not sharing this source.",
                     p->name.c_str());
             shutdownPipeline(p.get());
             continue;
@@ -380,7 +365,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         live.push_back(p.get());
     }
     if (live.empty()) {
-        std::printf("[Agent] No usable source — stopping.\n");
+        LOGE("[Agent] No usable source — stopping.");
         ctl.OnFailed("no usable source");
         return 1;
     }
@@ -390,95 +375,44 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
     LocalInputMonitor localInputMon;
 
     deskhub::Beacon beacon;
-    uint8_t beaconBuf[deskhub::kMaxDatagram];
 
     auto attachSession = [&](SourcePipeline* p) {
         p->offer.width = uint16_t(p->srcW.load());
         p->offer.height = uint16_t(p->srcH.load());
         p->offer.fps = uint8_t(opt.fps);
         p->offer.bitrateBps = startBitrate;
-        std::printf("[Agent] Source %u \"%s\": %ux%u @%ufps, %u Mbps.\n",
+        LOGI("[Agent] Source %u \"%s\": %ux%u @%ufps, %u Mbps.",
             p->sourceId, p->name.c_str(), p->offer.width, p->offer.height,
             opt.fps, opt.bitrateMbps);
 
         p->injector.SetLocalMonitor(&localInputMon);
         p->injector.SetEnabled(p->injector.Init(p->monitor));
 
-        deskhub::HostCallbacks cb;
-        cb.send = [&sock, &replyAddr](std::span<const uint8_t> d) {
+        deskhubp::HostSessionHooks hooks;
+        hooks.fps = opt.fps;
+        hooks.send = [&sock, &replyAddr](std::span<const uint8_t> d) {
             sock.SendTo(replyAddr, d.data(), d.size());
         };
-        cb.randomBytes = [](std::span<uint8_t> out) {
-            return RandomBytes(out.data(), out.size());
+        hooks.sendToPeer = [p, &sock](std::span<const uint8_t> d) {
+            sock.SendTo(NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire)), d.data(),
+                d.size());
         };
-        auto retarget = [p, &opt] { return deskhub::RetargetStream(*p, opt.maxDim); };
+        hooks.retarget = [p, &opt] { return deskhub::RetargetStream(*p, opt.maxDim); };
+        hooks.applyInput = [p](const deskhub::InputEvent& e) { p->injector.Apply(e); };
+        hooks.releaseInput = [p] { p->injector.ReleaseAll(); };
+        hooks.setEncoderBitrate = [p](uint32_t bitrateBps) {
+            std::lock_guard<std::mutex> lk(p->encMutex);
+            return p->encoder && p->encoder->SetBitrate(bitrateBps);
+        };
+        hooks.applyQualityStep = [p, &opt](const deskhub::QualityStep& prev,
+                                     const deskhub::QualityStep& next) {
+            const deskhub::StreamSize t = deskhub::RetargetStream(*p, opt.maxDim);
+            std::lock_guard<std::mutex> lk(p->encMutex);
+            if (p->encoder && prev.fps != next.fps) p->encoder->SetFps(next.fps);
+            return t;
+        };
 
-        cb.onHello = [p, &opt, retarget](const deskhub::Hello& h) {
-            deskhub::NegotiationHooks hooks;
-            hooks.resolveSize = [p, retarget](uint16_t clientW, uint16_t clientH) {
-                p->cliW = clientW;
-                p->cliH = clientH;
-                return retarget();
-            };
-            const deskhub::NegotiationResult r =
-                deskhub::BeginNegotiation(*p, h, uint8_t(opt.fps), hooks);
-            if (!r.accepted) return;
-            std::printf("[Agent][%s] Quality ladder: ceiling %ux%u @%ufps, %d rung(s).\n",
-                p->name.c_str(), r.size.width, r.size.height, p->step.fps, r.rungCount);
-        };
-        cb.onStart = [p] {
-            p->forceIdr.store(true);
-            std::printf("[Agent][%s] Client START — beginning video push.\n", p->name.c_str());
-        };
-        cb.onKeyframeRequest = [p] { p->forceIdr.store(true); };
-        cb.onNack = [p, &sock](uint32_t frameId, std::span<const uint16_t> indices) {
-            const NetAddr peer = NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire));
-            deskhub::RespondToNack(*p, frameId, indices, [&sock, &peer](std::span<const uint8_t> d) {
-                sock.SendTo(peer, d.data(), d.size());
-            });
-        };
-        cb.onInput = [p](const deskhub::InputEvent& e) { p->injector.Apply(e); };
-        cb.onFocus = [p](bool focused) {
-            if (!focused) p->injector.ReleaseAll();
-        };
-        cb.onDisconnect = [p] {
-            deskhub::ForgetPeer(*p);
-            p->injector.ReleaseAll();
-            std::printf("[Agent][%s] Client left (BYE/timeout).\n", p->name.c_str());
-        };
-        cb.onFeedback = [p, retarget](const deskhub::Feedback& fb) {
-            deskhub::FeedbackHooks hooks;
-            hooks.setEncoderBitrate = [p](uint32_t bitrateBps) {
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                return p->encoder && p->encoder->SetBitrate(bitrateBps);
-            };
-            hooks.applyQualityStep = [p, retarget](const deskhub::QualityStep& prev,
-                                         const deskhub::QualityStep& next) {
-                const deskhub::StreamSize t = retarget();
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                if (p->encoder && prev.fps != next.fps) p->encoder->SetFps(next.fps);
-                return t;
-            };
-
-            const deskhub::FeedbackOutcome out = deskhub::ApplyFeedback(*p, fb, NowUs(), hooks);
-
-            if (out.fecToggled) {
-                if (out.fecEnabled)
-                    std::printf("[Agent][%s] FEC on (loss %u%%).\n", p->name.c_str(), fb.lossPct);
-                else
-                    std::printf("[Agent][%s] FEC off (link clean).\n", p->name.c_str());
-            }
-            if (out.bitrateChanged)
-                std::printf("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)\n",
-                    p->name.c_str(), out.previousBitrateBps / 1e6, out.bitrateBps / 1e6,
-                    fb.lossPct, fb.rttMs);
-            if (out.qualityChanged)
-                std::printf(
-                    "[Agent][%s] Quality %u%%@%ufps -> %u%%@%ufps (%ux%u, budget %.1f Mbps)\n",
-                    p->name.c_str(), out.previousStep.scalePct, out.previousStep.fps,
-                    out.step.scalePct, out.step.fps, out.size.width, out.size.height,
-                    p->rate.bitrateBps() / 1e6);
-        };
+        const deskhub::HostCallbacks cb = deskhubp::MakeHostCallbacks(*p, std::move(hooks));
 
         p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
         p->netReady.store(true, std::memory_order_release);
@@ -492,32 +426,31 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         std::vector<deskhub::SourceInfo> infos;
         for (SourcePipeline* p : live) {
             if (p->failed.load() || p->capture.Closed()) continue;
-            const uint32_t w = p->srcW.load(), hgt = p->srcH.load();
             const uint64_t peer = p->peerPacked.load(std::memory_order_relaxed);
 
+            deskhub::StatusExtras extras;
+            if (peer) extras.viewerAddr = NetAddr::Unpack(peer).ToString();
+            const deskhub::media::AgentSourceStatus status =
+                deskhub::MakeSourceStatus(*p, extras);
+
             SessionSourceRow r;
-            r.sourceId = p->sourceId;
+            r.sourceId = status.sourceId;
             wchar_t suffix[64];
-            swprintf(suffix, 64, L"  (%ux%u%ls)", w, hgt,
-                peer ? L", viewer connected" : L"");
-            r.label = FromUtf8(p->name) + suffix;
-            r.name = FromUtf8(p->name);
-            r.width = w;
-            r.height = hgt;
-            r.viewerConnected = peer != 0;
-            if (peer) r.viewerAddr = NetAddr::Unpack(peer).ToString();
+            swprintf(suffix, 64, L"  (%ux%u%ls)", status.width, status.height,
+                status.viewerConnected ? L", viewer connected" : L"");
+            r.label = FromUtf8(status.name) + suffix;
+            r.name = FromUtf8(status.name);
+            r.width = status.width;
+            r.height = status.height;
+            r.viewerConnected = status.viewerConnected;
+            r.viewerAddr = status.viewerAddr;
             r.fps = p->uiFps.load(std::memory_order_relaxed);
             r.kbps = p->uiKbps.load(std::memory_order_relaxed);
-            r.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
+            r.rttMs = status.rttMs;
             r.monitor = uint64_t(uintptr_t(p->monitor));
             rows.push_back(std::move(r));
 
-            deskhub::SourceInfo si;
-            si.sourceId = p->sourceId;
-            si.width = uint16_t(w);
-            si.height = uint16_t(hgt);
-            si.name = p->name;
-            infos.push_back(std::move(si));
+            infos.push_back(deskhub::MakeSourceInfo(*p));
         }
         beacon.SetSources(infos);
         ctl.SetRows(std::move(rows));
@@ -528,119 +461,48 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
 
     {
         const bool elevated = IsProcessElevated();
-        std::printf("[Agent] Client control allowed (mouse + keyboard). Host elevated: %s%s\n",
+        LOGI("[Agent] Client control allowed (mouse + keyboard). Host elevated: %s%s",
             elevated ? "YES" : "NO",
             elevated ? "" : " — input will NOT reach apps running as administrator");
     }
-    std::printf("[Agent] Sharing %zu source(s). Waiting for client...\n", live.size());
+    LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live.size());
 
-    uint8_t buf[deskhub::kMaxDatagram];
-    uint64_t lastStatUs = NowUs();
     bool anyFailed = false;
-    deskhub::diag::AgentDiag loopDiag;
-    char logLine[deskhub::diag::SourceDiag::kStatusBufBytes];
 
-    for (;;) {
-        if (g_ctrlC.load()) break;
-        if (ctl.stopRequested()) break;
+    deskhubp::HostNetLoopHooks loop;
+    loop.fallbackFps = opt.fps;
+    loop.stopped = [&ctl] { return g_ctrlC.load() || ctl.stopRequested(); };
+    loop.onPeerDatagram = [&replyAddr](const NetAddr& from) { replyAddr = from; };
+    loop.publishStatus = publishRows;
+    loop.onSocketError = [&ctl, &anyFailed] {
+        ctl.OnFailed("socket error");
+        anyFailed = true;
+    };
+    loop.source.closed = [](const deskhub::SourcePipelineState& st) {
+        return static_cast<const SourcePipeline&>(st).capture.Closed();
+    };
+    loop.source.shutdown = [&shutdownPipeline](deskhub::SourcePipelineState& st) {
+        shutdownPipeline(static_cast<SourcePipeline*>(&st));
+    };
+    loop.source.inputSkipped = [](const deskhub::SourcePipelineState& st) {
+        return static_cast<const SourcePipeline&>(st).injector.skipped();
+    };
+    loop.source.onWindowClosed = [](deskhub::SourcePipelineState& st) {
+        auto& p = static_cast<SourcePipeline&>(st);
+        p.uiFps.store(uint32_t(p.statWindow.sendFps + 0.5), std::memory_order_relaxed);
+        p.uiKbps.store(uint32_t(p.statWindow.sendKbps + 0.5), std::memory_order_relaxed);
+    };
+    loop.source.flush = [](deskhub::SourcePipelineState& st, uint64_t nowUs) {
+        auto& p = static_cast<SourcePipeline&>(st);
+        if (!p.haveCached.load(std::memory_order_acquire)) return;
+        std::lock_guard<std::mutex> lk(p.encMutex);
+        if (!p.ensureEncoderFn(p.srcW.load(), p.srcH.load(), p.srcTexW.load(), p.srcTexH.load()))
+            return;
+        p.DiagEncode(p.encoder.get(), p.cachedTex.Get(), p.forceIdr.exchange(false));
+        p.lastKeepaliveUs = nowUs;
+    };
 
-        bool anyAlive = false;
-        for (SourcePipeline* p : live)
-            if (!p->failed.load() && !p->capture.Closed()) anyAlive = true;
-        if (!anyAlive) break;
-
-        NetAddr from;
-        const int n = sock.RecvFrom(buf, sizeof(buf), from);
-        const uint64_t now = NowUs();
-        if (n < 0) {
-            std::printf("[Agent] Socket error — stopping.\n");
-            ctl.OnFailed("socket error");
-            anyFailed = true;
-            break;
-        }
-
-        if (n > 0) {
-            const auto span = std::span<const uint8_t>(buf, size_t(n));
-            if (const size_t rn = beacon.Reply(beaconBuf, span); rn) {
-                sock.SendTo(from, beaconBuf, rn);
-            } else {
-                const deskhub::AcceptedDatagram acc =
-                    deskhub::AcceptDatagram(liveStates, span, from.Pack(), now);
-                if (acc.parsed) replyAddr = from;
-                if (acc.peerChanged)
-                    std::printf("[Agent][%s] Peer: %s\n", acc.target->name.c_str(),
-                        from.ToString().c_str());
-            }
-        }
-
-        for (SourcePipeline* p : live) {
-            if (p->failed.load()) continue;
-            p->session->Tick(now);
-
-            if (const char* idrLine = p->diag.FormatIdr(logLine, sizeof(logLine),
-                    p->name.c_str()))
-                std::printf("%s\n", idrLine);
-
-            const deskhub::OfferUpdate u = deskhub::RefreshOffer(*p, uint8_t(opt.fps));
-            if (u.sendReconfig) {
-                uint8_t rbuf[deskhub::kMaxDatagram];
-                const size_t rn = deskhub::BuildReconfig(rbuf, p->session->sessionId(), u.reconfig);
-                if (rn) sock.SendTo(NetAddr::Unpack(p->peerPacked.load()), rbuf, rn);
-                p->forceIdr.store(true);
-            }
-
-            if (p->haveCached.load(std::memory_order_acquire) &&
-                deskhub::DueForFlush(*p, now) != deskhub::FlushReason::None) {
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                if (p->ensureEncoderFn(p->srcW.load(), p->srcH.load(),
-                        p->srcTexW.load(), p->srcTexH.load())) {
-                    p->DiagEncode(p->encoder.get(), p->cachedTex.Get(),
-                        p->forceIdr.exchange(false));
-                    p->lastKeepaliveUs = now;
-                }
-            }
-        }
-
-        if (now - lastStatUs >= 1'000'000) {
-            const std::string hms = deskhubp::LocalTimeHms();
-            for (SourcePipeline* p : live) {
-                if (p->failed.load()) continue;
-                const uint32_t cap = p->captured.load();
-                const uint64_t by = p->bytesSent.load(), fr = p->framesSent.load();
-                const auto& ist = p->session->inputStats();
-                deskhub::diag::SourceDiag::Window sw;
-                p->statWindow = p->statRate.Close(cap, fr, by, now);
-                sw.rate = p->statWindow;
-                sw.inputApplied = ist.applied;
-                sw.inputLost = ist.lost;
-                sw.inputSkipped = p->injector.skipped();
-
-                deskhub::diag::SourceDiag::LinkView link;
-                link.have = p->haveFeedback.load(std::memory_order_acquire);
-                link.lossPct = p->uiLossPct.load(std::memory_order_relaxed);
-                link.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
-                link.recvKbps = p->uiRecvKbps.load(std::memory_order_relaxed);
-
-                std::printf("%s\n",
-                    deskhub::diag::SourceDiag::FormatStatus(logLine, sizeof(logLine), hms.c_str(),
-                        p->name.c_str(), deskhub::diag::StateName(p->session->state()), sw, link));
-                p->uiFps.store(uint32_t(sw.rate.sendFps + 0.5), std::memory_order_relaxed);
-                p->uiKbps.store(uint32_t(sw.rate.sendKbps + 0.5), std::memory_order_relaxed);
-
-                std::printf("%s\n",
-                    p->diag.FormatSum(logLine, sizeof(logLine), hms.c_str(), p->name.c_str(),
-                        0, false));
-            }
-            std::printf("%s\n", loopDiag.FormatSum(logLine, sizeof(logLine), hms.c_str()));
-            publishRows();
-            lastStatUs = now;
-        }
-
-        const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        loopDiag.loopBusyMs.Add(busyMs);
-        if (busyMs > 250)
-            std::printf("[DIAG][agent] evt=recv_stall busy_ms=%u\n", busyMs);
-    }
+    deskhubp::RunHostNetLoop(sock, beacon, liveStates, loop);
 
     uint64_t totalFrames = 0;
     double totalMB = 0;
@@ -649,7 +511,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         totalFrames += up->framesSent.load();
         totalMB += up->bytesSent.load() / 1e6;
     }
-    std::printf("[Agent] Stopped. Total: %llu frames sent, %.2f MB.\n",
+    LOGI("[Agent] Stopped. Total: %llu frames sent, %.2f MB.",
         (unsigned long long)totalFrames, totalMB);
     SetConsoleCtrlHandler(CtrlHandler, FALSE);
     return anyFailed ? 1 : 0;

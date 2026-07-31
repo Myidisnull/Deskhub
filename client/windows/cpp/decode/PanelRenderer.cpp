@@ -10,6 +10,7 @@
 #include <mutex>
 #include <utility>
 
+#include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
 
 #pragma comment(lib, "d3d11.lib")
@@ -17,14 +18,14 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define PR_CHECK(expr, msg)                                            \
-    do {                                                               \
-        HRESULT _hr = (expr);                                          \
-        if (FAILED(_hr)) {                                             \
-            std::printf("[PanelRenderer] %s failed: 0x%08lX\n", (msg), \
-                (unsigned long)_hr);                                   \
-            return false;                                              \
-        }                                                              \
+#define PR_CHECK(expr, msg)                                   \
+    do {                                                      \
+        HRESULT _hr = (expr);                                 \
+        if (FAILED(_hr)) {                                    \
+            LOGE("[PanelRenderer] %s failed: 0x%08lX", (msg), \
+                (unsigned long)_hr);                          \
+            return false;                                     \
+        }                                                     \
     } while (0)
 
 struct PanelRenderer::Impl {

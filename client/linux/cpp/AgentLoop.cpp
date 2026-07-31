@@ -12,19 +12,19 @@
 #include "capture/ScreenCapture.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/diag/LogFile.h"
-#include "deskhubp/system/Random.h"
 #include "encode/VaEncoder.h"
 #include "input/InputInjector.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/session/HostNetLoop.h"
 
 #include "deskhub/control/BitrateController.h"
+#include "deskhub/control/FrameGate.h"
 #include "deskhub/control/QualityLadder.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/session/Beacon.h"
-#include "deskhub/session/HostFeedback.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/session/SourcePipelineState.h"
@@ -32,9 +32,6 @@
 #include "deskhub/transport/RetransmitCache.h"
 
 namespace {
-
-inline constexpr uint32_t kMinEncodeW = 160;
-inline constexpr uint32_t kMinEncodeH = 64;
 
 struct SourcePipeline : deskhub::SourcePipelineState {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
@@ -46,7 +43,7 @@ struct SourcePipeline : deskhub::SourcePipelineState {
     ScreenCapture capture;
     InputInjector injector;
 
-    std::atomic<uint64_t> lastEncodeUs{0};
+    deskhub::FrameGate frameGate;
 
     std::mutex encMutex;
     std::unique_ptr<VaEncoder> encoder;
@@ -186,18 +183,10 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p) {
         p->nativeW.store(fi.meta.width, std::memory_order_relaxed);
         p->nativeH.store(fi.meta.height, std::memory_order_relaxed);
 
-        uint32_t encW = p->wantW.load(std::memory_order_relaxed);
-        uint32_t encH = p->wantH.load(std::memory_order_relaxed);
-        if (!encW || !encH) {
-            const deskhub::StreamSize t =
-                deskhub::FitStreamSize(fi.meta.width, fi.meta.height, maxDim, 0, 0);
-            encW = t.width;
-            encH = t.height;
-        }
-        if (encW > fi.meta.width) encW = fi.meta.width;
-        if (encH > fi.meta.height) encH = fi.meta.height;
-        encW &= ~1u;
-        encH &= ~1u;
+        const deskhub::EncodeSize target = deskhub::ClampEncodeSize(fi.meta.width, fi.meta.height,
+            p->wantW.load(std::memory_order_relaxed), p->wantH.load(std::memory_order_relaxed),
+            maxDim);
+        const uint32_t encW = target.width(), encH = target.height();
         if (!encW || !encH) return;
 
         std::lock_guard<std::mutex> lk(p->encMutex);
@@ -213,7 +202,7 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p) {
             p->sizeChanged.store(true, std::memory_order_release);
         }
 
-        if (encW < kMinEncodeW || encH < kMinEncodeH) {
+        if (target.tooSmall) {
             if (!p->paused.exchange(true, std::memory_order_acq_rel))
                 LOGI("[Agent][%s] Source too small to encode (%ux%u) — paused.", p->name.c_str(),
                     encW, encH);
@@ -222,12 +211,9 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p) {
         if (p->paused.exchange(false, std::memory_order_acq_rel))
             LOGI("[Agent][%s] Source back to %ux%u — resuming.", p->name.c_str(), encW, encH);
 
-        if (const uint32_t gateFps = p->curFps.load(std::memory_order_relaxed)) {
-            const uint64_t minGapUs = 1'000'000ull / gateFps;
-            const uint64_t last = p->lastEncodeUs.load(std::memory_order_relaxed);
-            if (last && fi.meta.timestampUs > last && fi.meta.timestampUs - last + 500 < minGapUs) return;
-            p->lastEncodeUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
-        }
+        if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed),
+                fi.meta.timestampUs))
+            return;
 
         p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
@@ -260,79 +246,33 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     UdpSocket* sockPtr = &sock;
     Impl* self = this;
 
-    deskhub::HostCallbacks cb;
-    cb.send = [sockPtr, self](std::span<const uint8_t> d) {
+    deskhubp::HostSessionHooks hooks;
+    hooks.fps = opt.fps;
+    hooks.send = [sockPtr, self](std::span<const uint8_t> d) {
         sockPtr->SendTo(self->replyAddr, d.data(), d.size());
     };
-    cb.randomBytes = [](std::span<uint8_t> out) {
-        return RandomBytes(out.data(), out.size());
+    hooks.sendToPeer = [p, sockPtr](std::span<const uint8_t> d) {
+        sockPtr->SendTo(NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire)), d.data(),
+            d.size());
     };
-    const AgentOptions& o = opt;
-    auto retarget = [p, &o] { return deskhub::RetargetStream(*p, o.maxDim); };
-
-    cb.onHello = [p, &o, retarget](const deskhub::Hello& h) {
-        deskhub::NegotiationHooks hooks;
-        hooks.resolveSize = [p, retarget](uint16_t clientW, uint16_t clientH) {
-            p->cliW = clientW;
-            p->cliH = clientH;
-            return retarget();
-        };
-        const deskhub::NegotiationResult r =
-            deskhub::BeginNegotiation(*p, h, uint8_t(o.fps), hooks);
-        if (!r.accepted) return;
-        LOGI("[Agent][%s] Quality ladder: ceiling %ux%u @%ufps, %d rung(s).", p->name.c_str(),
-            r.size.width, r.size.height, p->step.fps, r.rungCount);
+    hooks.retarget = [p, self] { return deskhub::RetargetStream(*p, self->opt.maxDim); };
+    hooks.applyInput = [p](const deskhub::InputEvent& e) { p->injector.Apply(e); };
+    hooks.releaseInput = [p] { p->injector.ReleaseAll(); };
+    hooks.setEncoderBitrate = [p](uint32_t bitrateBps) {
+        std::lock_guard<std::mutex> lk(p->encMutex);
+        return p->encoder && p->encoder->SetBitrate(bitrateBps);
     };
-    cb.onStart = [p] {
-        p->forceIdr.store(true);
-        LOGI("[Agent][%s] Client START — beginning video push.", p->name.c_str());
-    };
-    cb.onKeyframeRequest = [p] { p->forceIdr.store(true); };
-    cb.onNack = [p, sockPtr](uint32_t frameId, std::span<const uint16_t> indices) {
-        const NetAddr peer = NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire));
-        deskhub::RespondToNack(*p, frameId, indices, [sockPtr, &peer](std::span<const uint8_t> d) {
-            sockPtr->SendTo(peer, d.data(), d.size());
-        });
-    };
-    cb.onInput = [p](const deskhub::InputEvent& e) { p->injector.Apply(e); };
-    cb.onFocus = [p](bool focused) {
-        if (!focused) p->injector.ReleaseAll();
-    };
-    cb.onDisconnect = [p] {
-        deskhub::ForgetPeer(*p);
-        p->injector.ReleaseAll();
-        LOGI("[Agent][%s] Client left (BYE/timeout).", p->name.c_str());
-    };
-    cb.onFeedback = [p, retarget](const deskhub::Feedback& fb) {
-        deskhub::FeedbackHooks hooks;
-        hooks.setEncoderBitrate = [p](uint32_t bitrateBps) {
+    hooks.applyQualityStep = [p, self](const deskhub::QualityStep& prev,
+                                 const deskhub::QualityStep& next) {
+        const deskhub::StreamSize t = deskhub::RetargetStream(*p, self->opt.maxDim);
+        if (prev.fps != next.fps) {
             std::lock_guard<std::mutex> lk(p->encMutex);
-            return p->encoder && p->encoder->SetBitrate(bitrateBps);
-        };
-        hooks.applyQualityStep = [p, retarget](const deskhub::QualityStep& prev,
-                                     const deskhub::QualityStep& next) {
-            const deskhub::StreamSize t = retarget();
-            if (prev.fps != next.fps) {
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                p->encoder.reset();
-            }
-            return t;
-        };
-
-        const deskhub::FeedbackOutcome out = deskhub::ApplyFeedback(*p, fb, NowUs(), hooks);
-
-        if (out.fecToggled)
-            LOGI("[Agent][%s] FEC %s (loss %u%%).", p->name.c_str(), out.fecEnabled ? "on" : "off",
-                fb.lossPct);
-        if (out.bitrateChanged)
-            LOGI("[Agent][%s] Bitrate %.1f -> %.1f Mbps (loss %u%%, RTT %u ms)", p->name.c_str(),
-                out.previousBitrateBps / 1e6, out.bitrateBps / 1e6, fb.lossPct, fb.rttMs);
-        if (out.qualityChanged)
-            LOGI("[Agent][%s] Quality %u%%@%ufps -> %u%%@%ufps (%ux%u, budget %.1f Mbps)",
-                p->name.c_str(), out.previousStep.scalePct, out.previousStep.fps,
-                out.step.scalePct, out.step.fps, out.size.width, out.size.height,
-                p->rate.bitrateBps() / 1e6);
+            p->encoder.reset();
+        }
+        return t;
     };
+
+    const deskhub::HostCallbacks cb = deskhubp::MakeHostCallbacks(*p, std::move(hooks));
 
     p->session = std::make_unique<deskhub::HostSession>(cb, p->offer);
     p->netReady.store(true, std::memory_order_release);
@@ -364,27 +304,14 @@ void AgentLoop::Impl::PublishStatus() {
     std::vector<deskhub::SourceInfo> infos;
     for (SourcePipeline* p : live) {
         if (p->failed.load() || p->capture.Closed()) continue;
-        const uint64_t peer = p->peerPacked.load(std::memory_order_relaxed);
-        AgentSourceStatus r;
-        r.sourceId = p->sourceId;
-        r.name = p->name;
-        r.width = p->srcW.load();
-        r.height = p->srcH.load();
-        r.viewerConnected = peer != 0;
-        if (peer) r.viewerAddr = NetAddr::Unpack(peer).ToString();
-        r.captureFps = p->statWindow.captureFps;
-        r.sendFps = p->statWindow.sendFps;
-        r.sendKbps = p->statWindow.sendKbps;
-        r.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
-        r.zeroCopy = p->capture.usingDmaBuf();
-        rows.push_back(std::move(r));
 
-        deskhub::SourceInfo si;
-        si.sourceId = p->sourceId;
-        si.width = uint16_t(p->srcW.load());
-        si.height = uint16_t(p->srcH.load());
-        si.name = p->name;
-        infos.push_back(std::move(si));
+        deskhub::StatusExtras extras;
+        extras.zeroCopy = p->capture.usingDmaBuf();
+        if (const uint64_t peer = p->peerPacked.load(std::memory_order_relaxed))
+            extras.viewerAddr = NetAddr::Unpack(peer).ToString();
+
+        rows.push_back(deskhub::MakeSourceStatus(*p, extras));
+        infos.push_back(deskhub::MakeSourceInfo(*p));
     }
     beacon.SetSources(infos);
 
@@ -492,107 +419,33 @@ void AgentLoop::Stop() {
 
 void AgentLoop::Impl::RecvLoop() {
     const std::vector<deskhub::SourcePipelineState*> liveStates(live.begin(), live.end());
-    uint8_t buf[deskhub::kMaxDatagram];
-    uint8_t beaconBuf[deskhub::kMaxDatagram];
-    uint64_t lastStatUs = NowUs();
-    deskhub::diag::AgentDiag loopDiag;
-    char line[deskhub::diag::SourceDiag::kStatusBufBytes];
 
-    while (!quit.load()) {
-        bool anyAlive = false;
-        for (SourcePipeline* p : live)
-            if (!p->failed.load() && !p->capture.Closed()) anyAlive = true;
-        if (!anyAlive) {
-            LOGI("[Agent] No source left alive — session over.");
-            break;
-        }
+    deskhubp::HostNetLoopHooks loop;
+    loop.fallbackFps = opt.fps;
+    loop.stopped = [this] { return quit.load(); };
+    loop.onPeerDatagram = [this](const NetAddr& from) { replyAddr = from; };
+    loop.publishStatus = [this] { PublishStatus(); };
+    loop.source.closed = [](const deskhub::SourcePipelineState& st) {
+        return static_cast<const SourcePipeline&>(st).capture.Closed();
+    };
+    loop.source.shutdown = [this](deskhub::SourcePipelineState& st) {
+        ShutdownPipeline(static_cast<SourcePipeline*>(&st));
+    };
+    loop.source.inputSkipped = [](const deskhub::SourcePipelineState& st) {
+        return static_cast<const SourcePipeline&>(st).injector.skipped();
+    };
+    loop.source.zeroCopy = [](const deskhub::SourcePipelineState& st) {
+        return static_cast<const SourcePipeline&>(st).capture.usingDmaBuf();
+    };
+    loop.source.flush = [](deskhub::SourcePipelineState& st, uint64_t nowUs) {
+        auto& p = static_cast<SourcePipeline&>(st);
+        std::lock_guard<std::mutex> lk(p.encMutex);
+        if (!p.encoder || !p.encoder->haveSourceFrame()) return;
+        const bool idr = p.forceIdr.exchange(false);
+        VaEncoder* enc = p.encoder.get();
+        p.DiagEncode([enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); }, idr);
+        p.lastKeepaliveUs = nowUs;
+    };
 
-        NetAddr from;
-        const int n = sock.RecvFrom(buf, sizeof(buf), from);
-        const uint64_t now = NowUs();
-        if (n < 0) {
-            LOGE("[Agent] Socket error — stopping.");
-            break;
-        }
-
-        if (n > 0) {
-            const auto span = std::span<const uint8_t>(buf, size_t(n));
-            if (const size_t rn = beacon.Reply(beaconBuf, span); rn) {
-                sock.SendTo(from, beaconBuf, rn);
-            } else {
-                const deskhub::AcceptedDatagram acc =
-                    deskhub::AcceptDatagram(liveStates, span, from.Pack(), now);
-                if (acc.parsed) replyAddr = from;
-                if (acc.peerChanged)
-                    LOGI("[Agent][%s] Peer: %s", acc.target->name.c_str(),
-                        from.ToString().c_str());
-            }
-        }
-
-        for (SourcePipeline* p : live) {
-            if (p->failed.load()) continue;
-            if (p->capture.Closed() && !p->shutdownDone) {
-                LOGI("[Agent][%s] Source closed — stopping this source.", p->name.c_str());
-                ShutdownPipeline(p);
-                PublishStatus();
-                continue;
-            }
-            p->session->Tick(now);
-
-            if (const char* idrLine = p->diag.FormatIdr(line, sizeof(line), p->name.c_str()))
-                LOGI("%s", idrLine);
-
-            const deskhub::OfferUpdate u = deskhub::RefreshOffer(*p, uint8_t(opt.fps));
-            if (u.sendReconfig) {
-                uint8_t rbuf[deskhub::kMaxDatagram];
-                const size_t rn = deskhub::BuildReconfig(rbuf, p->session->sessionId(), u.reconfig);
-                if (rn) sock.SendTo(NetAddr::Unpack(p->peerPacked.load()), rbuf, rn);
-                p->forceIdr.store(true);
-            }
-
-            if (deskhub::DueForFlush(*p, now) != deskhub::FlushReason::None) {
-                std::lock_guard<std::mutex> lk(p->encMutex);
-                if (p->encoder && p->encoder->haveSourceFrame()) {
-                    const bool idr = p->forceIdr.exchange(false);
-                    VaEncoder* enc = p->encoder.get();
-                    p->DiagEncode([enc, now, idr] { return enc->EncodeLast(now, idr); }, idr);
-                    p->lastKeepaliveUs = now;
-                }
-            }
-        }
-
-        if (now - lastStatUs >= 1'000'000) {
-            const std::string hms = deskhubp::LocalTimeHms();
-            for (SourcePipeline* p : live) {
-                if (p->failed.load()) continue;
-                const uint32_t cap = p->captured.load();
-                const uint64_t by = p->bytesSent.load(), fr = p->framesSent.load();
-                const auto& ist = p->session->inputStats();
-                p->statWindow = p->statRate.Close(cap, fr, by, now);
-                deskhub::diag::SourceDiag::Window sw;
-                sw.rate = p->statWindow;
-                sw.inputApplied = ist.applied;
-                sw.inputLost = ist.lost;
-                sw.inputSkipped = p->injector.skipped();
-
-                deskhub::diag::SourceDiag::LinkView link;
-                link.have = p->haveFeedback.load(std::memory_order_acquire);
-                link.lossPct = p->uiLossPct.load(std::memory_order_relaxed);
-                link.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
-                link.recvKbps = p->uiRecvKbps.load(std::memory_order_relaxed);
-
-                LOGI("%s", deskhub::diag::SourceDiag::FormatStatus(line, sizeof(line), hms.c_str(),
-                               p->name.c_str(), deskhub::diag::StateName(p->session->state()), sw, link));
-                LOGI("%s", p->diag.FormatSum(line, sizeof(line), hms.c_str(), p->name.c_str(),
-                               0, p->capture.usingDmaBuf()));
-            }
-            LOGI("%s", loopDiag.FormatSum(line, sizeof(line), hms.c_str()));
-            PublishStatus();
-            lastStatUs = now;
-        }
-
-        const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        loopDiag.loopBusyMs.Add(busyMs);
-        if (busyMs > 250) LOGW("[DIAG][agent] evt=recv_stall busy_ms=%u", busyMs);
-    }
+    deskhubp::RunHostNetLoop(sock, beacon, liveStates, loop);
 }

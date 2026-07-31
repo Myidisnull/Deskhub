@@ -17,6 +17,7 @@ add_library(deskhub_win_core STATIC
 
     decode/MfDecoder.cpp
     decode/PanelRenderer.cpp
+    decode/WinVideoDecoder.cpp
 
     input/InputInjector.cpp
 )

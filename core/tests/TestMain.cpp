@@ -45,11 +45,17 @@ int main() {
     std::printf("--- input: shared scancode table lookups ---\n");
     RunScancodeTableTests();
 
+    std::printf("--- input: pointer mapping + shared injector dispatch ---\n");
+    RunPointerMapTests();
+
     std::printf("--- control: bitrate + link stats ---\n");
     RunControlTests();
 
     std::printf("--- control: stream size negotiation ---\n");
     RunStreamSizeTests();
+
+    std::printf("--- control: per-source frame rate gate ---\n");
+    RunFrameGateTests();
 
     std::printf("--- control: clock offset / one-way latency ---\n");
     RunClockOffsetTests();

@@ -11,19 +11,21 @@
 #include <cstdio>
 #include <cstring>
 
+#include "deskhubp/diag/Log.h"
+
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
 
 using Microsoft::WRL::ComPtr;
 
-#define MFD_CHECK(expr, msg)                                       \
-    do {                                                           \
-        HRESULT _hr = (expr);                                      \
-        if (FAILED(_hr)) {                                         \
-            std::printf("[MfDecoder] %s failed: 0x%08lX\n", (msg), \
-                (unsigned long)_hr);                               \
-            return false;                                          \
-        }                                                          \
+#define MFD_CHECK(expr, msg)                              \
+    do {                                                  \
+        HRESULT _hr = (expr);                             \
+        if (FAILED(_hr)) {                                \
+            LOGE("[MfDecoder] %s failed: 0x%08lX", (msg), \
+                (unsigned long)_hr);                      \
+            return false;                                 \
+        }                                                 \
     } while (0)
 
 struct MfDecoder::Impl {
@@ -74,7 +76,7 @@ struct MfDecoder::Impl {
                       &inInfo, &outInfo, &activates, &count),
             "MFTEnumEx");
         if (count == 0) {
-            std::printf("[MfDecoder] No decoder MFT found.\n");
+            LOGE("[MfDecoder] No decoder MFT found.");
             return false;
         }
         HRESULT hr = activates[0]->ActivateObject(IID_PPV_ARGS(&mft));
@@ -87,7 +89,7 @@ struct MfDecoder::Impl {
             UINT32 aware = 0;
             attrs->GetUINT32(MF_SA_D3D11_AWARE, &aware);
             if (!aware) {
-                std::printf("[MfDecoder] MFT does not support D3D11 - unusable.\n");
+                LOGE("[MfDecoder] MFT does not support D3D11 - unusable.");
                 return false;
             }
             attrs->SetUINT32(MF_LOW_LATENCY, TRUE);
@@ -118,7 +120,7 @@ struct MfDecoder::Impl {
             "NOTIFY_START_OF_STREAM");
         streaming = true;
 
-        std::printf("[MfDecoder] Initialized: %s, D3D11VA, low-latency.\n",
+        LOGI("[MfDecoder] Initialized: %s, D3D11VA, low-latency.",
             cfg.codec == Codec::HEVC ? "HEVC" : "H264");
         return true;
     }
@@ -153,12 +155,12 @@ struct MfDecoder::Impl {
                 const uint32_t range = MFGetAttributeUINT32(t.Get(),
                     MF_MT_VIDEO_NOMINAL_RANGE, 0);
                 const uint32_t matrix = MFGetAttributeUINT32(t.Get(), MF_MT_YUV_MATRIX, 0);
-                std::printf("[MfDecoder] Output %ux%u, nominalRange=%u, yuvMatrix=%u\n",
+                LOGI("[MfDecoder] Output %ux%u, nominalRange=%u, yuvMatrix=%u",
                     outWidth, outHeight, range, matrix);
                 return true;
             }
         }
-        std::printf("[MfDecoder] MFT does not offer NV12.\n");
+        LOGE("[MfDecoder] MFT does not offer NV12.");
         return false;
     }
 
@@ -197,7 +199,7 @@ struct MfDecoder::Impl {
             const bool mftProvides = (si.dwFlags & (MFT_OUTPUT_STREAM_PROVIDES_SAMPLES |
                                                        MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES)) != 0;
             if (!mftProvides) {
-                std::printf("[MfDecoder] MFT does not provide D3D samples - unsupported.\n");
+                LOGE("[MfDecoder] MFT does not provide D3D samples - unsupported.");
                 return false;
             }
 
@@ -217,7 +219,7 @@ struct MfDecoder::Impl {
             }
             if (FAILED(hr)) {
                 if (ob.pSample) ob.pSample->Release();
-                std::printf("[MfDecoder] ProcessOutput failed: 0x%08lX\n", (unsigned long)hr);
+                LOGE("[MfDecoder] ProcessOutput failed: 0x%08lX", (unsigned long)hr);
                 return false;
             }
 
@@ -246,8 +248,8 @@ struct MfDecoder::Impl {
                 mftTsUs > lastInputTsUs ? mftTsUs - lastInputTsUs : lastInputTsUs - mftTsUs;
             if (diff > 100'000) {
                 tsMismatchLogged = true;
-                std::printf(
-                    "[DIAG] evt=mft_ts_drift input_us=%llu mft_us=%llu diff_ms=%llu\n",
+                LOGI(
+                    "[DIAG] evt=mft_ts_drift input_us=%llu mft_us=%llu diff_ms=%llu",
                     (unsigned long long)lastInputTsUs, (unsigned long long)mftTsUs,
                     (unsigned long long)(diff / 1000));
             }
@@ -285,9 +287,9 @@ std::unique_ptr<IVideoDecoder> CreateDecoder(ID3D11Device* device, const Decoder
     IVideoDecoder::FrameHandler onFrame) {
     auto dec = std::make_unique<MfDecoder>();
     if (dec->Init(device, cfg, std::move(onFrame))) {
-        std::printf("[Decoder] Using backend: %s\n", dec->BackendName());
+        LOGI("[Decoder] Using backend: %s", dec->BackendName());
         return dec;
     }
-    std::printf("[Decoder] Failed to initialize any backend.\n");
+    LOGE("[Decoder] Failed to initialize any backend.");
     return nullptr;
 }

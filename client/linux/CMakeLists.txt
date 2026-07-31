@@ -39,7 +39,6 @@ add_executable(deskhub_app
     gtk/ViewerWindow.cpp
 
     cpp/AgentLoop.cpp
-    cpp/ClientLoop.cpp
 
     cpp/capture/PortalScreenCast.cpp
     cpp/capture/ScreenCapture.cpp

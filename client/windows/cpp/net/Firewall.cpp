@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "deskhubp/diag/Log.h"
+
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 
@@ -153,7 +155,7 @@ bool AddOwnRule(INetFwRules* rules, const std::wstring& exe) {
         const HRESULT hr = rules->Add(rule);
         ok = SUCCEEDED(hr);
         if (!ok)
-            std::printf("[Firewall] Add() failed: hr=0x%08lx\n", (unsigned long)hr);
+            LOGE("[Firewall] Add() failed: hr=0x%08lx", (unsigned long)hr);
     }
     SysFreeString(name);
     SysFreeString(desc);
@@ -183,13 +185,13 @@ bool EnsureHostFirewallRule() {
 
     ComScope com;
     if (!com.ok()) {
-        std::printf("[Firewall] COM init failed.\n");
+        LOGE("[Firewall] COM init failed.");
         return false;
     }
     INetFwPolicy2* policy = nullptr;
     INetFwRules* rules = OpenRules(&policy);
     if (!rules) {
-        std::printf("[Firewall] Could not open the firewall policy.\n");
+        LOGE("[Firewall] Could not open the firewall policy.");
         return false;
     }
 

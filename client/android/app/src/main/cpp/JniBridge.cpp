@@ -9,8 +9,9 @@
 #include "ClientLoop.h"
 
 #include "deskhub/media/ViewFit.h"
+#include "deskhub/protocol/Wire.h"
 #include "deskhubp/diag/Log.h"
-#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/net/UdpSocket.h"
 
 namespace {
@@ -41,20 +42,15 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     jclass stringClass = env->FindClass("java/lang/String");
 
     const std::string addr = FromJString(env, addrStr);
-    NetAddr server;
-    std::vector<deskhub::SourceInfo> sources;
-    if (ParseNetAddr(addr, server)) {
-        QuerySources(server, sources);
-    } else {
-        LOGE("[JNI] Invalid host address: \"%s\"", addr.c_str());
-    }
+    DHSourceInfo sources[deskhub::kMaxSources];
+    const int count = dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources));
 
-    jobjectArray arr = env->NewObjectArray(jsize(sources.size()), stringClass, nullptr);
-    for (size_t i = 0; i < sources.size(); ++i) {
-        const deskhub::SourceInfo& s = sources[i];
-        char head[32];
-        std::snprintf(head, sizeof(head), "%u\t%u\t%u\t", s.sourceId, s.width, s.height);
-        env->SetObjectArrayElement(arr, jsize(i), ToJString(env, head + s.name));
+    jobjectArray arr = env->NewObjectArray(jsize(count), stringClass, nullptr);
+    for (int i = 0; i < count; ++i) {
+        const DHSourceInfo& s = sources[i];
+        char row[320];
+        std::snprintf(row, sizeof(row), "%u\t%u\t%u\t%s", s.sourceId, s.width, s.height, s.name);
+        env->SetObjectArrayElement(arr, jsize(i), ToJString(env, row));
     }
     return arr;
 }

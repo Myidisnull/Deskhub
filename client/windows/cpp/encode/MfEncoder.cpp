@@ -16,29 +16,31 @@
 #include <map>
 #include <vector>
 
+#include "deskhubp/diag/Log.h"
+
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
 
 using Microsoft::WRL::ComPtr;
 
-#define MF_CHECK(expr, msg)                                        \
-    do {                                                           \
-        HRESULT _hr = (expr);                                      \
-        if (FAILED(_hr)) {                                         \
-            std::printf("[MfEncoder] %s failed: 0x%08lX\n", (msg), \
-                (unsigned long)_hr);                               \
-            return false;                                          \
-        }                                                          \
+#define MF_CHECK(expr, msg)                               \
+    do {                                                  \
+        HRESULT _hr = (expr);                             \
+        if (FAILED(_hr)) {                                \
+            LOGE("[MfEncoder] %s failed: 0x%08lX", (msg), \
+                (unsigned long)_hr);                      \
+            return false;                                 \
+        }                                                 \
     } while (0)
 
-#define MF_CHECKI(expr, msg)                                       \
-    do {                                                           \
-        HRESULT _hr = (expr);                                      \
-        if (FAILED(_hr)) {                                         \
-            std::printf("[MfEncoder] %s failed: 0x%08lX\n", (msg), \
-                (unsigned long)_hr);                               \
-            return -1;                                             \
-        }                                                          \
+#define MF_CHECKI(expr, msg)                              \
+    do {                                                  \
+        HRESULT _hr = (expr);                             \
+        if (FAILED(_hr)) {                                \
+            LOGE("[MfEncoder] %s failed: 0x%08lX", (msg), \
+                (unsigned long)_hr);                      \
+            return -1;                                    \
+        }                                                 \
     } while (0)
 
 struct MfEncoder::Impl {
@@ -104,7 +106,7 @@ struct MfEncoder::Impl {
                      nullptr, &outInfo, &activates, &count),
             "MFTEnumEx");
         if (count == 0) {
-            std::printf("[MfEncoder] No encoder MFT found.\n");
+            LOGE("[MfEncoder] No encoder MFT found.");
             return false;
         }
         for (UINT32 i = 0; i < count && !activate; ++i) {
@@ -132,7 +134,7 @@ struct MfEncoder::Impl {
         for (UINT32 i = 0; i < count; ++i) activates[i]->Release();
         CoTaskMemFree(activates);
         if (!activate) {
-            std::printf("[MfEncoder] No D3D11-aware encoder MFT available.\n");
+            LOGE("[MfEncoder] No D3D11-aware encoder MFT available.");
             return false;
         }
         return true;
@@ -212,7 +214,7 @@ struct MfEncoder::Impl {
         if (!activate) return false;
         activate->ShutdownObject();
         if (FAILED(activate->ActivateObject(IID_PPV_ARGS(&mft)))) {
-            std::printf("[MfEncoder] Failed to recreate encoder for keyframe request.\n");
+            LOGE("[MfEncoder] Failed to recreate encoder for keyframe request.");
             return false;
         }
         spsPps.clear();
@@ -248,15 +250,15 @@ struct MfEncoder::Impl {
                 path = path.substr(0, dot) + L".h264";
             out = _wfopen(path.c_str(), L"wb");
             if (!out) {
-                std::printf("[MfEncoder] Failed to open output file.\n");
+                LOGE("[MfEncoder] Failed to open output file.");
                 return false;
             }
         } else if (!cfg.onPacket) {
-            std::printf("[MfEncoder] No outputPath or onPacket - no output destination.\n");
+            LOGE("[MfEncoder] No outputPath or onPacket - no output destination.");
             return false;
         }
 
-        std::printf("[MfEncoder] Initialized: %ux%u @%ufps, %.1f Mbps, %s%s -> %s\n",
+        LOGI("[MfEncoder] Initialized: %ux%u @%ufps, %.1f Mbps, %s%s -> %s",
             cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6,
             cfg.codec == Codec::HEVC ? "HEVC" : "H264",
             isAsync ? " (async MFT)" : " (sync MFT)",
@@ -266,12 +268,12 @@ struct MfEncoder::Impl {
 
     bool SetupRateControl() {
         if (FAILED(mft.As(&codecApi))) {
-            std::printf("[MfEncoder] Failed to get ICodecAPI - using MFT default parameters.\n");
+            LOGW("[MfEncoder] Failed to get ICodecAPI - using MFT default parameters.");
             return true;
         }
         const bool log = !rcLogged;
         auto report = [&](const char* name, const char* what) {
-            if (log) std::printf("[MfEncoder] codecapi %s: %s\n", name, what);
+            if (log) LOGW("[MfEncoder] codecapi %s: %s", name, what);
         };
         auto setUI4 = [&](const GUID& api, ULONG val, const char* name) {
             if (!codecApi->IsSupported(&api)) {
@@ -353,7 +355,7 @@ struct MfEncoder::Impl {
         UINT fmtFlags = 0;
         HRESULT hr = vpEnum->CheckVideoProcessorFormat(DXGI_FORMAT_NV12, &fmtFlags);
         if (FAILED(hr) || !(fmtFlags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT)) {
-            std::printf("[MfEncoder] GPU cannot output NV12 from video processor.\n");
+            LOGE("[MfEncoder] GPU cannot output NV12 from video processor.");
             return false;
         }
 
@@ -479,7 +481,7 @@ struct MfEncoder::Impl {
         totalBytes += len;
         ++frameCount;
         if (frameCount <= 5 || frameCount % 60 == 0) {
-            std::printf("[MfEncoder] frame %llu: %lu byte%s\n", (unsigned long long)frameCount,
+            LOGI("[MfEncoder] frame %llu: %lu byte%s", (unsigned long long)frameCount,
                 len, keyframe ? " (IDR)" : "");
         }
         buffer->Unlock();
@@ -492,7 +494,7 @@ struct MfEncoder::Impl {
             HRESULT hr = mft->GetOutputAvailableType(0, i, &t);
             if (hr == MF_E_NO_MORE_TYPES) break;
             if (FAILED(hr)) {
-                std::printf("[MfEncoder] GetOutputAvailableType failed: 0x%08lX\n",
+                LOGE("[MfEncoder] GetOutputAvailableType failed: 0x%08lX",
                     (unsigned long)hr);
                 return false;
             }
@@ -508,7 +510,7 @@ struct MfEncoder::Impl {
                 return true;
             }
         }
-        std::printf("[MfEncoder] Could not find a suitable output type after STREAM_CHANGE.\n");
+        LOGW("[MfEncoder] Could not find a suitable output type after STREAM_CHANGE.");
         return false;
     }
 
@@ -543,7 +545,7 @@ struct MfEncoder::Impl {
             }
             if (FAILED(hr)) {
                 if (ob.pSample && outputProvidesSamples) ob.pSample->Release();
-                std::printf("[MfEncoder] ProcessOutput failed: 0x%08lX\n", (unsigned long)hr);
+                LOGE("[MfEncoder] ProcessOutput failed: 0x%08lX", (unsigned long)hr);
                 return -1;
             }
 
@@ -576,7 +578,7 @@ struct MfEncoder::Impl {
             const HRESULT hr = events->GetEvent(MF_EVENT_FLAG_NO_WAIT, &ev);
             if (hr == MF_E_NO_EVENTS_AVAILABLE) {
                 if (waitedMs++ >= 1000) {
-                    std::printf("[MfEncoder] Timed out waiting for encoder NeedInput.\n");
+                    LOGW("[MfEncoder] Timed out waiting for encoder NeedInput.");
                     return false;
                 }
                 Sleep(1);
@@ -686,7 +688,7 @@ struct MfEncoder::Impl {
         mft->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
         streaming = false;
         if (out) std::fflush(out);
-        std::printf("[MfEncoder] Encoded %llu frame, %.2f MB.\n",
+        LOGI("[MfEncoder] Encoded %llu frame, %.2f MB.",
             (unsigned long long)frameCount, totalBytes / 1e6);
     }
 };

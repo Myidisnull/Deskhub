@@ -12,6 +12,8 @@
 #include <map>
 #include <string>
 
+#include "deskhubp/diag/Log.h"
+
 using PFN_CreateInstance = NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*);
 using PFN_MaxVersion = NVENCSTATUS(NVENCAPI*)(uint32_t*);
 
@@ -36,7 +38,7 @@ struct NvencEncoder::Impl {
 
     bool Fail(const char* where, NVENCSTATUS s) {
         const char* msg = (nv.nvEncGetLastErrorString && enc) ? nv.nvEncGetLastErrorString(enc) : "";
-        std::printf("[NVENC] %s failed: status=%d %s\n", where, (int)s, msg ? msg : "");
+        LOGE("[NVENC] %s failed: status=%d %s", where, (int)s, msg ? msg : "");
         return false;
     }
 
@@ -47,7 +49,7 @@ struct NvencEncoder::Impl {
 
         dll = LoadLibraryW(L"nvEncodeAPI64.dll");
         if (!dll) {
-            std::printf("[NVENC] Failed to load nvEncodeAPI64.dll (NVIDIA driver missing?).\n");
+            LOGE("[NVENC] Failed to load nvEncodeAPI64.dll (NVIDIA driver missing?).");
             return false;
         }
 
@@ -57,7 +59,7 @@ struct NvencEncoder::Impl {
             if (getMax(&driverMax) == NV_ENC_SUCCESS) {
                 uint32_t needed = (NVENCAPI_MAJOR_VERSION << 4) | NVENCAPI_MINOR_VERSION;
                 if (driverMax < needed) {
-                    std::printf("[NVENC] Driver older than header (driver=%u.%u < required=%u.%u).\n",
+                    LOGW("[NVENC] Driver older than header (driver=%u.%u < required=%u.%u).",
                         driverMax >> 4, driverMax & 0xf,
                         NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION);
                     return false;
@@ -67,7 +69,7 @@ struct NvencEncoder::Impl {
 
         auto createInstance = (PFN_CreateInstance)GetProcAddress(dll, "NvEncodeAPICreateInstance");
         if (!createInstance) {
-            std::printf("[NVENC] Missing NvEncodeAPICreateInstance.\n");
+            LOGE("[NVENC] Missing NvEncodeAPICreateInstance.");
             return false;
         }
 
@@ -75,7 +77,7 @@ struct NvencEncoder::Impl {
         nv.version = NV_ENCODE_API_FUNCTION_LIST_VER;
         NVENCSTATUS s = createInstance(&nv);
         if (s != NV_ENC_SUCCESS) {
-            std::printf("[NVENC] CreateInstance status=%d\n", (int)s);
+            LOGE("[NVENC] CreateInstance status=%d", (int)s);
             return false;
         }
 
@@ -146,15 +148,15 @@ struct NvencEncoder::Impl {
             if (dot != std::wstring::npos && path.substr(dot) == L".mp4") path = path.substr(0, dot) + L".h264";
             out = _wfopen(path.c_str(), L"wb");
             if (!out) {
-                std::printf("[NVENC] Failed to open output file.\n");
+                LOGE("[NVENC] Failed to open output file.");
                 return false;
             }
         } else if (!cfg.onPacket) {
-            std::printf("[NVENC] No outputPath or onPacket - no output destination.\n");
+            LOGE("[NVENC] No outputPath or onPacket - no output destination.");
             return false;
         }
 
-        std::printf("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, %s, ULTRA_LOW_LATENCY -> %ls\n",
+        LOGI("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, %s, ULTRA_LOW_LATENCY -> %ls",
             width, height, cfg.fps, cfg.bitrateBps / 1e6,
             cfg.codec == Codec::HEVC ? "HEVC" : "H264",
             path.empty() ? L"callback" : path.c_str());
@@ -267,7 +269,7 @@ struct NvencEncoder::Impl {
         totalBytes += lb.bitstreamSizeInBytes;
         ++frameCount;
         if (frameCount <= 5 || frameCount % 60 == 0) {
-            std::printf("[NVENC] frame %llu: %u byte%s\n", (unsigned long long)frameCount,
+            LOGI("[NVENC] frame %llu: %u byte%s", (unsigned long long)frameCount,
                 lb.bitstreamSizeInBytes, keyframe ? " (IDR)" : "");
         }
         nv.nvEncUnlockBitstream(enc, bitstream);
@@ -281,7 +283,7 @@ struct NvencEncoder::Impl {
         eos.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
         if (nv.nvEncEncodePicture(enc, &eos) == NV_ENC_SUCCESS) WriteOutput();
         if (out) std::fflush(out);
-        std::printf("[NVENC] Encoded %llu frame, %.2f MB.\n",
+        LOGI("[NVENC] Encoded %llu frame, %.2f MB.",
             (unsigned long long)frameCount, totalBytes / 1e6);
     }
 
