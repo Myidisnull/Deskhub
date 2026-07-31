@@ -7,6 +7,7 @@
 #include <mftransform.h>
 #include <mferror.h>
 #include <codecapi.h>
+#include <icodecapi.h>
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <cstdio>
