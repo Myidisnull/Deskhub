@@ -26,7 +26,7 @@
 
 #include <cmath>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "input/LocalInputMonitor.h"
 #include "Permissions.h"
 #include "deskhubp/Clock.h"

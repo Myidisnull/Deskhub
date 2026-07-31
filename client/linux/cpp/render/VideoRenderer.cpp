@@ -37,7 +37,7 @@ extern "C" {
 #include <cstring>
 #include <string>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 
 namespace {
 

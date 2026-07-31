@@ -11,6 +11,7 @@ project(DeskhubCore LANGUAGES CXX)
 #   session/   — handshake + vòng đời phiên hai phía (host/client)
 #   input/     — chuỗi sự kiện chuột/phím có thứ tự trên nền transport
 #   control/   — policy điều tiết: bitrate/FEC phía host, gom số liệu phía client
+#   diag/      — bộ đếm cửa sổ + dựng chuỗi cho log [DIAG] (docs/09), KHÔNG ghi I/O
 #   session/   — kèm Beacon: hỏi-đáp một nhịp TRƯỚC khi có phiên (liệt kê nguồn, ping dò)
 add_library(core STATIC
     src/protocol/Wire.cpp
@@ -30,6 +31,9 @@ add_library(core STATIC
     src/control/StreamSize.cpp
     src/control/ClockOffset.cpp
     src/control/QualityLadder.cpp
+
+    src/diag/ClientDiag.cpp
+    src/diag/AgentDiag.cpp
 
     src/session/Beacon.cpp
 )
@@ -72,6 +76,10 @@ if(DESKHUB_CORE_TESTS)
         tests/control/StreamSizeTests.cpp
         tests/control/ClockOffsetTests.cpp
         tests/control/QualityLadderTests.cpp
+
+        tests/diag/DiagTests.cpp
+
+        tests/media/ContractTests.cpp
 
         tests/session/BeaconTests.cpp
     )

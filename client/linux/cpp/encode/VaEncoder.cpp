@@ -41,7 +41,7 @@
 #include <cmath>
 #include <cstring>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 #include "encode/BitWriter.h"
 #include "encode/VaDisplay.h"

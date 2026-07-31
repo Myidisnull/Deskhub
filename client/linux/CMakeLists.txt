@@ -92,8 +92,6 @@ add_executable(deskhub_app
     cpp/input/LocalInputMonitor.cpp
 
     cpp/net/NetInfo.cpp
-    cpp/net/SourceQuery.cpp
-    cpp/net/UdpSocket.cpp
 )
 
 # Tên file ra là `deskhub` (chữ thường) theo quy ước tệp thực thi trên Linux; tên

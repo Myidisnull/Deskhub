@@ -1,5 +1,5 @@
 // =============================================================================
-// UdpSocket.cpp — cài đặt bằng BSD socket, bản iOS (CHÉP từ Android).
+// UdpSocketPosix.cpp — cài đặt bằng BSD socket. Dùng cho macOS, iOS, Ubuntu, Android.
 //
 // BỐ CỤC
 //   NetAddr::ToString / ParseNetAddr — chuyển đổi địa chỉ ↔ chuỗi, không đụng socket.
@@ -15,15 +15,18 @@
 //   Đây là ranh giới duy nhất trong app có htonl/ntohl. NetAddr luôn giữ host byte
 //   order; mọi lần chạm vào sockaddr_in đều kèm một phép đổi.
 //
-// KHÁC BIỆT SO VỚI BẢN ANDROID
-//   Không có. iOS và Android đều POSIX — file này chép nguyên. iOS đòi thêm quyền
-//   Local Network (Info.plist NSLocalNetworkUsageDescription) để gói UDP nội mạng
-//   được ra vào, nhưng đó là chuyện của app bundle, không phải của socket.
+// BỐN NỀN POSIX DÙNG CHUNG ĐÚNG FILE NÀY
+//   Trước 31/07/2026 đây là bốn file riêng, và chúng khác nhau đúng bốn dòng ép
+//   kiểu timeval. Những khác biệt THẬT giữa bốn nền không nằm ở tầng socket mà ở
+//   tầng app bundle: iOS và macOS 15+ đòi quyền Local Network
+//   (NSLocalNetworkUsageDescription trong Info.plist) để gói UDP nội mạng ra vào
+//   được, và iOS không bind được cổng cố định vì sandbox nên chỉ đóng vai client.
+//   Không điều nào trong số đó là việc của file này.
 //
-// LIÊN QUAN: net/UdpSocket.h (API + lý do thiết kế),
-//            client/android/.../net/UdpSocket.cpp (bản song song)
+// LIÊN QUAN: deskhubp/UdpSocket.h (API + lý do thiết kế),
+//            platform/src/UdpSocketWin.cpp (bản winsock2)
 // =============================================================================
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -33,14 +36,13 @@
 
 #include <cerrno>
 #include <cstdio>
-#include <cstdlib>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 
 std::string NetAddr::ToString() const {
     char b[32];
-    std::snprintf(b, sizeof(b), "%u.%u.%u.%u:%u",
-        (ip >> 24) & 0xFF, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF, port);
+    std::snprintf(b, sizeof(b), "%u.%u.%u.%u:%u", (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
+        (ip >> 8) & 0xFF, ip & 0xFF, port);
     return b;
 }
 
@@ -70,6 +72,8 @@ UdpSocket::~UdpSocket() {
 // giữa chừng thì đóng fd cục bộ và để đối tượng nguyên trạng "chưa mở", nên gọi
 // Open() thất bại rồi gọi lại là an toàn.
 bool UdpSocket::Open(uint16_t localPort) {
+    lastBindAddrInUse_ = false; // reset: chỉ nói về lần Open này
+
     const int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s < 0) {
         LOGE("[UDP] socket() failed: %d", errno);
@@ -77,7 +81,7 @@ bool UdpSocket::Open(uint16_t localPort) {
     }
 
     // Không cần tắt SIO_UDP_CONNRESET như Windows: socket UDP chưa connect() trên
-    // BSD/Darwin không nhận lỗi ICMP port-unreachable. RecvFrom vẫn nuốt
+    // BSD/Darwin/Linux không nhận lỗi ICMP port-unreachable. RecvFrom vẫn nuốt
     // ECONNREFUSED cho chắc, phòng khi tầng dưới đẩy lên.
 
     // Nới buffer nhận của kernel lên 4 MB. Ở bitrate cao, một khoảng ngừng ngắn của
@@ -89,13 +93,17 @@ bool UdpSocket::Open(uint16_t localPort) {
     int rcvbuf = 4 * 1024 * 1024;
     setsockopt(s, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
 
-    // INADDR_ANY: nghe trên mọi giao diện mạng. iPhone/iPad hay có nhiều đường ra
-    // cùng lúc (Wi-Fi, di động) và ta không biết trước host nằm ở nhánh nào.
+    // INADDR_ANY: nghe trên mọi giao diện mạng. Máy nào cũng có thể có nhiều đường
+    // ra cùng lúc (Wi-Fi, Ethernet, di động, Tailscale) và ta không biết trước đầu
+    // kia nằm ở nhánh nào.
     sockaddr_in local{};
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = htonl(INADDR_ANY);
     local.sin_port = htons(localPort);
     if (bind(s, (sockaddr*)&local, sizeof(local)) != 0) {
+        // EADDRINUSE là ca DUY NHẤT người dùng xử lý được (còn một host cũ đang
+        // chạy) — tách ra để UI nói được câu đó thay vì "bind failed: 98".
+        lastBindAddrInUse_ = (errno == EADDRINUSE);
         LOGE("[UDP] bind(:%u) failed: %d", localPort, errno);
         close(s);
         return false;
@@ -111,11 +119,12 @@ bool UdpSocket::Open(uint16_t localPort) {
 bool UdpSocket::SetRecvTimeout(uint32_t ms) {
     if (!IsOpen()) return false;
     // Kiểu của hai trường timeval khác nhau giữa các hệ POSIX (tv_usec là int32 trên
-    // Darwin, long trên Linux) — ép đúng kiểu của nền tảng thay vì `long` cứng, không
-    // thì Darwin cảnh báo mất độ chính xác 64->32.
+    // Darwin, long trên Linux) — gán qua biến trung gian đúng kiểu của TRƯỜNG thay
+    // vì ép cứng sang một kiểu nào đó, không thì một trong hai nền cảnh báo mất độ
+    // chính xác. Đây đúng là bốn dòng từng làm bốn bản file này khác nhau.
     timeval tv{};
-    tv.tv_sec = time_t(ms / 1000);
-    tv.tv_usec = suseconds_t((ms % 1000) * 1000);
+    tv.tv_sec = decltype(tv.tv_sec)(ms / 1000);
+    tv.tv_usec = decltype(tv.tv_usec)((ms % 1000) * 1000);
     return setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == 0;
 }
 

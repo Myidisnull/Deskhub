@@ -34,6 +34,8 @@
 // =============================================================================
 #include <cstddef>
 #include <cstdint>
+
+#include "deskhub/media/VideoContract.h"
 #include <vector>
 
 class VtDecoder {
@@ -104,3 +106,15 @@ private:
     // Reusable buffers to avoid heap allocation per frame at 60fps.
     std::vector<uint8_t> avcc_;
 };
+
+// Hợp đồng chữ ký, ép lúc BIÊN DỊCH (deskhub/media/VideoContract.h). Bốn viewer
+// (Apple, Android, Ubuntu) phải nói cùng một thứ tiếng ở bốn hàm này — lệch là gãy
+// build ngay tại dòng này chứ không phải một lỗi lạ trên máy người dùng.
+static_assert(deskhub::media::VideoDecoderLike<VtDecoder>,
+    "VtDecoder phải giữ đúng chữ ký chung của bộ giải nén");
+static_assert(deskhub::media::RestartableDecoder<VtDecoder>,
+    "VtDecoder phải dựng lại được tại chỗ (Shutdown + IsOpen)");
+static_assert(deskhub::media::RenderCountingDecoder<VtDecoder>,
+    "VtDecoder tự đếm frame đã lên màn — enqueue bất đồng bộ nên không đếm bằng Decode được");
+static_assert(deskhub::media::CongestionAwareDecoder<VtDecoder>,
+    "VtDecoder phải báo được frame bị tầng hiển thị nuốt — đó là nguồn của disp_drop");

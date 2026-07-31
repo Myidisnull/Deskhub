@@ -58,10 +58,11 @@
 #include <thread>
 #include <vector>
 
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/control/ClockOffset.h"
+#include "deskhub/diag/ClientDiag.h"
 #include "deskhub/transport/Reassembler.h"
 
 class VideoSink;
@@ -188,12 +189,16 @@ private:
     std::map<int32_t, int32_t> keysDown_; // vk -> scan
     std::set<int32_t> buttonsDown_;
 
-    // --- Chẩn đoán (docs/09): t_dec của cửa sổ 1s. Thread Decode ghi, thread Net
-    // đọc-và-reset. ---
-    std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
+    // --- Chẩn đoán (docs/09) ---
+    // Mọi bộ đếm cửa sổ 1s và cả phép dựng hai dòng log nằm ở core (một bản cho
+    // cả năm viewer — xem deskhub/diag/ClientDiag.h). Ubuntu không có present_ms
+    // (Present không đồng bộ trong Decode như Windows) và không có disp_drop
+    // (VideoSink nhận frame ngay), nên caps để mặc định.
+    //
+    // Ai ghi cái gì: thread Decode ghi decMs, thread Net ghi asmMs/dqDrop/
+    // loopBusyMs/minRttUs, thread Net đọc-và-xoá tất cả ở nhịp 1s.
+    deskhub::diag::ClientDiag diag_;
 
-    // Ước lượng trễ e2e (docs/06 §7): Net ghi minRttUs_, Decode ghi hai cái dưới.
-    std::atomic<uint32_t> minRttUs_{0};
     // ⚠ CHỐT NGAY SAU KHI VẼ, KHÔNG PHẢI Ở NHỊP THỐNG KÊ 1s (sửa 2026-07-30)
     //   Bản trước tính e2e trong khối linkStats.Due() bằng `now` của vòng Net trừ đi
     //   PTS của frame VẼ GẦN NHẤT. Hai mốc đó không cùng thời điểm: nếu frame cuối

@@ -1,5 +1,5 @@
 // =============================================================================
-// SourceQuery.cpp — cài đặt vòng hỏi-đáp LIST_SOURCES (bản iOS, CHÉP từ Android).
+// SourceQuery.cpp — cài đặt vòng hỏi-đáp LIST_SOURCES. Một bản, cả năm nền.
 //
 // CẤU TRÚC: một vòng lặp chạy tối đa 3 giây, mỗi vòng làm hai việc
 //   1. Cứ 500 ms thì phát lại LIST_SOURCES. Phát lại chứ không gửi một lần, vì gói
@@ -14,12 +14,14 @@
 //   Không chờ hết 3 giây để gom thêm — SOURCE_LIST mang trọn danh sách trong một
 //   datagram.
 //
-// LIÊN QUAN: net/SourceQuery.h (hợp đồng gọi + ý nghĩa giá trị trả về)
+// LIÊN QUAN: deskhubp/SourceQuery.h (hợp đồng gọi + ý nghĩa giá trị trả về)
 // =============================================================================
-#include "net/SourceQuery.h"
+#include "deskhubp/SourceQuery.h"
 
-#include "Log.h"
+#include <cinttypes>
+
 #include "deskhubp/Clock.h"
+#include "deskhubp/Log.h"
 
 namespace {
 constexpr uint64_t kQueryTimeoutUs = 3'000'000; // người dùng đang đứng chờ
@@ -85,7 +87,7 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) 
 
     // Hết 3 giây mà im lặng. Cảnh báo chứ không phải lỗi — host đời trước GĐ6 không
     // biết LIST_SOURCES, và caller sẽ tự lùi về nguồn 0.
-    LOGW("[Sources] No SOURCE_LIST from %s after %llu ms.", server.ToString().c_str(),
-        (unsigned long long)(kQueryTimeoutUs / 1000));
+    LOGW("[Sources] No SOURCE_LIST from %s after %" PRIu64 " ms.", server.ToString().c_str(),
+        kQueryTimeoutUs / 1000);
     return false;
 }

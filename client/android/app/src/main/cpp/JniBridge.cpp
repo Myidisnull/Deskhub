@@ -39,9 +39,9 @@
 #include <vector>
 
 #include "ClientLoop.h"
-#include "Log.h"
-#include "net/SourceQuery.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/Log.h"
+#include "deskhubp/SourceQuery.h"
+#include "deskhubp/UdpSocket.h"
 
 namespace {
 

@@ -45,33 +45,20 @@
 #include <memory>
 #include <string>
 
-enum class Codec { H264,
-    HEVC };
-enum class RateControl { CBR,
-    VBR };
+#include "deskhub/media/VideoContract.h"
 
-// Nhận một gói NAL Annex-B vừa nén xong (1 frame). Chạy trên luồng gọi Encode().
-// `data` chỉ hợp lệ trong phạm vi callback - copy/tiêu thụ ngay.
-using PacketHandler = std::function<void(const uint8_t* data, size_t size,
-    uint64_t timestampUs, bool keyframe)>;
+// Từ vựng dùng chung với bốn nền kia — Codec, RateControl, PacketHandler và các
+// trường của EncoderConfig nay định nghĩa MỘT lần ở deskhub/media/VideoTypes.h
+// (trước 31/07/2026 chúng có ba bản, và ba bản đã lệch nhau).
+using deskhub::media::Codec;
+using deskhub::media::PacketHandler;
+using deskhub::media::RateControl;
 
-struct EncoderConfig {
-    Codec codec = Codec::H264;
-    uint32_t width = 0; // kích thước NÉN - phải chẵn (NV12 lấy mẫu chroma 2x2)
-    uint32_t height = 0;
-    // Kích thước texture đầu vào THẬT, nếu khác `width`/`height` (0 = bằng nhau).
-    // Cửa sổ rộng/cao lẻ phải nén ở kích thước chẵn nhỏ hơn, nhưng texture đưa vào
-    // vẫn là kích thước lẻ - video processor cần biết cả hai để cắt cho đúng.
-    uint32_t srcWidth = 0;
-    uint32_t srcHeight = 0;
-    uint32_t fps = 60;
-    uint32_t bitrateBps = 20'000'000;
-    RateControl rc = RateControl::CBR;
-    bool lowLatency = true;
+// Bản Windows THÊM đúng một trường: đường ghi file .h264/.mp4 để kiểm chứng bằng
+// ffplay (di sản GĐ1, AgentLoop luôn xoá nó đi). Nó là std::wstring và chỉ Media
+// Foundation/NVENC dùng, nên nó ở lại đây chứ không lên core.
+struct EncoderConfig : deskhub::media::EncoderConfig {
     std::wstring outputPath = L"output.mp4"; // rỗng = không ghi file
-    // GD2+: đường NAL trong process (loopback) / lên mạng (GD3). Cả NVENC lẫn MF
-    // (Encoder MFT thẳng, không qua SinkWriter) đều hỗ trợ.
-    PacketHandler onPacket;
 };
 
 class IVideoEncoder {
@@ -107,9 +94,21 @@ public:
     // Flush + finalize (ghi xong file / đóng stream).
     virtual void Finish() = 0;
 
-    virtual const wchar_t* BackendName() const = 0;
+    // const char* chứ không phải const wchar_t*: cùng kiểu với bốn nền kia, để
+    // deskhub::media::VideoEncoderLike ép được một chữ ký duy nhất. Tên backend
+    // toàn ASCII nên không mất gì.
+    virtual const char* BackendName() const = 0;
 };
 
 // Factory: thử các backend theo thứ tự, trả về cái đầu tiên Init thành công.
 // Hiện tại: Media Foundation (tự chọn HW theo device: NVENC/QSV, hoặc software).
 std::unique_ptr<IVideoEncoder> CreateEncoder(ID3D11Device* device, const EncoderConfig& cfg);
+
+// Hợp đồng chữ ký, ép lúc BIÊN DỊCH (deskhub/media/VideoContract.h). Windows là nền
+// DUY NHẤT còn giữ lớp cơ sở ảo thật — nó cần chọn NVENC hay Media Foundation lúc
+// chạy. Bốn nền kia mỗi nền một backend nên chỉ có static_assert. Cả năm cùng bị
+// ép bởi đúng một concept, nên chữ ký không thể trôi khỏi nhau nữa.
+static_assert(deskhub::media::VideoEncoderLike<IVideoEncoder, ID3D11Texture2D*>,
+    "IVideoEncoder phải giữ đúng chữ ký chung của bộ nén");
+static_assert(deskhub::media::HotFpsEncoder<IVideoEncoder>,
+    "IVideoEncoder chỉnh nóng được fps (NVENC reconfigure; MF dựng lại transform)");

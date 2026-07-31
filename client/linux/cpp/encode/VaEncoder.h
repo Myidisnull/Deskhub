@@ -56,18 +56,15 @@
 
 #include "capture/CaptureTypes.h"
 
+#include "deskhub/media/VideoContract.h"
+
 // Nhận một frame H.264 Annex-B vừa nén xong. Chạy trên thread gọi Encode().
 // `data` chỉ hợp lệ trong phạm vi callback.
-using PacketHandler = std::function<void(const uint8_t* data, size_t size,
-    uint64_t timestampUs, bool keyframe)>;
-
-struct EncoderConfig {
-    uint32_t width = 0;  // phải CHẴN (ScreenCapture đã lo)
-    uint32_t height = 0; // phải CHẴN
-    uint32_t fps = 60;
-    uint32_t bitrateBps = 20'000'000;
-    PacketHandler onPacket;
-};
+// Từ vựng dùng chung với bốn nền kia — xem deskhub/media/VideoTypes.h về lý do
+// nó không còn được định nghĩa lại ở mỗi client. srcWidth/srcHeight luôn 0 ở đây:
+// ScreenCapture của Ubuntu đã làm tròn xuống số chẵn trước khi giao frame.
+using deskhub::media::EncoderConfig;
+using deskhub::media::PacketHandler;
 
 // --- Hằng số cấu hình chuỗi H.264 ---
 // Dùng CHUNG giữa VAEncSequenceParameterBufferH264 (nói cho driver) và BitWriter
@@ -231,3 +228,12 @@ private:
     // Bộ đệm gom bitstream, dùng lại để không cấp phát 60 lần mỗi giây.
     std::vector<uint8_t> out_;
 };
+
+// Hợp đồng chữ ký, ép lúc BIÊN DỊCH (deskhub/media/VideoContract.h). Lệch tên hàm,
+// thứ tự tham số hay kiểu trả về so với bốn nền kia là gãy build ngay tại dòng này.
+//
+// KHÔNG có HotFpsEncoder: VA-API không chỉnh nóng được fps (nó nằm trong VUI
+// time_scale của SPS, đổi là phải phát IDR mới), nên AgentLoop của Ubuntu vứt
+// encoder và dựng lại — xem chú thích ở chỗ QualityLadder đổi bậc.
+static_assert(deskhub::media::VideoEncoderLike<VaEncoder, const LinuxFrameInfo&>,
+    "VaEncoder phải giữ đúng chữ ký chung của bộ nén");

@@ -47,7 +47,7 @@
 #include <string>
 
 #include "ClientLoop.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 #include "render/VideoRenderer.h"
 
 class ViewerWindow {

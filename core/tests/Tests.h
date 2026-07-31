@@ -13,4 +13,6 @@ void RunControlTests();
 void RunStreamSizeTests();
 void RunClockOffsetTests();
 void RunQualityLadderTests();
+void RunDiagTests();
+void RunMediaContractTests();
 void RunBeaconTests();

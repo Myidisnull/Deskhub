@@ -44,9 +44,10 @@
 #include <vector>
 
 #include "decode/VtDecoder.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 #include "deskhub/control/ClockOffset.h"
+#include "deskhub/diag/ClientDiag.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -196,18 +197,25 @@ private:
     std::vector<std::pair<uint64_t, deskhub::InputEvent>> delayedInput_; // (hạn nhả, event)
     std::atomic<bool> wantFocus_{false};
 
-    // --- Chẩn đoán (docs/09): t_dec của cửa sổ 1s. Thread Decode ghi, thread Net
-    // đọc-và-reset. ---
-    std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
-    // Frame bị vứt vì tầng hiển thị nghẽn. Trên bản Apple đây là con số DUY NHẤT
-    // lộ ra ùn tắc: enqueueSampleBuffer bất đồng bộ nên dq_drop mãi bằng 0.
-    std::atomic<uint32_t> dgDispDrop_{0};
+    // --- Chẩn đoán (docs/09) ---
+    // Bộ đếm cửa sổ 1s và phép dựng hai dòng log nằm ở core, một bản cho cả năm
+    // viewer (deskhub/diag/ClientDiag.h).
+    //
+    // disp_drop = frame bị vứt vì tầng hiển thị nghẽn. Trên bản Apple đây là con
+    // số DUY NHẤT lộ ra ùn tắc: enqueueSampleBuffer bất đồng bộ nên thread Decode
+    // luôn vét sạch decQueue_ ngay và dq_drop mãi bằng 0. present_ms thì không có
+    // (chỉ Windows mới chặn trong Present), nên caps chỉ bật disp_drop.
+    //
+    // Ai ghi cái gì: thread Decode ghi decMs/dispDrop, thread Net ghi asmMs/
+    // dqDrop/loopBusyMs/minRttUs, thread Net đọc-và-xoá tất cả ở nhịp 1s.
+    deskhub::diag::ClientDiag diag_{deskhub::diag::ClientDiagCaps{
+        /*presentMs=*/false, /*dispDrop=*/true}};
 
     // Ước lượng trễ e2e (docs/06 §7, deskhub/control/ClockOffset.h).
-    // minRttUs_: Net ghi, Decode đọc. lastE2eUs_: Decode ghi, Net đọc.
+    // Sàn mạng (min RTT) nằm ở diag_.minRttUs: Net ghi, Decode đọc.
+    // lastE2eUs_: Decode ghi, Net đọc.
     // clockOffset_: CHỈ thread Decode chạm — nó không tự khoá, và nó phải được bơm
     // mẫu ở ĐÚNG MỘT điểm trong đường dẫn (xem AddSample).
-    std::atomic<uint32_t> minRttUs_{0};
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;
 };

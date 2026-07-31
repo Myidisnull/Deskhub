@@ -21,7 +21,7 @@
 
 #include <cstring>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 #include "input/InputInjector.h"
 

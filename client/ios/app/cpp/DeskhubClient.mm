@@ -11,8 +11,8 @@
 
 #include "DeskhubClient.h"
 #include "ClientLoop.h"
-#include "net/SourceQuery.h"
-#include "Log.h"
+#include "deskhubp/SourceQuery.h"
+#include "deskhubp/Log.h"
 
 #include <cstring>
 #include <memory>

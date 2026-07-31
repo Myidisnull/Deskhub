@@ -60,7 +60,7 @@
 #include <functional>
 #include <utility>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "capture/PortalScreenCast.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/Clock.h"
@@ -70,10 +70,11 @@
 #include "input/InputInjector.h"
 #include "input/LocalInputMonitor.h"
 #include "net/NetInfo.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 #include "deskhub/control/BitrateController.h"
 #include "deskhub/control/QualityLadder.h"
+#include "deskhub/diag/AgentDiag.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/session/Beacon.h" // trả lời LIST_SOURCES / PING dò trước phiên
 #include "deskhub/session/HostSession.h"
@@ -81,23 +82,6 @@
 #include "deskhub/transport/RetransmitCache.h"
 
 namespace {
-
-// Cập nhật "giá trị lớn nhất từng thấy" trên một atomic. Vòng compare_exchange là
-// cách chuẩn: đọc-so-ghi phải nguyên tử, không thì hai thread cùng ghi sẽ nuốt mất
-// một mẫu. (Đối ứng DiagAtomicMax trong client/windows/cpp/Diag.h.)
-inline void DiagAtomicMax(std::atomic<uint32_t>& slot, uint32_t v) {
-    uint32_t cur = slot.load(std::memory_order_relaxed);
-    while (v > cur && !slot.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {}
-}
-
-const char* StateName(deskhub::HostSession::State s) {
-    switch (s) {
-        case deskhub::HostSession::State::Idle: return "IDLE";
-        case deskhub::HostSession::State::Ready: return "READY";
-        case deskhub::HostSession::State::Streaming: return "STREAMING";
-    }
-    return "?";
-}
 
 // Cỡ khung nhỏ nhất còn encode được. Bộ mã hoá phần cứng từ chối khung quá nhỏ.
 // Trên Linux ca gặp thật là đổi độ phân giải màn hình giữa phiên.
@@ -164,8 +148,14 @@ struct SourcePipeline {
     std::atomic<uint32_t> nextFrameId{0};
     // RTT chỉ đo được ở PHÍA CLIENT (nó phát PING và trừ khi PONG về), nên FEEDBACK
     // là đường duy nhất con số đó tới được host — UI cần nó để hiện "máy đang xem
-    // cách bao xa".
+    // cách bao xa". Ba trường kia đi cùng nó lên dòng [Agent]: chúng là TẤT CẢ
+    // những gì host biết về đầu kia, và trước 31/07/2026 bản Ubuntu thiếu chúng
+    // (Windows/macOS đã có), nên một đường truyền kém-nhưng-đều không để lại dấu
+    // vết nào trong log host — xem SourceDiag::LinkView.
     std::atomic<uint32_t> uiRttMs{0};
+    std::atomic<uint32_t> uiLossPct{0};
+    std::atomic<uint32_t> uiRecvKbps{0};
+    std::atomic<bool> haveFeedback{false};
 
     std::mutex encMutex; // bảo vệ encoder giữa hai luồng
     std::unique_ptr<VaEncoder> encoder;
@@ -188,28 +178,27 @@ struct SourcePipeline {
     deskhub::BitrateController rate;
 
     // --- Thống kê cửa sổ 1s, chỉ thread Recv chạm ---
-    uint32_t lastCaptured = 0;
-    uint64_t lastBytes = 0, lastFrames = 0;
-    double statCaptureFps = 0, statSendFps = 0, statSendKbps = 0;
+    // Nhịp chụp/gửi của cửa sổ 1s. Phép lấy hiệu + chia ở core
+    // (deskhub::diag::SourceRate) — ba host trước đây mỗi bên tự viết lại, và bản
+    // Windows còn tính lại lần nữa cho UI ở một thời điểm khác, cho ra hai con số
+    // lệch nhau cho cùng một giây.
+    deskhub::diag::SourceRate statRate;
+    deskhub::diag::SourceRate::Window statWindow; // kết quả lần chốt gần nhất, cho UI
 
-    // --- Chẩn đoán (docs/09): bộ đếm cửa sổ 1s ---
-    std::atomic<uint32_t> dgEncMsSum{0}, dgEncMsMax{0}, dgEncCount{0};
-    std::atomic<uint32_t> dgBurstMsMax{0}; // thời gian bắn hết gói của MỘT frame
-    std::atomic<uint32_t> dgSendFail{0};   // sendto trả lỗi
-    std::atomic<uint32_t> dgIdrCount{0};
-    // Sự kiện IDR gần nhất — thread capture ghi, thread Recv in (giữ I/O ngoài
-    // đường nóng, bài học Pacer ở docs/06 §7b). bytes==0 = không có sự kiện; ghi
-    // bytes CUỐI CÙNG với release để hai trường kia nhìn thấy trước nó.
-    // ⚠ ĐỘ TRỄ THẬT CỦA BỘ NÉN — khoảng mù lớn nhất của toàn bộ chuỗi đo (thêm
-    //   30/07/2026). `enc_ms` KHÔNG phải cái này: nó chỉ đo thời gian NỘP frame, mà
-    //   bộ nén nén BẤT ĐỒNG BỘ. Frame nằm trong đường ống encoder bao lâu trước khi
-    //   ra thành NAL thì trước nay không ai đếm.
-    //   Đây là con số quyết định: đường ống sâu 4 frame ở 60fps là 67 ms độ trễ HẰNG
-    //   SỐ — và hằng số thì e2e phía client (bộ lọc min, deskhub/control/ClockOffset.h)
-    //   trừ mất sạch. Máy đo báo 7 ms mà người dùng thấy lag chính là ca đó.
-    std::atomic<uint32_t> dgEncLatSum{0}, dgEncLatMax{0}, dgEncLatCount{0};
-    std::atomic<uint64_t> dgIdrBytes{0};
-    std::atomic<uint32_t> dgIdrPkts{0}, dgIdrBurstMs{0};
+    // --- Chẩn đoán (docs/09) ---
+    // Bộ đếm cửa sổ 1s và phép dựng dòng log nằm ở core, một bản cho cả ba host
+    // (deskhub/diag/AgentDiag.h). Ubuntu là nền DUY NHẤT có zerocopy: capture có
+    // thương lượng được dma-buf hay phải chép frame qua RAM (17-linux-app.md §6).
+    //
+    // ⚠ enc_lat_ms LÀ KHOẢNG MÙ LỚN NHẤT CỦA CHUỖI ĐO (thêm 30/07/2026).
+    //   `enc_ms` KHÔNG phải cái đó: trên các nền nén bất đồng bộ nó chỉ đo thời
+    //   gian NỘP frame, còn frame nằm trong đường ống encoder bao lâu trước khi ra
+    //   thành NAL thì trước nay không ai đếm. Đường ống sâu 4 frame ở 60fps là 67 ms
+    //   độ trễ HẰNG SỐ — mà hằng số thì e2e phía client (bộ lọc min, xem
+    //   deskhub/control/ClockOffset.h) trừ mất sạch. Máy đo báo 7 ms mà người dùng
+    //   vẫn thấy lag chính là ca đó.
+    deskhub::diag::SourceDiag diag{deskhub::diag::AgentDiagCaps{
+        /*capIdle=*/false, /*zerocopy=*/true}};
 
     // Đo thời gian một lần Encode + cộng vào bộ đếm cửa sổ. Gọi từ CẢ HAI luồng.
     // Khác bản macOS: VA-API nén ĐỒNG BỘ nên con số này là thời gian nén THẬT,
@@ -219,9 +208,7 @@ struct SourcePipeline {
         const uint64_t t0 = NowUs();
         const bool ok = doEncode();
         const uint32_t ms = uint32_t((NowUs() - t0) / 1000);
-        dgEncMsSum.fetch_add(ms, std::memory_order_relaxed);
-        dgEncCount.fetch_add(1, std::memory_order_relaxed);
-        DiagAtomicMax(dgEncMsMax, ms);
+        diag.encMs.Add(ms);
         // Encode hỏng trên đường keepalive/IDR tĩnh mà nuốt im lặng thì nguồn tĩnh
         // + encoder chết = client trắng hình không dấu vết.
         if (!ok) LOGW("[DIAG][%s] evt=enc_fail idr=%d ms=%u", name.c_str(), idr ? 1 : 0, ms);
@@ -308,13 +295,10 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p, int portalFd) {
     auto onPacket = [p, sockPtr](const uint8_t* data, size_t size, uint64_t tsUs,
                         bool keyframe) {
         if (!p->session || p->session->state() != deskhub::HostSession::State::Streaming) return;
-        // Độ trễ THẬT của bộ nén: từ lúc chụp tới lúc NAL ra. Xem dgEncLatSum.
+        // Độ trễ THẬT của bộ nén: từ lúc chụp tới lúc NAL ra (xem SourcePipeline::diag).
         {
             const uint64_t nowUs = NowUs();
-            const uint32_t latMs = nowUs > tsUs ? uint32_t((nowUs - tsUs) / 1000) : 0;
-            p->dgEncLatSum.fetch_add(latMs, std::memory_order_relaxed);
-            p->dgEncLatCount.fetch_add(1, std::memory_order_relaxed);
-            DiagAtomicMax(p->dgEncLatMax, latMs);
+            p->diag.encLatMs.Add(nowUs > tsUs ? uint32_t((nowUs - tsUs) / 1000) : 0);
         }
         const uint64_t pp = p->peerPacked.load(std::memory_order_acquire);
         if (!pp) return;
@@ -332,21 +316,19 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p, int portalFd) {
                 if (sockPtr->SendTo(peer, d.data(), d.size()))
                     p->bytesSent.fetch_add(d.size(), std::memory_order_relaxed);
                 else
-                    p->dgSendFail.fetch_add(1, std::memory_order_relaxed);
+                    p->diag.sendFail.Add();
                 // GĐ7: giữ bản sao để gửi lại nếu client NACK (Store tự bỏ gói FEC).
                 std::lock_guard<std::mutex> lk(p->retxMutex);
                 p->retxCache.Store(d);
             });
         const uint32_t burstMs = uint32_t((NowUs() - sendT0) / 1000);
-        DiagAtomicMax(p->dgBurstMsMax, burstMs);
+        p->diag.burstMs.Add(burstMs);
         if (pkts) p->framesSent.fetch_add(1, std::memory_order_relaxed);
         // Sự kiện IDR: ghi lại cho thread Recv in — cỡ IDR là con số quyết định
         // chẩn đoán chùm mất gói (docs/06 §7b).
         if (pkts && keyframe) {
-            p->dgIdrCount.fetch_add(1, std::memory_order_relaxed);
-            p->dgIdrPkts.store(uint32_t(pkts), std::memory_order_relaxed);
-            p->dgIdrBurstMs.store(burstMs, std::memory_order_relaxed);
-            p->dgIdrBytes.store(uint64_t(size), std::memory_order_release);
+            p->diag.idr.Add();
+            p->diag.LatchIdr(uint64_t(size), uint32_t(pkts), burstMs);
         }
     };
 
@@ -401,7 +383,7 @@ void AgentLoop::Impl::StartPipeline(SourcePipeline* p, int portalFd) {
             encW = t.width;
             encH = t.height;
         }
-        if (encW > fi.width) encW = fi.width;   // không bao giờ phóng to
+        if (encW > fi.width) encW = fi.width; // không bao giờ phóng to
         if (encH > fi.height) encH = fi.height;
         // VA-API từ chối kích thước lẻ và lỗi đó rất khó lần.
         encW &= ~1u;
@@ -588,7 +570,13 @@ void AgentLoop::Impl::AttachSession(SourcePipeline* p) {
     // thiết bị.
     cb.onFeedback = [p, retarget](const deskhub::Feedback& fb) {
         // RTT chỉ đo được ở phía client — FEEDBACK là đường duy nhất nó tới host.
+        // Ba trường này là TẤT CẢ những gì host biết về đầu kia; chúng đi lên dòng
+        // [Agent] để một đường truyền kém-nhưng-đều cũng để lại dấu vết (trước
+        // 31/07/2026 chỉ bản Windows/macOS có).
         p->uiRttMs.store(fb.rttMs, std::memory_order_relaxed);
+        p->uiLossPct.store(fb.lossPct, std::memory_order_relaxed);
+        p->uiRecvKbps.store(fb.recvBitrateKbps, std::memory_order_relaxed);
+        p->haveFeedback.store(true, std::memory_order_release);
 
         const deskhub::BitrateDecision d = p->rate.Update(fb, NowUs());
 
@@ -676,9 +664,9 @@ void AgentLoop::Impl::PublishStatus() {
         r.height = p->srcH.load();
         r.viewerConnected = peer != 0;
         if (peer) r.viewerAddr = NetAddr::Unpack(peer).ToString();
-        r.captureFps = p->statCaptureFps;
-        r.sendFps = p->statSendFps;
-        r.sendKbps = p->statSendKbps;
+        r.captureFps = p->statWindow.captureFps;
+        r.sendFps = p->statWindow.sendFps;
+        r.sendKbps = p->statWindow.sendKbps;
         r.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
         r.zeroCopy = p->capture.usingDmaBuf();
         rows.push_back(std::move(r));
@@ -836,8 +824,11 @@ void AgentLoop::Impl::RecvLoop() {
     uint64_t lastStatUs = NowUs();
     // Thời gian BẬN dài nhất của một vòng Recv trong cửa sổ 1s (không tính lúc chờ
     // recvfrom). Vòng này mà nghẽn thì buffer UDP của kernel gánh — tràn là mất
-    // gói thật. Chỉ thread Recv chạm nên không cần atomic.
-    uint32_t dgLoopBusyMaxMs = 0;
+    // gói thật. Bộ đếm + phép dựng dòng ở core (deskhub/diag/AgentDiag.h).
+    deskhub::diag::AgentDiag loopDiag;
+    // Buffer dùng lại cho mọi dòng log dựng ở vòng này — core chỉ ghi vào đây,
+    // không cấp phát.
+    char line[deskhub::diag::SourceDiag::kStatusBufBytes];
 
     while (!quit.load()) {
         // Hết nguồn sống là hết phiên (giống Windows/macOS): một phiên không còn
@@ -909,11 +900,8 @@ void AgentLoop::Impl::RecvLoop() {
 
             // Sự kiện IDR do thread capture ghi lại — in ở đây để I/O không nằm
             // trên đường nóng.
-            if (const uint64_t ib = p->dgIdrBytes.exchange(0, std::memory_order_acquire)) {
-                LOGI("[DIAG][%s] evt=idr bytes=%" PRIu64 " pkts=%u burst_ms=%u", p->name.c_str(),
-                    ib, p->dgIdrPkts.load(std::memory_order_relaxed),
-                    p->dgIdrBurstMs.load(std::memory_order_relaxed));
-            }
+            if (const char* idrLine = p->diag.FormatIdr(line, sizeof(line), p->name.c_str()))
+                LOGI("%s", idrLine);
 
             // Nguồn vừa đổi kích thước (thread capture đã vứt encoder). Báo client
             // kích thước mới + IDR: stream đổi SPS giữa chừng, không có IDR thì
@@ -970,49 +958,34 @@ void AgentLoop::Impl::RecvLoop() {
         }
 
         if (now - lastStatUs >= 1'000'000) {
-            const double secs = (now - lastStatUs) / 1e6;
+            // Một mốc giờ cho MỌI dòng của nhịp này: core không đọc đồng hồ tường,
+            // và các dòng cùng một nhịp phải mang cùng một con số để căn được.
+            const std::string hms = deskhubp::LocalTimeHms();
             for (SourcePipeline* p : live) {
                 if (p->failed.load()) continue;
                 const uint32_t cap = p->captured.load();
                 const uint64_t by = p->bytesSent.load(), fr = p->framesSent.load();
                 const auto& ist = p->session->inputStats();
-                p->statCaptureFps = (cap - p->lastCaptured) / secs;
-                p->statSendFps = (fr - p->lastFrames) / secs;
-                p->statSendKbps = (by - p->lastBytes) * 8.0 / 1000.0 / secs;
-                // `applied` là thống kê MẠNG (event tới nơi và được giao cho
-                // injector), KHÔNG phải bằng chứng phím đã tới ứng dụng. Injector
-                // còn vứt tiếp khi "host thắng" — `skipped` là con số duy nhất lộ
-                // ra chuyện đó. Thiếu nó thì "gõ không ăn" không phân biệt được với
-                // "không nhận được gói".
-                LOGI(
-                    "[Agent t=%s][%s] %-9s | capture %.0f fps | send %.0f fps, %.0f kbps"
-                    " | input %" PRIu64 " (lost %" PRIu64 ", skipped %" PRIu64 ")",
-                    deskhubp::LocalTimeHms().c_str(), p->name.c_str(), StateName(p->session->state()), p->statCaptureFps,
-                    p->statSendFps, p->statSendKbps, ist.applied, ist.lost,
-                    p->injector.skipped());
-                p->lastCaptured = cap;
-                p->lastBytes = by;
-                p->lastFrames = fr;
+                p->statWindow = p->statRate.Close(cap, fr, by, now);
+                deskhub::diag::SourceDiag::Window sw;
+                sw.rate = p->statWindow;
+                sw.inputApplied = ist.applied;
+                sw.inputLost = ist.lost;
+                sw.inputSkipped = p->injector.skipped();
 
-                const uint32_t ec = p->dgEncCount.exchange(0, std::memory_order_relaxed);
-                const uint32_t es = p->dgEncMsSum.exchange(0, std::memory_order_relaxed);
-                const uint32_t em = p->dgEncMsMax.exchange(0, std::memory_order_relaxed);
-                const uint32_t lc = p->dgEncLatCount.exchange(0, std::memory_order_relaxed);
-                const uint32_t ls = p->dgEncLatSum.exchange(0, std::memory_order_relaxed);
-                LOGI(
-                    "[DIAG][%s] evt=sum enc_ms_avg=%.1f enc_ms_max=%u"
-                    " enc_lat_ms=%.1f/%u idr=%u"
-                    " burst_ms_max=%u send_fail=%u zerocopy=%d",
-                    p->name.c_str(), ec ? double(es) / ec : 0.0, em,
-                    lc ? double(ls) / lc : 0.0,
-                    p->dgEncLatMax.exchange(0, std::memory_order_relaxed),
-                    p->dgIdrCount.exchange(0, std::memory_order_relaxed),
-                    p->dgBurstMsMax.exchange(0, std::memory_order_relaxed),
-                    p->dgSendFail.exchange(0, std::memory_order_relaxed),
-                    p->capture.usingDmaBuf() ? 1 : 0);
+                deskhub::diag::SourceDiag::LinkView link;
+                link.have = p->haveFeedback.load(std::memory_order_acquire);
+                link.lossPct = p->uiLossPct.load(std::memory_order_relaxed);
+                link.rttMs = p->uiRttMs.load(std::memory_order_relaxed);
+                link.recvKbps = p->uiRecvKbps.load(std::memory_order_relaxed);
+
+                LOGI("%s", deskhub::diag::SourceDiag::FormatStatus(line, sizeof(line), hms.c_str(),
+                               p->name.c_str(), deskhub::diag::StateName(p->session->state()), sw, link));
+                // FormatSum đọc-và-xoá mọi bộ đếm cửa sổ — gọi đúng một lần ở đây.
+                LOGI("%s", p->diag.FormatSum(line, sizeof(line), hms.c_str(), p->name.c_str(),
+                               /*capIdle=*/0, p->capture.usingDmaBuf()));
             }
-            LOGI("[DIAG][agent] evt=sum loop_busy_ms_max=%u", dgLoopBusyMaxMs);
-            dgLoopBusyMaxMs = 0;
+            LOGI("%s", loopDiag.FormatSum(line, sizeof(line), hms.c_str()));
             PublishStatus();
             lastStatUs = now;
         }
@@ -1020,7 +993,7 @@ void AgentLoop::Impl::RecvLoop() {
         // Vòng này bận bao lâu (từ lúc recvfrom trả về tới đây). Nghẽn nặng thì báo
         // ngay, không đợi cửa sổ 1s.
         const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        if (busyMs > dgLoopBusyMaxMs) dgLoopBusyMaxMs = busyMs;
+        loopDiag.loopBusyMs.Add(busyMs);
         if (busyMs > 250) LOGW("[DIAG][agent] evt=recv_stall busy_ms=%u", busyMs);
     }
 }

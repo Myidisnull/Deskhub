@@ -17,10 +17,8 @@ add_library(deskhub_win_core STATIC
     ElevatedShare.cpp
     DiagLog.cpp
 
-    net/UdpSocket.cpp
     net/NetInfo.cpp
     net/Firewall.cpp
-    net/SourceQuery.cpp
 
     capture/ScreenCapture.cpp
     capture/Downscaler.cpp

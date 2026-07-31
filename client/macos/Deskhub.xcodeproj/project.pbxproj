@@ -176,7 +176,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "# libcore.a build bằng CMake — core/CMakeLists.txt là nguồn sự thật duy nhất về\n# danh sách source của core, Xcode không giữ bản chép tay nữa (từng sót file khi\n# core thêm .cpp mới). Chạy lại mỗi build (alwaysOutOfDate): cmake tự incremental.\nset -euo pipefail\n# Xcode không kế thừa PATH của shell — thêm chỗ brew đặt cmake (bootstrap.sh cài).\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/macos-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../../core\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$MACOSX_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" -j \"$(sysctl -n hw.ncpu)\"\n";
+			shellScript = "# libcore.a + libplatform.a build bằng CMake — các CMakeLists.txt là nguồn sự thật\n# duy nhất về danh sách source, Xcode không giữ bản chép tay nữa (từng sót file\n# khi thêm .cpp mới). Chạy lại mỗi build (alwaysOutOfDate): cmake tự incremental.\n# Cấu hình từ GỐC repo chứ không từ core/: platform phụ thuộc core, nên nó cần\n# target core đã tồn tại. Trên Apple, CMakeLists gốc chỉ thêm đúng core + platform\n# (nhánh WIN32/Linux không chạy), nên không kéo theo thứ gì thừa.\nset -euo pipefail\n# Xcode không kế thừa PATH của shell — thêm chỗ brew đặt cmake (bootstrap.sh cài).\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/macos-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../..\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$MACOSX_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" --target platform -j \"$(sysctl -n hw.ncpu)\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -343,10 +343,13 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../out/build/macos-core/$(PLATFORM_NAME)-$(CONFIGURATION)";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/../../out/build/macos-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
+					"$(SRCROOT)/../../out/build/macos-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-lcore";
+				OTHER_LDFLAGS = "-lplatform -lcore";
 				PRODUCT_BUNDLE_IDENTIFIER = com.deskhub.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -379,10 +382,13 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../out/build/macos-core/$(PLATFORM_NAME)-$(CONFIGURATION)";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/../../out/build/macos-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
+					"$(SRCROOT)/../../out/build/macos-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "-lcore";
+				OTHER_LDFLAGS = "-lplatform -lcore";
 				PRODUCT_BUNDLE_IDENTIFIER = com.deskhub.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

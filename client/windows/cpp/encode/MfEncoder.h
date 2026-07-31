@@ -39,8 +39,8 @@ public:
     bool SetBitrate(uint32_t bitrateBps) override;
     bool SetFps(uint32_t fps) override;
     void Finish() override;
-    const wchar_t* BackendName() const override {
-        return L"Media Foundation (HW/SW auto)";
+    const char* BackendName() const override {
+        return "Media Foundation (HW/SW auto)";
     }
 
 private:

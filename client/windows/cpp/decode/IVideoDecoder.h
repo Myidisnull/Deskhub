@@ -36,14 +36,9 @@
 #include <functional>
 #include <memory>
 
-#include "encode/IVideoEncoder.h" // dùng lại enum Codec
+#include "encode/IVideoEncoder.h" // dùng lại Codec (từ deskhub/media/VideoTypes.h)
 
-struct DecoderConfig {
-    Codec codec = Codec::H264;
-    uint32_t width = 0; // kích thước gợi ý; decoder tự đọc lại từ SPS khi stream đổi
-    uint32_t height = 0;
-    uint32_t fps = 60;
-};
+using deskhub::media::DecoderConfig;
 
 // Một frame vừa giải mã xong. `texture` là NV12 trong VRAM, thường là một phần tử
 // của texture-array trong pool của decoder -> phải dùng kèm `subresource`.
@@ -72,9 +67,17 @@ public:
     // (có thể 0 hoặc nhiều frame mỗi lần gọi, tùy decoder giữ trễ bao nhiêu).
     virtual bool Decode(const uint8_t* data, size_t size, uint64_t timestampUs) = 0;
 
-    virtual const wchar_t* BackendName() const = 0;
+    virtual const char* BackendName() const = 0;
 };
 
 // Factory: hiện tại chỉ có backend Media Foundation (D3D11VA hardware decode).
 std::unique_ptr<IVideoDecoder> CreateDecoder(ID3D11Device* device, const DecoderConfig& cfg,
     IVideoDecoder::FrameHandler onFrame);
+
+// Hợp đồng chữ ký, ép lúc BIÊN DỊCH (deskhub/media/VideoContract.h).
+//
+// KHÔNG có RestartableDecoder: bốn viewer kia dựng lại decoder tại chỗ bằng
+// Shutdown()+Init(), còn ở đây việc đó làm bằng cách tạo một đối tượng mới qua
+// CreateDecoder — nên Shutdown/IsOpen không tồn tại và không nên bịa ra.
+static_assert(deskhub::media::VideoDecoderLike<IVideoDecoder>,
+    "IVideoDecoder phải giữ đúng chữ ký chung của bộ giải nén");

@@ -34,7 +34,7 @@
 #include <atomic>
 #include <mutex>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhubp/Clock.h"
 

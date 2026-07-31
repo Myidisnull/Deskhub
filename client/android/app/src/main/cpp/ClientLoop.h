@@ -58,9 +58,10 @@
 #include <vector>
 
 #include "decode/MediaCodecDecoder.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 #include "deskhub/control/ClockOffset.h"
+#include "deskhub/diag/ClientDiag.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -208,14 +209,19 @@ private:
     std::vector<std::pair<uint64_t, deskhub::InputEvent>> delayedInput_; // (hạn nhả, event)
     std::atomic<bool> wantFocus_{false};
 
-    // --- Chẩn đoán (docs/09): t_dec của cửa sổ 1s. Thread Decode ghi, thread Net
-    // đọc-và-reset. Max ghi kiểu load/store (một writer duy nhất là Decode) — đua
-    // với lần reset cùng lắm rơi một mẫu, chấp nhận được cho số liệu chẩn đoán. ---
-    std::atomic<uint32_t> dgDecMsSum_{0}, dgDecMsMax_{0}, dgDecCount_{0};
-    std::atomic<uint32_t> dgDispDrop_{0}; // frame vứt vì codec nghẽn
+    // --- Chẩn đoán (docs/09) ---
+    // Bộ đếm cửa sổ 1s và phép dựng hai dòng log nằm ở core, một bản cho cả năm
+    // viewer (deskhub/diag/ClientDiag.h). disp_drop = frame vứt vì MediaCodec
+    // không cấp input buffer kịp; present_ms không có (chỉ Windows chặn trong
+    // Present), nên caps chỉ bật disp_drop.
+    //
+    // Ai ghi cái gì: thread Decode ghi decMs/dispDrop, thread Net ghi asmMs/
+    // dqDrop/loopBusyMs/minRttUs, thread Net đọc-và-xoá tất cả ở nhịp 1s.
+    deskhub::diag::ClientDiag diag_{deskhub::diag::ClientDiagCaps{
+        /*presentMs=*/false, /*dispDrop=*/true}};
 
-    // Ước lượng trễ e2e (docs/06 §7): Net ghi, Decode đọc.
-    std::atomic<uint32_t> minRttUs_{0};
+    // Ước lượng trễ e2e (docs/06 §7): sàn mạng ở diag_.minRttUs (Net ghi, Decode
+    // đọc), kết quả ở đây (Decode ghi, Net đọc).
     std::atomic<int64_t> lastE2eUs_{-1};
     // CHỈ thread Decode chạm — không tự khoá, và phải bơm mẫu ở ĐÚNG MỘT điểm
     // trong đường dẫn (xem ClockOffset::AddSample).

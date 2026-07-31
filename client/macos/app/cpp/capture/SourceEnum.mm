@@ -18,7 +18,7 @@
 
 #include "capture/SourceEnum.h"
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 
 std::vector<ShareSource> GetShareSources() {
     std::vector<ShareSource> out;

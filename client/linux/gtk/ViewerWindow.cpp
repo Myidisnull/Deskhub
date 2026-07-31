@@ -22,7 +22,7 @@
 #include <cstdio>
 #include <utility>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "gtk/GtkUtil.h"
 #include "input/LinuxKeyMap.h"
 

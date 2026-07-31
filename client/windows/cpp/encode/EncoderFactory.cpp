@@ -34,7 +34,7 @@ std::unique_ptr<IVideoEncoder> CreateEncoder(ID3D11Device* device, const Encoder
     {
         auto enc = std::make_unique<NvencEncoder>();
         if (enc->Init(device, cfg)) {
-            std::printf("[Encoder] Using backend: %ls\n", enc->BackendName());
+            std::printf("[Encoder] Using backend: %s\n", enc->BackendName());
             return enc;
         }
         std::printf("[Encoder] NVENC unavailable, trying Media Foundation...\n");
@@ -43,7 +43,7 @@ std::unique_ptr<IVideoEncoder> CreateEncoder(ID3D11Device* device, const Encoder
     {
         auto enc = std::make_unique<MfEncoder>();
         if (enc->Init(device, cfg)) {
-            std::printf("[Encoder] Using backend: %ls\n", enc->BackendName());
+            std::printf("[Encoder] Using backend: %s\n", enc->BackendName());
             return enc;
         }
     }

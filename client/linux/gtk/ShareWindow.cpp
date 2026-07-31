@@ -11,7 +11,7 @@
 
 #include "capture/SourceEnum.h"
 #include "gtk/GtkUtil.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 namespace {
 

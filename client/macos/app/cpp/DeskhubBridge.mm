@@ -27,14 +27,14 @@
 #include <string>
 #include <vector>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "AgentLoop.h"
 #include "Permissions.h"
 #include "capture/SourceEnum.h"
 #include "ClientLoop.h"
 #include "input/MacKeyMap.h"
 #include "net/NetInfo.h"
-#include "net/SourceQuery.h"
+#include "deskhubp/SourceQuery.h"
 
 // Một phiên xem = một ClientLoop. Định nghĩa ngoài namespace ẩn danh vì tên
 // DHSession thuộc hợp đồng C của header.

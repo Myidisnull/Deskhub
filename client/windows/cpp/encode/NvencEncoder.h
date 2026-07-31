@@ -41,8 +41,8 @@ public:
     bool SetBitrate(uint32_t bitrateBps) override;
     bool SetFps(uint32_t fps) override;
     void Finish() override;
-    const wchar_t* BackendName() const override {
-        return L"NVENC (NVIDIA)";
+    const char* BackendName() const override {
+        return "NVENC (NVIDIA)";
     }
 
 private:

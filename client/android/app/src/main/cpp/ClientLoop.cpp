@@ -42,7 +42,7 @@
 #include <cstdio>
 #include <memory>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 #include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 
@@ -325,10 +325,7 @@ void ClientLoop::DecodeThread() {
         const uint64_t t0 = NowUs();
         const bool ok = decoder.Decode(f.nal.data(), f.nal.size(), f.timestampUs);
         const uint64_t decMs = (NowUs() - t0) / 1000;
-        dgDecMsSum_.fetch_add(uint32_t(decMs), std::memory_order_relaxed);
-        dgDecCount_.fetch_add(1, std::memory_order_relaxed);
-        if (uint32_t(decMs) > dgDecMsMax_.load(std::memory_order_relaxed))
-            dgDecMsMax_.store(uint32_t(decMs), std::memory_order_relaxed);
+        diag_.decMs.Add(uint32_t(decMs));
         if (decMs > 20)
             LOGW("[Client] decode+render took %" PRIu64 " ms for one frame", decMs);
 
@@ -344,7 +341,7 @@ void ClientLoop::DecodeThread() {
         // Codec vừa nghẽn và nuốt mất frame -> chuỗi tham chiếu đứt, phải xin IDR.
         // Không tháo codec: nó vẫn lành, chỉ bận.
         if (const uint32_t n = decoder.TakeCongestionDrops()) {
-            dgDispDrop_.fetch_add(n, std::memory_order_relaxed);
+            diag_.dispDrop.Add(n);
             displayCongested_.store(true, std::memory_order_release);
         }
 
@@ -356,7 +353,7 @@ void ClientLoop::DecodeThread() {
             // Cộng lại sàn mạng đo được (nửa RTT nhỏ nhất). RTT chưa về thì để 0:
             // thà hụt sàn còn hơn bịa ra nó.
             lastE2eUs_.store(
-                clockOffset_.LatencyUs(minRttUs_.load(std::memory_order_relaxed) / 2));
+                clockOffset_.LatencyUs(diag_.minRttUs.value() / 2));
         }
     }
 
@@ -414,9 +411,7 @@ void ClientLoop::NetThread() {
     // và điều kiện được xét lại — nên không bao giờ ghi đè bằng một số lớn hơn.
     // compare_exchange_weak được phép thất bại giả, và vòng lặp đã xử lý sẵn.
     cb.onRtt = [this](uint32_t rttUs) {
-        uint32_t cur = minRttUs_.load(std::memory_order_relaxed);
-        while ((!cur || rttUs < cur) &&
-               !minRttUs_.compare_exchange_weak(cur, rttUs, std::memory_order_relaxed)) {}
+        diag_.minRttUs.Add(rttUs);
     };
     cb.onDisconnect = [this](const char* reason) {
         LOGI("[Client] Disconnected: %s", reason);
@@ -449,10 +444,10 @@ void ClientLoop::NetThread() {
 
     // Bộ đếm chẩn đoán cửa sổ 1s, chỉ thread Net chạm (xem docs/09). Trên Android
     // không có cờ DESKHUB_DIAG — logcat lọc theo tag được nên [DIAG] bật luôn.
-    uint32_t dgAsmMsSum = 0, dgAsmMsMax = 0, dgAsmCount = 0; // t_asm: mảnh đầu → ghép xong
-    uint32_t dgDqDrop = 0;                                   // frame vứt vì hàng đợi đầy
-    uint32_t dgLoopBusyMaxMs = 0;                            // vòng Net bận nhất
-    uint64_t kfReqUs = 0;                                    // thời điểm bắt đầu xin keyframe; 0 = không treo
+    // Máy trạng thái kf_req/idr_rx ở core (deskhub/diag/ClientDiag.h): nó ghép
+    // hai sự kiện lại để ra after_ms — thời gian người dùng nhìn hình đứng.
+    deskhub::diag::KeyframeRequestLog kfLog;
+    char kfLine[deskhub::diag::KeyframeRequestLog::kBufBytes];
 
     while (!quit_.load()) {
         NetAddr from;
@@ -483,21 +478,10 @@ void ClientLoop::NetThread() {
                         // Bản khám nghiệm từng frame bị khai tử (docs/09): pos=tail
                         // là dấu vân tay của burst — chùm mất nằm ở đuôi frame.
                         reasm->onFrameDrop = [](const deskhub::Reassembler::FrameDropInfo& d) {
-                            static const char* const kReason[] =
-                                {"timeout", "overtaken", "evicted", "pre_idr"};
-                            const char* pos = "-";
-                            if (d.missing) {
-                                const bool head = d.firstMissing == 0;
-                                const bool tail = d.lastMissing + 1 == d.total;
-                                pos = head && tail ? "all" : tail ? "tail"
-                                                         : head   ? "head"
-                                                                  : "mid";
-                            }
-                            LOGW(
-                                "[DIAG] evt=frame_drop id=%u reason=%s miss=%u/%u pos=%s"
-                                " idr=%u waited_ms=%u got_bytes=%u",
-                                d.frameId, kReason[size_t(d.reason)], d.missing, d.total,
-                                pos, d.idr ? 1 : 0, d.waitedMs, d.bytesGot);
+                            // Dựng chuỗi ở core (deskhub/diag/ClientDiag.h) — trước 31/07/2026
+                            // đúng đoạn này được chép ở cả năm viewer.
+                            char line[deskhub::diag::ClientDiag::kFrameDropBufBytes];
+                            LOGW("%s", deskhub::diag::ClientDiag::FormatFrameDrop(line, sizeof(line), d));
                         };
                     }
                     if (h->type == deskhub::MsgType::FecPacket) {
@@ -521,10 +505,8 @@ void ClientLoop::NetThread() {
         // (docs/09): log cho thấy vòng xoáy IDR (xin dồn dập, IDR về chậm) nếu có.
         // Gọi lặp là vô hại: chỉ log ở lần chuyển từ "không treo" sang "đang treo".
         auto requestKf = [&](const char* reason) {
-            if (!kfReqUs) {
-                kfReqUs = now;
-                LOGI("[DIAG] evt=kf_req reason=%s", reason);
-            }
+            if (const char* l = kfLog.Request(kfLine, sizeof(kfLine), now, reason))
+                LOGI("%s", l);
             session.RequestKeyframe();
         };
 
@@ -534,18 +516,13 @@ void ClientLoop::NetThread() {
                 // IDR đã về → thôi xin keyframe, kẻo host phát IDR liên tục.
                 if (f->idr) {
                     session.CancelKeyframeRequest();
-                    if (kfReqUs) {
-                        LOGI("[DIAG] evt=idr_rx bytes=%zu after_ms=%" PRIu64,
-                            f->nal.size(), (now - kfReqUs) / 1000);
-                        kfReqUs = 0;
-                    }
+                    if (const char* l = kfLog.Arrived(kfLine, sizeof(kfLine), now, f->nal.size()))
+                        LOGI("%s", l);
                 }
                 // t_asm: mảnh đầu tiên tới → frame ghép xong và rời Reassembler.
                 if (f->firstSeenUs) {
                     const uint32_t asmMs = uint32_t((now - f->firstSeenUs) / 1000);
-                    dgAsmMsSum += asmMs;
-                    ++dgAsmCount;
-                    if (asmMs > dgAsmMsMax) dgAsmMsMax = asmMs;
+                    diag_.asmMs.Add(asmMs);
                 }
                 {
                     std::lock_guard<std::mutex> lk(decMutex_);
@@ -555,7 +532,7 @@ void ClientLoop::NetThread() {
                     if (decQueue_.size() >= kMaxQueuedFrames) {
                         decQueue_.pop_front();
                         queueOverflow_.store(true, std::memory_order_release);
-                        ++dgDqDrop;
+                        diag_.dqDrop.Add();
                     }
                     decQueue_.push_back(std::move(*f));
                 }
@@ -578,7 +555,7 @@ void ClientLoop::NetThread() {
         if (reasm) {
             uint16_t nackIdx[64];
             uint32_t nackFrame = 0;
-            const size_t nn = reasm->PlanNack(now, minRttUs_.load(std::memory_order_relaxed),
+            const size_t nn = reasm->PlanNack(now, diag_.minRttUs.value(),
                 nackFrame, nackIdx);
             if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
         }
@@ -622,17 +599,13 @@ void ClientLoop::NetThread() {
             const deskhub::LinkWindow w = linkStats.Close(st, stBytes, rendered, now);
             const int64_t e2e = lastE2eUs_.load();
 
-            LOGI("[Client t=%s] %2.0f fps | %6.0f kbps | dropped %" PRIu64
-                 " frame | lost %4.1f%% pkts"
-                 " | fec+%" PRIu64 " | RTT %.1f ms | e2e ~%.1f ms",
-                deskhubp::LocalTimeHms().c_str(),
-                w.fps,
-                w.kbps,
-                w.framesDropped,
-                w.lossPct,
-                w.packetsRecovered,
-                session.lastRttUs() / 1000.0,
-                e2e >= 0 ? e2e / 1000.0 : 0.0);
+            // Hai dòng log mỗi giây do core dựng (deskhub/diag/ClientDiag.h) — một
+            // bản dùng chung cho cả năm viewer. `hms` truyền từ đây vì core không
+            // đọc đồng hồ tường.
+            const std::string hms = deskhubp::LocalTimeHms();
+            char line[deskhub::diag::ClientDiag::kSumBufBytes];
+            LOGI("%s", deskhub::diag::ClientDiag::FormatStatus(line, sizeof(line), hms.c_str(), w,
+                           session.lastRttUs(), e2e));
 
             // Chỉ in khi giây vừa rồi CÓ mất gói: chùm-1 thì FEC hiện tại cứu được,
             // chùm ≥2 thì không (xem Stats::lossRuns).
@@ -643,15 +616,9 @@ void ClientLoop::NetThread() {
                     w.lossRuns[0], w.lossRuns[1], w.lossRuns[2], w.lossRuns[3],
                     w.lossRuns[4], w.lossRuns[5], w.lossRuns[6], w.lossRunMax);
 
-            // Bản gọn cho overlay trên màn hình (logcat giữ bản đầy đủ ở trên).
-            char ui[160];
-            std::snprintf(ui, sizeof(ui),
-                "%.0f fps  %.1f Mbps  loss %.1f%%  RTT %.0f ms  e2e %.0f ms",
-                w.fps,
-                w.kbps / 1000.0,
-                w.lossPct,
-                session.lastRttUs() / 1000.0,
-                e2e >= 0 ? e2e / 1000.0 : 0.0);
+            // Bản gọn cho overlay trên màn hình (log giữ bản đầy đủ ở trên).
+            char ui[deskhub::diag::ClientDiag::kCompactBufBytes];
+            deskhub::diag::ClientDiag::FormatCompact(ui, sizeof(ui), w, session.lastRttUs(), e2e);
             {
                 std::lock_guard<std::mutex> lk(textMutex_);
                 statusLine_ = ui;
@@ -659,28 +626,13 @@ void ClientLoop::NetThread() {
 
             session.SendFeedback(deskhub::MakeFeedback(w, session.lastRttUs()));
 
-            // Dòng chẩn đoán 1s (docs/09) — đọc-và-reset mọi bộ đếm cửa sổ.
-            // late= là con số phân xử "mất thật vs tới muộn" (docs/06 §7b).
-            {
-                const uint32_t dc = dgDecCount_.exchange(0, std::memory_order_relaxed);
-                const uint32_t ds = dgDecMsSum_.exchange(0, std::memory_order_relaxed);
-                const uint32_t dm = dgDecMsMax_.exchange(0, std::memory_order_relaxed);
-                LOGI(
-                    "[DIAG] evt=sum asm_ms=%.1f/%u dec_ms=%.1f/%u dq_drop=%u"
-                    " late=%" PRIu64 " late_ms_avg=%.0f late_ms_max=%" PRIu64
-                    " gap_ms_max=%u loop_busy_ms_max=%u disp_drop=%u"
-                    " min_rtt_ms=%.1f e2e_ms=%.1f",
-                    dgAsmCount ? double(dgAsmMsSum) / dgAsmCount : 0.0, dgAsmMsMax,
-                    dc ? double(ds) / dc : 0.0, dm,
-                    dgDqDrop,
-                    w.latePackets, w.lateMsAvg, w.lateMsMax,
-                    reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs,
-                    dgDispDrop_.exchange(0, std::memory_order_relaxed),
-                    minRttUs_.load(std::memory_order_relaxed) / 1000.0, e2e / 1000.0);
-                dgAsmMsSum = dgAsmMsMax = dgAsmCount = 0;
-                dgDqDrop = 0;
-                dgLoopBusyMaxMs = 0;
-            }
+            // Dòng chẩn đoán 1s (docs/09). min_rtt_ms / e2e_ms là ĐẦU VÀO và ĐẦU RA
+            // của phép ước lượng e2e — không có chúng thì con số "e2e ~N ms" ở dòng
+            // [Client] không kiểm chứng được từ log. Phần XẾP HÀNG (thứ ta tác động
+            // được) suy ra bằng phép trừ: e2e_ms - min_rtt_ms/2.
+            // FormatSum đọc-và-xoá mọi bộ đếm cửa sổ, nên gọi đúng một lần ở đây.
+            LOGI("%s", diag_.FormatSum(line, sizeof(line), hms.c_str(), w,
+                           reasm ? reasm->TakeMaxGapMs() : 0, e2e));
 
             stBytes = 0;
         }
@@ -688,7 +640,7 @@ void ClientLoop::NetThread() {
         // Vòng này bận bao lâu (từ lúc recvfrom trả về tới đây). Thread Net nghẽn
         // thì buffer UDP của kernel gánh — tràn là mất gói thật.
         const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        if (busyMs > dgLoopBusyMaxMs) dgLoopBusyMaxMs = busyMs;
+        diag_.loopBusyMs.Add(busyMs);
         if (busyMs > 50) LOGW("[DIAG] evt=recv_stall busy_ms=%u", busyMs);
     }
 

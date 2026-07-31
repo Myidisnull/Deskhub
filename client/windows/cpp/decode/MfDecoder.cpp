@@ -373,7 +373,7 @@ std::unique_ptr<IVideoDecoder> CreateDecoder(ID3D11Device* device, const Decoder
     IVideoDecoder::FrameHandler onFrame) {
     auto dec = std::make_unique<MfDecoder>();
     if (dec->Init(device, cfg, std::move(onFrame))) {
-        std::printf("[Decoder] Using backend: %ls\n", dec->BackendName());
+        std::printf("[Decoder] Using backend: %s\n", dec->BackendName());
         return dec;
     }
     std::printf("[Decoder] Failed to initialize any backend.\n");

@@ -32,7 +32,7 @@
 #include <cstring>
 #include <thread>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 #include "input/LinuxKeyMap.h"
 #include "input/LocalInputMonitor.h"

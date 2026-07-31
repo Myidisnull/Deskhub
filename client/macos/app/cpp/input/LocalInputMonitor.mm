@@ -7,7 +7,7 @@
 
 #include "input/LocalInputMonitor.h"
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 
 LocalInputMonitor::~LocalInputMonitor() {

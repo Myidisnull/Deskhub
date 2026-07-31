@@ -21,8 +21,8 @@
 #include "gtk/ShareWindow.h"
 #include "gtk/ViewerWindow.h"
 #include "net/NetInfo.h"
-#include "net/SourceQuery.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/SourceQuery.h"
+#include "deskhubp/UdpSocket.h"
 
 #include "deskhub/protocol/Wire.h" // kMaxSources
 

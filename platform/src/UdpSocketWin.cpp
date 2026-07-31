@@ -1,5 +1,5 @@
 // =============================================================================
-// UdpSocket.cpp — cài đặt bằng winsock2 (Windows).
+// UdpSocketWin.cpp — cài đặt bằng winsock2. Bản Windows của deskhubp/UdpSocket.h.
 //
 // BỐ CỤC
 //   NetAddr::ToString / ParseNetAddr — chuyển đổi địa chỉ ↔ chuỗi, không đụng socket.
@@ -8,29 +8,25 @@
 // QUY ƯỚC XỬ LÝ LỖI XUYÊN SUỐT
 //   Hàm trả bool: true = thành công. Riêng RecvFrom trả int với BA vùng ý nghĩa —
 //   >0 là số byte nhận được, 0 là HẾT TIMEOUT (chuyện bình thường, không phải lỗi),
-//   <0 là lỗi thật khiến người gọi phải dừng vòng lặp. Phân biệt được 0 với lỗi là
-//   điều kiện để vòng lặp mạng vừa nghe gói vừa chạy Tick theo nhịp đều đặn.
+//   <0 là lỗi thật khiến người gọi phải dừng vòng lặp.
 //
-// CẠM BẪY RIÊNG CỦA WINDOWS — SIO_UDP_CONNRESET
-//   Đây là khác biệt lớn nhất so với bản Android, và là thứ dễ mất hàng giờ để lần
-//   ra nếu chưa biết. Chi tiết ở ngay chỗ gọi WSAIoctl trong Open().
+// VÌ SAO ĐÂY LÀ FILE RIÊNG mà bốn nền POSIX dùng chung một file
+//   Bốn bản POSIX khác nhau đúng bốn dòng ép kiểu; bản này khác THẬT — WSAStartup
+//   có đếm tham chiếu, SIO_UDP_CONNRESET là cạm bẫy chỉ Windows có, SO_RCVTIMEO
+//   nhận DWORD chứ không phải timeval, và mọi con trỏ đệm phải qua `char*`. Gộp
+//   tiếp bằng #ifdef sẽ cho một file mà không nhánh nào đọc trôi.
 //
-// VỀ THỨ TỰ BYTE
-//   Đây là ranh giới duy nhất trong chương trình có htonl/ntohl. NetAddr luôn giữ
-//   host byte order; mọi lần chạm vào sockaddr_in đều kèm một phép đổi. Nhầm chỗ
-//   này cho ra lỗi rất khó thấy: địa chỉ vẫn "hợp lệ" nhưng trỏ sang máy khác hẳn.
-//
-// LIÊN QUAN: net/UdpSocket.h (API + lý do thiết kế),
-//            client/android/.../net/UdpSocket.cpp (bản song song trên BSD socket)
+// LIÊN QUAN: deskhubp/UdpSocket.h (API + lý do thiết kế),
+//            platform/src/UdpSocketPosix.cpp (bản BSD socket), docs/06 §1.3
 // =============================================================================
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include <cstdio>
+
+#include "deskhubp/Log.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -79,14 +75,14 @@ bool UdpSocket::Open(uint16_t localPort) {
     lastBindAddrInUse_ = false; // reset: chỉ nói về lần Open này
     WSADATA wsa{};
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-        std::printf("[UDP] WSAStartup failed.\n");
+        LOGE("[UDP] WSAStartup failed.");
         return false;
     }
     wsaInit_ = true;
 
     const SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) {
-        std::printf("[UDP] socket() failed: %d\n", WSAGetLastError());
+        LOGE("[UDP] socket() failed: %d", WSAGetLastError());
         return false;
     }
 
@@ -127,12 +123,12 @@ bool UdpSocket::Open(uint16_t localPort) {
         // trên báo cách xử lý thay vì phơi số lỗi 10048.
         lastBindAddrInUse_ = (err == WSAEADDRINUSE);
         if (lastBindAddrInUse_)
-            std::printf(
-                "[UDP] Port %u is already in use — another Deskhub host (or "
-                "another program) is still listening on it.\n",
+            LOGE(
+                "[UDP] Port %u is already in use — another Deskhub host (or another "
+                "program) is still listening on it.",
                 localPort);
         else
-            std::printf("[UDP] bind(:%u) failed: %d\n", localPort, err);
+            LOGE("[UDP] bind(:%u) failed: %d", localPort, err);
         closesocket(s);
         return false;
     }

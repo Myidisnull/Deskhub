@@ -44,6 +44,12 @@ int main() {
     std::printf("--- control: quality ladder (fps + resolution vs bandwidth) ---\n");
     RunQualityLadderTests();
 
+    std::printf("--- diag: window counters + log line formatting ---\n");
+    RunDiagTests();
+
+    std::printf("--- media: encoder/decoder signature contract ---\n");
+    RunMediaContractTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 

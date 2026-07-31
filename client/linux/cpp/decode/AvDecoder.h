@@ -43,6 +43,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "deskhub/media/VideoContract.h"
+
 class VideoSink;
 
 class AvDecoder {
@@ -78,3 +80,11 @@ private:
     void* hwDevice_ = nullptr; // AVBufferRef* (AVHWDeviceContext, VA-API)
     VideoSink* sink_ = nullptr;
 };
+
+// Hợp đồng chữ ký, ép lúc BIÊN DỊCH (deskhub/media/VideoContract.h). Bốn viewer
+// (Apple, Android, Ubuntu) phải nói cùng một thứ tiếng ở bốn hàm này — lệch là gãy
+// build ngay tại dòng này chứ không phải một lỗi lạ trên máy người dùng.
+static_assert(deskhub::media::VideoDecoderLike<AvDecoder>,
+    "AvDecoder phải giữ đúng chữ ký chung của bộ giải nén");
+static_assert(deskhub::media::RestartableDecoder<AvDecoder>,
+    "AvDecoder phải dựng lại được tại chỗ (Shutdown + IsOpen)");

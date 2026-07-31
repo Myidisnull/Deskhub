@@ -15,7 +15,7 @@
 #include <mutex>
 #include <vector>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 
 namespace {
 std::once_flag g_once;

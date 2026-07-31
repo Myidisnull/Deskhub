@@ -35,6 +35,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "deskhub/media/VideoContract.h"
+
 class MediaCodecDecoder {
 public:
     MediaCodecDecoder() = default;
@@ -86,3 +88,15 @@ private:
     uint64_t lastRenderedPtsUs_ = 0;
     uint32_t congestionDrops_ = 0;
 };
+
+// Hợp đồng chữ ký, ép lúc BIÊN DỊCH (deskhub/media/VideoContract.h). Bốn viewer
+// (Apple, Android, Ubuntu) phải nói cùng một thứ tiếng ở bốn hàm này — lệch là gãy
+// build ngay tại dòng này chứ không phải một lỗi lạ trên máy người dùng.
+static_assert(deskhub::media::VideoDecoderLike<MediaCodecDecoder>,
+    "MediaCodecDecoder phải giữ đúng chữ ký chung của bộ giải nén");
+static_assert(deskhub::media::RestartableDecoder<MediaCodecDecoder>,
+    "MediaCodecDecoder phải dựng lại được tại chỗ (Shutdown + IsOpen)");
+static_assert(deskhub::media::RenderCountingDecoder<MediaCodecDecoder>,
+    "MediaCodecDecoder tự đếm frame đã lên màn — enqueue bất đồng bộ nên không đếm bằng Decode được");
+static_assert(deskhub::media::CongestionAwareDecoder<MediaCodecDecoder>,
+    "MediaCodecDecoder phải báo được frame bị tầng hiển thị nuốt — đó là nguồn của disp_drop");

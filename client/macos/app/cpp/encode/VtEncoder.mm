@@ -37,7 +37,7 @@
 
 #include <cstring>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 
 namespace {
 

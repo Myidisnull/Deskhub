@@ -51,7 +51,7 @@
 #include <mutex>
 #include <vector>
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
 
 namespace {

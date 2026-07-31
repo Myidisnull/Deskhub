@@ -37,8 +37,8 @@
 #include "capture/DisplayFinder.h"
 #include "net/Firewall.h"
 #include "net/NetInfo.h"
-#include "net/SourceQuery.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/SourceQuery.h"
+#include "deskhubp/UdpSocket.h"
 #include "deskhub/protocol/Wire.h" // kMaxSources
 
 namespace {

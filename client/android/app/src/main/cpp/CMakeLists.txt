@@ -11,31 +11,29 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # <repo>/client/android/app/src/main/cpp -> lùi 6 mức về gốc repo.
 get_filename_component(DESKHUB_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.." ABSOLUTE)
 add_subdirectory(${DESKHUB_ROOT}/core ${CMAKE_CURRENT_BINARY_DIR}/core)
-# platform/ — lớp mỏng bọc header hệ điều hành (Clock.h); INTERFACE lib, không sinh
+# platform/ — lớp mỏng bọc header hệ điều hành (Clock.h, Log.h, UdpSocket, SourceQuery);
 # .a. Nhánh #else của Clock.h (clock_gettime) là nhánh Android dùng.
 add_subdirectory(${DESKHUB_ROOT}/platform ${CMAKE_CURRENT_BINARY_DIR}/platform)
 
 # Không còn native_app_glue: vòng đời app do Activity Kotlin lo, native chỉ là thư
 # viện được gọi qua JNI. Nhờ vậy cũng bỏ được cả trò -u ANativeActivity_onCreate.
-# Nhóm theo thư mục con giống client/windows: net/ (socket, truy vấn nguồn),
-# decode/ (MediaCodec). Ở gốc còn JniBridge (mặt tiếp xúc Kotlin) + ClientLoop.
+# Nhóm theo thư mục con giống client/windows: decode/ (MediaCodec). Ở gốc còn
+# JniBridge (mặt tiếp xúc Kotlin) + ClientLoop. Socket và truy vấn nguồn đã chuyển
+# sang platform/ — một bản cho cả năm nền (deskhubp/UdpSocket.h).
 add_library(deskhub SHARED
     JniBridge.cpp
     ClientLoop.cpp
 
-    net/UdpSocket.cpp
-    net/SourceQuery.cpp
-
     decode/MediaCodecDecoder.cpp
 )
 
-# Include gốc cpp/ để mọi #include ghi đủ đường dẫn nhóm ("net/UdpSocket.h").
+# Include gốc cpp/ để mọi #include ghi đủ đường dẫn nhóm ("decode/...").
 target_include_directories(deskhub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(deskhub
     PRIVATE
         core        # deskhub:: Wire/ClientSession/Reassembler/...
-        platform    # NowUs()
+        platform    # NowUs(), LOGI, UdpSocket, QuerySources
         android     # ANativeWindow, ANativeWindow_fromSurface
         mediandk    # AMediaCodec, AMediaFormat
         log

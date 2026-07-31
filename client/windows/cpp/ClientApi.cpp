@@ -32,16 +32,16 @@
 #include <thread>
 #include <vector>
 
-#include "Diag.h" // DiagAtomicMax — bộ đếm max của cửa sổ chẩn đoán
 #include "capture/GpuSelect.h"
 #include "decode/IVideoDecoder.h"
 #include "decode/PanelRenderer.h"
-#include "net/UdpSocket.h"
+#include "deskhubp/UdpSocket.h"
 #include "deskhubp/Clock.h"
 #include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/control/LinkStats.h"
+#include "deskhub/diag/ClientDiag.h"
 #include "deskhub/session/ClientSession.h"
 #include "deskhub/transport/Reassembler.h"
 
@@ -83,10 +83,10 @@ void DhClientHandle::Run() {
     std::unique_ptr<IVideoDecoder> decoder;
     std::atomic<uint32_t> decW{0}, decH{0}, decFps{0};
 
-    // Ước lượng trễ e2e (deskhub/control/ClockOffset.h). minRttUs: Recv ghi, Decode
-    // đọc. clockOffset: CHỈ thread Decode chạm (onDecoded chạy đồng bộ trong Decode)
-    // — nó không tự khoá, và phải được bơm mẫu ở ĐÚNG MỘT điểm trong đường dẫn.
-    std::atomic<uint32_t> minRttUs{0};
+    // Ước lượng trễ e2e (deskhub/control/ClockOffset.h). Sàn mạng (min RTT) nằm ở
+    // diag.minRttUs: Recv ghi, Decode đọc. clockOffset: CHỈ thread Decode chạm
+    // (onDecoded chạy đồng bộ trong Decode) — nó không tự khoá, và phải được bơm
+    // mẫu ở ĐÚNG MỘT điểm trong đường dẫn.
     std::atomic<int64_t> lastE2eUs{-1};
     deskhub::ClockOffset clockOffset;
 
@@ -94,12 +94,16 @@ void DhClientHandle::Run() {
     std::atomic<uint32_t> stRendered{0};
 
     // --- Bộ đếm chẩn đoán cửa sổ 1s (docs/09) ---
-    // Nhóm thường: CHỈ thread Recv chạm. Nhóm atomic: thread Decode ghi, Recv in.
-    uint32_t dgAsmMsSum = 0, dgAsmMsMax = 0, dgAsmCount = 0; // t_asm: mảnh đầu → ghép xong
-    uint32_t dgDqDrop = 0;                                   // frame vứt vì hàng đợi đầy
-    uint32_t dgLoopBusyMaxMs = 0;                            // vòng Recv bận nhất
-    std::atomic<uint32_t> dgDecMsSum{0}, dgDecMsMax{0}, dgDecCount{0};
-    std::atomic<uint32_t> dgPresentMsSum{0}, dgPresentMsMax{0}, dgPresentCount{0};
+    // Bộ đếm và phép dựng hai dòng log nằm ở core, một bản cho cả năm viewer
+    // (deskhub/diag/ClientDiag.h). Windows là nền DUY NHẤT có present_ms: Present
+    // chạy ĐỒNG BỘ bên trong Decode nên thời gian kẹt ở đó đo được và phải tách ra
+    // khỏi dec_ms. Ngược lại disp_drop không có: ở đây không tầng hiển thị nào nuốt
+    // frame sau lưng ta.
+    //
+    // Ai ghi cái gì: thread Decode ghi decMs/presentMs, thread Recv ghi asmMs/
+    // dqDrop/loopBusyMs/minRttUs, thread Recv đọc-và-xoá tất cả ở nhịp 1s.
+    deskhub::diag::ClientDiag diag{deskhub::diag::ClientDiagCaps{
+        /*presentMs=*/true, /*dispDrop=*/false}};
 
     // Hàng đợi giữa Recv và Decode. Từ khi swapchain đặt MaximumFrameLatency(1)
     // (PanelRenderer.cpp), Present chặn thread Decode tới cả một nhịp quét màn hình —
@@ -140,10 +144,7 @@ void DhClientHandle::Run() {
         stRendered.fetch_add(1, std::memory_order_relaxed);
 
         if (readyUs) {
-            const uint32_t pms = uint32_t((NowUs() - readyUs) / 1000);
-            dgPresentMsSum.fetch_add(pms, std::memory_order_relaxed);
-            dgPresentCount.fetch_add(1, std::memory_order_relaxed);
-            DiagAtomicMax(dgPresentMsMax, pms);
+            diag.presentMs.Add(uint32_t((NowUs() - readyUs) / 1000));
         }
 
         // `pts` phải khác 0 y như bốn viewer kia: host chưa gắn mốc (hoặc gói hỏng)
@@ -156,7 +157,7 @@ void DhClientHandle::Run() {
             // Cộng lại sàn mạng đo được (nửa RTT nhỏ nhất). RTT chưa về thì để 0:
             // thà hụt sàn còn hơn bịa ra nó.
             lastE2eUs.store(
-                clockOffset.LatencyUs(minRttUs.load(std::memory_order_relaxed) / 2));
+                clockOffset.LatencyUs(diag.minRttUs.value() / 2));
         }
     };
 
@@ -195,9 +196,7 @@ void DhClientHandle::Run() {
             const uint64_t t0 = NowUs();
             const bool ok = decoder->Decode(f.nal.data(), f.nal.size(), f.timestampUs);
             const uint32_t decMs = uint32_t((NowUs() - t0) / 1000);
-            dgDecMsSum.fetch_add(decMs, std::memory_order_relaxed);
-            dgDecCount.fetch_add(1, std::memory_order_relaxed);
-            DiagAtomicMax(dgDecMsMax, decMs);
+            diag.decMs.Add(decMs);
             if (!ok) decodeFailedFlag.store(true, std::memory_order_release);
         }
         CoUninitialize();
@@ -229,11 +228,7 @@ void DhClientHandle::Run() {
         // Không dựng lại decoder/renderer: MfDecoder tự đàm phán lại khi gặp SPS mới,
         // PanelRenderer tự ResizeBuffers theo cỡ frame.
     };
-    cb.onRtt = [&](uint32_t rttUs) {
-        uint32_t cur = minRttUs.load(std::memory_order_relaxed);
-        while ((!cur || rttUs < cur) &&
-               !minRttUs.compare_exchange_weak(cur, rttUs, std::memory_order_relaxed)) {}
-    };
+    cb.onRtt = [&](uint32_t rttUs) { diag.minRttUs.Add(rttUs); };
     bool closedNotified = false; // chỉ đọc/ghi trên thread Run (session gọi callback tại đây)
     cb.onDisconnect = [&](const char* reason) {
         closedNotified = true;
@@ -261,7 +256,10 @@ void DhClientHandle::Run() {
 
     uint8_t buf[deskhub::kMaxDatagram];
     deskhub::LinkStats linkStats(NowUs());
-    uint64_t kfReqUs = 0;
+    // Máy trạng thái kf_req/idr_rx ở core (deskhub/diag/ClientDiag.h): nó ghép
+    // hai sự kiện lại để ra after_ms — thời gian người dùng nhìn hình đứng.
+    deskhub::diag::KeyframeRequestLog kfLog;
+    char kfLine[deskhub::diag::KeyframeRequestLog::kBufBytes];
 
     while (!quit.load() && !failed.load()) {
         NetAddr from;
@@ -325,10 +323,8 @@ void DhClientHandle::Run() {
         // Gom mọi đường dẫn tới "xin IDR" về một chỗ, kèm lý do. Gọi lặp là vô hại:
         // chỉ log ở lần chuyển từ "không treo" sang "đang treo".
         auto requestKf = [&](const char* reason) {
-            if (!kfReqUs) {
-                kfReqUs = now;
-                std::printf("[DIAG] evt=kf_req reason=%s\n", reason);
-            }
+            if (const char* l = kfLog.Request(kfLine, sizeof(kfLine), now, reason))
+                std::printf("%s\\n", l);
             session.RequestKeyframe();
         };
 
@@ -336,25 +332,20 @@ void DhClientHandle::Run() {
             while (auto f = reasm->PopReady(now)) {
                 if (f->idr) {
                     session.CancelKeyframeRequest();
-                    if (kfReqUs) {
-                        std::printf("[DIAG] evt=idr_rx bytes=%zu after_ms=%" PRIu64 "\n",
-                            f->nal.size(), (now - kfReqUs) / 1000);
-                        kfReqUs = 0;
-                    }
+                    if (const char* l = kfLog.Arrived(kfLine, sizeof(kfLine), now, f->nal.size()))
+                        std::printf("%s\\n", l);
                 }
                 // t_asm: mảnh đầu tiên tới → frame ghép xong và rời Reassembler.
                 if (f->firstSeenUs) {
                     const uint32_t asmMs = uint32_t((now - f->firstSeenUs) / 1000);
-                    dgAsmMsSum += asmMs;
-                    ++dgAsmCount;
-                    if (asmMs > dgAsmMsMax) dgAsmMsMax = asmMs;
+                    diag.asmMs.Add(asmMs);
                 }
                 {
                     std::lock_guard<std::mutex> lk(decQueueMutex);
                     if (decQueue.size() >= kMaxQueuedFrames) {
                         decQueue.pop_front();
                         queueOverflowFlag.store(true, std::memory_order_release);
-                        ++dgDqDrop;
+                        diag.dqDrop.Add();
                     }
                     decQueue.push_back(QItem{std::move(*f), now});
                 }
@@ -371,7 +362,7 @@ void DhClientHandle::Run() {
         if (reasm) {
             uint16_t nackIdx[64];
             uint32_t nackFrame = 0;
-            const size_t nn = reasm->PlanNack(now, minRttUs.load(std::memory_order_relaxed),
+            const size_t nn = reasm->PlanNack(now, diag.minRttUs.value(),
                 nackFrame, nackIdx);
             if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
         }
@@ -398,44 +389,28 @@ void DhClientHandle::Run() {
             session.SendFeedback(deskhub::MakeFeedback(w, session.lastRttUs()));
 
             if (negotiated && statsCb) {
-                char line[192];
-                std::snprintf(line, sizeof(line),
-                    "%.0f fps \xC2\xB7 %.1f Mbps \xC2\xB7 loss %.1f%% \xC2\xB7 RTT %.0f ms \xC2\xB7 e2e %.0f ms",
-                    w.fps, w.kbps / 1000.0, w.lossPct, session.lastRttUs() / 1000.0,
-                    e2e >= 0 ? e2e / 1000.0 : 0.0);
-                statsCb(line, user);
+                // Cùng phép dựng chuỗi với bốn viewer kia, chỉ khác dấu ngăn: ở đây
+                // là dấu chấm giữa (UTF-8) cho khớp thanh tiêu đề của cửa sổ.
+                char line[deskhub::diag::ClientDiag::kCompactBufBytes];
+                statsCb(deskhub::diag::ClientDiag::FormatCompact(line, sizeof(line), w,
+                            session.lastRttUs(), e2e, " \xC2\xB7 "),
+                    user);
             }
 
-            // Dòng trạng thái 1s, đối ứng [Client] của các client kia — đây là bản
-            // duy nhất đi vào file log (statsCb chỉ vẽ lên thanh trên của cửa sổ).
-            std::printf("[Client t=%s] %2.0f fps | %6.0f kbps | dropped %" PRIu64
-                        " frame | lost %4.1f%% pkts | fec+%" PRIu64
-                        " | RTT %.1f ms | e2e ~%.1f ms\n",
-                deskhubp::LocalTimeHms().c_str(), w.fps, w.kbps, w.framesDropped, w.lossPct, w.packetsRecovered,
-                session.lastRttUs() / 1000.0, e2e >= 0 ? e2e / 1000.0 : 0.0);
-
-            // Dòng chẩn đoán 1s (docs/09) — đọc-và-reset mọi bộ đếm cửa sổ.
-            {
-                const uint32_t dc = dgDecCount.exchange(0, std::memory_order_relaxed);
-                const uint32_t ds = dgDecMsSum.exchange(0, std::memory_order_relaxed);
-                const uint32_t dm = dgDecMsMax.exchange(0, std::memory_order_relaxed);
-                const uint32_t pc = dgPresentCount.exchange(0, std::memory_order_relaxed);
-                const uint32_t ps = dgPresentMsSum.exchange(0, std::memory_order_relaxed);
-                const uint32_t pm = dgPresentMsMax.exchange(0, std::memory_order_relaxed);
-                std::printf(
-                    "[DIAG] evt=sum asm_ms=%.1f/%u dec_ms=%.1f/%u present_ms=%.1f/%u"
-                    " dq_drop=%u late=%" PRIu64 " late_ms_avg=%.0f late_ms_max=%" PRIu64
-                    " gap_ms_max=%u loop_busy_ms_max=%u min_rtt_ms=%.1f e2e_ms=%.1f\n",
-                    dgAsmCount ? double(dgAsmMsSum) / dgAsmCount : 0.0, dgAsmMsMax,
-                    dc ? double(ds) / dc : 0.0, dm,
-                    pc ? double(ps) / pc : 0.0, pm,
-                    dgDqDrop, w.latePackets, w.lateMsAvg, w.lateMsMax,
-                    reasm ? reasm->TakeMaxGapMs() : 0, dgLoopBusyMaxMs,
-                    minRttUs.load(std::memory_order_relaxed) / 1000.0, e2e / 1000.0);
-                dgAsmMsSum = dgAsmMsMax = dgAsmCount = 0;
-                dgDqDrop = 0;
-                dgLoopBusyMaxMs = 0;
-            }
+            // Hai dòng log mỗi giây do core dựng (deskhub/diag/ClientDiag.h) — một
+            // bản dùng chung cho cả năm viewer. `hms` truyền từ đây vì core không
+            // đọc đồng hồ tường. In bằng printf: stdout ở đây đã được
+            // DiagLog::StartProcessLog đổi hướng thẳng vào file log.
+            //
+            // Dòng [Client] là bản DUY NHẤT đi vào file log (statsCb chỉ vẽ lên
+            // thanh trên của cửa sổ). Dòng evt=sum đọc-và-xoá mọi bộ đếm cửa sổ,
+            // nên gọi đúng một lần ở đây.
+            const std::string hms = deskhubp::LocalTimeHms();
+            char logLine[deskhub::diag::ClientDiag::kSumBufBytes];
+            std::printf("%s\n", deskhub::diag::ClientDiag::FormatStatus(logLine, sizeof(logLine),
+                                    hms.c_str(), w, session.lastRttUs(), e2e));
+            std::printf("%s\n", diag.FormatSum(logLine, sizeof(logLine), hms.c_str(), w,
+                                    reasm ? reasm->TakeMaxGapMs() : 0, e2e));
 
             stBytes = 0;
         }
@@ -443,7 +418,7 @@ void DhClientHandle::Run() {
         // Vòng này bận bao lâu (không tính lúc chờ recvfrom). Thread Recv nghẽn thì
         // buffer UDP của kernel gánh — tràn là mất gói THẬT, ngay tại máy này.
         const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        if (busyMs > dgLoopBusyMaxMs) dgLoopBusyMaxMs = busyMs;
+        diag.loopBusyMs.Add(busyMs);
         if (busyMs > 50) std::printf("[DIAG] evt=recv_stall busy_ms=%u\n", busyMs);
     }
 

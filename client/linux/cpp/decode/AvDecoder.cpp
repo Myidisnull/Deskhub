@@ -27,7 +27,7 @@ extern "C" {
 #include <libavutil/opt.h>
 }
 
-#include "Log.h"
+#include "deskhubp/Log.h"
 #include "render/VideoSink.h"
 
 namespace {
