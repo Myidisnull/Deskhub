@@ -1,4 +1,4 @@
-#import <CoreMedia/CoreMedia.h>
+﻿#import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 
@@ -7,9 +7,9 @@
 #include <atomic>
 #include <mutex>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhub/control/StreamSize.h"
-#include "deskhubp/Clock.h"
+#include "deskhubp/system/Clock.h"
 
 @class DeskhubStreamOutput;
 
@@ -131,14 +131,12 @@ SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool sca
 }
 
 deskhub::StreamSize ApplySizeLocked(ScreenCapture::Impl* impl) {
-    deskhub::StreamSize t =
+    const deskhub::StreamSize fitted =
         deskhub::FitStreamSize(impl->curW, impl->curH, impl->maxDim, impl->cliW, impl->cliH);
+    if (!fitted.width || !fitted.height) return {impl->cfgW, impl->cfgH};
+
+    const deskhub::StreamSize t = deskhub::ApplyQualityScale(fitted, impl->qualityPct);
     if (!t.width || !t.height) return {impl->cfgW, impl->cfgH};
-    if (impl->qualityPct < 100) {
-        t.width = (t.width * impl->qualityPct / 100u) & ~1u;
-        t.height = (t.height * impl->qualityPct / 100u) & ~1u;
-        if (!t.width || !t.height) return {impl->cfgW, impl->cfgH};
-    }
     if (t.width == impl->cfgW && t.height == impl->cfgH) return t;
 
     impl->cfgW = t.width;

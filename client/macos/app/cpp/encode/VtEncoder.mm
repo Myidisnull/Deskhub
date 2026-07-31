@@ -1,4 +1,4 @@
-#import <CoreMedia/CoreMedia.h>
+﻿#import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <VideoToolbox/VideoToolbox.h>
 
@@ -6,7 +6,7 @@
 
 #include <cstring>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 

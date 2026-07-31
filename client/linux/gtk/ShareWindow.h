@@ -9,11 +9,10 @@
 #include <vector>
 
 #include "AgentLoop.h"
-#include "capture/SourceEnum.h"
 
 class ShareWindow {
 public:
-    static void Open(const std::vector<ShareSource>& sources, const AgentOptions& opt,
+    static void Open(const std::vector<AgentSource>& sources, const AgentOptions& opt,
         std::function<void()> onClosed);
 
 private:
@@ -22,7 +21,7 @@ private:
     ShareWindow(const ShareWindow&) = delete;
     ShareWindow& operator=(const ShareWindow&) = delete;
 
-    void Build(const std::vector<ShareSource>& sources, const AgentOptions& opt);
+    void Build(const std::vector<AgentSource>& sources, const AgentOptions& opt);
     void Refresh();
     void RefreshList(const std::vector<AgentSourceStatus>& rows);
 

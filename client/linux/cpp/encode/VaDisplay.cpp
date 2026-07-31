@@ -1,4 +1,4 @@
-#include "encode/VaDisplay.h"
+﻿#include "encode/VaDisplay.h"
 
 #include <va/va_drm.h>
 
@@ -10,7 +10,7 @@
 #include <mutex>
 #include <vector>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 std::once_flag g_once;

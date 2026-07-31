@@ -18,6 +18,15 @@ SourcePipelineState* RouteDatagram(std::span<SourcePipelineState* const> live,
 
 bool AdoptPeer(SourcePipelineState& st, uint64_t packedAddr);
 
+struct AcceptedDatagram {
+    bool parsed = false;
+    SourcePipelineState* target = nullptr;
+    bool peerChanged = false;
+};
+
+AcceptedDatagram AcceptDatagram(std::span<SourcePipelineState* const> live,
+    std::span<const uint8_t> pkt, uint64_t packedFrom, uint64_t nowUs);
+
 struct OfferUpdate {
     bool sizeChanged = false;
     bool qualityChanged = false;
@@ -26,6 +35,8 @@ struct OfferUpdate {
 };
 
 OfferUpdate RefreshOffer(SourcePipelineState& st, uint8_t fallbackFps);
+
+StreamSize RetargetStream(SourcePipelineState& st, uint32_t maxDim);
 
 enum class FlushReason : uint8_t { None,
     ForceIdr,

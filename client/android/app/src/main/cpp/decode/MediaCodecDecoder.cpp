@@ -1,10 +1,10 @@
-#include "decode/MediaCodecDecoder.h"
+﻿#include "decode/MediaCodecDecoder.h"
 
 #include <media/NdkMediaFormat.h>
 
 #include <cstring>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 

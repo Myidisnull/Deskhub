@@ -1,4 +1,4 @@
-#include "decode/AvDecoder.h"
+﻿#include "decode/AvDecoder.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -7,7 +7,7 @@ extern "C" {
 #include <libavutil/opt.h>
 }
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 #include "render/VideoSink.h"
 
 namespace {

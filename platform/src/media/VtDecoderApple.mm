@@ -1,13 +1,13 @@
-#import <AVFoundation/AVFoundation.h>
+﻿#import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <VideoToolbox/VideoToolbox.h>
 
-#include "deskhubp/VtDecoder.h"
+#include "deskhubp/media/VtDecoder.h"
 
 #include <cstring>
 #include <vector>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 

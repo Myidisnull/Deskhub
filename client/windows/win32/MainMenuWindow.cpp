@@ -1,4 +1,4 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "MainMenuWindow.h"
 
@@ -12,11 +12,11 @@
 #include "SessionWindow.h"
 #include "SourcePickerDialog.h"
 #include "Viewer.h"
-#include "capture/DisplayFinder.h"
+#include "deskhubp/media/DisplayEnum.h"
 #include "net/Firewall.h"
-#include "deskhubp/NetInfo.h"
-#include "deskhubp/SourceQuery.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/NetInfo.h"
+#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "deskhub/protocol/Wire.h"
 
 namespace {
@@ -84,7 +84,7 @@ std::wstring FromUtf8(const std::string& s) {
 
 void DoShare(MenuState& st) {
     std::vector<AgentSource> sources;
-    for (const auto& d : ListDisplays()) {
+    for (const auto& d : deskhubp::ListDisplays()) {
         if (sources.size() >= deskhub::kMaxSources) {
             wchar_t msg[192];
             swprintf(msg, 192,

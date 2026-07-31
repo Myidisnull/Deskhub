@@ -43,7 +43,7 @@ add_executable(deskhub_app
 
     cpp/capture/PortalScreenCast.cpp
     cpp/capture/ScreenCapture.cpp
-    cpp/capture/SourceEnum.cpp
+    cpp/capture/DisplayEnumLinux.cpp
 
     cpp/encode/VaDisplay.cpp
     cpp/encode/VaEncoder.cpp

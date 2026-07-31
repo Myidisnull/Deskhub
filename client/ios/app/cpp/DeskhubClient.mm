@@ -1,10 +1,10 @@
-#import <AVFoundation/AVFoundation.h>
+﻿#import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
 
 #include "DeskhubClient.h"
 #include "ClientLoop.h"
-#include "deskhubp/SourceQuery.h"
-#include "deskhubp/Log.h"
+#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhub/media/ViewFit.h"
 
 #include <cstring>

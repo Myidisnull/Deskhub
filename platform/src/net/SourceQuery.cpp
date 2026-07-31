@@ -1,9 +1,9 @@
-#include "deskhubp/SourceQuery.h"
+﻿#include "deskhubp/net/SourceQuery.h"
 
 #include <cinttypes>
 
-#include "deskhubp/Clock.h"
-#include "deskhubp/Log.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 constexpr uint64_t kQueryTimeoutUs = 3'000'000;

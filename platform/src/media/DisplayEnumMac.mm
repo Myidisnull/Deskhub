@@ -1,11 +1,16 @@
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 
-#include "capture/SourceEnum.h"
+#include "deskhubp/media/DisplayEnum.h"
 
-#include "deskhubp/Log.h"
+#include <cstdio>
+#include <utility>
 
-std::vector<ShareSource> GetShareSources() {
-    std::vector<ShareSource> out;
+#include "deskhubp/diag/Log.h"
+
+namespace deskhubp {
+
+std::vector<deskhub::media::ShareSource> ListDisplays() {
+    std::vector<deskhub::media::ShareSource> out;
 
     __block SCShareableContent* content = nil;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -27,7 +32,7 @@ std::vector<ShareSource> GetShareSources() {
 
     int displayIndex = 1;
     for (SCDisplay* d in content.displays) {
-        ShareSource s;
+        deskhub::media::ShareSource s;
         s.targetId = uint64_t(d.displayID);
         s.width = uint32_t(d.width);
         s.height = uint32_t(d.height);
@@ -40,4 +45,12 @@ std::vector<ShareSource> GetShareSources() {
 
     LOGI("[Sources] %zu shareable display(s).", out.size());
     return out;
+}
+
+std::string ListDisplaysError() {
+    return {};
+}
+
+void ReleaseDisplays() {}
+
 }

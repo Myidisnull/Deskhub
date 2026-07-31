@@ -1,4 +1,4 @@
-#include "gtk/MainWindow.h"
+﻿#include "gtk/MainWindow.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -6,13 +6,13 @@
 #include <thread>
 #include <vector>
 
-#include "capture/SourceEnum.h"
+#include "deskhubp/media/DisplayEnum.h"
 #include "gtk/GtkUtil.h"
 #include "gtk/ShareWindow.h"
 #include "gtk/ViewerWindow.h"
-#include "deskhubp/NetInfo.h"
-#include "deskhubp/SourceQuery.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/NetInfo.h"
+#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/protocol/Wire.h"
 
@@ -280,8 +280,8 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     self->SetBusy(true, "Waiting for the screen-sharing dialog…");
 
     std::thread([self, opt, alive = self->alive_] {
-        std::vector<ShareSource> sources = GetShareSources();
-        const std::string err = sources.empty() ? ShareSourceError() : std::string();
+        std::vector<AgentSource> sources = deskhubp::ListDisplays();
+        const std::string err = sources.empty() ? deskhubp::ListDisplaysError() : std::string();
 
         RunOnMain([self, sources, opt, err, alive]() mutable {
             if (!alive->load()) return;

@@ -1,4 +1,4 @@
-#include "encode/VaEncoder.h"
+﻿#include "encode/VaEncoder.h"
 
 #include <va/va_drmcommon.h>
 
@@ -10,8 +10,8 @@
 #include <cmath>
 #include <cstring>
 
-#include "deskhubp/Log.h"
-#include "deskhubp/Clock.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
 #include "encode/VaDisplay.h"
 
 #include "deskhub/media/BitWriter.h"

@@ -9,15 +9,10 @@
 
 #include "capture/ScreenCapture.h"
 
-#include "deskhub/media/ShareSource.h"
-
-struct AgentOptions {
-    uint32_t fps = 60;
-    uint32_t bitrateMbps = 20;
-    uint32_t maxDim = 1920;
-};
+#include "deskhub/media/AgentTypes.h"
 
 using AgentSource = deskhub::media::ShareSource;
+using AgentOptions = deskhub::media::AgentOptions;
 
 struct AgentControl;
 

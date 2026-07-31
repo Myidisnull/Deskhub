@@ -24,6 +24,37 @@ bool AdoptPeer(SourcePipelineState& st, uint64_t packedAddr) {
     return true;
 }
 
+AcceptedDatagram AcceptDatagram(std::span<SourcePipelineState* const> live,
+    std::span<const uint8_t> pkt, uint64_t packedFrom, uint64_t nowUs) {
+    AcceptedDatagram out;
+
+    const auto header = ParseCommonHeader(pkt);
+    if (!header) return out;
+    out.parsed = true;
+
+    SourcePipelineState* dst = RouteDatagram(live, *header, pkt);
+    if (!dst || dst->failed.load(std::memory_order_acquire)) return out;
+    if (!dst->session || !dst->session->HandlePacket(pkt, nowUs)) return out;
+
+    out.target = dst;
+    out.peerChanged = AdoptPeer(*dst, packedFrom);
+    return out;
+}
+
+StreamSize RetargetStream(SourcePipelineState& st, uint32_t maxDim) {
+    const uint32_t nw = st.nativeW.load(std::memory_order_relaxed);
+    const uint32_t nh = st.nativeH.load(std::memory_order_relaxed);
+    if (!nw || !nh) return {};
+
+    const StreamSize t = ApplyQualityScale(FitStreamSize(nw, nh, maxDim, st.cliW, st.cliH),
+        st.step.scalePct);
+    if (!t.width || !t.height) return {};
+
+    st.wantW.store(t.width, std::memory_order_relaxed);
+    st.wantH.store(t.height, std::memory_order_relaxed);
+    return t;
+}
+
 OfferUpdate RefreshOffer(SourcePipelineState& st, uint8_t fallbackFps) {
     OfferUpdate out;
     out.sizeChanged = st.sizeChanged.exchange(false, std::memory_order_acq_rel);

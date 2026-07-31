@@ -1,10 +1,10 @@
-#ifndef WIN32_LEAN_AND_MEAN
+﻿#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include "deskhubp/NetInfo.h"
+#include "deskhubp/net/NetInfo.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>

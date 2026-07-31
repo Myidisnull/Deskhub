@@ -1,14 +1,14 @@
-#import <AppKit/AppKit.h>
+﻿#import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
 
 #include "input/InputInjector.h"
 
 #include <cmath>
 
-#include "deskhubp/Log.h"
-#include "deskhubp/LocalInput.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/input/LocalInput.h"
 #include "Permissions.h"
-#include "deskhubp/Clock.h"
+#include "deskhubp/system/Clock.h"
 #include "input/MacKeyMap.h"
 
 namespace {

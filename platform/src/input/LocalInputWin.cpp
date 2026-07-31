@@ -1,17 +1,17 @@
-#ifndef WIN32_LEAN_AND_MEAN
+﻿#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include "deskhubp/LocalInput.h"
+#include "deskhubp/input/LocalInput.h"
 
 #include <windows.h>
 
 #include <atomic>
 #include <thread>
 
-#include "deskhubp/Clock.h"
+#include "deskhubp/system/Clock.h"
 
 namespace {
 

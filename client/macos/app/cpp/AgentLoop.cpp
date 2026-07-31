@@ -1,4 +1,4 @@
-#include "AgentLoop.h"
+﻿#include "AgentLoop.h"
 
 #include <CoreVideo/CVPixelBuffer.h>
 
@@ -9,17 +9,17 @@
 #include <functional>
 #include <utility>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 #include "input/InputInjector.h"
-#include "deskhubp/LocalInput.h"
+#include "deskhubp/input/LocalInput.h"
 #include "Permissions.h"
 #include "capture/ScreenCapture.h"
 #include "encode/VtEncoder.h"
-#include "deskhubp/Clock.h"
-#include "deskhubp/LogFile.h"
-#include "deskhubp/Random.h"
-#include "deskhubp/NetInfo.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/LogFile.h"
+#include "deskhubp/system/Random.h"
+#include "deskhubp/net/NetInfo.h"
+#include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/control/BitrateController.h"
 #include "deskhub/control/QualityLadder.h"
@@ -508,18 +508,15 @@ void AgentLoop::Impl::RecvLoop() {
 
         if (n > 0) {
             const auto span = std::span<const uint8_t>(buf, size_t(n));
-            const auto h = deskhub::ParseCommonHeader(span);
             if (const size_t rn = beacon.Reply(beaconBuf, span); rn) {
                 sock.SendTo(from, beaconBuf, rn);
-            } else if (h) {
-                replyAddr = from;
-                SourcePipeline* dst = static_cast<SourcePipeline*>(
-                    deskhub::RouteDatagram(liveStates, *h, span));
-                if (dst && !dst->failed.load() && dst->session->HandlePacket(span, now)) {
-                    if (deskhub::AdoptPeer(*dst, from.Pack()))
-                        LOGI("[Agent][%s] Peer: %s", dst->name.c_str(),
-                            from.ToString().c_str());
-                }
+            } else {
+                const deskhub::AcceptedDatagram acc =
+                    deskhub::AcceptDatagram(liveStates, span, from.Pack(), now);
+                if (acc.parsed) replyAddr = from;
+                if (acc.peerChanged)
+                    LOGI("[Agent][%s] Peer: %s", acc.target->name.c_str(),
+                        from.ToString().c_str());
             }
         }
 

@@ -1,4 +1,4 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "decode/PanelRenderer.h"
 
@@ -10,7 +10,7 @@
 #include <mutex>
 #include <utility>
 
-#include "deskhubp/Clock.h"
+#include "deskhubp/system/Clock.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")

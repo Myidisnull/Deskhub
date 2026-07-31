@@ -39,4 +39,10 @@ StreamSize FitStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t
     return {w, h};
 }
 
+StreamSize ApplyQualityScale(StreamSize base, uint32_t scalePct) {
+    const uint32_t pct = scalePct ? (scalePct > 100 ? 100 : scalePct) : 100;
+    if (pct == 100) return base;
+    return {(base.width * pct / 100u) & ~1u, (base.height * pct / 100u) & ~1u};
+}
+
 }

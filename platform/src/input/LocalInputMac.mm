@@ -1,11 +1,11 @@
-#import <AppKit/AppKit.h>
+﻿#import <AppKit/AppKit.h>
 
-#include "deskhubp/LocalInput.h"
+#include "deskhubp/input/LocalInput.h"
 
 #include <atomic>
 
-#include "deskhubp/Clock.h"
-#include "deskhubp/Log.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/Log.h"
 
 struct LocalInputMonitor::Impl {
     std::atomic<uint64_t> lastUs{0};

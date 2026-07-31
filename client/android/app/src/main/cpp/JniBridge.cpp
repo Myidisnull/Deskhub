@@ -1,4 +1,4 @@
-#include <android/native_window_jni.h>
+﻿#include <android/native_window_jni.h>
 #include <jni.h>
 
 #include <cstdio>
@@ -9,9 +9,9 @@
 #include "ClientLoop.h"
 
 #include "deskhub/media/ViewFit.h"
-#include "deskhubp/Log.h"
-#include "deskhubp/SourceQuery.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/net/UdpSocket.h"
 
 namespace {
 

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <android/native_window.h>
 
 #include <atomic>
@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "decode/MediaCodecDecoder.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/diag/ClientDiag.h"

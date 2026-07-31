@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/control/StreamSize.h"
+#include "deskhub/session/HostRouter.h"
 
 #include <cmath>
 #include <cstdio>
@@ -83,6 +84,50 @@ void TestLegacyClientAndGarbage() {
         "absurd client size falls back to native");
 }
 
+void TestQualityScale() {
+    std::printf("[size] a quality rung shrinks the fitted size and keeps it even...\n");
+    Check(ApplyQualityScale({1920, 1080}, 100) == StreamSize{1920, 1080},
+        "the top rung changes nothing");
+    Check(ApplyQualityScale({1920, 1080}, 0) == StreamSize{1920, 1080},
+        "an unset percentage means full size, not zero");
+    Check(ApplyQualityScale({1920, 1080}, 150) == StreamSize{1920, 1080},
+        "a percentage over 100 never upscales");
+
+    const StreamSize s = ApplyQualityScale({1920, 1080}, 75);
+    Check(s == StreamSize{1440, 810}, "75% of 1920x1080");
+    Check((s.width & 1u) == 0 && (s.height & 1u) == 0, "both edges stay even");
+
+    Check(ApplyQualityScale({1918, 1078}, 75) == StreamSize{1438, 808},
+        "odd results are rounded down to even, never up");
+    Check(ApplyQualityScale({2, 2}, 25) == StreamSize{0, 0},
+        "scaling below one pixel yields an empty size for the caller to reject");
+}
+
+void TestRetargetStream() {
+    std::printf("[size] retargeting a source publishes the size the encoder should use...\n");
+    SourcePipelineState st(20'000'000, 1'000'000);
+
+    Check(RetargetStream(st, 1920) == StreamSize{}, "no captured frame yet -> nothing to target");
+    Check(st.wantW.load() == 0 && st.wantH.load() == 0, "and nothing is published");
+
+    st.nativeW.store(3840);
+    st.nativeH.store(2160);
+    Check(RetargetStream(st, 1920) == StreamSize{1920, 1080}, "the user cap bounds the source");
+    Check(st.wantW.load() == 1920 && st.wantH.load() == 1080, "the result is published");
+
+    st.cliW = 1280;
+    st.cliH = 720;
+    Check(RetargetStream(st, 1920) == StreamSize{1280, 720}, "a smaller client wins over the cap");
+
+    st.step.scalePct = 50;
+    Check(RetargetStream(st, 1920) == StreamSize{640, 360}, "the quality rung applies on top");
+    Check(st.wantW.load() == 640 && st.wantH.load() == 360, "the scaled result is published");
+
+    st.nativeW.store(0);
+    Check(RetargetStream(st, 1920) == StreamSize{}, "losing the source reports empty");
+    Check(st.wantW.load() == 640, "but the last good size is left alone for the encoder");
+}
+
 }
 
 void RunStreamSizeTests() {
@@ -92,4 +137,6 @@ void RunStreamSizeTests() {
     TestClientCapPhone();
     TestClientCapTabletLosesToUserCap();
     TestLegacyClientAndGarbage();
+    TestQualityScale();
+    TestRetargetStream();
 }

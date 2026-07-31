@@ -1,15 +1,19 @@
-#include "capture/SourceEnum.h"
+#include "deskhubp/media/DisplayEnum.h"
+
+#include <utility>
 
 #include "capture/PortalScreenCast.h"
 
-std::vector<ShareSource> GetShareSources() {
-    std::vector<ShareSource> out;
+namespace deskhubp {
+
+std::vector<deskhub::media::ShareSource> ListDisplays() {
+    std::vector<deskhub::media::ShareSource> out;
 
     PortalScreenCast& portal = PortalScreenCast::Instance();
     if (!portal.Open()) return out;
 
     for (const PortalStream& s : portal.streams()) {
-        ShareSource ss;
+        deskhub::media::ShareSource ss;
         ss.targetId = s.nodeId;
         ss.name = s.name;
         ss.x = s.x;
@@ -21,10 +25,12 @@ std::vector<ShareSource> GetShareSources() {
     return out;
 }
 
-std::string ShareSourceError() {
+std::string ListDisplaysError() {
     return PortalScreenCast::Instance().lastError();
 }
 
-void ReleaseShareSources() {
+void ReleaseDisplays() {
     PortalScreenCast::Instance().Close();
+}
+
 }

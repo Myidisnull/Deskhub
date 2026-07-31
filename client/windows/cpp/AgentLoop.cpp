@@ -1,4 +1,4 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _CRT_SECURE_NO_WARNINGS
 #include "AgentLoop.h"
@@ -18,13 +18,13 @@
 #include "ElevatedShare.h"
 #include "net/Firewall.h"
 #include "input/InputInjector.h"
-#include "deskhubp/LocalInput.h"
+#include "deskhubp/input/LocalInput.h"
 #include "encode/IVideoEncoder.h"
-#include "deskhubp/NetInfo.h"
-#include "deskhubp/Clock.h"
-#include "deskhubp/LogFile.h"
-#include "deskhubp/Random.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/NetInfo.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/LogFile.h"
+#include "deskhubp/system/Random.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "capture/Downscaler.h"
 #include "capture/ScreenCapture.h"
 #include "AgentControl.h"
@@ -75,13 +75,9 @@ struct SourcePipeline : deskhub::SourcePipelineState {
     InputInjector injector;
 
     std::atomic<uint32_t> srcTexW{0}, srcTexH{0};
-    std::atomic<uint32_t> nativeW{0}, nativeH{0};
-    std::atomic<uint32_t> wantW{0}, wantH{0};
     std::atomic<uint64_t> lastEncodeUs{0};
 
     Downscaler scaler;
-
-    uint32_t cliW = 0, cliH = 0;
 
     std::atomic<uint32_t> uiFps{0}, uiKbps{0};
 
@@ -415,22 +411,7 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
         cb.randomBytes = [](std::span<uint8_t> out) {
             return RandomBytes(out.data(), out.size());
         };
-        auto retarget = [p, &opt]() -> deskhub::StreamSize {
-            const uint32_t nw = p->nativeW.load(std::memory_order_relaxed);
-            const uint32_t nh = p->nativeH.load(std::memory_order_relaxed);
-            if (!nw || !nh) return {0, 0};
-            deskhub::StreamSize t =
-                deskhub::FitStreamSize(nw, nh, opt.maxDim, p->cliW, p->cliH);
-            const uint32_t pct = p->step.scalePct ? p->step.scalePct : 100;
-            if (pct < 100) {
-                t.width = (t.width * pct / 100u) & ~1u;
-                t.height = (t.height * pct / 100u) & ~1u;
-            }
-            if (!t.width || !t.height) return {0, 0};
-            p->wantW.store(t.width, std::memory_order_relaxed);
-            p->wantH.store(t.height, std::memory_order_relaxed);
-            return t;
-        };
+        auto retarget = [p, &opt] { return deskhub::RetargetStream(*p, opt.maxDim); };
 
         cb.onHello = [p, &opt, retarget](const deskhub::Hello& h) {
             deskhub::NegotiationHooks hooks;
@@ -580,18 +561,15 @@ int RunAgent(std::span<const AgentSource> sources, const AgentOptions& opt, Agen
 
         if (n > 0) {
             const auto span = std::span<const uint8_t>(buf, size_t(n));
-            const auto h = deskhub::ParseCommonHeader(span);
             if (const size_t rn = beacon.Reply(beaconBuf, span); rn) {
                 sock.SendTo(from, beaconBuf, rn);
-            } else if (h) {
-                replyAddr = from;
-                SourcePipeline* dst = static_cast<SourcePipeline*>(
-                    deskhub::RouteDatagram(liveStates, *h, span));
-                if (dst && !dst->failed.load() && dst->session->HandlePacket(span, now)) {
-                    if (deskhub::AdoptPeer(*dst, from.Pack()))
-                        std::printf("[Agent][%s] Peer: %s\n", dst->name.c_str(),
-                            from.ToString().c_str());
-                }
+            } else {
+                const deskhub::AcceptedDatagram acc =
+                    deskhub::AcceptDatagram(liveStates, span, from.Pack(), now);
+                if (acc.parsed) replyAddr = from;
+                if (acc.peerChanged)
+                    std::printf("[Agent][%s] Peer: %s\n", acc.target->name.c_str(),
+                        from.ToString().c_str());
             }
         }
 

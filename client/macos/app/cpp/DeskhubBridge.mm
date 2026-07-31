@@ -1,4 +1,4 @@
-#import <AVFoundation/AVFoundation.h>
+﻿#import <AVFoundation/AVFoundation.h>
 
 #include "DeskhubBridge.h"
 #include "deskhub/media/ViewFit.h"
@@ -9,14 +9,14 @@
 #include <string>
 #include <vector>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 #include "AgentLoop.h"
 #include "Permissions.h"
-#include "capture/SourceEnum.h"
+#include "deskhubp/media/DisplayEnum.h"
 #include "ClientLoop.h"
 #include "input/MacKeyMap.h"
-#include "deskhubp/NetInfo.h"
-#include "deskhubp/SourceQuery.h"
+#include "deskhubp/net/NetInfo.h"
+#include "deskhubp/net/SourceQuery.h"
 
 struct DHSession {
     ClientLoop loop;
@@ -177,7 +177,7 @@ void dh_open_accessibility_settings(void) {
 
 int dha_list_share_sources(DHShareSource* out, int capacity) {
     if (!out || capacity <= 0) return 0;
-    const std::vector<ShareSource> src = GetShareSources();
+    const std::vector<deskhub::media::ShareSource> src = deskhubp::ListDisplays();
     const int count = int(src.size()) < capacity ? int(src.size()) : capacity;
     for (int i = 0; i < count; ++i) {
         out[i].id = uint32_t(src[i].targetId);

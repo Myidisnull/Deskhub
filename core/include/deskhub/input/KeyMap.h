@@ -1,14 +1,10 @@
 #pragma once
+#include "deskhub/input/VirtualKeys.h"
+
 #include <cstdint>
 #include <optional>
 
 namespace deskhub {
-
-inline constexpr int32_t kVkBack = 0x08;
-inline constexpr int32_t kVkTab = 0x09;
-inline constexpr int32_t kVkReturn = 0x0D;
-inline constexpr int32_t kVkShift = 0x10;
-inline constexpr int32_t kVkSpace = 0x20;
 
 struct KeyChord {
     int32_t vk = 0;
@@ -38,28 +34,28 @@ inline std::optional<KeyChord> CharToKeyChord(uint32_t cp) {
         case '(': return KeyChord{'9', true};
         case ')': return KeyChord{'0', true};
 
-        case ';': return KeyChord{0xBA, false};
-        case ':': return KeyChord{0xBA, true};
-        case '=': return KeyChord{0xBB, false};
-        case '+': return KeyChord{0xBB, true};
-        case ',': return KeyChord{0xBC, false};
-        case '<': return KeyChord{0xBC, true};
-        case '-': return KeyChord{0xBD, false};
-        case '_': return KeyChord{0xBD, true};
-        case '.': return KeyChord{0xBE, false};
-        case '>': return KeyChord{0xBE, true};
-        case '/': return KeyChord{0xBF, false};
-        case '?': return KeyChord{0xBF, true};
-        case '`': return KeyChord{0xC0, false};
-        case '~': return KeyChord{0xC0, true};
-        case '[': return KeyChord{0xDB, false};
-        case '{': return KeyChord{0xDB, true};
-        case '\\': return KeyChord{0xDC, false};
-        case '|': return KeyChord{0xDC, true};
-        case ']': return KeyChord{0xDD, false};
-        case '}': return KeyChord{0xDD, true};
-        case '\'': return KeyChord{0xDE, false};
-        case '"': return KeyChord{0xDE, true};
+        case ';': return KeyChord{kVkOem1, false};
+        case ':': return KeyChord{kVkOem1, true};
+        case '=': return KeyChord{kVkOemPlus, false};
+        case '+': return KeyChord{kVkOemPlus, true};
+        case ',': return KeyChord{kVkOemComma, false};
+        case '<': return KeyChord{kVkOemComma, true};
+        case '-': return KeyChord{kVkOemMinus, false};
+        case '_': return KeyChord{kVkOemMinus, true};
+        case '.': return KeyChord{kVkOemPeriod, false};
+        case '>': return KeyChord{kVkOemPeriod, true};
+        case '/': return KeyChord{kVkOem2, false};
+        case '?': return KeyChord{kVkOem2, true};
+        case '`': return KeyChord{kVkOem3, false};
+        case '~': return KeyChord{kVkOem3, true};
+        case '[': return KeyChord{kVkOem4, false};
+        case '{': return KeyChord{kVkOem4, true};
+        case '\\': return KeyChord{kVkOem5, false};
+        case '|': return KeyChord{kVkOem5, true};
+        case ']': return KeyChord{kVkOem6, false};
+        case '}': return KeyChord{kVkOem6, true};
+        case '\'': return KeyChord{kVkOem7, false};
+        case '"': return KeyChord{kVkOem7, true};
         default: return std::nullopt;
     }
 }

@@ -9,7 +9,6 @@ add_library(deskhub_win_core STATIC
 
     capture/ScreenCapture.cpp
     capture/Downscaler.cpp
-    capture/DisplayFinder.cpp
     capture/GpuSelect.cpp
 
     encode/MfEncoder.cpp

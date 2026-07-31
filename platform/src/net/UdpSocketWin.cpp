@@ -1,11 +1,11 @@
-#include "deskhubp/UdpSocket.h"
+﻿#include "deskhubp/net/UdpSocket.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include <cstdio>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 #pragma comment(lib, "ws2_32.lib")
 

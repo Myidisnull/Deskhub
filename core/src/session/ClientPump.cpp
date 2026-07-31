@@ -153,7 +153,8 @@ void ClientPump::Report(uint64_t nowUs) {
     }
 
     char compact[diag::ClientDiag::kCompactBufBytes];
-    diag::ClientDiag::FormatCompact(compact, sizeof(compact), w, session_.lastRttUs(), e2e);
+    diag::ClientDiag::FormatCompact(compact, sizeof(compact), w, session_.lastRttUs(), e2e,
+        cfg_.statusSeparator ? cfg_.statusSeparator : "  ");
     if (cb_.onStatus) cb_.onStatus(compact);
 
     session_.SendFeedback(MakeFeedback(w, session_.lastRttUs()));

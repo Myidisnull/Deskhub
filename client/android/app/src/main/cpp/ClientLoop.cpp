@@ -1,15 +1,14 @@
-#include "ClientLoop.h"
-
-#include <unistd.h>
+﻿#include "ClientLoop.h"
 
 #include <chrono>
 #include <cinttypes>
 #include <cstdio>
 #include <memory>
 
-#include "deskhubp/Log.h"
-#include "deskhubp/Clock.h"
-#include "deskhubp/LogFile.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/net/ClientNetLoop.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/LogFile.h"
 
 #include "deskhub/input/KeyMap.h"
 #include "deskhub/session/ClientPump.h"
@@ -233,7 +232,7 @@ void ClientLoop::NetThread() {
     deskhub::ClientPump pump(std::move(cb), diag_);
 
     deskhub::ClientPumpConfig pcfg;
-    pcfg.clientId = uint32_t(NowUs()) ^ uint32_t(getpid()) ^ (uint32_t(sourceId_) << 24);
+    pcfg.clientId = deskhubp::MakeClientId(sourceId_);
     pcfg.maxWidth = uint16_t(screenW_);
     pcfg.maxHeight = uint16_t(screenH_);
     pcfg.sourceId = sourceId_;
@@ -242,44 +241,35 @@ void ClientLoop::NetThread() {
     pcfg.logLossRuns = true;
     pump.Start(pcfg, NowUs());
 
-    uint8_t buf[deskhub::kMaxDatagram];
     std::vector<deskhub::InputEvent> inputBatch;
 
-    while (!quit_.load()) {
-        NetAddr from;
-        const int n = sock_.RecvFrom(buf, sizeof(buf), from);
-        const uint64_t now = NowUs();
-        if (n < 0) {
-            LOGE("[Client] Socket error.");
-            std::lock_guard<std::mutex> lk(textMutex_);
-            endReason_ = "socket error";
-            break;
-        }
-        if (n > 0) pump.OnDatagram(std::span<const uint8_t>(buf, size_t(n)), now);
-
-        pump.PollFrames(now);
+    deskhubp::ClientNetLoopHooks hooks;
+    hooks.stopped = [this] { return quit_.load(); };
+    hooks.afterFrames = [this](deskhub::ClientPump& p, uint64_t now) {
         if (decodeFailed_.exchange(false, std::memory_order_acq_rel))
-            pump.RequestKeyframe("dec_fail", now);
+            p.RequestKeyframe("dec_fail", now);
         if (displayCongested_.exchange(false, std::memory_order_acq_rel))
-            pump.RequestKeyframe("display_congested", now);
+            p.RequestKeyframe("display_congested", now);
         if (queueOverflow_.exchange(false, std::memory_order_acq_rel))
-            pump.RequestKeyframe("q_overflow", now);
-
-        pump.PlanNacks(now);
-
+            p.RequestKeyframe("q_overflow", now);
+    };
+    hooks.beforeTick = [this, &inputBatch](deskhub::ClientPump& p, uint64_t now) {
         input_.Drain(now, inputBatch);
-        for (const auto& e : inputBatch) pump.QueueInput(e);
-        if (input_.wantsFocus()) pump.SetFocused(true);
-
-        if (!pump.Tick(now)) break;
-
-        phase_.store(pump.streaming() ? Phase::Streaming : Phase::Connecting,
+        for (const auto& e : inputBatch) p.QueueInput(e);
+        if (input_.wantsFocus()) p.SetFocused(true);
+    };
+    hooks.onPhase = [this](bool streaming) {
+        phase_.store(streaming ? Phase::Streaming : Phase::Connecting,
             std::memory_order_release);
+    };
+    hooks.onSocketError = [this] {
+        LOGE("[Client] Socket error.");
+        std::lock_guard<std::mutex> lk(textMutex_);
+        endReason_ = "socket error";
+    };
 
-        pump.CountLoopBusy(now, NowUs());
-    }
+    deskhubp::RunClientNetLoop(sock_, pump, hooks);
 
-    pump.SendBye();
     quit_.store(true);
     decCv_.notify_all();
     {

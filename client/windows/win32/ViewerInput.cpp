@@ -1,6 +1,7 @@
 #include "ViewerInput.h"
 
 #include "deskhub/media/ViewFit.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <windowsx.h>
 #include <cstdio>
@@ -13,7 +14,7 @@ constexpr USHORT kUsagePageGeneric = 0x01;
 constexpr USHORT kUsageMouse = 0x02;
 constexpr USHORT kUsageKeyboard = 0x06;
 constexpr int kToggleRelativeKey = VK_F9;
-constexpr int kScanExtended = 0x100;
+using deskhub::kScanExtended;
 
 int32_t Normalize(int v, uint32_t extent) {
     return deskhub::NormalizeAxis(double(v), double(extent));

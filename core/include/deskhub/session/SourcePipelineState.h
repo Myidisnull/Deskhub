@@ -35,6 +35,10 @@ struct SourcePipelineState {
     std::atomic<uint32_t> curFps{0};
     std::atomic<uint32_t> curBitrateBps{0};
 
+    std::atomic<uint32_t> nativeW{0}, nativeH{0};
+    std::atomic<uint32_t> wantW{0}, wantH{0};
+    uint32_t cliW = 0, cliH = 0;
+
     std::atomic<bool> sizeChanged{false};
     std::atomic<bool> qualityChanged{false};
     std::atomic<bool> wantFec{false};

@@ -1,9 +1,11 @@
 #include "input/MacKeyMap.h"
 
+#include "deskhub/protocol/Wire.h"
+
 namespace mackeys {
 namespace {
 
-constexpr int32_t kE0 = 0x100;
+constexpr int32_t kE0 = deskhub::kScanExtended;
 
 // clang-format off
 constexpr KeyEntry kTable[] = {

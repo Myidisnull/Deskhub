@@ -1,4 +1,4 @@
-#include "gtk/ViewerWindow.h"
+﻿#include "gtk/ViewerWindow.h"
 
 #include <gdk/gdkkeysyms.h>
 
@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <utility>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 #include "gtk/GtkUtil.h"
 #include "input/LinuxKeyMap.h"
 

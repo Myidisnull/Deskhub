@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <gtk/gtk.h>
 
 #include <functional>
@@ -6,7 +6,7 @@
 #include <string>
 
 #include "ClientLoop.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "render/VideoRenderer.h"
 
 class ViewerWindow {

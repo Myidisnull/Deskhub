@@ -1,19 +1,11 @@
 #pragma once
 #include "deskhub/input/KeyMap.h"
+#include "deskhub/input/VirtualKeys.h"
 
 #include <cstdint>
 #include <span>
 
 namespace deskhub {
-
-inline constexpr int32_t kVkControl = 0x11;
-inline constexpr int32_t kVkMenu = 0x12;
-inline constexpr int32_t kVkLShift = 0xA0;
-inline constexpr int32_t kVkRShift = 0xA1;
-inline constexpr int32_t kVkLControl = 0xA2;
-inline constexpr int32_t kVkRControl = 0xA3;
-inline constexpr int32_t kVkLMenu = 0xA4;
-inline constexpr int32_t kVkRMenu = 0xA5;
 
 constexpr int32_t PreferLeftModifier(int32_t vk) {
     switch (vk) {

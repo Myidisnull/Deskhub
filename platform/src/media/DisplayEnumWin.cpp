@@ -1,12 +1,18 @@
-#include "capture/DisplayFinder.h"
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
+#include "deskhubp/media/DisplayEnum.h"
 
 #include <algorithm>
 #include <string>
 #include <utility>
 
-using deskhub::media::ShareSource;
+namespace deskhubp {
 
 namespace {
+
+using deskhub::media::ShareSource;
 
 struct Candidate {
     bool primary = false;
@@ -35,7 +41,7 @@ BOOL CALLBACK EnumProc(HMONITOR mon, HDC, LPRECT, LPARAM lparam) {
 
 }
 
-std::vector<ShareSource> ListDisplays() {
+std::vector<deskhub::media::ShareSource> ListDisplays() {
     std::vector<Candidate> found;
     EnumDisplayMonitors(nullptr, nullptr, EnumProc, reinterpret_cast<LPARAM>(&found));
     std::stable_partition(found.begin(), found.end(),
@@ -45,4 +51,12 @@ std::vector<ShareSource> ListDisplays() {
     out.reserve(found.size());
     for (Candidate& c : found) out.push_back(std::move(c.source));
     return out;
+}
+
+std::string ListDisplaysError() {
+    return {};
+}
+
+void ReleaseDisplays() {}
+
 }

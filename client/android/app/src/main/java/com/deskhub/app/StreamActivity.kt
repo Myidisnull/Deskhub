@@ -271,21 +271,20 @@ private fun StreamScreen(
         panDelta: Offset,
     ) {
         if (viewport.width <= 0 || viewport.height <= 0) return
-        val newZoom = (zoom * factor).coerceIn(1f, MAX_ZOOM)
-        val ratio = newZoom / zoom
-        val anchored =
-            if (ratio == 1f) {
-                pan
-            } else {
-                Offset(
-                    (centroid.x - viewport.width / 2f) * (1f - ratio) + pan.x * ratio,
-                    (centroid.y - viewport.height / 2f) * (1f - ratio) + pan.y * ratio,
-                )
-            }
-        val next = anchored + panDelta
-        zoom = newZoom
-        val rect = videoFrame(viewport, aspect, newZoom, next)
-        pan = Offset(rect.center.x - viewport.width / 2f, rect.center.y - viewport.height / 2f)
+        val next =
+            NativeClient.applyGesture(
+                NativeClient.Transform(zoom, pan.x, pan.y),
+                factor,
+                centroid.x,
+                centroid.y,
+                panDelta.x,
+                panDelta.y,
+                viewport.width.toFloat(),
+                viewport.height.toFloat(),
+                aspect ?: 0f,
+            )
+        zoom = next.zoom
+        pan = Offset(next.panX, next.panY)
     }
 
     val onTransform by rememberUpdatedState(
@@ -799,8 +798,6 @@ private fun CursorArrow(modifier: Modifier) {
         drawPath(p, Color.Black, style = Stroke(width = 1.dp.toPx()))
     }
 }
-
-private const val MAX_ZOOM = 5f
 
 private fun videoFrame(
     viewport: IntSize,

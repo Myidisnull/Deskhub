@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -8,8 +8,8 @@
 #include <thread>
 #include <vector>
 
-#include "deskhubp/VtDecoder.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/media/VtDecoder.h"
+#include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/diag/ClientDiag.h"

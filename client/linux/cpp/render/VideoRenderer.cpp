@@ -1,4 +1,4 @@
-#include "render/VideoRenderer.h"
+﻿#include "render/VideoRenderer.h"
 
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
@@ -15,7 +15,7 @@ extern "C" {
 #include <cstring>
 #include <string>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 

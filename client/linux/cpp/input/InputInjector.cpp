@@ -1,4 +1,4 @@
-#include "input/InputInjector.h"
+﻿#include "input/InputInjector.h"
 
 #include <linux/uinput.h>
 
@@ -11,10 +11,10 @@
 #include <cstring>
 #include <thread>
 
-#include "deskhubp/Log.h"
-#include "deskhubp/Clock.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
 #include "input/LinuxKeyMap.h"
-#include "deskhubp/LocalInput.h"
+#include "deskhubp/input/LocalInput.h"
 
 namespace {
 

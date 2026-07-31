@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #if defined(__ANDROID__)
 
@@ -28,7 +28,7 @@
 #include <TargetConditionals.h>
 #endif
 
-#include "deskhubp/LogFile.h"
+#include "deskhubp/diag/LogFile.h"
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 #include <cstdio>

@@ -1,11 +1,11 @@
-#include "gtk/ShareWindow.h"
+﻿#include "gtk/ShareWindow.h"
 
 #include <cstdio>
 #include <utility>
 
-#include "capture/SourceEnum.h"
+#include "deskhubp/media/DisplayEnum.h"
 #include "gtk/GtkUtil.h"
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/UdpSocket.h"
 
 namespace {
 
@@ -67,7 +67,7 @@ GtkWidget* MakeRow(const char* text, const char* tooltip) {
 
 }
 
-void ShareWindow::Open(const std::vector<ShareSource>& sources, const AgentOptions& opt,
+void ShareWindow::Open(const std::vector<AgentSource>& sources, const AgentOptions& opt,
     std::function<void()> onClosed) {
     auto* s = new ShareWindow();
     s->onClosed_ = std::move(onClosed);
@@ -78,10 +78,10 @@ ShareWindow::~ShareWindow() {
     if (timer_) g_source_remove(timer_);
     if (starter_.joinable()) starter_.join();
     agent_.Stop();
-    ReleaseShareSources();
+    deskhubp::ReleaseDisplays();
 }
 
-void ShareWindow::Build(const std::vector<ShareSource>& sources, const AgentOptions& optIn) {
+void ShareWindow::Build(const std::vector<AgentSource>& sources, const AgentOptions& optIn) {
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window_), "Deskhub - sharing");
     gtk_window_set_default_size(GTK_WINDOW(window_), kWinW, kWinH);

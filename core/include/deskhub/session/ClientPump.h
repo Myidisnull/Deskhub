@@ -25,6 +25,7 @@ struct ClientPumpConfig {
     uint8_t desiredFps = kDefaultClientFps;
     bool sendNacks = false;
     bool logLossRuns = false;
+    const char* statusSeparator = "  ";
 };
 
 struct ClientPumpCallbacks {

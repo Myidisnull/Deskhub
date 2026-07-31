@@ -1,4 +1,4 @@
-#include "capture/PortalScreenCast.h"
+﻿#include "capture/PortalScreenCast.h"
 
 #include <gio/gio.h>
 #include <gio/gunixfdlist.h>
@@ -8,7 +8,7 @@
 #include <atomic>
 #include <cstdio>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 

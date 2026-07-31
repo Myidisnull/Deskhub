@@ -1,4 +1,4 @@
-#include "capture/ScreenCapture.h"
+﻿#include "capture/ScreenCapture.h"
 
 #include "capture/PortalScreenCast.h"
 
@@ -18,8 +18,8 @@
 #include <mutex>
 #include <vector>
 
-#include "deskhubp/Log.h"
-#include "deskhubp/Clock.h"
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
 
 namespace {
 

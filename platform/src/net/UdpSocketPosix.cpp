@@ -1,4 +1,4 @@
-#include "deskhubp/UdpSocket.h"
+﻿#include "deskhubp/net/UdpSocket.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -9,7 +9,7 @@
 #include <cerrno>
 #include <cstdio>
 
-#include "deskhubp/Log.h"
+#include "deskhubp/diag/Log.h"
 
 std::string NetAddr::ToString() const {
     char b[32];

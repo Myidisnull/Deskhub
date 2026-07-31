@@ -106,6 +106,41 @@ void TestAdoptPeerReportsOnlyChanges() {
     Check(p->peerPacked.load() == 0xC0A80002'0000ULL, "and the state follows");
 }
 
+void TestAcceptDatagramDoesTheWholeIntake() {
+    std::printf("[router] one call parses, routes, feeds the session and adopts the peer...\n");
+    constexpr uint64_t kPeer = 0xC0A80005'0000ULL;
+    auto a = MakePipe(0), b = MakePipe(1);
+    GiveSession(*a);
+    GiveSession(*b);
+    SourcePipelineState* live[] = {a.get(), b.get()};
+
+    const Datagram hello = BuildHelloFor(1);
+    AcceptedDatagram acc = AcceptDatagram(live, hello, kPeer, kT0);
+    Check(acc.parsed, "the datagram parsed");
+    Check(acc.target == b.get(), "it reached the source it named");
+    Check(acc.peerChanged, "the first peer is adopted");
+    Check(b->peerPacked.load() == kPeer, "and recorded on the pipeline");
+    Check(a->peerPacked.load() == 0, "the other source is untouched");
+
+    acc = AcceptDatagram(live, hello, kPeer, kT0);
+    Check(acc.target == b.get(), "a repeat still routes");
+    Check(!acc.peerChanged, "but the peer is not re-announced");
+
+    const Datagram absent = BuildHelloFor(9);
+    acc = AcceptDatagram(live, absent, kPeer, kT0);
+    Check(acc.parsed, "a HELLO for an unknown source still parses");
+    Check(acc.target == nullptr && !acc.peerChanged, "but routes nowhere");
+
+    const Datagram runt(3, 0);
+    acc = AcceptDatagram(live, runt, kPeer, kT0);
+    Check(!acc.parsed && acc.target == nullptr, "a runt is rejected before anything else");
+
+    b->failed.store(true);
+    acc = AcceptDatagram(live, hello, 0xDEAD'0000ULL, kT0);
+    Check(acc.parsed && acc.target == nullptr, "a failed source accepts nothing");
+    Check(b->peerPacked.load() == kPeer, "and keeps the peer it had");
+}
+
 void TestOfferRefreshNeedsAReason() {
     std::printf("[router] nothing is re-offered unless size or quality actually changed...\n");
     auto p = MakePipe(0);
@@ -286,6 +321,7 @@ void RunHostRouterTests() {
     TestHelloRoutesBySourceId();
     TestSessionTrafficRoutesBySessionId();
     TestAdoptPeerReportsOnlyChanges();
+    TestAcceptDatagramDoesTheWholeIntake();
     TestOfferRefreshNeedsAReason();
     TestPausedSourceStillClearsItsFlags();
     TestReconfigOnlyWithAStreamingPeer();

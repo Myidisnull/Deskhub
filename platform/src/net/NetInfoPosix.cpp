@@ -1,4 +1,4 @@
-#include "deskhubp/NetInfo.h"
+﻿#include "deskhubp/net/NetInfo.h"
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>

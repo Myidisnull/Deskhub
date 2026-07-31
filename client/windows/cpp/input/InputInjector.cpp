@@ -1,12 +1,12 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _CRT_SECURE_NO_WARNINGS
 #include "input/InputInjector.h"
 
 #include <cstdio>
 
-#include "deskhubp/LocalInput.h"
-#include "deskhubp/Clock.h"
+#include "deskhubp/input/LocalInput.h"
+#include "deskhubp/system/Clock.h"
 
 #pragma comment(lib, "user32.lib")
 

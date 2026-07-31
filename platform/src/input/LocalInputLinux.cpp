@@ -1,4 +1,4 @@
-#include "deskhubp/LocalInput.h"
+﻿#include "deskhubp/input/LocalInput.h"
 
 #include <linux/input.h>
 
@@ -14,8 +14,8 @@
 #include <thread>
 #include <vector>
 
-#include "deskhubp/Clock.h"
-#include "deskhubp/Log.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 

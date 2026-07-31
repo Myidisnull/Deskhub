@@ -1,7 +1,7 @@
-#pragma once
+﻿#pragma once
 #include <vector>
 
-#include "deskhubp/UdpSocket.h"
+#include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/protocol/Wire.h"
 

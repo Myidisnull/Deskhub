@@ -1,4 +1,4 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _CRT_SECURE_NO_WARNINGS
 #include "DeskhubApi.h"
@@ -6,10 +6,8 @@
 #include <windows.h>
 #include <objbase.h>
 #include <atomic>
-#include <cinttypes>
 #include <condition_variable>
 #include <cstdio>
-#include <cstring>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -20,14 +18,14 @@
 #include "capture/GpuSelect.h"
 #include "decode/IVideoDecoder.h"
 #include "decode/PanelRenderer.h"
-#include "deskhubp/UdpSocket.h"
-#include "deskhubp/Clock.h"
-#include "deskhubp/LogFile.h"
+#include "deskhubp/net/ClientNetLoop.h"
+#include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/diag/LogFile.h"
 
 #include "deskhub/control/ClockOffset.h"
-#include "deskhub/control/LinkStats.h"
 #include "deskhub/diag/ClientDiag.h"
-#include "deskhub/session/ClientSession.h"
+#include "deskhub/session/ClientPump.h"
 #include "deskhub/transport/Reassembler.h"
 
 struct DhClientHandle {
@@ -62,14 +60,12 @@ struct DhClientHandle {
 void DhClientHandle::Run() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    std::unique_ptr<deskhub::Reassembler> reasm;
     std::unique_ptr<IVideoDecoder> decoder;
     std::atomic<uint32_t> decW{0}, decH{0}, decFps{0};
 
     std::atomic<int64_t> lastE2eUs{-1};
     deskhub::ClockOffset clockOffset;
 
-    uint64_t stBytes = 0;
     std::atomic<uint32_t> stRendered{0};
 
     deskhub::diag::ClientDiag diag{deskhub::diag::ClientDiagCaps{
@@ -78,15 +74,11 @@ void DhClientHandle::Run() {
     constexpr size_t kMaxQueuedFrames = 3;
     std::mutex decQueueMutex;
     std::condition_variable decQueueCv;
-    struct QItem {
-        deskhub::Reassembler::Frame frame;
-        uint64_t enqUs = 0;
-    };
-    std::deque<QItem> decQueue;
+    std::deque<deskhub::Reassembler::Frame> decQueue;
     std::atomic<bool> decodeThreadStop{false};
     std::atomic<bool> decodeFailedFlag{false};
     std::atomic<bool> queueOverflowFlag{false};
-    bool negotiated = false;
+    std::atomic<bool> negotiated{false};
 
     auto onDecoded = [&](const DecodedFrame& df) {
         uint64_t readyUs = 0;
@@ -108,7 +100,7 @@ void DhClientHandle::Run() {
     std::thread decodeThread([&] {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         for (;;) {
-            QItem it;
+            deskhub::Reassembler::Frame f;
             {
                 std::unique_lock<std::mutex> lk(decQueueMutex);
                 decQueueCv.wait(lk, [&] { return decodeThreadStop.load() || !decQueue.empty(); });
@@ -116,7 +108,7 @@ void DhClientHandle::Run() {
                     if (decodeThreadStop.load()) break;
                     continue;
                 }
-                it = std::move(decQueue.front());
+                f = std::move(decQueue.front());
                 decQueue.pop_front();
             }
             if (!decoder) {
@@ -132,7 +124,6 @@ void DhClientHandle::Run() {
                     break;
                 }
             }
-            deskhub::Reassembler::Frame& f = it.frame;
             const uint64_t t0 = NowUs();
             const bool ok = decoder->Decode(f.nal.data(), f.nal.size(), f.timestampUs);
             const uint32_t decMs = uint32_t((NowUs() - t0) / 1000);
@@ -142,47 +133,55 @@ void DhClientHandle::Run() {
         CoUninitialize();
     });
 
-    deskhub::ClientCallbacks cb;
+    bool closedNotified = false;
+
+    deskhub::ClientPumpCallbacks cb;
     cb.send = [&](std::span<const uint8_t> d) { sock.SendTo(server, d.data(), d.size()); };
-    cb.onReady = [&](const deskhub::NegotiatedParams& np) {
-        negotiated = true;
+    cb.onFrame = [&](deskhub::Reassembler::Frame&& f) {
+        {
+            std::lock_guard<std::mutex> lk(decQueueMutex);
+            if (decQueue.size() >= kMaxQueuedFrames) {
+                decQueue.pop_front();
+                queueOverflowFlag.store(true, std::memory_order_release);
+                diag.dqDrop.Add();
+            }
+            decQueue.push_back(std::move(f));
+        }
+        decQueueCv.notify_one();
+    };
+    cb.onParams = [&](const deskhub::NegotiatedParams& np, bool) {
+        negotiated.store(true, std::memory_order_release);
         decW.store(np.width, std::memory_order_relaxed);
         decH.store(np.height, std::memory_order_relaxed);
         decFps.store(np.fps ? np.fps : 60, std::memory_order_relaxed);
         if (sizeCb) sizeCb(np.width, np.height, user);
     };
-    cb.onReconfig = [&](const deskhub::NegotiatedParams& np) {
-        if (reasm) reasm->SetFps(np.fps);
-        decFps.store(np.fps ? np.fps : decFps.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
-        decW.store(np.width, std::memory_order_relaxed);
-        decH.store(np.height, std::memory_order_relaxed);
-        if (sizeCb) sizeCb(np.width, np.height, user);
-    };
-    cb.onRtt = [&](uint32_t rttUs) { diag.minRttUs.Add(rttUs); };
-    bool closedNotified = false;
-    cb.onDisconnect = [&](const char* reason) {
+    cb.onEnded = [&](const char* reason) {
         closedNotified = true;
         if (closedCb) closedCb(reason ? reason : "disconnected", user);
         quit.store(true);
     };
+    cb.takeRenderedCount = [&] { return stRendered.exchange(0, std::memory_order_relaxed); };
+    cb.latencyUs = [&] { return lastE2eUs.load(); };
+    cb.onStatus = [&](const char* compact) {
+        if (negotiated.load(std::memory_order_acquire) && statsCb) statsCb(compact, user);
+    };
+    cb.localTime = [] { return deskhubp::LocalTimeHms(); };
+    cb.log = [](bool, const char* line) { std::printf("%s\n", line); };
 
-    deskhub::ClientSession session(cb);
+    deskhub::ClientPump pump(std::move(cb), diag);
 
-    deskhub::Hello hello;
-    hello.clientId = uint32_t(NowUs()) ^ GetCurrentProcessId() ^ (uint32_t(sourceId) << 24);
-    hello.codecMask = deskhub::kCodecMaskH264;
-    hello.maxWidth = uint16_t(GetSystemMetrics(SM_CXVIRTUALSCREEN));
-    hello.maxHeight = uint16_t(GetSystemMetrics(SM_CYVIRTUALSCREEN));
-    hello.desiredFps = 60;
-    hello.features = 0;
-    hello.sourceId = sourceId;
-    session.Start(hello, NowUs());
+    deskhub::ClientPumpConfig pcfg;
+    pcfg.clientId = deskhubp::MakeClientId(sourceId);
+    pcfg.maxWidth = uint16_t(GetSystemMetrics(SM_CXVIRTUALSCREEN));
+    pcfg.maxHeight = uint16_t(GetSystemMetrics(SM_CYVIRTUALSCREEN));
+    pcfg.sourceId = sourceId;
+    pcfg.desiredFps = 60;
+    pcfg.sendNacks = true;
+    pcfg.statusSeparator = " \xC2\xB7 ";
+    pump.Start(pcfg, NowUs());
 
     uint8_t buf[deskhub::kMaxDatagram];
-    deskhub::LinkStats linkStats(NowUs());
-    deskhub::diag::KeyframeRequestLog kfLog;
-    char kfLine[deskhub::diag::KeyframeRequestLog::kBufBytes];
 
     while (!quit.load() && !failed.load()) {
         NetAddr from;
@@ -193,97 +192,15 @@ void DhClientHandle::Run() {
             failed.store(true);
             break;
         }
+        if (n > 0) pump.OnDatagram(std::span<const uint8_t>(buf, size_t(n)), now);
 
-        if (n > 0) {
-            const auto span = std::span<const uint8_t>(buf, size_t(n));
-            const auto h = deskhub::ParseCommonHeader(span);
-            if (h && h->chan == deskhub::Chan::Video) {
-                if (h->sessionId == session.sessionId() && session.sessionId() != 0) {
-                    const auto pl = deskhub::PayloadOf(span);
-                    if (!reasm) {
-                        const uint32_t fps = session.params().fps ? session.params().fps : 60;
-                        reasm = std::make_unique<deskhub::Reassembler>(1'000'000 / fps);
-                        reasm->onFrameDrop = [](const deskhub::Reassembler::FrameDropInfo& d) {
-                            static const char* const kReason[] =
-                                {"timeout", "overtaken", "evicted", "pre_idr"};
-                            const char* pos = "-";
-                            if (d.missing) {
-                                const bool head = d.firstMissing == 0;
-                                const bool tail = d.lastMissing + 1 == d.total;
-                                pos = head && tail ? "all" : tail ? "tail"
-                                                         : head   ? "head"
-                                                                  : "mid";
-                            }
-                            std::printf(
-                                "[DIAG] evt=frame_drop id=%u reason=%s miss=%u/%u pos=%s"
-                                " idr=%u waited_ms=%u got_bytes=%u\n",
-                                d.frameId, kReason[size_t(d.reason)], d.missing, d.total,
-                                pos, d.idr ? 1 : 0, d.waitedMs, d.bytesGot);
-                        };
-                        decW.store(session.params().width, std::memory_order_relaxed);
-                        decH.store(session.params().height, std::memory_order_relaxed);
-                        decFps.store(fps, std::memory_order_relaxed);
-                    }
-                    if (h->type == deskhub::MsgType::FecPacket) {
-                        if (const auto v = deskhub::ParseFecPacket(*h, pl)) {
-                            session.NotifyVideoPacket(now);
-                            reasm->PushFec(*v, now);
-                            stBytes += v->parity.size();
-                        }
-                    } else if (const auto v = deskhub::ParseVideoPacket(*h, pl)) {
-                        session.NotifyVideoPacket(now);
-                        reasm->Push(*v, now);
-                        stBytes += v->payload.size();
-                    }
-                }
-            } else if (h) {
-                session.HandlePacket(span, now);
-            }
-        }
+        pump.PollFrames(now);
+        if (decodeFailedFlag.exchange(false, std::memory_order_acq_rel))
+            pump.RequestKeyframe("dec_fail", now);
+        if (queueOverflowFlag.exchange(false, std::memory_order_acq_rel))
+            pump.RequestKeyframe("q_overflow", now);
 
-        auto requestKf = [&](const char* reason) {
-            if (const char* l = kfLog.Request(kfLine, sizeof(kfLine), now, reason))
-                std::printf("%s\\n", l);
-            session.RequestKeyframe();
-        };
-
-        if (reasm) {
-            while (auto f = reasm->PopReady(now)) {
-                if (f->idr) {
-                    session.CancelKeyframeRequest();
-                    if (const char* l = kfLog.Arrived(kfLine, sizeof(kfLine), now, f->nal.size()))
-                        std::printf("%s\\n", l);
-                }
-                if (f->firstSeenUs) {
-                    const uint32_t asmMs = uint32_t((now - f->firstSeenUs) / 1000);
-                    diag.asmMs.Add(asmMs);
-                }
-                {
-                    std::lock_guard<std::mutex> lk(decQueueMutex);
-                    if (decQueue.size() >= kMaxQueuedFrames) {
-                        decQueue.pop_front();
-                        queueOverflowFlag.store(true, std::memory_order_release);
-                        diag.dqDrop.Add();
-                    }
-                    decQueue.push_back(QItem{std::move(*f), now});
-                }
-                decQueueCv.notify_one();
-            }
-            if (reasm->TakeLossEvent())
-                requestKf("loss");
-            else if (reasm->WaitingForIdr())
-                requestKf("wait_idr");
-        }
-        if (decodeFailedFlag.exchange(false, std::memory_order_acq_rel)) requestKf("dec_fail");
-        if (queueOverflowFlag.exchange(false, std::memory_order_acq_rel)) requestKf("q_overflow");
-
-        if (reasm) {
-            uint16_t nackIdx[64];
-            uint32_t nackFrame = 0;
-            const size_t nn = reasm->PlanNack(now, diag.minRttUs.value(),
-                nackFrame, nackIdx);
-            if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
-        }
+        pump.PlanNacks(now);
 
         {
             std::vector<deskhub::InputEvent> batch;
@@ -291,47 +208,20 @@ void DhClientHandle::Run() {
                 std::lock_guard<std::mutex> lk(inputMutex);
                 batch.swap(inputQueue);
             }
-            for (const auto& e : batch) session.QueueInput(e);
+            for (const auto& e : batch) pump.QueueInput(e);
         }
 
-        session.SetFocused(true);
-        session.Tick(now);
-        if (session.state() == deskhub::ClientSession::State::Dead) break;
+        pump.SetFocused(true);
+        if (!pump.Tick(now)) break;
 
-        if (linkStats.Due(now)) {
-            const auto st = reasm ? reasm->stats() : deskhub::Reassembler::Stats{};
-            const uint32_t rendered = stRendered.exchange(0, std::memory_order_relaxed);
-            const deskhub::LinkWindow w = linkStats.Close(st, stBytes, rendered, now);
-            const int64_t e2e = lastE2eUs.load();
-            session.SendFeedback(deskhub::MakeFeedback(w, session.lastRttUs()));
-
-            if (negotiated && statsCb) {
-                char line[deskhub::diag::ClientDiag::kCompactBufBytes];
-                statsCb(deskhub::diag::ClientDiag::FormatCompact(line, sizeof(line), w,
-                            session.lastRttUs(), e2e, " \xC2\xB7 "),
-                    user);
-            }
-
-            const std::string hms = deskhubp::LocalTimeHms();
-            char logLine[deskhub::diag::ClientDiag::kSumBufBytes];
-            std::printf("%s\n", deskhub::diag::ClientDiag::FormatStatus(logLine, sizeof(logLine),
-                                    hms.c_str(), w, session.lastRttUs(), e2e));
-            std::printf("%s\n", diag.FormatSum(logLine, sizeof(logLine), hms.c_str(), w,
-                                    reasm ? reasm->TakeMaxGapMs() : 0, e2e));
-
-            stBytes = 0;
-        }
-
-        const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
-        diag.loopBusyMs.Add(busyMs);
-        if (busyMs > 50) std::printf("[DIAG] evt=recv_stall busy_ms=%u\n", busyMs);
+        pump.CountLoopBusy(now, NowUs());
     }
 
     decodeThreadStop.store(true);
     decQueueCv.notify_one();
     decodeThread.join();
 
-    session.SendBye();
+    pump.SendBye();
     quit.store(true);
 
     if (!closedNotified && !userStop.load()) {

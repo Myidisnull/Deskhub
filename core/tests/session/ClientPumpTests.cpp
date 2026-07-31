@@ -219,6 +219,31 @@ void TestReportRunsOncePerWindow() {
     Exchange(r, pump, host, now);
     Check(feedbacks == 1 && got.recvBitrateKbps > 0,
         "the host got it, carrying the bytes actually received");
+
+    Check(r.status.find("  ") != std::string::npos,
+        "the default separator is two spaces");
+}
+
+void TestStatusSeparatorIsConfigurable() {
+    std::printf("[pump] the UI can ask for its own separator in the status line...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+
+    HostCallbacks hcb;
+    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.randomBytes = TestRandomBytes;
+    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    ClientPumpConfig cfg{1, 1920, 1080, 0, 60};
+    cfg.statusSeparator = " | ";
+    pump.Start(cfg, now);
+    Exchange(r, pump, host, now);
+
+    now += 1'100'000;
+    Check(pump.Tick(now), "the window closes");
+    Check(r.status.find(" | ") != std::string::npos, "the chosen separator is used");
+    Check(r.status.find("fps") != std::string::npos, "and the fields are still there");
 }
 
 void TestDisconnectEndsTheLoop() {
@@ -291,6 +316,7 @@ void RunClientPumpTests() {
     TestVideoReachesTheFrameSink();
     TestKeyframeRequestsAreLoggedOnce();
     TestReportRunsOncePerWindow();
+    TestStatusSeparatorIsConfigurable();
     TestDisconnectEndsTheLoop();
     TestLoopBusyWarning();
     TestStrayTrafficIsIgnored();

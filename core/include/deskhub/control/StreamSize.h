@@ -15,4 +15,6 @@ struct StreamSize {
 StreamSize FitStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t clientW,
     uint32_t clientH);
 
+StreamSize ApplyQualityScale(StreamSize base, uint32_t scalePct);
+
 }

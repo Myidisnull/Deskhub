@@ -139,7 +139,7 @@ object NativeClient {
         panY: Float,
     ): FloatArray
 
-    external fun nativeApplyGesture(
+    private external fun nativeApplyGesture(
         zoom: Float,
         panX: Float,
         panY: Float,
@@ -152,6 +152,40 @@ object NativeClient {
         viewportH: Float,
         aspect: Float,
     ): FloatArray
+
+    data class Transform(
+        val zoom: Float,
+        val panX: Float,
+        val panY: Float,
+    )
+
+    fun applyGesture(
+        current: Transform,
+        factor: Float,
+        centroidX: Float,
+        centroidY: Float,
+        panDeltaX: Float,
+        panDeltaY: Float,
+        viewportW: Float,
+        viewportH: Float,
+        aspect: Float,
+    ): Transform {
+        val r =
+            nativeApplyGesture(
+                current.zoom,
+                current.panX,
+                current.panY,
+                factor,
+                centroidX,
+                centroidY,
+                panDeltaX,
+                panDeltaY,
+                viewportW,
+                viewportH,
+                aspect,
+            )
+        return Transform(r[0], r[1], r[2])
+    }
 
     data class Source(
         val id: Int,
