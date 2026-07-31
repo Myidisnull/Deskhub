@@ -23,7 +23,6 @@ struct AgentSourceStatus: Identifiable, Sendable {
 }
 
 nonisolated enum DeskhubAgent {
-
     static var hasScreenRecording: Bool { dh_has_screen_recording() }
     static var hasAccessibility: Bool { dh_has_accessibility() }
 
