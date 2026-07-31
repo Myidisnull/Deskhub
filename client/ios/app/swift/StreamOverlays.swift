@@ -1,19 +1,5 @@
-// =============================================================================
-// StreamOverlays.swift — hai lớp phủ nhỏ của màn xem, tách khỏi StreamView.swift.
-//
-// Cả hai chỉ ĐỌC trạng thái rồi vẽ; không giữ gì của riêng mình, không dính vào bố
-// cục safe area hay lớp điều khiển. Để nguyên trong StreamView chỉ làm cái type đó
-// dài thêm mà không nói thêm được gì.
-//
-// LIÊN QUAN: StreamView.swift (nơi dựng cả hai), ViewTransform.swift
-// =============================================================================
 import SwiftUI
 
-/// "Đang kết nối" / "Phiên đã kết thúc".
-///
-/// Nằm ở lớp RIÊNG chứ không lồng trong videoArea để được đệm safe area như lớp điều
-/// khiển — chữ "Session ended" và nút Back không được chui vào tai thỏ khi máy nằm
-/// ngang. Đứng ngoài StreamView vì nó chỉ đọc model, không dính gì tới phần chrome.
 struct StatusOverlay: View {
     let model: SessionModel
     let streaming: Bool
@@ -50,12 +36,6 @@ struct StatusOverlay: View {
     }
 }
 
-/// Hai viên thuốc chỉ dựng khi ĐANG phóng — lúc 1× cả hai đều không nói được gì mà
-/// vẫn chiếm chỗ trên khung hình:
-///   trên  — một ngón đang làm gì: "Pan" (dời khung) hay "Pointer" (di chuột). Chạm
-///           để đổi. Một ngón không thể vừa dời khung vừa di chuột, nên phải có công
-///           tắc; nó chỉ xuất hiện khi đang phóng, tức là đúng lúc có gì để dời.
-///   dưới  — mức phóng, chạm để về 1×.
 struct ZoomControls: View {
     let zoom: CGFloat
     let panMode: Bool

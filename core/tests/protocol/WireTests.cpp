@@ -1,10 +1,3 @@
-// =============================================================================
-// WireTests.cpp — build/parse từng loại thông điệp: khứ hồi + các đường lỗi.
-//
-// Đây là ranh giới tin cậy của toàn chương trình (dữ liệu đến từ mạng), nên ngoài
-// khứ hồi "vào sao ra vậy", các test ở đây cố tình đưa vào gói CỤT, SAI PHIÊN BẢN,
-// KHAI ĐIÊU độ dài để chắc chắn Parse* trả nullopt/0 chứ không đọc ngoài biên.
-// =============================================================================
 #include "Tests.h"
 #include "support/TestSupport.h"
 
@@ -23,7 +16,6 @@ void TestWireRoundtrip() {
 
     Hello h{0xDEADBEEF, kCodecMaskH264 | kCodecMaskHevc, 2560, 1440, 120, 0x0001};
     size_t n = BuildHello(buf, h);
-    // 13 byte cố định + 1 byte sourceId (GĐ6).
     Check(n == kCommonHeaderSize + 14, "HELLO size");
     auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
     Check(ch && ch->type == MsgType::Hello && ch->sessionId == 0, "HELLO header");
@@ -57,8 +49,6 @@ void TestSourceListWire() {
     std::printf("[wire] SOURCE_LIST + HELLO.sourceId round-trip...\n");
     uint8_t buf[kMaxDatagram];
 
-    // Tên UTF-8 viết bằng escape thay vì ký tự thật: khỏi phụ thuộc mã hóa file
-    // nguồn và trình biên dịch có bật /utf-8 hay không. "\xE1\xBA\xA1" = "ạ" (3 byte).
     const std::string kViet = "Man hinh \xE1\xBA\xA1\xE1\xBA\xA1";
 
     std::vector<SourceInfo> in;
@@ -80,7 +70,6 @@ void TestSourceListWire() {
                out[i].height == in[i].height && out[i].name == in[i].name;
     Check(same, "SOURCE_LIST entries survive round-trip (including UTF-8 names)");
 
-    // Tên dài bị cắt, nhưng phải cắt ở ranh giới ký tự UTF-8 chứ không giữa chừng.
     std::vector<SourceInfo> longName;
     std::string vn;
     while (vn.size() < kMaxSourceNameBytes + 20) vn += "\xE1\xBA\xA1";
@@ -94,23 +83,17 @@ void TestSourceListWire() {
         Check(vn.compare(0, out[0].name.size(), out[0].name) == 0, "truncated name is a prefix");
     }
 
-    // HELLO mang sourceId; gói 13 byte kiểu cũ vẫn đọc được, hiểu là nguồn 0.
     Hello h{0xDEADBEEF, kCodecMaskH264, 2560, 1440, 120, 0, 5};
     n = BuildHello(buf, h);
     auto hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(hp && hp->sourceId == 5, "HELLO carries sourceId");
 
-    // Dựng TAY một payload 13 byte đúng như client tiền-GĐ6 phát ra: gói thiếu
-    // byte sourceId vẫn phải đọc được và hiểu là nguồn 0.
     const uint8_t legacy13[13] = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x0A, 0x00,
         0x05, 0xA0, 120, 0x00, 0x00};
     auto old = ParseHello(std::span<const uint8_t>(legacy13, sizeof(legacy13)));
     Check(old && old->sourceId == 0, "13-byte HELLO still parses as source 0");
 }
 
-// Ranh giới tin cậy: gói video/FEC dài quá mức Packetizer bao giờ cũng phát ra là
-// gói dựng ác ý. Parse* phải từ chối NGAY, vì mảnh quá khổ lọt vào Reassembler sẽ
-// làm phép XOR khôi phục FEC ghi tràn bộ đệm parity (rộng đúng kMaxVideoPayload).
 void TestOversizedPacketsRejected() {
     std::printf("[wire] oversized video/FEC packets rejected at parse...\n");
 
@@ -125,7 +108,7 @@ void TestOversizedPacketsRejected() {
 
     {
         Datagram d = makeDatagram(MsgType::VideoPacket, kVideoHeaderSize, kMaxVideoPayload + 1);
-        d[kCommonHeaderSize + 15] = 1; // pktCount = 1 để không rớt vì count==0
+        d[kCommonHeaderSize + 15] = 1;
         const auto h = ParseCommonHeader(d);
         Check(h.has_value(), "oversized video: common header still parses");
         if (h) Check(!ParseVideoPacket(*h, PayloadOf(d)).has_value(),
@@ -141,7 +124,7 @@ void TestOversizedPacketsRejected() {
     {
         Datagram d = makeDatagram(MsgType::FecPacket, kFecHeaderSize,
             kFecLenPrefix + kMaxVideoPayload + 1);
-        d[kCommonHeaderSize + 13] = 1; // pktCount = 1
+        d[kCommonHeaderSize + 13] = 1;
         const auto h = ParseCommonHeader(d);
         Check(h.has_value(), "oversized FEC: common header still parses");
         if (h) Check(!ParseFecPacket(*h, PayloadOf(d)).has_value(),
@@ -149,7 +132,6 @@ void TestOversizedPacketsRejected() {
     }
 }
 
-// NACK (GĐ7): khứ hồi + đường lỗi (rỗng / quá nhiều / cụt / khai điêu / kẹp out).
 void TestNackWire() {
     std::printf("[wire] NACK round-trip + error paths...\n");
     uint8_t buf[kMaxDatagram];
@@ -167,22 +149,19 @@ void TestNackWire() {
     for (size_t i = 0; i < got; ++i) same = same && out[i] == idx[i];
     Check(same, "NACK indices survive round-trip");
 
-    // Lỗi build.
     Check(BuildNack(buf, 1, 0, std::span<const uint16_t>()) == 0, "empty NACK -> 0");
     std::vector<uint16_t> big(kMaxNackIndices + 1);
     Check(BuildNack(buf, 1, 0, big) == 0, "over-max NACK -> 0");
     uint8_t tiny[6];
     Check(BuildNack(tiny, 1, 0, idx) == 0, "NACK into too-small buffer -> 0");
 
-    // Lỗi parse: payload cụt, count = 0, count khai nhiều hơn payload thật.
     Check(ParseNack(std::span<const uint8_t>(buf, 4), frameId, out) == 0, "short NACK -> 0");
     {
-        Datagram d(kNackHeaderSize + 4, 0); // count field = 0
+        Datagram d(kNackHeaderSize + 4, 0);
         Check(ParseNack(d, frameId, out) == 0, "NACK count==0 -> 0");
-        d[4] = 10; // khai 10 chỉ số nhưng payload chỉ chứa 2
+        d[4] = 10;
         Check(ParseNack(d, frameId, out) == 0, "NACK count/payload mismatch -> 0");
     }
-    // Kẹp về sức chứa out: gói khai 5 nhưng out chỉ nhận 3.
     uint16_t small[3];
     got = ParseNack(PayloadOf(std::span<const uint8_t>(buf, n)), frameId, small);
     Check(got == 3, "ParseNack clamps to out span size");
@@ -201,8 +180,6 @@ void TestInvalidateRefWire() {
     Check(BuildInvalidateRef(tiny, 1, 2) == 0, "INVALIDATE_REF into too-small buffer -> 0");
 }
 
-// Quét các đường còn lại để phủ trọn Wire: build vào bộ đệm chật, parse gói cụt,
-// và khứ hồi các thông điệp điều khiển chưa được test ở nơi khác.
 void TestWireCoverage() {
     std::printf("[wire] remaining build/parse paths + control round-trips...\n");
     uint8_t buf[kMaxDatagram];
@@ -210,7 +187,6 @@ void TestWireCoverage() {
 
     Check(BuildHello(tiny, Hello{}) == 0, "Build returns 0 when out too small");
 
-    // Header chung: cụt, và sai phiên bản.
     Check(!ParseCommonHeader(std::span<const uint8_t>(buf, 4)).has_value(), "short common header");
     {
         uint8_t bad[8] = {0x99};
@@ -218,7 +194,6 @@ void TestWireCoverage() {
     }
     Check(PayloadOf(std::span<const uint8_t>(buf, 4)).empty(), "PayloadOf on short datagram = empty");
 
-    // Parse payload cụt -> nullopt.
     Check(!ParseHello(std::span<const uint8_t>(buf, 12)).has_value(), "short HELLO");
     Check(!ParseHelloAck(std::span<const uint8_t>(buf, 21)).has_value(), "short HELLO_ACK");
     Check(!ParsePingPong(std::span<const uint8_t>(buf, 11)).has_value(), "short PING");
@@ -229,7 +204,6 @@ void TestWireCoverage() {
     Check(ParseSourceList(std::span<const uint8_t>(buf, 0), so) == 0,
         "empty SOURCE_LIST -> 0");
 
-    // Khứ hồi các control chưa test ở chỗ khác.
     size_t n = BuildFeedback(buf, 7, Feedback{10, 5, 33, 1234});
     auto fb = ParseFeedback(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(fb && fb->lostFrames == 10 && fb->lossPct == 5 && fb->rttMs == 33 &&
@@ -240,16 +214,13 @@ void TestWireCoverage() {
     auto rc = ParseReconfig(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(rc && rc->width == 1280 && rc->height == 720 && rc->bitrateBps == 5'000'000 &&
               rc->fps == 30,
-        "RECONFIG round-trip (kèm fps)");
+        "RECONFIG round-trip (with fps)");
 
-    // TƯƠNG THÍCH NGƯỢC với host đời cũ: nó gửi đúng 8 byte, không có fps. Client
-    // mới phải parse được và hiểu fps = 0 là "host không nói", chứ không phải
-    // "0 fps" — dựng Reassembler với hạn chờ 1e6/0 là chia cho 0.
     {
         const uint8_t legacy[8] = {0x05, 0x00, 0x02, 0xD0, 0x00, 0x4C, 0x4B, 0x40};
         auto old = ParseReconfig(std::span<const uint8_t>(legacy, 8));
         Check(old && old->width == 0x0500 && old->height == 0x02D0 && old->fps == 0,
-            "RECONFIG 8 byte của host cũ vẫn parse, fps = 0 = không nói");
+            "8-byte RECONFIG from an old host still parses, fps = 0 = unspecified");
     }
 
     n = BuildSetFocus(buf, 7, true);
@@ -266,8 +237,6 @@ void TestWireCoverage() {
     Check(BuildBye(buf, 7) > 0 && BuildStart(buf, 7) > 0 && BuildListSources(buf) > 0,
         "empty control messages build");
 
-    // Video: pktCount==0 và pktIndex>=pktCount phải bị từ chối. Dùng nguồn riêng
-    // (không alias vào out) để tránh memcpy chồng lấn.
     uint8_t src[16] = {};
     {
         VideoHeader vh{};
@@ -290,13 +259,11 @@ void TestWireCoverage() {
             "video pktIndex>=pktCount rejected");
     }
 
-    // Input: batch rỗng và quá kMaxInputEvents -> 0.
     Check(BuildInputEvents(buf, 7, 0, std::span<const InputEvent>()) == 0, "empty input batch -> 0");
     {
         std::vector<InputEvent> big(kMaxInputEvents + 1);
         Check(BuildInputEvents(buf, 7, 0, big) == 0, "over-max input batch -> 0");
     }
-    // ParseInputEvents: count==0 và count khai nhiều hơn payload.
     {
         InputEvent one{};
         one.type = InputType::Key;
@@ -312,14 +279,11 @@ void TestWireCoverage() {
     }
 }
 
-// Các đường lỗi của FEC trên wire (đối xứng với bộ video đã có ở trên): payload
-// cụt, pktCount==0, groupIndex vượt số nhóm, parity ngắn hơn tiền tố độ dài.
 void TestFecWireErrors() {
     std::printf("[wire] FEC build/parse error paths...\n");
     uint8_t buf[kMaxDatagram];
     uint8_t parity[kFecLenPrefix + 100] = {};
 
-    // Gói lành làm mốc: 10 mảnh -> numGroups = ceil(10/8) = 2, nhóm 0 hợp lệ.
     const FecHeader ok{1, 2, 10, 0};
     const size_t n = BuildFecPacket(buf, 7, ok, false, parity);
     Check(n > 0, "valid FEC packet builds");
@@ -327,12 +291,10 @@ void TestFecWireErrors() {
     Check(h && ParseFecPacket(*h, PayloadOf(std::span<const uint8_t>(buf, n))).has_value(),
         "valid FEC packet parses");
 
-    // Payload cụt: chưa đủ cả header con lẫn lenXor.
     Check(h && !ParseFecPacket(*h, PayloadOf(std::span<const uint8_t>(buf, n)).first(kFecHeaderSize + 1))
                    .has_value(),
         "short FEC payload rejected");
 
-    // groupIndex >= numGroups: nhóm không phủ gói nào -> gói dựng ác ý.
     {
         const FecHeader bad{1, 2, 10, 5};
         const size_t m = BuildFecPacket(buf, 7, bad, false, parity);
@@ -340,7 +302,6 @@ void TestFecWireErrors() {
         Check(hh && !ParseFecPacket(*hh, PayloadOf(std::span<const uint8_t>(buf, m))).has_value(),
             "FEC groupIndex >= numGroups rejected");
     }
-    // pktCount == 0: parity chẳng phủ frame nào.
     {
         const FecHeader bad{1, 2, 0, 0};
         const size_t m = BuildFecPacket(buf, 7, bad, false, parity);
@@ -348,14 +309,11 @@ void TestFecWireErrors() {
         Check(hh && !ParseFecPacket(*hh, PayloadOf(std::span<const uint8_t>(buf, m))).has_value(),
             "FEC pktCount == 0 rejected");
     }
-    // Build với parity ngắn hơn kFecLenPrefix -> 0 (thiếu cả 2 byte lenXor).
     const uint8_t tiny[1] = {};
     Check(BuildFecPacket(buf, 7, ok, false, std::span<const uint8_t>(tiny, 1)) == 0,
         "parity shorter than the length prefix -> 0");
 }
 
-// SOURCE_LIST cắt bớt và chống khai điêu: quá kMaxSources nguồn chỉ đi 8, gói cụt
-// giữa bản ghi trả về phần đọc được, count khai nhiều hơn payload không đọc tràn.
 void TestSourceListTruncation() {
     std::printf("[wire] SOURCE_LIST truncation + over-declared count...\n");
     uint8_t buf[kMaxDatagram];
@@ -368,23 +326,20 @@ void TestSourceListTruncation() {
     Check(ParseSourceList(full, out) == kMaxSources,
         "12 sources truncated to kMaxSources on build");
 
-    // Cắt cụt datagram giữa bản ghi cuối: parse dừng ở ranh giới bản ghi lành.
     Check(ParseSourceList(full.first(full.size() - 3), out) == kMaxSources - 1,
         "truncated tail record dropped, earlier ones kept");
 
-    // count khai 200 nhưng payload chỉ chứa đúng 1 bản ghi.
     {
         Datagram d(1 + 6 + 2, 0);
-        d[0] = 200; // count khai điêu
-        d[1] = 3;   // sourceId
-        d[6] = 2;   // nameLen, 2 byte tên phía sau
+        d[0] = 200;
+        d[1] = 3;
+        d[6] = 2;
         Check(ParseSourceList(d, out) == 1,
             "over-declared count clamped to what the payload holds");
     }
 
-    // Layout bản ghi 6 byte cố định: kiểm tra từng trường đúng vị trí.
     {
-        Datagram d{1, /*sourceId*/ 4, 0x07, 0x80, 0x04, 0x38, 3, 'a', 'b', 'c'};
+        Datagram d{1, 4, 0x07, 0x80, 0x04, 0x38, 3, 'a', 'b', 'c'};
         Check(ParseSourceList(d, out) == 1, "a hand-built record parses");
         Check(out[0].sourceId == 4 && out[0].width == 0x0780 && out[0].height == 0x0438,
             "...with its fields in the right places");
@@ -392,10 +347,6 @@ void TestSourceListTruncation() {
     }
 }
 
-// HELLO_ACK cõng thêm cờ ở ĐUÔI payload (GĐ9) — client bản cũ đọc 22 byte đầu.
-// Byte 22-23 của HELLO_ACK là RESERVED (xem BuildHelloAck). Chúng từng mang cờ
-// chỉ-xem; chế độ đó đã bỏ, nhưng hai byte phải ở nguyên chỗ — bỏ chúng đi thì
-// `reason` lùi về offset 22 và mọi bản đã phát hành đọc lý do từ chối thành cờ.
 void TestHelloAckReserved() {
     std::printf("[wire] HELLO_ACK: reserved bytes stay, reason keeps its offset...\n");
     uint8_t buf[kMaxDatagram];
@@ -419,15 +370,11 @@ void TestHelloAckReserved() {
     Check(got && got->timebaseUs == a.timebaseUs, "the fields before the reserved bytes survive");
     Check(got && got->reason == RejectReason::Busy, "reason round-trip");
 
-    // Host bản cũ dừng ở 22 byte — vẫn phải đọc được.
     const auto old = ParseHelloAck(pl.first(22));
     Check(old.has_value(), "a 22-byte HELLO_ACK still parses");
     Check(old && old->reason == RejectReason::None, "a host too old to say why is read as None");
 }
 
-// Đầu vào rác thuần ngẫu nhiên (PRNG xác định): mọi Parse* phải trả nullopt/0 hoặc
-// kết quả kẹp trong biên — tuyệt đối không đọc ngoài biên. Test này không assert
-// nội dung; răng của nó là chạy dưới debug CRT / sanitizer.
 void TestParseGarbage() {
     std::printf("[wire] 300 garbage buffers through every Parse*...\n");
     for (int i = 0; i < 300; ++i) {
@@ -459,7 +406,7 @@ void TestParseGarbage() {
     Check(true, "Parse* survived 300 garbage datagrams");
 }
 
-} // namespace
+}
 
 void RunWireTests() {
     TestWireRoundtrip();

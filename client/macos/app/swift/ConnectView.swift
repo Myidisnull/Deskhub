@@ -1,22 +1,3 @@
-// =============================================================================
-// ConnectView.swift — màn chính: hộp Host mode + hộp Client mode + nút Exit.
-//                     Chép bố cục MainMenuWindow.cpp của bản Windows, từng dòng chữ.
-//
-// HAI HỘP, MỘT MÀN — giống hệt Windows:
-//   • "Host mode"   — chia sẻ máy này: địa chỉ IP (kèm Copy), FPS/Bitrate, nút Share.
-//   • "Client mode" — kết nối máy khác: ô IP, nút Connect.
-//   KHÔNG có ô Port và KHÔNG có ô "View only": cổng luôn là 47777 và chuột/bàn phím
-//   luôn được chia sẻ (chốt 2026-07-27) — cả hai chỉ còn là chữ, không phải lựa chọn.
-//
-// ĐƯỜNG RẼ HAI VAI:
-//   Share   → chia sẻ HẾT màn hình (không có bước chọn nguồn) → SharingSessionView
-//   Connect → hỏi host → SourcePickerView (nếu >1 nguồn) → mở MỖI NGUỒN MỘT CỬA SỔ
-//             XEM rồi ẩn cửa sổ chính (đối ứng ShowWindow(SW_HIDE) + RunViewer)
-//
-// QUYỀN macOS: Windows bung UAC lúc bấm Share (admin cho firewall + UIPI); bản mac
-// tương ứng là Screen Recording — thiếu thì báo bằng alert ngay lúc bấm, vì macOS
-// không tự hiện lỗi (xem cpp/Permissions.h).
-// =============================================================================
 import AppKit
 import SwiftUI
 
@@ -54,9 +35,6 @@ struct MainMenuView: View {
         } message: {
             Text(shareAlert)
         }
-        // Đối ứng MessageBox cảnh báo của DoShare bên Windows (thiếu admin → input
-        // không tới app elevated): thiếu Accessibility thì cảnh báo rồi VẪN chia sẻ
-        // — bên kia xem được nhưng không điều khiển được cho tới khi quyền được cấp.
         .alert("Deskhub", isPresented: $accessibilityWarning) {
             Button("Share anyway") { Task { await doShare() } }
             Button("Open System Settings", role: .cancel) {
@@ -69,8 +47,6 @@ struct MainMenuView: View {
         }
     }
 
-    // MARK: - Hộp host
-
     private var hostBox: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Others connect to you using one of these IP addresses:")
@@ -78,7 +54,6 @@ struct MainMenuView: View {
             if agent.addresses.isEmpty {
                 Text("(no network address found)").foregroundStyle(.secondary)
             } else {
-                // Giá trị Copy là IP TRẦN — đúng thứ phải gõ vào ô địa chỉ phía kia.
                 ForEach(agent.addresses) { addr in
                     HStack(spacing: 8) {
                         Text(addr.name)
@@ -95,8 +70,6 @@ struct MainMenuView: View {
                 }
             }
 
-            // Không có ô Port: cổng là hằng số 47777 (net/UdpSocket.h). Chỉ nói ra
-            // cho người dùng biết con số đó, vì firewall có thể cần mở tay.
             HStack(spacing: 8) {
                 Text("UDP port 47777")
                 Spacer().frame(width: 8)
@@ -108,10 +81,6 @@ struct MainMenuView: View {
                 TextField("20", value: $agent.bitrateMbps, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 52)
-                // Màn Mac là Retina, nên "Native" gần như luôn là lựa chọn TỆ trên
-                // một đường truyền thật — 3024×1964 ở 20 Mbps mờ hơn hẳn 1920×1246
-                // ở cùng bitrate. Để nó trong danh sách cho ai có LAN 10Gb và màn
-                // 5K, nhưng mặc định là 1080p. Lý do đầy đủ ở AgentOptions::maxDim.
                 Picker("Quality", selection: $agent.maxDim) {
                     Text("720p").tag(1280)
                     Text("1080p").tag(1920)
@@ -134,8 +103,6 @@ struct MainMenuView: View {
             .disabled(agent.isStarting)
         }
     }
-
-    // MARK: - Hộp client
 
     private var clientBox: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -164,17 +131,10 @@ struct MainMenuView: View {
         }
     }
 
-    // MARK: - Hành động
-
     private var showingShareAlert: Binding<Bool> {
         Binding(get: { !shareAlert.isEmpty }, set: { if !$0 { shareAlert = "" } })
     }
 
-    // Giống DoShare bên Windows: không có bước chọn nguồn — bấm Share là chia sẻ HẾT
-    // màn hình đang gắn, danh sách chốt tại đó. Windows cảnh báo thiếu admin bằng
-    // MessageBox rồi vẫn tiếp tục; bản mac làm y vậy với hai quyền của nó: thiếu
-    // Screen Recording thì CHẶN (không có nó capture chắc chắn hỏng), thiếu
-    // Accessibility thì cảnh báo rồi cho chia sẻ tiếp.
     private func share() async {
         agent.refreshPermissions()
         if !agent.hasScreenRecording {
@@ -197,10 +157,6 @@ struct MainMenuView: View {
         }
     }
 
-    // Danh sách rỗng gộp hai trường hợp — host im lặng (bản cũ / mất gói) và host
-    // không chia sẻ gì — thành một: cứ vào NGUỒN 0 và để ClientSession báo lỗi thật.
-    // Một nguồn thì bỏ qua luôn hộp chọn (Windows cũng vậy — SourcePickerDialog trả
-    // thẳng khi chỉ có một nguồn).
     private func connect() {
         guard !session.address.isEmpty, !session.isConnecting else { return }
         Task {
@@ -215,9 +171,6 @@ struct MainMenuView: View {
     }
 }
 
-// Mở mỗi nguồn một cửa sổ xem rồi ẩn cửa sổ chính — đối ứng RunViewer + SW_HIDE.
-// Danh sách rỗng = host im lặng: vẫn mở một cửa sổ cho nguồn 0 (RunViewer cũng vậy).
-// Dùng chung cho MainMenuView (≤1 nguồn) và SourcePickerView (nút View).
 @MainActor
 func openViewers(_ picked: [Source], address: String,
                  openWindow: OpenWindowAction, dismissWindow: DismissWindowAction)

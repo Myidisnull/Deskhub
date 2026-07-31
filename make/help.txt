@@ -1,0 +1,35 @@
+Deskhub - no platform is built by default, name the one you want:
+
+  Build / release / run:
+    make build-windows   release-windows   run-windows     needs Windows + MSVC
+    make build-macos     release-macos     run-macos       needs macOS + Xcode
+    make build-linux     release-linux     run-linux       needs Ubuntu + the -dev packages
+    make build-ios       release-ios       run-ios         needs macOS + Xcode, Simulator
+    make build-android   release-android   run-android     needs the Android SDK/NDK, adb
+
+    run-windows takes ARGS="--share ..."
+
+  Shared CMake tree - core + platform + the current OS client:
+    make debug           configure + build the debug preset
+    make release         configure + build the release preset
+
+  Core tests:
+    make test            build core_tests and run it offline
+    make test-ctest      the same tests through CTest, as CI runs them
+    make coverage        core coverage report via clang + llvm-cov
+
+  Style - C++ + Kotlin + Swift, or one at a time:
+    make format          apply formatting in place
+    make lint            check without fixing, what CI enforces
+    make format-cpp      lint-cpp / format-kotlin / lint-kotlin / format-swift / lint-swift
+
+  Distribution:
+    make dist-macos      dmg signed with Developer ID + notarized + stapled
+    make verify-macos    check that Gatekeeper accepts the build just produced
+
+  Setup:
+    make bootstrap                  install every dev dependency for this OS
+    make setup-linux-permissions    Ubuntu host role: udev rule + 'input' group
+    make clean                      remove out/
+
+  Every target is documented in full at the top of the Makefile.

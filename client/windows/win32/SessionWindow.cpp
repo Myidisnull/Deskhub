@@ -1,20 +1,3 @@
-// =============================================================================
-// SessionWindow.cpp — cài đặt cửa sổ quản lý phiên chia sẻ (xem vai trò + mô
-// hình luồng ở SessionWindow.h).
-//
-// KHUÔN MẪU WIN32 giống MainMenuWindow.cpp: tự tạo control bằng CreateWindowExW,
-// id số nguyên, WndProc rẽ nhánh theo WM_COMMAND. Khác một điểm: cửa sổ này chạy
-// trên thread riêng với vòng bơm message của chính nó (ThreadMain), vì thread
-// chính của RunAgent bận chặn ở recvfrom.
-//
-// LB_SETITEMDATA GIỮ sourceId
-//   Danh sách đổ lại mỗi khi dirty; muốn giữ nguyên dòng đang chọn thì phải nhớ
-//   "chọn nguồn NÀO" chứ không phải "chọn dòng THỨ MẤY" (thứ tự có thể đổi khi
-//   nguồn bị tắt). sourceId nhét thẳng vào item data của từng dòng.
-//
-// LIÊN QUAN: ui/SessionWindow.h,
-//            AgentLoop.cpp (đầu kia của hộp thư)
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "SessionWindow.h"
@@ -24,14 +7,13 @@ namespace {
 constexpr wchar_t kWndClass[] = L"DeskhubSessionWindow";
 
 constexpr int kIdList = 100;
-// (kIdAdd = 101 và kIdStopSel = 102 đã bỏ cùng hai nút của chúng — 2026-07-27)
 constexpr int kIdStopAll = 103;
 
 constexpr UINT kTimerId = 1;
-constexpr UINT kTimerMs = 300;           // nhịp UI chép rows_ khi dirty
-constexpr UINT WM_APP_QUIT = WM_APP + 1; // Stop() (thread Recv) yêu cầu đóng cửa sổ
+constexpr UINT kTimerMs = 300;
+constexpr UINT WM_APP_QUIT = WM_APP + 1;
 
-} // namespace
+}
 
 void SessionWindow::Start() {
     thread_ = std::thread(&SessionWindow::ThreadMain, this);
@@ -52,8 +34,6 @@ void SessionWindow::SetRows(std::vector<SessionSourceRow> rows) {
     dirty_ = true;
 }
 
-// Đổ uiRows_ vào listbox, giữ nguyên nguồn đang chọn (theo sourceId, không theo
-// vị trí dòng — xem chú thích LB_SETITEMDATA ở đầu file).
 void SessionWindow::RefreshList() {
     if (!list_) return;
     LONG_PTR selId = -1;
@@ -79,8 +59,6 @@ LRESULT SessionWindow::HandleMsg(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_TIMER: {
             if (wp != kTimerId) break;
-            // Chép rows_ ra bản UI khi có thay đổi; giữ mutex NGẮN, không đụng
-            // listbox trong lúc khoá.
             bool need = false;
             {
                 std::lock_guard<std::mutex> lk(m_);
@@ -96,8 +74,6 @@ LRESULT SessionWindow::HandleMsg(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_COMMAND: {
             switch (LOWORD(wp)) {
                 case kIdStopAll:
-                    // Ẩn ngay cho có phản hồi tức thì; vòng Recv thấy cờ trong
-                    // ~100ms sẽ dọn phiên và gọi Stop() đóng hẳn cửa sổ.
                     stopReq_.store(true, std::memory_order_release);
                     ShowWindow(h, SW_HIDE);
                     return 0;
@@ -105,7 +81,6 @@ LRESULT SessionWindow::HandleMsg(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         }
         case WM_CLOSE:
-            // Đóng cửa sổ phiên = kết thúc chia sẻ (giống Stop sharing).
             stopReq_.store(true, std::memory_order_release);
             ShowWindow(h, SW_HIDE);
             return 0;
@@ -136,12 +111,11 @@ void SessionWindow::ThreadMain() {
     wc.lpszClassName = kWndClass;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    RegisterClassW(&wc); // lần 2 trả ALREADY_EXISTS - không sao
+    RegisterClassW(&wc);
 
     constexpr int kW = 460, kH = 330;
     RECT wa{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-    // Góc dưới-phải vùng làm việc: không đè lên giữa màn hình đang được chia sẻ.
     const DWORD style = WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
     RECT wr{0, 0, kW, kH};
     AdjustWindowRect(&wr, style, FALSE);
@@ -150,7 +124,7 @@ void SessionWindow::ThreadMain() {
     HWND hwnd = CreateWindowExW(0, kWndClass, L"Deskhub - sharing", style,
         wa.right - ww - 24, wa.bottom - wh - 24, ww, wh,
         nullptr, nullptr, wc.hInstance, this);
-    if (!hwnd) return; // active_ giữ false — AgentLoop rơi về hành vi cũ
+    if (!hwnd) return;
 
     const HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD s, int cx, int cy, int cw, int ch, int id) {
@@ -174,8 +148,6 @@ void SessionWindow::ThreadMain() {
 
     hwnd_.store(hwnd, std::memory_order_release);
     active_.store(true, std::memory_order_release);
-    // Stop() có thể đã chạy trong lúc cửa sổ đang được tạo (hwnd_ còn null lúc
-    // đó nên message đóng không gửi được) — kiểm tra cờ để không treo join().
     if (quitReq_.load(std::memory_order_acquire)) DestroyWindow(hwnd);
 
     MSG msg;

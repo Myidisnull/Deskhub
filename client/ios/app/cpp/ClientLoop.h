@@ -1,38 +1,4 @@
 #pragma once
-// =============================================================================
-// ClientLoop.h — vòng đời một phiên xem trên iOS. Lớp trung tâm của phần C++.
-//                Port sát của client/android/.../ClientLoop.h.
-//
-// NHIỆM VỤ
-//   Nối bốn thứ thành một phiên chạy được: socket UDP, máy trạng thái ClientSession
-//   của core, bộ ghép mảnh Reassembler, và bộ giải mã VtDecoder. Kênh input phục vụ
-//   điều khiển từ màn hình cảm ứng: chuột tuyệt đối (touch trên khung video), nút
-//   chuột, phím rời (nút F9) và ký tự từ bàn phím ảo (QueueCharTap + KeyMap). Không
-//   có chế độ chuột tương đối (F9-lock của Windows) — màn hình cảm ứng không có
-//   delta chuột thô. Nguồn muốn xem do caller chọn sẵn qua QuerySources().
-//
-// BA THREAD, VÀ LÝ DO CÓ TỪNG CÁI
-//   Main (main thread của app) — giao/thu hồi layer, hỏi trạng thái để vẽ overlay.
-//   Net    — recvfrom → ClientSession + Reassembler → đẩy frame vào hàng đợi.
-//   Decode — rút frame khỏi hàng đợi → VtDecoder → AVSampleBufferDisplayLayer.
-//
-//   Vì sao Net và Decode phải tách: nếu giải mã chạy ngay trên thread Net thì trong
-//   lúc nó bận, recvfrom ngừng nghe, buffer UDP của hệ điều hành tràn và sinh mất
-//   gói THẬT — loại mất mát mà cả FEC lẫn xin IDR đều không cứu được.
-//
-// HAI CƠ CHẾ ĐỒNG BỘ, ĐỪNG NHẦM LẪN
-//   1. HÀNG ĐỢI FRAME (decMutex_/decCv_/decQueue_) — Net sản xuất, Decode tiêu thụ.
-//      Giới hạn kMaxQueuedFrames = 3: đầy thì VỨT frame cũ nhất chứ không chặn Net.
-//   2. BẮT TAY LAYER (winMutex_/winCv_/winAckCv_/winGen_/winAckGen_) — Main giao hoặc
-//      thu hồi layer, và phải CHỜ Decode xác nhận đã buông. Bắt buộc: một
-//      AVSampleBufferDisplayLayer bị buông trong khi decoder còn enqueue vào đó là
-//      lỗi vòng đời. Đếm thế hệ để nhiều lần đổi liên tiếp không nuốt mất lần nào;
-//      decodeExited_ là lối thoát chống treo khi thread Decode đã chết.
-//
-// LIÊN QUAN: ClientLoop.cpp, VtDecoder.h, deskhub/session/ClientSession.h,
-//            deskhub/transport/Reassembler.h,
-//            client/android/.../ClientLoop.h (bản song song)
-// =============================================================================
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -53,8 +19,6 @@
 
 class ClientLoop {
 public:
-    // Trạng thái cho tầng UI hiển thị. UI chỉ cần biết "đang quay bánh xe" hay "đã
-    // có hình", không cần Hello/Starting của ClientSession.
     enum class Phase : int32_t { Idle = 0,
         Connecting = 1,
         Streaming = 2,
@@ -65,22 +29,11 @@ public:
     ClientLoop(const ClientLoop&) = delete;
     ClientLoop& operator=(const ClientLoop&) = delete;
 
-    // `sourceId` lấy từ SOURCE_LIST (xem SourceQuery.h); 0 = nguồn đầu tiên.
-    //
-    // `screenW`/`screenH` là cỡ MÀN HÌNH THIẾT BỊ tính bằng pixel, đi vào HELLO để
-    // host co luồng cho vừa (deskhub::Hello::maxWidth). Truyền 0 nếu không biết —
-    // host sẽ chỉ dùng trần của riêng nó. Cỡ MÀN HÌNH chứ không phải cỡ layer: layer
-    // co giãn và máy xoay được, mà giao thức không có đường báo lại giữa phiên.
     bool Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW, uint32_t screenH);
     void Stop();
 
-    // Giao layer mới (AVSampleBufferDisplayLayer* dưới dạng __bridge void*), hoặc
-    // nullptr khi app xuống nền / view biến mất. CHẶN tới khi thread Decode xác nhận
-    // đã buông layer cũ — bắt buộc, vì decoder còn enqueue vào một layer đã buông là
-    // lỗi vòng đời.
     void SetLayer(void* layer);
 
-    // true khi phiên đã kết thúc (host BYE / timeout / lỗi) — main thoát về ConnectView.
     bool Finished() const {
         return finished_.load(std::memory_order_acquire);
     }
@@ -89,45 +42,22 @@ public:
         return phase_.load(std::memory_order_acquire);
     }
 
-    // Dòng số liệu cho overlay (fps/kbps/RTT/e2e), cập nhật 1s/lần. Chuỗi rỗng khi
-    // chưa có số liệu. Có khóa vì UI thread đọc còn thread Net ghi.
     std::string StatusLine();
 
-    // Lý do phiên kết thúc, để UI báo cho người dùng thay vì im lặng.
     std::string EndReason();
 
-    // --- Kênh input (touch + bàn phím ảo). Tất cả gọi từ UI thread; thread Net vét
-    // hàng đợi mỗi vòng rồi giao ClientSession đánh seq và gửi lặp chống kẹt phím
-    // (InputSender). Chỉ có tác dụng khi phiên đang STREAMING. ---
-
-    // Gõ một phím rời (nhấn rồi nhả sau kTapHoldUs) sang host — thanh phím tắt.
-    // `vk` là mã phím ảo Windows, `scan` là scancode (bit8 = cờ E0, xem Wire.h).
     void QueueKeyTap(int32_t vk, int32_t scan);
 
-    // Tổ hợp kiểu Ctrl+C: giữ phím bổ trợ (`modVk`), gõ phím chính, nhả phím chính
-    // rồi mới nhả phím bổ trợ (cả hai nhả sau kTapHoldUs).
     void QueueKeyChord(int32_t modVk, int32_t modScan, int32_t vk, int32_t scan);
 
-    // Chuột tuyệt đối từ màn hình cảm ứng: `nx`/`ny` chuẩn hoá 0..65535 trong khung
-    // video — cùng hệ toạ độ với InputCapture bên Windows, host map lên khung hình
-    // đã capture. Caller tự chuẩn hoá theo rect của view video; ở đây chỉ kẹp biên.
     void QueueMouseMoveAbs(int32_t nx, int32_t ny);
 
-    // Chuột TƯƠNG ĐỐI — chế độ khoá chuột cho game FPS (đối ứng F9 bên client
-    // Windows): dx/dy là delta thô, absolute = 0, host bơm qua SendMoveRelative và
-    // game tự áp sensitivity. UI hiện CHƯA có nút bật (nút Lock từng có, bỏ vì rối
-    // giao diện) — giữ API cho khi cần lại. Không kẹp biên — delta không có biên.
     void QueueMouseMoveRel(int32_t dx, int32_t dy);
 
-    // Nhấn/nhả một nút chuột tại vị trí con trỏ hiện hành. `button` theo
-    // deskhub::MouseButton (1 = trái, 2 = phải).
     void QueueMouseButton(int32_t button, bool down);
 
-    // Gõ một KÝ TỰ từ bàn phím ảo: KeyMap (layout US) đổi thành chuỗi
-    // [Shift↓] key↓ key↑ [Shift↑]. Ký tự không quy đổi được thì lặng lẽ bỏ qua.
     void QueueCharTap(uint32_t codepoint);
 
-    // Kích thước video đàm phán được — UI dùng để đặt đúng tỉ lệ khung.
     uint32_t videoWidth() const {
         return negW_.load();
     }
@@ -141,7 +71,7 @@ private:
 
     NetAddr server_{};
     uint8_t sourceId_ = 0;
-    uint32_t screenW_ = 0, screenH_ = 0; // cỡ màn hình thiết bị (pixel), 0 = không biết
+    uint32_t screenW_ = 0, screenH_ = 0;
     UdpSocket sock_;
 
     std::thread netThread_;
@@ -151,71 +81,40 @@ private:
     std::atomic<bool> finished_{false};
     std::atomic<Phase> phase_{Phase::Idle};
 
-    // Chuỗi hiển thị: thread Net ghi, UI thread đọc.
     std::mutex textMutex_;
     std::string statusLine_;
     std::string endReason_;
 
-    // Tham số đàm phán được (thread Net ghi, thread Decode đọc).
     std::atomic<uint32_t> negW_{0}, negH_{0};
-    std::atomic<bool> rebuildDecoder_{false}; // RECONFIG -> dựng lại decoder
+    std::atomic<bool> rebuildDecoder_{false};
 
-    // Layer: bắt tay theo thế hệ. Main tăng winGen_, Decode ack bằng winAckGen_.
     std::mutex winMutex_;
-    std::condition_variable winCv_;    // báo Decode có thay đổi
-    std::condition_variable winAckCv_; // báo Main thay đổi đã được áp dụng
-    void* layer_ = nullptr;            // AVSampleBufferDisplayLayer* (__bridge)
+    std::condition_variable winCv_;
+    std::condition_variable winAckCv_;
+    void* layer_ = nullptr;
     uint64_t winGen_ = 0;
     uint64_t winAckGen_ = 0;
     bool decodeExited_ = false;
 
-    // Hàng đợi frame Net -> Decode.
     static constexpr size_t kMaxQueuedFrames = 3;
     std::mutex decMutex_;
     std::condition_variable decCv_;
     std::deque<deskhub::Reassembler::Frame> decQueue_;
 
     std::atomic<bool> decodeFailed_{false};
-    // Tầng hiển thị vừa nghẽn và có frame bị vứt (VtDecoder::TakeCongestionDrops).
-    // TÁCH khỏi decodeFailed_ có chủ ý: decodeFailed_ nghĩa là decoder HỎNG và kéo
-    // theo tháo-dựng lại cả decoder, quá nặng cho một cơn nghẽn thoáng qua. Cái này
-    // chỉ cần một IDR để nối lại chuỗi tham chiếu vừa đứt.
     std::atomic<bool> displayCongested_{false};
     std::atomic<bool> queueOverflow_{false};
     std::atomic<uint32_t> stRendered_{0};
 
-    // Input UI thread gom -> thread Net vét (cùng mô hình client Windows). Khóa chỉ
-    // giữ vài chục nano giây quanh push/swap, không nằm trên đường nóng của video.
-    // wantFocus_: đã từng gửi input thì phải báo host SET_FOCUS — SendInput bên host
-    // chỉ tới được cửa sổ đang foreground.
-    // delayedInput_: cú NHẢ phím của tap được hẹn giờ +kTapHoldUs thay vì đi liền
-    // cú nhấn — down/up dính nhau 0ms thì game poll bàn phím theo frame
-    // (GetAsyncKeyState mỗi ~16-33ms) không kịp thấy phím từng được nhấn.
     static constexpr uint64_t kTapHoldUs = 50'000;
     std::mutex inputMutex_;
     std::vector<deskhub::InputEvent> inputQueue_;
-    std::vector<std::pair<uint64_t, deskhub::InputEvent>> delayedInput_; // (hạn nhả, event)
+    std::vector<std::pair<uint64_t, deskhub::InputEvent>> delayedInput_;
     std::atomic<bool> wantFocus_{false};
 
-    // --- Chẩn đoán (docs/09) ---
-    // Bộ đếm cửa sổ 1s và phép dựng hai dòng log nằm ở core, một bản cho cả năm
-    // viewer (deskhub/diag/ClientDiag.h).
-    //
-    // disp_drop = frame bị vứt vì tầng hiển thị nghẽn. Trên bản Apple đây là con
-    // số DUY NHẤT lộ ra ùn tắc: enqueueSampleBuffer bất đồng bộ nên thread Decode
-    // luôn vét sạch decQueue_ ngay và dq_drop mãi bằng 0. present_ms thì không có
-    // (chỉ Windows mới chặn trong Present), nên caps chỉ bật disp_drop.
-    //
-    // Ai ghi cái gì: thread Decode ghi decMs/dispDrop, thread Net ghi asmMs/
-    // dqDrop/loopBusyMs/minRttUs, thread Net đọc-và-xoá tất cả ở nhịp 1s.
     deskhub::diag::ClientDiag diag_{deskhub::diag::ClientDiagCaps{
-        /*presentMs=*/false, /*dispDrop=*/true}};
+        false, true}};
 
-    // Ước lượng trễ e2e (docs/06 §7, deskhub/control/ClockOffset.h).
-    // Sàn mạng (min RTT) nằm ở diag_.minRttUs: Net ghi, Decode đọc.
-    // lastE2eUs_: Decode ghi, Net đọc.
-    // clockOffset_: CHỈ thread Decode chạm — nó không tự khoá, và nó phải được bơm
-    // mẫu ở ĐÚNG MỘT điểm trong đường dẫn (xem AddSample).
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;
 };

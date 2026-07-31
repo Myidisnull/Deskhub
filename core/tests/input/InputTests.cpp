@@ -1,7 +1,3 @@
-// =============================================================================
-// InputTests.cpp — chuỗi event chuột/phím: khứ hồi wire, khử trùng + bù gói mất
-// (chống kẹt phím), và bỏ gói đảo thứ tự.
-// =============================================================================
 #include "Tests.h"
 #include "support/TestSupport.h"
 
@@ -136,8 +132,6 @@ void TestInputReorder() {
     Check(applied.back().a == 'A' + 5, "final state is the newest event");
 }
 
-// Mất vượt sức bù của redundancy: chỉ gói đầu và gói cuối tới nơi -> receiver
-// phải ĐẾM đúng số event đã mất (các test trên luôn về lost == 0).
 void TestInputLossCounted() {
     std::printf("[input] loss beyond redundancy is counted, not hidden...\n");
     InputSender sender;
@@ -155,15 +149,12 @@ void TestInputLossCounted() {
 
     size_t applied = 0;
     auto apply = [&](const InputEvent&) { ++applied; };
-    receiver.HandlePacket(PayloadOf(wire.front()), apply); // seq 0
-    receiver.HandlePacket(PayloadOf(wire.back()), apply);  // seq 21..29
+    receiver.HandlePacket(PayloadOf(wire.front()), apply);
+    receiver.HandlePacket(PayloadOf(wire.back()), apply);
     Check(applied == 1 + kInputRedundancy + 1, "only the head and the tail arrive");
-    // Giữa seq 0 và 21 là 20 event không gói nào mang tới.
     Check(receiver.stats().lost == 20, "the gap is counted as lost events");
 }
 
-// Dồn quá kInputBatchMax event vào MỘT lần Flush: phải chia nhiều datagram; dồn
-// tiếp cho lịch sử vượt kHistoryMax: cắt đầu nhưng seq trên wire vẫn liên tục.
 void TestInputMultiBatchAndTrim() {
     std::printf("[input] over-max batch splits, history trim keeps seq contiguous...\n");
     InputSender sender;
@@ -173,14 +164,11 @@ void TestInputMultiBatchAndTrim() {
     std::vector<InputEvent> applied;
     auto apply = [&](const InputEvent& e) { applied.push_back(e); };
 
-    // 30 event > kInputBatchMax = 24 -> một Flush phát 2 datagram.
     for (int i = 0; i < 30; ++i) sender.Queue(MakeKey('A', 0x1E, (i % 2) == 0));
     Check(sender.Flush(10'000, send) == 2, "over-max batch split into two datagrams");
     for (const auto& d : wire) receiver.HandlePacket(PayloadOf(d), apply);
     Check(applied.size() == 30, "all 30 events applied exactly once");
 
-    // Dồn tiếp 60 event: lịch sử vượt kHistoryMax -> cắt phần đầu đã gửi,
-    // firstSeq_ dời theo — receiver không được thấy lỗ hổng hay bản lặp nào.
     wire.clear();
     for (int i = 0; i < 60; ++i) sender.Queue(MakeKey('B', 0x30, (i % 2) == 0));
     sender.Flush(20'000, send);
@@ -190,8 +178,6 @@ void TestInputMultiBatchAndTrim() {
         "seq stays contiguous through the trim");
 }
 
-// Reset cả hai đầu: sender quên lịch sử/seq (phiên mới bắt đầu từ 0), receiver
-// quên lastAppliedSeq (gói cũ áp dụng lại được).
 void TestInputReset() {
     std::printf("[input] Reset clears both sender and receiver state...\n");
     InputSender sender;
@@ -216,7 +202,7 @@ void TestInputReset() {
     size_t applied = 0;
     auto apply = [&](const InputEvent&) { ++applied; };
     receiver.HandlePacket(PayloadOf(wire[0]), apply);
-    receiver.HandlePacket(PayloadOf(wire[0]), apply); // bản lặp bị khử
+    receiver.HandlePacket(PayloadOf(wire[0]), apply);
     Check(applied == 1 && receiver.stats().duplicates == 1, "receiver dedupes before reset");
     receiver.Reset();
     receiver.HandlePacket(PayloadOf(wire[0]), apply);
@@ -224,8 +210,6 @@ void TestInputReset() {
         "receiver reset forgets the seq history");
 }
 
-// Bảng ký tự -> tổ hợp phím (layout US) cho bàn phím ảo mobile/web: chữ thường/hoa,
-// ký hiệu cần Shift, phím điều khiển, và ký tự ngoài bảng phải trả nullopt.
 void TestCharToKeyChord() {
     std::printf("[input] KeyMap: char -> VK chord (US layout)...\n");
 
@@ -243,14 +227,13 @@ void TestCharToKeyChord() {
     Check(chord('\b') && chord('\b')->vk == kVkBack, "backspace -> VK_BACK");
     Check(chord('\t') && chord('\t')->vk == kVkTab, "tab -> VK_TAB");
     Check(!chord(0x1B), "bare ESC control char is not typeable");
-    Check(!chord(0x1EA1 /* 'ạ' */), "non-ASCII has no chord");
+    Check(!chord(0x1EA1), "non-ASCII has no chord");
 
-    // Mọi ký tự ASCII in được phải có chord — bàn phím ảo gõ gì cũng không rơi rụng.
     for (uint32_t cp = 0x20; cp < 0x7F; ++cp)
         Check(chord(cp).has_value(), "every printable ASCII char has a chord");
 }
 
-} // namespace
+}
 
 void RunInputTests() {
     TestInputWireRoundtrip();

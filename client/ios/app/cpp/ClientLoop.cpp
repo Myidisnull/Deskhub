@@ -1,28 +1,6 @@
-// =============================================================================
-// ClientLoop.cpp — cài đặt vòng đời phiên, thread Net và thread Decode (bản iOS).
-//                  Port sát của client/android/.../ClientLoop.cpp; chỉ hai điểm chạm
-//                  phần cứng đổi (VtDecoder thay MediaCodecDecoder; layer thay Surface).
-//
-// THREAD NÀO CHẠM GÌ:
-//   Main   : server_, sourceId_ (chỉ trước khi thread chạy), layer_, winGen_,
-//            đọc statusLine_/endReason_ dưới khoá.
-//   Net    : sock_, ClientSession, Reassembler, LinkStats, ghi statusLine_/
-//            endReason_ dưới khoá, đẩy vào decQueue_.
-//   Decode : VtDecoder, rút khỏi decQueue_, đọc layer_ dưới khoá, ghi winAckGen_.
-//
-// VÒNG LẶP THREAD NET LÀM 6 VIỆC MỖI VÒNG, THEO ĐÚNG THỨ TỰ NÀY:
-//   1. recvfrom (chặn tối đa 10 ms — trần độ trễ của Tick khi màn hình tĩnh).
-//   2. Phân loại gói: kênh Video vào Reassembler, còn lại giao ClientSession.
-//   3. Rút frame đã ghép đủ, đẩy sang thread Decode.
-//   4. Gom các lý do cần xin IDR (mất gói, lỗi decoder, hàng đợi tràn).
-//   5. session.Tick() — phát ping/input/keyframe theo lịch.
-//   6. Mỗi giây: đóng cửa sổ thống kê, in log, gửi FEEDBACK.
-//
-// LIÊN QUAN: ClientLoop.h (kiến trúc thread + hai cơ chế đồng bộ)
-// =============================================================================
 #include "ClientLoop.h"
 
-#include <unistd.h> // getpid — trộn vào clientId ngẫu nhiên mỗi phiên
+#include <unistd.h>
 
 #include <chrono>
 #include <cinttypes>
@@ -31,7 +9,7 @@
 
 #include "deskhubp/Log.h"
 #include "deskhubp/Clock.h"
-#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
+#include "deskhubp/LogFile.h"
 
 #include "deskhub/control/LinkStats.h"
 #include "deskhub/input/KeyMap.h"
@@ -52,9 +30,6 @@ std::string ClientLoop::EndReason() {
     return endReason_;
 }
 
-// Gõ một phím rời: NHẤN đi ngay, NHẢ hẹn sau kTapHoldUs (xem chú thích ở header
-// về lý do game cần phím được giữ thật). Phần chống mất gói đã có InputSender
-// gửi lặp lo; kẹt phím không xảy ra vì cú nhả chắc chắn được vét ở vòng Net sau.
 void ClientLoop::QueueKeyTap(int32_t vk, int32_t scan) {
     const uint64_t now = NowUs();
     deskhub::InputEvent down;
@@ -73,8 +48,6 @@ void ClientLoop::QueueKeyTap(int32_t vk, int32_t scan) {
     wantFocus_.store(true, std::memory_order_release);
 }
 
-// Chuột tuyệt đối: kẹp biên rồi xếp hàng. Move không phải state event nên mất gói
-// cũng vô hại — event kế tiếp thay thế.
 void ClientLoop::QueueMouseMoveAbs(int32_t nx, int32_t ny) {
     auto clamp = [](int32_t v) { return v < 0 ? 0 : (v > 65535 ? 65535 : v); };
     deskhub::InputEvent e;
@@ -90,9 +63,6 @@ void ClientLoop::QueueMouseMoveAbs(int32_t nx, int32_t ny) {
     wantFocus_.store(true, std::memory_order_release);
 }
 
-// Tổ hợp kiểu Ctrl+C. Cả cụm vào hàng đợi trong MỘT lần giữ khóa để không bị event
-// khác chen giữa. Hai cú nhả cùng hạn nhưng phím chính được xếp TRƯỚC trong
-// delayedInput_ — vòng vét đi theo thứ tự nên phím chính luôn nhả trước phím bổ trợ.
 void ClientLoop::QueueKeyChord(int32_t modVk, int32_t modScan, int32_t vk, int32_t scan) {
     const uint64_t now = NowUs();
     auto key = [now](int32_t kvk, int32_t kscan, bool down) {
@@ -114,7 +84,6 @@ void ClientLoop::QueueKeyChord(int32_t modVk, int32_t modScan, int32_t vk, int32
     wantFocus_.store(true, std::memory_order_release);
 }
 
-// Chuột tương đối (chế độ khoá chuột): delta thô đi thẳng, không kẹp biên.
 void ClientLoop::QueueMouseMoveRel(int32_t dx, int32_t dy) {
     if (dx == 0 && dy == 0) return;
     deskhub::InputEvent e;
@@ -143,18 +112,16 @@ void ClientLoop::QueueMouseButton(int32_t button, bool down) {
     wantFocus_.store(true, std::memory_order_release);
 }
 
-// Gõ một ký tự từ bàn phím ảo. Cả cụm [Shift↓] key↓ key↑ [Shift↑] vào hàng đợi
-// trong MỘT lần giữ khóa để không bị event khác chen ngang giữa Shift↓ và Shift↑.
 void ClientLoop::QueueCharTap(uint32_t codepoint) {
     const auto chord = deskhub::CharToKeyChord(codepoint);
-    if (!chord) return; // ký tự ngoài bảng US-ASCII — không gõ được, bỏ qua
+    if (!chord) return;
     const uint64_t now = NowUs();
     auto key = [now](int32_t vk, bool down) {
         deskhub::InputEvent e;
         e.type = deskhub::InputType::Key;
         e.timestampUs = now;
         e.a = vk;
-        e.b = 0; // không có scancode thật — host tự tra theo layout của nó (KeyMap.h)
+        e.b = 0;
         e.state = down ? 1 : 0;
         return e;
     };
@@ -162,9 +129,6 @@ void ClientLoop::QueueCharTap(uint32_t codepoint) {
         std::lock_guard<std::mutex> lk(inputMutex_);
         if (chord->shift) inputQueue_.push_back(key(deskhub::kVkShift, true));
         inputQueue_.push_back(key(chord->vk, true));
-        // Nhả Shift ngay sau cú nhấn phím chính: ký tự sinh ra tại thời điểm nhấn,
-        // còn giữ Shift qua cả cửa sổ kTapHoldUs thì ký tự KẾ TIẾP (gõ nhanh) bị
-        // dính Shift oan. Riêng phím chính thì nhả trễ — như QueueKeyTap.
         if (chord->shift) inputQueue_.push_back(key(deskhub::kVkShift, false));
         delayedInput_.emplace_back(now + kTapHoldUs, key(chord->vk, false));
     }
@@ -177,12 +141,10 @@ bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW
     sourceId_ = sourceId;
     screenW_ = screenW;
     screenH_ = screenH;
-    if (!sock_.Open(0)) { // cổng ngẫu nhiên
+    if (!sock_.Open(0)) {
         LOGE("[Client] Failed to open socket.");
         return false;
     }
-    // 10ms: trần độ trễ của Tick khi màn hình đang tĩnh và không có gói video nào
-    // đánh thức vòng lặp.
     sock_.SetRecvTimeout(10);
 
     quit_.store(false);
@@ -199,9 +161,6 @@ bool ClientLoop::Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW
     return true;
 }
 
-// Dừng phiên và chờ cả hai thread thoát hẳn. Thứ tự bắt buộc: bật cờ quit_ TRƯỚC
-// rồi mới đánh thức — đánh thức trước thì thread có thể kiểm tra cờ khi nó còn false
-// rồi ngủ tiếp, và join() sẽ treo mãi.
 void ClientLoop::Stop() {
     quit_.store(true);
     decCv_.notify_all();
@@ -211,61 +170,39 @@ void ClientLoop::Stop() {
     sock_.Close();
 }
 
-// Giao layer mới, hoặc nullptr khi app xuống nền / view biến mất.
-//
-// CHẶN main thread tới khi thread Decode xác nhận đã buông layer cũ — xem mục "bắt
-// tay layer" ở ClientLoop.h. decodeExited_ là lối thoát: thread Decode chết trước
-// khi ack thì main vẫn đi tiếp được, không treo vĩnh viễn.
 void ClientLoop::SetLayer(void* layer) {
     std::unique_lock<std::mutex> lk(winMutex_);
     layer_ = layer;
     ++winGen_;
     winCv_.notify_all();
-    decCv_.notify_all(); // thread Decode có thể đang chờ frame — đánh thức để nó ack
+    decCv_.notify_all();
     winAckCv_.wait(lk, [this] { return winAckGen_ == winGen_ || decodeExited_; });
 }
 
-// ---------------------------------------------------------------------------
-// Thread Decode
-// ---------------------------------------------------------------------------
-// Vòng lặp bốn bước, lặp tới khi quit_. Decoder dựng LƯỜI ở bước (3) — chỉ khi đã
-// có đủ cả layer lẫn kích thước đàm phán, mà hai thứ đó đến từ hai thread khác nhau
-// và không theo thứ tự cố định.
 void ClientLoop::DecodeThread() {
     VtDecoder decoder;
-    // Phiên mới = một máy host khác (hoặc cùng máy nhưng đã khởi động lại), tức một
-    // độ lệch đồng hồ khác. Mẫu của phiên trước là rác đối với phiên này.
     clockOffset_.Reset();
 
     for (;;) {
-        // 1) Layer đổi? Buông decoder cũ rồi ack cho main. Decoder luôn được dựng lại
-        //    lười biếng ở bước (3) nên ở đây chỉ cần tắt.
         {
             std::unique_lock<std::mutex> lk(winMutex_);
             if (winAckGen_ != winGen_) {
-                // Chụp lại thế hệ TRƯỚC khi nhả khoá: main có thể đổi layer lần nữa
-                // trong lúc ta đang Shutdown, và ack nhầm thế hệ mới sẽ khiến lần đổi
-                // đó bị bỏ qua vĩnh viễn.
                 const uint64_t gen = winGen_;
                 lk.unlock();
                 decoder.Shutdown();
                 lk.lock();
                 winAckGen_ = gen;
                 winAckCv_.notify_all();
-                // Layer mới -> chuỗi inter-frame vô nghĩa với decoder vừa dựng lại.
                 rebuildDecoder_.store(false);
-                decodeFailed_.store(true, std::memory_order_release); // -> xin IDR
+                decodeFailed_.store(true, std::memory_order_release);
             }
         }
 
         if (quit_.load()) break;
 
-        // 2) Lấy frame kế tiếp. Chờ có giới hạn để còn quay lại phục vụ (1).
         deskhub::Reassembler::Frame f;
         {
             std::unique_lock<std::mutex> lk(decMutex_);
-            // wait_for chứ không wait: phải tỉnh dậy định kỳ để quay lại bước (1)
-            // phục vụ yêu cầu đổi layer, kể cả khi không có frame nào tới.
             decCv_.wait_for(lk, std::chrono::milliseconds(20), [this] {
                 return quit_.load() || !decQueue_.empty();
             });
@@ -274,7 +211,6 @@ void ClientLoop::DecodeThread() {
             decQueue_.pop_front();
         }
 
-        // 3) Dựng decoder nếu chưa có (cần cả layer lẫn kích thước đàm phán).
         if (rebuildDecoder_.exchange(false) && decoder.IsOpen()) decoder.Shutdown();
 
         if (!decoder.IsOpen()) {
@@ -286,8 +222,6 @@ void ClientLoop::DecodeThread() {
                 std::lock_guard<std::mutex> lk(winMutex_);
                 lay = layer_;
             }
-            // Không có layer (app ở nền) -> bỏ frame. An toàn: quay lại nền trước sẽ
-            // ack layer mới ở (1) và kéo theo một yêu cầu IDR.
             if (!lay) continue;
 
             if (!decoder.Init(lay, int(w), int(h))) {
@@ -296,8 +230,6 @@ void ClientLoop::DecodeThread() {
             }
         }
 
-        // 4) Giải mã và hiển thị. Đo thời gian để phát hiện máy quá yếu hoặc decoder
-        //    đang vật lộn; cộng vào bộ đếm cửa sổ 1s cho dòng [DIAG] (t_dec, docs/09).
         const uint64_t t0 = NowUs();
         const bool ok = decoder.Decode(f.nal.data(), f.nal.size(), f.timestampUs);
         const uint64_t decMs = (NowUs() - t0) / 1000;
@@ -307,34 +239,26 @@ void ClientLoop::DecodeThread() {
 
         if (!ok) {
             decodeFailed_.store(true, std::memory_order_release);
-            decoder.Shutdown(); // dựng lại ở vòng sau
+            decoder.Shutdown();
             continue;
         }
 
         if (const uint32_t n = decoder.TakeRenderedCount())
             stRendered_.fetch_add(n, std::memory_order_relaxed);
 
-        // Layer vừa nghẽn và nuốt mất frame -> chuỗi tham chiếu đứt, phải xin IDR.
-        // Không tháo decoder: nó vẫn lành, chỉ bận (VtDecoder::TakeCongestionDrops).
         if (const uint32_t n = decoder.TakeCongestionDrops()) {
             diag_.dispDrop.Add(n);
             displayCongested_.store(true, std::memory_order_release);
         }
 
-        // Trễ e2e: đo trên frame vừa enqueue, qua bộ lọc min ở core.
-        // (Xem VtDecoder::lastRenderedPtsUs về caveat "enqueue vs lên màn hình", và deskhub/control/ClockOffset.h về vì sao là bộ lọc min.)
-        // Chỉ thread này chạm clockOffset_ — nó không tự khoá.
         if (const uint64_t pts = decoder.lastRenderedPtsUs()) {
             clockOffset_.AddSample(pts, NowUs());
-            // Cộng lại sàn mạng đo được (nửa RTT nhỏ nhất). RTT chưa về thì để 0:
-            // thà hụt sàn còn hơn bịa ra nó.
             lastE2eUs_.store(
                 clockOffset_.LatencyUs(diag_.minRttUs.value() / 2));
         }
     }
 
     decoder.Shutdown();
-    // Cởi trói cho main nếu nó đang chờ ack trong SetLayer.
     {
         std::lock_guard<std::mutex> lk(winMutex_);
         decodeExited_ = true;
@@ -343,46 +267,27 @@ void ClientLoop::DecodeThread() {
     winAckCv_.notify_all();
 }
 
-// ---------------------------------------------------------------------------
-// Thread Net — bản port sát của StreamRecvLoop bên Windows/Android
-// ---------------------------------------------------------------------------
-// Các callback của ClientSession chạy TRÊN CHÍNH THREAD NÀY (bên trong HandlePacket/
-// Tick), nên chúng đọc/ghi trạng thái thoải mái, chỉ cần khoá khi chạm vào thứ mà
-// thread khác cũng chạm.
 void ClientLoop::NetThread() {
-    std::unique_ptr<deskhub::Reassembler> reasm; // tạo sau khi biết fps đàm phán
+    std::unique_ptr<deskhub::Reassembler> reasm;
 
     deskhub::ClientCallbacks cb;
     cb.send = [this](std::span<const uint8_t> d) {
         sock_.SendTo(server_, d.data(), d.size());
     };
     cb.onReady = [this](const deskhub::NegotiatedParams& np) {
-        // HelloAck::timebaseUs KHÔNG còn được dùng để ước lượng độ lệch đồng hồ nữa:
-        // một mẫu duy nhất, lấy từ gói đầu tiên của phiên, là mẫu tệ nhất có thể lấy
-        // (xem deskhub/control/ClockOffset.h). Bộ lọc min ở thread Decode thay nó.
         LOGI("[Client] Negotiation done: H264 %ux%u @%ufps, %.1f Mbps",
             np.width, np.height, np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
     };
     cb.onReconfig = [this, &reasm](const deskhub::NegotiatedParams& np) {
-        // fps mới phải tới được Reassembler, không chỉ để hiển thị: nó là hạn chờ
-        // trước khi khai tử một frame thiếu mảnh. Giữ hạn của fps cũ khi host đã hạ
-        // fps = bỏ frame LÀNH rồi xin IDR, đúng lúc đường truyền yếu nhất
-        // (xem deskhub::Reconfig::fps).
         if (reasm) reasm->SetFps(np.fps);
         LOGI("[Client] Host reconfigured: %ux%u @%ufps, %.1f Mbps",
             np.width, np.height, np.fps, np.bitrateBps / 1e6);
         negW_.store(np.width);
         negH_.store(np.height);
-        // VtDecoder dựng CMVideoFormatDescription cứng theo SPS cũ; đổi kích thước
-        // giữa chừng thì dựng lại decoder là đường chắc nhất. Host gửi kèm IDR nên
-        // không mất gì.
         rebuildDecoder_.store(true);
     };
-    // Giữ RTT NHỎ NHẤT từng thấy (ước lượng trễ e2e). Vòng compare_exchange là cách
-    // chuẩn cập nhật "giá trị nhỏ nhất" trên atomic mà không bao giờ ghi đè bằng số
-    // lớn hơn.
     cb.onRtt = [this](uint32_t rttUs) {
         diag_.minRttUs.Add(rttUs);
     };
@@ -397,13 +302,8 @@ void ClientLoop::NetThread() {
     deskhub::ClientSession session(cb);
 
     deskhub::Hello hello;
-    // clientId chỉ để host phân biệt hai client trong cùng một phiên — sinh ngẫu
-    // nhiên mỗi lần chạy là đủ, cùng công thức với ClientApi.cpp bên Windows.
     hello.clientId = uint32_t(NowUs()) ^ uint32_t(getpid()) ^ (uint32_t(sourceId_) << 24);
     hello.codecMask = deskhub::kCodecMaskH264;
-    // Cỡ MÀN HÌNH thiết bị (pixel). Host co luồng cho vừa — một iPhone không có việc
-    // gì phải nhận 3024×1964 từ một MacBook Retina rồi vẽ xuống khung bé hơn ba lần.
-    // 0 = tầng bridge không lấy được cỡ; host khi đó chỉ dùng trần của riêng nó.
     hello.maxWidth = uint16_t(screenW_);
     hello.maxHeight = uint16_t(screenH_);
     hello.desiredFps = 60;
@@ -415,9 +315,6 @@ void ClientLoop::NetThread() {
     uint64_t stBytes = 0;
     deskhub::LinkStats linkStats(NowUs());
 
-    // Bộ đếm chẩn đoán cửa sổ 1s, chỉ thread Net chạm (xem docs/09).
-    // Máy trạng thái kf_req/idr_rx ở core (deskhub/diag/ClientDiag.h): nó ghép
-    // hai sự kiện lại để ra after_ms — thời gian người dùng nhìn hình đứng.
     deskhub::diag::KeyframeRequestLog kfLog;
     char kfLine[deskhub::diag::KeyframeRequestLog::kBufBytes];
 
@@ -435,19 +332,13 @@ void ClientLoop::NetThread() {
         if (n > 0) {
             const auto span = std::span<const uint8_t>(buf, size_t(n));
             const auto h = deskhub::ParseCommonHeader(span);
-            // Kênh Video đi thẳng vào Reassembler, KHÔNG qua ClientSession — đường
-            // nóng, mỗi giây hàng nghìn gói. ClientSession chỉ được báo bằng
-            // NotifyVideoPacket để nuôi timeout và thoát khỏi trạng thái Starting.
             if (h && h->chan == deskhub::Chan::Video) {
                 if (h->sessionId == session.sessionId() && session.sessionId() != 0) {
                     const auto pl = deskhub::PayloadOf(span);
-                    // Dựng Reassembler lười: nó cần fps đàm phán để đặt mốc timeout.
                     if (!reasm) {
                         const uint32_t fps = session.params().fps ? session.params().fps : 60;
                         reasm = std::make_unique<deskhub::Reassembler>(1'000'000 / fps);
                         reasm->onFrameDrop = [](const deskhub::Reassembler::FrameDropInfo& d) {
-                            // Dựng chuỗi ở core (deskhub/diag/ClientDiag.h) — trước 31/07/2026
-                            // đúng đoạn này được chép ở cả năm viewer.
                             char line[deskhub::diag::ClientDiag::kFrameDropBufBytes];
                             LOGW("%s", deskhub::diag::ClientDiag::FormatFrameDrop(line, sizeof(line), d));
                         };
@@ -469,8 +360,6 @@ void ClientLoop::NetThread() {
             }
         }
 
-        // Gom mọi đường dẫn tới "xin IDR" về một chỗ, kèm lý do và mốc thời gian.
-        // Gọi lặp là vô hại: chỉ log ở lần chuyển từ "không treo" sang "đang treo".
         auto requestKf = [&](const char* reason) {
             if (const char* l = kfLog.Request(kfLine, sizeof(kfLine), now, reason))
                 LOGI("%s", l);
@@ -478,24 +367,18 @@ void ClientLoop::NetThread() {
         };
 
         if (reasm) {
-            // Vét hết frame đã đủ mảnh: một lần recvfrom có thể hoàn thành nhiều frame.
             while (auto f = reasm->PopReady(now)) {
-                // IDR đã về → thôi xin keyframe, kẻo host phát IDR liên tục.
                 if (f->idr) {
                     session.CancelKeyframeRequest();
                     if (const char* l = kfLog.Arrived(kfLine, sizeof(kfLine), now, f->nal.size()))
                         LOGI("%s", l);
                 }
-                // t_asm: mảnh đầu tiên tới → frame ghép xong và rời Reassembler.
                 if (f->firstSeenUs) {
                     const uint32_t asmMs = uint32_t((now - f->firstSeenUs) / 1000);
                     diag_.asmMs.Add(asmMs);
                 }
                 {
                     std::lock_guard<std::mutex> lk(decMutex_);
-                    // Hàng đợi đầy: VỨT frame CŨ NHẤT chứ không chặn thread Net và
-                    // cũng không vứt frame vừa tới. Frame cũ nhất là frame lỗi thời
-                    // nhất — giữ nó lại chỉ làm hình trễ thêm.
                     if (decQueue_.size() >= kMaxQueuedFrames) {
                         decQueue_.pop_front();
                         queueOverflow_.store(true, std::memory_order_release);
@@ -510,14 +393,11 @@ void ClientLoop::NetThread() {
             else if (reasm->WaitingForIdr())
                 requestKf("wait_idr");
         }
-        // Hai lý do còn lại đến từ thread Decode. exchange() đọc-và-xoá nguyên tử.
         if (decodeFailed_.exchange(false, std::memory_order_acq_rel)) requestKf("dec_fail");
         if (displayCongested_.exchange(false, std::memory_order_acq_rel))
             requestKf("display_congested");
         if (queueOverflow_.exchange(false, std::memory_order_acq_rel)) requestKf("q_overflow");
 
-        // GĐ7: xin host gửi lại các mảnh còn thiếu của frame đầu hàng (NACK). Bù cho
-        // FEC khi chùm mất vượt sức parity mà RTT còn đủ nhỏ để gói gửi lại về kịp.
         if (reasm) {
             uint16_t nackIdx[64];
             uint32_t nackFrame = 0;
@@ -526,16 +406,10 @@ void ClientLoop::NetThread() {
             if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
         }
 
-        // Vét input do UI thread gom -> ClientSession đánh seq, Tick gửi. Đã từng có
-        // input thì báo SET_FOCUS để host kéo cửa sổ nguồn lên foreground (SetFocused
-        // tự lọc trùng nên gọi mỗi vòng là vô hại).
         {
             std::vector<deskhub::InputEvent> batch;
             {
                 std::lock_guard<std::mutex> lk(inputMutex_);
-                // Cú nhả phím hẹn giờ (tap giữ kTapHoldUs) tới hạn -> vào lô. Vòng
-                // Net thức dậy tối đa 10ms một lần nên độ trễ nhả sai lệch không quá
-                // 10ms — không ai cảm nhận được.
                 for (auto it = delayedInput_.begin(); it != delayedInput_.end();) {
                     if (it->first <= now) {
                         inputQueue_.push_back(it->second);
@@ -558,22 +432,17 @@ void ClientLoop::NetThread() {
                          : Phase::Connecting,
             std::memory_order_release);
 
-        // Mỗi giây: chốt cửa sổ thống kê, in log, cập nhật overlay, gửi FEEDBACK.
         if (linkStats.Due(now)) {
             const auto st = reasm ? reasm->stats() : deskhub::Reassembler::Stats{};
             const uint32_t rendered = stRendered_.exchange(0, std::memory_order_relaxed);
             const deskhub::LinkWindow w = linkStats.Close(st, stBytes, rendered, now);
             const int64_t e2e = lastE2eUs_.load();
 
-            // Hai dòng log mỗi giây do core dựng (deskhub/diag/ClientDiag.h) — một
-            // bản dùng chung cho cả năm viewer. `hms` truyền từ đây vì core không
-            // đọc đồng hồ tường.
             const std::string hms = deskhubp::LocalTimeHms();
             char line[deskhub::diag::ClientDiag::kSumBufBytes];
             LOGI("%s", deskhub::diag::ClientDiag::FormatStatus(line, sizeof(line), hms.c_str(), w,
                            session.lastRttUs(), e2e));
 
-            // Bản gọn cho overlay trên màn hình (log giữ bản đầy đủ ở trên).
             char ui[deskhub::diag::ClientDiag::kCompactBufBytes];
             deskhub::diag::ClientDiag::FormatCompact(ui, sizeof(ui), w, session.lastRttUs(), e2e);
             {
@@ -583,26 +452,17 @@ void ClientLoop::NetThread() {
 
             session.SendFeedback(deskhub::MakeFeedback(w, session.lastRttUs()));
 
-            // Dòng chẩn đoán 1s (docs/09). min_rtt_ms / e2e_ms là ĐẦU VÀO và ĐẦU RA
-            // của phép ước lượng e2e — không có chúng thì con số "e2e ~N ms" ở dòng
-            // [Client] không kiểm chứng được từ log. Phần XẾP HÀNG (thứ ta tác động
-            // được) suy ra bằng phép trừ: e2e_ms - min_rtt_ms/2.
-            // FormatSum đọc-và-xoá mọi bộ đếm cửa sổ, nên gọi đúng một lần ở đây.
             LOGI("%s", diag_.FormatSum(line, sizeof(line), hms.c_str(), w,
                            reasm ? reasm->TakeMaxGapMs() : 0, e2e));
 
             stBytes = 0;
         }
 
-        // Vòng này bận bao lâu. Thread Net nghẽn thì buffer UDP của kernel gánh —
-        // tràn là mất gói thật.
         const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
         diag_.loopBusyMs.Add(busyMs);
         if (busyMs > 50) LOGW("[DIAG] evt=recv_stall busy_ms=%u", busyMs);
     }
 
-    // Chào host trước khi đi, gửi một lần và không chờ hồi đáp. Nó giải phóng phiên
-    // ngay, để lần kết nối sau không bị từ chối vì host tưởng còn client cũ.
     session.SendBye();
     quit_.store(true);
     decCv_.notify_all();

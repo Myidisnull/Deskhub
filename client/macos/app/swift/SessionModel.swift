@@ -1,13 +1,3 @@
-// =============================================================================
-// SessionModel.swift — hai model của vai CLIENT, chia đúng theo hai cửa sổ Windows:
-//
-//   SessionModel — hộp Client mode ở màn chính (MainMenuWindow::DoConnect): ô địa
-//                  chỉ + hỏi host đang chia sẻ gì.
-//   StreamModel  — MỘT cửa sổ xem (ViewerFrame trong Viewer.cpp): sở hữu một
-//                  ClientSession riêng, nhiều cửa sổ là nhiều model song song.
-//
-// View chỉ đọc thuộc tính và gọi action trên model, không chạm facade trực tiếp.
-// =============================================================================
 import AVFoundation
 import Foundation
 import Observation
@@ -18,8 +8,6 @@ final class SessionModel {
     var isConnecting = false
     var connectError = ""
 
-    // Trả về danh sách nguồn; caller (MainMenuView) quyết định đi tiếp màn nào —
-    // danh sách đi theo Route.sourcePicker, model không giữ lại.
     func listSources() async -> [Source] {
         guard !address.isEmpty else { return [] }
         isConnecting = true
@@ -33,8 +21,6 @@ final class SessionModel {
     }
 }
 
-// MARK: - Một cửa sổ xem
-
 @MainActor @Observable
 final class StreamModel {
     let address: String
@@ -46,19 +32,11 @@ final class StreamModel {
     var endReason = ""
     var videoWidth: UInt32 = 0
     var videoHeight: UInt32 = 0
-    // Không mở được phiên (địa chỉ sai / thiếu GPU) — cửa sổ báo rồi tự đóng, giống
-    // nhánh MessageBox "Could not open a viewing session" của RunViewer.
     var failedToStart = false
 
-    // Khoá chuột (chế độ tương đối) — bật/tắt bằng F9, đối ứng client Windows.
     var mouseLocked = false
 
-    // KHÔNG có `viewOnly` và KHÔNG có `hostAcceptsInput` (bỏ 2026-07-27): mọi phiên
-    // đều gửi chuột/bàn phím, và host thì luôn nhận.
-
     private var session: ClientSession?
-    // Layer do RemoteView giao, có thể tới TRƯỚC khi phiên mở xong (start chạy nền)
-    // — giữ lại để áp ngay khi phiên sẵn sàng.
     private var layer: AVSampleBufferDisplayLayer?
     private var pollTimer: Timer?
 
@@ -68,9 +46,6 @@ final class StreamModel {
         self.sourceName = sourceName
     }
 
-    // MARK: - Vòng đời
-
-    // CHẶN ~1s trong Task nền. Gọi đúng một lần khi cửa sổ hiện ra.
     func start() async {
         let addr = address
         let sid = sourceId
@@ -94,14 +69,10 @@ final class StreamModel {
         statusLine = ""
     }
 
-    // MARK: - Layer video (RemoteView giao/thu hồi)
-
     func setLayer(_ newLayer: AVSampleBufferDisplayLayer?) {
         layer = newLayer
         session?.setLayer(newLayer)
     }
-
-    // MARK: - Chuyển tiếp input (RemoteView gọi)
 
     func key(vk: Int32, scan: Int32, down: Bool) {
         session?.key(vk: vk, scan: scan, down: down)
@@ -126,8 +97,6 @@ final class StreamModel {
     func mouseWheel(_ delta: Int32) {
         session?.mouseWheel(delta)
     }
-
-    // MARK: - Hỏi vòng trạng thái
 
     private func startPolling() {
         stopPolling()

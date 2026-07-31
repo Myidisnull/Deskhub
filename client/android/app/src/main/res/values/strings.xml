@@ -1,7 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Chỉ còn app_name: manifest đòi một resource thật. Mọi chữ trên giao diện nằm ở
-     ui/Strings.kt (bảng EN/VI đổi được ngay trong app, không cần dựng lại Activity —
-     xem ghi chú đầu file đó). -->
 <resources>
     <string name="app_name">Deskhub</string>
 </resources>

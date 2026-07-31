@@ -1,4 +1,3 @@
-# Chuẩn chung + cấu hình ktlint cho tầng Kotlin.
 root = true
 
 [*]
@@ -11,8 +10,6 @@ trim_trailing_whitespace = true
 indent_size = 4
 indent_style = space
 max_line_length = 120
-# Compose: hàm @Composable đặt tên PascalCase (MainActivity, StreamScreen...), nên
-# tắt luật function-naming của ktlint để nó không báo sai trên các composable.
 ktlint_function_naming_ignore_when_annotated_with = Composable
 ktlint_standard_function-naming = disabled
 

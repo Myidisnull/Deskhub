@@ -1,31 +1,3 @@
-// =============================================================================
-// Wire.cpp — cài đặt các hàm dựng/giải mã datagram khai báo ở Wire.h.
-//
-// NHIỆM VỤ
-//   Chuyển qua lại giữa struct trong bộ nhớ và chuỗi byte trên đường truyền.
-//   Mỗi hàm Build* có đúng một hàm Parse* đối xứng; hai bên PHẢI khớp nhau về
-//   thứ tự và độ rộng từng trường, nên chúng được đặt cạnh nhau theo cặp và mọi
-//   thay đổi phải sửa cả hai cùng lúc (core/tests/protocol/WireTests.cpp có test khứ
-//   hồi cho từng cặp).
-//
-// BỐ CỤC FILE
-//   1. namespace vô danh — tiện ích nội bộ: WriteCommon, BuildEmpty,
-//      BuildPingPongImpl, Utf8TruncLen.
-//   2. Các hàm Build*  — dựng gói, theo thứ tự: bắt tay → điều khiển → video/FEC → input.
-//   3. Các hàm Parse*  — giải gói, cùng thứ tự.
-//
-// NGUYÊN TẮC AN TOÀN XUYÊN SUỐT
-//   - Build*: WriteCommon kiểm tra sức chứa của `out` MỘT LẦN cho cả header lẫn
-//     payload rồi trả về tổng kích thước. Sau khi nó trả về khác 0, mọi lệnh ghi
-//     phía dưới đã được bảo đảm nằm trong biên — nên chúng không kiểm tra lại nữa.
-//   - Parse*: kiểm tra `payload.size()` trước MỌI lần đọc. Dữ liệu đến từ mạng là
-//     dữ liệu không tin được: một datagram cụt hoặc bị dựng ác ý không được phép
-//     làm đọc ngoài biên. Đây là ranh giới tin cậy của toàn bộ chương trình.
-//   - Không hàm nào ở đây giữ trạng thái giữa các lần gọi.
-//
-// LIÊN QUAN: deskhub/protocol/Wire.h (khai báo + giải thích từng thông điệp),
-//            deskhub/protocol/ByteOrder.h (PutU16/GetU32/...), docs/04-protocol.md
-// =============================================================================
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/protocol/ByteOrder.h"
 
@@ -35,12 +7,6 @@ namespace deskhub {
 
 namespace {
 
-// Ghi header chung; trả về tổng kích thước datagram, 0 nếu out thiếu chỗ.
-//
-// Đây là CỬA KIỂM TRA BIÊN DUY NHẤT của mọi hàm Build*: người gọi truyền vào kích
-// thước payload nó sắp ghi, hàm này đối chiếu với sức chứa thật của `out`. Nhờ vậy
-// các hàm Build* phía dưới ghi thẳng bằng con trỏ mà không phải kiểm tra từng lần —
-// đổi lại, người gọi BẮT BUỘC phải truyền payloadSize đúng bằng số byte nó sẽ ghi.
 size_t WriteCommon(std::span<uint8_t> out, MsgType type, uint8_t flags, Chan chan,
     uint32_t sessionId, size_t payloadSize) {
     const size_t total = kCommonHeaderSize + payloadSize;
@@ -53,28 +19,20 @@ size_t WriteCommon(std::span<uint8_t> out, MsgType type, uint8_t flags, Chan cha
     return total;
 }
 
-// Thông điệp không có payload — chỉ cần header chung là đủ mang hết ý nghĩa
-// (START, BYE, LIST_SOURCES, REQUEST_KEYFRAME). Loại thông điệp nằm ở byte type.
 size_t BuildEmpty(std::span<uint8_t> out, MsgType type, uint32_t sessionId) {
     return WriteCommon(out, type, 0, Chan::Control, sessionId, 0);
 }
 
-// Cắt tên nguồn/tên máy về ≤ limit byte NHƯNG lùi tới ranh giới ký tự UTF-8 — cắt
-// giữa một ký tự nhiều byte sẽ hiện ra ô vuông ở danh sách nguồn phía client.
 size_t Utf8TruncLen(const std::string& s, size_t limit) {
     if (s.size() <= limit) return s.size();
     size_t n = limit;
-    while (n > 0 && (uint8_t(s[n]) & 0xC0) == 0x80) --n; // lùi qua byte nối 10xxxxxx
+    while (n > 0 && (uint8_t(s[n]) & 0xC0) == 0x80) --n;
     return n;
 }
 
-// PING và PONG có payload y hệt nhau, chỉ khác byte type — PONG là bản dội lại
-// nguyên văn payload của PING. Nhờ giữ nguyên sendTimeUs (đồng hồ CLIENT) mà client
-// tính được RTT chỉ bằng một phép trừ, không cần bảng tra pingId → thời điểm gửi,
-// và hai đồng hồ không cần đồng bộ với nhau.
 size_t BuildPingPongImpl(std::span<uint8_t> out, MsgType type, uint32_t sessionId,
     const PingPong& m) {
-    constexpr size_t kPayload = 12; // pingId(4) + sendTimeUs(8)
+    constexpr size_t kPayload = 12;
     const size_t total = WriteCommon(out, type, 0, Chan::Control, sessionId, kPayload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
@@ -83,12 +41,9 @@ size_t BuildPingPongImpl(std::span<uint8_t> out, MsgType type, uint32_t sessionI
     return total;
 }
 
-} // namespace
+}
 
-// HELLO: client tự giới thiệu và nêu khả năng của mình. sessionId = 0 vì phiên
-// chưa tồn tại — chính HELLO_ACK mới cấp số phiên.
 size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
-    // clientId(4) codecMask(2) maxW(2) maxH(2) fps(1) features(2) sourceId(1) = 14
     constexpr size_t kPayload = 14;
     const size_t total = WriteCommon(out, MsgType::Hello, 0, Chan::Control, 0, kPayload);
     if (!total) return 0;
@@ -107,19 +62,8 @@ size_t BuildListSources(std::span<uint8_t> out) {
     return BuildEmpty(out, MsgType::ListSources, 0);
 }
 
-// SOURCE_LIST: host liệt kê các màn hình đang chia sẻ. Đây là thông điệp DUY NHẤT có
-// payload dài thay đổi (tên màn hình dài ngắn khác nhau), nên nó phải đếm hai lượt:
-// lượt một tính tổng kích thước để WriteCommon kiểm tra biên, lượt hai mới ghi thật.
-//
-// Định dạng: count(1) rồi count bản ghi
-//            [ sourceId(1) width(2) height(2) nameLen(1) name(nameLen) ].
-// (Byte `kind` phân biệt cửa sổ/màn hình từng nằm giữa height và nameLen — bỏ
-// 2026-07-27 cùng tính năng share theo cửa sổ; mọi nguồn nay là màn hình.)
-// sessionId = 0: client hỏi danh sách TRƯỚC khi có phiên (nó cần danh sách để chọn
-// nguồn rồi mới gửi HELLO kèm sourceId).
 size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources) {
     const size_t n = sources.size() < kMaxSources ? sources.size() : kMaxSources;
-    // Đếm trước để biết tổng kích thước: WriteCommon cần payloadSize ngay từ đầu.
     size_t payload = 1;
     for (size_t i = 0; i < n; ++i) {
         payload += 6 + Utf8TruncLen(sources[i].name, kMaxSourceNameBytes);
@@ -127,8 +71,6 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
     const size_t total = WriteCommon(out, MsgType::SourceList, 0, Chan::Control, 0, payload);
     if (!total) return 0;
 
-    // Lượt hai: ghi thật. `p` chạy tiến dần vì bản ghi có độ dài thay đổi, không
-    // tính được offset cố định như các thông điệp khác.
     uint8_t* p = out.data() + kCommonHeaderSize;
     *p++ = uint8_t(n);
     for (size_t i = 0; i < n; ++i) {
@@ -146,18 +88,7 @@ size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sourc
     return total;
 }
 
-// HELLO_ACK: host chốt tham số phiên (hoặc từ chối bằng codec = Rejected).
-// sessionId nằm trong PAYLOAD chứ không phải header, vì lúc gửi gói này client
-// chưa biết số phiên nên không thể đối chiếu trường header.
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
-    // sessionId(4) codec(1) w(2) h(2) fps(1) bitrate(4) timebaseUs(8) reserved(2) = 24
-    // rồi reason(1) nối đuôi. Mọi thứ sau byte 22 đều nối vào ĐUÔI: client cũ đọc
-    // 22 byte đầu rồi thôi, không vỡ.
-    //
-    // Hai byte 22-23 RESERVED, luôn ghi 0. Chúng từng là `flags` mang cờ
-    // kAckFlagInputAccepted; chế độ chỉ-xem đã bỏ 2026-07-27 (app luôn nhận điều
-    // khiển) nhưng hai byte PHẢI ở lại: bỏ chúng đi thì `reason` lùi về offset 22 và
-    // mọi bản đã phát hành sẽ đọc lý do từ chối thành cờ, sai lặng lẽ.
     constexpr size_t kFixed = 24;
     const size_t total = WriteCommon(out, MsgType::HelloAck, 0, Chan::Control, 0, kFixed + 1);
     if (!total) return 0;
@@ -169,7 +100,7 @@ size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m) {
     p[9] = m.fps;
     PutU32(p + 10, m.bitrateBps);
     PutU64(p + 14, m.timebaseUs);
-    PutU16(p + 22, 0); // reserved
+    PutU16(p + 22, 0);
     p[24] = uint8_t(m.reason);
     return total;
 }
@@ -190,10 +121,7 @@ size_t BuildPong(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m) 
     return BuildPingPongImpl(out, MsgType::Pong, sessionId, m);
 }
 
-// FEEDBACK: báo cáo chất lượng đường truyền của cửa sổ 1 giây vừa qua, client gửi
-// ngược cho host. Đầu vào của BitrateController.
 size_t BuildFeedback(std::span<uint8_t> out, uint32_t sessionId, const Feedback& m) {
-    // lostFrames(2) lossPct(1) rttMs(2) recvBitrateKbps(4)
     constexpr size_t kPayload = 9;
     const size_t total = WriteCommon(out, MsgType::Feedback, 0, Chan::Control, sessionId, kPayload);
     if (!total) return 0;
@@ -216,8 +144,6 @@ size_t BuildSetFocus(std::span<uint8_t> out, uint32_t sessionId, bool focused) {
     return total;
 }
 
-// NACK: xin host gửi lại các mảnh còn thiếu. Đi trên kênh Control như FEEDBACK —
-// client→host, best-effort. Định dạng: frameId(4) count(1) rồi count × pktIndex(2).
 size_t BuildNack(std::span<uint8_t> out, uint32_t sessionId, uint32_t frameId,
     std::span<const uint16_t> indices) {
     if (indices.empty() || indices.size() > kMaxNackIndices) return 0;
@@ -242,29 +168,20 @@ size_t BuildInvalidateRef(std::span<uint8_t> out, uint32_t sessionId, uint32_t f
     return total;
 }
 
-// RECONFIG: host báo đổi kích thước nguồn hoặc bitrate GIỮA phiên, client không
-// phải bắt tay lại. Host gửi kèm một IDR ngay sau đó để decoder bám được.
 size_t BuildReconfig(std::span<uint8_t> out, uint32_t sessionId, const Reconfig& m) {
-    constexpr size_t kPayload = 9; // w(2) h(2) bitrate(4) fps(1)
+    constexpr size_t kPayload = 9;
     const size_t total = WriteCommon(out, MsgType::Reconfig, 0, Chan::Control, sessionId, kPayload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
     PutU16(p, m.width);
     PutU16(p + 2, m.height);
     PutU32(p + 4, m.bitrateBps);
-    // fps NỐI VÀO CUỐI, có chủ ý: client đời cũ đọc đúng 8 byte đầu và bỏ qua byte
-    // thứ 9, nên host mới vẫn nói chuyện được với chúng. Xem Reconfig::fps.
     p[8] = m.fps;
     return total;
 }
 
-// VIDEO_PACKET: một mảnh của frame đã mã hoá. Đi trên kênh Video.
-// Hai cờ nằm ở byte `flags` của header chung chứ không tốn byte payload: `idr` cho
-// Reassembler biết có thể bắt đầu giải mã từ frame này, `frameEnd` đánh dấu mảnh cuối.
 size_t BuildVideoPacket(std::span<uint8_t> out, uint32_t sessionId, const VideoHeader& vh,
     bool idr, bool frameEnd, std::span<const uint8_t> payload) {
-    // Chặn ở đây thay vì để WriteCommon phát hiện: vượt ngưỡng này nghĩa là
-    // Packetizer cắt sai, và gói vượt MTU sẽ bị phân mảnh IP rồi mất cả cụm.
     if (payload.size() > kMaxVideoPayload) return 0;
     const uint8_t flags = (idr ? kVideoFlagIdr : 0) | (frameEnd ? kVideoFlagFrameEnd : 0);
     const size_t total = WriteCommon(out, MsgType::VideoPacket, flags, Chan::Video, sessionId,
@@ -293,18 +210,11 @@ size_t BuildFecPacket(std::span<uint8_t> out, uint32_t sessionId, const FecHeade
     PutU64(p + 4, fh.timestampUs);
     PutU16(p + 12, fh.pktCount);
     p[14] = fh.groupIndex;
-    p[15] = 0; // dự trữ
+    p[15] = 0;
     std::memcpy(p + kFecHeaderSize, parity.data(), parity.size());
     return total;
 }
 
-// INPUT_EVENT: một LÔ event bàn phím/chuột. Gộp nhiều event vào một datagram thay
-// vì mỗi event một gói, vì header 8 byte cho một event 19 byte là quá phí, và chuột
-// di chuyển sinh event dày đặc (hàng trăm mỗi giây).
-//
-// Chỉ seq của event ĐẦU TIÊN được ghi; event thứ i mang seq = firstSeq + i, suy ra
-// được nên khỏi tốn 4 byte mỗi event. InputReceiver dựa vào đúng quy ước này để
-// khử trùng khi InputSender gửi lặp.
 size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t firstSeq,
     std::span<const InputEvent> events) {
     if (events.empty() || events.size() > kMaxInputEvents) return 0;
@@ -319,7 +229,7 @@ size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t fir
     for (const auto& ev : events) {
         e[0] = uint8_t(ev.type);
         PutU64(e + 1, ev.timestampUs);
-        PutU32(e + 9, uint32_t(ev.a)); // i32 gửi dưới dạng bit-pattern u32
+        PutU32(e + 9, uint32_t(ev.a));
         PutU32(e + 13, uint32_t(ev.b));
         e[17] = ev.state;
         e[18] = ev.absolute;
@@ -328,16 +238,6 @@ size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t fir
     return total;
 }
 
-// ---------------------------------------------------------------------------
-// PHẦN GIẢI MÃ. Từ đây trở xuống, dữ liệu vào ĐẾN TỪ MẠNG và không được tin.
-// Mọi hàm kiểm tra độ dài trước khi đọc; gói không hợp lệ trả nullopt/0 chứ không
-// bao giờ ném ngoại lệ hay đọc ngoài biên.
-// ---------------------------------------------------------------------------
-
-// Bước đầu tiên cho MỌI datagram nhận được. Lọc luôn gói sai phiên bản giao thức
-// ở đây, vì diễn giải payload của một phiên bản khác sẽ cho kết quả rác.
-// Không kiểm tra `type`/`chan` có nằm trong enum không — người gọi dùng switch và
-// tự bỏ qua nhánh default, cách đó chịu được việc phiên bản sau thêm loại mới.
 std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram) {
     if (datagram.size() < kCommonHeaderSize) return std::nullopt;
     if (datagram[0] != kProtocolVersion) return std::nullopt;
@@ -355,9 +255,6 @@ std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram) {
     return datagram.subspan(kCommonHeaderSize);
 }
 
-// Chấp nhận 13 byte (bản trước GĐ6) lẫn 14 byte — xem ghi chú về sourceId bên dưới.
-// Đây là lý do dùng `<` chứ không phải `!=`: gói DÀI hơn dự kiến cũng nhận, để
-// phiên bản sau thêm trường vào cuối mà không phá client cũ.
 std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {
     if (payload.size() < 13) return std::nullopt;
     const uint8_t* p = payload.data();
@@ -368,18 +265,13 @@ std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {
     m.maxHeight = GetU16(p + 8);
     m.desiredFps = p[10];
     m.features = GetU16(p + 11);
-    // sourceId thêm ở GĐ6; gói 13 byte của bản cũ vẫn đọc được, hiểu là nguồn 0.
     m.sourceId = payload.size() >= 14 ? p[13] : 0;
     return m;
 }
 
-// Đối xứng với BuildSourceList. Trường `count` ở đầu gói do BÊN KIA khai báo, nên
-// nó là con số không tin được: kẹp về sức chứa của `out` trước, rồi vẫn kiểm tra
-// biên ở từng bản ghi — một gói khai count=200 với payload 10 byte không được phép
-// làm gì hơn là trả về danh sách rỗng.
 size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> out) {
     if (payload.empty()) return 0;
-    constexpr size_t rec = 6; // phần cố định của một bản ghi
+    constexpr size_t rec = 6;
     constexpr size_t lenOff = 5;
 
     size_t count = payload[0];
@@ -388,7 +280,7 @@ size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> o
     size_t off = 1;
     size_t written = 0;
     for (size_t i = 0; i < count; ++i) {
-        if (off + rec > payload.size()) break; // gói cụt — trả về những gì đọc được
+        if (off + rec > payload.size()) break;
         const uint8_t* p = payload.data() + off;
         const size_t nameLen = p[lenOff];
         if (off + rec + nameLen > payload.size()) break;
@@ -414,11 +306,7 @@ std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
     m.fps = p[9];
     m.bitrateBps = GetU32(p + 10);
     m.timebaseUs = GetU64(p + 14);
-    // Byte 22-23 (reserved, xem BuildHelloAck) cố tình KHÔNG đọc.
 
-    // reason(1) nối đuôi. Host cũ dừng ở 24 byte — reason giữ nguyên None, đúng
-    // nghĩa "bản cũ không nói vì sao từ chối". Giá trị lạ (bản sau thêm lý do mới)
-    // cũng hiểu là None thay vì diễn giải bừa.
     if (payload.size() >= 25 && p[24] <= uint8_t(RejectReason::CodecMismatch))
         m.reason = RejectReason(p[24]);
     return m;
@@ -444,7 +332,6 @@ std::optional<Feedback> ParseFeedback(std::span<const uint8_t> payload) {
 std::optional<Reconfig> ParseReconfig(std::span<const uint8_t> payload) {
     if (payload.size() < 8) return std::nullopt;
     const uint8_t* p = payload.data();
-    // Host đời cũ gửi đúng 8 byte. fps = 0 = "không nói gì" -> client giữ fps đang có.
     const uint8_t fps = payload.size() >= 9 ? p[8] : 0;
     return Reconfig{GetU16(p), GetU16(p + 2), GetU32(p + 4), fps};
 }
@@ -454,15 +341,13 @@ std::optional<bool> ParseSetFocus(std::span<const uint8_t> payload) {
     return payload[0] != 0;
 }
 
-// Đối xứng với BuildNack. `count` do bên gửi khai nên phải đối chiếu với độ dài THẬT
-// của payload trước khi lặp, và kẹp về sức chứa của `out` — giống ParseInputEvents.
 size_t ParseNack(std::span<const uint8_t> payload, uint32_t& frameId,
     std::span<uint16_t> out) {
     if (payload.size() < kNackHeaderSize) return 0;
     const uint8_t* p = payload.data();
     size_t count = p[4];
     if (count == 0) return 0;
-    if (payload.size() < kNackHeaderSize + count * 2) return 0; // gói cụt / khai điêu
+    if (payload.size() < kNackHeaderSize + count * 2) return 0;
     if (count > out.size()) count = out.size();
     frameId = GetU32(p);
     const uint8_t* q = p + kNackHeaderSize;
@@ -478,9 +363,6 @@ std::optional<uint32_t> ParseInvalidateRef(std::span<const uint8_t> payload) {
 std::optional<VideoPacketView> ParseVideoPacket(const CommonHeader& h,
     std::span<const uint8_t> payload) {
     if (payload.size() < kVideoHeaderSize) return std::nullopt;
-    // Cận TRÊN cũng phải chặn: Packetizer không bao giờ phát mảnh quá kMaxVideoPayload,
-    // nên mảnh quá khổ là gói dựng ác ý. Nhận vào sẽ thành mảnh ghép quá dài và làm
-    // TryRecover ghi tràn bộ đệm parity khi XOR (parity chỉ rộng kMaxVideoPayload).
     if (payload.size() > kVideoHeaderSize + kMaxVideoPayload) return std::nullopt;
     const uint8_t* p = payload.data();
     VideoPacketView v;
@@ -498,8 +380,6 @@ std::optional<VideoPacketView> ParseVideoPacket(const CommonHeader& h,
 std::optional<FecPacketView> ParseFecPacket(const CommonHeader& h,
     std::span<const uint8_t> payload) {
     if (payload.size() < kFecHeaderSize + kFecLenPrefix) return std::nullopt;
-    // Chặn cả cận trên như ParseVideoPacket: parity ngắn hơn mảnh dữ liệu của nhóm
-    // sẽ làm phép XOR ngược trong TryRecover ghi ra ngoài vector khôi phục.
     if (payload.size() > kFecHeaderSize + kFecLenPrefix + kMaxVideoPayload)
         return std::nullopt;
     const uint8_t* p = payload.data();
@@ -511,7 +391,6 @@ std::optional<FecPacketView> ParseFecPacket(const CommonHeader& h,
     v.idr = (h.flags & kVideoFlagIdr) != 0;
     v.parity = payload.subspan(kFecHeaderSize);
     if (v.hdr.pktCount == 0) return std::nullopt;
-    // groupIndex phải nhỏ hơn số nhóm xen kẽ, không thì nó không phủ gói nào.
     const size_t numGroups = (size_t(v.hdr.pktCount) + kFecGroupSize - 1) / kFecGroupSize;
     if (v.hdr.groupIndex >= numGroups) return std::nullopt;
     return v;
@@ -523,9 +402,6 @@ size_t ParseInputEvents(std::span<const uint8_t> payload, uint32_t& firstSeq,
     const uint8_t* p = payload.data();
     const size_t count = p[4];
     if (count == 0 || count > out.size()) return 0;
-    // Bắt buộc: `count` do bên gửi khai, phải đối chiếu với độ dài THẬT của payload
-    // trước khi lặp. Thiếu dòng này, một gói khai 62 event nhưng chỉ mang 1 sẽ đọc
-    // tràn hơn 1KB ngoài bộ đệm nhận.
     if (payload.size() < kInputHeaderSize + count * kInputEventSize) return 0;
     firstSeq = GetU32(p);
     const uint8_t* e = p + kInputHeaderSize;
@@ -543,4 +419,4 @@ size_t ParseInputEvents(std::span<const uint8_t> payload, uint32_t& firstSeq,
     return count;
 }
 
-} // namespace deskhub
+}

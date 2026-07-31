@@ -1,8 +1,3 @@
-// =============================================================================
-// PanelRenderer.cpp — cài đặt. Đoạn Video Processor (NV12→BGRA, color space, source
-// rect) là bản sao đã lược của decode/Renderer.cpp; đọc file đó để hiểu VÌ SAO từng
-// khai báo color space tồn tại. Ở đây chỉ khác: swapchain-for-HWND con + ResizeBuffers.
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "decode/PanelRenderer.h"
@@ -44,8 +39,8 @@ struct PanelRenderer::Impl {
     ComPtr<ID3D11VideoProcessorOutputView> outView;
     std::map<std::pair<ID3D11Texture2D*, UINT>, ComPtr<ID3D11VideoProcessorInputView>> inViews;
     std::mutex renderMutex;
-    uint32_t bbW = 0, bbH = 0;       // cỡ backbuffer hiện tại (= cỡ video)
-    uint32_t vpSrcW = 0, vpSrcH = 0; // cỡ nguồn mà VP đang phục vụ
+    uint32_t bbW = 0, bbH = 0;
+    uint32_t vpSrcW = 0, vpSrcH = 0;
 
     bool Init(ID3D11Device* dev, HWND hwnd, uint32_t initialW, uint32_t initialH) {
         if (!hwnd) return false;
@@ -64,21 +59,6 @@ struct PanelRenderer::Impl {
         ComPtr<IDXGIFactory2> factory;
         PR_CHECK(adapter->GetParent(IID_PPV_ARGS(&factory)), "GetParent(Factory2)");
 
-        // ⚠ ĐỘ TRỄ TRÌNH BÀY — hai núm dưới đây quyết định phần lớn e2e phía viewer.
-        //
-        //   MaximumFrameLatency: DXGI mặc định cho phép xếp hàng BA frame đã Present
-        //   nhưng chưa lên màn. Ở 60 Hz đó là ~50 ms trễ cộng thẳng vào, hằng số, có
-        //   mặt ngay từ frame đầu — và không có gì trong log lộ ra nó. Viewer không
-        //   phải game: ta không cần đệm để giấu frame time dao động, ta cần frame mới
-        //   nhất lên màn sớm nhất. 1 = trình bày xong cái này mới nhận cái kế.
-        //
-        //   FLIP_DISCARD (thay cho FLIP_SEQUENTIAL): khi frame mới tới trong lúc frame
-        //   cũ còn đang chờ quét, DWM được phép VỨT cái cũ thay vì trình bày lần lượt
-        //   cả hai. Với luồng màn hình từ xa, frame cũ đã hết giá trị — trình bày nó
-        //   chỉ làm frame mới phải chờ thêm một nhịp.
-        //
-        // Không dùng ALLOW_TEARING: nó bỏ hẳn hàng đợi nhưng đổi lấy xé hình, và hai
-        // núm trên đã cắt gần hết phần trễ có thể cắt mà không mất gì.
         {
             ComPtr<IDXGIDevice1> dxgiDev1;
             if (SUCCEEDED(dxgiDev.As(&dxgiDev1))) dxgiDev1->SetMaximumFrameLatency(1);
@@ -97,8 +77,6 @@ struct PanelRenderer::Impl {
         PR_CHECK(factory->CreateSwapChainForHwnd(device.Get(), hwnd, &sd, nullptr, nullptr,
                      &swapchain),
             "CreateSwapChainForHwnd");
-        // Alt+Enter của DXGI tự chuyển fullscreen độc quyền — app tự lo layout,
-        // để mặc định là nó phá cửa sổ con.
         ComPtr<IDXGIFactory1> parent;
         if (SUCCEEDED(swapchain->GetParent(IID_PPV_ARGS(&parent))))
             parent->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
@@ -109,8 +87,6 @@ struct PanelRenderer::Impl {
         return true;
     }
 
-    // Đổi cỡ backbuffer khi video đổi độ phân giải. Phải Reset backbuffer + ép dựng lại
-    // VP (outView gắn vào backbuffer cũ).
     bool Resize(uint32_t w, uint32_t h) {
         backbuffer.Reset();
         outView.Reset();
@@ -118,12 +94,10 @@ struct PanelRenderer::Impl {
         PR_CHECK(swapchain->GetBuffer(0, IID_PPV_ARGS(&backbuffer)), "GetBuffer(resize)");
         bbW = w;
         bbH = h;
-        vpSrcW = vpSrcH = 0; // buộc EnsureVideoProcessor dựng lại theo backbuffer mới
+        vpSrcW = vpSrcH = 0;
         return true;
     }
 
-    // Tạo (lại) video processor cho cỡ nguồn w×h. Output = backbuffer (bbW×bbH = w×h,
-    // tỷ lệ 1:1 — panel lo việc co giãn). Xem Renderer.cpp cho lý do từng khai báo.
     bool EnsureVideoProcessor(uint32_t w, uint32_t h) {
         if (vp && w == vpSrcW && h == vpSrcH) return true;
         inViews.clear();
@@ -200,10 +174,8 @@ struct PanelRenderer::Impl {
         stream.pInputSurface = it->second.Get();
         PR_CHECK(videoContext->VideoProcessorBlt(vp.Get(), outView.Get(), 0, 1, &stream),
             "VideoProcessorBlt");
-        // Frame đã nằm trong backbuffer — từ đây trở đi là thời gian CHỜ TRÌNH BÀY,
-        // không phải thời gian đi đường. Xem PanelRenderer.h về `outReadyUs`.
         if (outReadyUs) *outReadyUs = NowUs();
-        PR_CHECK(swapchain->Present(0, 0), "Present"); // Present(0): không chờ VSync
+        PR_CHECK(swapchain->Present(0, 0), "Present");
         return true;
     }
 };

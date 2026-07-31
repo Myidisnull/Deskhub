@@ -1,8 +1,3 @@
-// =============================================================================
-// VaDisplay.cpp — dò render node và vaInitialize.
-//
-// LIÊN QUAN: encode/VaDisplay.h (lý do thiết kế đầy đủ)
-// =============================================================================
 #include "encode/VaDisplay.h"
 
 #include <va/va_drm.h>
@@ -20,16 +15,11 @@
 namespace {
 std::once_flag g_once;
 
-// libva in cảnh báo ra stderr qua callback riêng. Không nối vào LOG* vì chuỗi
-// định dạng của nó khác; để mặc định là đủ — thông điệp vẫn tới cùng một stderr.
-
-} // namespace
+}
 
 bool VaHasEntrypoint(VADisplay dpy, VAProfile profile, VAEntrypoint entrypoint) {
     const int maxEp = vaMaxNumEntrypoints(dpy);
     if (maxEp <= 0) return false;
-    // static_cast chứ không size_t(...): `eps(size_t(maxEp))` bị trình dịch đọc
-    // thành KHAI BÁO HÀM (most vexing parse), và lỗi báo ra ở tận dòng dưới.
     std::vector<VAEntrypoint> eps(static_cast<size_t>(maxEp));
     int n = 0;
     if (vaQueryConfigEntrypoints(dpy, profile, eps.data(), &n) != VA_STATUS_SUCCESS) return false;
@@ -50,8 +40,6 @@ VaDisplay::~VaDisplay() {
 
 bool VaDisplay::Open() {
     std::call_once(g_once, [this] {
-        // Danh sách ứng viên: biến môi trường trước (đường ép tay), rồi quét
-        // renderD128..143 — dải chuẩn của render node trên Linux.
         std::vector<std::string> candidates;
         if (const char* forced = std::getenv("DESKHUB_VA_DEVICE")) candidates.emplace_back(forced);
         for (int i = 128; i <= 143; ++i) {
@@ -76,17 +64,6 @@ bool VaDisplay::Open() {
                 continue;
             }
 
-            // Dò theo NĂNG LỰC, không lấy bừa node đầu tiên — xem VaDisplay.h.
-            // Main đủ cho ta (VaEncoder chỉ phát bitstream Main); chấp nhận cả
-            // High vì card nào làm được High thì chắc chắn làm được Main.
-            //
-            // HAI entrypoint mã hoá, KHÔNG PHẢI MỘT. EncSlice là đường VME cổ
-            // điển; EncSliceLP là đường "low power" (VDEnc — khối mã hoá cứng
-            // riêng). Chỉ hỏi EncSlice là bỏ rơi cả một lớp máy: Intel Gen11+
-            // (Ice Lake, Tiger Lake, Rocket Lake — UHD 7xx) đã BỎ đường VME cho
-            // H.264, driver iHD ở đó chỉ khai EncSliceLP. Máy như thế mã hoá phần
-            // cứng tốt nhưng bị chuỗi dò cũ loại, rồi người dùng nhận đúng một
-            // thông điệp sai: "đi cài driver đi" — trong khi driver không thiếu gì.
             VAEntrypoint ep = VAEntrypointEncSlice;
             bool canEncode = VaHasEntrypoint(dpy, VAProfileH264Main, ep) ||
                              VaHasEntrypoint(dpy, VAProfileH264High, ep);

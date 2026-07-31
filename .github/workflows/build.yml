@@ -1,13 +1,5 @@
 name: build
 
-# Build + test mọi nền tảng, đẩy artifact. Khi push tag v* thì gom exe + apk vào một
-# GitHub Release. Không cần secret nào: apk là bản debug (ký bằng khoá debug nên cài
-# được ngay); muốn bản release đã ký thì thêm keystore + signingConfig sau.
-#
-# Nguyên tắc: nơi nào chạy được thì CI gọi ĐÚNG lệnh dev dùng local (make test-ctest,
-# make coverage, make build-android, make build-ios, make release-macos) — CI đồng
-# thời là nơi kiểm tra nhánh macOS/Ubuntu của Makefile mà máy dev Windows không tự
-# chạy được.
 on:
   push:
     branches: [main]
@@ -17,12 +9,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Core tests trên Ubuntu (gcc) + macOS (AppleClang): lõi thuần C++20, offline
-  # (không mạng/GPU/submodule). Tín hiệu pass/fail ĐỘC LẬP với bản dựng artifact —
-  # thấy đỏ là lỗi ở logic lõi hoặc tính portable, không phải toolchain đóng gói.
-  # (MSVC được phủ ở job windows bên dưới, cũng chạy CTest.)
-  # ---------------------------------------------------------------------------
   core-tests:
     strategy:
       fail-fast: false
@@ -30,9 +16,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4   # không cần submodule: core không đụng nvenc
+      - uses: actions/checkout@v4
 
-      # Preset dùng generator Ninja trên mọi OS.
       - name: Install Ninja
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -44,16 +29,10 @@ jobs:
       - name: Build + run core tests (make test-ctest)
         run: make test-ctest
 
-  # ---------------------------------------------------------------------------
-  # Coverage của core: đúng lệnh dev chạy local (make coverage — clang instrument
-  # + llvm-cov, xem Makefile). Chạy trên Ubuntu cho rẻ; toolchain cài giống hệt
-  # bootstrap.sh (clang + llvm). Báo cáo HTML đẩy lên làm artifact để tải về xem;
-  # chưa đặt ngưỡng % bắt buộc — bảng tổng kết in ngay trong log job.
-  # ---------------------------------------------------------------------------
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4   # không cần submodule: core không đụng nvenc
+      - uses: actions/checkout@v4
 
       - name: Install clang + llvm + ninja
         run: sudo apt-get update -qq && sudo apt-get install -y clang llvm ninja-build
@@ -68,16 +47,6 @@ jobs:
           path: out/coverage
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # Windows: MỘT app chứa cả hai vai (host + client) — MỘT exe Win32 thuần
-  # (client/windows/win32, target deskhub_app, UI khôi phục từ bản trước M4b).
-  # CMake (Ninja + MSVC) dựng tất cả trong một lượt, không dotnet/.NET runtime.
-  # Core tests chạy lại trên chính toolchain MSVC trước khi xuất artifact.
-  # (Không qua make: runner không có GNU make sẵn, và VsDevCmd đã có ilammy lo.)
-  #
-  # Artifact là ĐÚNG MỘT FILE Deskhub.exe: link tĩnh core + pipeline + UI Win32,
-  # tải về là chạy.
-  # ---------------------------------------------------------------------------
   windows:
     needs: core-tests
     runs-on: windows-latest
@@ -86,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive   # third_party/nvenc-13.0 (nvEncodeAPI.h) là submodule
+          submodules: recursive
 
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -112,53 +81,20 @@ jobs:
           path: ${{ env.APP_EXE }}
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # Ubuntu: MỘT app chứa cả hai vai (host + client) — một tệp `deskhub` (GTK3 +
-  # native, target deskhub_app). Đây là nơi DUY NHẤT CI biên dịch nhánh
-  # PipeWire/VA-API/uinput/OpenGL.
-  #
-  # ĐÂY CHỈ LÀ BUILD CHECK. Không có GPU, không có compositor và không có
-  # /dev/uinput trên runner, nên không chạy thử được — mọi thứ ngoài "biên dịch và
-  # link sạch" phải kiểm trên máy thật (docs/17-linux-app.md §8).
-  #
-  # ⚠ VÌ SAO CÓ MA TRẬN HAI PHIÊN BẢN, VÀ VÌ SAO ARTIFACT CHỈ LẤY TỪ 22.04
-  #
-  #   Binary C++ liên kết động chạy được trên bản Ubuntu MỚI HƠN bản dựng ra nó,
-  #   nhưng KHÔNG chạy ngược lại. Đo thật trên cây này:
-  #     dựng trên 24.04 -> đòi GLIBCXX_3.4.31   (Ubuntu 22.04 chỉ có tới 3.4.30)
-  #     dựng trên 22.04 -> đòi GLIBCXX_3.4.29   (chạy được 22.04 trở lên)
-  #   Nên bản PHÁT HÀNH phải dựng trên phiên bản CŨ NHẤT ta hứa hỗ trợ; lấy từ
-  #   ubuntu-latest thì người dùng 22.04 nhận đúng một dòng
-  #   "version `GLIBCXX_3.4.31' not found" và app không mở được.
-  #
-  #   Nhánh ubuntu-latest vẫn chạy vì nó phủ thứ 22.04 không phủ: toolchain mới
-  #   hơn (GCC 13+) và PipeWire 1.x. Hai bản PipeWire khác nhau đủ để một API
-  #   biên dịch được ở cả hai mà chỉ chạy đúng ở một bên — xem chú thích
-  #   "target_id" trong capture/ScreenCapture.cpp.
-  #
-  #   Nếu GitHub gỡ runner ubuntu-22.04: hạ mốc hỗ trợ trong README + docs/17 §1,
-  #   hoặc chuyển sang dựng trong container ubuntu:22.04.
-  #
-  # Cài gói -dev tay chứ không gọi bootstrap.sh: bootstrap kéo cả Android SDK/NDK,
-  # quá nặng cho một job build check. Danh sách phải khớp phần Ubuntu của
-  # scripts/bootstrap.sh — lệch thì CI xanh mà máy dev gãy (hoặc ngược lại).
-  # ---------------------------------------------------------------------------
   linux:
     needs: core-tests
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04   # bản dựng ra artifact phát hành
+          - os: ubuntu-22.04
             release: true
-          - os: ubuntu-latest  # build check trên toolchain + PipeWire mới
+          - os: ubuntu-latest
             release: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      # Không cài libavcodec-dev: FFmpeg được dựng tối giản và link TĨNH ở bước
-      # dưới. `nasm` là để biên dịch phần assembly x86 của nó.
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
@@ -166,8 +102,6 @@ jobs:
             libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
             libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev
 
-      # Dựng FFmpeg mất vài phút nên cache lại. Khoá gồm nội dung script: đổi
-      # version hay bộ cờ trong đó là cache tự hỏng, không phải nhớ bump tay.
       - name: Cache minimal FFmpeg
         uses: actions/cache@v4
         with:
@@ -177,9 +111,6 @@ jobs:
       - name: Build minimal FFmpeg (static, h264 decode only)
         run: scripts/build-ffmpeg.sh
 
-      # Gốc CMakeLists đòi CMake >= 3.25 còn Ubuntu 22.04 chỉ đóng gói 3.22.
-      # Ảnh runner của GitHub có sẵn bản mới, nhưng kiểm tra tường minh để lỗi
-      # (nếu ảnh đổi) hiện ra ngay ở đây thay vì thành một lỗi cấu hình khó hiểu.
       - name: Check CMake version
         run: |
           have=$(cmake --version | head -1 | awk '{print $3}')
@@ -191,10 +122,6 @@ jobs:
       - name: Build the Ubuntu app (make release-linux)
         run: make release-linux
 
-      # Chốt chặn cho đúng lý do tồn tại của bước dựng FFmpeg ở trên. Nếu binary
-      # lỡ link động vào libav* trở lại thì bản phát hành dựng trên 22.04 sẽ không
-      # khởi động nổi trên 24.04+ (soname .so.58 không có gói nào cài được ở đó) —
-      # thà gãy ở CI còn hơn để người dùng phát hiện.
       - name: Assert no dynamic FFmpeg dependency
         run: |
           bin=out/build/x64-release/client/linux/deskhub
@@ -206,7 +133,6 @@ jobs:
           echo "OK — FFmpeg is linked statically. Dynamic dependencies:"
           readelf -d "$bin" | grep NEEDED
 
-      # Chỉ đẩy artifact từ nhánh 22.04 — xem ⚠ ở trên.
       - name: Upload app
         if: matrix.release
         uses: actions/upload-artifact@v4
@@ -215,10 +141,6 @@ jobs:
           path: out/build/x64-release/client/linux/deskhub
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # Android: apk debug (UI Kotlin + libdeskhub.so). NDK/CMake pin đúng phiên bản
-  # build.gradle.kts đang khoá để khớp cách căn trang nhớ 16 KB.
-  # ---------------------------------------------------------------------------
   android:
     runs-on: ubuntu-latest
     steps:
@@ -246,11 +168,6 @@ jobs:
           path: client/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # iOS: build check cho Simulator (target `app`, không cần signing) — bắt lỗi
-  # compile Swift/ObjC++/core trên toolchain Xcode. Chưa xuất artifact: bản
-  # Simulator không cài được máy thật, ipa thật cần signing team (để sau).
-  # ---------------------------------------------------------------------------
   ios:
     runs-on: macos-latest
     steps:
@@ -259,18 +176,6 @@ jobs:
       - name: Build iOS app for Simulator (make build-ios)
         run: make build-ios
 
-  # ---------------------------------------------------------------------------
-  # macOS: MỘT app chứa cả hai vai (host + client). Build Release, ký ad-hoc qua
-  # MACOS_SIGN=adhoc — project mặc định ký "Apple Development" (máy dev có cert,
-  # runner thì không). Đây cũng là nơi duy nhất CI biên dịch nhánh
-  # ScreenCaptureKit/VideoToolbox/CGEvent.
-  #
-  # ĐÂY CHỈ LÀ BUILD CHECK, KHÔNG PHẢI BẢN PHÁT HÀNH. Artifact ad-hoc để tải về gỡ
-  # lỗi; nó CỐ Ý không được đính vào GitHub Release vì chữ ký ad-hoc đổi sau mỗi
-  # build → macOS quên quyền Screen Recording/Accessibility mỗi lần cập nhật. Bản
-  # phát hành thật là dmg ký Developer ID + notarize, do deploy.yml dựng khi push
-  # tag (xem docs/16-release-macos.md).
-  # ---------------------------------------------------------------------------
   macos:
     needs: core-tests
     runs-on: macos-latest
@@ -290,19 +195,6 @@ jobs:
           path: deskhub-macos.zip
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # Release: chỉ chạy khi push tag v*. Đính exe Windows và viết body liệt kê đủ
-  # các nền tảng. Tên file mang tag để tải về khỏi nhầm phiên bản.
-  #
-  # CHỈ CÓ Windows ở đây — các bản còn lại cần secret nên deploy.yml đính vào
-  # CÙNG release này (softprops gộp file vào release đã có, không tạo bản trùng):
-  #   - macOS  : dmg ký Developer ID + notarize (job macos)
-  #   - Android: apk ký release, cùng keystore bản Play (job android) — apk DEBUG
-  #     của job android bên trên chỉ là artifact kiểm tra, ký khoá debug nên xung
-  #     đột chữ ký với bản Play, không đính vào release nữa
-  #   - iOS    : không có file — ipa ký App Store không sideload được, người dùng
-  #     đi đường TestFlight / App Store
-  # ---------------------------------------------------------------------------
   release:
     needs: [windows, linux]
     if: startsWith(github.ref, 'refs/tags/v')
@@ -315,8 +207,6 @@ jobs:
         with:
           path: dist
 
-      # Artifact Windows chỉ còn ĐÚNG MỘT Deskhub.exe (link tĩnh) nên không nén
-      # zip nữa — đính thẳng exe, tải về là chạy.
       - name: Rename with tag
         run: |
           mkdir -p out

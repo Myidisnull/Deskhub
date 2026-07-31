@@ -21,15 +21,7 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 [bundle exec] fastlane mac certificates
 ```
 
-Tạo/cập nhật cert Developer ID trong repo match (chạy tay, cần vai Account Holder)
-
-### mac import_cert
-
-```sh
-[bundle exec] fastlane mac import_cert
-```
-
-Import cert Developer ID (tạo tay trên developer.apple.com) vào repo match
+Create/update the Developer ID cert in the match repo (run by hand, needs the Account Holder role)
 
 ### mac release
 
@@ -37,7 +29,7 @@ Import cert Developer ID (tạo tay trên developer.apple.com) vào repo match
 [bundle exec] fastlane mac release
 ```
 
-Build Release ký Developer ID + notarize + staple + dmg
+Build Release signed with Developer ID + notarize + staple + dmg
 
 ----
 

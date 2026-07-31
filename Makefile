@@ -1,59 +1,65 @@
-# Cần GNU make. Chạy được trên Windows, macOS và Ubuntu.
+# Requires GNU make. Runs on Windows, macOS and Ubuntu.
 #
-# File này chỉ là ĐIỂM VÀO: giữ target dùng chung (bootstrap, clean) rồi include các
-# mảnh trong make/. Mỗi nền tảng một file, thêm nền tảng mới = thêm make/<tên>.mk và
-# include thêm một dòng ở dưới — không phải đụng vào phần chung.
+# This file is only the ENTRY POINT: it keeps the shared targets (bootstrap, clean)
+# and includes the pieces under make/. One file per platform — adding a platform
+# means adding make/<name>.mk plus one include line below, without touching the
+# shared part.
 #
-#   make/toolchain.mk   biến theo HOST: SHELL, VsDevCmd, LLVM, NULDEV (include ĐẦU TIÊN)
-#   make/core.mk        cây CMake lõi dùng chung: debug/release/test/test-ctest/coverage
-#   make/windows.mk     app Windows  — CMake (app Win32, MỘT Deskhub.exe)
-#   make/macos.mk       app macOS    — xcodebuild
-#   make/linux.mk       app Ubuntu   — CMake (GTK3 + native, MỘT `deskhub`)
-#   make/ios.mk         app iOS      — xcodebuild (Simulator)
-#   make/android.mk     APK Android  — Gradle (tự dựng cả .so lẫn APK)
-#   make/codestyle.mk   format/lint C++ + Kotlin + Swift
+#   make/toolchain.mk   HOST-dependent vars: SHELL, VsDevCmd, LLVM, NULDEV (include FIRST)
+#   make/core.mk        shared core CMake tree: debug/release/test/test-ctest/coverage
+#   make/windows.mk     Windows app — CMake (Win32 app, ONE Deskhub.exe)
+#   make/macos.mk       macOS app   — xcodebuild
+#   make/linux.mk       Ubuntu app  — CMake (GTK3 + native, ONE `deskhub`)
+#   make/ios.mk         iOS app     — xcodebuild (Simulator)
+#   make/android.mk     Android APK — Gradle (builds both the .so and the APK)
+#   make/codestyle.mk   format/lint for C++ + Kotlin + Swift
 #
-# Windows dùng cmd + VsDevCmd (tự tìm Visual Studio qua vswhere nên gọi được từ
-# cmd / PowerShell / Git Bash thường), macOS/Linux dùng sh + toolchain hệ thống.
-#   make bootstrap      cài toàn bộ dependency dev cho OS hiện tại (cả Android SDK, coverage)
-#   make                build debug cây desktop OS hiện tại (Windows: client + core; Unix: core)
-#   make release        build release cây desktop OS hiện tại
+# Windows uses cmd + VsDevCmd (it locates Visual Studio through vswhere, so it can be
+# called from a plain cmd / PowerShell / Git Bash), macOS/Linux use sh + the system
+# toolchain.
+#   make bootstrap      install every dev dependency for the current OS (Android SDK, coverage too)
+#   make                print the target list — NO platform is built implicitly, every
+#                       platform must be named explicitly (see below)
 #
-# Build/release RÕ theo từng nền tảng:
-#   make build-windows   / release-windows   app Windows native (Win32, một Deskhub.exe)
-#   make build-macos     / release-macos     app macOS — cả hai vai (cần macOS + Xcode)
-#   make build-linux     / release-linux     app Ubuntu — cả hai vai (cần Ubuntu + gói -dev)
-#   make build-android   / release-android   APK debug / APK release (chưa ký — xem ghi chú)
-#   make build-ios       / release-ios       app iOS cho Simulator (cần macOS + Xcode)
+# Explicit per-platform build/release/run — no platform is the default:
+#   make build-windows   / release-windows   / run-windows   Win32 app, one Deskhub.exe (needs Windows + MSVC)
+#   make build-macos     / release-macos     / run-macos     macOS app — both roles (needs macOS + Xcode)
+#   make build-linux     / release-linux     / run-linux     Ubuntu app — both roles (needs Ubuntu + the -dev packages)
+#   make build-android   / release-android   / run-android   debug APK / release APK (unsigned — see the notes)
+#   make build-ios       / release-ios       / run-ios       iOS app for the Simulator (needs macOS + Xcode)
 #
-# Phát hành:
-#   make dist-macos     dmg macOS ký Developer ID + notarize + staple (docs/16-release-macos.md)
-#   make verify-macos   kiểm tra Gatekeeper chấp nhận bản vừa dựng
+# run-windows takes ARGS="--share ...". run-android installs and opens on the connected
+# device/emulator via adb; run-ios does the same on the Simulator.
 #
-#   make run            build + chạy Deskhub.exe (app Win32, mới có Windows), ARGS="--share ..."
-#   make run-macos      build + mở app macOS (cần macOS + Xcode)
-#   make run-linux      build + chạy app Ubuntu (cần Ubuntu)
+# Distribution:
+#   make dist-macos     macOS dmg signed with Developer ID + notarized + stapled
+#   make verify-macos   check that Gatekeeper accepts the build that was just produced
 #
-# Ubuntu, cấp quyền MỘT LẦN cho vai host (bơm chuột/bàn phím qua /dev/uinput):
-#   make setup-linux-permissions    quy tắc udev + thêm user vào nhóm `input`
-#   make run-android    build + cài + mở app Android trên máy/emulator đang kết nối (adb)
-#   make run-ios        build + cài + mở app iOS trên Simulator (cần macOS + Xcode)
-#   make test           build core_tests rồi chạy (offline, không cần client/GPU)
-#   make test-ctest     chạy qua CTest (--output-on-failure) — khớp cách CI chạy
-#   make coverage       đo phủ core (clang + llvm-cov — chạy trên cả Windows/macOS/Ubuntu)
+# Shared CMake tree (core + platform + whatever client the current OS builds):
+#   make debug          configure + build the debug preset
+#   make release        configure + build the release preset
 #
-# Format/lint — cả 3 ngôn ngữ hoặc rõ từng ngôn ngữ:
-#   make format         áp format tại chỗ cho cả C++ + Kotlin + Swift
-#   make lint           kiểm tra style cả 3, không sửa (dùng trước khi push cho khớp CI)
-#   make format-cpp     / lint-cpp      chỉ C++ (clang-format: core/ platform/ client/)
-#   make format-kotlin  / lint-kotlin   chỉ Kotlin (ktlint: client/android)
-#   make format-swift   / lint-swift    chỉ Swift (swiftformat: client/ios + client/macos)
+# Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
+#   make setup-linux-permissions    udev rule + add the user to the `input` group
+#
+#   make test           build core_tests and run it (offline, no client/GPU needed)
+#   make test-ctest     run through CTest (--output-on-failure) — matches how CI runs it
+#   make coverage       measure core coverage (clang + llvm-cov — works on Windows/macOS/Ubuntu)
+#
+# Format/lint — all three languages, or one at a time:
+#   make format         apply formatting in place for C++ + Kotlin + Swift
+#   make lint           check style for all three without fixing (run before pushing to match CI)
+#   make format-cpp     / lint-cpp      C++ only (clang-format: core/ platform/ client/)
+#   make format-kotlin  / lint-kotlin   Kotlin only (ktlint: client/android)
+#   make format-swift   / lint-swift    Swift only (swiftformat: client/ios + client/macos)
 #
 #   make clean
 
-# Đặt TRƯỚC mọi include để `make` không tham số vẫn là build debug (goal mặc định của
-# GNU make là target ĐẦU TIÊN nó gặp — nếu để sau thì `debug` trong core.mk sẽ chiếm chỗ).
-all: debug
+# Must come BEFORE every include: GNU make's default goal is the FIRST target it sees,
+# so putting this later would let `debug` from core.mk take the slot and turn a bare
+# `make` back into an implicit build. A bare `make` prints the target list instead —
+# no platform is privileged, each one is named explicitly.
+all: help
 
 include make/toolchain.mk
 include make/core.mk
@@ -64,11 +70,14 @@ include make/ios.mk
 include make/android.mk
 include make/codestyle.mk
 
-# Cài toàn bộ dependency dev (idempotent — có rồi thì bỏ qua).
+help:
+	@$(HELPCAT)
+
+# Install every dev dependency (idempotent — already present means skipped).
 bootstrap:
 	@$(BOOTSTRAP)
 
 clean:
 	@$(RMRF) out
 
-.PHONY: all bootstrap clean
+.PHONY: all help bootstrap clean

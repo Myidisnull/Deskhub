@@ -1,9 +1,3 @@
-# make/codestyle.mk — format/lint cho cả 3 ngôn ngữ, dùng chung mọi nền tảng.
-#
-# Mỗi OS một script cùng hành vi: Windows scripts/codestyle.ps1, Unix scripts/codestyle.sh.
-# Tool (clang-format + ktlint + swiftformat bản ghim) do `make bootstrap` cài sẵn.
-# format/lint chạy cả 3 ngôn ngữ; các biến thể -cpp/-kotlin/-swift giới hạn một ngôn ngữ.
-
 ifeq ($(OS),Windows_NT)
 CODESTYLE := powershell -NoProfile -ExecutionPolicy Bypass -File scripts\codestyle.ps1
 CHECKFLAG := -Check

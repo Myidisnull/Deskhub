@@ -21,7 +21,7 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 [bundle exec] fastlane ios certificates
 ```
 
-Tạo/cập nhật cert + profile trong repo match (chạy tay khi setup lần đầu hoặc cert hết hạn)
+Create/update the cert + profile in the match repo (run by hand on first setup or when the cert expires)
 
 ### ios release
 
@@ -29,7 +29,7 @@ Tạo/cập nhật cert + profile trong repo match (chạy tay khi setup lần �
 [bundle exec] fastlane ios release
 ```
 
-Build ipa Release (ký bằng match) và upload TestFlight
+Build a Release ipa (signed with match) and upload to TestFlight
 
 ### ios metadata
 
@@ -37,7 +37,7 @@ Build ipa Release (ký bằng match) và upload TestFlight
 [bundle exec] fastlane ios metadata
 ```
 
-Đẩy store listing (fastlane/metadata) lên App Store Connect
+Push the store listing (fastlane/metadata) to App Store Connect
 
 ----
 

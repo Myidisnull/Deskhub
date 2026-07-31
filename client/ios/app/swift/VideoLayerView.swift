@@ -1,11 +1,3 @@
-// =============================================================================
-// VideoLayerView.swift — UIViewRepresentable bọc AVSampleBufferDisplayLayer.
-//
-// Đây là nơi duy nhất chạm UIKit: một UIView có layerClass là
-// AVSampleBufferDisplayLayer. SwiftUI không render video — layer nhận frame thẳng
-// từ VtDecoder qua hardware compositor. Đối ứng SurfaceView trong StreamActivity
-// bên Android.
-// =============================================================================
 import AVFoundation
 import SwiftUI
 import UIKit

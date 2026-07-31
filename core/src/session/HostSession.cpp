@@ -1,29 +1,3 @@
-// =============================================================================
-// HostSession.cpp — cài đặt máy trạng thái và bộ định tuyến thông điệp phía host.
-//
-// HandlePacket là một switch lớn trên loại thông điệp, và mọi nhánh (trừ HELLO)
-// đều mở đầu bằng CÙNG MỘT ĐÔI KIỂM TRA:
-//
-//     if (state() == ... || !InSession(h->sessionId)) return false;
-//     lastRecvUs_ = nowUs;
-//
-//   - Kiểm tra trạng thái: thông điệp đến sai giai đoạn thì bỏ. Ví dụ INPUT_EVENT
-//     lúc chưa STREAMING là vô nghĩa vì host còn chưa biết client là ai.
-//   - Kiểm tra sessionId: chặn gói lạc từ phiên cũ hoặc từ máy khác trên mạng.
-//     UDP không có kết nối, ai cũng gửi tới cổng này được, nên đây là hàng rào duy
-//     nhất phân biệt "client của tôi" với phần còn lại của Internet.
-//   - lastRecvUs_ = nowUs: mọi gói hợp lệ đều NUÔI TIMEOUT. Chỉ cần client còn nói
-//     chuyện, bất kể nói gì, phiên vẫn sống.
-//
-// GIÁ TRỊ TRẢ VỀ CÓ Ý NGHĨA RIÊNG
-//   true không chỉ là "gói hợp lệ" — AgentLoop dùng nó làm tín hiệu cập nhật địa
-//   chỉ peer theo địa chỉ nguồn của gói (client đổi IP khi chuyển Wi-Fi/4G vẫn giữ
-//   được phiên). Vì thế BYE trả về false dù nó là gói hoàn toàn hợp lệ: phiên vừa
-//   đóng, cập nhật peer theo nó là vô nghĩa.
-//
-// LIÊN QUAN: deskhub/session/HostSession.h (máy trạng thái + lý do thiết kế),
-//            ClientSession.cpp (đầu kia)
-// =============================================================================
 #include "deskhub/session/HostSession.h"
 
 namespace deskhub {
@@ -39,25 +13,20 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             if (!m) return false;
             const State st = state();
             if ((st == State::Ready || st == State::Streaming) && m->clientId != clientId_) {
-                SendReject(RejectReason::Busy); // v1: một client mỗi phiên
+                SendReject(RejectReason::Busy);
                 return false;
             }
             if (st == State::Idle) {
-                // v1 chỉ phát H.264. Client không giải mã được thì từ chối ngay ở bước
-                // bắt tay, thay vì để nó ngồi nhìn màn hình đen không hiểu vì sao.
                 if (!(m->codecMask & kCodecMaskH264)) {
                     SendReject(RejectReason::CodecMismatch);
                     return false;
                 }
                 clientId_ = m->clientId;
                 if (!BeginSession(nowUs)) return false;
-                // Trước ACK, không phải sau: caller có thể co luồng cho vừa màn hình
-                // client rồi SetOffer(), và ACK đi ra đã mang cỡ cuối cùng.
                 if (cb_.onHello) cb_.onHello(*m);
                 SendHelloAck(nowUs);
                 return true;
             }
-            // READY/STREAMING cùng client = HELLO phát lại (mất ACK) → gửi lại ACK.
             lastRecvUs_ = nowUs;
             SendHelloAck(nowUs);
             return true;
@@ -65,9 +34,6 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
         case MsgType::Start:
             if (!InSession(h->sessionId)) return false;
             lastRecvUs_ = nowUs;
-            // Client phát lại START tới khi thấy video nên gói này hay đến nhiều lần;
-            // chỉ lần đầu mới đổi trạng thái và gọi onStart (nó ép encoder ra IDR —
-            // gọi lặp sẽ làm luồng hình giật vì IDR nặng gấp nhiều lần P-frame).
             if (state() != State::Streaming) {
                 state_.store(State::Streaming, std::memory_order_release);
                 if (cb_.onStart) cb_.onStart();
@@ -88,7 +54,6 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             if (cb_.onKeyframeRequest) cb_.onKeyframeRequest();
             return true;
         case MsgType::InputEvent:
-            // Chỉ nhận input khi đang STREAMING: trước đó host chưa biết client là ai.
             if (state() != State::Streaming || !InSession(h->sessionId)) return false;
             lastRecvUs_ = nowUs;
             input_.HandlePacket(payload, cb_.onInput);
@@ -105,7 +70,7 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             lastRecvUs_ = nowUs;
             const auto m = ParseFeedback(payload);
             if (m && cb_.onFeedback) cb_.onFeedback(*m);
-            return true; // gói vẫn nuôi timeout kể cả khi payload hỏng
+            return true;
         }
         case MsgType::Nack: {
             if (state() != State::Streaming || !InSession(h->sessionId)) return false;
@@ -126,26 +91,17 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
         case MsgType::Bye:
             if (!InSession(h->sessionId)) return false;
             Disconnect();
-            return false; // phiên đã đóng — đừng cập nhật peer theo gói này
+            return false;
         default:
             return false;
     }
 }
 
-// Gọi đều đặn từ vòng lặp Recv. Việc duy nhất: phát hiện client biến mất không kịp
-// nói lời chào. UDP không báo đứt kết nối, nên im lặng quá kSessionTimeoutUs là dấu
-// hiệu duy nhất ta có — có thể client rút mạng, tắt máy, hoặc sập nguồn.
 void HostSession::Tick(uint64_t nowUs) {
     if (state() == State::Idle) return;
     if (nowUs - lastRecvUs_ > kSessionTimeoutUs) Disconnect();
 }
 
-// Cấp sessionId và mở phiên khi HELLO hợp lệ tới lúc IDLE.
-//
-// sessionId lấy từ CSPRNG chứ không trộn từ đồng hồ. Cách cũ
-// (nowUs ^ (nowUs>>32) ^ clientId) có hai điểm yếu cộng dồn: clientId do chính bên
-// kia chọn, và bit thấp của đồng hồ đơn điệu đoán được trong phạm vi hẹp — mà
-// sessionId lại là hàng rào duy nhất chặn gói giả (xem InSession).
 bool HostSession::BeginSession(uint64_t nowUs) {
     uint32_t sid = 0;
     if (cb_.randomBytes) {
@@ -154,10 +110,6 @@ bool HostSession::BeginSession(uint64_t nowUs) {
             sid = (uint32_t(b[0]) << 24) | (uint32_t(b[1]) << 16) | (uint32_t(b[2]) << 8) | b[3];
     }
     if (!sid) {
-        // Không có entropy → KHÔNG mở phiên. Lùi về sessionId dẫn từ đồng hồ sẽ dựng
-        // lại đúng điểm yếu vừa bỏ đi, và tệ hơn là dựng lại nó ở một đường hiếm khi
-        // chạy nên không ai thử tới. Fail closed, và caller thấy ngay vì không kết
-        // nối được (nối cb_.randomBytes vào deskhubp::RandomBytes là xong).
         SendReject(RejectReason::None);
         state_.store(State::Idle, std::memory_order_release);
         clientId_ = 0;
@@ -177,20 +129,11 @@ void HostSession::SendHelloAck(uint64_t nowUs) {
     a.height = offer_.height;
     a.fps = offer_.fps;
     a.bitrateBps = offer_.bitrateBps;
-    // Mốc đồng hồ host. KHÔNG client nào còn đọc nó từ 30/07/2026: một mẫu duy nhất,
-    // lấy từ gói đầu tiên của phiên, là mẫu tệ nhất để ước lượng độ lệch đồng hồ —
-    // deskhub::ClockOffset thay bằng bộ lọc min trên chính luồng frame. Vẫn gửi vì
-    // nó là một trường CỐ ĐỊNH trong HELLO_ACK: bỏ đi là đổi wire, mà không được gì.
     a.timebaseUs = nowUs;
     const size_t n = BuildHelloAck(buf_, a);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }
 
-// Từ chối = HELLO_ACK với codec = Rejected, mọi trường khác để 0. Dùng lại chính
-// thông điệp ACK thay vì thêm một loại "REJECT" riêng: client vốn đã phải chờ ACK,
-// nên nó nhận được câu trả lời dứt khoát ngay thay vì đợi hết 10 giây rồi bỏ cuộc.
-// `reason` để client hiện đúng thông báo — "máy đang bận" và "không giải mã được"
-// đòi hai hành động khác nhau từ người dùng.
 void HostSession::SendReject(RejectReason reason) {
     HelloAck a{};
     a.codec = Codec::Rejected;
@@ -203,8 +146,8 @@ void HostSession::Disconnect() {
     state_.store(State::Idle, std::memory_order_release);
     sessionId_.store(0, std::memory_order_relaxed);
     clientId_ = 0;
-    input_.Reset();                           // client sau bắt đầu lại từ seq 0
-    if (cb_.onDisconnect) cb_.onDisconnect(); // caller nhả hết phím đang giữ
+    input_.Reset();
+    if (cb_.onDisconnect) cb_.onDisconnect();
 }
 
-} // namespace deskhub
+}

@@ -1,22 +1,3 @@
-// =============================================================================
-// DeskhubBridge.mm — cài đặt mặt tiền C, bọc ClientLoop, AgentLoop và SourceQuery.
-//
-// Obj-C++ vì cần __bridge cast (layer là kiểu Obj-C) và vì Permissions/SourceEnum là
-// .mm.
-//
-// VAI CLIENT THEO HANDLE (2026-07-27, giống ClientApi.cpp bên Windows)
-//   DHSession bọc một ClientLoop; Swift cầm handle và sở hữu vòng đời — không còn
-//   g_client toàn cục, nên KHÔNG cần mutex: mọi lời gọi trên một handle đều từ main
-//   thread (poll + input) trừ dh_session_start/stop chạy trong Task.detached, và
-//   Swift bảo đảm không gọi gì sau stop.
-//
-// VAI AGENT vẫn là MỘT biến static + mutex: máy chỉ có một phiên chia sẻ.
-//
-// LIÊN QUAN: DeskhubBridge.h (hợp đồng + hàm nào chặn), ClientLoop.h,
-//            AgentLoop.h, net/SourceQuery.h,
-//            client/windows/cpp/DeskhubApi.h (bản đối ứng),
-//            client/ios/app/cpp/DeskhubClient.mm (bản song song một-phiên)
-// =============================================================================
 #import <AVFoundation/AVFoundation.h>
 
 #include "DeskhubBridge.h"
@@ -36,8 +17,6 @@
 #include "net/NetInfo.h"
 #include "deskhubp/SourceQuery.h"
 
-// Một phiên xem = một ClientLoop. Định nghĩa ngoài namespace ẩn danh vì tên
-// DHSession thuộc hợp đồng C của header.
 struct DHSession {
     ClientLoop loop;
 };
@@ -47,9 +26,6 @@ namespace {
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
-// Bộ đệm tĩnh cho chuỗi trả về (hợp lệ tới lần gọi kế). An toàn vì mọi hàm trả chuỗi
-// đều được gọi từ main thread — Swift poll trạng thái trên MainActor, và copy ngay
-// sang String trước lời gọi kế tiếp (kể cả khi có nhiều phiên xem).
 char g_statusBuf[256];
 char g_reasonBuf[256];
 char g_addrBuf[1024];
@@ -60,11 +36,7 @@ void CopyToBuf(char* dst, size_t cap, const std::string& s) {
     dst[n] = '\0';
 }
 
-} // namespace
-
-// ===========================================================================
-// Vai CLIENT
-// ===========================================================================
+}
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     if (!address || !out || capacity <= 0) return 0;
@@ -91,17 +63,6 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
 
 namespace {
 
-// Màn hình LỚN NHẤT đang gắn vào máy này, tính bằng PIXEL. Đi vào HELLO để host co
-// luồng cho vừa (deskhub::Hello::maxWidth).
-//
-// Lấy cái LỚN NHẤT chứ không phải màn chính: laptop cắm màn ngoài 4K thì người dùng
-// gần như chắc chắn xem ở màn ngoài, và khai theo panel laptop sẽ khoá luồng ở một
-// độ phân giải thấp hơn thứ họ đang nhìn.
-//
-// CoreGraphics chứ không phải NSScreen, có chủ ý: hàm này chạy từ Task.detached (xem
-// đầu file), tức KHÔNG phải main thread, mà AppKit thì không hứa gì ngoài main thread.
-// CGDisplayModeGetPixelWidth cho thẳng số pixel thật của chế độ đang chạy — không
-// phải nhân backingScaleFactor như đường CGDisplayPixelsWide đời cũ.
 void LargestScreenPixels(uint32_t& outW, uint32_t& outH) {
     outW = outH = 0;
     CGDirectDisplayID ids[16];
@@ -120,7 +81,7 @@ void LargestScreenPixels(uint32_t& outW, uint32_t& outH) {
     }
 }
 
-} // namespace
+}
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId) {
     if (!address) return nullptr;
@@ -143,9 +104,6 @@ void dh_session_stop(DHSession* s) {
 }
 
 void dh_session_set_layer(DHSession* s, void* layer) {
-    // SetLayer CHẶN tới khi thread Decode xác nhận — không sao: chỉ handle này chờ,
-    // các phiên khác không liên quan (ngày trước g_client + mutex chung thì chỗ này
-    // từng làm mọi lời poll tự khoá lẫn nhau).
     if (s) s->loop.SetLayer(layer);
 }
 
@@ -198,18 +156,10 @@ uint32_t dh_session_video_height(DHSession* s) {
     return s ? s->loop.videoHeight() : 0;
 }
 
-// ===========================================================================
-// Bảng phím dùng chung
-// ===========================================================================
-
 bool dh_map_key(uint16_t mac_key_code, int32_t* out_vk, int32_t* out_scan) {
     if (!out_vk || !out_scan) return false;
     return mackeys::MacToWin(mac_key_code, *out_vk, *out_scan);
 }
-
-// ===========================================================================
-// Quyền hệ thống
-// ===========================================================================
 
 bool dh_has_screen_recording(void) {
     return macperm::HasScreenRecording();
@@ -223,10 +173,6 @@ bool dh_has_accessibility(void) {
 void dh_open_accessibility_settings(void) {
     macperm::OpenAccessibilitySettings();
 }
-
-// ===========================================================================
-// Vai AGENT
-// ===========================================================================
 
 int dha_list_share_sources(DHShareSource* out, int capacity) {
     if (!out || capacity <= 0) return 0;
@@ -249,7 +195,7 @@ AgentSource ToAgentSource(const DHShareSource& s) {
     a.name = s.name;
     return a;
 }
-} // namespace
+}
 
 bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
     uint32_t max_dim) {
@@ -262,8 +208,6 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     AgentOptions opt;
     opt.fps = fps ? fps : 60;
     opt.bitrateMbps = bitrate_mbps ? bitrate_mbps : 20;
-    // 0 ở đây là LỰA CHỌN THẬT ("gửi native"), không phải "chưa đặt" — nên không có
-    // phép thay-0-bằng-mặc-định như hai tham số trên.
     opt.maxDim = max_dim;
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
@@ -320,8 +264,6 @@ int dha_status(DHAgentStatus* out, int capacity) {
 }
 
 const char* dha_local_addresses(void) {
-    // Hỏi thẳng hệ thống thay vì AgentLoop: màn chính hiện IP TRƯỚC khi chia sẻ,
-    // đúng như hộp Host mode của MainMenuWindow bên Windows.
     g_addrBuf[0] = '\0';
     std::string joined;
     for (const auto& a : ListLocalIPv4()) {

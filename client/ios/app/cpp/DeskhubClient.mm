@@ -1,11 +1,3 @@
-// =============================================================================
-// DeskhubClient.mm — cài đặt mặt tiền C, bọc ClientLoop và SourceQuery.
-//
-// Đối ứng JniBridge.cpp bên Android: một biến toàn cục giữ phiên hiện tại, mọi
-// hàm facade thao tác trên đó. Obj-C++ vì cần __bridge cast (layer là kiểu Obj-C).
-//
-// LIÊN QUAN: DeskhubClient.h (hợp đồng), ClientLoop.h, net/SourceQuery.h
-// =============================================================================
 #import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
 
@@ -21,20 +13,13 @@
 
 namespace {
 
-// Phiên duy nhất, y như g_client bên Android. shared_ptr chứ không unique_ptr:
-// dh_set_layer phải gọi SetLayer NGOÀI g_mutex (nó chặn chờ thread Decode ack), nên
-// cần một tham chiếu giữ ClientLoop sống qua suốt cú gọi đó — nếu không, dh_stop
-// chạy song song sẽ huỷ đối tượng ngay dưới chân SetLayer.
 std::shared_ptr<ClientLoop> g_client;
 std::mutex g_mutex;
 
-// Buffer tĩnh cho chuỗi trả về (hợp lệ tới lần gọi kế). Thread-safe vì chỉ
-// main thread gọi status_line/end_reason.
 char g_statusBuf[256];
 char g_reasonBuf[256];
 
-
-} // namespace
+}
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     if (!address || !out || capacity <= 0) return 0;
@@ -61,15 +46,6 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
 
 namespace {
 
-// Cỡ màn hình thiết bị tính bằng PIXEL, để host co luồng cho vừa (Hello::maxWidth).
-//
-// nativeBounds chứ không phải bounds: bounds trả về ĐIỂM và xoay theo thiết bị.
-// nativeBounds là pixel thật và LUÔN ở hướng dọc, tức là một con số không đổi khi
-// người dùng xoay máy — đúng thứ ta cần, vì cỡ luồng chốt một lần lúc HELLO và
-// không có đường sửa lại khi máy xoay.
-//
-// Gọi trên MAIN THREAD (UIKit đòi thế): dh_start chỉ được gọi từ SessionModel, và
-// lớp đó là @MainActor.
 void DeviceScreenPixels(uint32_t& w, uint32_t& h) {
     w = h = 0;
     UIScreen* s = UIScreen.mainScreen;
@@ -80,7 +56,7 @@ void DeviceScreenPixels(uint32_t& w, uint32_t& h) {
     h = uint32_t(r.size.height);
 }
 
-} // namespace
+}
 
 bool dh_start(const char* address, uint8_t sourceId) {
     std::lock_guard<std::mutex> lk(g_mutex);
@@ -120,10 +96,6 @@ void dh_set_layer(void* layer) {
         std::lock_guard<std::mutex> lk(g_mutex);
         cl = g_client;
     }
-    // SetLayer blocks until Decode thread acks — must not hold g_mutex during that
-    // wait, otherwise poll calls (dh_phase, dh_status_line) from main thread deadlock.
-    // The shared_ptr copy keeps the loop alive even if dh_stop/dh_start resets
-    // g_client concurrently; destruction then happens here, after SetLayer returns.
     if (cl) cl->SetLayer(layer);
 }
 

@@ -1,8 +1,3 @@
-// =============================================================================
-// LocalInputMonitor.mm — cài đặt bằng NSEvent global monitor.
-//
-// LIÊN QUAN: input/LocalInputMonitor.h (vì sao cần lọc input mình tự bơm)
-// =============================================================================
 #import <AppKit/AppKit.h>
 
 #include "input/LocalInputMonitor.h"
@@ -17,9 +12,6 @@ LocalInputMonitor::~LocalInputMonitor() {
 void LocalInputMonitor::Start() {
     if (monitor_) return;
 
-    // Monitor phải gắn vào run loop CHÍNH; AgentLoop gọi từ thread nền của nó.
-    // dispatch_sync chứ không async: Start() trả về là monitor_ phải đã sẵn sàng,
-    // nếu không Stop() gọi ngay sau đó sẽ thấy nullptr và bỏ sót việc gỡ.
     dispatch_block_t install = ^{
       if (monitor_) return;
       const NSEventMask mask = NSEventMaskKeyDown | NSEventMaskKeyUp |
@@ -29,9 +21,6 @@ void LocalInputMonitor::Start() {
                                NSEventMaskRightMouseDragged | NSEventMaskScrollWheel;
       id m = [NSEvent addGlobalMonitorForEventsMatchingMask:mask
                                                     handler:^(NSEvent* e) {
-                                                      // Sự kiện do chính ta bơm ra quay lại đây — bỏ qua,
-                                                      // nếu không kênh điều khiển tự khoá chính nó
-                                                      // (xem cảnh báo ở header).
                                                       CGEventRef cg = e.CGEvent;
                                                       if (cg &&
                                                           CGEventGetIntegerValueField(cg, kCGEventSourceUserData) ==

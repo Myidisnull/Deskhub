@@ -28,8 +28,6 @@ desktop tools can't pull off.
 | **Ubuntu** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — verified between two machines over LAN |
 | **Web** | — | 📐 | Designed (QUIC/WebTransport + WASM), not yet implemented |
 
-Roadmap: [`docs/05-roadmap.md`](docs/05-roadmap.md)
-
 ## 🚀 Get it
 
 **🪟 Windows & 🍎 macOS** — grab a single `.exe` / `.dmg` from
@@ -63,8 +61,8 @@ sudo usermod -aG input "$USER"               # then LOG OUT and back in
 ```
 
 Building from source? Step 3 is just `make setup-linux-permissions`. If you enabled `ufw`,
-also `sudo ufw allow 47777/udp`. Details and current limits:
-[`docs/17-linux-app.md`](docs/17-linux-app.md).
+also `sudo ufw allow 47777/udp`. Without the permission grant the app still runs and can
+still view — it just cannot inject mouse/keyboard into this machine.
 
 **📱 iOS** — install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
 join the beta: **[testflight.apple.com/join/7qY7wgpd](https://testflight.apple.com/join/7qY7wgpd)**
@@ -83,7 +81,8 @@ there is no view-only mode. Over the Internet: run [Tailscale](https://tailscale
 both machines and use the 100.x.y.z IP. On mobile the video frame is a trackpad:
 drag = move, tap = click, hold-drag = drag, **Keys** = virtual keyboard.
 
-Build from source: [`docs/README.md`](docs/README.md) · Bugs & feedback:
+Build from source: `make bootstrap` then `make build-<os>` — every target is documented
+at the top of the [`Makefile`](Makefile). Bugs & feedback:
 [issues](https://github.com/manhpham90vn/Deskhub/issues) — include your device model.
 
 ## ✨ Under the hood
@@ -93,4 +92,8 @@ Build from source: [`docs/README.md`](docs/README.md) · Bugs & feedback:
 - **Real input** — relative mouse (Raw Input) + scancodes for DirectInput games; host's own mouse/keyboard always wins.
 - **Hybrid transport** — native = UDP; web = QUIC/WebTransport with the same core compiled to WASM.
 
-Full docs: [`docs/README.md`](docs/README.md)
+## 📄 License
+
+MIT — see [`LICENSE`](LICENSE). Third-party components and their notices (including the
+statically linked LGPL build of FFmpeg in the Linux app) are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

@@ -1,25 +1,10 @@
-// =============================================================================
-// ClientApi.cpp — cài đặt C API vai CLIENT/VIEWER (xem DeskhubApi.h §VAI CLIENT).
-//
-// Đây là bản HEADLESS, MỘT NGUỒN của vòng xem: thread Recv + thread Decode, hàng
-// đợi frame, ước lượng e2e, NACK, feedback — không tự sở hữu cửa sổ nào. Render đi
-// qua PanelRenderer vào cửa sổ con do app cấp, input đến qua C API. Người gọi duy
-// nhất là app win32 (Viewer.cpp) qua dh_client_start_hwnd.
-//
-// Đọc ClientLoop.cpp (StreamRecvLoop) để hiểu VÌ SAO tách thread Decode khỏi Recv và
-// cách ước lượng e2e — phần đó ở đây là bản rút gọn nguyên vẹn logic.
-//
-// MỘT ĐIỂM KHÁC CÓ CHỦ Ý so với các viewer kia: nơi DỪNG đồng hồ e2e. Viewer này là
-// viewer duy nhất tự sở hữu swapchain, nên nó là viewer duy nhất có một khoảng chờ
-// trình bày đo được — xem khối chú thích ở onDecoded và docs/09 §End-to-end latency.
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _CRT_SECURE_NO_WARNINGS
 #include "DeskhubApi.h"
 
 #include <windows.h>
-#include <objbase.h> // CoInitializeEx cho thread dùng Media Foundation
+#include <objbase.h>
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -37,7 +22,7 @@
 #include "decode/PanelRenderer.h"
 #include "deskhubp/UdpSocket.h"
 #include "deskhubp/Clock.h"
-#include "deskhubp/LogFile.h" // LocalTimeHms — đóng dấu giờ dòng mỗi giây
+#include "deskhubp/LogFile.h"
 
 #include "deskhub/control/ClockOffset.h"
 #include "deskhub/control/LinkStats.h"
@@ -45,7 +30,6 @@
 #include "deskhub/session/ClientSession.h"
 #include "deskhub/transport/Reassembler.h"
 
-// Handle mờ: state của một phiên xem + hai thread của nó.
 struct DhClientHandle {
     GpuChoice gpu;
     PanelRenderer renderer;
@@ -60,11 +44,11 @@ struct DhClientHandle {
 
     std::atomic<bool> quit{false};
     std::atomic<bool> failed{false};
-    std::atomic<bool> userStop{false};            // dh_client_stop chủ động dừng
-    std::atomic<const char*> failReason{nullptr}; // chuỗi TĨNH mô tả đường chết
+    std::atomic<bool> userStop{false};
+    std::atomic<const char*> failReason{nullptr};
 
     std::mutex inputMutex;
-    std::vector<deskhub::InputEvent> inputQueue; // UI thread ghi, thread Recv rút
+    std::vector<deskhub::InputEvent> inputQueue;
 
     std::thread thread;
 
@@ -75,43 +59,22 @@ struct DhClientHandle {
     }
 };
 
-// Thân thread Recv (kèm thread Decode bên trong). Port rút gọn của StreamRecvLoop.
 void DhClientHandle::Run() {
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED); // MF/D3D11VA cần COM trên thread này
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     std::unique_ptr<deskhub::Reassembler> reasm;
     std::unique_ptr<IVideoDecoder> decoder;
     std::atomic<uint32_t> decW{0}, decH{0}, decFps{0};
 
-    // Ước lượng trễ e2e (deskhub/control/ClockOffset.h). Sàn mạng (min RTT) nằm ở
-    // diag.minRttUs: Recv ghi, Decode đọc. clockOffset: CHỈ thread Decode chạm
-    // (onDecoded chạy đồng bộ trong Decode) — nó không tự khoá, và phải được bơm
-    // mẫu ở ĐÚNG MỘT điểm trong đường dẫn.
     std::atomic<int64_t> lastE2eUs{-1};
     deskhub::ClockOffset clockOffset;
 
     uint64_t stBytes = 0;
     std::atomic<uint32_t> stRendered{0};
 
-    // --- Bộ đếm chẩn đoán cửa sổ 1s (docs/09) ---
-    // Bộ đếm và phép dựng hai dòng log nằm ở core, một bản cho cả năm viewer
-    // (deskhub/diag/ClientDiag.h). Windows là nền DUY NHẤT có present_ms: Present
-    // chạy ĐỒNG BỘ bên trong Decode nên thời gian kẹt ở đó đo được và phải tách ra
-    // khỏi dec_ms. Ngược lại disp_drop không có: ở đây không tầng hiển thị nào nuốt
-    // frame sau lưng ta.
-    //
-    // Ai ghi cái gì: thread Decode ghi decMs/presentMs, thread Recv ghi asmMs/
-    // dqDrop/loopBusyMs/minRttUs, thread Recv đọc-và-xoá tất cả ở nhịp 1s.
     deskhub::diag::ClientDiag diag{deskhub::diag::ClientDiagCaps{
-        /*presentMs=*/true, /*dispDrop=*/false}};
+        true, false}};
 
-    // Hàng đợi giữa Recv và Decode. Từ khi swapchain đặt MaximumFrameLatency(1)
-    // (PanelRenderer.cpp), Present chặn thread Decode tới cả một nhịp quét màn hình —
-    // nên hàng đợi này là chỗ HẤP THU DAO ĐỘNG giữa nhịp 60 fps của host và nhịp quét
-    // của màn hình này. 3 frame đủ cho lệch pha thông thường; đầy hơn thế thì frame
-    // CŨ NHẤT bị vứt (giữ lại chỉ làm hình trễ thêm) và `dq_drop` ở dòng evt=sum đếm
-    // lại — đó là con số nói "màn hình quét chậm hơn tốc độ host gửi", không phải
-    // "mạng kém".
     constexpr size_t kMaxQueuedFrames = 3;
     std::mutex decQueueMutex;
     std::condition_variable decQueueCv;
@@ -125,18 +88,6 @@ void DhClientHandle::Run() {
     std::atomic<bool> queueOverflowFlag{false};
     bool negotiated = false;
 
-    // Frame vừa giải mã xong -> vẽ + trình bày, rồi chốt e2e. Chạy ĐỒNG BỘ bên trong
-    // decoder->Decode() (MfDecoder::Deliver gọi thẳng), tức trên thread Decode.
-    //
-    // ⚠ ĐỒNG HỒ e2e DỪNG TRƯỚC Present, KHÔNG PHẢI SAU (sửa 2026-07-30)
-    //   Present chặn cho tới khi frame trước đó lên màn — tới cả một nhịp quét. Đó là
-    //   thời gian frame NẰM CHỜ ở đây, không phải thời gian nó đi từ host về, nên đếm
-    //   vào e2e là đổ lỗi cho đường truyền vì một điểm nghẽn của chính máy này. Nó cũng
-    //   làm con số này không so được với client Apple: bên đó đồng hồ dừng lúc enqueue
-    //   vào AVSampleBufferDisplayLayer, tức trước cả khi giải mã (VtDecoder.h,
-    //   lastRenderedPtsUs). Dừng ở mốc "frame đã sẵn sàng trình bày" là điểm gần nhất
-    //   với bên kia mà vẫn trung thực.
-    //   Phần bị loại ra KHÔNG bị giấu: nó thành `present_ms` ở dòng evt=sum.
     auto onDecoded = [&](const DecodedFrame& df) {
         uint64_t readyUs = 0;
         if (!renderer.RenderNV12(df.texture, df.subresource, df.width, df.height, &readyUs))
@@ -147,15 +98,8 @@ void DhClientHandle::Run() {
             diag.presentMs.Add(uint32_t((NowUs() - readyUs) / 1000));
         }
 
-        // `pts` phải khác 0 y như bốn viewer kia: host chưa gắn mốc (hoặc gói hỏng)
-        // thì pts=0 kéo sàn của bộ lọc min xuống một giá trị vô nghĩa, và mọi frame
-        // sau đó bị báo trễ theo.
         if (df.timestampUs) {
-            // readyUs = 0 chỉ xảy ra nếu renderer đổi mà quên trả mốc — lùi về NowUs()
-            // để phép đo tệ đi một chút chứ không biến mất.
             clockOffset.AddSample(df.timestampUs, readyUs ? readyUs : NowUs());
-            // Cộng lại sàn mạng đo được (nửa RTT nhỏ nhất). RTT chưa về thì để 0:
-            // thà hụt sàn còn hơn bịa ra nó.
             lastE2eUs.store(
                 clockOffset.LatencyUs(diag.minRttUs.value() / 2));
         }
@@ -188,10 +132,6 @@ void DhClientHandle::Run() {
                     break;
                 }
             }
-            // t_dec (docs/09). BAO GỒM cả onDecoded — vẽ + Present chạy đồng bộ bên
-            // trong Decode(). Tách hai phần ra là việc của `present_ms`: dec_ms xấp xỉ
-            // present_ms nghĩa là nghẽn ở khâu trình bày, còn dec_ms lớn hơn hẳn thì
-            // chính MFT mới là chỗ chậm.
             deskhub::Reassembler::Frame& f = it.frame;
             const uint64_t t0 = NowUs();
             const bool ok = decoder->Decode(f.nal.data(), f.nal.size(), f.timestampUs);
@@ -205,9 +145,6 @@ void DhClientHandle::Run() {
     deskhub::ClientCallbacks cb;
     cb.send = [&](std::span<const uint8_t> d) { sock.SendTo(server, d.data(), d.size()); };
     cb.onReady = [&](const deskhub::NegotiatedParams& np) {
-        // HelloAck::timebaseUs KHÔNG còn được dùng để ước lượng độ lệch đồng hồ nữa:
-        // một mẫu duy nhất, lấy từ gói đầu tiên của phiên, là mẫu tệ nhất có thể lấy
-        // (xem deskhub/control/ClockOffset.h). Bộ lọc min ở onDecoded thay nó.
         negotiated = true;
         decW.store(np.width, std::memory_order_relaxed);
         decH.store(np.height, std::memory_order_relaxed);
@@ -215,21 +152,15 @@ void DhClientHandle::Run() {
         if (sizeCb) sizeCb(np.width, np.height, user);
     };
     cb.onReconfig = [&](const deskhub::NegotiatedParams& np) {
-        // fps mới phải tới được Reassembler, không chỉ để hiển thị: nó là hạn chờ
-        // trước khi khai tử một frame thiếu mảnh. Giữ hạn của fps cũ khi host đã hạ
-        // fps = bỏ frame LÀNH rồi xin IDR, đúng lúc đường truyền yếu nhất
-        // (xem deskhub::Reconfig::fps).
         if (reasm) reasm->SetFps(np.fps);
         decFps.store(np.fps ? np.fps : decFps.load(std::memory_order_relaxed),
             std::memory_order_relaxed);
         decW.store(np.width, std::memory_order_relaxed);
         decH.store(np.height, std::memory_order_relaxed);
         if (sizeCb) sizeCb(np.width, np.height, user);
-        // Không dựng lại decoder/renderer: MfDecoder tự đàm phán lại khi gặp SPS mới,
-        // PanelRenderer tự ResizeBuffers theo cỡ frame.
     };
     cb.onRtt = [&](uint32_t rttUs) { diag.minRttUs.Add(rttUs); };
-    bool closedNotified = false; // chỉ đọc/ghi trên thread Run (session gọi callback tại đây)
+    bool closedNotified = false;
     cb.onDisconnect = [&](const char* reason) {
         closedNotified = true;
         if (closedCb) closedCb(reason ? reason : "disconnected", user);
@@ -241,12 +172,6 @@ void DhClientHandle::Run() {
     deskhub::Hello hello;
     hello.clientId = uint32_t(NowUs()) ^ GetCurrentProcessId() ^ (uint32_t(sourceId) << 24);
     hello.codecMask = deskhub::kCodecMaskH264;
-    // Cỡ MÀN HÌNH máy này (pixel). Host co luồng cho vừa thay vì gửi nguyên độ phân
-    // giải nguồn — xem deskhub::Hello::maxWidth.
-    //
-    // SM_CX/CYVIRTUALSCREEN chứ không phải SM_CXSCREEN: người dùng nhiều màn hình gần
-    // như chắc chắn xem ở màn to nhất, và khai theo màn CHÍNH sẽ khoá luồng ở độ phân
-    // giải của một màn họ không nhìn. Hộp bao ảo là trần đúng cho mọi bố trí.
     hello.maxWidth = uint16_t(GetSystemMetrics(SM_CXVIRTUALSCREEN));
     hello.maxHeight = uint16_t(GetSystemMetrics(SM_CYVIRTUALSCREEN));
     hello.desiredFps = 60;
@@ -256,8 +181,6 @@ void DhClientHandle::Run() {
 
     uint8_t buf[deskhub::kMaxDatagram];
     deskhub::LinkStats linkStats(NowUs());
-    // Máy trạng thái kf_req/idr_rx ở core (deskhub/diag/ClientDiag.h): nó ghép
-    // hai sự kiện lại để ra after_ms — thời gian người dùng nhìn hình đứng.
     deskhub::diag::KeyframeRequestLog kfLog;
     char kfLine[deskhub::diag::KeyframeRequestLog::kBufBytes];
 
@@ -280,8 +203,6 @@ void DhClientHandle::Run() {
                     if (!reasm) {
                         const uint32_t fps = session.params().fps ? session.params().fps : 60;
                         reasm = std::make_unique<deskhub::Reassembler>(1'000'000 / fps);
-                        // Khám nghiệm từng frame bị khai tử. `pos` là thứ phân biệt mất
-                        // gói theo chùm (tail) với mất lẻ tẻ — xem docs/06 §5.
                         reasm->onFrameDrop = [](const deskhub::Reassembler::FrameDropInfo& d) {
                             static const char* const kReason[] =
                                 {"timeout", "overtaken", "evicted", "pre_idr"};
@@ -320,8 +241,6 @@ void DhClientHandle::Run() {
             }
         }
 
-        // Gom mọi đường dẫn tới "xin IDR" về một chỗ, kèm lý do. Gọi lặp là vô hại:
-        // chỉ log ở lần chuyển từ "không treo" sang "đang treo".
         auto requestKf = [&](const char* reason) {
             if (const char* l = kfLog.Request(kfLine, sizeof(kfLine), now, reason))
                 std::printf("%s\\n", l);
@@ -335,7 +254,6 @@ void DhClientHandle::Run() {
                     if (const char* l = kfLog.Arrived(kfLine, sizeof(kfLine), now, f->nal.size()))
                         std::printf("%s\\n", l);
                 }
-                // t_asm: mảnh đầu tiên tới → frame ghép xong và rời Reassembler.
                 if (f->firstSeenUs) {
                     const uint32_t asmMs = uint32_t((now - f->firstSeenUs) / 1000);
                     diag.asmMs.Add(asmMs);
@@ -367,7 +285,6 @@ void DhClientHandle::Run() {
             if (nn) session.SendNack(nackFrame, std::span<const uint16_t>(nackIdx, nn));
         }
 
-        // Vét input do app đẩy vào -> ClientSession đánh seq, Tick gửi.
         {
             std::vector<deskhub::InputEvent> batch;
             {
@@ -377,7 +294,7 @@ void DhClientHandle::Run() {
             for (const auto& e : batch) session.QueueInput(e);
         }
 
-        session.SetFocused(true); // panel đang xem = luôn "focus" nguồn này
+        session.SetFocused(true);
         session.Tick(now);
         if (session.state() == deskhub::ClientSession::State::Dead) break;
 
@@ -389,22 +306,12 @@ void DhClientHandle::Run() {
             session.SendFeedback(deskhub::MakeFeedback(w, session.lastRttUs()));
 
             if (negotiated && statsCb) {
-                // Cùng phép dựng chuỗi với bốn viewer kia, chỉ khác dấu ngăn: ở đây
-                // là dấu chấm giữa (UTF-8) cho khớp thanh tiêu đề của cửa sổ.
                 char line[deskhub::diag::ClientDiag::kCompactBufBytes];
                 statsCb(deskhub::diag::ClientDiag::FormatCompact(line, sizeof(line), w,
                             session.lastRttUs(), e2e, " \xC2\xB7 "),
                     user);
             }
 
-            // Hai dòng log mỗi giây do core dựng (deskhub/diag/ClientDiag.h) — một
-            // bản dùng chung cho cả năm viewer. `hms` truyền từ đây vì core không
-            // đọc đồng hồ tường. In bằng printf: stdout ở đây đã được
-            // DiagLog::StartProcessLog đổi hướng thẳng vào file log.
-            //
-            // Dòng [Client] là bản DUY NHẤT đi vào file log (statsCb chỉ vẽ lên
-            // thanh trên của cửa sổ). Dòng evt=sum đọc-và-xoá mọi bộ đếm cửa sổ,
-            // nên gọi đúng một lần ở đây.
             const std::string hms = deskhubp::LocalTimeHms();
             char logLine[deskhub::diag::ClientDiag::kSumBufBytes];
             std::printf("%s\n", deskhub::diag::ClientDiag::FormatStatus(logLine, sizeof(logLine),
@@ -415,8 +322,6 @@ void DhClientHandle::Run() {
             stBytes = 0;
         }
 
-        // Vòng này bận bao lâu (không tính lúc chờ recvfrom). Thread Recv nghẽn thì
-        // buffer UDP của kernel gánh — tràn là mất gói THẬT, ngay tại máy này.
         const uint32_t busyMs = uint32_t((NowUs() - now) / 1000);
         diag.loopBusyMs.Add(busyMs);
         if (busyMs > 50) std::printf("[DIAG] evt=recv_stall busy_ms=%u\n", busyMs);
@@ -429,8 +334,6 @@ void DhClientHandle::Run() {
     session.SendBye();
     quit.store(true);
 
-    // MỌI đường chết không do dh_client_stop đều phải báo về app, kể cả đường native
-    // (decoder hỏng, lỗi socket, phiên Dead) — thiếu là cửa sổ xem đứng hình vĩnh viễn.
     if (!closedNotified && !userStop.load()) {
         const char* r = failReason.load();
         if (closedCb) closedCb(r ? r : "connection lost", user);
@@ -456,15 +359,14 @@ deskhub::InputEvent MakeMoveRel(int dx, int dy) {
     e.timestampUs = NowUs();
     e.a = dx;
     e.b = dy;
-    e.absolute = 0; // host bơm MOUSEEVENTF_MOVE (delta thô) — đường game đọc được
+    e.absolute = 0;
     return e;
 }
 
-} // namespace
+}
 
 namespace {
 
-// Thân của dh_client_start_hwnd, tách riêng để giữ cấu trúc validate-rồi-chạy gọn.
 DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId,
     uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
     DhClientClosedCallback closedCb, void* user) {
@@ -485,8 +387,6 @@ DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId,
         delete h;
         return nullptr;
     }
-    // Tạo swapchain NGAY trên thread gọi (UI) — cần trước khi cửa sổ con hiện.
-    // Cỡ 1280x720 chỉ là tạm — frame đầu sẽ ResizeBuffers về cỡ thật.
     if (!h->renderer.InitForHwnd(h->gpu.device.Get(), (void*)(uintptr_t)hwnd, 1280, 720)) {
         delete h;
         return nullptr;
@@ -501,7 +401,7 @@ DhClientHandle* StartClient(const char* addrUtf8, uint8_t sourceId,
     return h;
 }
 
-} // namespace
+}
 
 DH_API DhClientHandle* DH_CALL dh_client_start_hwnd(const char* addrUtf8, uint8_t sourceId,
     uint64_t hwnd, DhClientStatsCallback statsCb, DhClientSizeCallback sizeCb,
@@ -554,7 +454,7 @@ DH_API void DH_CALL dh_client_key(DhClientHandle* h, int vk, int scan, int down)
 
 DH_API void DH_CALL dh_client_stop(DhClientHandle* h) {
     if (!h) return;
-    h->userStop.store(true); // dừng chủ động: đừng bắn closedCb ngược vào app đang thoát
+    h->userStop.store(true);
     h->quit.store(true);
     if (h->thread.joinable()) h->thread.join();
     delete h;

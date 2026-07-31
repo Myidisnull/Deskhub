@@ -1,11 +1,5 @@
 name: metadata
 
-# Đẩy store listing (description, keywords, changelog... — các file txt trong
-# client/<os>/fastlane/metadata/) lên App Store Connect + Google Play qua
-# deliver/supply. Tách khỏi deploy.yml vì listing có vòng đời riêng: sửa chữ
-# không cần build lại app. Bấm tay khi muốn đồng bộ listing.
-# Secrets dùng chung với deploy.yml (ASC_*, PLAY_JSON_KEY) — nằm trong
-# environment `stg`, nên job phải khai `environment: stg`.
 on:
   workflow_dispatch:
 

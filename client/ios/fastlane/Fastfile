@@ -1,26 +1,3 @@
-# =============================================================================
-# Fastfile (iOS) — build ipa Release rồi đẩy lên TestFlight. Chạy từ CI
-# (.github/workflows/deploy.yml) hoặc tay: cd client/ios && fastlane ios release
-#
-# FASTLANE LÀ NGUỒN CHUẨN của danh tính/version app:
-#   - bundle id + team        : fastlane/Appfile (app_identifier, team_id)
-#   - version hiển thị (x.y.z): file VERSION ở gốc repo (chung với Android)
-#   - build number            : env BUILD_NUMBER (CI truyền github.run_number)
-# Các giá trị này được bơm vào xcodebuild qua xcargs, ĐÈ lên giá trị trong
-# Deskhub.xcodeproj — pbxproj chỉ còn là fallback khi build tay bằng Xcode.
-#
-# Đăng nhập bằng App Store Connect API key (không dùng mật khẩu Apple ID):
-#   ASC_KEY_ID      — Key ID của API key (App Store Connect > Users > Keys)
-#   ASC_ISSUER_ID   — Issuer ID cùng trang đó
-#   ASC_KEY_CONTENT — nội dung file .p8, mã hoá base64 một dòng
-#
-# Ký app: fastlane MATCH — cert + profile lưu mã hoá trong git repo riêng (xem
-# Matchfile), build ký MANUAL với "match AppStore <bundle id>". Cần thêm env:
-#   MATCH_PASSWORD  — passphrase giải mã repo cert
-#   MATCH_GIT_URL   — (CI) remote của repo cert; local mặc định dùng đường dẫn
-#                     trong Matchfile
-# Lần đầu (hoặc khi cert hết hạn) chạy local: fastlane ios certificates
-# =============================================================================
 default_platform(:ios)
 
 APP_IDENTIFIER = CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier)
@@ -38,21 +15,17 @@ def asc_api_key
 end
 
 platform :ios do
-  desc "Tạo/cập nhật cert + profile trong repo match (chạy tay khi setup lần đầu hoặc cert hết hạn)"
+  desc "Create/update the cert + profile in the match repo (run by hand on first setup or when the cert expires)"
   lane :certificates do
     match(type: "appstore", api_key: asc_api_key, readonly: false)
   end
 
-  desc "Build ipa Release (ký bằng match) và upload TestFlight"
+  desc "Build a Release ipa (signed with match) and upload to TestFlight"
   lane :release do
     api_key = asc_api_key
 
-    # CI: tạo keychain tạm không passphrase để match nhét cert vào (runner GitHub
-    # không mở được login keychain). Local: dùng login keychain như bình thường.
     setup_ci if ENV["CI"]
 
-    # Tải cert + profile từ repo cert về máy. readonly trên CI — không bao giờ
-    # để CI tự tạo/thu hồi cert; hết hạn thì chạy tay `fastlane ios certificates`.
     match(type: "appstore", api_key: api_key, readonly: ENV["CI"] ? true : false)
 
     build_number = ENV["BUILD_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
@@ -79,18 +52,14 @@ platform :ios do
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
   end
 
-  # Store listing quản bằng file txt trong fastlane/metadata/<locale>/ (deliver):
-  #   name/subtitle/description/keywords/release_notes/*_url.txt + copyright,
-  #   primary_category, secondary_category ở gốc metadata/. Sửa chữ = sửa file
-  #   txt rồi chạy lane này (CI: workflow metadata.yml) — không cần build lại app.
-  desc "Đẩy store listing (fastlane/metadata) lên App Store Connect"
+  desc "Push the store listing (fastlane/metadata) to App Store Connect"
   lane :metadata do
     deliver(
       api_key: asc_api_key,
       app_version: APP_VERSION,
       skip_binary_upload: true,
       skip_screenshots: true,
-      force: true, # không dừng chờ duyệt HTML preview — CI không có ai bấm
+      force: true,
       precheck_include_in_app_purchases: false
     )
   end

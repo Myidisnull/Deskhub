@@ -1,29 +1,3 @@
-// =============================================================================
-// Firewall.cpp — cài đặt bằng COM (Windows Firewall API, INetFwPolicy2).
-//
-// BỐ CỤC
-//   ComScope        — RAII cho CoInitializeEx, chịu được cả khi COM đã init sẵn.
-//   SelfPath        — đường dẫn exe hiện tại, dùng làm ApplicationName của rule.
-//   RuleState/OpenRules/Remove* — nội bộ, thao tác trên INetFwRules.
-//   HostFirewallRulePresent / EnsureHostFirewallRule — API công khai (xem .h).
-//
-// VÌ SAO MỞ CẢ BA PROFILE (Domain + Private + Public)
-//   Windows áp rule theo profile của mạng ĐANG nối. Một máy host Win10 để mạng ở
-//   Public (rất hay gặp), hay rule tự-sinh của Windows chỉ gắn Public/Private lẻ,
-//   đều làm gói inbound bị chặn dù "có rule". Không đoán được máy kia phân loại mạng
-//   thế nào nên mở hết — rule vẫn chỉ giới hạn ĐÚNG exe này + UDP inbound.
-//
-// VÌ SAO KIỂM CHỨNG LẠI SAU KHI ADD
-//   Add() trả S_OK không đồng nghĩa rule đã nằm trong danh sách trong mọi hoàn cảnh.
-//   Ta tra lại theo tên để "in place" trong log là sự thật, không phải lời hứa.
-//
-// VÌ SAO CHỊU ĐƯỢC RPC_E_CHANGED_MODE
-//   main.cpp đã init WinRT (MTA) trên chính thread gọi các hàm này. Gọi lại
-//   CoInitializeEx với APARTMENTTHREADED trên thread đó trả RPC_E_CHANGED_MODE — KHÔNG
-//   phải lỗi: COM vẫn dùng được ở apartment kia, chỉ là ta không được CoUninitialize.
-//
-// LIÊN QUAN: net/Firewall.h (vấn đề firewall + luồng), AgentLoop.cpp, ElevatedShare.h
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "net/Firewall.h"
@@ -40,17 +14,11 @@
 
 namespace {
 
-// Tên định danh rule trong danh sách firewall. Remove/Item tra theo đúng tên này.
 constexpr wchar_t kRuleName[] = L"Deskhub (host)";
 
-// Ba profile thật. NET_FW_PROFILE2_ALL (0x7fffffff) cũng được nhưng dùng tổ hợp bit
-// tường minh để get_Profiles trả về đúng giá trị này, so sánh cho gọn.
 constexpr long kWantProfiles =
     NET_FW_PROFILE2_DOMAIN | NET_FW_PROFILE2_PRIVATE | NET_FW_PROFILE2_PUBLIC;
 
-// RAII cho CoInitializeEx. SUCCEEDED gồm cả S_OK lẫn S_FALSE (đều tăng ref -> đều
-// phải CoUninitialize). RPC_E_CHANGED_MODE là thất bại theo SUCCEEDED nên không
-// uninit, nhưng ok() vẫn true vì COM dùng được ở apartment đã init sẵn.
 struct ComScope {
     HRESULT hr;
     ComScope() : hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
@@ -72,7 +40,6 @@ bool PathEq(const wchar_t* a, const std::wstring& b) {
     return a && CompareStringOrdinal(a, -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
 }
 
-// Mở INetFwRules. Người gọi Release() cả rules lẫn policy (qua ReleaseRules).
 INetFwRules* OpenRules(INetFwPolicy2** outPolicy) {
     *outPolicy = nullptr;
     INetFwPolicy2* policy = nullptr;
@@ -94,9 +61,6 @@ void ReleaseRules(INetFwRules* rules, INetFwPolicy2* policy) {
     if (policy) policy->Release();
 }
 
-// 0 = không có rule tên kRuleName; 1 = có nhưng thiếu profile (Public/Private) hoặc
-// trỏ exe KHÁC (app đã đổi chỗ sau update/publish — rule cũ không mở gì cho exe mới)
-// nên cần làm lại; 2 = có, phủ đủ ba profile và trỏ đúng exe này.
 int InspectOwnRule(INetFwRules* rules, const std::wstring& exe) {
     BSTR name = SysAllocString(kRuleName);
     if (!name) return 0;
@@ -119,7 +83,6 @@ int InspectOwnRule(INetFwRules* rules, const std::wstring& exe) {
     return state;
 }
 
-// Bỏ mọi rule cùng tên kRuleName (Remove xoá tất cả rule trùng tên).
 void RemoveOwnRule(INetFwRules* rules) {
     if (BSTR name = SysAllocString(kRuleName)) {
         rules->Remove(name);
@@ -127,8 +90,6 @@ void RemoveOwnRule(INetFwRules* rules) {
     }
 }
 
-// Bỏ các rule INBOUND action=BLOCK trỏ đúng exe này — thường do bấm "Cancel" ở popup
-// firewall của Windows sinh ra, mà block THẮNG allow nên phải dọn.
 void RemoveConflictingBlockRules(INetFwRules* rules, const std::wstring& exe) {
     IUnknown* unk = nullptr;
     if (FAILED(rules->get__NewEnum(&unk)) || !unk) return;
@@ -169,7 +130,6 @@ void RemoveConflictingBlockRules(INetFwRules* rules, const std::wstring& exe) {
     unk->Release();
 }
 
-// Tạo rule allow inbound UDP cho exe, phủ cả ba profile. true nếu Add() trả S_OK.
 bool AddOwnRule(INetFwRules* rules, const std::wstring& exe) {
     INetFwRule* rule = nullptr;
     if (FAILED(CoCreateInstance(__uuidof(NetFwRule), nullptr, CLSCTX_INPROC_SERVER,
@@ -202,7 +162,7 @@ bool AddOwnRule(INetFwRules* rules, const std::wstring& exe) {
     return ok;
 }
 
-} // namespace
+}
 
 bool HostFirewallRulePresent() {
     const std::wstring exe = SelfPath();
@@ -214,7 +174,7 @@ bool HostFirewallRulePresent() {
     if (!rules) return false;
     const int state = InspectOwnRule(rules, exe);
     ReleaseRules(rules, policy);
-    return state == 2; // chỉ coi là "có" khi đủ ba profile VÀ trỏ đúng exe này
+    return state == 2;
 }
 
 bool EnsureHostFirewallRule() {
@@ -233,19 +193,15 @@ bool EnsureHostFirewallRule() {
         return false;
     }
 
-    // Đã có rule đúng (đủ ba profile, đúng exe) thì thôi — khỏi cần admin lần này.
     if (InspectOwnRule(rules, exe) == 2) {
         ReleaseRules(rules, policy);
         return true;
     }
 
-    // Cần sửa: dọn rule cũ thiếu profile + block rule của exe, rồi thêm rule đủ ba
-    // profile. Mọi thao tác ghi đều đòi admin; không có quyền thì Add trả false.
     RemoveOwnRule(rules);
     RemoveConflictingBlockRules(rules, exe);
     AddOwnRule(rules, exe);
 
-    // Kiểm chứng lại: chỉ báo thành công khi rule THẬT SỰ đã nằm trong danh sách.
     const bool ok = InspectOwnRule(rules, exe) == 2;
     ReleaseRules(rules, policy);
     return ok;

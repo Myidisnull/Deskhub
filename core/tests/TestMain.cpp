@@ -1,11 +1,3 @@
-// =============================================================================
-// TestMain.cpp — gom mọi nhóm test lại và chạy. Exit 0 = tất cả check đạt.
-//
-// Test của core chạy hoàn toàn offline (không mạng, không GPU) nên build/chạy được
-// bằng MỌI toolchain dựng được core — MSVC, clang/gcc, Android NDK.
-//
-// Chạy:  cmake --build --preset x64-debug --target core_tests && ./core_tests
-// =============================================================================
 #include "Tests.h"
 #include "support/TestSupport.h"
 

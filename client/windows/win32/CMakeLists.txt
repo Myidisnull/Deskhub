@@ -1,13 +1,3 @@
-# client/windows/win32 — APP WINDOWS (Win32 thuần), frontend chính.
-#
-# KHÔI PHỤC TỪ LỊCH SỬ (2026-07-27): bộ UI Win32 gốc trước M4b (ff454de~1) —
-# main menu + picker + cửa sổ phiên — giao diện utility đơn giản, control chuẩn
-# Windows, MỘT exe không dependency. Vai host nói chuyện THẲNG với AgentLoop
-# (như bản gốc); vai client viết mới mỏng trên C API (Viewer.cpp +
-# dh_client_start_hwnd) vì ClientLoop cũ đã dời vào ClientApi.cpp.
-#
-# ClientApi.cpp compile thẳng vào exe — vai client headless nằm trọn trong đó.
-
 add_executable(deskhub_app WIN32
     main.cpp
     MainMenuWindow.cpp

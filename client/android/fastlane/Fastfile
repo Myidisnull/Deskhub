@@ -1,38 +1,10 @@
-# =============================================================================
-# Fastfile (Android) — build AAB Release đã ký rồi đẩy lên Google Play (track
-# internal). Chạy từ CI (.github/workflows/deploy.yml) hoặc tay:
-#   cd client/android && fastlane android release
-#
-# FASTLANE LÀ NGUỒN CHUẨN của danh tính/version app:
-#   - applicationId            : fastlane/Appfile (package_name)
-#   - versionName (x.y.z)      : file VERSION ở gốc repo (chung với iOS)
-#   - versionCode              : env BUILD_NUMBER (CI truyền github.run_number)
-# Các giá trị này bơm vào gradle qua -P, ĐÈ lên giá trị trong build.gradle.kts —
-# gradle chỉ còn fallback khi build tay (make build-android).
-#
-# Env cần có khi release:
-#   KEYSTORE_FILE / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
-#       — keystore ký release (build.gradle.kts đọc trực tiếp từ env này;
-#         thiếu thì gradle rơi về unsigned và Play sẽ từ chối)
-#   PLAY_JSON_KEY — nội dung JSON service account có quyền upload trên Play Console
-#
-# Env tuỳ chọn khi release:
-#   PLAY_PROMOTE_TRACK — tên track closed muốn đẩy kèm (vd "alpha"). Để trống
-#       (mặc định) thì chỉ đẩy internal. Xem chú thích ở lane :release.
-# =============================================================================
 default_platform(:android)
 
 PACKAGE_NAME = CredentialsManager::AppfileConfig.try_fetch_value(:package_name)
 APP_VERSION = File.read(File.expand_path("../../../VERSION", __dir__)).strip
 
 platform :android do
-  # PLAY_PROMOTE_TRACK: đẩy thêm bản vừa upload sang track closed (vd "alpha").
-  # Một versionCode được phép nằm trên nhiều track cùng lúc — supply promote chỉ
-  # THÊM release vào track đích, không gỡ khỏi internal (uploader.rb promote_track).
-  # Mặc định để trống: push tag chỉ đẩy internal (lên trong vài phút, không qua
-  # review đầy đủ). Closed/open thì mỗi bản phải qua review nên chỉ promote khi
-  # thật sự cần — CI bật qua input của workflow_dispatch.
-  desc "Build AAB Release (ký bằng keystore từ env) và upload Play internal"
+  desc "Build a Release AAB (signed with the keystore from env) and upload to Play internal"
   lane :release do
     version_code = ENV.fetch("BUILD_NUMBER", "1")
     gradle_props = {
@@ -47,19 +19,12 @@ platform :android do
       properties: gradle_props
     )
 
-    # APK Release ký cùng keystore — để CI đính vào GitHub Release cho người
-    # dùng sideload. AAB chỉ Play tiêu hoá được, không cài trực tiếp lên máy;
-    # còn apk DEBUG (build.yml) ký khoá debug nên xung đột chữ ký với bản Play.
     gradle(
       task: "assemble",
       build_type: "Release",
       properties: gradle_props
     )
 
-    # skip_upload_apk BẮT BUỘC: lane assemble ở trên ghi đường dẫn APK vào
-    # lane_context[GRADLE_APK_OUTPUT_PATH], và upload_to_play_store TỰ ĐỘNG nhặt
-    # giá trị đó vào tham số :apk (không xét skip flag lúc điền). Có cả apk lẫn
-    # aab thì supply verify_config! chặn: "Cannot provide both apk(s) and aab".
     upload_to_play_store(
       track: "internal",
       package_name: PACKAGE_NAME,
@@ -74,9 +39,6 @@ platform :android do
     promote_track = ENV.fetch("PLAY_PROMOTE_TRACK", "").strip
     next if promote_track.empty?
 
-    # skip_upload_aab BẮT BUỘC: supply chỉ đi nhánh promote khi edit không có
-    # binary mới (uploader.rb perform_upload). Có AAB trong edit thì nó gọi
-    # update_track và bỏ qua track_promote_to.
     UI.message("Promote versionCode #{version_code}: internal -> #{promote_track}")
     upload_to_play_store(
       package_name: PACKAGE_NAME,
@@ -93,20 +55,7 @@ platform :android do
     )
   end
 
-  # Store listing quản bằng file txt trong fastlane/metadata/android/<locale>/
-  # (supply): title/short_description/full_description.txt. Sửa chữ = sửa file
-  # txt rồi chạy lane này (CI: workflow metadata.yml) — không build lại.
-  #
-  # HAI RÀNG BUỘC của supply (đọc từ source uploader.rb — perform_upload_meta):
-  #   1. Kể cả khi chỉ đẩy listing, supply vẫn phải "neo" edit vào một release
-  #      CÓ SẴN trên track -> app phải có ít nhất một bản trên Play trước
-  #      (bản AAB đầu tiên upload tay qua Play Console). Trước đó lane này fail
-  #      "Could not find release for version code ''".
-  #   2. track phải là track ĐANG có release — bản đầu nằm ở internal nên để
-  #      internal (mặc định của supply là production, chưa có bản nào -> fail).
-  # skip_upload_changelogs: changelog gắn theo versionCode, để lane release
-  # đính kèm lúc upload AAB, không đẩy từ đây.
-  desc "Đẩy store listing (fastlane/metadata/android) lên Google Play"
+  desc "Push the store listing (fastlane/metadata/android) to Google Play"
   lane :metadata do
     upload_to_play_store(
       package_name: PACKAGE_NAME,
@@ -115,7 +64,6 @@ platform :android do
       skip_upload_aab: true,
       skip_upload_apk: true,
       skip_upload_changelogs: true,
-      # images = featureGraphic/icon trong metadata/android/<locale>/images/
       skip_upload_images: false,
       skip_upload_screenshots: true
     )

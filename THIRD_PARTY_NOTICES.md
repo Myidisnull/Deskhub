@@ -1,0 +1,75 @@
+# Third-party notices
+
+Deskhub itself is distributed under the MIT License — see [`LICENSE`](LICENSE).
+
+This file lists the third-party components Deskhub links against, and the obligations
+that come with them. Nothing here is licensed under the GPL, and no component restricts
+redistribution of Deskhub under the MIT License.
+
+## Linux app (`client/linux`)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [FFmpeg](https://ffmpeg.org) 8.0 — `libavcodec`, `libavutil` | LGPL-2.1-or-later | **static** |
+| [GTK](https://www.gtk.org) 3 | LGPL-2.1-or-later | dynamic |
+| [PipeWire](https://pipewire.org) 0.3 | MIT | dynamic |
+| [libva](https://github.com/intel/libva) / `libva-drm` | MIT | dynamic |
+| [libdrm](https://gitlab.freedesktop.org/mesa/drm) | MIT | dynamic |
+| [libepoxy](https://github.com/anholt/libepoxy) | MIT | dynamic |
+| EGL ([libglvnd](https://gitlab.freedesktop.org/glvnd/libglvnd) / Mesa) | MIT | dynamic |
+
+### FFmpeg (LGPL-2.1-or-later, statically linked)
+
+The Linux app is the only target that bundles FFmpeg. It is built from unmodified
+upstream FFmpeg 8.0 sources by [`scripts/build-ffmpeg.sh`](scripts/build-ffmpeg.sh),
+configured **without** `--enable-gpl` and **without** `--enable-nonfree`, with only the
+native H.264 decoder and the VA-API hwaccel enabled. The resulting `libavcodec` and
+`libavutil` are therefore covered by the GNU Lesser General Public License, version 2.1
+or later — full text in [`licenses/LGPL-2.1.txt`](licenses/LGPL-2.1.txt).
+
+Because these libraries are linked statically, LGPL-2.1 §6 requires that recipients be
+able to relink the application against a modified version of FFmpeg. Deskhub satisfies
+this by shipping complete source: the application sources are in this repository under
+the MIT License, and `scripts/build-ffmpeg.sh` reproduces the exact FFmpeg build. Anyone
+can substitute their own FFmpeg and rebuild with `make`.
+
+FFmpeg is not modified in any way. Upstream sources: <https://ffmpeg.org/download.html>.
+
+### GTK 3 (LGPL-2.1-or-later, dynamically linked)
+
+Linked dynamically against the distribution-provided shared libraries. No GTK source is
+bundled or modified; users may replace the system libraries freely.
+
+## Windows app (`client/windows`)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) (NVENC SDK 13.0 headers) | MIT | headers only |
+| Media Foundation, Direct3D 11, DXGI | Microsoft Windows SDK | OS component |
+
+`third_party/nvenc-13.0` is a git submodule containing only the NVIDIA Video Codec SDK
+API headers as redistributed by the FFmpeg project under the MIT License. The NVENC
+implementation itself lives in the user's NVIDIA driver (`nvEncodeAPI64.dll`) and is
+resolved at runtime; it is not bundled.
+
+## Apple apps (`client/macos`, `client/ios`)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| VideoToolbox, AVFoundation, ScreenCaptureKit, Metal, SwiftUI | Apple SDK | OS component |
+
+## Android app (`client/android`)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [AndroidX](https://developer.android.com/jetpack/androidx) — Core KTX, Activity, Compose UI, Material 3 | Apache-2.0 | dynamic |
+| [Kotlin](https://kotlinlang.org) standard library | Apache-2.0 | dynamic |
+| MediaCodec, NDK media APIs | Android SDK / NDK | OS component |
+
+## Patents
+
+H.264/AVC is covered by patents licensed through [Via LA](https://www.via-la.com/).
+Patent rights are separate from the copyright licenses above and are not granted by the
+MIT License. On Windows, macOS, iOS, and Android, encoding and decoding are performed by
+the operating system's own codecs. On Linux, they are performed by the GPU vendor's
+VA-API driver. Deskhub ships no codec implementation of its own.

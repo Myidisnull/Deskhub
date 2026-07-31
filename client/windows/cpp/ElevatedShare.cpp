@@ -1,31 +1,3 @@
-// =============================================================================
-// ElevatedShare.cpp — cài đặt việc bàn giao phiên share sang instance admin.
-//
-// BÀI TOÁN TRUYỀN DỮ LIỆU QUA DÒNG LỆNH
-//   Instance mới do UAC dựng lên là một TIẾN TRÌNH KHÁC, nên không chia sẻ được bộ
-//   nhớ. Kênh duy nhất là dòng lệnh. Mà nội dung phải truyền lại là tên nguồn —
-//   chuỗi tự do: có dấu tiếng Việt, khoảng trắng, dấu nháy kép.
-//
-//   Luật quoting của CommandLineToArgvW nổi tiếng rắc rối (dấu gạch chéo ngược
-//   trước dấu nháy có nghĩa đặc biệt, và số lượng lẻ/chẵn cho kết quả khác nhau).
-//   Thay vì cố thoát chuỗi cho đúng, ta HEX HOÁ toàn bộ: mỗi token trên dòng lệnh
-//   chỉ còn [0-9a-f], không còn ký tự nào có nghĩa đặc biệt để phải lo.
-//   Đắt gấp đôi về độ dài, nhưng bỏ hẳn được cả một lớp lỗi.
-//
-// BỐ CỤC
-//   HexEncode/HexDecode        — mã hoá tên nguồn cho an toàn qua dòng lệnh.
-//   IsProcessElevated()        — tiến trình hiện tại có đang chạy admin không.
-//   RelaunchElevatedShare()    — bung UAC, dựng dòng lệnh, khởi động instance mới.
-//   ParseElevatedShareArgs()   — phía instance mới: đọc lại nguồn + tuỳ chọn.
-//
-// PHÂN BIỆT "NGƯỜI DÙNG BẤM NO" VỚI "LỖI THẬT"
-//   RelaunchElevatedShare trả về cờ outCancelled riêng. Hai trường hợp này cần
-//   phản ứng khác nhau: bấm No thì im lặng quay lại (người dùng đã quyết định),
-//   còn lỗi thật thì phải báo cho người dùng biết vì sao không share được.
-//
-// LIÊN QUAN: ElevatedShare.h (vấn đề UIPI + luồng đầy đủ), main.cpp (đường vào
-//            của instance admin), AgentLoop.h (AgentSource/AgentOptions)
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "ElevatedShare.h"
@@ -41,9 +13,6 @@ namespace {
 
 constexpr wchar_t kFlagShare[] = L"--elevated-share";
 
-// Tên nguồn là UTF-8 tự do (có dấu, có khoảng trắng). Mã hex hoá cả chuỗi để mỗi
-// token dòng lệnh chỉ còn [0-9a-f] - không phải đụng tới luật quoting của
-// CommandLineToArgvW.
 std::wstring HexEncode(const std::string& s) {
     static const wchar_t* kDigits = L"0123456789abcdef";
     std::wstring out;
@@ -77,10 +46,6 @@ std::wstring SelfPath() {
     return (n == 0 || n >= MAX_PATH) ? std::wstring() : std::wstring(path, n);
 }
 
-// HMONITOR là handle cấp phiên đăng nhập (session-global), không phải per-process
-// như HANDLE của kernel object - nên truyền giá trị sang instance admin cùng
-// session vẫn trỏ đúng màn hình đó. Tiền tố "m:" giữ nguyên từ thời còn nguồn cửa
-// sổ ("w:") để format tự mô tả.
 std::wstring EncodeSource(const AgentSource& s) {
     wchar_t buf[32];
     swprintf(buf, 32, L"%llx", (unsigned long long)(uintptr_t)s.monitor);
@@ -102,7 +67,7 @@ bool DecodeSource(const std::wstring& tok, AgentSource& out) {
     return true;
 }
 
-} // namespace
+}
 
 bool IsProcessElevated() {
     HANDLE token = nullptr;
@@ -127,13 +92,12 @@ bool RelaunchElevatedShare(std::span<const AgentSource> sources,
 
     std::wstring args = kFlagShare;
     args += nums;
-    // Instance admin tự mở file log riêng (pid trong tên file), không cần truyền cờ.
     for (const auto& s : sources) args += L" --src " + EncodeSource(s);
 
     SHELLEXECUTEINFOW sei{};
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.lpVerb = L"runas"; // đây là thứ bung hộp thoại UAC
+    sei.lpVerb = L"runas";
     sei.lpFile = exe.c_str();
     sei.lpParameters = args.c_str();
     sei.nShow = SW_SHOWNORMAL;
@@ -142,7 +106,7 @@ bool RelaunchElevatedShare(std::span<const AgentSource> sources,
         if (sei.hProcess) CloseHandle(sei.hProcess);
         return true;
     }
-    outCancelled = GetLastError() == ERROR_CANCELLED; // người dùng bấm "No"
+    outCancelled = GetLastError() == ERROR_CANCELLED;
     return false;
 }
 
@@ -156,9 +120,6 @@ bool ParseElevatedShareArgs(int adeskhub, wchar_t** argv,
     AgentOptions opt;
     std::vector<AgentSource> sources;
 
-    // Không còn --port và --allow-input: cổng là hằng số, điều khiển thì luôn bật.
-    // Bản cũ có cả hai, nên chuỗi tham số ở đây chỉ khớp với chính exe này —
-    // RelaunchElevatedShare luôn chạy lại ĐÚNG file đang chạy nên không lệch được.
     for (int i = 1; i < adeskhub; ++i) {
         const std::wstring a = argv[i];
         const bool hasNext = (i + 1) < adeskhub;

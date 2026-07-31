@@ -1,17 +1,3 @@
-# Cấu hình SwiftLint cho client/ios — CI chạy `swiftlint --strict` (lint.yml).
-# Theo rule mặc định, chỉ chỉnh chỗ đá nhau với SwiftFormat hoặc thuật ngữ dự án:
-#   - trailing_comma: SwiftFormat (rule trailingCommas mặc định) chủ động THÊM dấu
-#     phẩy cuối trong collection nhiều dòng — tắt phía SwiftLint để hai tool không
-#     bắt lỗi ngược chiều nhau.
-#   - identifier_name: cho phép tên 2 ký tự — vk/nx/ny là thuật ngữ wire/input dùng
-#     xuyên suốt core C++ (KeyMap.h, Wire.h), đổi tên phía Swift chỉ gây lệch từ vựng.
-#   - type_name: cho phép tên 2 ký tự — `DS` là tên hệ thiết kế tự đặt cho chính nó
-#     (`const DS = ...` trong parts.jsx của dự án thiết kế) và nó đứng trước MỌI token
-#     màu/cỡ chữ trong app macOS; đặt tên dài hơn chỉ làm mỗi dòng dài thêm mà không
-#     nói thêm gì.
-#   - opening_brace: với chữ ký hàm nhiều dòng, SwiftFormat (wrapMultilineStatementBraces
-#     mặc định) chủ động ĐẨY `{` xuống dòng riêng — bỏ qua trường hợp đó phía SwiftLint
-#     để hai tool không bắt lỗi ngược chiều nhau.
 disabled_rules:
   - trailing_comma
 identifier_name:

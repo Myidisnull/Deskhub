@@ -1,32 +1,13 @@
 #!/usr/bin/env bash
-# =============================================================================
-# bootstrap.sh — cài TOÀN BỘ dependency phát triển trên macOS / Ubuntu.
-# Windows dùng scripts/bootstrap.ps1. Gọi qua `make bootstrap`.
-#
-# Cài (idempotent — có rồi thì bỏ qua):
-#   macOS : Xcode (chỉ kiểm tra, không tự cài được) + brew: cmake ninja swiftlint
-#           pipx + JDK 17 (Temurin)
-#   Ubuntu: apt: toolchain C++ + clang/llvm (make coverage) + cmake ninja + JDK 17
-#           + pipx + unzip curl, VÀ dependency của app Ubuntu (client/linux):
-#           GTK3 + PipeWire + VA-API + EGL/epoxy/libdrm, kèm driver VA-API và
-#           xdg-desktop-portal (xem docs/17-linux-app.md §1). FFmpeg KHÔNG lấy từ
-#           apt — build-ffmpeg.sh tự dựng bản tối giản để link tĩnh.
-#   Cả hai: clang-format ghim version qua pipx (khớp CI + VS LLVM bên Windows),
-#           ktlint + swiftformat bản ghim tải về tools/ (đã gitignore) cho codestyle.sh,
-#           Android SDK/NDK khớp client/android/app/build.gradle.kts (cần sdkmanager).
-# =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Version ghim cho tool tải tay — đổi ở đây thì đổi cả CI (.github/workflows/lint.yml).
 CLANG_FORMAT_VERSION=22.1.3
 KTLINT_VERSION=1.5.0
 SWIFTFORMAT_VERSION=0.62.1
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# clang-format ghim đúng version với CI và VS LLVM bên Windows — bản của
-# brew/apt trôi theo latest nên đi qua pipx trên cả hai OS.
 install_clang_format() {
     if have clang-format && clang-format --version | grep -q "$CLANG_FORMAT_VERSION"; then
         echo "[ok]      clang-format $CLANG_FORMAT_VERSION"
@@ -37,8 +18,6 @@ install_clang_format() {
     fi
 }
 
-# ktlint (jar chạy bằng java) + swiftformat (binary theo OS) — codestyle.sh chỉ
-# DÙNG tool trong tools/, mọi thứ cài đặt gom về đây.
 install_format_tools() {
     mkdir -p tools
 
@@ -67,13 +46,11 @@ install_format_tools() {
     fi
 }
 
-# SDK/NDK Android — các version phải khớp client/android/app/build.gradle.kts.
 install_android_packages() {
     SDK="${ANDROID_HOME:-$1}"
     SDKMANAGER="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
     if [ -n "$SDKMANAGER" ]; then
         echo "[ok]      Android SDK ($SDK)"
-        # Đủ package rồi thì khỏi gọi sdkmanager — nó luôn fetch repo qua mạng, chậm và ồn.
         if [ -d "$SDK/platform-tools" ] && [ -d "$SDK/platforms/android-37.0" ] &&
            [ -d "$SDK/ndk/26.1.10909125" ] && [ -d "$SDK/cmake/3.22.1" ]; then
             echo "[ok]      Android SDK packages (platform 37.0, NDK 26.1.10909125, cmake 3.22.1)"
@@ -88,7 +65,6 @@ install_android_packages() {
 
 case "$(uname -s)" in
 Darwin)
-    # --- Xcode: bắt buộc để build client/ios, không tự động cài được --------
     if xcode-select -p >/dev/null 2>&1; then
         echo "[ok]      Xcode command line tools ($(xcode-select -p))"
     else
@@ -97,7 +73,6 @@ Darwin)
 
     have brew || { echo "Homebrew not found - install from https://brew.sh first." >&2; exit 1; }
 
-    # --- brew: build tool + swiftlint (CI chạy riêng) + java cho ktlint -----
     for pkg in cmake ninja swiftlint pipx; do
         if have "$pkg"; then
             echo "[ok]      $pkg ($(command -v "$pkg"))"
@@ -121,36 +96,19 @@ Darwin)
 Linux)
     have apt-get || { echo "Only Ubuntu/Debian (apt) is supported for now." >&2; exit 1; }
 
-    # --- apt: toolchain C++ + JDK 17 (gradle/ktlint) + tiện ích -------------
-    # clang + llvm: make coverage (clang++ instrument + llvm-profdata/llvm-cov).
     echo "[install] apt packages (build-essential clang llvm cmake ninja openjdk-17 pipx unzip curl)..."
     sudo apt-get update -qq
     sudo apt-get install -y build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config
 
-    # --- apt: dependency của APP UBUNTU (client/linux) ----------------------
-    # Gói -dev để BUILD; gói runtime để CHẠY. Chia hai dòng cho rõ vai trò.
-    #   pipewire  : bắt hình qua xdg-desktop-portal
-    #   va        : mã hoá H.264 trên GPU (vai host)
-    #   avcodec   : giải mã H.264 (vai client)
-    #   gtk3/epoxy/egl/drm : giao diện + hiển thị
-    # KHÔNG có libavcodec-dev ở đây: FFmpeg được tự dựng tối giản và link TĨNH
-    # (scripts/build-ffmpeg.sh giải thích vì sao). `nasm` là để biên dịch phần
-    # assembly x86 của nó.
     echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, GTK3, nasm)..."
     sudo apt-get install -y \
         libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
         libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev \
         nasm
 
-    # Runtime: driver VA-API cho card của máy + portal cho compositor đang dùng.
-    # KHÔNG cài -wlr/-kde tự động: cài nhầm backend portal thì hộp thoại chia sẻ
-    # màn hình có thể do backend sai bắt mất. Người dùng KDE/wlroots tự cài gói
-    # của mình — docs/17-linux-app.md §1 liệt kê đủ.
-    echo "[install] VA-API drivers + GNOME portal (KDE/wlroots users: see docs/17 §1)..."
+    echo "[install] VA-API drivers + GNOME portal (KDE/wlroots users: install the matching xdg-desktop-portal backend)..."
     sudo apt-get install -y va-driver-all vainfo xdg-desktop-portal xdg-desktop-portal-gnome || true
 
-    # FFmpeg tối giản link tĩnh — thay cho libavcodec của hệ thống. Lần đầu tốn
-    # vài phút, lần sau có stamp là thoát ngay.
     scripts/build-ffmpeg.sh
 
     install_clang_format
@@ -166,4 +124,4 @@ esac
 
 echo ""
 echo "bootstrap: DONE"
-echo "  Next: 'make' (build debug), 'make test', 'make lint', 'make run-android'"
+echo "  Next: 'make' (list every target), 'make test', 'make lint', 'make build-<os>'"

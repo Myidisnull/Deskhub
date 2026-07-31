@@ -1,30 +1,3 @@
-// =============================================================================
-// ScreenCapture.mm — cài đặt bằng SCStream.
-//
-// BỐ CỤC
-//   DeskhubStreamOutput — đối tượng Obj-C nhận frame (SCStreamOutput) và nhận tin
-//                         stream chết (SCStreamDelegate). Giữ con trỏ về Impl.
-//   Impl                — trạng thái C++: stream, cấu hình hiện tại, bộ theo dõi cỡ.
-//   Start/Stop/Closed   — vòng đời, khớp API của ScreenCapture bên Windows.
-//
-// VÌ SAO CÓ BỘ THEO DÕI CỠ (dispatch timer 500ms)
-//   SCStreamConfiguration.width/height là cỡ BUFFER, cố định lúc tạo stream. Đổi
-//   độ phân giải/scale màn hình thì SCStream vẫn giao buffer cũ với nội dung bị co
-//   lại — không có sự kiện nào báo. Bộ đếm này so cỡ nguồn với cỡ buffer, lệch thì
-//   gọi updateConfiguration; frame kế tiếp về đúng cỡ mới và AgentLoop nhận ra qua
-//   đường "sizeChanged" y hệt bản Windows.
-//
-//   Nó cũng là nơi phát hiện MÀN HÌNH BỊ RÚT: CGDisplayPixelsWide trả 0 cho một
-//   displayID không còn tồn tại. SCStream không báo gì khi nguồn biến mất — nó chỉ
-//   ngừng phát frame, và một nguồn im lặng vĩnh viễn nhìn y như mạng hỏng.
-//
-// VÌ SAO 500ms CHỨ KHÔNG NHANH HƠN
-//   Đổi độ phân giải là thao tác hiếm của con người, không phải sự kiện realtime.
-//   Mỗi lần đổi cấu hình là một lần encoder phía trên phải dựng lại và phát IDR —
-//   đắt. 500ms đủ nhanh với người dùng mà không dựng lại encoder hàng chục lần.
-//
-// LIÊN QUAN: capture/ScreenCapture.h (bốn quyết định thiết kế)
-// =============================================================================
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
@@ -40,16 +13,12 @@
 
 @class DeskhubStreamOutput;
 
-// ---------------------------------------------------------------------------
-// Trạng thái C++ của một stream
-// ---------------------------------------------------------------------------
 struct ScreenCapture::Impl {
-    uint32_t displayId = 0; // CGDirectDisplayID
+    uint32_t displayId = 0;
     uint32_t fps = 60;
-    uint32_t maxDim = 0; // trần cạnh dài, 0 = native (quyết định 5 ở .h)
+    uint32_t maxDim = 0;
     FrameHandler onFrame;
 
-    // Cỡ màn hình client, từ HELLO. 0 = chưa có client / client không nói.
     uint32_t cliW = 0, cliH = 0;
 
     SCStream* stream = nil;
@@ -59,44 +28,18 @@ struct ScreenCapture::Impl {
     dispatch_queue_t frameQueue = nil;
     dispatch_source_t sizeTimer = nil;
 
-    // Thang điểm→pixel của màn hình, chụp lúc Start. Đổi scale giữa phiên tự sửa
-    // ở nhịp theo dõi cỡ kế tiếp.
     double scale = 1.0;
 
-    // Cỡ NGUỒN đang biết (native, chưa co) và cỡ BUFFER đang cấu hình (đã co theo
-    // maxDim + cỡ màn client). Phải giữ cả hai: bộ theo dõi cỡ so với cỡ NGUỒN để
-    // biết màn hình có đổi độ phân giải không, còn updateConfiguration thì cần cỡ
-    // BUFFER. Gộp một biến thì màn 3024×1964 co xuống 1920×1246 sẽ trông như "vừa
-    // đổi cỡ" ở mỗi nhịp 500ms và stream bị dựng lại vĩnh viễn.
-    //
-    // sizeMutex bảo vệ SÁU trường trên cùng lời gọi updateConfiguration. Trước đây
-    // chỉ bộ theo dõi cỡ (một queue duy nhất) chạm nên không cần khoá; từ khi
-    // SetClientSize được gọi từ thread Recv lúc HELLO thì có hai luồng, và hai lời
-    // gọi updateConfiguration đan nhau sẽ để lại cfgW/cfgH không khớp cấu hình thật.
     std::mutex sizeMutex;
-    uint32_t curW = 0, curH = 0; // nguồn
-    uint32_t cfgW = 0, cfgH = 0; // buffer
-    // Bậc chất lượng hiện tại (deskhub::QualityLadder), áp SAU hai trần kia. Giữ dạng
-    // PHẦN TRĂM chứ không phải cỡ tuyệt đối: trần đổi giữa phiên (người dùng đổi độ
-    // phân giải màn hình nguồn) thì "50% của trần hiện tại" vẫn đúng, còn một cặp
-    // w/h chốt cứng thì thành số cũ. Xem QualityStep::scalePct.
+    uint32_t curW = 0, curH = 0;
+    uint32_t cfgW = 0, cfgH = 0;
     uint32_t qualityPct = 100;
 
     std::atomic<bool> closed{false};
     std::atomic<bool> running{false};
-    // Số lần SCStream GỌI ta nhưng báo "không có nội dung mới" (status != Complete).
-    // Đây là con số phân biệt HAI nguyên nhân mà `capture N fps` gộp làm một:
-    //   idle CAO  -> macOS đang gọi đều, nó thật sự cho rằng màn hình không đổi.
-    //   idle ~0 mà capture cũng thấp -> macOS KHÔNG GỌI ta nữa: pool cạn buffer
-    //     (xem queueDepth), hoặc stream đã chết.
-    // Không có nó thì hai ca trên nhìn y hệt nhau trong log, và chúng đòi hai cách
-    // sửa hoàn toàn khác nhau (bài học 30/07/2026).
     std::atomic<uint32_t> idleFrames{0};
 };
 
-// ---------------------------------------------------------------------------
-// Đối tượng Obj-C nhận frame
-// ---------------------------------------------------------------------------
 @interface DeskhubStreamOutput : NSObject <SCStreamOutput, SCStreamDelegate>
 @property(nonatomic, assign) ScreenCapture::Impl* impl;
 @end
@@ -112,9 +55,6 @@ struct ScreenCapture::Impl {
     if (!impl || !impl->running.load(std::memory_order_acquire)) return;
     if (!CMSampleBufferIsValid(sampleBuffer)) return;
 
-    // SCFrameStatus: chỉ Complete là frame có nội dung MỚI. Idle nghĩa là "màn hình
-    // không đổi" — bỏ qua, đúng như WGC không bắn FrameArrived khi nội dung đứng im.
-    // Nén lại một frame y hệt chỉ tốn bitrate mà không cho người xem thêm gì.
     NSArray* attachments =
         (__bridge NSArray*)CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, NO);
     NSDictionary* info = attachments.count ? attachments[0] : nil;
@@ -133,15 +73,10 @@ struct ScreenCapture::Impl {
     fi.pixelBuffer = (void*)pb;
     fi.width = uint32_t(CVPixelBufferGetWidth(pb));
     fi.height = uint32_t(CVPixelBufferGetHeight(pb));
-    // Đồng hồ CỦA TA, không phải PTS của CMSampleBuffer: mọi phép đo thời gian trong
-    // dự án (timeout phiên, RTT, e2e) đều dựa trên NowUs(), và trộn hai gốc thời
-    // gian vào cùng một trường timestampUs trên wire là nguồn sai số không lần ra được.
     fi.timestampUs = NowUs();
     if (fi.width && fi.height && impl->onFrame) impl->onFrame(fi);
 }
 
-// SCStream chết hẳn (nguồn biến mất, người dùng thu hồi quyền giữa chừng, lỗi hệ
-// thống). Không có đường hồi phục tại chỗ — báo closed để AgentLoop gỡ nguồn này.
 - (void)stream:(SCStream*)stream didStopWithError:(NSError*)error {
     (void)stream;
     LOGW("[Capture] Stream stopped: %s",
@@ -153,27 +88,20 @@ struct ScreenCapture::Impl {
 
 namespace {
 
-// Làm tròn XUỐNG số chẵn. H.264 lấy mẫu chroma theo khối 2×2 nên bề rộng/cao lẻ bị
-// VideoToolbox từ chối; cắt một điểm ảnh rẻ hơn nhiều so với đệm thêm.
 uint32_t Even(double v) {
     if (v < 2) return 0;
     return uint32_t(v) & ~1u;
 }
 
-// Cỡ PIXEL hiện tại của màn hình, hoặc {0,0} nếu nó đã bị rút. Rẻ (đọc thẳng từ
-// WindowServer, không bất đồng bộ) nên gọi được mỗi 500ms.
 bool CurrentSourceSize(uint32_t displayId, double scale, uint32_t& w, uint32_t& h) {
     const CGDirectDisplayID did = CGDirectDisplayID(displayId);
     const size_t pw = CGDisplayPixelsWide(did), ph = CGDisplayPixelsHigh(did);
-    if (!pw || !ph) return false; // màn hình bị rút
-    // CGDisplayPixelsWide trả về ĐIỂM trên màn Retina (nó là API đời cũ), nên
-    // vẫn phải nhân scale.
+    if (!pw || !ph) return false;
     w = Even(double(pw) * scale);
     h = Even(double(ph) * scale);
     return w && h;
 }
 
-// Thang điểm→pixel của màn hình chứa `frame` (xem SourceEnum.mm về cùng phép tính).
 double ScaleForFrame(CGRect frame) {
     double bestArea = 0;
     double scale = [NSScreen mainScreen] ? double([NSScreen mainScreen].backingScaleFactor) : 1.0;
@@ -193,59 +121,19 @@ SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool sca
     SCStreamConfiguration* cfg = [[SCStreamConfiguration alloc] init];
     cfg.width = w;
     cfg.height = h;
-    // '420v' = NV12 dải video. VideoToolbox nhận thẳng, không phải đổi màu — xem
-    // quyết định 3 ở ScreenCapture.h.
     cfg.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
-    // Trần fps. SCStream chỉ phát khi nội dung đổi nên đây là TRẦN chứ không phải
-    // nhịp cố định — màn hình đứng im vẫn không tốn gì.
     cfg.minimumFrameInterval = CMTimeMake(1, int32_t(fps));
-    // Người điều khiển từ xa cần thấy con trỏ của máy host để biết mình đang trỏ đâu.
     cfg.showsCursor = YES;
-    // Hàng đợi frame của SCStream. Đây là POOL buffer, và mọi buffer bị ai đó giữ
-    // đều chiếm một slot:
-    //   - AgentLoop giữ 1 làm cache frame cuối (nguồn tĩnh mà client xin IDR thì phải
-    //     có cái để nén — xem AgentLoop.cpp),
-    //   - 1 đang nằm trong callback này,
-    //   - và VideoToolbox giữ phần còn lại trong lúc nén.
-    //
-    // ⚠ CON SỐ CŨ LÀ 5, DỰA TRÊN GIẢ ĐỊNH "VideoToolbox giữ THÊM MỘT CÁI". Giả định
-    //   đó SAI: MaxFrameDelayCount không được đặt nên nó mặc định không giới hạn, và
-    //   encoder ăn sạch 3 slot còn lại. Pool cạn thì SCStream KHÔNG BỎ FRAME — nó
-    //   ngừng gọi ta luôn. Host log 30/07/2026: `capture 0-5 fps` trong khi người
-    //   dùng đang gõ; client thấy khoảng lặng 500-600 ms và tưởng phiên bị treo.
-    //   Đã chặn ở gốc bằng MaxFrameDelayCount = 1 (VtEncoder.mm); 8 ở đây là biên an
-    //   toàn để một driver giữ nhiều hơn mức khai vẫn không làm chết luồng hình.
-    //   Sâu hơn KHÔNG tự sinh trễ: callback tiêu thụ ngay, pool chỉ là chống đói.
     cfg.queueDepth = 8;
     cfg.capturesAudio = NO;
-    // Chỉ bật co giãn khi ta CỐ Ý hạ độ phân giải (maxDim). Không có trần thì cỡ
-    // buffer đúng bằng cỡ nguồn, và khi đó mọi phép co giãn đều là dấu hiệu bộ theo
-    // dõi cỡ đang trễ một nhịp chứ không phải điều ta muốn.
-    //
-    // Phép co này chạy trong WindowServer, trên GPU, TRƯỚC khi frame tới tay ta —
-    // rẻ hơn mọi cách hạ độ phân giải khác, và encoder không bao giờ nhìn thấy khung
-    // to. Đây chính là điểm mấu chốt của quyết định 5.
     cfg.scalesToFit = scaled ? YES : NO;
     return cfg;
 }
 
-// Tính lại cỡ buffer từ (cỡ nguồn, trần người dùng, cỡ màn client) và cấu hình lại
-// stream nếu nó đổi. GỌI DƯỚI impl->sizeMutex, với impl->curW/curH đã cập nhật.
-//
-// MỘT ĐƯỜNG DUY NHẤT cho cả hai người gọi (bộ theo dõi cỡ 500ms và SetClientSize từ
-// HELLO): hai đường song song đồng nghĩa hai bản của cùng chính sách, và bản nào
-// lệch thì lộ ra dưới dạng một cỡ khung sai chỉ xuất hiện khi người dùng vừa đổi độ
-// phân giải vừa có client kết nối — đúng loại lỗi không ai tái hiện nổi.
-//
-// Trả về cỡ buffer sau khi tính (dù có đổi hay không).
 deskhub::StreamSize ApplySizeLocked(ScreenCapture::Impl* impl) {
     deskhub::StreamSize t =
         deskhub::FitStreamSize(impl->curW, impl->curH, impl->maxDim, impl->cliW, impl->cliH);
     if (!t.width || !t.height) return {impl->cfgW, impl->cfgH};
-    // Bậc chất lượng áp SAU CÙNG: hai trần trên trả lời "được phép gửi bao nhiêu
-    // pixel", còn bậc này trả lời "đường truyền lúc này tải nổi bao nhiêu". Thứ tự
-    // ngược lại sẽ để trần client cắt lại cỡ đã co và cho ra một cỡ không thuộc
-    // thang nào cả.
     if (impl->qualityPct < 100) {
         t.width = (t.width * impl->qualityPct / 100u) & ~1u;
         t.height = (t.height * impl->qualityPct / 100u) & ~1u;
@@ -267,7 +155,7 @@ deskhub::StreamSize ApplySizeLocked(ScreenCapture::Impl* impl) {
     return t;
 }
 
-} // namespace
+}
 
 ScreenCapture::ScreenCapture() : impl_(std::make_unique<Impl>()) {}
 
@@ -294,9 +182,6 @@ bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
     impl_->onFrame = std::move(onFrame);
     impl_->closed.store(false, std::memory_order_release);
 
-    // --- Tìm đối tượng SCDisplay tương ứng với id ---
-    // Phải qua SCShareableContent: SCContentFilter chỉ nhận đối tượng của nó, không
-    // nhận id trần. Chờ đồng bộ như GetShareSources (xem SourceEnum.mm).
     __block SCShareableContent* content = nil;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     [SCShareableContent getShareableContentExcludingDesktopWindows:YES
@@ -322,9 +207,6 @@ bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
         return false;
     }
     const CGRect srcFrame = found.frame;
-    // excludingWindows rỗng: chia sẻ cả màn hình nghĩa là đúng những gì người
-    // ngồi ở máy đang nhìn thấy — kể cả cửa sổ Deskhub. Che nó đi thì người dùng
-    // không thấy được cửa sổ phiên của chính mình trong luồng, dễ tưởng treo.
     impl_->filter = [[SCContentFilter alloc] initWithDisplay:found
                                             excludingWindows:@[]];
 
@@ -332,8 +214,6 @@ bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
 
     uint32_t w = 0, h = 0;
     if (!CurrentSourceSize(displayId, impl_->scale, w, h)) {
-        // Lùi về cỡ lấy từ đối tượng vừa tìm được — SCShareableContent vừa trả về
-        // nó nên chắc chắn có cỡ.
         w = Even(srcFrame.size.width * impl_->scale);
         h = Even(srcFrame.size.height * impl_->scale);
     }
@@ -343,24 +223,18 @@ bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
     }
     impl_->curW = w;
     impl_->curH = h;
-    // Chưa có client ở đây, nên chỉ trần người dùng có hiệu lực. Cỡ được siết thêm
-    // lần nữa ở SetClientSize khi client HELLO.
     const deskhub::StreamSize t0 = deskhub::FitStreamSize(w, h, impl_->maxDim, 0, 0);
     impl_->cfgW = t0.width;
     impl_->cfgH = t0.height;
     impl_->config = MakeConfig(t0.width, t0.height, impl_->fps,
         t0.width != w || t0.height != h);
 
-    // --- Dựng stream ---
     impl_->output = [[DeskhubStreamOutput alloc] init];
     impl_->output.impl = impl_.get();
     impl_->stream = [[SCStream alloc] initWithFilter:impl_->filter
                                        configuration:impl_->config
                                             delegate:impl_->output];
 
-    // Queue nối tiếp riêng cho frame: nó chính là "thread FrameArrived" của bản
-    // Windows — mỗi nguồn một queue, và mọi thứ chạy trên nó (encode, packetize)
-    // được bảo đảm nối tiếp, không cần khoá thêm.
     impl_->frameQueue = dispatch_queue_create("com.manhpham.deskhub.capture",
         dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
             QOS_CLASS_USER_INTERACTIVE, 0));
@@ -395,7 +269,6 @@ bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
     }
     impl_->running.store(true, std::memory_order_release);
 
-    // --- Bộ theo dõi cỡ + phát hiện nguồn biến mất (xem đầu file) ---
     Impl* impl = impl_.get();
     impl_->sizeTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
         dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
@@ -415,8 +288,6 @@ bool ScreenCapture::Start(uint32_t displayId, uint32_t fps, uint32_t maxDim,
       const uint32_t oldW = impl->curW, oldH = impl->curH;
       impl->curW = nw;
       impl->curH = nh;
-      // ApplySizeLocked tự bỏ qua khi cỡ buffer không đổi (nguồn 3024→3200 mà trần
-      // vẫn 1920 thì buffer y nguyên) — dựng lại encoder ở đó chỉ tốn một IDR vô ích.
       const deskhub::StreamSize t = ApplySizeLocked(impl);
       LOGI("[Capture] Source resized %ux%u -> %ux%u, streaming at %ux%u.", oldW, oldH, nw, nh,
           t.width, t.height);
@@ -448,11 +319,6 @@ void ScreenCapture::SetClientSize(uint32_t clientW, uint32_t clientH, uint32_t& 
     outH = impl_->cfgH;
 }
 
-// Áp một bậc của thang chất lượng. Gọi từ thread Recv khi QualityLadder đổi bậc.
-//
-// Đi CHUNG một đường ApplySizeLocked với bộ theo dõi cỡ và SetClientSize, vì cùng
-// một lý do đã ghi ở đó: ba đường song song là ba bản của cùng một chính sách, và
-// bản nào lệch chỉ lộ ra khi cả ba cùng chạy — đúng loại lỗi không tái hiện nổi.
 void ScreenCapture::SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW,
     uint32_t& outH) {
     std::lock_guard<std::mutex> lk(impl_->sizeMutex);
@@ -461,10 +327,6 @@ void ScreenCapture::SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW,
     if (pct != impl_->qualityPct || f != impl_->fps) {
         impl_->qualityPct = pct;
         impl_->fps = f;
-        // Cỡ không đổi (bậc chỉ hạ fps) thì ApplySizeLocked thoát sớm và
-        // minimumFrameInterval MỚI không bao giờ tới được SCStream. Ép cấu hình lại
-        // bằng cách xoá cỡ đang nhớ — rẻ, vì đây là đường mỗi-vài-giây, không phải
-        // đường nóng.
         impl_->cfgW = impl_->cfgH = 0;
         const deskhub::StreamSize t = ApplySizeLocked(impl_.get());
         LOGI("[Capture] Quality step: %u%% @%ufps -> streaming %ux%u.", pct, f, t.width,
@@ -474,9 +336,6 @@ void ScreenCapture::SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW,
     outH = impl_->cfgH;
 }
 
-// Dừng theo thứ tự NGƯỢC với Start, và tắt cờ running TRƯỚC mọi thứ khác: callback
-// frame lẫn bộ theo dõi cỡ đều kiểm tra cờ đó, nên tắt nó là đóng cửa hai đường vào
-// impl_ trước khi ta bắt đầu tháo dỡ những gì chúng đọc.
 void ScreenCapture::Stop() {
     if (!impl_) return;
     impl_->running.store(false, std::memory_order_release);
@@ -487,9 +346,6 @@ void ScreenCapture::Stop() {
     }
 
     if (impl_->stream) {
-        // Chờ stopCapture xong hẳn: nó bảo đảm không còn callback nào đang chạy khi
-        // trả về. Không chờ thì một frame đang bay có thể chạm vào onFrame — mà
-        // AgentLoop đã dọn encoder ngay sau lời gọi Stop này.
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
         [impl_->stream stopCaptureWithCompletionHandler:^(NSError* e) {
           (void)e;

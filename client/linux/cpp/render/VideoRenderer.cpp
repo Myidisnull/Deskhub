@@ -1,25 +1,3 @@
-// =============================================================================
-// VideoRenderer.cpp — shader YUV→RGB + import dma-buf qua EGL.
-//
-// BỐ CỤC
-//   Mã nguồn shader + tiện ích biên dịch.
-//   SubmitFrame / SetVaDisplay / DropFrames — phía thread Decode.
-//   Realize / Unrealize / Render            — phía thread GTK.
-//
-// VÌ SAO DÙNG libepoxy THAY VÌ TỰ NẠP CON TRỎ HÀM
-//   GTK3 đã phụ thuộc epoxy, và epoxy phơi sẵn cả glEGLImageTargetTexture2DOES
-//   lẫn eglCreateImageKHR — hai hàm mở rộng mà bình thường phải tự lấy qua
-//   eglGetProcAddress. Dùng nó bỏ được cả một lớp bảng con trỏ, và không thêm phụ
-//   thuộc nào mới.
-//
-// VÌ SAO PHIÊN BẢN GLSL CHỌN LÚC CHẠY
-//   GtkGLArea trên Wayland cho ta context GLES, trên X11/GLX thì là desktop GL.
-//   Hai bên khác nhau đúng ở dòng #version và một dòng precision, nên ta ghép
-//   phần đầu shader lúc chạy thay vì ép GTK dùng một loại context (ép thì máy nào
-//   không chiều được sẽ không vẽ nổi gì).
-//
-// LIÊN QUAN: render/VideoRenderer.h (⚠ ranh giới hai thread), decode/AvDecoder.cpp
-// =============================================================================
 #include "render/VideoRenderer.h"
 
 #include <epoxy/egl.h>
@@ -41,11 +19,7 @@ extern "C" {
 
 namespace {
 
-// Một tam giác phủ kín khung hình thì ít đỉnh hơn, nhưng quad 4 đỉnh dễ đọc hơn
-// và chi phí bằng nhau ở quy mô này. Toạ độ: clip space + toạ độ texture (gốc
-// TRÊN-TRÁI, nên trục V bị lật so với quy ước OpenGL).
 const float kQuad[] = {
-    // x, y, u, v
     -1.f,
     -1.f,
     0.f,
@@ -74,7 +48,6 @@ void main() {
 }
 )";
 
-// Hệ số BT.709 DẢI HẸP — phải khớp SPS của VaEncoder, xem VideoRenderer.h.
 const char* kFragmentBody = R"(
 uniform sampler2D texY;
 uniform sampler2D texU;
@@ -125,19 +98,12 @@ unsigned CompileShader(GLenum type, const std::string& src) {
     return id;
 }
 
-} // namespace
+}
 
 VideoRenderer::~VideoRenderer() {
-    // KHÔNG gọi Unrealize ở đây: nó cần context OpenGL hiện hành, mà destructor
-    // có thể chạy ở bất kỳ đâu. GTK đã gọi Unrealize qua tín hiệu "unrealize" của
-    // GtkGLArea trước khi tới đây (gtk/ViewerWindow.cpp).
     std::lock_guard<std::mutex> lk(mutex_);
     ClearSlotLocked();
 }
-
-// ---------------------------------------------------------------------------
-// Phía thread Decode
-// ---------------------------------------------------------------------------
 
 void VideoRenderer::SetVaDisplay(void* vaDisplay) {
     vaDisplay_ = vaDisplay;
@@ -145,8 +111,6 @@ void VideoRenderer::SetVaDisplay(void* vaDisplay) {
 
 void VideoRenderer::ClearSlotLocked() {
     if (dmabuf_) {
-        // fd do vaExportSurfaceHandle cấp là của TA — không đóng là rò fd, và
-        // tiến trình chạm trần rất nhanh (mỗi frame vài fd ở 60fps).
         for (uint32_t i = 0; i < desc_.num_objects; ++i)
             if (desc_.objects[i].fd >= 0) close(desc_.objects[i].fd);
         desc_ = VADRMPRIMESurfaceDescriptor{};
@@ -165,9 +129,6 @@ void VideoRenderer::DropFrames() {
     ClearSlotLocked();
 }
 
-// Nhận frame mới. Frame CŨ bị vứt chứ không xếp hàng: hàng đợi ở tầng này chỉ làm
-// tăng độ trễ — ClientLoop đã có hàng đợi 3 frame trước bộ giải mã và đó là chỗ
-// duy nhất nên có đệm (xem ClientLoop.h).
 void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
     auto* f = static_cast<AVFrame*>(avFrame);
     if (!f) return;
@@ -175,11 +136,7 @@ void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
     bool isDma = false;
     VADRMPRIMESurfaceDescriptor desc{};
     if (f->format == AV_PIX_FMT_VAAPI && vaDisplay_) {
-        // data[3] của frame VA-API chính là VASurfaceID (quy ước của libavutil).
         const auto surface = VASurfaceID(uintptr_t(f->data[3]));
-        // SEPARATE_LAYERS: NV12 ra 2 layer (R8 cho Y, GR88 cho UV) — đúng thứ ta
-        // cần để bind thành hai texture. COMPOSED_LAYERS cho một layer duy nhất
-        // và phải dùng texture external, kéo theo một nhánh shader nữa.
         const VAStatus st = vaExportSurfaceHandle(static_cast<VADisplay>(vaDisplay_), surface,
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
             VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS, &desc);
@@ -206,10 +163,6 @@ void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
     hasFrame_.store(true, std::memory_order_release);
 }
 
-// ---------------------------------------------------------------------------
-// Phía thread GTK
-// ---------------------------------------------------------------------------
-
 bool VideoRenderer::Realize() {
     if (glReady_) return true;
 
@@ -223,8 +176,6 @@ bool VideoRenderer::Realize() {
     program_ = glCreateProgram();
     glAttachShader(program_, vs);
     glAttachShader(program_, fs);
-    // Gán vị trí attribute TRƯỚC khi link: GLSL 150 chưa có layout(location=),
-    // nên đây là cách duy nhất chắc chắn khớp với glVertexAttribPointer bên dưới.
     glBindAttribLocation(program_, 0, "aPos");
     glBindAttribLocation(program_, 1, "aTex");
     glLinkProgram(program_);
@@ -263,8 +214,6 @@ bool VideoRenderer::Realize() {
     glGenTextures(3, tex_);
     for (unsigned t : tex_) {
         glBindTexture(GL_TEXTURE_2D, t);
-        // CLAMP_TO_EDGE: không có nó thì viền phải/dưới lấy mẫu vòng sang mép đối
-        // diện và sinh một sọc màu lạ ở rìa hình.
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -288,14 +237,11 @@ void VideoRenderer::Unrealize() {
     glReady_ = false;
 }
 
-// Nạp frame trong slot lên texture. Trả về false nếu không dựng được.
 bool VideoRenderer::UploadLocked() {
     auto* f = static_cast<AVFrame*>(frame_);
     if (!f) return false;
 
     if (dmabuf_) {
-        // Một EGLImage cho mỗi layer. VA-API với SEPARATE_LAYERS cho ta layer 0 =
-        // R8 (Y) và layer 1 = GR88 (UV xen kẽ) với NV12.
         const EGLDisplay edpy = eglGetCurrentDisplay();
         if (edpy == EGL_NO_DISPLAY) {
             LOGE("[Render] No current EGL display — cannot import dma-buf.");
@@ -305,7 +251,6 @@ bool VideoRenderer::UploadLocked() {
         for (uint32_t i = 0; i < nLayers; ++i) {
             const auto& layer = desc_.layers[i];
             const uint32_t obj = layer.object_index[0];
-            // Layer chroma của NV12 nửa kích thước theo cả hai chiều.
             const uint32_t lw = i == 0 ? desc_.width : desc_.width / 2;
             const uint32_t lh = i == 0 ? desc_.height : desc_.height / 2;
             const uint64_t mod = desc_.objects[obj].drm_format_modifier;
@@ -334,15 +279,12 @@ bool VideoRenderer::UploadLocked() {
             glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D, tex_[i]);
             glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, img);
-            // Huỷ EGLImage NGAY: texture đã giữ tham chiếu tới bộ nhớ nền, còn
-            // EGLImage chỉ là cái tay cầm. Giữ lại là rò một handle mỗi frame.
             eglDestroyImageKHR(edpy, img);
         }
-        glUniform1i(uPlanarUv_, 0); // NV12 -> UV xen kẽ
+        glUniform1i(uPlanarUv_, 0);
         return true;
     }
 
-    // --- Đường lùi: frame ở RAM ---
     const bool planar = f->format == AV_PIX_FMT_YUV420P || f->format == AV_PIX_FMT_YUVJ420P;
     if (!planar && f->format != AV_PIX_FMT_NV12) {
         static bool warned = false;
@@ -376,9 +318,6 @@ bool VideoRenderer::UploadLocked() {
         if (!p.data || p.stride <= 0) return false;
         glActiveTexture(GL_TEXTURE0 + i);
         glBindTexture(GL_TEXTURE_2D, tex_[i]);
-        // linesize của libav gần như luôn lớn hơn chiều rộng (căn 32/64 byte).
-        // UNPACK_ROW_LENGTH tính bằng PIXEL chứ không phải byte — với RG8 thì một
-        // pixel là 2 byte, nên phải chia.
         const int pixelSize = p.fmt == GL_RG ? 2 : 1;
         glPixelStorei(GL_UNPACK_ROW_LENGTH, p.stride / pixelSize);
         glTexImage2D(GL_TEXTURE_2D, 0, GLint(p.internalFmt), GLsizei(p.w), GLsizei(p.h), 0, p.fmt,
@@ -406,13 +345,10 @@ bool VideoRenderer::Render(int viewW, int viewH) {
     glUseProgram(program_);
     if (!UploadLocked()) return false;
 
-    // Nền đen cho phần viền: nguồn 16:9 trên cửa sổ 4:3 phải ra hai dải đen, chứ
-    // không phải hình bị kéo méo.
     glClearColor(0.f, 0.f, 0.f, 1.f);
     glViewport(0, 0, viewW, viewH);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Khung hình giữ nguyên tỉ lệ, căn giữa.
     int dw = viewW, dh = int(int64_t(viewW) * fh / fw);
     if (dh > viewH) {
         dh = viewH;

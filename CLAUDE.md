@@ -1,0 +1,105 @@
+# CLAUDE.md
+
+Guidance for Claude Code when working in this repository.
+
+## Rules
+
+### 1. Do not write comments in code
+
+Write no comments in source files — no explanatory comments, no section banners, no
+docstrings, no `TODO`/`FIXME` notes. The existing C++ sources are comment-free; keep it
+that way.
+
+Make the code self-explanatory instead: descriptive names, small functions, early
+returns, named constants instead of magic numbers. If a block seems to need a comment,
+extract it into a well-named function.
+
+This covers `make/*.mk` too — the per-platform make modules are deliberately
+comment-free. Do not reintroduce comments there.
+
+Exceptions — these are not "code" and keep their existing commented style:
+
+- The root `Makefile`: its header block is the single place where every target is
+  documented. Keep it in sync when you add or rename a target, and mirror the change in
+  `make/help.txt` (what a bare `make` prints).
+- `CMakeLists.txt`, `scripts/*`, `.github/workflows/*`
+- Config files where a comment is the only way to document a value
+- License headers and `#pragma once` / include guards
+- Markdown docs
+
+Never strip existing comments from the exempt files above while editing them for another
+reason. The rule governs what you add.
+
+### 2. Prefer `core/` and `platform/` — reuse before you add
+
+The whole point of this layout is that logic is written once and shared by all five
+clients. Before writing anything in `client/*`, check whether it belongs in a lower
+layer.
+
+```
+core/       platform-agnostic logic, pure C++20, no OS headers, unit-tested
+platform/   thin OS abstractions with one shared API (depends on core)
+client/     per-OS apps: android, ios, linux, macos, windows (depend on platform + core)
+```
+
+Decision order when adding code:
+
+1. **Does `core/` or `platform/` already do this?** Search first — `core/include/deskhub/`
+   and `platform/include/deskhubp/` are the public surfaces. Reuse it.
+2. **Is it platform-agnostic?** Protocol, packetization, FEC, session state, input
+   mapping, bitrate control, diagnostics → `core/`. Add tests in `core/tests/`.
+3. **Does it need the OS, but with the same API everywhere?** Sockets, clock, logging,
+   randomness, source enumeration → `platform/`, behind one header in
+   `platform/include/deskhubp/`, with per-OS `.cpp` files selected in
+   `platform/CMakeLists.txt` (see `UdpSocketPosix.cpp` / `UdpSocketWin.cpp`).
+4. **Only genuinely OS-specific?** Capture, encode, decode, render, windowing, UI →
+   `client/<os>/`. These conform to the contracts in
+   `core/include/deskhub/media/VideoContract.h`.
+
+Never duplicate logic across `client/*`. If you find yourself writing the same thing for
+a second platform, stop and lift it into `core/` or `platform/`.
+
+Hard constraints:
+
+- `core/` must not include any OS or third-party header, and must not depend on
+  `platform/`. It stays unit-testable offline with no network and no GPU.
+- `platform/` may include OS headers, but its public headers must expose one identical
+  API on every OS.
+- Use the shared helpers rather than raw OS calls: `LOGI`/`LOGW`/`LOGE` from
+  `deskhubp/Log.h`, plus `Clock.h`, `Random.h`, `UdpSocket.h`, `SourceQuery.h`.
+
+## Commands
+
+```sh
+make                 # print the target list — builds nothing
+make bootstrap       # install toolchain + deps (run once)
+make test            # build and run core_tests offline — the fast feedback loop
+make test-ctest      # same tests through CTest, as CI runs them
+make coverage        # core coverage report (clang + llvm-cov)
+make debug           # configure + build the debug preset of the shared CMake tree
+make format          # format C++ / Kotlin / Swift
+make lint            # check formatting without writing (what CI enforces)
+```
+
+Per-platform: `make build-<os>`, `run-<os>`, `release-<os>` where `<os>` is one of
+`linux`, `windows`, `macos`, `ios`, `android`. No platform is the default — a bare
+`make` prints `make/help.txt` instead of building anything, so always name the platform
+explicitly.
+
+Run `make test` and `make lint` before considering a change done.
+
+## Conventions
+
+- C++20, no compiler extensions. Warnings are errors-adjacent on MSVC (`/W4 /permissive-`).
+- Namespaces: `deskhub` for core, `deskhubp` for platform.
+- `PascalCase` functions and types, `camelCase` locals, trailing underscore on private
+  members (`cur_`, `min_`).
+- Formatting is enforced by pinned tools — never hand-format; run `make format`.
+- All identifiers, log messages, and documentation are in **English**. The only
+  Vietnamese in the repo is the store listing under `fastlane/metadata/*/vi/`.
+- New logic in `core/` needs a test in the matching `core/tests/` subdirectory.
+
+## License
+
+MIT (`LICENSE`). The Linux app statically links LGPL-2.1 FFmpeg — if you change how
+FFmpeg is built or linked, update `THIRD_PARTY_NOTICES.md` accordingly.

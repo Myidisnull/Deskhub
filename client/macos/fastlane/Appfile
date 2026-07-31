@@ -1,7 +1,2 @@
-# Danh tính app macOS — khớp PRODUCT_BUNDLE_IDENTIFIER trong client/macos/Deskhub.xcodeproj
-# và DEVELOPMENT_TEAM. Đăng nhập bằng App Store Connect API key (xem Fastfile).
-#
-# KHÁC bundle id của bản iOS (com.ios.deskhub) một cách CÓ CHỦ Ý: đây là app khác —
-# chứa cả vai host, tắt sandbox, phát hành ngoài store. Xem docs/16-release-macos.md.
 app_identifier("com.deskhub.macos")
 team_id("UPJRMYQ38F")

@@ -1,22 +1,3 @@
-// =============================================================================
-// SourcePickerDialog.cpp — cài đặt hộp thoại chọn nguồn phía client.
-//
-// KHUÔN MẪU "HỘP THOẠI MODAL TỰ DỰNG"
-//   Không dùng DialogBox của Win32 (đòi file tài nguyên .rc) mà tự tạo cửa sổ rồi
-//   chạy vòng lặp message riêng cho tới khi `done`. Ba bước:
-//     1. EnableWindow(owner, FALSE) — vô hiệu hoá cửa sổ cha, tạo cảm giác modal.
-//     2. Vòng lặp message riêng chạy tới khi người dùng bấm OK/Huỷ.
-//     3. EnableWindow(owner, TRUE) và trả kết quả.
-//   Khuôn này từng dùng chung với ScreenPickerDialog.cpp (xoá 2026-07-27).
-//
-// FromUtf8 — VÌ SAO CẦN
-//   Tên nguồn đi trên dây là UTF-8 (host có thể phục vụ client không phải Windows),
-//   còn control Win32 cần UTF-16. Đây là chỗ đổi. Hàm đối xứng ToUtf8 nằm ở
-//   phía host, nơi tên đi theo chiều ngược lại.
-//
-// LIÊN QUAN: ui/SourcePickerDialog.h (vai trò), Viewer.h (người gọi)
-//            khuôn mẫu, chiều ngược lại), deskhub/protocol/Wire.h (SourceInfo)
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "SourcePickerDialog.h"
@@ -87,13 +68,12 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(h, msg, wp, lp);
 }
 
-} // namespace
+}
 
 bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& sources,
     std::vector<deskhub::SourceInfo>& outSelected) {
     outSelected.clear();
     if (sources.empty()) return false;
-    // Host chỉ chia sẻ một thứ: không bắt người dùng bấm thêm một hộp thoại nữa.
     if (sources.size() == 1) {
         outSelected = sources;
         return true;
@@ -164,9 +144,6 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
             DispatchMessageW(&msg);
         }
     }
-    // WM_QUIT không phải của hộp thoại này — nó dành cho vòng bơm NGOÀI (thread
-    // quản lý phiên kết thúc trong lúc hộp thoại đang mở). Trả lại, không thì
-    // vòng ngoài chặn ở GetMessage vĩnh viễn và join() thread đó bị treo.
     if (got == 0) PostQuitMessage(0);
 
     if (owner) {

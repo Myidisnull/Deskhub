@@ -1,24 +1,3 @@
-// =============================================================================
-// InputInjector.mm — cài đặt bằng Quartz Event Services (CGEvent).
-//
-// BỐ CỤC
-//   SourceRect()      — rect màn hình theo ĐIỂM, toàn cục (có cache 200ms).
-//   Apply()           — cổng vào duy nhất, gác hai cơ chế an toàn rồi phân loại event.
-//   Send*()           — dựng và bắn CGEvent cho từng loại.
-//
-// MỌI SỰ KIỆN BẮN RA ĐỀU MANG DẤU kUserData
-//   Bắt buộc, không phải tuỳ chọn: LocalInputMonitor lọc theo dấu đó để không nhầm
-//   input ta bơm với input của người ngồi máy. Quên đóng dấu ở MỘT đường bắn thôi là
-//   kênh điều khiển tự khoá chính nó — xem input/LocalInputMonitor.h.
-//
-// VÌ SAO POST VÀO kCGHIDEventTap
-//   Đó là điểm sớm nhất trong đường ống sự kiện, trước cả các bộ lọc của hệ thống —
-//   nên sự kiện đi được vào mọi ứng dụng, kể cả game đọc HID ở tầng thấp. Bắn vào
-//   kCGSessionEventTap thì một số ứng dụng toàn màn hình không thấy gì.
-//
-// LIÊN QUAN: input/InputInjector.h (hai cơ chế an toàn + ánh xạ toạ độ),
-//            input/MacKeyMap.h (VK → keycode), input/LocalInputMonitor.h
-// =============================================================================
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
 
@@ -34,15 +13,8 @@
 
 namespace {
 
-// Rect màn hình được hỏi lại nhiều nhất mỗi ngần này. Chuột di chuyển sinh hàng
-// trăm event mỗi giây còn cấu hình màn hình thì hiếm khi đổi — hỏi mỗi event là
-// lãng phí thấy rõ, mà trễ 200ms sau khi đổi độ phân giải thì không ai nhận ra.
 constexpr uint64_t kRectCacheUs = 200'000;
 
-// Hai cú click tính là double-click khi cách nhau dưới ngần này VÀ con trỏ gần như
-// không dịch. 500ms là mặc định của macOS (NSEvent.doubleClickInterval đọc được cấu
-// hình thật của người dùng, nhưng nó là API AppKit chỉ gọi an toàn trên main thread,
-// còn hàm này chạy trên thread Recv).
 constexpr uint64_t kDoubleClickUs = 500'000;
 constexpr double kDoubleClickSlopPt = 4.0;
 
@@ -53,7 +25,6 @@ CGEventType MoveTypeFor(const std::set<deskhub::MouseButton>& down) {
     return kCGEventMouseMoved;
 }
 
-// deskhub::MouseButton -> (loại event down/up, chỉ số nút của Quartz).
 bool ButtonCodes(deskhub::MouseButton b, CGEventType& downType, CGEventType& upType,
     CGMouseButton& which) {
     switch (b) {
@@ -72,8 +43,6 @@ bool ButtonCodes(deskhub::MouseButton b, CGEventType& downType, CGEventType& upT
             upType = kCGEventOtherMouseUp;
             which = kCGMouseButtonCenter;
             return true;
-        // X1/X2: Quartz đánh số nút phụ tiếp sau nút giữa. Ít ứng dụng macOS đọc
-        // chúng, nhưng bắn ra vẫn hơn là nuốt im lặng.
         case deskhub::MouseButton::X1:
             downType = kCGEventOtherMouseDown;
             upType = kCGEventOtherMouseUp;
@@ -88,8 +57,6 @@ bool ButtonCodes(deskhub::MouseButton b, CGEventType& downType, CGEventType& upT
     return false;
 }
 
-// Vị trí con trỏ hiện tại theo ĐIỂM, hệ toạ độ toàn cục gốc trên-trái — cùng hệ với
-// CGEvent. (NSEvent.mouseLocation dùng gốc DƯỚI-trái, lệch trục Y; đừng trộn hai cái.)
 CGPoint CursorPoint() {
     CGEventRef probe = CGEventCreate(nullptr);
     const CGPoint p = probe ? CGEventGetLocation(probe) : CGPointZero;
@@ -97,8 +64,6 @@ CGPoint CursorPoint() {
     return p;
 }
 
-// Giới hạn toàn bộ vùng màn hình (hợp của mọi màn hình), để chuột tương đối không
-// chạy ra hư không.
 CGRect DesktopBounds() {
     CGRect all = CGRectNull;
     for (NSScreen* s in [NSScreen screens])
@@ -106,12 +71,9 @@ CGRect DesktopBounds() {
     return CGRectIsNull(all) ? CGRectMake(0, 0, 1920, 1080) : all;
 }
 
-} // namespace
+}
 
 InputInjector::InputInjector() {
-    // kCGEventSourceStateHIDSystemState: sự kiện ta bắn ra HOÀ vào trạng thái phần
-    // cứng thật. Quan trọng cho phím bổ trợ — chủ máy đang giữ Shift thật thì ký tự
-    // từ xa cũng thành chữ hoa, đúng như hai người dùng chung một bàn phím.
     source_ = (void*)CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
     if (!source_) LOGW("[Input] CGEventSourceCreate failed — using default source.");
 }
@@ -127,13 +89,9 @@ InputInjector::~InputInjector() {
 bool InputInjector::Init(uint32_t displayId) {
     if (!displayId) return false;
     displayId_ = displayId;
-    rectUs_ = 0; // buộc lần SourceRect kế tiếp hỏi lại thật
+    rectUs_ = 0;
 
     if (!macperm::HasAccessibility()) {
-        // KHÔNG trả false: chia sẻ vẫn chạy được ở chế độ chỉ-xem, và người dùng có
-        // thể bật quyền giữa phiên (Accessibility có hiệu lực ngay, không cần khởi
-        // động lại app). Nói thẳng ra log là đủ — caller quyết định có bật input hay
-        // không, và UI có nút mở System Settings.
         LOGW("[Input] Accessibility permission missing — injected input will be "
              "silently dropped by macOS until it is granted.");
     }
@@ -146,7 +104,6 @@ bool InputInjector::Init(uint32_t displayId) {
     return true;
 }
 
-// Rect màn hình theo ĐIỂM, gốc trên-trái toàn cục. Cache kRectCacheUs.
 bool InputInjector::SourceRect(double& x, double& y, double& w, double& h) {
     const uint64_t now = NowUs();
     if (rectUs_ && now - rectUs_ < kRectCacheUs && rectW_ > 0) {
@@ -158,7 +115,7 @@ bool InputInjector::SourceRect(double& x, double& y, double& w, double& h) {
     }
 
     const CGRect r = CGDisplayBounds(CGDirectDisplayID(displayId_));
-    if (r.size.width <= 0) return false; // màn hình bị rút
+    if (r.size.width <= 0) return false;
     rectX_ = r.origin.x;
     rectY_ = r.origin.y;
     rectW_ = r.size.width;
@@ -193,9 +150,6 @@ uint64_t InputInjector::CurrentFlags() const {
     return uint64_t(f);
 }
 
-// Cổng vào duy nhất. Hai lớp gác trước khi bơm bất cứ thứ gì:
-//   1. Bật/tắt (người chia sẻ chọn chế độ chỉ-xem).
-//   2. Host thắng (người ngồi máy vừa dùng chuột/phím thật).
 void InputInjector::Apply(const deskhub::InputEvent& e) {
     if (!enabled_) return;
 
@@ -204,8 +158,6 @@ void InputInjector::Apply(const deskhub::InputEvent& e) {
             localSuppressed_ = true;
             LOGI("[Input] Someone is using this Mac — remote input paused.");
         }
-        // Nhả những gì đang giữ TRƯỚC khi nhường: không nhả thì phím W từ xa kẹt lại
-        // trong suốt lúc chủ máy đang gõ.
         ReleaseAll();
         ++skipped_;
         return;
@@ -237,10 +189,8 @@ void InputInjector::Apply(const deskhub::InputEvent& e) {
 
 void InputInjector::SendKey(int32_t vk, bool down) {
     uint16_t keycode = 0;
-    if (!mackeys::WinVkToMac(vk, keycode)) return; // phím không có trên Mac — bỏ qua
+    if (!mackeys::WinVkToMac(vk, keycode)) return;
 
-    // Ghi sổ TRƯỚC khi dựng event: CurrentFlags() phải đã thấy phím bổ trợ vừa nhấn,
-    // nếu không thì chính sự kiện Shift↓ lại thiếu cờ Shift và vài ứng dụng bỏ qua nó.
     const mackeys::Modifier mod = mackeys::ModifierOf(vk);
     if (down) {
         keysDown_[vk] = keycode;
@@ -261,8 +211,6 @@ void InputInjector::SendKey(int32_t vk, bool down) {
 
 void InputInjector::PostMouseAt(double x, double y, int32_t dx, int32_t dy) {
     const CGEventType type = MoveTypeFor(buttonsDown_);
-    // Nút "đang kéo" phải đi kèm event drag, nếu không ứng dụng không biết kéo bằng
-    // nút nào.
     CGMouseButton which = kCGMouseButtonLeft;
     if (buttonsDown_.count(deskhub::MouseButton::Right))
         which = kCGMouseButtonRight;
@@ -272,9 +220,6 @@ void InputInjector::PostMouseAt(double x, double y, int32_t dx, int32_t dy) {
     CGEventRef ev = CGEventCreateMouseEvent((CGEventSourceRef)source_, type,
         CGPointMake(x, y), which);
     if (!ev) return;
-    // Delta THÔ: game FPS đọc trường này chứ không đọc hiệu hai vị trí liên tiếp —
-    // đúng lý do client có chế độ chuột tương đối (docs/07 §5). Chế độ tuyệt đối thì
-    // dx/dy = 0 và không ai đọc tới.
     CGEventSetIntegerValueField(ev, kCGMouseEventDeltaX, dx);
     CGEventSetIntegerValueField(ev, kCGMouseEventDeltaY, dy);
     CGEventSetFlags(ev, CGEventFlags(CurrentFlags()));
@@ -286,9 +231,6 @@ void InputInjector::PostMouseAt(double x, double y, int32_t dx, int32_t dy) {
 void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
     double rx, ry, rw, rh;
     if (!SourceRect(rx, ry, rw, rh)) return;
-    // 0..65535 -> điểm trong rect nguồn. Chia cho 65535.0 chứ không 65536: client
-    // chuẩn hoá sao cho cạnh phải/dưới đạt ĐÚNG 65535 (xem Normalize bên
-    // InputCapture), nên mẫu số phải khớp, không thì không bao giờ chạm được mép.
     const double x = rx + double(nx) / 65535.0 * rw;
     const double y = ry + double(ny) / 65535.0 * rh;
     PostMouseAt(x, y, 0, 0);
@@ -297,8 +239,6 @@ void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
 void InputInjector::SendMoveRelative(int32_t dx, int32_t dy) {
     const CGPoint cur = CursorPoint();
     const CGRect bounds = DesktopBounds();
-    // Kẹp vào vùng màn hình: delta dồn mãi một hướng (người chơi xoay người liên
-    // tục) sẽ đẩy con trỏ ra ngoài mọi màn hình và mọi click sau đó rơi vào hư không.
     double x = cur.x + double(dx);
     double y = cur.y + double(dy);
     x = std::fmin(std::fmax(x, CGRectGetMinX(bounds)), CGRectGetMaxX(bounds) - 1);
@@ -313,7 +253,6 @@ void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
 
     const CGPoint p = CursorPoint();
 
-    // Đếm click liên tiếp — xem chú thích clickState_ ở header.
     if (down) {
         const uint64_t now = NowUs();
         const bool near = std::fabs(p.x - lastClickX_) <= kDoubleClickSlopPt &&
@@ -343,9 +282,6 @@ void InputInjector::SendButton(deskhub::MouseButton btn, bool down) {
 
 void InputInjector::SendWheel(int32_t delta) {
     if (!delta) return;
-    // Giao thức mang delta theo bội của 120 (WHEEL_DELTA của Windows); Quartz đếm
-    // theo DÒNG. 120 = một nấc = 3 dòng, đúng mặc định của Windows — cuộn từ xa vì
-    // thế cho cảm giác giống hệt cuộn tại chỗ.
     const int32_t lines = (delta / 120) * 3;
     if (!lines) return;
     CGEventRef ev = CGEventCreateScrollWheelEvent((CGEventSourceRef)source_,
@@ -357,8 +293,6 @@ void InputInjector::SendWheel(int32_t delta) {
     CFRelease(ev);
 }
 
-// Nhả mọi thứ đang giữ. Duyệt trên BẢN SAO rồi xoá sổ: SendKey/SendButton tự sửa
-// keysDown_/buttonsDown_, nên vừa duyệt vừa gọi chúng là hỏng iterator.
 void InputInjector::ReleaseAll() {
     if (!keysDown_.empty()) {
         const auto keys = keysDown_;

@@ -1,32 +1,3 @@
-// =============================================================================
-// ScreenCapture.cpp — hiện thực bằng Windows Graphics Capture. Toàn bộ C++/WinRT
-// của dự án nằm trọn trong file này.
-//
-// SÁU BƯỚC DỰNG MỘT PHIÊN BẮT HÌNH (đánh số trùng với Start() bên dưới)
-//   1. Có D3D11 device — dùng chung từ GpuSelect, hoặc tự tạo nếu người gọi không đưa.
-//   2. Bọc device đó thành IDirect3DDevice của WinRT.
-//   3. Tạo GraphicsCaptureItem từ HMONITOR.
-//   4. Tạo frame pool free-threaded.
-//   5. Tắt con trỏ chuột và viền vàng (nếu bản Windows hỗ trợ).
-//   6. Đăng ký sự kiện rồi StartCapture().
-//
-// HAI THẾ GIỚI PHẢI NỐI VỚI NHAU
-//   WGC là API WinRT hiện đại, còn D3D11 là COM đời cũ. Chúng không nói chuyện
-//   trực tiếp được, phải qua hai cầu nối interop:
-//     CreateDirect3D11DeviceFromDXGIDevice — COM device  → WinRT device (bước 2).
-//     IGraphicsCaptureItemInterop          — HMONITOR → WinRT item (bước 3).
-//     IDirect3DDxgiInterfaceAccess         — WinRT surface → ID3D11Texture2D
-//                                            (hàm GetDXGIInterface, dùng mỗi frame).
-//   Không có đường nào khác: HWND là khái niệm không tồn tại trong thế giới WinRT.
-//
-// MÔ HÌNH LUỒNG
-//   Start/Stop gọi từ thread người dùng. OnFrameArrived chạy trên THREAD-POOL của
-//   WGC — đó là lý do `closed` và `frameId` phải là std::atomic, và là lý do frame
-//   pool được tạo kiểu CreateFreeThreaded (bản thường sẽ đòi bắn sự kiện về thread
-//   có message loop, thêm một chặng chờ không cần thiết).
-//
-// LIÊN QUAN: capture/ScreenCapture.h (thiết kế + cảnh báo về callback)
-// =============================================================================
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _CRT_SECURE_NO_WARNINGS
@@ -44,7 +15,6 @@
 #include <winrt/Windows.Graphics.DirectX.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 
-// Hai header interop là cầu nối giữa thế giới WinRT và COM/D3D11 cũ.
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
 
@@ -62,15 +32,11 @@ namespace wgd3 = winrt::Windows::Graphics::DirectX::Direct3D11;
 using winrt::Windows::Foundation::Metadata::ApiInformation;
 
 namespace capture {
-// MTA chứ không phải STA: STA đòi thread phải có message loop để COM bơm lời gọi
-// qua, mà thread bắt hình của ta không có. MTA cũng là điều kiện để frame pool
-// free-threaded gọi callback thẳng trên thread-pool.
 void InitRuntime() {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 }
-} // namespace capture
+}
 
-// Lấy interface D3D11 gốc ra khỏi một đối tượng WinRT (surface -> ID3D11Texture2D).
 template <typename T>
 static winrt::com_ptr<T> GetDXGIInterface(winrt::Windows::Foundation::IInspectable const& obj) {
     auto access = obj.as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
@@ -79,7 +45,6 @@ static winrt::com_ptr<T> GetDXGIInterface(winrt::Windows::Foundation::IInspectab
     return result;
 }
 
-// ---------------------------------------------------------------------------
 struct ScreenCapture::Impl {
     winrt::com_ptr<ID3D11Device> d3dDevice;
     winrt::com_ptr<ID3D11DeviceContext> d3dContext;
@@ -111,21 +76,12 @@ struct ScreenCapture::Impl {
         return true;
     }
 
-    // Chạy trên luồng thread-pool của WGC.
-    //
-    // Vét HẾT frame đang chờ chứ không lấy một cái: một sự kiện FrameArrived có thể
-    // ứng với nhiều frame đã xếp hàng (ta xử lý chậm hơn nguồn sinh ra). Bỏ lại
-    // frame trong pool là giữ chỗ và làm nghẽn đường bắt hình.
     void OnFrameArrived() {
         if (!framePool) return;
 
         while (auto frame = framePool.TryGetNextFrame()) {
             auto size = frame.ContentSize();
 
-            // Cửa sổ đổi kích thước: frame pool cấp phát theo kích thước cố định nên
-            // phải dựng lại. Frame hiện tại bị BỎ — nó vẫn mang kích thước cũ, đẩy
-            // xuống encoder đang cấu hình theo kích thước mới sẽ ra hình rác.
-            // Mất một frame ở đây là vô hại; frame kế tiếp đã đúng kích thước.
             if (size.Width != lastSize.Width || size.Height != lastSize.Height) {
                 std::printf("Window size changed: %dx%d\n", size.Width, size.Height);
                 lastSize = size;
@@ -142,20 +98,15 @@ struct ScreenCapture::Impl {
                 info.texture = tex.get();
                 info.width = static_cast<uint32_t>(size.Width);
                 info.height = static_cast<uint32_t>(size.Height);
-                // SystemRelativeTime: đơn vị 100ns -> micro giây.
                 info.timestampUs =
                     static_cast<uint64_t>(frame.SystemRelativeTime().count()) / 10ull;
                 info.frameId = frameId.fetch_add(1);
                 onFrame(info);
             }
-            // `frame` và `tex` giải phóng ở cuối vòng lặp -> texture hết hiệu lực.
-            // Đây chính là chỗ thi hành quy tắc vòng đời ở CaptureTypes.h: slot được
-            // trả về pool ngay tại đây và sẽ bị ghi đè bởi khung hình sau.
         }
     }
 };
 
-// ---------------------------------------------------------------------------
 ScreenCapture::ScreenCapture() : impl_(std::make_unique<Impl>()) {}
 
 ScreenCapture::~ScreenCapture() {
@@ -174,7 +125,6 @@ bool ScreenCapture::Start(HMONITOR monitor, ID3D11Device* device, FrameHandler o
 
     impl_->onFrame = std::move(onFrame);
 
-    // 1. D3D11 device. Dùng device chia sẻ (từ GpuSelect) nếu có, không thì tự tạo.
     if (device) {
         impl_->d3dDevice.copy_from(device);
         impl_->d3dDevice->GetImmediateContext(impl_->d3dContext.put());
@@ -182,14 +132,12 @@ bool ScreenCapture::Start(HMONITOR monitor, ID3D11Device* device, FrameHandler o
         return false;
     }
 
-    // 2. Bọc D3D11 device thành IDirect3DDevice của WinRT.
     auto dxgiDevice = impl_->d3dDevice.as<IDXGIDevice>();
     winrt::com_ptr<::IInspectable> inspectable;
     winrt::check_hresult(
         CreateDirect3D11DeviceFromDXGIDevice(dxgiDevice.get(), inspectable.put()));
     impl_->winrtDevice = inspectable.as<wgd3::IDirect3DDevice>();
 
-    // 3. Tạo GraphicsCaptureItem từ HMONITOR (chỉ làm được qua interop).
     auto factory = winrt::get_activation_factory<wgc::GraphicsCaptureItem>();
     auto interop = factory.as<IGraphicsCaptureItemInterop>();
     const HRESULT hr = interop->CreateForMonitor(monitor,
@@ -202,20 +150,11 @@ bool ScreenCapture::Start(HMONITOR monitor, ID3D11Device* device, FrameHandler o
     impl_->lastSize = impl_->item.Size();
     std::printf("Capture source size: %dx%d\n", impl_->lastSize.Width, impl_->lastSize.Height);
 
-    // 4. Frame pool. CreateFreeThreaded -> FrameArrived chạy thẳng trên thread-pool,
-    //    không phải bơm qua message loop. Số slot = 2: đủ để nguồn ghi slot này
-    //    trong khi ta đọc slot kia, mà không tích thêm độ trễ như pool sâu hơn.
     impl_->framePool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(
         impl_->winrtDevice, wgdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, impl_->lastSize);
 
     impl_->session = impl_->framePool.CreateCaptureSession(impl_->item);
 
-    // 5. Tắt con trỏ chuột (Win10 1903+) và viền vàng (2004+).
-    //    Phải hỏi ApiInformation trước khi dùng: hai thuộc tính này thêm vào ở các
-    //    bản Windows khác nhau, gọi thẳng trên máy cũ sẽ ném ngoại lệ. Đây là cách
-    //    chuẩn để một binary chạy được trên nhiều đời Windows.
-    //    Con trỏ tắt vì phía client tự vẽ con trỏ của mình; viền vàng tắt vì nó lọt
-    //    vào khung hình gửi đi.
     if (ApiInformation::IsPropertyPresent(
             L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsCursorCaptureEnabled")) {
         impl_->session.IsCursorCaptureEnabled(false);
@@ -225,11 +164,9 @@ bool ScreenCapture::Start(HMONITOR monitor, ID3D11Device* device, FrameHandler o
         try {
             impl_->session.IsBorderRequired(false);
         } catch (winrt::hresult_error const&) {
-            // Một số cấu hình đòi quyền riêng - không sao, chỉ là còn viền vàng.
         }
     }
 
-    // 6. Đăng ký sự kiện: màn hình bị ngắt, và có frame mới.
     impl_->closedToken = impl_->item.Closed(
         [impl = impl_.get()](auto&&, auto&&) { impl->closed = true; });
     impl_->frameArrivedToken = impl_->framePool.FrameArrived(
@@ -240,9 +177,6 @@ bool ScreenCapture::Start(HMONITOR monitor, ID3D11Device* device, FrameHandler o
     return true;
 }
 
-// Thứ tự dọn dẹp là CÓ CHỦ Ý: gỡ đăng ký sự kiện TRƯỚC, rồi mới thả các đối tượng.
-// Thả frame pool khi callback còn đăng ký thì một sự kiện đang bay có thể chạy vào
-// Impl đã hỏng. Gỡ token trước bảo đảm không còn callback nào được gọi nữa.
 void ScreenCapture::Stop() {
     if (!impl_) return;
     if (impl_->framePool && impl_->frameArrivedToken.value) {

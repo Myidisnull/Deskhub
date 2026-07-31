@@ -1,8 +1,3 @@
-// =============================================================================
-// SessionTests.cpp — bắt tay và vòng đời phiên: nối HostSession <-> ClientSession
-// bằng "dây" trong bộ nhớ. Gồm handshake/timeout/reject và định tuyến NACK/
-// INVALIDATE_REF (GĐ7).
-// =============================================================================
 #include "Tests.h"
 #include "support/TestSupport.h"
 
@@ -30,7 +25,7 @@ void TestSessions() {
     bool hostStarted = false, hostKeyframeReq = false, hostDisconnected = false;
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
+    hcb.randomBytes = TestRandomBytes;
     hcb.onStart = [&] { hostStarted = true; };
     hcb.onKeyframeRequest = [&] { hostKeyframeReq = true; };
     hcb.onDisconnect = [&] { hostDisconnected = true; };
@@ -63,7 +58,6 @@ void TestSessions() {
         }
     };
 
-    // HELLO đầu tiên bị "mất" -> retry sau 500ms phải tới nơi.
     cli.Start(Hello{0x11223344, kCodecMaskH264, 2560, 1440, 60, 0}, now);
     w.toHost.clear();
     now += 600'000;
@@ -78,7 +72,6 @@ void TestSessions() {
     cli.NotifyVideoPacket(now);
     Check(cli.state() == ClientSession::State::Streaming, "client STREAMING when video present");
 
-    // PING/PONG đo RTT.
     now += 1'100'000;
     cli.Tick(now);
     host.Tick(now);
@@ -93,7 +86,6 @@ void TestSessions() {
     pump();
     Check(hostKeyframeReq, "REQUEST_KEYFRAME reaches host");
 
-    // HELLO từ client khác trong khi đang bận -> từ chối.
     {
         WirePair w2;
         std::string otherDead;
@@ -117,12 +109,10 @@ void TestSessions() {
         Check(host.state() == HostSession::State::Streaming, "existing session unaffected");
     }
 
-    // BYE -> host quay về IDLE.
     cli.SendBye();
     pump();
     Check(hostDisconnected && host.state() == HostSession::State::Idle, "BYE -> host IDLE");
 
-    // Timeout: client 2 gửi HELLO (host sang READY) rồi cả hai im lặng.
     hostDisconnected = false;
     ClientSession cli2(ccb);
     cliDead.clear();
@@ -140,8 +130,6 @@ void TestSessions() {
     Check(!cliDead.empty(), "client gives up when host goes silent");
 }
 
-// GĐ7: NACK và INVALIDATE_REF từ client được host định tuyến đúng callback; và cả
-// hai bị bỏ qua khi client chưa STREAMING.
 void TestSessionsNackInvalidate() {
     std::printf("[session] NACK / INVALIDATE_REF routing + pre-stream gating...\n");
     WirePair w;
@@ -151,7 +139,7 @@ void TestSessionsNackInvalidate() {
     std::vector<uint16_t> nackIdx;
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
+    hcb.randomBytes = TestRandomBytes;
     hcb.onNack = [&](uint32_t fid, std::span<const uint16_t> idx) {
         nackFrame = fid;
         nackIdx.assign(idx.begin(), idx.end());
@@ -194,7 +182,6 @@ void TestSessionsNackInvalidate() {
         "host routed NACK to onNack with the right indices");
     Check(invFrame == 0x1234, "host routed INVALIDATE_REF to onInvalidateRef");
 
-    // Trước khi STREAMING, cả hai là no-op (không có phiên để gửi lên).
     ClientSession idle(ccb);
     const size_t before = w.toHost.size();
     idle.SendNack(1, idx);
@@ -202,8 +189,6 @@ void TestSessionsNackInvalidate() {
     Check(w.toHost.size() == before, "SendNack/SendInvalidateRef ignored before STREAMING");
 }
 
-// RECONFIG (host->client giữa phiên), SET_FOCUS và FEEDBACK (client->host) đi đúng
-// đường: cập nhật tham số / gọi callback, và bị bỏ khi kích thước suy biến.
 void TestReconfigFocusFeedback() {
     std::printf("[session] RECONFIG / SET_FOCUS / FEEDBACK routing...\n");
     WirePair w;
@@ -214,7 +199,7 @@ void TestReconfigFocusFeedback() {
     bool gotFb = false;
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
+    hcb.randomBytes = TestRandomBytes;
     hcb.onFocus = [&](bool on) { focus = on; if (!on) gotFocusFalse = true; };
     hcb.onFeedback = [&](const Feedback& fb) { lastFb = fb; gotFb = true; };
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
@@ -246,20 +231,17 @@ void TestReconfigFocusFeedback() {
     pump();
     cli.NotifyVideoPacket(now);
 
-    // Host gửi RECONFIG -> client cập nhật params + gọi onReconfig.
     uint8_t buf[kMaxDatagram];
     size_t n = BuildReconfig(buf, cli.sessionId(), Reconfig{1280, 720, 8'000'000});
     cli.HandlePacket(std::span<const uint8_t>(buf, n), now);
     Check(reconfigured && rp.width == 1280 && rp.height == 720 && rp.bitrateBps == 8'000'000,
         "RECONFIG updates params and fires onReconfig");
-    // Kích thước 0 = gói hỏng -> giữ nguyên, không dựng decoder 0x0.
     reconfigured = false;
     n = BuildReconfig(buf, cli.sessionId(), Reconfig{0, 0, 0});
     cli.HandlePacket(std::span<const uint8_t>(buf, n), now);
     Check(reconfigured && rp.width == 1280 && rp.height == 720,
         "RECONFIG with zero size keeps the previous dimensions");
 
-    // Client -> host: SET_FOCUS (true rồi false) và FEEDBACK.
     cli.SetFocused(true);
     cli.Tick(now);
     pump();
@@ -275,7 +257,6 @@ void TestReconfigFocusFeedback() {
     Check(gotFb && lastFb.lossPct == 7 && lastFb.rttMs == 25, "FEEDBACK reaches host onFeedback");
 }
 
-// Đếm số datagram mang loại thông điệp `t` trong một hàng đợi dây.
 size_t CountType(const std::deque<Datagram>& q, MsgType t) {
     size_t n = 0;
     for (const auto& d : q) {
@@ -294,8 +275,6 @@ InputEvent SessionKey(int32_t vk, bool down) {
     return e;
 }
 
-// Bộ khung dùng chung cho các test bên dưới: một cặp host<->client đã nối dây
-// kèm bộ đếm callback — các test đầu file (viết trước) tự dựng tay từng bước.
 struct Rig {
     WirePair w;
     uint64_t now = 10'000'000;
@@ -312,7 +291,7 @@ struct Rig {
     HostCallbacks HostCb() {
         HostCallbacks cb;
         cb.send = [this](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
-        cb.randomBytes = TestRandomBytes; // host fail closed nếu thiếu entropy
+        cb.randomBytes = TestRandomBytes;
         cb.onStart = [this] { ++startCalls; };
         cb.onDisconnect = [this] { hostDisconnected = true; };
         cb.onInput = [this](const InputEvent& e) { hostInput.push_back(e); };
@@ -342,7 +321,6 @@ struct Rig {
             }
         }
     }
-    // Đưa cả hai bên tới STREAMING (kèm "gói video đầu tiên" qua NotifyVideoPacket).
     void Handshake(uint32_t clientId = 0x1) {
         cli.Start(Hello{clientId, kCodecMaskH264, 1920, 1080, 60, 0}, now);
         Pump();
@@ -350,16 +328,12 @@ struct Rig {
     }
 };
 
-// Các gói TRÙNG của handshake phải vô hại: client retry HELLO/START mỗi 0.5s nên
-// HELLO_ACK lặp, HELLO phát lại và START lặp là chuyện thường ngày trên UDP.
 void TestHandshakeDuplicates() {
     std::printf("[session] duplicate HELLO_ACK / re-HELLO / repeated START are idempotent...\n");
     Rig r;
     r.Handshake();
     Check(r.startCalls == 1 && r.readyCalls == 1, "handshake reached STREAMING once");
 
-    // HELLO_ACK lặp mang số khác: hợp lệ (nuôi timeout) nhưng không được đụng vào
-    // trạng thái — dựng lại decoder giữa phiên là hỏng hình.
     uint8_t buf[kMaxDatagram];
     HelloAck dup{};
     dup.sessionId = 0xDEAD;
@@ -373,7 +347,6 @@ void TestHandshakeDuplicates() {
     Check(r.cli.sessionId() != 0xDEAD && r.cli.params().width == 1920 && r.readyCalls == 1,
         "duplicate HELLO_ACK doesn't rebuild the session");
 
-    // HELLO phát lại từ CÙNG client (ACK bị mất): host ACK lại, giữ nguyên phiên.
     const uint32_t sid = r.host.sessionId();
     r.w.toClient.clear();
     n = BuildHello(buf, Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0});
@@ -385,13 +358,11 @@ void TestHandshakeDuplicates() {
     const auto ack = ParseHelloAck(PayloadOf(r.w.toClient.front()));
     Check(ack && ack->sessionId == sid, "re-sent ACK carries the same sessionId");
 
-    // START lặp: chỉ lần đầu đổi trạng thái và force IDR.
     n = BuildStart(buf, sid);
     r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now);
     Check(r.startCalls == 1, "repeated START doesn't re-fire onStart");
 }
 
-// Hai đường chết còn thiếu của client: host chủ động BYE, và host im lặng giữa phiên.
 void TestClientDeathPaths() {
     std::printf("[session] BYE from host + mid-session timeout kill the client...\n");
     {
@@ -413,8 +384,6 @@ void TestClientDeathPaths() {
     }
 }
 
-// Client không giải mã được H.264: host v1 chỉ phát H.264 nên phải từ chối ngay ở
-// bắt tay, thay vì để client ngồi nhìn màn hình đen.
 void TestRejectCodecMismatch() {
     std::printf("[session] HELLO without H.264 -> rejected at handshake...\n");
     Rig r;
@@ -424,12 +393,10 @@ void TestRejectCodecMismatch() {
     Check(r.host.state() == HostSession::State::Idle, "host stays IDLE after the codec reject");
 }
 
-// Input đi TRỌN qua session: QueueInput -> Tick flush -> host onInput. Trước khi
-// STREAMING là no-op, bản phát lại (redundancy) phải bị host khử trùng.
 void TestInputThroughSession() {
     std::printf("[session] input flows client -> host, deduped, gated on STREAMING...\n");
     Rig r;
-    r.cli.QueueInput(SessionKey('A', true)); // chưa có phiên -> rơi vào hư không
+    r.cli.QueueInput(SessionKey('A', true));
     r.Handshake();
     r.cli.Tick(r.now);
     r.Pump();
@@ -439,7 +406,6 @@ void TestInputThroughSession() {
     r.cli.QueueInput(SessionKey('B', false));
     r.now += 20'000;
     r.cli.Tick(r.now);
-    // Tick thêm vài nhịp cho InputSender phát lại đuôi — bản lặp phải bị khử.
     for (int i = 0; i < 3; ++i) {
         r.now += kInputRepeatIntervalUs;
         r.cli.Tick(r.now);
@@ -450,8 +416,6 @@ void TestInputThroughSession() {
         "input events reach host exactly once, in order");
 }
 
-// sessionId là hàng rào DUY NHẤT chặn gói lạc trên UDP — quét qua các loại thông
-// điệp chính, cả hai chiều: gói mang sessionId lạ bị bỏ và không đụng trạng thái.
 void TestStraySessionIdIgnored() {
     std::printf("[session] packets with a stray sessionId are ignored on both sides...\n");
     Rig r;
@@ -485,8 +449,6 @@ void TestStraySessionIdIgnored() {
         "stray INPUT_EVENT rejected, nothing injected");
 }
 
-// SET_FOCUS chỉ được phát đúng kFocusRepeats lần rồi im (phát mãi thì người ngồi
-// máy host không dùng nổi ứng dụng khác), và REQUEST_KEYFRAME dừng được bằng Cancel.
 void TestFocusRepeatsAndKeyframeCancel() {
     std::printf("[session] SET_FOCUS repeat quota + CancelKeyframeRequest...\n");
     Rig r;
@@ -501,7 +463,6 @@ void TestFocusRepeatsAndKeyframeCancel() {
     Check(CountType(r.w.toHost, MsgType::SetFocus) == size_t(kFocusRepeats),
         "SET_FOCUS sent exactly kFocusRepeats times");
 
-    // Gọi lại cùng giá trị khi host đã biết: không phát thêm gói nào.
     r.w.toHost.clear();
     r.cli.SetFocused(true);
     r.now += kFocusRetryUs;
@@ -523,8 +484,6 @@ void TestFocusRepeatsAndKeyframeCancel() {
         "CancelKeyframeRequest stops the retries");
 }
 
-// Datagram rác thuần ngẫu nhiên (PRNG xác định, tái lập được): cả hai bên phải
-// đứng vững và giữ nguyên phiên — UDP là cổng mở, ai cũng gửi tới được.
 void TestSessionsSurviveGarbage() {
     std::printf("[session] 500 garbage datagrams -> both sides unaffected...\n");
     Rig r;
@@ -542,13 +501,9 @@ void TestSessionsSurviveGarbage() {
         "client unaffected by garbage datagrams");
 }
 
-// Chia sẻ chuột/bàn phím là MẶC ĐỊNH VÀ KHÔNG TẮT ĐƯỢC (chốt 2026-07-27: app chỉ
-// làm remote desktop). Test này khoá chính điều đó lại: một phiên vừa bắt tay xong,
-// không ai bật gì thêm, phải cho input đi thẳng từ client tới injector của host.
 void TestInputAlwaysFlows() {
     std::printf("[session] input is always shared, no opt-in needed...\n");
     {
-        // Phía client: QueueInput ngay sau bắt tay là đã lên dây.
         Rig r;
         r.Handshake();
         r.w.toHost.clear();
@@ -559,7 +514,6 @@ void TestInputAlwaysFlows() {
         Check(CountType(r.w.toHost, MsgType::InputEvent) > 0, "the client sends input by default");
     }
     {
-        // Phía host: nhận và chuyển tiếp, không cần bật gì.
         Rig r;
         r.Handshake();
         uint8_t buf[kMaxDatagram];
@@ -571,7 +525,7 @@ void TestInputAlwaysFlows() {
     }
 }
 
-} // namespace
+}
 
 void RunSessionTests() {
     TestSessions();

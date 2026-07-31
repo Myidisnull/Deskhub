@@ -1,7 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Scheme share sẵn cho CI: fastlane/xcodebuild cần -scheme để archive (target
-     suông không archive được). Cùng nội dung với scheme Xcode tự sinh khi mở
-     project, chỉ khác là được commit để runner không cần mở Xcode GUI. -->
 <Scheme
    LastUpgradeVersion = "2660"
    version = "1.7">

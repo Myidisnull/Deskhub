@@ -1,20 +1,4 @@
-# Cấu hình fastlane match cho app macOS — DÙNG CHUNG repo cert với iOS
-# (Deskhub_certificate), chỉ khác `type`: iOS lấy "appstore", macOS lấy "developer_id".
-#
-#   - Local: clone qua SSH (git_url dưới) — cần SSH key có quyền đọc/ghi repo
-#   - CI   : secret MATCH_GIT_URL (URL HTTPS) + MATCH_GIT_BASIC_AUTHORIZATION
-#            (base64 "<user>:<PAT>"), giống hệt job iOS
-#   - MATCH_PASSWORD: passphrase mã hoá cert — chung cho cả hai loại
-#
-# CẢNH BÁO — cert Developer ID KHÔNG giống cert iOS:
-#   Mỗi tài khoản chỉ được tạo giới hạn (5) cert "Developer ID Application", và
-#   thu hồi là ảnh hưởng mọi bản đã phát hành. TUYỆT ĐỐI không chạy `match nuke`
-#   lên loại này. Tạo cert lần đầu còn đòi vai trò Account Holder, không phải Admin.
-#
-# Tạo cert (chạy LOCAL một lần, cần ASC_KEY_* + MATCH_PASSWORD trong env):
-#   cd client/macos && fastlane mac certificates
 git_url(ENV["MATCH_GIT_URL"] || "git@github.com:manhpham90vn/Deskhub_certificate.git")
 storage_mode("git")
 git_branch("main")
 type("developer_id")
-# app_identifier + team_id lấy từ Appfile

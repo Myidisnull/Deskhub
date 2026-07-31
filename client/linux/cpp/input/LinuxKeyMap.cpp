@@ -1,14 +1,3 @@
-// =============================================================================
-// LinuxKeyMap.cpp — bảng dịch evdev ↔ (VK, scancode set 1).
-//
-// CÁCH ĐỌC BẢNG
-//   Ba cột: {evdev, VK Windows, scancode set 1}. Cột scancode có 0x1xx nghĩa là
-//   phím E0 (mở rộng) — cờ deskhub::kScanExtended.
-//   Với các phím thường, cột 1 và cột 3 TRÙNG NHAU; đó là sự trùng hợp lịch sử,
-//   không phải quy luật để rút gọn bảng (xem ⚠ ở LinuxKeyMap.h).
-//
-// LIÊN QUAN: input/LinuxKeyMap.h (lý do thiết kế + giới hạn layout US)
-// =============================================================================
 #include "input/LinuxKeyMap.h"
 
 #include <linux/input-event-codes.h>
@@ -20,7 +9,6 @@ namespace {
 
 constexpr int32_t E0 = deskhub::kScanExtended;
 
-// Mã phím ảo Windows — đặt tên ở đây thay vì viết số trần, để bảng đọc được.
 constexpr int32_t VK_BACK_ = 0x08, VK_TAB_ = 0x09, VK_RETURN_ = 0x0D;
 constexpr int32_t VK_PAUSE_ = 0x13, VK_CAPITAL_ = 0x14, VK_ESCAPE_ = 0x1B, VK_SPACE_ = 0x20;
 constexpr int32_t VK_PRIOR_ = 0x21, VK_NEXT_ = 0x22, VK_END_ = 0x23, VK_HOME_ = 0x24;
@@ -39,7 +27,6 @@ constexpr int32_t VK_OEM_3_ = 0xC0, VK_OEM_4_ = 0xDB, VK_OEM_5_ = 0xDC;
 constexpr int32_t VK_OEM_6_ = 0xDD, VK_OEM_7_ = 0xDE;
 
 const KeyEntry kTable[] = {
-    // --- Hàng số + phím điều khiển cơ bản ---
     {KEY_ESC, VK_ESCAPE_, 0x01},
     {KEY_1, '1', 0x02},
     {KEY_2, '2', 0x03},
@@ -56,7 +43,6 @@ const KeyEntry kTable[] = {
     {KEY_BACKSPACE, VK_BACK_, 0x0E},
     {KEY_TAB, VK_TAB_, 0x0F},
 
-    // --- Hàng QWERTY ---
     {KEY_Q, 'Q', 0x10},
     {KEY_W, 'W', 0x11},
     {KEY_E, 'E', 0x12},
@@ -72,7 +58,6 @@ const KeyEntry kTable[] = {
     {KEY_ENTER, VK_RETURN_, 0x1C},
     {KEY_LEFTCTRL, VK_LCONTROL_, 0x1D},
 
-    // --- Hàng ASDF ---
     {KEY_A, 'A', 0x1E},
     {KEY_S, 'S', 0x1F},
     {KEY_D, 'D', 0x20},
@@ -88,7 +73,6 @@ const KeyEntry kTable[] = {
     {KEY_LEFTSHIFT, VK_LSHIFT_, 0x2A},
     {KEY_BACKSLASH, VK_OEM_5_, 0x2B},
 
-    // --- Hàng ZXCV ---
     {KEY_Z, 'Z', 0x2C},
     {KEY_X, 'X', 0x2D},
     {KEY_C, 'C', 0x2E},
@@ -105,7 +89,6 @@ const KeyEntry kTable[] = {
     {KEY_SPACE, VK_SPACE_, 0x39},
     {KEY_CAPSLOCK, VK_CAPITAL_, 0x3A},
 
-    // --- Phím chức năng + khoá ---
     {KEY_F1, VK_F1_ + 0, 0x3B},
     {KEY_F2, VK_F1_ + 1, 0x3C},
     {KEY_F3, VK_F1_ + 2, 0x3D},
@@ -121,7 +104,6 @@ const KeyEntry kTable[] = {
     {KEY_NUMLOCK, VK_NUMLOCK_, 0x45},
     {KEY_SCROLLLOCK, VK_SCROLL_, 0x46},
 
-    // --- Numpad ---
     {KEY_KP7, VK_NUMPAD0_ + 7, 0x47},
     {KEY_KP8, VK_NUMPAD0_ + 8, 0x48},
     {KEY_KP9, VK_NUMPAD0_ + 9, 0x49},
@@ -136,7 +118,6 @@ const KeyEntry kTable[] = {
     {KEY_KP0, VK_NUMPAD0_ + 0, 0x52},
     {KEY_KPDOT, VK_DECIMAL_, 0x53},
 
-    // --- Phím MỞ RỘNG (E0). Từ đây trở xuống mã evdev KHÔNG còn trùng scancode ---
     {KEY_KPENTER, VK_RETURN_, 0x1C | E0},
     {KEY_RIGHTCTRL, VK_RCONTROL_, 0x1D | E0},
     {KEY_KPSLASH, VK_DIVIDE_, 0x35 | E0},
@@ -155,13 +136,10 @@ const KeyEntry kTable[] = {
     {KEY_LEFTMETA, VK_LWIN_, 0x5B | E0},
     {KEY_RIGHTMETA, VK_RWIN_, 0x5C | E0},
     {KEY_COMPOSE, VK_APPS_, 0x5D | E0},
-    // Pause là phím duy nhất có chuỗi scancode E1 1D 45 ... — không biểu diễn được
-    // trong một số 9 bit. Dùng 0x45 trần: host Windows nhận VK_PAUSE và tra bảng
-    // của nó, còn game DirectInput đọc scancode thì hầu như không dùng phím này.
     {KEY_PAUSE, VK_PAUSE_, 0x45},
 };
 
-} // namespace
+}
 
 bool EvdevToWin(uint16_t evdevCode, int32_t& vk, int32_t& scan) {
     for (const KeyEntry& e : kTable) {
@@ -175,13 +153,10 @@ bool EvdevToWin(uint16_t evdevCode, int32_t& vk, int32_t& scan) {
 }
 
 bool WinVkToEvdev(int32_t vk, uint16_t& evdevCode) {
-    // VK "chung" (không phân biệt trái/phải) — host nào gửi bản chung thì quy về
-    // phím TRÁI, giống MacKeyMap. Phải xử lý TRƯỚC vòng quét bảng vì ba mã này
-    // không có mặt trong bảng.
     switch (vk) {
-        case 0x10: vk = VK_LSHIFT_; break;   // VK_SHIFT
-        case 0x11: vk = VK_LCONTROL_; break; // VK_CONTROL
-        case 0x12: vk = VK_LMENU_; break;    // VK_MENU
+        case 0x10: vk = VK_LSHIFT_; break;
+        case 0x11: vk = VK_LCONTROL_; break;
+        case 0x12: vk = VK_LMENU_; break;
         default: break;
     }
     for (const KeyEntry& e : kTable) {
@@ -193,4 +168,4 @@ bool WinVkToEvdev(int32_t vk, uint16_t& evdevCode) {
     return false;
 }
 
-} // namespace linuxkeys
+}

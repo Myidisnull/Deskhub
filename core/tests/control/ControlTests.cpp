@@ -1,7 +1,3 @@
-// =============================================================================
-// ControlTests.cpp — chính sách điều tiết: BitrateController (tụt nhanh/lên chậm,
-// bật-tắt FEC) và LinkStats (delta theo cửa sổ, dựng Feedback).
-// =============================================================================
 #include "Tests.h"
 #include "support/TestSupport.h"
 
@@ -50,7 +46,7 @@ void TestBitrateRecovery() {
     BitrateController c(20'000'000, 1'000'000);
 
     auto d = c.Update(Fb(5), 1'000'000);
-    c.CommitBitrate(d.bitrateBps); // 15 Mbps, lastDecrease = 1s
+    c.CommitBitrate(d.bitrateBps);
 
     d = c.Update(Fb(0), 2'500'000);
     Check(!d.changeBitrate, "no ramp-up within the 2s cooldown after a decrease");
@@ -118,7 +114,7 @@ void TestLinkStatsWindow() {
     st.lossRuns[3] = 1;
     st.lossRunMax = 6;
 
-    const LinkWindow w = ls.Close(st, 250'000 /*bytes*/, 60 /*frames*/, 1'000'000);
+    const LinkWindow w = ls.Close(st, 250'000, 60, 1'000'000);
     Check(w.packetsLost == 100 && w.packetsReceived == 900, "first window = raw counters");
     Check(w.lossPct > 9.99 && w.lossPct < 10.01, "lossPct = lost/(lost+received)");
     Check(w.fps > 59.9 && w.fps < 60.1, "fps from rendered count");
@@ -132,8 +128,6 @@ void TestLinkStatsWindow() {
     Check(w2.lossPct == 0.0, "clean second reports 0% loss");
     Check(w2.framesDropped == 1, "dropped frames are per-window too");
 
-    // Gói về muộn: đếm theo cửa sổ, độ muộn trung bình tính trên đúng cửa sổ này,
-    // lateMsMax là kỷ lục tích luỹ chép thẳng qua.
     st.latePackets += 4;
     st.lateMsSum += 100;
     st.lateMsMax = 60;
@@ -146,7 +140,7 @@ void TestLinkStatsUsesRealElapsed() {
     std::printf("[ctrl] LinkStats: rates use the real window length...\n");
     LinkStats ls(0);
     Reassembler::Stats st{};
-    const LinkWindow w = ls.Close(st, 250'000, 60, 2'000'000); // cửa sổ dài 2s
+    const LinkWindow w = ls.Close(st, 250'000, 60, 2'000'000);
     Check(w.secs > 1.99 && w.secs < 2.01, "window length is measured, not assumed");
     Check(w.fps > 29.9 && w.fps < 30.1, "60 frames over 2s = 30 fps, not 60");
 }
@@ -158,7 +152,7 @@ void TestFeedbackFromWindow() {
     w.framesDropped = 2;
     w.kbps = 8'500.4;
 
-    const Feedback fb = MakeFeedback(w, 21'400 /*rttUs*/);
+    const Feedback fb = MakeFeedback(w, 21'400);
     Check(fb.lossPct == 4, "lossPct rounds to nearest (3.6 -> 4)");
     Check(fb.lostFrames == 2, "lostFrames carried through");
     Check(fb.rttMs == 21, "RTT converted us -> ms");
@@ -169,7 +163,7 @@ void TestFeedbackFromWindow() {
     Check(fb2.lossPct == 0 && fb2.lostFrames == 0, "a clean window is still a valid Feedback");
 }
 
-} // namespace
+}
 
 void RunControlTests() {
     TestBitrateBackoff();

@@ -1,18 +1,6 @@
-# core — phần dùng chung giữa các OS (Windows/macOS/Ubuntu/iOS/Android):
-# giao thức wire, packetize/reassemble, session. Thuần C++20, KHÔNG include
-# header hệ điều hành nào. Build được trong cây Deskhub lẫn standalone
-# (clang/gcc, Xcode toolchain, Android NDK toolchain).
 cmake_minimum_required(VERSION 3.20)
 project(DeskhubCore LANGUAGES CXX)
 
-# Nhóm theo tầng, dưới lên trên:
-#   protocol/  — khung byte trên dây (header chung, build/parse từng loại message)
-#   transport/ — cắt/ghép frame thành datagram, FEC, chống trùng & mất gói
-#   session/   — handshake + vòng đời phiên hai phía (host/client)
-#   input/     — chuỗi sự kiện chuột/phím có thứ tự trên nền transport
-#   control/   — policy điều tiết: bitrate/FEC phía host, gom số liệu phía client
-#   diag/      — bộ đếm cửa sổ + dựng chuỗi cho log [DIAG] (docs/09), KHÔNG ghi I/O
-#   session/   — kèm Beacon: hỏi-đáp một nhịp TRƯỚC khi có phiên (liệt kê nguồn, ping dò)
 add_library(core STATIC
     src/protocol/Wire.cpp
 
@@ -44,10 +32,6 @@ if(MSVC)
     target_compile_options(core PRIVATE /W4 /permissive- /sdl)
 endif()
 
-# Test của core — chạy offline, không mạng/GPU, nên build được bằng mọi toolchain
-# dựng được core. Mặc định tắt trên Android: exe host không chạy được trên thiết bị,
-# và Gradle chỉ cần libdeskhub.so. Muốn chạy test bằng NDK thì bật tay:
-#   cmake ... -DDESKHUB_CORE_TESTS=ON
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(deskhub_tests_default OFF)
 else()
@@ -56,8 +40,6 @@ endif()
 option(DESKHUB_CORE_TESTS "Build core_tests" ${deskhub_tests_default})
 
 if(DESKHUB_CORE_TESTS)
-    # Test tách theo tầng, gương với cây src/: mỗi module một file, dùng chung
-    # tiện ích ở tests/support. TestMain gom lại và chạy tất cả.
     add_executable(core_tests
         tests/TestMain.cpp
         tests/support/TestSupport.cpp

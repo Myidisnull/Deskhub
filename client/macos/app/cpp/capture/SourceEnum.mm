@@ -1,19 +1,3 @@
-// =============================================================================
-// SourceEnum.mm — cài đặt bằng SCShareableContent.
-//
-// CHUYỂN API BẤT ĐỒNG BỘ THÀNH ĐỒNG BỘ
-//   SCShareableContent chỉ có bản completion-handler. Caller của ta (facade C cho
-//   Swift, và AgentLoop) muốn một hàm gọi-xong-là-có-kết-quả, đúng như QuerySources
-//   bên vai client. Nên ta chờ bằng dispatch_semaphore với hạn 2 giây: hết hạn thì
-//   trả rỗng chứ không treo mãi — API này có thể không bao giờ gọi lại handler khi
-//   quyền bị thu hồi giữa chừng.
-//
-//   Hệ quả bắt buộc: KHÔNG được gọi từ main thread. Handler của SCShareableContent
-//   chạy trên một queue nền, nhưng chờ trên main thread vẫn làm treo UI 2 giây, và
-//   quan trọng hơn là chặn luôn vòng lặp sự kiện mà các API AppKit cần.
-//
-// LIÊN QUAN: capture/SourceEnum.h (lý do chọn SCShareableContent)
-// =============================================================================
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 
 #include "capture/SourceEnum.h"
@@ -45,7 +29,6 @@ std::vector<ShareSource> GetShareSources() {
     for (SCDisplay* d in content.displays) {
         ShareSource s;
         s.displayId = uint32_t(d.displayID);
-        // d.width/height của SCDisplay đã là PIXEL, không phải point.
         s.width = uint32_t(d.width);
         s.height = uint32_t(d.height);
         char label[128];

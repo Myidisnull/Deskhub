@@ -1,13 +1,3 @@
-// =============================================================================
-// MainWindow.cpp — màn hình chính: hộp Host mode + hộp Client mode.
-//
-// Bố cục và câu chữ chép từ client/windows/win32/MainMenuWindow.cpp; chỗ nào lệch
-// đều có chú thích tại chỗ. Khác biệt CẤU TRÚC duy nhất: bên Windows DoShare/
-// DoConnect CHẶN suốt phiên, ở đây không chặn được nên dùng callback — xem
-// gtk/MainWindow.h.
-//
-// LIÊN QUAN: gtk/MainWindow.h (⚠ vì sao cả hai nút chạy trên thread nền)
-// =============================================================================
 #include "gtk/MainWindow.h"
 
 #include <cstdio>
@@ -24,14 +14,13 @@
 #include "deskhubp/SourceQuery.h"
 #include "deskhubp/UdpSocket.h"
 
-#include "deskhub/protocol/Wire.h" // kMaxSources
+#include "deskhub/protocol/Wire.h"
 
 namespace {
 
 constexpr uint32_t kDefaultFps = 60;
 constexpr uint32_t kDefaultBitrateMbps = 20;
 
-// Bề rộng cửa sổ, chép từ kW của MainMenuWindow.cpp.
 constexpr int kWinW = 496;
 
 std::string Trim(const std::string& s) {
@@ -41,20 +30,17 @@ std::string Trim(const std::string& s) {
     return s.substr(b, e - b + 1);
 }
 
-// Số dương trong ô, hoặc `fallback` nếu ô rỗng/rác. Đối ứng GetEditUint bên Win32.
 uint32_t EntryUint(GtkWidget* entry, uint32_t fallback) {
     const int v = std::atoi(gtk_entry_get_text(GTK_ENTRY(entry)));
     return v > 0 ? uint32_t(v) : fallback;
 }
 
-// Nhãn canh trái — thứ ta dùng ở mọi nơi, gom lại cho khỏi lặp bốn dòng mỗi lần.
 GtkWidget* Label(const char* text) {
     GtkWidget* l = gtk_label_new(text);
     gtk_label_set_xalign(GTK_LABEL(l), 0.f);
     return l;
 }
 
-// Ô số nhỏ (FPS, Bitrate).
 GtkWidget* NumberEntry(const char* value) {
     GtkWidget* e = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(e), value);
@@ -63,14 +49,10 @@ GtkWidget* NumberEntry(const char* value) {
     return e;
 }
 
-// Hộp thoại chọn nguồn phía client. Đối ứng SourcePickerDialog.cpp, KỂ CẢ việc
-// chọn NHIỀU nguồn: mỗi nguồn được chọn sẽ mở một cửa sổ xem riêng.
-// Trả false nếu người dùng huỷ.
 bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sources,
     std::vector<deskhub::SourceInfo>& out) {
     out.clear();
     if (sources.empty()) return false;
-    // Host chỉ chia sẻ một thứ: không bắt người dùng bấm thêm một hộp thoại nữa.
     if (sources.size() == 1) {
         out = sources;
         return true;
@@ -104,9 +86,8 @@ bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sour
 
     GtkTreeSelection* sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
     gtk_tree_selection_set_mode(sel, GTK_SELECTION_MULTIPLE);
-    gtk_tree_selection_select_all(sel); // mặc định chọn HẾT, như LB_SETSEL bên Win32
+    gtk_tree_selection_select_all(sel);
 
-    // Nháy đúp một dòng = chọn đúng dòng đó rồi bấm View (đối ứng LBN_DBLCLK).
     const auto onActivate = +[](GtkTreeView*, GtkTreePath*, GtkTreeViewColumn*, gpointer d) {
         gtk_dialog_response(GTK_DIALOG(d), GTK_RESPONSE_ACCEPT);
     };
@@ -123,8 +104,6 @@ bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sour
         FALSE, 0);
     gtk_widget_show_all(dlg);
 
-    // Vòng lặp, không phải một lần chạy: bấm View mà chưa chọn gì thì hộp thoại
-    // đứng yên chờ tiếp, giống Confirm() bên Win32 (nó `return` chứ không đóng).
     for (;;) {
         if (gtk_dialog_run(GTK_DIALOG(dlg)) != GTK_RESPONSE_ACCEPT) break;
 
@@ -146,7 +125,7 @@ bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sour
     return !out.empty();
 }
 
-} // namespace
+}
 
 void MainWindow::Open(GtkApplication* app) {
     auto* w = new MainWindow();
@@ -168,9 +147,6 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_box_pack_start(GTK_BOX(box), BuildHostBox(), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), BuildClientBox(), FALSE, FALSE, 0);
 
-    // Hàng cuối: Exit bên trái (như bản Win32), dòng trạng thái bên phải. Bản Win32
-    // KHÔNG có dòng trạng thái vì nó chặn cả cửa sổ trong lúc làm việc; ở đây hai
-    // thao tác chạy nền nên phải nói ra máy đang chờ cái gì.
     GtkWidget* bottom = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget* exitButton = gtk_button_new_with_label("Exit");
     gtk_widget_set_size_request(exitButton, 100, 28);
@@ -182,14 +158,11 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_box_pack_start(GTK_BOX(bottom), statusLabel_, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(box), bottom, FALSE, FALSE, 0);
 
-    // Connect là nút mặc định (BS_DEFPUSHBUTTON bên Win32): Enter ở bất kỳ ô nào
-    // cũng là "kết nối", vì đó là việc chính của màn hình này.
     gtk_window_set_default(GTK_WINDOW(window_), connectButton_);
 
     gtk_widget_show_all(window_);
 }
 
-// --- Hộp HOST ---------------------------------------------------------------
 GtkWidget* MainWindow::BuildHostBox() {
     GtkWidget* frame = gtk_frame_new("Host mode - share an application on THIS machine");
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -214,8 +187,6 @@ GtkWidget* MainWindow::BuildHostBox() {
             gtk_widget_set_hexpand(line, TRUE);
             gtk_grid_attach(GTK_GRID(grid), line, 0, row, 1, 1);
 
-            // Giá trị Copy là IP TRẦN — đúng thứ phải gõ vào ô địa chỉ phía kia.
-            // Dán vào chính nút, để callback khỏi phải tra ngược danh sách.
             GtkWidget* copy = gtk_button_new_with_label("Copy");
             gtk_widget_set_size_request(copy, 60, 20);
             g_object_set_data_full(G_OBJECT(copy), "deskhub-ip", g_strdup(a.ip.c_str()), g_free);
@@ -226,8 +197,6 @@ GtkWidget* MainWindow::BuildHostBox() {
         gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
     }
 
-    // Không có ô Port: cổng là hằng số kDeskhubPort (net/UdpSocket.h). Chỉ nói ra
-    // cho người dùng biết con số đó, vì firewall doanh nghiệp có thể cần mở tay.
     GtkWidget* settings = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     char portText[32];
     std::snprintf(portText, sizeof(portText), "UDP port %u", unsigned(kDeskhubPort));
@@ -252,7 +221,6 @@ GtkWidget* MainWindow::BuildHostBox() {
     return frame;
 }
 
-// --- Hộp CLIENT -------------------------------------------------------------
 GtkWidget* MainWindow::BuildClientBox() {
     GtkWidget* frame = gtk_frame_new("Client mode - connect to ANOTHER machine");
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -264,8 +232,6 @@ GtkWidget* MainWindow::BuildClientBox() {
     GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     addressEntry_ = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(addressEntry_), "192.168.1.10");
-    // Enter trong ô địa chỉ = bấm Connect. Người dùng gõ IP xong thì phản xạ là
-    // bấm Enter, không phải rê chuột sang nút.
     g_signal_connect(addressEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
     gtk_box_pack_start(GTK_BOX(row), addressEntry_, TRUE, TRUE, 0);
 
@@ -279,13 +245,6 @@ GtkWidget* MainWindow::BuildClientBox() {
     return frame;
 }
 
-// ---------------------------------------------------------------------------
-// Trạng thái + ẩn/hiện quanh phiên
-// ---------------------------------------------------------------------------
-
-// Khoá hai nút trong lúc một thao tác nền đang chạy: bấm Share hai lần sẽ mở hai
-// phiên portal chồng nhau, và bấm Connect trong lúc đang hỏi nguồn sẽ mở hai
-// socket dò cùng lúc.
 void MainWindow::SetBusy(bool busy, const char* what) {
     gtk_widget_set_sensitive(shareButton_, !busy);
     gtk_widget_set_sensitive(connectButton_, !busy);
@@ -296,16 +255,11 @@ void MainWindow::HideForSession() {
     gtk_widget_hide(window_);
 }
 
-// GtkApplication vẫn giữ tiến trình sống trong lúc cửa sổ này ẩn (nó đếm cửa sổ đã
-// ĐĂNG KÝ, không phải cửa sổ đang hiện), nên không cần giữ thêm tham chiếu nào.
 void MainWindow::ShowAfterSession() {
     gtk_widget_show(window_);
     gtk_window_present(GTK_WINDOW(window_));
 }
 
-// ---------------------------------------------------------------------------
-// Nút
-// ---------------------------------------------------------------------------
 void MainWindow::OnCopyClicked(GtkButton* b, gpointer) {
     const char* ip = static_cast<const char*>(g_object_get_data(G_OBJECT(b), "deskhub-ip"));
     if (!ip) return;
@@ -319,8 +273,6 @@ void MainWindow::OnExitClicked(GtkButton*, gpointer user) {
 
 void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    // Đọc hai ô TRƯỚC khi ẩn cửa sổ — sau đó widget vẫn sống, nhưng lấy ở đây thì
-    // giá trị chắc chắn là thứ người dùng đang nhìn thấy lúc bấm.
     AgentOptions opt;
     opt.fps = EntryUint(self->fpsEntry_, kDefaultFps);
     opt.bitrateMbps = EntryUint(self->bitrateEntry_, kDefaultBitrateMbps);
@@ -328,7 +280,6 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     self->SetBusy(true, "Waiting for the screen-sharing dialog…");
 
     std::thread([self, opt, alive = self->alive_] {
-        // CHẶN: hộp thoại hệ thống của portal. Đây chính là lý do phải ở thread nền.
         std::vector<ShareSource> sources = GetShareSources();
         const std::string err = sources.empty() ? ShareSourceError() : std::string();
 
@@ -336,15 +287,11 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
             if (!alive->load()) return;
             self->SetBusy(false, nullptr);
             if (sources.empty()) {
-                // Người dùng bấm huỷ thì không phải lỗi — im lặng quay lại.
                 if (!err.empty() && err != "cancelled by the user")
                     ShowError(GTK_WINDOW(self->window_), "Screen capture is not available", err);
                 return;
             }
 
-            // kMaxSources là trần của SOURCE_LIST trong MỘT datagram, không phải một
-            // con số tuỳ ý — chọn nhiều hơn thế thì cắt bớt và NÓI RA (giống DoShare
-            // bên Windows).
             if (sources.size() > deskhub::kMaxSources) {
                 char msg[192];
                 std::snprintf(msg, sizeof(msg),
@@ -379,8 +326,6 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
 
     NetAddr server{};
     if (!ParseNetAddr(text, server)) {
-        // Nói rõ cả cổng, vì đường sai hay gặp nhất là người dùng gõ kèm ":port"
-        // theo thói quen — ParseNetAddr từ chối chuỗi đó chứ không lờ đi.
         char msg[256];
         std::snprintf(msg, sizeof(msg),
             "Enter just the IP address (e.g., 192.168.1.10). Deskhub always uses UDP port %u.",
@@ -392,7 +337,6 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
     self->SetBusy(true, "Asking the other machine what it is sharing…");
 
     std::thread([self, server, alive = self->alive_] {
-        // CHẶN tới 3 giây (net/SourceQuery.h).
         std::vector<deskhub::SourceInfo> sources;
         const bool ok = QuerySources(server, sources);
 
@@ -400,18 +344,13 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
             if (!alive->load()) return;
             self->SetBusy(false, nullptr);
 
-            // Host im lặng KHÔNG phải lỗi tử vong: bản cũ không biết LIST_SOURCES.
-            // Cứ thử nguồn 0 — nếu máy kia thật sự không có ai nghe thì phiên sẽ
-            // tự chết vì timeout và cửa sổ xem báo lý do.
             std::vector<deskhub::SourceInfo> picked;
             if (ok && !sources.empty()) {
-                if (!PickSources(GTK_WINDOW(self->window_), sources, picked)) return; // huỷ
+                if (!PickSources(GTK_WINDOW(self->window_), sources, picked)) return;
             } else {
-                picked.push_back(deskhub::SourceInfo{}); // sourceId 0, tên rỗng
+                picked.push_back(deskhub::SourceInfo{});
             }
 
-            // Ẩn TRƯỚC khi mở: nếu không cửa sổ nào mở được thì nhánh dưới hiện lại
-            // ngay, người dùng chỉ thấy một cái nháy.
             self->HideForSession();
             int opened = 0;
             for (const auto& s : picked) {
