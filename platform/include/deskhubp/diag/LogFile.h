@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdio>
 #include <ctime>
 #include <string>
@@ -139,6 +140,12 @@ inline std::string& LogPathRef() {
     return path;
 }
 
+inline bool TryPointLatestSymlinkAt(const std::string& dir, const std::string& target) {
+    const std::string latest = dir + "/deskhub-latest.log";
+    ::unlink(latest.c_str());
+    return ::symlink(target.c_str(), latest.c_str()) == 0;
+}
+
 inline std::FILE* LogHandle() {
     static std::FILE* file = []() -> std::FILE* {
         const std::string dir = LogDir();
@@ -149,11 +156,9 @@ inline std::FILE* LogHandle() {
         if (!f) return nullptr;
         LogPathRef() = path;
 
-        std::setvbuf(f, nullptr, _IOFBF, 256 * 1024);
+        std::setvbuf(f, nullptr, _IOFBF, std::size_t{256} * 1024);
 
-        const std::string latest = dir + "/deskhub-latest.log";
-        ::unlink(latest.c_str());
-        ::symlink(path.c_str(), latest.c_str());
+        TryPointLatestSymlinkAt(dir, path);
 
         std::thread([f] {
             for (;;) {

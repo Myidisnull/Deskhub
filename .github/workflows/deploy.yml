@@ -1,5 +1,8 @@
 name: deploy
 
+# The tag pipeline. Every publishing job sits behind the same test workflow the
+# pull requests run, so a red test suite means nothing reaches TestFlight, Play
+# or the GitHub release page.
 on:
   push:
     tags: ['v*']
@@ -11,12 +14,98 @@ on:
         default: none
         options: [none, alpha]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Tag must match VERSION
+        run: scripts/check-version.sh
+
+  tests:
+    needs: version-check
+    uses: ./.github/workflows/tests.yml
+
+  apps:
+    needs: tests
+    uses: ./.github/workflows/apps.yml
+    with:
+      for_release: true
+
+  github-release:
+    needs: apps
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+
+      - name: Rename with tag
+        run: |
+          mkdir -p out
+          mv dist/deskhub-windows/Deskhub.exe "out/deskhub-${GITHUB_REF_NAME}-windows.exe"
+          mv dist/deskhub-linux/deskhub "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
+          chmod +x "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
+
+      - name: Create release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: |
+            out/deskhub-${{ github.ref_name }}-windows.exe
+            out/deskhub-${{ github.ref_name }}-linux-x86_64
+          body: |
+            | Platform | File / channel |
+            |---|---|
+            | Windows | `deskhub-${{ github.ref_name }}-windows.exe` — single file, just run it |
+            | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — notarized, opens without warnings |
+            | Ubuntu | `deskhub-${{ github.ref_name }}-linux-x86_64` — `chmod +x` and run (Ubuntu 22.04+, x86_64) |
+            | Android | `deskhub-${{ github.ref_name }}-android.apk` — release-signed, same key as the Google Play build |
+            | iOS | TestFlight / App Store (ipa cannot be sideloaded) |
+
+            **Ubuntu — connecting and viewing needs nothing installed.** The binary links only against GTK3, PipeWire and
+            libva, which a stock desktop already has; the H.264 decoder is compiled in, so it runs on 22.04 through 26.04
+            with no FFmpeg package involved.
+
+            **To share your screen** you need three more things:
+
+            ```bash
+            # 1. Portal backend — on Wayland an app cannot read the screen; the portal asks for you.
+            sudo apt install xdg-desktop-portal xdg-desktop-portal-gnome   # KDE: -kde · sway/wlroots: -wlr
+
+            # 2. VA-API driver — H.264 is encoded on the GPU, there is no software fallback.
+            sudo apt install va-driver-all vainfo
+            vainfo | grep -E 'H264.*Enc'      # must print ≥1 line, or this machine cannot host
+
+            # 3. Write access to /dev/uinput — how mouse and keyboard get injected.
+            echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
+              | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules
+            sudo udevadm control --reload-rules && sudo udevadm trigger
+            sudo usermod -aG input "$USER"    # then LOG OUT and back in
+            ```
+
+            The macOS dmg and the Android apk are attached by their own jobs — they may show up a few minutes later.
+
   ios:
+    needs: apps
     runs-on: macos-latest
+    timeout-minutes: 60
     environment: stg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Fastlane release (build + TestFlight)
         working-directory: client/ios
@@ -31,19 +120,22 @@ jobs:
         run: fastlane ios release
 
       - name: Upload ipa artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deskhub-ios-ipa
           path: client/ios/build/*.ipa
+          retention-days: 30
           if-no-files-found: error
 
   macos:
+    needs: apps
     runs-on: macos-latest
+    timeout-minutes: 60
     environment: stg
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Fastlane release (build + notarize + dmg)
         working-directory: client/macos
@@ -61,10 +153,11 @@ jobs:
         run: make verify-macos
 
       - name: Upload dmg artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deskhub-macos-dmg
           path: out/dist/macos/Deskhub.dmg
+          retention-days: 30
           if-no-files-found: error
 
       - name: Rename with tag
@@ -73,32 +166,35 @@ jobs:
 
       - name: Attach dmg to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: out/dist/macos/deskhub-${{ github.ref_name }}-macos.dmg
 
   android:
+    needs: apps
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     environment: stg
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
 
       - name: Install NDK + CMake
         run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Setup Ruby + fastlane
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
       - run: gem install fastlane --no-document
@@ -119,10 +215,11 @@ jobs:
         run: fastlane android release
 
       - name: Upload aab artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deskhub-android-aab
           path: client/android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30
           if-no-files-found: error
 
       - name: Rename apk with tag
@@ -131,6 +228,6 @@ jobs:
 
       - name: Attach apk to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: deskhub-${{ github.ref_name }}-android.apk

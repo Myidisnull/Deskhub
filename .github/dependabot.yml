@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # The workflows pin every action to a commit SHA, so this is the only thing
+  # that moves them - without it the pins silently rot.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: gradle
+    directory: /client/android
+    schedule:
+      interval: weekly
+    groups:
+      gradle:
+        patterns: ['*']

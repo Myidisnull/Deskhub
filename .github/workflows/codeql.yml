@@ -1,0 +1,61 @@
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: ${{ matrix.language }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { language: c-cpp,       os: ubuntu-latest, build-mode: manual }
+          - { language: java-kotlin, os: ubuntu-latest, build-mode: none }
+          - { language: swift,       os: macos-latest,  build-mode: manual }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Ninja
+        if: matrix.language == 'c-cpp'
+        run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@a2983b8bed1923f44751c5c43237f479442827b3 # v3.37.4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix['build-mode'] }}
+
+      - name: Build core + platform + tests
+        if: matrix.language == 'c-cpp'
+        run: |
+          cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
+          cmake --build --preset x64-debug \
+            --target core_tests platform_tests integration_tests
+
+      - name: Build the macOS app
+        if: matrix.language == 'swift'
+        run: make build-macos
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@a2983b8bed1923f44751c5c43237f479442827b3 # v3.37.4
+        with:
+          category: /language:${{ matrix.language }}

@@ -21,7 +21,7 @@ template <class Native>
 struct ScancodeEntry {
     Native native;
     int32_t vk;
-    int32_t scan;
+    int32_t scan = 0;
 };
 
 template <class Native>

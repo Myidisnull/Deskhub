@@ -1,0 +1,225 @@
+name: tests
+
+# Reusable: build.yml calls this on every push/PR, deploy.yml calls it before it
+# is allowed to ship anything. Nothing reaches a store or a GitHub release
+# without this workflow going green first.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: ${{ matrix.os }} · ${{ matrix.preset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    preset: x64-debug }
+          - { os: ubuntu-latest,    preset: x64-release }
+          - { os: ubuntu-24.04-arm, preset: arm64-debug }
+          - { os: ubuntu-24.04-arm, preset: arm64-release }
+          - { os: macos-latest,     preset: arm64-debug }
+          - { os: macos-latest,     preset: arm64-release }
+          - { os: windows-latest,   preset: x64-debug }
+          - { os: windows-latest,   preset: x64-release }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Install Ninja
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   sudo apt-get update -qq && sudo apt-get install -y ninja-build ;;
+            macOS)   brew install ninja ;;
+            Windows) choco install ninja -y ;;
+          esac
+
+      - name: Configure (app off — this job only tests core/platform/integration)
+        run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
+
+      - name: Build the three test binaries
+        run: cmake --build --preset ${{ matrix.preset }}
+             --target core_tests platform_tests integration_tests
+
+      - name: Run them through CTest
+        run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
+
+  sanitizers:
+    name: ${{ matrix.os }} · ${{ matrix.preset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, preset: asan }
+          - { os: ubuntu-latest, preset: tsan }
+          - { os: macos-latest,  preset: asan }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install clang + ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y clang ninja-build
+
+      - name: Install ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure (${{ matrix.preset }})
+        run: cmake --preset ${{ matrix.preset }}
+        env:
+          CC: clang
+          CXX: clang++
+
+      - name: Build the three test binaries
+        run: cmake --build --preset ${{ matrix.preset }}
+             --target core_tests platform_tests integration_tests
+
+      - name: Run them under ${{ matrix.preset }}
+        run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1
+
+  android-tests:
+    name: android · ${{ matrix.abi }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    abi: x86_64 }
+          - { os: ubuntu-24.04-arm, abi: arm64-v8a }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: 26.1.10909125
+      BUILD_DIR: out/build/android-${{ matrix.abi }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+
+      - name: Install NDK
+        run: sdkmanager "ndk;$NDK_VERSION"
+
+      - name: Install Ninja
+        run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
+
+      - name: Cross-compile the test binaries for android-${{ matrix.abi }}
+        run: |
+          cmake -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DDESKHUB_WERROR=ON \
+            -DDESKHUB_CORE_TESTS=ON \
+            -DDESKHUB_PLATFORM_TESTS=ON \
+            -DDESKHUB_INTEGRATION_TESTS=ON
+          cmake --build "$BUILD_DIR" \
+            --target core_tests platform_tests integration_tests
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run them on an emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 30
+          arch: ${{ matrix.abi }}
+          target: default
+          disable-animations: true
+          script: |
+            adb wait-for-device
+            adb shell mkdir -p /data/local/tmp/deskhub
+            build=out/build/android-${{ matrix.abi }}
+            for t in core_tests platform_tests integration_tests; do
+              case $t in
+                core_tests)        src=$build/core/$t ;;
+                platform_tests)    src=$build/platform/$t ;;
+                integration_tests) src=$build/tests/integration/$t ;;
+              esac
+              adb push "$src" /data/local/tmp/deskhub/$t
+              adb shell chmod 755 /data/local/tmp/deskhub/$t
+              echo "===== $t on Android (${{ matrix.abi }}) ====="
+              adb shell "cd /data/local/tmp/deskhub && ./$t; echo EXIT=\$?" | tee /tmp/$t.log
+              grep -q "EXIT=0" /tmp/$t.log || { echo "::error::$t failed on Android ${{ matrix.abi }}"; exit 1; }
+            done
+
+  ios-tests:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Build the test binaries for the iOS Simulator
+        run: |
+          cmake -B out/build/ios-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DDESKHUB_WERROR=ON \
+            -DDESKHUB_CORE_TESTS=ON \
+            -DDESKHUB_PLATFORM_TESTS=ON \
+            -DDESKHUB_INTEGRATION_TESTS=ON
+          cmake --build out/build/ios-sim \
+            --target core_tests platform_tests integration_tests
+
+      - name: Boot a simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j \
+            | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for v in d.values() for x in v))")
+          echo "SIM_UDID=$udid" >> "$GITHUB_ENV"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid"
+
+      - name: Run them on the simulator
+        run: |
+          for t in core/core_tests platform/platform_tests tests/integration/integration_tests; do
+            echo "===== $(basename $t) on the iOS Simulator ====="
+            xcrun simctl spawn "$SIM_UDID" "$PWD/out/build/ios-sim/$t"
+          done
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install clang + llvm + ninja
+        run: sudo apt-get update -qq && sudo apt-get install -y clang llvm ninja-build
+
+      - name: Build + measure coverage (make coverage)
+        run: make coverage
+
+      - name: Fail if core coverage regressed
+        run: scripts/check-coverage.sh
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-report
+          path: out/coverage
+          retention-days: 14
+          if-no-files-found: error

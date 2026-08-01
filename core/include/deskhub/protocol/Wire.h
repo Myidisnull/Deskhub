@@ -92,7 +92,7 @@ struct Hello {
     uint16_t maxHeight;
     uint8_t desiredFps;
     uint16_t features;
-    uint8_t sourceId;
+    uint8_t sourceId = 0;
 };
 
 enum class RejectReason : uint8_t {
@@ -128,7 +128,7 @@ struct Reconfig {
     uint16_t width;
     uint16_t height;
     uint32_t bitrateBps;
-    uint8_t fps;
+    uint8_t fps = 0;
 };
 
 enum class InputType : uint8_t {

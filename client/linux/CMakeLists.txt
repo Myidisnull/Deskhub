@@ -10,8 +10,18 @@ pkg_check_modules(DESKHUB_DEPS IMPORTED_TARGET
     libva-drm
     libpipewire-0.3
 )
+# DESKHUB_REQUIRE_LINUX_APP turns the "quietly skip the app" path into a hard
+# error. CI sets it so a missing dependency cannot produce a green build that
+# shipped no binary.
+option(DESKHUB_REQUIRE_LINUX_APP "Fail instead of skipping when the app cannot be built" OFF)
+if(DESKHUB_REQUIRE_LINUX_APP)
+    set(deskhub_skip_level FATAL_ERROR)
+else()
+    set(deskhub_skip_level STATUS)
+endif()
+
 if(NOT DESKHUB_DEPS_FOUND)
-    message(STATUS
+    message(${deskhub_skip_level}
         "Deskhub: skipping the Ubuntu app — development packages are missing. "
         "Run 'make bootstrap' to install them.")
     return()
@@ -19,7 +29,7 @@ endif()
 
 set(FFMPEG_MIN_DIR ${CMAKE_SOURCE_DIR}/third_party/ffmpeg-min)
 if(NOT EXISTS ${FFMPEG_MIN_DIR}/lib/libavcodec.a)
-    message(STATUS
+    message(${deskhub_skip_level}
         "Deskhub: skipping the Ubuntu app — third_party/ffmpeg-min is missing. "
         "Run 'scripts/build-ffmpeg.sh' (or 'make bootstrap').")
     return()
@@ -62,4 +72,4 @@ target_include_directories(deskhub_app PRIVATE
 
 target_link_libraries(deskhub_app PRIVATE core platform PkgConfig::DESKHUB_DEPS ffmpeg_min)
 target_compile_features(deskhub_app PRIVATE cxx_std_20)
-target_compile_options(deskhub_app PRIVATE -Wall -Wextra)
+deskhub_target_warnings(deskhub_app)

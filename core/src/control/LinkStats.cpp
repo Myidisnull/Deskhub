@@ -1,5 +1,7 @@
 #include "deskhub/control/LinkStats.h"
 
+#include <cmath>
+
 namespace deskhub {
 
 LinkWindow LinkStats::Close(const Reassembler::Stats& cur, uint64_t videoBytes,
@@ -40,7 +42,7 @@ LinkWindow LinkStats::Close(const Reassembler::Stats& cur, uint64_t videoBytes,
 Feedback MakeFeedback(const LinkWindow& w, uint32_t rttUs) {
     Feedback fb;
     fb.lostFrames = uint16_t(w.framesDropped);
-    fb.lossPct = uint8_t(w.lossPct + 0.5);
+    fb.lossPct = uint8_t(std::lround(w.lossPct));
     fb.rttMs = uint16_t((rttUs + 500) / 1000);
     fb.recvBitrateKbps = uint32_t(w.kbps);
     return fb;

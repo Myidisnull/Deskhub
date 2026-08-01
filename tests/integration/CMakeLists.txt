@@ -17,9 +17,7 @@ target_compile_features(integration_tests PRIVATE cxx_std_20)
 find_package(Threads REQUIRED)
 target_link_libraries(integration_tests PRIVATE Threads::Threads)
 
-if(MSVC)
-    target_compile_options(integration_tests PRIVATE /W4 /permissive-)
-endif()
+deskhub_target_warnings(integration_tests)
 
 include(CTest)
 add_test(NAME integration_tests COMMAND integration_tests)

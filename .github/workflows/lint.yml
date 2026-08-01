@@ -7,14 +7,22 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   codestyle:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
         with:
           distribution: temurin
           java-version: '17'
@@ -32,10 +40,26 @@ jobs:
       - name: codestyle check (cpp + kotlin + swift)
         run: scripts/codestyle.sh --check
 
+  clang-tidy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install clang-tidy + ninja
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-tidy ninja-build
+
+      - name: Generate the compile database
+        run: cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
+
+      - name: Static analysis over core/src + platform/src
+        run: scripts/clang-tidy.sh
+
   swiftlint:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install SwiftLint
         run: brew install swiftlint
@@ -45,28 +69,57 @@ jobs:
 
   android-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: client/android
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
 
       - name: Android Lint
         run: ./gradlew lint --stacktrace
 
       - name: Upload lint report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-lint-report
           path: client/android/app/build/reports/lint-results-*.html
+          retention-days: 14
           if-no-files-found: ignore
+
+  workflows-and-shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+
+      - name: Install actionlint
+        run: |
+          curl -sSL -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          chmod +x /tmp/actionlint
+
+      - name: Lint the workflows
+        run: /tmp/actionlint -color
+
+      # Severity warning and up: the info-level hits are all deliberate word
+      # splitting of argument lists that would break if quoted.
+      - name: Lint the shell scripts
+        run: shellcheck --severity=warning scripts/*.sh

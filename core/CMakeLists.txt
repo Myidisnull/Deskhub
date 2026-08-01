@@ -40,8 +40,9 @@ add_library(core STATIC
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+deskhub_target_warnings(core)
 if(MSVC)
-    target_compile_options(core PRIVATE /W4 /permissive- /sdl)
+    target_compile_options(core PRIVATE /sdl)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -107,9 +108,7 @@ if(DESKHUB_CORE_TESTS)
     )
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)
-    if(MSVC)
-        target_compile_options(core_tests PRIVATE /W4 /permissive-)
-    endif()
+    deskhub_target_warnings(core_tests)
 
     include(CTest)
     add_test(NAME core_tests COMMAND core_tests)

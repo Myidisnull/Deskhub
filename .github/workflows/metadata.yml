@@ -3,12 +3,20 @@ name: metadata
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: metadata-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   ios:
     runs-on: macos-latest
+    timeout-minutes: 30
     environment: stg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Push App Store listing (fastlane ios metadata)
         working-directory: client/ios
@@ -20,12 +28,13 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: stg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Ruby + fastlane
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
       - run: gem install fastlane --no-document
