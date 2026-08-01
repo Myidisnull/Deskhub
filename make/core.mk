@@ -1,6 +1,7 @@
 ifeq ($(OS),Windows_NT)
 CORE_TESTS := out\build\x64-debug\core\core_tests.exe
 PLAT_TESTS := out\build\x64-debug\platform\platform_tests.exe
+INTEG_TESTS := out\build\x64-debug\tests\integration\integration_tests.exe
 COV_TESTS  := out\build\coverage\core\core_tests.exe
 COV_RAW    := out\build\coverage\core_tests.profraw
 COV_DATA   := out\build\coverage\core_tests.profdata
@@ -9,6 +10,7 @@ COV_SRC    := core\src core\include
 else
 CORE_TESTS := out/build/x64-debug/core/core_tests
 PLAT_TESTS := out/build/x64-debug/platform/platform_tests
+INTEG_TESTS := out/build/x64-debug/tests/integration/integration_tests
 COV_TESTS  := out/build/coverage/core/core_tests
 COV_RAW    := out/build/coverage/core_tests.profraw
 COV_DATA   := out/build/coverage/core_tests.profdata
@@ -32,11 +34,25 @@ test-platform:
 	@echo ===== Running platform_tests locally =====
 	$(PLAT_TESTS)
 
-test-all: test test-platform
+test-integration:
+	@$(DEVCMD) cmake --preset x64-debug >$(NULDEV) && cmake --build --preset x64-debug --target integration_tests
+	@echo ===== Running integration_tests locally =====
+	$(INTEG_TESTS)
+
+test-all: test test-platform test-integration
+
+test-asan:
+	@cmake --preset asan >$(NULDEV) && cmake --build --preset asan --target core_tests platform_tests integration_tests
+	@ctest --test-dir out/build/asan --output-on-failure
+
+test-tsan:
+	@cmake --preset tsan >$(NULDEV) && cmake --build --preset tsan --target core_tests platform_tests integration_tests
+	@ctest --test-dir out/build/tsan --output-on-failure
 
 test-ctest:
 	@$(DEVCMD) cmake --preset x64-debug >$(NULDEV) && cmake --build --preset x64-debug --target core_tests
 	@$(DEVCMD) cmake --build --preset x64-debug --target platform_tests
+	@$(DEVCMD) cmake --build --preset x64-debug --target integration_tests
 	@$(DEVCMD) ctest --test-dir out/build/x64-debug --output-on-failure
 
 ifeq ($(OS),Windows_NT)
@@ -57,4 +73,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: debug release test test-platform test-all test-ctest coverage
+.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage

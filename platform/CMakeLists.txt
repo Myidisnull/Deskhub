@@ -66,6 +66,23 @@ target_link_libraries(platform PUBLIC core)
 # Without this, those casts silently do nothing here and objects come back dangling.
 if(APPLE)
     target_compile_options(platform PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+
+    target_link_libraries(platform PUBLIC
+        "-framework Foundation"
+        "-framework AVFoundation"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+        "-framework CoreGraphics"
+        "-framework VideoToolbox"
+    )
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        target_link_libraries(platform PUBLIC "-framework UIKit")
+    else()
+        target_link_libraries(platform PUBLIC
+            "-framework AppKit"
+            "-framework ScreenCaptureKit"
+        )
+    endif()
 endif()
 
 if(WIN32)

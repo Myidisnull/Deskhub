@@ -10,12 +10,12 @@
 namespace deskhubp {
 namespace {
 
-std::string DefaultPortError(const UdpSocket& sock) {
+std::string DefaultPortError(const UdpSocket& sock, uint16_t port) {
     return sock.lastBindAddrInUse()
-               ? "UDP port " + std::to_string(kDeskhubPort) +
+               ? "UDP port " + std::to_string(port) +
                      " is already in use \xE2\x80\x94 another Deskhub is probably still "
                      "running. Close it and try again."
-               : "Could not open UDP port " + std::to_string(kDeskhubPort) + ".";
+               : "Could not open UDP port " + std::to_string(port) + ".";
 }
 
 }
@@ -131,8 +131,9 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 
     startBitrateBps_ = opt_.bitrateMbps * 1'000'000u;
 
-    if (!sock_.Open(kDeskhubPort))
-        return Fail(policy_.portError ? policy_.portError(sock_) : DefaultPortError(sock_));
+    if (!sock_.Open(opt_.port))
+        return Fail(policy_.portError ? policy_.portError(sock_)
+                                      : DefaultPortError(sock_, opt_.port));
     sock_.SetRecvTimeout(100);
 
     if (policy_.afterSocket) {
@@ -143,7 +144,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         }
     }
 
-    LogListeningAddresses();
+    LogListeningAddresses(opt_.port);
 
     for (const deskhub::media::ShareSource& s : sources) {
         std::unique_ptr<HostSource> p = policy_.source.create(s, nextSourceId_++);

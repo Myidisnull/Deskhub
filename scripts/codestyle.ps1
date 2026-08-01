@@ -23,7 +23,7 @@ if ($Only -in @('all', 'cpp')) {
     }
     if (-not $clangFormat) { throw "clang-format not found - run 'make bootstrap' first." }
 
-    $cpp = git ls-files 'core/*' 'platform/*' 'client/*' | Where-Object { $_ -match '\.(h|hpp|cpp|cc|c)$' }
+    $cpp = git ls-files 'core/*' 'platform/*' 'client/*' 'tests/*' | Where-Object { $_ -match '\.(h|hpp|cpp|cc|c)$' }
     Write-Host "[clang-format] $($cpp.Count) files ($clangFormat)"
     if ($Check) {
         $bad = @()

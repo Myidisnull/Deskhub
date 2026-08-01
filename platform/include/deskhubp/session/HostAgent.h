@@ -17,7 +17,7 @@ using SourcePredicate = std::function<bool(const deskhub::SourcePipelineState&)>
 void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe);
 
-void LogListeningAddresses();
+void LogListeningAddresses(uint16_t port);
 
 std::vector<deskhub::SourcePipelineState*> SelectLiveSources(
     std::span<deskhub::SourcePipelineState* const> pipes, const SourcePredicate& closed,

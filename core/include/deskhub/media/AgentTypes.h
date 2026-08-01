@@ -1,5 +1,6 @@
 #pragma once
 #include "deskhub/media/ShareSource.h"
+#include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
 #include <string>
@@ -13,6 +14,8 @@ struct AgentOptions {
 
     int32_t desktopX = 0, desktopY = 0;
     uint32_t desktopW = 0, desktopH = 0;
+
+    uint16_t port = kDeskhubPort;
 };
 
 struct AgentSourceStatus {

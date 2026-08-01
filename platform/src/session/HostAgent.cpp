@@ -62,9 +62,9 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     st.diag.LatchIdr(frame.size(), uint32_t(pkts), burstMs);
 }
 
-void LogListeningAddresses() {
+void LogListeningAddresses(uint16_t port) {
     LOGI("[Agent] Listening on UDP port %u. On the other machine, enter one of:",
-        unsigned(kDeskhubPort));
+        unsigned(port));
     for (const AdapterAddr& a : ListLocalIPv4())
         LOGI("    %s    (%s)", a.ip.c_str(), a.name.c_str());
 }

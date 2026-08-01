@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <cerrno>
 #include <cstdlib>
 
 namespace {
@@ -14,8 +15,7 @@ namespace {
 constexpr const char* kTestHome = "/tmp/deskhub-platform-tests";
 
 void KeepTestLogsOutOfTheDeveloperHome() {
-    mkdir(kTestHome, 0700);
-    setenv("HOME", kTestHome, 1);
+    if (mkdir(kTestHome, 0700) == 0 || errno == EEXIST) setenv("HOME", kTestHome, 1);
 }
 
 }

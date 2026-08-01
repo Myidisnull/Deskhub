@@ -6,7 +6,7 @@
 # shared part.
 #
 #   make/toolchain.mk   HOST-dependent vars: SHELL, VsDevCmd, LLVM, NULDEV (include FIRST)
-#   make/core.mk        shared core CMake tree: debug/release/test/test-ctest/coverage
+#   make/core.mk        shared CMake tree: debug/release/test*/test-ctest/coverage
 #   make/windows.mk     Windows app — CMake (Win32 app, ONE Deskhub.exe)
 #   make/macos.mk       macOS app   — xcodebuild
 #   make/linux.mk       Ubuntu app  — CMake (GTK3 + native, ONE `deskhub`)
@@ -42,11 +42,14 @@
 # Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
 #   make setup-linux-permissions    udev rule + add the user to the `input` group
 #
-#   make test           build core_tests and run it (offline, no client/GPU needed)
-#   make test-platform  build platform_tests and run it (local only: loopback sockets)
-#   make test-all       both suites, core first
-#   make test-ctest     run through CTest (--output-on-failure) — matches how CI runs it
-#   make coverage       measure core coverage (clang + llvm-cov — works on Windows/macOS/Ubuntu)
+#   make test              build core_tests and run it (offline, no client/GPU needed)
+#   make test-platform     build platform_tests and run it (local only: loopback sockets)
+#   make test-integration  host + viewer over loopback, fake codecs + golden wire bytes
+#   make test-all          all three suites, core first
+#   make test-ctest        run through CTest (--output-on-failure) — matches how CI runs it
+#   make test-asan         all three suites under ASan + UBSan (clang/gcc only, not MSVC)
+#   make test-tsan         all three suites under ThreadSanitizer (clang/gcc only, not MSVC)
+#   make coverage          measure core coverage (clang + llvm-cov — Windows/macOS/Ubuntu)
 #
 # Format/lint — all three languages, or one at a time:
 #   make format         apply formatting in place for C++ + Kotlin + Swift

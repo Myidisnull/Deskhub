@@ -13,12 +13,15 @@ Deskhub - no platform is built by default, name the one you want:
     make debug           configure + build the debug preset
     make release         configure + build the release preset
 
-  Core tests:
-    make test            build core_tests and run it offline
-    make test-platform   build platform_tests and run it (loopback sockets, no remote peer)
-    make test-all        both suites, core first
-    make test-ctest      the same tests through CTest, as CI runs them
-    make coverage        core coverage report via clang + llvm-cov
+  Tests:
+    make test              build core_tests and run it offline
+    make test-platform     build platform_tests and run it (loopback sockets, no remote peer)
+    make test-integration  host + viewer over loopback (fake codecs) + golden wire bytes
+    make test-all          all three suites, core first
+    make test-ctest        the same tests through CTest, as CI runs them
+    make test-asan         all three suites under ASan + UBSan (Linux/macOS)
+    make test-tsan         all three suites under ThreadSanitizer (Linux/macOS)
+    make coverage          core coverage report via clang + llvm-cov
 
   Style - C++ + Kotlin + Swift, or one at a time:
     make format          apply formatting in place

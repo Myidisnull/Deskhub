@@ -26,7 +26,7 @@ if [ "$ONLY" = all ] || [ "$ONLY" = cpp ]; then
         echo "clang-format not found - run 'make bootstrap' first." >&2
         exit 1
     }
-    CPP_LIST=$(git ls-files 'core/*' 'platform/*' 'client/*' | grep -E '\.(h|hpp|cpp|cc|c)$')
+    CPP_LIST=$(git ls-files 'core/*' 'platform/*' 'client/*' 'tests/*' | grep -E '\.(h|hpp|cpp|cc|c)$')
     echo "[clang-format] $(echo "$CPP_LIST" | grep -c .) files ($(command -v clang-format))"
     if [ "$CHECK" = 1 ]; then
         if echo "$CPP_LIST" | xargs clang-format --dry-run --Werror; then
