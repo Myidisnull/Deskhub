@@ -103,6 +103,31 @@ void TestQualityScale() {
         "scaling below one pixel yields an empty size for the caller to reject");
 }
 
+void TestTargetStreamSize() {
+    std::printf("[size] one formula turns a source into the size a host should stream...\n");
+    Check(TargetStreamSize(3840, 2160, 1920, 0, 0, 100) == StreamSize{1920, 1080},
+        "the cap alone bounds the source");
+    Check(TargetStreamSize(3840, 2160, 1920, 1280, 720, 100) == StreamSize{1280, 720},
+        "a smaller client wins over the cap");
+    Check(TargetStreamSize(3840, 2160, 1920, 1280, 720, 50) == StreamSize{640, 360},
+        "the quality rung applies on top of the fit");
+    Check(TargetStreamSize(0, 0, 1920, 0, 0, 100) == StreamSize{},
+        "no source means nothing to stream");
+    Check(TargetStreamSize(2, 2, 0, 0, 0, 25) == StreamSize{},
+        "a rung that scales below one pixel reports empty rather than a bad size");
+
+    Check(TargetStreamSize(3840, 2160, 1920, 1280, 720, 50) == ApplyQualityScale(FitStreamSize(3840, 2160, 1920, 1280, 720), 50),
+        "it stays the composition of the two steps it replaces");
+}
+
+void TestEvenDown() {
+    std::printf("[size] encoders want even edges, so sizes always round down...\n");
+    Check(EvenDown(1.9) == 0, "anything under two pixels is not a size at all");
+    Check(EvenDown(2.0) == 2, "two is the smallest even size");
+    Check(EvenDown(1921.6) == 1920, "an odd result rounds down, never up");
+    Check(EvenDown(1920.0) == 1920, "an already-even size is left alone");
+}
+
 void TestRetargetStream() {
     std::printf("[size] retargeting a source publishes the size the encoder should use...\n");
     SourcePipelineState st(20'000'000, 1'000'000);
@@ -219,6 +244,8 @@ void RunStreamSizeTests() {
     TestClientCapTabletLosesToUserCap();
     TestLegacyClientAndGarbage();
     TestQualityScale();
+    TestEvenDown();
+    TestTargetStreamSize();
     TestRetargetStream();
     TestAdmitCapturedFrame();
     TestMakeEncoderConfig();

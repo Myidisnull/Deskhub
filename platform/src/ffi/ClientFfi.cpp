@@ -1,6 +1,7 @@
 #include "deskhubp/ffi/ClientFfi.h"
 
 #include "deskhub/input/Hotkeys.h"
+#include "deskhub/input/TrackpadCursor.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/media/ViewFit.h"
@@ -10,9 +11,18 @@
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/net/SourceQuery.h"
 
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
+
+namespace {
+
+deskhub::ViewRect ToRect(DHViewRect r) {
+    return {r.x, r.y, r.width, r.height};
+}
+
+}
 
 extern "C" {
 
@@ -38,6 +48,7 @@ const char* dh_string(DHStringId id) {
             static const std::string line = deskhub::ui::UdpPortLine();
             return line.c_str();
         }
+        case DHStrSessionEnded: return deskhub::ui::kSessionEnded;
         case DHStrInvalidAddressHint: {
             static const std::string hint = deskhub::ui::InvalidAddressHint();
             return hint.c_str();
@@ -52,22 +63,27 @@ bool dh_parse_address(const char* address) {
     return ParseNetAddr(address, server);
 }
 
-int dh_source_picker_label(const char* name, uint8_t sourceId, uint16_t width, uint16_t height,
-    char* out, int capacity) {
+int dh_connecting_to(const char* address, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
-    const std::string label = deskhub::media::SourcePickerLabel(name ? name : "", sourceId,
-        width, height);
-    deskhubp::CopyToBuf(out, size_t(capacity), label);
+    deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::ConnectingTo(address ? address : ""));
     return int(std::strlen(out));
 }
 
-int dh_shared_source_label(const char* name, uint16_t width, uint16_t height,
-    bool viewerConnected, char* out, int capacity) {
+int dh_host_title(const char* address, uint32_t width, uint32_t height, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
-    const std::string label = deskhub::media::SharedSourceLabel(name ? name : "", width, height,
-        viewerConnected);
-    deskhubp::CopyToBuf(out, size_t(capacity), label);
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ui::HostTitle(address ? address : "", width, height));
     return int(std::strlen(out));
+}
+
+int dh_zoom_label(double zoom, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    std::snprintf(out, size_t(capacity), "%.1f\xC3\x97", zoom);
+    return int(std::strlen(out));
+}
+
+bool dh_is_zoomed(double zoom) {
+    return deskhub::IsZoomed(zoom);
 }
 
 int dh_viewer_base_title(const char* sourceName, char* out, int capacity) {
@@ -98,14 +114,17 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {
-        out[i].sourceId = sources[size_t(i)].sourceId;
-        out[i].width = sources[size_t(i)].width;
-        out[i].height = sources[size_t(i)].height;
-        const std::string& name = sources[size_t(i)].name;
-        const size_t room = sizeof(out[i].name) - 1;
-        const size_t n = name.size() < room ? name.size() : room;
-        std::memcpy(out[i].name, name.data(), n);
-        out[i].name[n] = '\0';
+        const deskhub::SourceInfo& src = sources[size_t(i)];
+        out[i].sourceId = src.sourceId;
+        out[i].width = src.width;
+        out[i].height = src.height;
+        deskhubp::CopyToBuf(out[i].name, sizeof(out[i].name), src.name);
+        deskhubp::CopyToBuf(out[i].displayName, sizeof(out[i].displayName),
+            deskhub::media::SourceName(src.name, src.sourceId));
+        deskhubp::CopyToBuf(out[i].sizeLabel, sizeof(out[i].sizeLabel),
+            deskhub::media::SourceSizeLabel(src.width, src.height));
+        deskhubp::CopyToBuf(out[i].pickerLabel, sizeof(out[i].pickerLabel),
+            deskhub::media::SourcePickerLabel(src.name, src.sourceId, src.width, src.height));
     }
     return count;
 }
@@ -146,7 +165,34 @@ DHViewTransform dh_apply_gesture(DHViewTransform cur, double factor, double cent
 
 bool dh_normalize_pointer(double px, double py, DHViewRect rect, int32_t* nx, int32_t* ny) {
     if (!nx || !ny) return false;
-    return deskhub::NormalizePointer(px, py,
-        deskhub::ViewRect{rect.x, rect.y, rect.width, rect.height}, *nx, *ny);
+    return deskhub::NormalizePointer(px, py, ToRect(rect), *nx, *ny);
+}
+
+int32_t dh_take_scroll_notches(double dragPoints, double* carry) {
+    if (!carry) return 0;
+    return deskhub::TakeScrollNotches(dragPoints, *carry);
+}
+
+DHCursor dh_cursor_clamp(DHCursor cur, DHViewRect video, double viewportW, double viewportH) {
+    const deskhub::TrackpadCursor out = deskhub::ClampToVisible({cur.x, cur.y}, ToRect(video),
+        viewportW, viewportH);
+    return DHCursor{out.x, out.y};
+}
+
+DHCursor dh_cursor_move(DHCursor cur, double dx, double dy, DHViewRect video, double viewportW,
+    double viewportH) {
+    const deskhub::TrackpadCursor out = deskhub::MoveCursorBy({cur.x, cur.y}, dx, dy,
+        ToRect(video), viewportW, viewportH);
+    return DHCursor{out.x, out.y};
+}
+
+bool dh_cursor_point(DHCursor cur, DHViewRect video, double* px, double* py) {
+    if (!px || !py) return false;
+    return deskhub::CursorScreenPoint({cur.x, cur.y}, ToRect(video), *px, *py);
+}
+
+bool dh_cursor_normalize(DHCursor cur, DHViewRect video, int32_t* nx, int32_t* ny) {
+    if (!nx || !ny) return false;
+    return deskhub::NormalizeCursor({cur.x, cur.y}, ToRect(video), *nx, *ny);
 }
 }

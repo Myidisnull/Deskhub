@@ -17,6 +17,7 @@ add_library(core STATIC
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
     src/input/ClientInputQueue.cpp
+    src/input/TrackpadCursor.cpp
 
     src/control/BitrateController.cpp
     src/control/LinkStats.cpp
@@ -73,6 +74,7 @@ if(DESKHUB_CORE_TESTS)
         tests/input/ScancodeTableTests.cpp
         tests/input/HotkeysTests.cpp
         tests/input/PointerMapTests.cpp
+        tests/input/TrackpadCursorTests.cpp
 
         tests/control/ControlTests.cpp
         tests/control/StreamSizeTests.cpp

@@ -80,7 +80,10 @@ class MainActivity : ComponentActivity() {
                 .putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcW", sources.map { it.width }.toIntArray())
                 .putExtra("srcH", sources.map { it.height }.toIntArray())
-                .putExtra("srcNames", sources.map { it.name }.toTypedArray()),
+                .putExtra("srcNames", sources.map { it.name }.toTypedArray())
+                .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
+                .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray())
+                .putExtra("srcPickerLabels", sources.map { it.pickerLabel }.toTypedArray()),
         )
     }
 }
@@ -236,11 +239,11 @@ private fun SourcePickerScreen(
                     )
                     Column {
                         Text(
-                            text = source.name.ifBlank { "Source %d".format(source.id) },
+                            text = source.displayName,
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            text = "${source.width}×${source.height}",
+                            text = source.sizeLabel,
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }

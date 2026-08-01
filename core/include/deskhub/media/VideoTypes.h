@@ -8,6 +8,10 @@ namespace deskhub::media {
 enum class Codec { H264,
     HEVC };
 
+constexpr const char* CodecName(Codec codec) {
+    return codec == Codec::HEVC ? "HEVC" : "H264";
+}
+
 enum class RateControl { CBR,
     VBR };
 

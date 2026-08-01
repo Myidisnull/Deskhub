@@ -6,6 +6,7 @@ struct TouchInputView: UIViewRepresentable {
     let videoRect: CGRect
     var blockedRect: CGRect = .zero
     var panMode = false
+    var zoomed = false
     var onTransform: (CGFloat, CGPoint, CGSize) -> Void = { _, _, _ in }
 
     func makeUIView(context _: Context) -> TouchCaptureUIView {
@@ -19,6 +20,7 @@ struct TouchInputView: UIViewRepresentable {
         uiView.videoRect = videoRect
         uiView.blockedRect = blockedRect
         uiView.panMode = panMode
+        uiView.zoomed = zoomed
         uiView.onTransform = onTransform
     }
 }
@@ -38,6 +40,8 @@ final class TouchCaptureUIView: UIView {
 
     var panMode = false
 
+    var zoomed = false
+
     var onTransform: (CGFloat, CGPoint, CGSize) -> Void = { _, _, _ in }
 
     private let cursorView: UIImageView = {
@@ -51,8 +55,9 @@ final class TouchCaptureUIView: UIView {
         return view
     }()
 
-    private var cursor = CGPoint(x: 0.5, y: 0.5)
+    private var cursor = TrackpadCursor()
     private var lastDragLocation: CGPoint = .zero
+    private var scrollCarry = 0.0
 
     private var zoomGestures: [UIGestureRecognizer] = []
 
@@ -98,31 +103,13 @@ final class TouchCaptureUIView: UIView {
         return !blockedRect.contains(convert(point, to: nil))
     }
 
-    private var cursorPoint: CGPoint {
-        CGPoint(
-            x: videoRect.minX + cursor.x * videoRect.width,
-            y: videoRect.minY + cursor.y * videoRect.height
-        )
-    }
-
     private func layoutCursor() {
-        cursorView.frame.origin = cursorPoint
+        guard let origin = cursor.screenPoint(in: videoRect) else { return }
+        cursorView.frame.origin = origin
     }
 
-    private func clampToVisible(_ point: CGPoint) -> CGPoint {
-        guard videoRect.width > 0, videoRect.height > 0 else { return point }
-        let visible = videoRect.intersection(bounds)
-        guard !visible.isNull, visible.width > 0, visible.height > 0 else { return point }
-        return CGPoint(
-            x: min(
-                max((visible.minX - videoRect.minX) / videoRect.width, point.x),
-                (visible.maxX - videoRect.minX) / videoRect.width
-            ),
-            y: min(
-                max((visible.minY - videoRect.minY) / videoRect.height, point.y),
-                (visible.maxY - videoRect.minY) / videoRect.height
-            )
-        )
+    private func clampToVisible(_ point: TrackpadCursor) -> TrackpadCursor {
+        point.clamped(to: videoRect, viewport: bounds.size)
     }
 
     override func layoutSubviews() {
@@ -132,21 +119,14 @@ final class TouchCaptureUIView: UIView {
     }
 
     private func moveCursor(by delta: CGPoint) {
-        guard videoRect.width > 0, videoRect.height > 0 else { return }
-        cursor = clampToVisible(CGPoint(
-            x: cursor.x + delta.x / videoRect.width,
-            y: cursor.y + delta.y / videoRect.height
-        ))
+        cursor = cursor.moved(by: delta, in: videoRect, viewport: bounds.size)
         layoutCursor()
         sendMove()
     }
 
     private func sendMove() {
-        guard videoRect.width > 0, videoRect.height > 0 else { return }
-        model?.mouseMove(
-            nx: Int32((cursor.x * 65535).rounded()),
-            ny: Int32((cursor.y * 65535).rounded())
-        )
+        guard let point = cursor.normalized(in: videoRect) else { return }
+        model?.mouseMove(nx: point.nx, ny: point.ny)
     }
 
     private func click(_ button: MouseButton) {
@@ -227,10 +207,19 @@ final class TouchCaptureUIView: UIView {
         case .changed:
             let translation = gesture.translation(in: self)
             gesture.setTranslation(.zero, in: self)
-            onTransform(1, .zero, CGSize(width: translation.x, height: translation.y))
+            if zoomed {
+                onTransform(1, .zero, CGSize(width: translation.x, height: translation.y))
+            } else {
+                scrollRemote(by: translation.y)
+            }
         default:
             break
         }
+    }
+
+    private func scrollRemote(by dragPoints: CGFloat) {
+        let notches = dh_take_scroll_notches(Double(dragPoints), &scrollCarry)
+        if notches != 0 { model?.mouseWheelNotches(notches) }
     }
 }
 

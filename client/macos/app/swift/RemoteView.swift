@@ -2,6 +2,8 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
+private let kMacKeyCodeF9: UInt16 = 0x65
+
 final class RemoteVideoView: NSView {
     weak var model: StreamModel?
 
@@ -64,14 +66,11 @@ final class RemoteVideoView: NSView {
     }
 
     private func normalize(_ point: NSPoint) -> (nx: Int32, ny: Int32)? {
-        let rect = videoRect
         var nx: Int32 = 0
         var ny: Int32 = 0
-        let box = DHViewRect(
-            x: Double(rect.minX), y: Double(rect.minY),
-            width: Double(rect.width), height: Double(rect.height)
-        )
-        guard dh_normalize_pointer(Double(point.x), Double(point.y), box, &nx, &ny) else {
+        guard dh_normalize_pointer(
+            Double(point.x), Double(point.y), videoRect.dhRect, &nx, &ny
+        ) else {
             return nil
         }
         return (nx, ny)
@@ -91,7 +90,7 @@ final class RemoteVideoView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 0x65 {
+        if event.keyCode == kMacKeyCodeF9 {
             setMouseLocked(!mouseLocked)
             return
         }
@@ -100,7 +99,7 @@ final class RemoteVideoView: NSView {
     }
 
     override func keyUp(with event: NSEvent) {
-        guard event.keyCode != 0x65 else { return }
+        guard event.keyCode != kMacKeyCodeF9 else { return }
         sendKey(event.keyCode, down: false)
     }
 
@@ -121,12 +120,12 @@ final class RemoteVideoView: NSView {
     private func maskFor(keyCode: UInt16) -> NSEvent.ModifierFlags {
         guard let mapped = DeskhubClient.mapKey(keyCode) else { return [] }
         switch dh_modifier_class(mapped.vk) {
-        case DHModifierShift: .shift
-        case DHModifierControl: .control
-        case DHModifierOption: .option
-        case DHModifierCommand: .command
-        case DHModifierCapsLock: .capsLock
-        default: []
+        case DHModifierShift: return .shift
+        case DHModifierControl: return .control
+        case DHModifierOption: return .option
+        case DHModifierCommand: return .command
+        case DHModifierCapsLock: return .capsLock
+        default: return []
         }
     }
 
@@ -168,7 +167,7 @@ final class RemoteVideoView: NSView {
         let raw = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY
         guard raw != 0 else { return }
         let notches = max(1, Int32(abs(raw).rounded()))
-        model?.mouseWheel(raw > 0 ? notches * 120 : -notches * 120)
+        model?.mouseWheelNotches(raw > 0 ? notches : -notches)
     }
 
     override func resignFirstResponder() -> Bool {

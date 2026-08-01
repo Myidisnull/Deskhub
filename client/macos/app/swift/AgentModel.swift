@@ -49,7 +49,7 @@ final class AgentModel {
 
         let fpsNum = UInt32(max(1, fps))
         let bitrateNum = UInt32(max(1, bitrateMbps))
-        let maxDimNum = maxDim <= 0 ? UInt32(0) : UInt32(max(640, maxDim))
+        let maxDimNum = maxDim <= 0 ? UInt32(0) : UInt32(maxDim)
 
         let ok = await Task.detached {
             let picked = DeskhubAgent.listShareSources()

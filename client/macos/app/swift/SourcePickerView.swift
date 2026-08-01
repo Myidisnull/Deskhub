@@ -54,7 +54,7 @@ struct SourcePickerView: View {
         let chosen = sources.filter { picked.contains($0.id) }
         guard !chosen.isEmpty else { return }
         route = .menu
-        openViewers(chosen, address: model.address,
+        openViewers(chosen, address: model.connect.address,
                     openWindow: openWindow, dismissWindow: dismissWindow)
     }
 }

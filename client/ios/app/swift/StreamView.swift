@@ -58,20 +58,20 @@ struct StreamView: View {
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            model.resumePolling()
+            model.refresh()
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             keyboardOn = false
             releaseLayer()
-            model.suspendPolling()
         }
         .statusBarHidden()
     }
 
     private var hostTitle: String {
-        guard model.videoWidth > 0 else { return model.address }
-        return "\(model.address) — \(model.videoWidth)×\(model.videoHeight)"
+        DeskhubClient.hostTitle(
+            model.address, width: model.videoWidth, height: model.videoHeight
+        )
     }
 
     private var videoArea: some View {
@@ -94,6 +94,7 @@ struct StreamView: View {
                         videoRect: frame,
                         blockedRect: controlsRect,
                         panMode: panMode,
+                        zoomed: transform.isZoomed,
                         onTransform: { factor, centroid, panDelta in
                             transform.apply(
                                 factor: factor, centroid: centroid, panDelta: panDelta,
@@ -200,7 +201,7 @@ struct StreamView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(kHotkeys, id: \.label) { hotkey in
-                        Button(hotkey.label) { send(hotkey) }
+                        Button(hotkey.label) { model.hotkey(hotkey) }
                             .buttonStyle(.bordered)
                     }
                 }
@@ -239,17 +240,6 @@ struct StreamView: View {
     private func sourceLabel(_ source: Source) -> String {
         let mark = source.id == model.sourceId ? "✓ " : ""
         return mark + source.pickerLabel
-    }
-
-    private func send(_ hotkey: Hotkey) {
-        if hotkey.modVk != 0 {
-            model.keyChord(
-                modVk: hotkey.modVk, modScan: hotkey.modScan,
-                vk: hotkey.vk, scan: hotkey.scan
-            )
-        } else {
-            model.keyTap(vk: hotkey.vk, scan: hotkey.scan)
-        }
     }
 
     private func releaseLayer() {

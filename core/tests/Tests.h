@@ -15,6 +15,7 @@ void RunClientInputQueueTests();
 void RunScancodeTableTests();
 void RunHotkeysTests();
 void RunPointerMapTests();
+void RunTrackpadCursorTests();
 void RunControlTests();
 void RunStreamSizeTests();
 void RunFrameGateTests();

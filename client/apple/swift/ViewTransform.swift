@@ -6,7 +6,7 @@ struct ViewTransform {
     var zoom: CGFloat = 1
     var pan: CGSize = .zero
 
-    var isZoomed: Bool { zoom > 1.01 }
+    var isZoomed: Bool { DeskhubClient.isZoomed(Double(zoom)) }
 
     static func baseFrame(in size: CGSize, aspect: CGFloat) -> CGRect {
         ViewTransform().frame(in: size, aspect: aspect)

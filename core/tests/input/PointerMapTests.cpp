@@ -47,6 +47,34 @@ void TestWheelNotches() {
     Check(WheelNotches(-40) == -1, "including downward");
 }
 
+void TestTouchScrollAccumulates() {
+    std::printf("[pointer] a touch drag turns into whole notches and keeps the remainder...\n");
+    double carry = 0;
+
+    Check(TakeScrollNotches(kTouchPointsPerNotch / 4, carry) == 0,
+        "a short drag is not a notch yet");
+    Check(TakeScrollNotches(kTouchPointsPerNotch / 4, carry) == 0, "nor is the next one");
+    Check(TakeScrollNotches(kTouchPointsPerNotch / 2, carry) == 1,
+        "but together they cross one notch");
+    Check(carry < 1e-9 && carry > -1e-9, "and nothing is left over");
+
+    Check(TakeScrollNotches(3 * kTouchPointsPerNotch, carry) == 3,
+        "a long drag emits every notch it crossed, so a flick does not lose scroll");
+
+    carry = 0;
+    Check(TakeScrollNotches(-kTouchPointsPerNotch, carry) == -1, "dragging back scrolls back");
+
+    carry = 0;
+    Check(TakeScrollNotches(kTouchPointsPerNotch * 1.5, carry) == 1, "1.5 notches emits one");
+    Check(TakeScrollNotches(kTouchPointsPerNotch * 0.5, carry) == 1,
+        "and the half that was carried completes the next one");
+
+    carry = 0;
+    TakeScrollNotches(kTouchPointsPerNotch * 0.9, carry);
+    Check(TakeScrollNotches(-kTouchPointsPerNotch * 1.8, carry) == 0,
+        "reversing mid-drag cancels the pending notch instead of firing it");
+}
+
 struct FakeInjector : InputApplier<FakeInjector, uint16_t> {
     std::vector<std::string> calls;
     bool localActive = false;
@@ -147,6 +175,7 @@ void RunPointerMapTests() {
     TestClamp();
     TestPixelMapping();
     TestWheelNotches();
+    TestTouchScrollAccumulates();
     TestDispatch();
     TestHostWinsReleasesHeldInput();
 }

@@ -33,8 +33,18 @@ inline constexpr Hotkey kTouchHotkeys[] = {
     {"Ctrl+V", 'V', VkToSet1Scancode('V'), kVkControl, VkToSet1Scancode(kVkControl)},
 };
 
+inline constexpr int kMaxHotkeys = int(sizeof(kTouchHotkeys) / sizeof(kTouchHotkeys[0]));
+
 constexpr std::span<const Hotkey> TouchHotkeys() {
     return kTouchHotkeys;
+}
+
+template <class Queue>
+void DispatchHotkey(Queue& queue, const Hotkey& hotkey) {
+    if (hotkey.hasModifier())
+        queue.QueueKeyChord(hotkey.modVk, hotkey.modScan, hotkey.vk, hotkey.scan);
+    else
+        queue.QueueKeyTap(hotkey.vk, hotkey.scan);
 }
 
 }

@@ -18,19 +18,45 @@ struct Source: Identifiable, Sendable, Hashable {
     let width: UInt16
     let height: UInt16
     let name: String
-
-    var displayName: String { name.isEmpty ? "Source \(id)" : name }
-    var sizeLabel: String { "\(width)x\(height)" }
-    var pickerLabel: String {
-        var buf = [CChar](repeating: 0, count: 320)
-        _ = dh_source_picker_label(name, id, width, height, &buf, Int32(buf.count))
-        return String(cString: buf)
-    }
+    let displayName: String
+    let sizeLabel: String
+    let pickerLabel: String
 }
 
 nonisolated enum DeskhubClient {
     static func string(_ id: DHStringId) -> String {
         String(cString: dh_string(id))
+    }
+
+    static func connectingTo(_ address: String) -> String {
+        buffered(320) { dh_connecting_to(address, $0, $1) }
+    }
+
+    static func hostTitle(_ address: String, width: UInt32, height: UInt32) -> String {
+        buffered(320) { dh_host_title(address, width, height, $0, $1) }
+    }
+
+    static func zoomLabel(_ zoom: Double) -> String {
+        buffered(32) { dh_zoom_label(zoom, $0, $1) }
+    }
+
+    static func isZoomed(_ zoom: Double) -> Bool {
+        dh_is_zoomed(zoom)
+    }
+
+    private static func buffered(
+        _ capacity: Int, _ fill: (UnsafeMutablePointer<CChar>, Int32) -> Int32
+    ) -> String {
+        var buf = [CChar](repeating: 0, count: capacity)
+        _ = fill(&buf, Int32(capacity))
+        return String(cString: buf)
+    }
+
+    static func cString(_ tuple: some Any) -> String {
+        withUnsafeBytes(of: tuple) { rawBuf in
+            guard let base = rawBuf.baseAddress else { return "" }
+            return String(cString: base.assumingMemoryBound(to: CChar.self))
+        }
     }
 
     static func normalizedAddress(_ raw: String) -> String? {
@@ -47,29 +73,74 @@ nonisolated enum DeskhubClient {
         guard count > 0 else { return [] }
         return (0 ..< Int(count)).map { idx in
             let info = buf[idx]
-            let name = withUnsafeBytes(of: info.name) { rawBuf in
-                let ptr = rawBuf.baseAddress!.assumingMemoryBound(to: CChar.self)
-                return String(cString: ptr)
-            }
-            return Source(id: info.sourceId, width: info.width, height: info.height, name: name)
+            return Source(
+                id: info.sourceId,
+                width: info.width,
+                height: info.height,
+                name: cString(info.name),
+                displayName: cString(info.displayName),
+                sizeLabel: cString(info.sizeLabel),
+                pickerLabel: cString(info.pickerLabel)
+            )
         }
+    }
+}
+
+struct SessionHandlers: Sendable {
+    var onStatus: @Sendable (String) -> Void = { _ in }
+    var onSize: @Sendable (UInt32, UInt32) -> Void = { _, _ in }
+    var onClosed: @Sendable (String) -> Void = { _ in }
+}
+
+private final class HandlerBox {
+    let handlers: SessionHandlers
+
+    init(_ handlers: SessionHandlers) {
+        self.handlers = handlers
+    }
+
+    static func unwrap(_ user: UnsafeMutableRawPointer?) -> SessionHandlers? {
+        guard let user else { return nil }
+        return Unmanaged<HandlerBox>.fromOpaque(user).takeUnretainedValue().handlers
     }
 }
 
 final class ClientSession: @unchecked Sendable {
     private let handle: OpaquePointer
+    private let handlerBox: UnsafeMutableRawPointer
 
-    private init(handle: OpaquePointer) {
+    private init(handle: OpaquePointer, handlerBox: UnsafeMutableRawPointer) {
         self.handle = handle
+        self.handlerBox = handlerBox
     }
 
-    static func start(address: String, sourceId: UInt8) -> ClientSession? {
-        guard let handle = dh_session_start(address, sourceId, nil, nil) else { return nil }
-        return ClientSession(handle: handle)
+    static func start(
+        address: String, sourceId: UInt8, handlers: SessionHandlers
+    ) -> ClientSession? {
+        let box = Unmanaged.passRetained(HandlerBox(handlers)).toOpaque()
+
+        var callbacks = DHSessionCallbacks()
+        callbacks.user = box
+        callbacks.onStatus = { line, user in
+            HandlerBox.unwrap(user)?.onStatus(line.map { String(cString: $0) } ?? "")
+        }
+        callbacks.onSize = { width, height, user in
+            HandlerBox.unwrap(user)?.onSize(width, height)
+        }
+        callbacks.onClosed = { reason, user in
+            HandlerBox.unwrap(user)?.onClosed(reason.map { String(cString: $0) } ?? "")
+        }
+
+        guard let handle = dh_session_start(address, sourceId, nil, &callbacks) else {
+            Unmanaged<HandlerBox>.fromOpaque(box).release()
+            return nil
+        }
+        return ClientSession(handle: handle, handlerBox: box)
     }
 
     func stop() {
         dh_session_stop(handle)
+        Unmanaged<HandlerBox>.fromOpaque(handlerBox).release()
     }
 
     func setLayer(_ layer: AVSampleBufferDisplayLayer?) {
@@ -87,6 +158,10 @@ final class ClientSession: @unchecked Sendable {
 
     func keyChord(modVk: Int32, modScan: Int32, vk: Int32, scan: Int32) {
         dh_session_key_chord(handle, modVk, modScan, vk, scan)
+    }
+
+    func hotkey(_ hotkey: Hotkey) {
+        dh_session_hotkey(handle, hotkey.vk, hotkey.scan, hotkey.modVk, hotkey.modScan)
     }
 
     func charTap(_ codepoint: UInt32) {
@@ -111,6 +186,10 @@ final class ClientSession: @unchecked Sendable {
 
     func mouseWheel(_ delta: Int32) {
         dh_session_mouse_wheel(handle, delta)
+    }
+
+    func mouseWheelNotches(_ notches: Int32) {
+        dh_session_mouse_wheel_notches(handle, notches)
     }
 
     func phase() -> Phase {

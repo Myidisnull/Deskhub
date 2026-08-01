@@ -68,6 +68,35 @@ void TestArrowsCarryTheExtendedBit() {
     Check(plainStaysPlain, "Esc/Tab/Enter are not");
 }
 
+struct RecordingQueue {
+    std::string calls;
+
+    void QueueKeyTap(int32_t vk, int32_t scan) {
+        calls += "tap(" + std::to_string(vk) + "," + std::to_string(scan) + ")";
+    }
+
+    void QueueKeyChord(int32_t modVk, int32_t modScan, int32_t vk, int32_t scan) {
+        calls += "chord(" + std::to_string(modVk) + "," + std::to_string(modScan) + "," +
+                 std::to_string(vk) + "," + std::to_string(scan) + ")";
+    }
+};
+
+void TestDispatchPicksTapOrChord() {
+    std::printf("[hotkeys] a bar button becomes a tap, or a chord when it names a modifier...\n");
+
+    RecordingQueue plain;
+    DispatchHotkey(plain, Hotkey{"Esc", 27, 1});
+    Check(plain.calls == "tap(27,1)", "a row without a modifier taps the key");
+
+    RecordingQueue chord;
+    DispatchHotkey(chord, Hotkey{"Ctrl+C", 'C', 46, 17, 29});
+    Check(chord.calls == "chord(17,29,67,46)", "a row with a modifier sends the chord");
+
+    RecordingQueue bar;
+    for (const Hotkey& h : TouchHotkeys()) DispatchHotkey(bar, h);
+    Check(!bar.calls.empty(), "every row on the shared bar dispatches to something");
+}
+
 }
 
 void RunHotkeysTests() {
@@ -75,4 +104,5 @@ void RunHotkeysTests() {
     TestLabelsAreUnique();
     TestModifiersComeInPairs();
     TestArrowsCarryTheExtendedBit();
+    TestDispatchPicksTapOrChord();
 }

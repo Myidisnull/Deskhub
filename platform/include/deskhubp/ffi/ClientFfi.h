@@ -19,6 +19,9 @@ typedef struct {
     uint16_t width;
     uint16_t height;
     char name[256];
+    char displayName[256];
+    char sizeLabel[32];
+    char pickerLabel[320];
 } DHSourceInfo;
 
 typedef struct {
@@ -33,6 +36,11 @@ typedef struct {
     double panX;
     double panY;
 } DHViewTransform;
+
+typedef struct {
+    double x;
+    double y;
+} DHCursor;
 
 typedef struct {
     char label[16];
@@ -61,6 +69,7 @@ typedef enum {
     DHStrDisconnected = 15,
     DHStrUdpPortLine = 16,
     DHStrInvalidAddressHint = 17,
+    DHStrSessionEnded = 18,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -69,11 +78,13 @@ bool dh_parse_address(const char* address);
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);
 
-int dh_source_picker_label(const char* name, uint8_t sourceId, uint16_t width, uint16_t height,
-    char* out, int capacity);
+int dh_connecting_to(const char* address, char* out, int capacity);
 
-int dh_shared_source_label(const char* name, uint16_t width, uint16_t height,
-    bool viewerConnected, char* out, int capacity);
+int dh_host_title(const char* address, uint32_t width, uint32_t height, char* out, int capacity);
+
+int dh_zoom_label(double zoom, char* out, int capacity);
+
+bool dh_is_zoomed(double zoom);
 
 int dh_viewer_base_title(const char* sourceName, char* out, int capacity);
 
@@ -88,6 +99,17 @@ DHViewTransform dh_apply_gesture(DHViewTransform cur, double factor, double cent
     double aspect);
 
 bool dh_normalize_pointer(double px, double py, DHViewRect rect, int32_t* nx, int32_t* ny);
+
+int32_t dh_take_scroll_notches(double dragPoints, double* carry);
+
+DHCursor dh_cursor_clamp(DHCursor cur, DHViewRect video, double viewportW, double viewportH);
+
+DHCursor dh_cursor_move(DHCursor cur, double dx, double dy, DHViewRect video, double viewportW,
+    double viewportH);
+
+bool dh_cursor_point(DHCursor cur, DHViewRect video, double* px, double* py);
+
+bool dh_cursor_normalize(DHCursor cur, DHViewRect video, int32_t* nx, int32_t* ny);
 
 #ifdef __cplusplus
 }

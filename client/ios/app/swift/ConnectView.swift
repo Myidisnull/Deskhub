@@ -5,27 +5,27 @@ struct ConnectView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            TextField("Host IP address", text: $model.address)
+            TextField("Host IP address", text: $model.connect.address)
                 .textFieldStyle(.roundedBorder)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.numbersAndPunctuation)
                 .submitLabel(.go)
-                .onSubmit(model.connect)
-                .disabled(model.isConnecting)
+                .onSubmit(model.beginConnect)
+                .disabled(model.connect.isConnecting)
 
             HStack(spacing: 12) {
-                Button("Connect", action: model.connect)
+                Button("Connect", action: model.beginConnect)
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.address.isEmpty || model.isConnecting)
+                    .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
 
-                if model.isConnecting {
+                if model.connect.isConnecting {
                     ProgressView()
                 }
             }
 
-            if !model.connectError.isEmpty {
-                Text(model.connectError)
+            if !model.connect.connectError.isEmpty {
+                Text(model.connect.connectError)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -10,6 +10,7 @@
 
 #include "deskhub/media/AnnexB.h"
 #include "deskhub/media/H264Sps.h"
+#include "deskhub/media/RatePlan.h"
 #include "deskhubp/diag/Log.h"
 
 namespace {
@@ -120,6 +121,11 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
         LOGE("[Encoder] Bad size %ux%u (must be non-zero and even).", cfg.width, cfg.height);
         return false;
     }
+    if (cfg.codec != deskhub::media::Codec::H264) {
+        LOGE("[Encoder] This backend only emits H264, not %s.",
+            deskhub::media::CodecName(cfg.codec));
+        return false;
+    }
     cfg_ = cfg;
 
     NSDictionary* spec = @{
@@ -159,8 +165,10 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
         CFRelease(n);
     };
 
-    VTSessionSetProperty(session, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
-    VTSessionSetProperty(session, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
+    VTSessionSetProperty(session, kVTCompressionPropertyKey_RealTime,
+        cfg.lowLatency ? kCFBooleanTrue : kCFBooleanFalse);
+    VTSessionSetProperty(session, kVTCompressionPropertyKey_AllowFrameReordering,
+        cfg.lowLatency ? kCFBooleanFalse : kCFBooleanTrue);
     VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel,
         kVTProfileLevel_H264_High_AutoLevel);
     VTSessionSetProperty(session, kVTCompressionPropertyKey_H264EntropyMode,
@@ -168,15 +176,17 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
     setNum(kVTCompressionPropertyKey_MaxKeyFrameInterval, INT32_MAX);
     setNum(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, INT32_MAX);
     setNum(kVTCompressionPropertyKey_ExpectedFrameRate, int64_t(cfg.fps));
-    setNum(kVTCompressionPropertyKey_MaxFrameDelayCount, 1);
+    if (cfg.lowLatency) setNum(kVTCompressionPropertyKey_MaxFrameDelayCount, 1);
 
     if (!SetBitrate(cfg.bitrateBps)) {
         LOGW("[Encoder] Could not set initial bitrate %u bps.", cfg.bitrateBps);
     }
 
     VTCompressionSessionPrepareToEncodeFrames(session);
-    LOGI("[Encoder] %s H.264 %ux%u @%ufps, %.1f Mbps.", BackendName(),
-        cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6);
+    LOGI("[Encoder] %s H.264 %ux%u @%ufps, %.1f Mbps, %s%s.", BackendName(),
+        cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6,
+        cfg.rc == deskhub::media::RateControl::VBR ? "VBR" : "CBR",
+        cfg.lowLatency ? ", low latency" : "");
     return true;
 }
 
@@ -190,11 +200,17 @@ bool VtEncoder::SetBitrate(uint32_t bitrateBps) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_AverageBitRate, avg);
     CFRelease(avg);
 
-    const uint32_t fps = cfg_.fps ? cfg_.fps : 60;
+    if (cfg_.rc == deskhub::media::RateControl::VBR) {
+        if (st1 == noErr) cfg_.bitrateBps = bitrateBps;
+        return st1 == noErr;
+    }
+
+    const deskhub::media::RatePlan plan =
+        deskhub::media::PlanRateControl(bitrateBps, cfg_.fps, cfg_.lowLatency);
     const int64_t bytesPerSec = int64_t(double(bitrateBps) * 1.5 / 8.0);
     const double oneSecond = 1.0;
-    const int64_t burstBytes = int64_t(double(bitrateBps) / 8.0 / fps * 2.0);
-    const double burstSecs = 2.0 / double(fps);
+    const int64_t burstBytes = int64_t(plan.vbvBits) / 8;
+    const double burstSecs = double(plan.vbvBits) / double(bitrateBps);
     CFNumberRef b = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &bytesPerSec);
     CFNumberRef s = CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &oneSecond);
     CFNumberRef b2 = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &burstBytes);

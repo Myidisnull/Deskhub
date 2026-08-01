@@ -13,7 +13,7 @@ struct SharingSessionView: View {
                     Text(DeskhubClient.string(DHStrNothingShared)).foregroundStyle(.secondary)
                 } else {
                     ForEach(model.rows) { row in
-                        Text(label(for: row))
+                        Text(row.label)
                     }
                 }
             }
@@ -31,15 +31,6 @@ struct SharingSessionView: View {
         .onChange(of: model.isSharing) { _, sharing in
             if !sharing { route = .menu }
         }
-    }
-
-    private func label(for row: AgentSourceStatus) -> String {
-        var buf = [CChar](repeating: 0, count: 320)
-        _ = dh_shared_source_label(
-            row.name, UInt16(clamping: row.width), UInt16(clamping: row.height),
-            row.viewerConnected, &buf, Int32(buf.count)
-        )
-        return String(cString: buf)
     }
 
     private func stop() {

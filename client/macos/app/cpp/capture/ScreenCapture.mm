@@ -88,17 +88,12 @@ struct ScreenCapture::Impl {
 
 namespace {
 
-uint32_t Even(double v) {
-    if (v < 2) return 0;
-    return uint32_t(v) & ~1u;
-}
-
 bool CurrentSourceSize(uint32_t displayId, double scale, uint32_t& w, uint32_t& h) {
     const CGDirectDisplayID did = CGDirectDisplayID(displayId);
     const size_t pw = CGDisplayPixelsWide(did), ph = CGDisplayPixelsHigh(did);
     if (!pw || !ph) return false;
-    w = Even(double(pw) * scale);
-    h = Even(double(ph) * scale);
+    w = deskhub::EvenDown(double(pw) * scale);
+    h = deskhub::EvenDown(double(ph) * scale);
     return w && h;
 }
 
@@ -131,11 +126,8 @@ SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool sca
 }
 
 deskhub::StreamSize ApplySizeLocked(ScreenCapture::Impl* impl) {
-    const deskhub::StreamSize fitted =
-        deskhub::FitStreamSize(impl->curW, impl->curH, impl->maxDim, impl->cliW, impl->cliH);
-    if (!fitted.width || !fitted.height) return {impl->cfgW, impl->cfgH};
-
-    const deskhub::StreamSize t = deskhub::ApplyQualityScale(fitted, impl->qualityPct);
+    const deskhub::StreamSize t = deskhub::TargetStreamSize(impl->curW, impl->curH, impl->maxDim,
+        impl->cliW, impl->cliH, impl->qualityPct);
     if (!t.width || !t.height) return {impl->cfgW, impl->cfgH};
     if (t.width == impl->cfgW && t.height == impl->cfgH) return t;
 
@@ -181,6 +173,8 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
     impl_->fps = fps ? fps : 60;
     impl_->maxDim = maxDim;
     impl_->onFrame = std::move(onFrame);
+    impl_->cliW = impl_->cliH = 0;
+    impl_->qualityPct = 100;
     impl_->closed.store(false, std::memory_order_release);
 
     __block SCShareableContent* content = nil;
@@ -215,8 +209,8 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
 
     uint32_t w = 0, h = 0;
     if (!CurrentSourceSize(displayId, impl_->scale, w, h)) {
-        w = Even(srcFrame.size.width * impl_->scale);
-        h = Even(srcFrame.size.height * impl_->scale);
+        w = deskhub::EvenDown(srcFrame.size.width * impl_->scale);
+        h = deskhub::EvenDown(srcFrame.size.height * impl_->scale);
     }
     if (!w || !h) {
         LOGE("[Capture] Display %u has no usable size.", displayId);
@@ -224,7 +218,8 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
     }
     impl_->curW = w;
     impl_->curH = h;
-    const deskhub::StreamSize t0 = deskhub::FitStreamSize(w, h, impl_->maxDim, 0, 0);
+    const deskhub::StreamSize t0 = deskhub::TargetStreamSize(w, h, impl_->maxDim, impl_->cliW,
+        impl_->cliH, impl_->qualityPct);
     impl_->cfgW = t0.width;
     impl_->cfgH = t0.height;
     impl_->config = MakeConfig(t0.width, t0.height, impl_->fps,

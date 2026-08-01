@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "deskhub/media/PresentCounters.h"
 #include "deskhub/media/VideoContract.h"
 
 class MediaCodecDecoder {
@@ -22,16 +23,16 @@ public:
 
     bool Decode(const uint8_t* nal, size_t len, uint64_t ptsUs);
 
-    uint32_t TakeRenderedCount();
+    uint32_t TakeRenderedCount() {
+        return counters_.TakeRenderedCount();
+    }
 
     uint32_t TakeCongestionDrops() {
-        const uint32_t n = congestionDrops_;
-        congestionDrops_ = 0;
-        return n;
+        return counters_.TakeCongestionDrops();
     }
 
     uint64_t lastRenderedPtsUs() const {
-        return lastRenderedPtsUs_;
+        return counters_.lastRenderedPtsUs();
     }
 
 private:
@@ -39,9 +40,7 @@ private:
 
     AMediaCodec* codec_ = nullptr;
     bool sentCsd_ = false;
-    uint32_t rendered_ = 0;
-    uint64_t lastRenderedPtsUs_ = 0;
-    uint32_t congestionDrops_ = 0;
+    deskhub::media::PresentCounters counters_;
 };
 
 static_assert(deskhub::media::VideoDecoderLike<MediaCodecDecoder>,

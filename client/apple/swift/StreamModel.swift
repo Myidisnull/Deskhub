@@ -19,7 +19,6 @@ final class StreamModel {
 
     private var session: ClientSession?
     private var layer: AVSampleBufferDisplayLayer?
-    private var pollTimer: Timer?
 
     init(address: String, sourceId: UInt8, sourceName: String) {
         self.address = address
@@ -30,7 +29,10 @@ final class StreamModel {
     func start() async {
         let addr = address
         let sid = sourceId
-        let opened = await Task.detached { ClientSession.start(address: addr, sourceId: sid) }.value
+        let handlers = makeHandlers()
+        let opened = await Task.detached {
+            ClientSession.start(address: addr, sourceId: sid, handlers: handlers)
+        }.value
         guard let opened else {
             failedToStart = true
             phase = .ended
@@ -40,12 +42,11 @@ final class StreamModel {
         failedToStart = false
         session = opened
         opened.setLayer(layer)
-        startPolling()
+        refresh()
     }
 
     func switchSource(to newSourceId: UInt8, name: String) async {
         guard newSourceId != sourceId else { return }
-        stopPolling()
         session?.stop()
         session = nil
         sourceId = newSourceId
@@ -59,7 +60,6 @@ final class StreamModel {
     }
 
     func disconnect() {
-        stopPolling()
         mouseLocked = false
         session?.stop()
         session = nil
@@ -84,6 +84,10 @@ final class StreamModel {
         session?.keyChord(modVk: modVk, modScan: modScan, vk: vk, scan: scan)
     }
 
+    func hotkey(_ hotkey: Hotkey) {
+        session?.hotkey(hotkey)
+    }
+
     func charTap(_ codepoint: UInt32) {
         session?.charTap(codepoint)
     }
@@ -104,45 +108,51 @@ final class StreamModel {
         session?.mouseButton(button, down: down)
     }
 
+    func mouseWheelNotches(_ notches: Int32) {
+        session?.mouseWheelNotches(notches)
+    }
+
     func mouseWheel(_ delta: Int32) {
         session?.mouseWheel(delta)
     }
 
-    func resumePolling() {
-        guard session != nil else { return }
-        startPolling()
-    }
-
-    func suspendPolling() {
-        stopPolling()
-    }
-
-    private func startPolling() {
-        stopPolling()
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.poll() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
-        poll()
-    }
-
-    private func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-    }
-
-    private func poll() {
+    func refresh() {
         guard let session else { return }
         phase = session.phase()
         statusLine = session.statusLine()
         videoWidth = session.videoWidth()
         videoHeight = session.videoHeight()
-
         if phase == .ended {
             endReason = session.endReason()
             mouseLocked = false
-            stopPolling()
         }
+    }
+
+    private func makeHandlers() -> SessionHandlers {
+        SessionHandlers(
+            onStatus: { [weak self] line in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.statusLine = line
+                    self.phase = self.session?.phase() ?? self.phase
+                }
+            },
+            onSize: { [weak self] width, height in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.videoWidth = width
+                    self.videoHeight = height
+                    self.phase = self.session?.phase() ?? self.phase
+                }
+            },
+            onClosed: { [weak self] reason in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.phase = .ended
+                    self.endReason = reason
+                    self.mouseLocked = false
+                }
+            }
+        )
     }
 }

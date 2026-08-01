@@ -27,10 +27,15 @@ struct EncodeSize {
     }
 };
 
+uint32_t EvenDown(double v);
+
 StreamSize FitStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t clientW,
     uint32_t clientH);
 
 StreamSize ApplyQualityScale(StreamSize base, uint32_t scalePct);
+
+StreamSize TargetStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t clientW,
+    uint32_t clientH, uint32_t scalePct);
 
 EncodeSize ClampEncodeSize(uint32_t nativeW, uint32_t nativeH, uint32_t wantW, uint32_t wantH,
     uint32_t maxDim);

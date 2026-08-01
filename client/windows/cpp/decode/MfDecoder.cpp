@@ -118,7 +118,7 @@ struct MfDecoder::Impl {
         streaming = true;
 
         LOGI("[MfDecoder] Initialized: %s, D3D11VA, low-latency.",
-            cfg.codec == Codec::HEVC ? "HEVC" : "H264");
+            CodecName(cfg.codec));
         return true;
     }
 

@@ -83,10 +83,9 @@ struct MainMenuView: View {
                     .frame(width: 52)
                 Text("Quality").fixedSize()
                 Picker("", selection: $agent.maxDim) {
-                    Text("720p").tag(1280)
-                    Text("1080p").tag(1920)
-                    Text("1440p").tag(2560)
-                    Text("Native").tag(0)
+                    ForEach(DeskhubAgent.qualityPresets) { preset in
+                        Text(preset.label).tag(preset.maxDim)
+                    }
                 }
                 .labelsHidden()
                 .frame(width: 96)
@@ -111,23 +110,23 @@ struct MainMenuView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(DeskhubClient.string(DHStrClientIpPrompt))
             HStack(spacing: 8) {
-                TextField("", text: $session.address)
+                TextField("", text: $session.connect.address)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(connect)
-                    .disabled(session.isConnecting)
+                    .disabled(session.connect.isConnecting)
                 Button("Connect", action: connect)
                     .buttonStyle(.borderedProminent)
-                    .disabled(session.address.isEmpty || session.isConnecting)
+                    .disabled(session.connect.address.isEmpty || session.connect.isConnecting)
             }
-            if session.isConnecting {
+            if session.connect.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(DeskhubClient.string(DHStrQueryingSources))
                         .foregroundStyle(.secondary)
                 }
             }
-            if !session.connectError.isEmpty {
-                Text(session.connectError)
+            if !session.connect.connectError.isEmpty {
+                Text(session.connect.connectError)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -161,13 +160,13 @@ struct MainMenuView: View {
     }
 
     private func connect() {
-        guard !session.address.isEmpty, !session.isConnecting else { return }
+        guard !session.connect.address.isEmpty, !session.connect.isConnecting else { return }
         Task {
             let sources = await session.listSources()
             if sources.count > 1 {
                 route = .sourcePicker(sources)
             } else {
-                openViewers(sources, address: session.address,
+                openViewers(sources, address: session.connect.address,
                             openWindow: openWindow, dismissWindow: dismissWindow)
             }
         }

@@ -10,7 +10,7 @@ struct SourcePickerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(model.address)
+            Text(model.connect.address)
                 .font(.headline)
 
             ForEach(sources) { source in

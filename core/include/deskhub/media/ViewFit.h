@@ -7,7 +7,12 @@ namespace deskhub {
 
 inline constexpr int32_t kNormalizedMax = kAbsCoordMax;
 inline constexpr double kMaxViewZoom = 5.0;
+inline constexpr double kZoomedThreshold = 1.01;
 inline constexpr int32_t kViewerMarginPx = 48;
+
+constexpr bool IsZoomed(double zoom) {
+    return zoom > kZoomedThreshold;
+}
 
 struct ViewRect {
     double x = 0;

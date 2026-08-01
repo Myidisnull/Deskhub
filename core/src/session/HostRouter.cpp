@@ -48,8 +48,7 @@ StreamSize RetargetStream(SourcePipelineState& st, uint32_t maxDim) {
     const uint32_t nh = st.nativeH.load(std::memory_order_relaxed);
     if (!nw || !nh) return {};
 
-    const StreamSize t = ApplyQualityScale(FitStreamSize(nw, nh, maxDim, st.cliW, st.cliH),
-        st.step.scalePct);
+    const StreamSize t = TargetStreamSize(nw, nh, maxDim, st.cliW, st.cliH, st.step.scalePct);
     if (!t.width || !t.height) return {};
 
     st.wantW.store(t.width, std::memory_order_relaxed);

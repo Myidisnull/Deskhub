@@ -10,6 +10,7 @@
 
 #include "deskhub/media/AnnexB.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
 
 namespace {
 
@@ -41,8 +42,7 @@ bool VtDecoder::Init(void* layer, int width, int height) {
     Shutdown();
     if (!layer) return false;
     layer_ = layer;
-    rendered_ = 0;
-    lastRenderedPtsUs_ = 0;
+    counters_.Reset();
     LOGI("[Decoder] VideoToolbox H.264 target %dx%d ready (AVSampleBufferDisplayLayer).",
         width, height);
     return true;
@@ -166,7 +166,7 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     }
 
     if (!l.isReadyForMoreMediaData) {
-        ++congestionDrops_;
+        counters_.CountCongestionDrop();
         CFRelease(sb);
         return true;
     }
@@ -174,13 +174,6 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     [l enqueueSampleBuffer:sb];
     CFRelease(sb);
 
-    ++rendered_;
-    lastRenderedPtsUs_ = ptsUs;
+    counters_.FramePresented(ptsUs, NowUs());
     return true;
-}
-
-uint32_t VtDecoder::TakeRenderedCount() {
-    const uint32_t n = rendered_;
-    rendered_ = 0;
-    return n;
 }

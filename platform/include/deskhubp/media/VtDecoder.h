@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "deskhub/media/PresentCounters.h"
 #include "deskhub/media/VideoContract.h"
 #include <vector>
 
@@ -20,24 +21,22 @@ public:
 
     bool Decode(const uint8_t* nal, size_t len, uint64_t ptsUs);
 
-    uint32_t TakeRenderedCount();
+    uint32_t TakeRenderedCount() {
+        return counters_.TakeRenderedCount();
+    }
 
     uint32_t TakeCongestionDrops() {
-        const uint32_t n = congestionDrops_;
-        congestionDrops_ = 0;
-        return n;
+        return counters_.TakeCongestionDrops();
     }
 
     uint64_t lastRenderedPtsUs() const {
-        return lastRenderedPtsUs_;
+        return counters_.lastRenderedPtsUs();
     }
 
 private:
     void* layer_ = nullptr;
     void* formatDesc_ = nullptr;
-    uint32_t rendered_ = 0;
-    uint64_t lastRenderedPtsUs_ = 0;
-    uint32_t congestionDrops_ = 0;
+    deskhub::media::PresentCounters counters_;
 
     uint8_t sps_[256] = {};
     uint8_t pps_[256] = {};

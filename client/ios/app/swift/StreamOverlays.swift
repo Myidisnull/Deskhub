@@ -16,14 +16,14 @@ struct StatusOverlay: View {
     private var connecting: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Connecting to \(model.address)…")
+            Text(DeskhubClient.connectingTo(model.address))
                 .foregroundStyle(.white)
         }
     }
 
     private var ended: some View {
         VStack(spacing: 12) {
-            Text("Session ended")
+            Text(DeskhubClient.string(DHStrSessionEnded))
                 .font(.headline)
                 .foregroundStyle(.white)
             Text(model.endReason)
@@ -49,7 +49,7 @@ struct ZoomControls: View {
                 .accessibilityLabel(
                     panMode ? "One finger pans the view" : "One finger moves the pointer"
                 )
-            pill(String(format: "%.1f×", zoom), action: onReset)
+            pill(DeskhubClient.zoomLabel(Double(zoom)), action: onReset)
                 .accessibilityLabel("Reset zoom")
         }
     }

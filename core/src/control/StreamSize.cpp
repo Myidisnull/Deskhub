@@ -2,13 +2,9 @@
 
 namespace deskhub {
 
-namespace {
-
-uint32_t Even(double v) {
+uint32_t EvenDown(double v) {
     if (v < 2.0) return 0;
     return uint32_t(v) & ~1u;
-}
-
 }
 
 StreamSize FitStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t clientW,
@@ -34,7 +30,7 @@ StreamSize FitStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t
 
     if (f >= 1.0) return {srcW, srcH};
 
-    const uint32_t w = Even(sw * f), h = Even(sh * f);
+    const uint32_t w = EvenDown(sw * f), h = EvenDown(sh * f);
     if (!w || !h) return {srcW, srcH};
     return {w, h};
 }
@@ -43,6 +39,16 @@ StreamSize ApplyQualityScale(StreamSize base, uint32_t scalePct) {
     const uint32_t pct = scalePct ? (scalePct > 100 ? 100 : scalePct) : 100;
     if (pct == 100) return base;
     return {(base.width * pct / 100u) & ~1u, (base.height * pct / 100u) & ~1u};
+}
+
+StreamSize TargetStreamSize(uint32_t srcW, uint32_t srcH, uint32_t maxDim, uint32_t clientW,
+    uint32_t clientH, uint32_t scalePct) {
+    const StreamSize fitted = FitStreamSize(srcW, srcH, maxDim, clientW, clientH);
+    if (!fitted.width || !fitted.height) return {};
+
+    const StreamSize scaled = ApplyQualityScale(fitted, scalePct);
+    if (!scaled.width || !scaled.height) return {};
+    return scaled;
 }
 
 EncodeSize ClampEncodeSize(uint32_t nativeW, uint32_t nativeH, uint32_t wantW, uint32_t wantH,

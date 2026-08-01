@@ -1,7 +1,9 @@
 #pragma once
 #include "deskhub/protocol/Wire.h"
 
+#include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace deskhub::ui {
 
@@ -26,6 +28,21 @@ inline constexpr const char* kViewerOpenFailed =
     "sharing.";
 inline constexpr const char* kConnectionEndedTitle = "Connection ended";
 inline constexpr const char* kDisconnected = "disconnected";
+inline constexpr const char* kSessionEnded = "Session ended";
+
+inline std::string ConnectingTo(std::string_view address) {
+    return "Connecting to " + std::string(address) + "\xE2\x80\xA6";
+}
+
+inline std::string HostTitle(std::string_view address, uint32_t width, uint32_t height) {
+    std::string title(address);
+    if (!width || !height) return title;
+    title += " \xE2\x80\x94 ";
+    title += std::to_string(width);
+    title += "\xC3\x97";
+    title += std::to_string(height);
+    return title;
+}
 
 inline std::string UdpPortLine() {
     return "UDP port " + std::to_string(kDeskhubPort);

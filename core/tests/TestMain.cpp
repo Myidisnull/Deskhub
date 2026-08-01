@@ -54,6 +54,9 @@ int main() {
     std::printf("--- input: pointer mapping + shared injector dispatch ---\n");
     RunPointerMapTests();
 
+    std::printf("--- input: touch trackpad cursor ---\n");
+    RunTrackpadCursorTests();
+
     std::printf("--- control: bitrate + link stats ---\n");
     RunControlTests();
 

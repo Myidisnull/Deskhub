@@ -7,6 +7,7 @@
 
 #include "deskhub/media/AnnexB.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
 
 namespace {
 
@@ -51,7 +52,7 @@ bool MediaCodecDecoder::Init(ANativeWindow* window, int width, int height) {
     }
 
     sentCsd_ = false;
-    rendered_ = 0;
+    counters_.Reset();
     LOGI("[Decoder] MediaCodec H.264 %dx%d ready (low-latency).", width, height);
     return true;
 }
@@ -92,7 +93,7 @@ bool MediaCodecDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
 
     const ssize_t idx = AMediaCodec_dequeueInputBuffer(codec_, 20'000);
     if (idx < 0) {
-        ++congestionDrops_;
+        counters_.CountCongestionDrop();
         DrainOutput();
         return true;
     }
@@ -120,8 +121,7 @@ bool MediaCodecDecoder::DrainOutput() {
         const ssize_t idx = AMediaCodec_dequeueOutputBuffer(codec_, &info, 0);
         if (idx >= 0) {
             AMediaCodec_releaseOutputBuffer(codec_, size_t(idx), true);
-            ++rendered_;
-            lastRenderedPtsUs_ = uint64_t(info.presentationTimeUs);
+            counters_.FramePresented(uint64_t(info.presentationTimeUs), NowUs());
             continue;
         }
         if (idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
@@ -138,10 +138,4 @@ bool MediaCodecDecoder::DrainOutput() {
         LOGE("[Decoder] dequeueOutputBuffer error: %zd", idx);
         return false;
     }
-}
-
-uint32_t MediaCodecDecoder::TakeRenderedCount() {
-    const uint32_t n = rendered_;
-    rendered_ = 0;
-    return n;
 }

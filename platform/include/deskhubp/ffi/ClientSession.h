@@ -35,6 +35,8 @@ void dh_session_key_tap(DHSession* s, int32_t vk, int32_t scan);
 
 void dh_session_key_chord(DHSession* s, int32_t modVk, int32_t modScan, int32_t vk, int32_t scan);
 
+void dh_session_hotkey(DHSession* s, int32_t vk, int32_t scan, int32_t modVk, int32_t modScan);
+
 void dh_session_char_tap(DHSession* s, uint32_t codepoint);
 
 void dh_session_release_all_input(DHSession* s);
@@ -46,6 +48,8 @@ void dh_session_mouse_move_rel(DHSession* s, int32_t dx, int32_t dy);
 void dh_session_mouse_button(DHSession* s, int32_t button, bool down);
 
 void dh_session_mouse_wheel(DHSession* s, int32_t delta);
+
+void dh_session_mouse_wheel_notches(DHSession* s, int32_t notches);
 
 DHPhase dh_session_phase(DHSession* s);
 const char* dh_session_status_line(DHSession* s);

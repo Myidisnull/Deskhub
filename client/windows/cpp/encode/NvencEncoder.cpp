@@ -159,7 +159,7 @@ struct NvencEncoder::Impl {
         if (!OpenEncoderOutput(cfg, "NVENC", out)) return false;
 
         LOGI("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, %s, %s -> %s", width, height,
-            cfg.fps, cfg.bitrateBps / 1e6, cfg.codec == Codec::HEVC ? "HEVC" : "H264",
+            cfg.fps, cfg.bitrateBps / 1e6, CodecName(cfg.codec),
             cfg.lowLatency ? "ULTRA_LOW_LATENCY" : "HIGH_QUALITY",
             out ? "file" : "callback");
         return true;

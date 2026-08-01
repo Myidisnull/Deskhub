@@ -55,6 +55,7 @@ add_library(platform STATIC
     src/session/HostAgent.cpp
     src/session/HostEngine.cpp
     src/ffi/ClientFfi.cpp
+    src/ffi/AgentSession.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)

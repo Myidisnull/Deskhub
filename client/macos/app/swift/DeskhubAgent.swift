@@ -12,9 +12,11 @@ struct ShareSource: Identifiable, Hashable, Sendable {
 struct AgentSourceStatus: Identifiable, Sendable {
     let id: UInt8
     let name: String
+    let label: String
     let width: UInt32
     let height: UInt32
     let viewerConnected: Bool
+    let zeroCopy: Bool
     let viewerAddr: String
     let captureFps: Double
     let sendFps: Double
@@ -22,7 +24,28 @@ struct AgentSourceStatus: Identifiable, Sendable {
     let rttMs: UInt32
 }
 
+struct QualityPreset: Identifiable, Sendable {
+    let label: String
+    let maxDim: Int
+
+    var id: Int { maxDim }
+}
+
 nonisolated enum DeskhubAgent {
+    static let qualityPresets: [QualityPreset] = {
+        var buf = [DHQualityPreset](repeating: DHQualityPreset(), count: 8)
+        let count = buf.withUnsafeMutableBufferPointer { ptr in
+            dha_quality_presets(ptr.baseAddress, Int32(ptr.count))
+        }
+        guard count > 0 else { return [] }
+        return (0 ..< Int(count)).map { idx in
+            QualityPreset(
+                label: DeskhubClient.cString(buf[idx].label),
+                maxDim: Int(buf[idx].maxDim)
+            )
+        }
+    }()
+
     static var hasScreenRecording: Bool { dh_has_screen_recording() }
     static var hasAccessibility: Bool { dh_has_accessibility() }
 
@@ -73,9 +96,11 @@ nonisolated enum DeskhubAgent {
             return AgentSourceStatus(
                 id: row.sourceId,
                 name: cString(row.name),
+                label: cString(row.label),
                 width: row.width,
                 height: row.height,
                 viewerConnected: row.viewerConnected,
+                zeroCopy: row.zeroCopy,
                 viewerAddr: cString(row.viewerAddr),
                 captureFps: row.captureFps,
                 sendFps: row.sendFps,
@@ -84,6 +109,8 @@ nonisolated enum DeskhubAgent {
             )
         }
     }
+
+    static var lastError: String { String(cString: dha_last_error()) }
 
     static func localAddresses() -> [LocalAddress] {
         String(cString: dha_local_addresses())
@@ -111,9 +138,6 @@ nonisolated enum DeskhubAgent {
     }
 
     private static func cString(_ tuple: some Any) -> String {
-        withUnsafeBytes(of: tuple) { rawBuf in
-            guard let base = rawBuf.baseAddress else { return "" }
-            return String(cString: base.assumingMemoryBound(to: CChar.self))
-        }
+        DeskhubClient.cString(tuple)
     }
 }

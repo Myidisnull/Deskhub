@@ -9,30 +9,17 @@ enum AppScreen: Sendable {
 
 @MainActor @Observable
 final class SessionModel {
-    var screen: AppScreen = .connect
-    var address: String = UserDefaults.standard.string(forKey: "lastAddress") ?? ""
-    var isConnecting = false
-    var connectError = ""
+    var connect = ConnectModel()
 
+    var screen: AppScreen = .connect
     var sources: [Source] = []
     private(set) var stream: StreamModel?
 
-    func connect() {
-        guard !isConnecting else { return }
-        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard let addr = DeskhubClient.normalizedAddress(trimmed) else {
-            connectError = "Invalid address: \"\(trimmed)\". Enter just the IP address."
-            return
-        }
-        address = addr
-        isConnecting = true
-        connectError = ""
-        UserDefaults.standard.set(addr, forKey: "lastAddress")
-
+    func beginConnect() {
+        guard !connect.isConnecting else { return }
         Task {
-            let found = await Task.detached { DeskhubClient.listSources(address: addr) }.value
-            isConnecting = false
+            let found = await connect.listSources()
+            guard !connect.address.isEmpty else { return }
             sources = found
             if found.count > 1 {
                 screen = .sourcePicker(found)
@@ -43,7 +30,8 @@ final class SessionModel {
     }
 
     func startStream(sourceId: UInt8) {
-        connectError = ""
+        connect.connectError = ""
+        let address = connect.address
         let model = StreamModel(
             address: address, sourceId: sourceId, sourceName: sourceName(of: sourceId)
         )
@@ -55,7 +43,8 @@ final class SessionModel {
             guard model.failedToStart, stream === model else { return }
             stream = nil
             screen = .connect
-            connectError = "Could not connect to \(address). Enter just the IP address."
+            connect.connectError = "Could not connect to \(address). "
+                + DeskhubClient.string(DHStrInvalidAddressHint)
         }
     }
 

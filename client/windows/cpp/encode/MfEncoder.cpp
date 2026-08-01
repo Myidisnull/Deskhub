@@ -229,7 +229,7 @@ struct MfEncoder::Impl {
 
         LOGI("[MfEncoder] Initialized: %ux%u @%ufps, %.1f Mbps, %s%s -> %s",
             cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6,
-            cfg.codec == Codec::HEVC ? "HEVC" : "H264",
+            CodecName(cfg.codec),
             isAsync ? " (async MFT)" : " (sync MFT)",
             out ? "file" : "callback");
         return true;

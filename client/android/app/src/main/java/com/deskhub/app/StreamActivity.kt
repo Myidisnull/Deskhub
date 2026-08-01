@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -136,8 +137,22 @@ class StreamActivity : ComponentActivity() {
         val w = intent.getIntArrayExtra("srcW") ?: return emptyList()
         val h = intent.getIntArrayExtra("srcH") ?: return emptyList()
         val names = intent.getStringArrayExtra("srcNames") ?: return emptyList()
-        if (w.size != ids.size || h.size != ids.size || names.size != ids.size) return emptyList()
-        return ids.indices.map { NativeClient.Source(ids[it], w[it], h[it], names[it]) }
+        val displayNames = intent.getStringArrayExtra("srcDisplayNames") ?: return emptyList()
+        val sizeLabels = intent.getStringArrayExtra("srcSizeLabels") ?: return emptyList()
+        val pickerLabels = intent.getStringArrayExtra("srcPickerLabels") ?: return emptyList()
+        val sizes = listOf(w.size, h.size, names.size, displayNames.size, sizeLabels.size, pickerLabels.size)
+        if (sizes.any { it != ids.size }) return emptyList()
+        return ids.indices.map {
+            NativeClient.Source(
+                ids[it],
+                w[it],
+                h[it],
+                names[it],
+                displayNames[it],
+                sizeLabels[it],
+                pickerLabels[it],
+            )
+        }
     }
 
     private fun switchSource(sourceId: Int) {
@@ -233,7 +248,7 @@ private fun StreamScreen(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val aspect = if (videoW > 0 && videoH > 0) videoW.toFloat() / videoH else null
-    val zoomed = zoom > 1.01f
+    val zoomed = NativeClient.isZoomed(zoom)
 
     var panMode by remember { mutableStateOf(false) }
     LaunchedEffect(zoomed) { panMode = zoomed }
@@ -265,9 +280,17 @@ private fun StreamScreen(
         pan = Offset(next.panX, next.panY)
     }
 
+    val scrollCarry = remember { doubleArrayOf(0.0) }
+
     val onTransform by rememberUpdatedState(
         newValue = { factor: Float, centroid: Offset, delta: Offset ->
-            applyTransform(factor, centroid, delta)
+            if (factor != 1f || zoomed) {
+                scrollCarry[0] = 0.0
+                applyTransform(factor, centroid, delta)
+            } else {
+                val notches = NativeClient.takeScrollNotches(delta.y, scrollCarry)
+                if (notches != 0) NativeClient.mouseWheel(notches)
+            }
         },
     )
 
@@ -364,7 +387,7 @@ private fun StreamScreen(
             if (zoomed) {
                 Pill(text = if (panMode) "Pan" else "Pointer", onClick = { panMode = !panMode })
                 Pill(
-                    text = "%.1f×".format(zoom),
+                    text = NativeClient.zoomLabel(zoom),
                     onClick = {
                         zoom = 1f
                         pan = Offset.Zero
@@ -453,9 +476,9 @@ private fun DisplayPickerDialog(
                             },
                         )
                         Column {
-                            Text(source.name.ifBlank { "Source %d".format(source.id) })
+                            Text(source.displayName)
                             Text(
-                                text = "${source.width}×${source.height}",
+                                text = source.sizeLabel,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -544,7 +567,7 @@ private fun ControlPanel(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (videoW > 0) "$address — $videoW×$videoH" else address,
+                    text = NativeClient.hostTitle(address, videoW, videoH),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White,
                     maxLines = 1,
@@ -579,13 +602,7 @@ private fun ControlPanel(
         ) {
             NativeClient.hotkeys.forEach { hk ->
                 OutlinedButton(
-                    onClick = {
-                        if (hk.modVk != 0) {
-                            NativeClient.keyChord(hk.modVk, hk.modScan, hk.vk, hk.scan)
-                        } else {
-                            NativeClient.keyTap(hk.vk, hk.scan)
-                        }
-                    },
+                    onClick = { NativeClient.hotkey(hk) },
                     enabled = streaming,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 ) { Text(hk.label) }
@@ -617,7 +634,7 @@ private fun ConnectingOverlay(address: String) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             CircularProgressIndicator()
-            Text(text = "Connecting to $address…", color = Color.White)
+            Text(text = NativeClient.connectingTo(address), color = Color.White)
         }
     }
 }
@@ -640,7 +657,7 @@ private fun EndedOverlay(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Session ended",
+                text = NativeClient.string(NativeClient.STR_SESSION_ENDED),
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
             )
@@ -657,47 +674,24 @@ private fun TrackpadOverlay(
     onPanRequest: (Offset) -> Unit,
     modifier: Modifier,
 ) {
-    var cursor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+    var cursor by remember { mutableStateOf(NativeClient.Cursor()) }
     var bounds by remember { mutableStateOf(IntSize.Zero) }
 
     val rect by rememberUpdatedState(videoRect)
     val requestPan by rememberUpdatedState(onPanRequest)
 
-    fun screenPos(): Offset = Offset(rect.left + cursor.x * rect.width, rect.top + cursor.y * rect.height)
+    fun viewport(): Size = Size(bounds.width.toFloat(), bounds.height.toFloat())
 
     fun sendMove() {
-        NativeClient.mouseMove(
-            (cursor.x * 65535f).roundToInt(),
-            (cursor.y * 65535f).roundToInt(),
-        )
+        NativeClient.cursorMouseMove(cursor, rect)
     }
 
-    fun clampToVisible(pos: Offset): Offset {
-        if (rect.width <= 0f || rect.height <= 0f) return pos
-        if (bounds.width <= 0 || bounds.height <= 0) return pos
-        val screen = Rect(0f, 0f, bounds.width.toFloat(), bounds.height.toFloat())
-        val visible = rect.intersect(screen)
-        if (visible.width <= 0f || visible.height <= 0f) return pos
-        return Offset(
-            pos.x.coerceIn(
-                (visible.left - rect.left) / rect.width,
-                (visible.right - rect.left) / rect.width,
-            ),
-            pos.y.coerceIn(
-                (visible.top - rect.top) / rect.height,
-                (visible.bottom - rect.top) / rect.height,
-            ),
-        )
+    LaunchedEffect(videoRect, bounds) {
+        cursor = NativeClient.cursorClamped(cursor, rect, viewport())
     }
-
-    LaunchedEffect(videoRect, bounds) { cursor = clampToVisible(cursor) }
 
     fun moveBy(delta: Offset) {
-        if (rect.width <= 0f || rect.height <= 0f) return
-        cursor =
-            clampToVisible(
-                Offset(cursor.x + delta.x / rect.width, cursor.y + delta.y / rect.height),
-            )
+        cursor = NativeClient.cursorMoved(cursor, delta, rect, viewport())
         sendMove()
     }
 
@@ -748,7 +742,7 @@ private fun TrackpadOverlay(
             CursorArrow(
                 modifier =
                     Modifier.offset {
-                        val p = screenPos()
+                        val p = NativeClient.cursorScreenPoint(cursor, rect) ?: Offset.Zero
                         IntOffset(p.x.roundToInt(), p.y.roundToInt())
                     },
             )

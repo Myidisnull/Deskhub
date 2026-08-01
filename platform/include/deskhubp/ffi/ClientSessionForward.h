@@ -1,10 +1,18 @@
 #pragma once
+#include "deskhub/input/Hotkeys.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/ffi/FfiText.h"
 
 #define DESKHUB_DEFINE_CLIENT_SESSION_FORWARDERS(engineOf)                                 \
     void dh_session_key(DHSession* s, int32_t vk, int32_t scan, bool down) {               \
         if (s) engineOf(s).QueueKey(vk, scan, down);                                       \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_hotkey(DHSession* s, int32_t vk, int32_t scan, int32_t modVk,          \
+        int32_t modScan) {                                                                 \
+        if (!s) return;                                                                    \
+        deskhub::DispatchHotkey(engineOf(s),                                               \
+            deskhub::Hotkey{"", vk, scan, modVk, modScan});                                \
     }                                                                                      \
                                                                                            \
     void dh_session_key_tap(DHSession* s, int32_t vk, int32_t scan) {                      \
@@ -38,6 +46,10 @@
                                                                                            \
     void dh_session_mouse_wheel(DHSession* s, int32_t delta) {                             \
         if (s) engineOf(s).QueueMouseWheel(delta);                                         \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_mouse_wheel_notches(DHSession* s, int32_t notches) {                   \
+        if (s) engineOf(s).QueueMouseWheel(notches * deskhub::kWheelDeltaPerNotch);        \
     }                                                                                      \
                                                                                            \
     DHPhase dh_session_phase(DHSession* s) {                                               \
