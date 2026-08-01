@@ -15,7 +15,9 @@
 
 #include <atomic>
 #include <cstring>
+#include <cstdio>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "deskhub/control/StreamSize.h"
@@ -122,6 +124,26 @@ const spa_pod* BuildFixatedFormat(spa_pod_builder* b, const spa_video_info_raw& 
     return static_cast<const spa_pod*>(spa_pod_builder_pop(b, &f0));
 }
 
+const char* ModifierName(uint64_t modifier) {
+    if (modifier == uint64_t(DRM_FORMAT_MOD_INVALID)) return "implicit";
+    if (modifier == uint64_t(DRM_FORMAT_MOD_LINEAR)) return "linear";
+    return "vendor-specific";
+}
+
+std::string ModifierList(const int64_t* modifiers, uint32_t count) {
+    constexpr uint32_t kMaxLogged = 8;
+    if (!modifiers || !count) return "none";
+    std::string out;
+    for (uint32_t i = 0; i < count && i < kMaxLogged; ++i) {
+        char one[32];
+        std::snprintf(one, sizeof(one), "%s0x%llx", i ? " " : "",
+            (unsigned long long)modifiers[i]);
+        out += one;
+    }
+    if (count > kMaxLogged) out += " ...";
+    return out;
+}
+
 void OnStateChanged(void* data, pw_stream_state old, pw_stream_state state, const char* error) {
     auto* im = static_cast<ScreenCapture::Impl*>(data);
     LOGI("[Capture][node %u] state %s -> %s%s%s", im->nodeId, pw_stream_state_as_string(old),
@@ -145,7 +167,7 @@ void OnParamChanged(void* data, uint32_t id, const spa_pod* param) {
     }
 
     const spa_pod_prop* modProp = spa_pod_find_prop(param, nullptr, SPA_FORMAT_VIDEO_modifier);
-    uint8_t podBuf[1024];
+    uint8_t podBuf[2048];
     if (modProp && (modProp->flags & SPA_POD_PROP_FLAG_DONT_FIXATE)) {
         uint32_t nVals = 0, choiceType = 0;
         spa_pod* child = spa_pod_get_values(&modProp->value, &nVals, &choiceType);
@@ -166,10 +188,15 @@ void OnParamChanged(void* data, uint32_t id, const spa_pod* param) {
         if (!found && mods && nVals) chosen = uint64_t(mods[0]);
 
         spa_pod_builder b = SPA_POD_BUILDER_INIT(podBuf, sizeof(podBuf));
-        const spa_pod* fixed[1] = {BuildFixatedFormat(&b, info, chosen, im->fps)};
-        LOGI("[Capture][node %u] Fixating dma-buf modifier 0x%llx.", im->nodeId,
-            (unsigned long long)chosen);
-        pw_stream_update_params(im->stream, fixed, 1);
+        const spa_pod* params[2];
+        params[0] = BuildFixatedFormat(&b, info, chosen, im->fps);
+        params[1] = BuildFormat(&b, nullptr, 0, im->fps);
+        LOGI(
+            "[Capture][node %u] Fixating dma-buf modifier 0x%llx (%s); compositor offered [%s]. "
+            "Keeping the shared-memory format as a fallback.",
+            im->nodeId, (unsigned long long)chosen, ModifierName(chosen),
+            ModifierList(mods, nVals).c_str());
+        pw_stream_update_params(im->stream, params, 2);
         return;
     }
 

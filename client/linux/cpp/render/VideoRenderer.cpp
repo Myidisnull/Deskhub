@@ -5,6 +5,7 @@
 
 extern "C" {
 #include <libavutil/frame.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/pixfmt.h>
 }
 
@@ -83,6 +84,25 @@ std::string ShaderHeader(bool fragment) {
     return fragment ? "#version 300 es\nprecision mediump float;\n" : "#version 300 es\n";
 }
 
+AVFrame* CopyToSystemMemory(AVFrame* src) {
+    AVFrame* dst = av_frame_alloc();
+    if (!dst) return nullptr;
+    dst->format = AV_PIX_FMT_NV12;
+    dst->width = src->width;
+    dst->height = src->height;
+    if (av_frame_get_buffer(dst, 0) < 0 || av_hwframe_transfer_data(dst, src, 0) < 0) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            LOGE("[Render] Could not copy the decoded surface into system memory.");
+        }
+        av_frame_free(&dst);
+        return nullptr;
+    }
+    av_frame_copy_props(dst, src);
+    return dst;
+}
+
 unsigned CompileShader(GLenum type, const std::string& src) {
     const unsigned id = glCreateShader(type);
     const char* p = src.c_str();
@@ -137,22 +157,35 @@ void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
 
     bool isDma = false;
     VADRMPRIMESurfaceDescriptor desc{};
-    if (f->format == AV_PIX_FMT_VAAPI && vaDisplay_) {
-        const auto surface = VASurfaceID(uintptr_t(f->data[3]));
-        const VAStatus st = vaExportSurfaceHandle(static_cast<VADisplay>(vaDisplay_), surface,
-            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
-            VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS, &desc);
-        if (st == VA_STATUS_SUCCESS) {
-            isDma = true;
-        } else {
-            static bool warned = false;
-            if (!warned) {
-                warned = true;
-                LOGE("[Render] vaExportSurfaceHandle failed (%s) — cannot display hardware frames.",
-                    vaErrorStr(st));
-            }
+    if (f->format == AV_PIX_FMT_VAAPI) {
+        const bool canImport = vaDisplay_ && !dmaImportBroken_.load(std::memory_order_acquire);
+        if (!canImport) {
+            AVFrame* copy = CopyToSystemMemory(f);
             av_frame_free(&f);
-            return;
+            if (!copy) return;
+            f = copy;
+        } else {
+            const auto surface = VASurfaceID(uintptr_t(f->data[3]));
+            const VAStatus st = vaExportSurfaceHandle(static_cast<VADisplay>(vaDisplay_), surface,
+                VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
+                VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_SEPARATE_LAYERS, &desc);
+            if (st == VA_STATUS_SUCCESS) {
+                isDma = true;
+            } else {
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    LOGW(
+                        "[Render] vaExportSurfaceHandle failed (%s) — copying frames through "
+                        "system memory instead.",
+                        vaErrorStr(st));
+                }
+                dmaImportBroken_.store(true, std::memory_order_release);
+                AVFrame* copy = CopyToSystemMemory(f);
+                av_frame_free(&f);
+                if (!copy) return;
+                f = copy;
+            }
         }
     }
 
@@ -270,12 +303,12 @@ bool VideoRenderer::UploadLocked() {
             EGLImageKHR img = eglCreateImageKHR(edpy, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
                 nullptr, attrs);
             if (img == EGL_NO_IMAGE_KHR) {
-                static bool warned = false;
-                if (!warned) {
-                    warned = true;
-                    LOGE("[Render] eglCreateImageKHR failed for layer %u (fourcc 0x%x).", i,
-                        layer.drm_format);
-                }
+                if (!dmaImportBroken_.exchange(true, std::memory_order_acq_rel))
+                    LOGW(
+                        "[Render] The display GPU cannot import the decoder's dma-buf (layer %u, "
+                        "fourcc 0x%x, modifier 0x%llx, EGL error 0x%x) — decode and display are "
+                        "likely on different GPUs. Copying frames through system memory instead.",
+                        i, layer.drm_format, (unsigned long long)mod, eglGetError());
                 return false;
             }
             glActiveTexture(GL_TEXTURE0 + i);

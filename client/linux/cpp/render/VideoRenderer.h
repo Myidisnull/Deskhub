@@ -48,6 +48,7 @@ private:
     std::atomic<bool> hasFrame_{false};
 
     void* vaDisplay_ = nullptr;
+    std::atomic<bool> dmaImportBroken_{false};
 
     unsigned program_ = 0;
     unsigned vao_ = 0, vbo_ = 0;
