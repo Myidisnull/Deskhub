@@ -10,9 +10,12 @@
 namespace deskhubp {
 namespace {
 
-std::string DefaultPortError(const UdpSocket&) {
-    return "UDP port " + std::to_string(kDeskhubPort) +
-           " is not available \xE2\x80\x94 another Deskhub is probably still running.";
+std::string DefaultPortError(const UdpSocket& sock) {
+    return sock.lastBindAddrInUse()
+               ? "UDP port " + std::to_string(kDeskhubPort) +
+                     " is already in use \xE2\x80\x94 another Deskhub is probably still "
+                     "running. Close it and try again."
+               : "Could not open UDP port " + std::to_string(kDeskhubPort) + ".";
 }
 
 }

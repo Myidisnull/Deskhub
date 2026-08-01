@@ -6,7 +6,8 @@
 #include <wrl/client.h>
 
 #include <cstdint>
-#include <map>
+
+#include "gpu/D3D11VideoProcessor.h"
 
 class Downscaler {
 public:
@@ -31,15 +32,8 @@ private:
     void Reset();
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
-    Microsoft::WRL::ComPtr<ID3D11VideoDevice> videoDevice_;
-    Microsoft::WRL::ComPtr<ID3D11VideoContext> videoContext_;
-    Microsoft::WRL::ComPtr<ID3D11VideoProcessorEnumerator> vpEnum_;
-    Microsoft::WRL::ComPtr<ID3D11VideoProcessor> vp_;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> dstTex_;
-    Microsoft::WRL::ComPtr<ID3D11VideoProcessorOutputView> outView_;
-
-    std::map<ID3D11Texture2D*, Microsoft::WRL::ComPtr<ID3D11VideoProcessorInputView>> inViews_;
+    D3D11VideoProcessor vp_;
 
     uint32_t srcW_ = 0, srcH_ = 0, dstW_ = 0, dstH_ = 0;
 };

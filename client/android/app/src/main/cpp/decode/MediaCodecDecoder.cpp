@@ -3,32 +3,14 @@
 #include <media/NdkMediaFormat.h>
 
 #include <cstring>
+#include <span>
 
+#include "deskhub/media/AnnexB.h"
 #include "deskhubp/diag/Log.h"
 
 namespace {
 
 constexpr const char* kMimeH264 = "video/avc";
-
-size_t FirstVclOffset(const uint8_t* d, size_t n) {
-    size_t i = 0;
-    while (i + 3 < n) {
-        size_t scLen = 0;
-        if (d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 1)
-            scLen = 3;
-        else if (i + 4 < n && d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 0 && d[i + 3] == 1)
-            scLen = 4;
-        if (scLen == 0) {
-            ++i;
-            continue;
-        }
-
-        const uint8_t type = d[i + scLen] & 0x1F;
-        if (type >= 1 && type <= 5) return i;
-        i += scLen;
-    }
-    return 0;
-}
 
 }
 
@@ -86,7 +68,8 @@ bool MediaCodecDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     if (!codec_ || !nal || len == 0) return false;
 
     if (!sentCsd_) {
-        const size_t csdLen = FirstVclOffset(nal, len);
+        const size_t csdLen =
+            deskhub::media::FirstVclOffset(std::span<const uint8_t>(nal, len));
         if (csdLen > 0) {
             const ssize_t idx = AMediaCodec_dequeueInputBuffer(codec_, 100'000);
             if (idx < 0) {

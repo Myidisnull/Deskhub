@@ -21,10 +21,24 @@ struct Source: Identifiable, Sendable, Hashable {
 
     var displayName: String { name.isEmpty ? "Source \(id)" : name }
     var sizeLabel: String { "\(width)x\(height)" }
-    var pickerLabel: String { "\(displayName) (\(sizeLabel))" }
+    var pickerLabel: String {
+        var buf = [CChar](repeating: 0, count: 320)
+        _ = dh_source_picker_label(name, id, width, height, &buf, Int32(buf.count))
+        return String(cString: buf)
+    }
 }
 
 nonisolated enum DeskhubClient {
+    static func string(_ id: DHStringId) -> String {
+        String(cString: dh_string(id))
+    }
+
+    static func normalizedAddress(_ raw: String) -> String? {
+        let addr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !addr.isEmpty, dh_parse_address(addr) else { return nil }
+        return addr
+    }
+
     static func listSources(address: String) -> [Source] {
         var buf = [DHSourceInfo](repeating: DHSourceInfo(), count: 16)
         let count = buf.withUnsafeMutableBufferPointer { ptr in

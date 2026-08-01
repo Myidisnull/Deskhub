@@ -13,37 +13,24 @@
 #include <d3d11_1.h>
 #include <wrl/client.h>
 #include <cstdio>
-#include <map>
+#include <span>
 #include <utility>
 #include <vector>
 
+#include "deskhub/media/AnnexB.h"
 #include "deskhub/media/H264Sps.h"
+#include "deskhub/media/RatePlan.h"
 #include "deskhubp/diag/Log.h"
+#include "gpu/D3D11VideoProcessor.h"
+#include "gpu/HrCheck.h"
 
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
 
 using Microsoft::WRL::ComPtr;
 
-#define MF_CHECK(expr, msg)                               \
-    do {                                                  \
-        HRESULT _hr = (expr);                             \
-        if (FAILED(_hr)) {                                \
-            LOGE("[MfEncoder] %s failed: 0x%08lX", (msg), \
-                (unsigned long)_hr);                      \
-            return false;                                 \
-        }                                                 \
-    } while (0)
-
-#define MF_CHECKI(expr, msg)                              \
-    do {                                                  \
-        HRESULT _hr = (expr);                             \
-        if (FAILED(_hr)) {                                \
-            LOGE("[MfEncoder] %s failed: 0x%08lX", (msg), \
-                (unsigned long)_hr);                      \
-            return -1;                                    \
-        }                                                 \
-    } while (0)
+#define MF_CHECK(expr, msg) DH_HR_CHECK("MfEncoder", expr, msg)
+#define MF_CHECKI(expr, msg) DH_HR_CHECK_VAL("MfEncoder", expr, msg, -1)
 
 struct MfEncoder::Impl {
     ComPtr<IMFActivate> activate;
@@ -53,14 +40,8 @@ struct MfEncoder::Impl {
     ComPtr<ICodecAPI> codecApi;
 
     ComPtr<ID3D11Device> device;
-    ComPtr<ID3D11DeviceContext> context;
-    ComPtr<ID3D11VideoDevice> videoDevice;
-    ComPtr<ID3D11VideoContext> videoContext;
-    ComPtr<ID3D11VideoProcessorEnumerator> vpEnum;
-    ComPtr<ID3D11VideoProcessor> vp;
     ComPtr<ID3D11Texture2D> nv12Tex;
-    ComPtr<ID3D11VideoProcessorOutputView> vpOutView;
-    std::map<ID3D11Texture2D*, ComPtr<ID3D11VideoProcessorInputView>> vpInViews;
+    D3D11VideoProcessor colorConvert;
 
     EncoderConfig cfg{};
     UINT resetToken = 0;
@@ -226,7 +207,6 @@ struct MfEncoder::Impl {
     bool Init(ID3D11Device* dev, const EncoderConfig& c) {
         cfg = c;
         device = dev;
-        device->GetImmediateContext(&context);
 
         ComPtr<ID3D10Multithread> mt;
         if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&mt)))) {
@@ -245,20 +225,7 @@ struct MfEncoder::Impl {
         if (!ConfigureTransform()) return false;
         if (!SetupColorConvert()) return false;
 
-        if (!cfg.outputPath.empty()) {
-            std::wstring path = cfg.outputPath;
-            size_t dot = path.find_last_of(L'.');
-            if (dot != std::wstring::npos && path.substr(dot) == L".mp4")
-                path = path.substr(0, dot) + L".h264";
-            out = _wfopen(path.c_str(), L"wb");
-            if (!out) {
-                LOGE("[MfEncoder] Failed to open output file.");
-                return false;
-            }
-        } else if (!cfg.onPacket) {
-            LOGE("[MfEncoder] No outputPath or onPacket - no output destination.");
-            return false;
-        }
+        if (!OpenEncoderOutput(cfg, "MfEncoder", out)) return false;
 
         LOGI("[MfEncoder] Initialized: %ux%u @%ufps, %.1f Mbps, %s%s -> %s",
             cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6,
@@ -297,15 +264,21 @@ struct MfEncoder::Impl {
             v.boolVal = val ? VARIANT_TRUE : VARIANT_FALSE;
             report(name, SUCCEEDED(codecApi->SetValue(&api, &v)) ? "ok" : "SetValue FAILED");
         };
-        setUI4(CODECAPI_AVEncCommonRateControlMode, (ULONG)eAVEncCommonRateControlMode_CBR,
-            "RateControlMode=CBR");
+        const bool vbr = cfg.rc == RateControl::VBR;
+        setUI4(CODECAPI_AVEncCommonRateControlMode,
+            (ULONG)(vbr ? eAVEncCommonRateControlMode_PeakConstrainedVBR
+                        : eAVEncCommonRateControlMode_CBR),
+            vbr ? "RateControlMode=VBR" : "RateControlMode=CBR");
         setUI4(CODECAPI_AVEncCommonMeanBitRate, (ULONG)cfg.bitrateBps, "MeanBitRate");
-        setBool(CODECAPI_AVEncCommonLowLatency, true, "CommonLowLatency");
-        setBool(CODECAPI_AVLowLatencyMode, true, "LowLatencyMode");
+        if (cfg.lowLatency) {
+            setBool(CODECAPI_AVEncCommonLowLatency, true, "CommonLowLatency");
+            setBool(CODECAPI_AVLowLatencyMode, true, "LowLatencyMode");
+        }
         setUI4(CODECAPI_AVEncMPVGOPSize, 0x7fffffff, "GOPSize");
-        const ULONG frameBits = (ULONG)(cfg.bitrateBps / (cfg.fps ? cfg.fps : 60));
-        setUI4(CODECAPI_AVEncCommonBufferSize, frameBits * 2, "BufferSize(VBV)");
-        setUI4(CODECAPI_AVEncCommonBufferInLevel, frameBits, "BufferInLevel");
+        const deskhub::media::RatePlan plan =
+            deskhub::media::PlanRateControl(cfg.bitrateBps, cfg.fps, cfg.lowLatency);
+        setUI4(CODECAPI_AVEncCommonBufferSize, (ULONG)plan.vbvBits, "BufferSize(VBV)");
+        setUI4(CODECAPI_AVEncCommonBufferInLevel, (ULONG)plan.vbvInitialBits, "BufferInLevel");
         rcLogged = true;
         return true;
     }
@@ -338,30 +311,8 @@ struct MfEncoder::Impl {
     }
 
     bool SetupColorConvert() {
-        MF_CHECK(device.As(&videoDevice), "ID3D11VideoDevice");
-        MF_CHECK(context.As(&videoContext), "ID3D11VideoContext");
-
         const uint32_t inW = cfg.srcWidth ? cfg.srcWidth : cfg.width;
         const uint32_t inH = cfg.srcHeight ? cfg.srcHeight : cfg.height;
-
-        D3D11_VIDEO_PROCESSOR_CONTENT_DESC cd{};
-        cd.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-        cd.InputWidth = inW;
-        cd.InputHeight = inH;
-        cd.OutputWidth = cfg.width;
-        cd.OutputHeight = cfg.height;
-        cd.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
-        MF_CHECK(videoDevice->CreateVideoProcessorEnumerator(&cd, &vpEnum),
-            "CreateVideoProcessorEnumerator");
-
-        UINT fmtFlags = 0;
-        HRESULT hr = vpEnum->CheckVideoProcessorFormat(DXGI_FORMAT_NV12, &fmtFlags);
-        if (FAILED(hr) || !(fmtFlags & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT)) {
-            LOGE("[MfEncoder] GPU cannot output NV12 from video processor.");
-            return false;
-        }
-
-        MF_CHECK(videoDevice->CreateVideoProcessor(vpEnum.Get(), 0, &vp), "CreateVideoProcessor");
 
         D3D11_TEXTURE2D_DESC td{};
         td.Width = cfg.width;
@@ -374,54 +325,20 @@ struct MfEncoder::Impl {
         td.BindFlags = D3D11_BIND_RENDER_TARGET;
         MF_CHECK(device->CreateTexture2D(&td, nullptr, &nv12Tex), "CreateTexture2D(NV12)");
 
-        D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC od{};
-        od.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
-        od.Texture2D.MipSlice = 0;
-        MF_CHECK(videoDevice->CreateVideoProcessorOutputView(nv12Tex.Get(), vpEnum.Get(), &od,
-                     &vpOutView),
-            "CreateVideoProcessorOutputView");
-
-        RECT rect{0, 0, (LONG)cfg.width, (LONG)cfg.height};
-        videoContext->VideoProcessorSetStreamSourceRect(vp.Get(), 0, TRUE, &rect);
-        videoContext->VideoProcessorSetStreamDestRect(vp.Get(), 0, TRUE, &rect);
-
-        ComPtr<ID3D11VideoContext1> vc1;
-        if (SUCCEEDED(videoContext.As(&vc1))) {
-            vc1->VideoProcessorSetStreamColorSpace1(vp.Get(), 0,
-                DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
-            vc1->VideoProcessorSetOutputColorSpace1(vp.Get(),
-                DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709);
-        }
-        D3D11_VIDEO_PROCESSOR_COLOR_SPACE inCs{};
-        inCs.RGB_Range = 0;
-        videoContext->VideoProcessorSetStreamColorSpace(vp.Get(), 0, &inCs);
-        D3D11_VIDEO_PROCESSOR_COLOR_SPACE outCs{};
-        outCs.YCbCr_Matrix = 1;
-        outCs.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
-        videoContext->VideoProcessorSetOutputColorSpace(vp.Get(), &outCs);
-
-        videoContext->VideoProcessorSetStreamAutoProcessingMode(vp.Get(), 0, FALSE);
-        return true;
+        D3D11VideoProcessor::Setup s;
+        s.srcWidth = inW;
+        s.srcHeight = inH;
+        s.dstWidth = cfg.width;
+        s.dstHeight = cfg.height;
+        s.srcRect = RECT{0, 0, (LONG)cfg.width, (LONG)cfg.height};
+        s.dstRect = RECT{0, 0, (LONG)cfg.width, (LONG)cfg.height};
+        s.dstYCbCr = true;
+        s.requiredOutputFormat = DXGI_FORMAT_NV12;
+        return colorConvert.Configure(device.Get(), nv12Tex.Get(), s, "MfEncoder");
     }
 
     bool ConvertToNv12(ID3D11Texture2D* bgra) {
-        auto it = vpInViews.find(bgra);
-        if (it == vpInViews.end()) {
-            D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC vd{};
-            vd.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-            vd.Texture2D.MipSlice = 0;
-            vd.Texture2D.ArraySlice = 0;
-            ComPtr<ID3D11VideoProcessorInputView> view;
-            MF_CHECK(videoDevice->CreateVideoProcessorInputView(bgra, vpEnum.Get(), &vd, &view),
-                "CreateVideoProcessorInputView");
-            it = vpInViews.emplace(bgra, std::move(view)).first;
-        }
-        D3D11_VIDEO_PROCESSOR_STREAM stream{};
-        stream.Enable = TRUE;
-        stream.pInputSurface = it->second.Get();
-        MF_CHECK(videoContext->VideoProcessorBlt(vp.Get(), vpOutView.Get(), 0, 1, &stream),
-            "VideoProcessorBlt");
-        return true;
+        return colorConvert.Blt(bgra);
     }
 
     void CacheSpsPps() {
@@ -441,22 +358,6 @@ struct MfEncoder::Impl {
         LOGI("[MfEncoder] SPS did not signal a reorder limit - added max_num_reorder_frames=0.");
     }
 
-    static bool ContainsIdrNal(const uint8_t* data, size_t len) {
-        for (size_t i = 0; i + 3 < len; ++i) {
-            if (data[i] != 0 || data[i + 1] != 0) continue;
-            size_t hdr;
-            if (data[i + 2] == 1)
-                hdr = i + 3;
-            else if (data[i + 2] == 0 && i + 4 < len && data[i + 3] == 1)
-                hdr = i + 4;
-            else
-                continue;
-            if (hdr < len && (data[hdr] & 0x1F) == 5) return true;
-            i = hdr;
-        }
-        return false;
-    }
-
     bool EmitSample(IMFSample* sample) {
         ComPtr<IMFMediaBuffer> buffer;
         MF_CHECK(sample->ConvertToContiguousBuffer(&buffer), "ConvertToContiguousBuffer");
@@ -464,7 +365,8 @@ struct MfEncoder::Impl {
         DWORD len = 0;
         MF_CHECK(buffer->Lock(&data, nullptr, &len), "Lock(out)");
 
-        const bool keyframe = ContainsIdrNal(data, len);
+        const bool keyframe =
+            deskhub::media::ContainsIdr(std::span<const uint8_t>(data, len), cfg.codec);
         if (keyframe && spsPps.empty()) CacheSpsPps();
 
         LONGLONG timeHns = 0;

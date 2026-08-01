@@ -12,11 +12,12 @@
 #include <memory>
 #include <string>
 
-#include "capture/GpuSelect.h"
+#include "gpu/GpuSelect.h"
 #include "decode/PanelRenderer.h"
 #include "decode/WinVideoDecoder.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientSessionForward.h"
+#include "deskhubp/ffi/ClientSessionShell.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
 #include "deskhubp/system/Clock.h"
@@ -31,29 +32,13 @@ using WinClientEngine = deskhubp::ClientEngine<WinVideoDecoder, WinRenderTarget>
 
 }
 
-struct DHSession {
-    DHSession() : engine(deskhub::diag::ClientDiagCaps{true, false}) {}
-
-    WinClientEngine engine;
+struct DHSession : deskhubp::FfiClientSession<WinClientEngine> {
+    DHSession() : FfiClientSession(deskhub::diag::ClientDiagCaps{true, false}) {}
 
     GpuChoice gpu;
     PanelRenderer renderer;
     std::atomic<uint32_t> negotiatedFps{0};
-
-    DHSessionCallbacks callbacks{};
-
     std::atomic<bool> negotiated{false};
-    std::atomic<bool> userStop{false};
-    std::atomic<bool> closedNotified{false};
-
-    char statusBuf[256] = {};
-    char reasonBuf[256] = {};
-
-    void NotifyClosed(const char* reason) {
-        if (closedNotified.exchange(true)) return;
-        if (callbacks.onClosed)
-            callbacks.onClosed(reason ? reason : "connection lost", callbacks.user);
-    }
 };
 
 namespace {
@@ -66,16 +51,13 @@ WinClientEngine& EngineOf(DHSession* s) {
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
     const DHSessionCallbacks* callbacks) {
-    if (!address || !surface) return nullptr;
+    if (!surface) return nullptr;
 
     NetAddr server{};
-    if (!ParseNetAddr(address, server)) {
-        LOGE("[Bridge] Invalid address: %s", address);
-        return nullptr;
-    }
+    if (!deskhubp::ParseSessionAddress(address, server)) return nullptr;
 
     auto session = std::make_unique<DHSession>();
-    if (callbacks) session->callbacks = *callbacks;
+    session->AdoptCallbacks(callbacks);
 
     if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, session->gpu))
         return nullptr;
@@ -105,10 +87,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
         if (raw->negotiated.load(std::memory_order_acquire) && raw->callbacks.onStatus)
             raw->callbacks.onStatus(compact, raw->callbacks.user);
     };
-    cfg.onEnded = [raw](const char* reason) { raw->NotifyClosed(reason); };
-    cfg.onFinished = [raw](const char* reason) {
-        if (!raw->userStop.load()) raw->NotifyClosed(reason && *reason ? reason : nullptr);
-    };
+    raw->WireLifecycle(cfg);
     cfg.onDecodeThreadStart = [] { CoInitializeEx(nullptr, COINIT_MULTITHREADED); };
     cfg.onDecodeThreadExit = [] { CoUninitialize(); };
 
@@ -122,9 +101,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
 
 void dh_session_stop(DHSession* s) {
     if (!s) return;
-    s->userStop.store(true);
-    s->closedNotified.store(true);
-    s->engine.Stop();
+    s->StopQuietly();
     delete s;
 }
 

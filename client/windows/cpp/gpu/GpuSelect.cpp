@@ -1,6 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include "capture/GpuSelect.h"
+#include "gpu/GpuSelect.h"
 
 #include <dxgi1_2.h>
 #include <cstdio>
@@ -12,13 +12,13 @@
 
 using Microsoft::WRL::ComPtr;
 
-const wchar_t* GpuVendorName(GpuVendor v) {
+const char* GpuVendorName(GpuVendor v) {
     switch (v) {
-        case GpuVendor::Nvidia: return L"NVIDIA";
-        case GpuVendor::Intel: return L"Intel";
-        case GpuVendor::Amd: return L"AMD";
-        case GpuVendor::Microsoft: return L"Microsoft (WARP/software)";
-        default: return L"Unknown";
+        case GpuVendor::Nvidia: return "NVIDIA";
+        case GpuVendor::Intel: return "Intel";
+        case GpuVendor::Amd: return "AMD";
+        case GpuVendor::Microsoft: return "Microsoft (WARP/software)";
+        default: return "Unknown";
     }
 }
 

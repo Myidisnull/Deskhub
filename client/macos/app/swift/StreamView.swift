@@ -40,23 +40,20 @@ struct ViewerWindow: View {
             .alert("Deskhub", isPresented: failedShown) {
                 Button("OK") { dismiss() }
             } message: {
-                Text("Could not open a viewing session - check the address and that "
-                    + "the other machine is sharing.")
+                Text(DeskhubClient.string(DHStrViewerOpenFailed))
             }
     }
 
     private var title: String {
-        model.sourceName.isEmpty
-            ? "Deskhub - viewing"
-            : "Deskhub - viewing: \(model.sourceName)"
+        var buf = [CChar](repeating: 0, count: 320)
+        _ = dh_viewer_base_title(model.sourceName, &buf, Int32(buf.count))
+        return String(cString: buf)
     }
 
     private var subtitle: String {
-        let stats = model.statusLine.isEmpty ? "connecting..." : model.statusLine
-        let hint = model.mouseLocked
-            ? "Mouse locked - press F9 to release"
-            : "Press F9 to lock mouse"
-        return "\(stats) · \(hint)"
+        var buf = [CChar](repeating: 0, count: 320)
+        _ = dh_viewer_subtitle(model.statusLine, model.mouseLocked, &buf, Int32(buf.count))
+        return String(cString: buf)
     }
 
     private var failedShown: Binding<Bool> {
@@ -82,7 +79,7 @@ struct StreamView: View {
         .alert("Deskhub", isPresented: endedAlertShown) {
             Button("OK") { onEnd() }
         } message: {
-            Text("Connection ended: \(model.endReason)")
+            Text("\(DeskhubClient.string(DHStrConnectionEndedTitle)): \(model.endReason)")
         }
     }
 

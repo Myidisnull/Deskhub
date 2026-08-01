@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "deskhubp/diag/Log.h"
+#include "gpu/HrCheck.h"
 
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
@@ -21,15 +22,7 @@
 
 using Microsoft::WRL::ComPtr;
 
-#define MFD_CHECK(expr, msg)                              \
-    do {                                                  \
-        HRESULT _hr = (expr);                             \
-        if (FAILED(_hr)) {                                \
-            LOGE("[MfDecoder] %s failed: 0x%08lX", (msg), \
-                (unsigned long)_hr);                      \
-            return false;                                 \
-        }                                                 \
-    } while (0)
+#define MFD_CHECK(expr, msg) DH_HR_CHECK("MfDecoder", expr, msg)
 
 struct MfDecoder::Impl {
     ComPtr<IMFTransform> mft;

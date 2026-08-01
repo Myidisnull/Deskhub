@@ -1,5 +1,7 @@
 #include "deskhub/session/HostRouter.h"
 
+#include "deskhub/media/SourceLabel.h"
+
 namespace deskhub {
 
 SourcePipelineState* RouteDatagram(std::span<SourcePipelineState* const> live,
@@ -53,6 +55,64 @@ StreamSize RetargetStream(SourcePipelineState& st, uint32_t maxDim) {
     st.wantW.store(t.width, std::memory_order_relaxed);
     st.wantH.store(t.height, std::memory_order_relaxed);
     return t;
+}
+
+FrameAdmission AdmitCapturedFrame(SourcePipelineState& st, uint32_t nativeW, uint32_t nativeH,
+    uint32_t maxDim) {
+    FrameAdmission out;
+    if (!nativeW || !nativeH) {
+        out.drop = true;
+        return out;
+    }
+
+    st.nativeW.store(nativeW, std::memory_order_relaxed);
+    st.nativeH.store(nativeH, std::memory_order_relaxed);
+
+    const EncodeSize target = ClampEncodeSize(nativeW, nativeH,
+        st.wantW.load(std::memory_order_relaxed), st.wantH.load(std::memory_order_relaxed),
+        maxDim);
+    out.encode = target.size;
+    if (!target.width() || !target.height()) {
+        out.drop = true;
+        return out;
+    }
+
+    const uint32_t prevW = st.srcW.load(), prevH = st.srcH.load();
+    if (prevW != target.width() || prevH != target.height()) {
+        if (prevW)
+            out.sizeNote = "Encode size " + media::SourceSizeLabel(prevW, prevH) + " -> " +
+                           media::SourceSizeLabel(target.width(), target.height()) + " (source " +
+                           media::SourceSizeLabel(nativeW, nativeH) + "), rebuilding encoder.";
+        st.srcW.store(target.width());
+        st.srcH.store(target.height());
+        out.rebuildEncoder = true;
+        st.sizeChanged.store(true, std::memory_order_release);
+    }
+
+    if (target.tooSmall) {
+        if (!st.paused.exchange(true, std::memory_order_acq_rel))
+            out.pauseNote = "Source too small to encode (" +
+                            media::SourceSizeLabel(target.width(), target.height()) +
+                            ") \xE2\x80\x94 paused, waiting for it to grow back.";
+        out.drop = true;
+        return out;
+    }
+    if (st.paused.exchange(false, std::memory_order_acq_rel))
+        out.pauseNote = "Source back to " +
+                        media::SourceSizeLabel(target.width(), target.height()) + " \xE2\x80\x94 resuming.";
+
+    return out;
+}
+
+media::EncoderConfig MakeEncoderConfig(const SourcePipelineState& st, StreamSize encode,
+    uint32_t fallbackFps) {
+    media::EncoderConfig cfg;
+    cfg.width = encode.width;
+    cfg.height = encode.height;
+    cfg.fps = st.curFps.load(std::memory_order_relaxed);
+    if (!cfg.fps) cfg.fps = fallbackFps;
+    cfg.bitrateBps = st.curBitrateBps.load(std::memory_order_relaxed);
+    return cfg;
 }
 
 OfferUpdate RefreshOffer(SourcePipelineState& st, uint8_t fallbackFps) {

@@ -42,7 +42,42 @@ typedef struct {
     int32_t modScan;
 } DHHotkey;
 
+typedef enum {
+    DHStrAppTitle = 0,
+    DHStrHostIpIntro = 1,
+    DHStrNoNetworkAddress = 2,
+    DHStrClientIpPrompt = 3,
+    DHStrPickerTitle = 4,
+    DHStrPickerEachWindow = 5,
+    DHStrShareButton = 6,
+    DHStrSharingTitle = 7,
+    DHStrSharingSourcesIntro = 8,
+    DHStrSharingConnectHint = 9,
+    DHStrNothingShared = 10,
+    DHStrStopSharing = 11,
+    DHStrQueryingSources = 12,
+    DHStrViewerOpenFailed = 13,
+    DHStrConnectionEndedTitle = 14,
+    DHStrDisconnected = 15,
+    DHStrUdpPortLine = 16,
+    DHStrInvalidAddressHint = 17,
+} DHStringId;
+
+const char* dh_string(DHStringId id);
+
+bool dh_parse_address(const char* address);
+
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);
+
+int dh_source_picker_label(const char* name, uint8_t sourceId, uint16_t width, uint16_t height,
+    char* out, int capacity);
+
+int dh_shared_source_label(const char* name, uint16_t width, uint16_t height,
+    bool viewerConnected, char* out, int capacity);
+
+int dh_viewer_base_title(const char* sourceName, char* out, int capacity);
+
+int dh_viewer_subtitle(const char* statusLine, bool mouseLocked, char* out, int capacity);
 
 int dh_hotkeys(DHHotkey* out, int capacity);
 

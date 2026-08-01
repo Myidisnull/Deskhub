@@ -4,18 +4,20 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <memory>
 #include <string>
 
 #include "deskhub/media/VideoContract.h"
+#include "deskhubp/diag/Log.h"
 
 using deskhub::media::Codec;
 using deskhub::media::PacketHandler;
 using deskhub::media::RateControl;
 
 struct EncoderConfig : deskhub::media::EncoderConfig {
-    std::wstring outputPath = L"output.mp4";
+    std::wstring outputPath;
 };
 
 class IVideoEncoder {
@@ -23,6 +25,8 @@ public:
     virtual ~IVideoEncoder() = default;
 
     virtual bool Init(ID3D11Device* device, const EncoderConfig& cfg) = 0;
+
+    virtual bool IsOpen() const = 0;
 
     virtual bool Encode(ID3D11Texture2D* frame, uint64_t timestampUs, bool forceKeyframe) = 0;
 
@@ -34,6 +38,24 @@ public:
 
     virtual const char* BackendName() const = 0;
 };
+
+inline bool OpenEncoderOutput(const EncoderConfig& cfg, const char* tag, FILE*& out) {
+    out = nullptr;
+    if (!cfg.outputPath.empty()) {
+        std::wstring path = cfg.outputPath;
+        const size_t dot = path.find_last_of(L'.');
+        if (dot != std::wstring::npos && path.substr(dot) == L".mp4")
+            path = path.substr(0, dot) + L".h264";
+        if (_wfopen_s(&out, path.c_str(), L"wb") != 0) out = nullptr;
+        if (!out) LOGE("[%s] Failed to open output file.", tag);
+        return out != nullptr;
+    }
+    if (!cfg.onPacket) {
+        LOGE("[%s] No outputPath or onPacket - no output destination.", tag);
+        return false;
+    }
+    return true;
+}
 
 std::unique_ptr<IVideoEncoder> CreateEncoder(ID3D11Device* device, const EncoderConfig& cfg);
 

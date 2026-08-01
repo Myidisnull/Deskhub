@@ -36,14 +36,6 @@ struct SourcePipeline : deskhub::SourcePipelineState {
 
     std::mutex encMutex;
     std::unique_ptr<VaEncoder> encoder;
-
-    void DiagEncode(const std::function<bool()>& doEncode, bool idr) {
-        const uint64_t t0 = NowUs();
-        const bool ok = doEncode();
-        const uint32_t ms = uint32_t((NowUs() - t0) / 1000);
-        diag.encMs.Add(ms);
-        if (!ok) LOGW("[DIAG][%s] evt=enc_fail idr=%d ms=%u", name.c_str(), idr ? 1 : 0, ms);
-    }
 };
 
 SourcePipeline& Pipeline(deskhubp::HostSource& st) {
@@ -60,6 +52,8 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
+    policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
+    policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
     policy.noSourceError = "No display to share.";
     policy.noUsableSourceError =
         "No usable source \xE2\x80\x94 the compositor sent no frame.";
@@ -71,20 +65,14 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             "again.");
     };
 
-    policy.status.closed = [](const deskhubp::HostSource& st) {
-        return Pipeline(st).capture.Closed();
-    };
     policy.status.zeroCopy = [](const deskhubp::HostSource& st) {
         return Pipeline(st).capture.usingDmaBuf();
     };
 
     policy.source.create = [engine](const AgentSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
-        auto p = std::make_unique<SourcePipeline>(engine->startBitrateBps(),
-            deskhubp::HostEngine::kMinBitrateBps);
-        p->sourceId = sourceId;
+        auto p = deskhubp::MakeHostSource<SourcePipeline>(*engine, s, sourceId);
         p->nodeId = uint32_t(s.targetId);
-        p->name = s.name;
         p->srcX = s.x;
         p->srcY = s.y;
         return p;
@@ -95,20 +83,11 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         const uint32_t fps = engine->options().fps;
         const uint32_t maxDim = engine->options().maxDim;
 
-        auto onPacket = [p, engine](const uint8_t* data, size_t size, uint64_t tsUs,
-                            bool keyframe) {
-            deskhubp::SendEncodedFrame(*p, engine->socket(),
-                std::span<const uint8_t>(data, size), tsUs, keyframe);
-        };
+        auto onPacket = engine->MakePacketSink(*p);
 
         auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h) -> bool {
             if (p->encoder && p->encoder->IsOpen()) return true;
-            EncoderConfig cfg;
-            cfg.width = w;
-            cfg.height = h;
-            cfg.fps = p->curFps.load(std::memory_order_relaxed);
-            if (!cfg.fps) cfg.fps = fps;
-            cfg.bitrateBps = p->curBitrateBps.load(std::memory_order_relaxed);
+            EncoderConfig cfg = deskhub::MakeEncoderConfig(*p, {w, h}, fps);
             cfg.onPacket = onPacket;
             auto enc = std::make_unique<VaEncoder>();
             if (!enc->Init(cfg)) {
@@ -123,41 +102,17 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         auto onFrame = [p, ensureEncoder, maxDim](const LinuxFrameInfo& fi) {
             p->captured.fetch_add(1, std::memory_order_relaxed);
             if (p->failed.load()) return;
-            if (!fi.meta.width || !fi.meta.height) return;
-
-            p->nativeW.store(fi.meta.width, std::memory_order_relaxed);
-            p->nativeH.store(fi.meta.height, std::memory_order_relaxed);
-
-            const deskhub::EncodeSize target = deskhub::ClampEncodeSize(fi.meta.width,
-                fi.meta.height, p->wantW.load(std::memory_order_relaxed),
-                p->wantH.load(std::memory_order_relaxed), maxDim);
-            const uint32_t encW = target.width(), encH = target.height();
-            if (!encW || !encH) return;
 
             std::lock_guard<std::mutex> lk(p->encMutex);
 
-            if (p->srcW.load() != encW || p->srcH.load() != encH) {
-                if (p->srcW.load())
-                    LOGI(
-                        "[Agent][%s] Encode size %ux%u -> %ux%u (source %ux%u), rebuilding "
-                        "encoder.",
-                        p->name.c_str(), p->srcW.load(), p->srcH.load(), encW, encH,
-                        fi.meta.width, fi.meta.height);
-                p->srcW.store(encW);
-                p->srcH.store(encH);
-                p->encoder.reset();
-                p->sizeChanged.store(true, std::memory_order_release);
-            }
-
-            if (target.tooSmall) {
-                if (!p->paused.exchange(true, std::memory_order_acq_rel))
-                    LOGI("[Agent][%s] Source too small to encode (%ux%u) \xE2\x80\x94 paused.",
-                        p->name.c_str(), encW, encH);
-                return;
-            }
-            if (p->paused.exchange(false, std::memory_order_acq_rel))
-                LOGI("[Agent][%s] Source back to %ux%u \xE2\x80\x94 resuming.", p->name.c_str(),
-                    encW, encH);
+            const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
+                fi.meta.height, maxDim);
+            if (adm.rebuildEncoder) p->encoder.reset();
+            if (!adm.sizeNote.empty())
+                LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
+            if (!adm.pauseNote.empty())
+                LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
+            if (adm.drop) return;
 
             if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed),
                     fi.meta.timestampUs))
@@ -166,11 +121,11 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
             if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!ensureEncoder(encW, encH)) return;
+            if (!ensureEncoder(adm.encode.width, adm.encode.height)) return;
             const bool idr = p->forceIdr.exchange(false);
             VaEncoder* enc = p->encoder.get();
-            p->DiagEncode([enc, &fi, idr] { return enc->Encode(fi, fi.meta.timestampUs, idr); },
-                idr);
+            deskhubp::DiagEncode(*p, idr,
+                [enc, &fi, idr] { return enc->Encode(fi, fi.meta.timestampUs, idr); });
         };
 
         if (!p->capture.Start(p->nodeId, deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
@@ -195,20 +150,6 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             o.desktopX, o.desktopY, o.desktopW, o.desktopH));
     };
 
-    policy.source.releaseInput = [](deskhubp::HostSource& st) {
-        Pipeline(st).injector.ReleaseAll();
-    };
-
-    policy.source.applyInput = [](deskhubp::HostSource& st, const deskhub::InputEvent& e) {
-        Pipeline(st).injector.Apply(e);
-    };
-
-    policy.source.setEncoderBitrate = [](deskhubp::HostSource& st, uint32_t bitrateBps) {
-        SourcePipeline& p = Pipeline(st);
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        return p.encoder && p.encoder->SetBitrate(bitrateBps);
-    };
-
     policy.source.retarget = [engine](deskhubp::HostSource& st) {
         return deskhub::RetargetStream(st, engine->options().maxDim);
     };
@@ -225,17 +166,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return t;
     };
 
-    policy.source.inputSkipped = [](const deskhubp::HostSource& st) {
-        return Pipeline(st).injector.skipped();
-    };
-
     policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
         SourcePipeline& p = Pipeline(st);
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (!p.encoder || !p.encoder->haveSourceFrame()) return;
         const bool idr = p.forceIdr.exchange(false);
         VaEncoder* enc = p.encoder.get();
-        p.DiagEncode([enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); }, idr);
+        deskhubp::DiagEncode(p, idr, [enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); });
         p.lastKeepaliveUs = nowUs;
     };
 

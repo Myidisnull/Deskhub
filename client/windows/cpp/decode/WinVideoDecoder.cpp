@@ -30,8 +30,7 @@ bool WinVideoDecoder::Init(WinRenderTarget target, int width, int height) {
 
 void WinVideoDecoder::Shutdown() {
     decoder_.reset();
-    lastRenderedPtsUs_ = 0;
-    lastRenderedAtUs_ = 0;
+    counters_.Reset();
 }
 
 bool WinVideoDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
@@ -45,23 +44,7 @@ void WinVideoDecoder::OnDecoded(const DecodedFrame& frame) {
             frame.height, &readyUs))
         return;
 
-    ++rendered_;
     const uint64_t nowUs = NowUs();
-    if (readyUs) presentDelayMs_ = uint32_t((nowUs - readyUs) / 1000);
-    if (frame.timestampUs) {
-        lastRenderedPtsUs_ = frame.timestampUs;
-        lastRenderedAtUs_ = readyUs ? readyUs : nowUs;
-    }
-}
-
-uint32_t WinVideoDecoder::TakeRenderedCount() {
-    const uint32_t n = rendered_;
-    rendered_ = 0;
-    return n;
-}
-
-uint32_t WinVideoDecoder::TakePresentDelayMs() {
-    const uint32_t ms = presentDelayMs_;
-    presentDelayMs_ = 0;
-    return ms;
+    if (readyUs) counters_.RecordPresentDelayMs(uint32_t((nowUs - readyUs) / 1000));
+    counters_.FramePresented(frame.timestampUs, readyUs ? readyUs : nowUs);
 }

@@ -33,6 +33,9 @@ int main() {
     std::printf("--- session: host router (demux, re-offer, keepalive timing) ---\n");
     RunHostRouterTests();
 
+    std::printf("--- session: viewer connect flow ---\n");
+    RunConnectFlowTests();
+
     std::printf("--- input ---\n");
     RunInputTests();
 
@@ -77,6 +80,12 @@ int main() {
 
     std::printf("--- media: H.264 SPS rewrite (VUI with zero reorder delay) ---\n");
     RunH264SpsTests();
+
+    std::printf("--- media: Annex-B NAL parsing ---\n");
+    RunAnnexBTests();
+
+    std::printf("--- media: encoder rate plan (VBV sizing) ---\n");
+    RunRatePlanTests();
 
     std::printf("--- media: share quality presets ---\n");
     RunQualityPresetTests();

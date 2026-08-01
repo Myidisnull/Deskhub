@@ -49,10 +49,10 @@ struct MainMenuView: View {
 
     private var hostBox: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Others connect to you using one of these IP addresses:")
+            Text(DeskhubClient.string(DHStrHostIpIntro))
 
             if agent.addresses.isEmpty {
-                Text("(no network address found)").foregroundStyle(.secondary)
+                Text(DeskhubClient.string(DHStrNoNetworkAddress)).foregroundStyle(.secondary)
             } else {
                 ForEach(agent.addresses) { addr in
                     HStack(spacing: 8) {
@@ -70,7 +70,7 @@ struct MainMenuView: View {
                 }
             }
 
-            Text("UDP port 47777")
+            Text(DeskhubClient.string(DHStrUdpPortLine))
 
             HStack(spacing: 8) {
                 Text("FPS").fixedSize()
@@ -109,7 +109,7 @@ struct MainMenuView: View {
 
     private var clientBox: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Host machine IP address:")
+            Text(DeskhubClient.string(DHStrClientIpPrompt))
             HStack(spacing: 8) {
                 TextField("", text: $session.address)
                     .textFieldStyle(.roundedBorder)
@@ -122,7 +122,7 @@ struct MainMenuView: View {
             if session.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Asking the host what it is sharing…")
+                    Text(DeskhubClient.string(DHStrQueryingSources))
                         .foregroundStyle(.secondary)
                 }
             }

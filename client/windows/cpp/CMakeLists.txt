@@ -9,7 +9,9 @@ add_library(deskhub_win_core STATIC
 
     capture/ScreenCapture.cpp
     capture/Downscaler.cpp
-    capture/GpuSelect.cpp
+
+    gpu/GpuSelect.cpp
+    gpu/D3D11VideoProcessor.cpp
 
     encode/MfEncoder.cpp
     encode/NvencEncoder.cpp

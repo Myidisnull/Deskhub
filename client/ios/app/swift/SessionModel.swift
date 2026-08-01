@@ -18,8 +18,13 @@ final class SessionModel {
     private(set) var stream: StreamModel?
 
     func connect() {
-        let addr = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !addr.isEmpty, !isConnecting else { return }
+        guard !isConnecting else { return }
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let addr = DeskhubClient.normalizedAddress(trimmed) else {
+            connectError = "Invalid address: \"\(trimmed)\". Enter just the IP address."
+            return
+        }
         address = addr
         isConnecting = true
         connectError = ""

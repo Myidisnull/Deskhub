@@ -30,9 +30,9 @@ struct ContentView: View {
 
     private var windowTitle: String {
         switch route {
-        case .menu: "Deskhub - stream & remotely control an application"
-        case .sourcePicker: "What do you want to view?"
-        case .sharing: "Deskhub - sharing"
+        case .menu: DeskhubClient.string(DHStrAppTitle)
+        case .sourcePicker: DeskhubClient.string(DHStrPickerTitle)
+        case .sharing: DeskhubClient.string(DHStrSharingTitle)
         }
     }
 }

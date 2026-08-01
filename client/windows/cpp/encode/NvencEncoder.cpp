@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "deskhub/media/H264Sps.h"
+#include "deskhub/media/RatePlan.h"
 #include "deskhubp/diag/Log.h"
 
 using PFN_CreateInstance = NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*);
@@ -47,6 +48,14 @@ struct NvencEncoder::Impl {
     }
 
     bool Init(ID3D11Device* device, const EncoderConfig& c) {
+        if ((c.srcWidth && c.srcWidth != c.width) || (c.srcHeight && c.srcHeight != c.height)) {
+            LOGE(
+                "[NVENC] Cannot crop %ux%u input to %ux%u \xE2\x80\x94 leaving this to the "
+                "Media Foundation backend.",
+                c.srcWidth, c.srcHeight, c.width, c.height);
+            return false;
+        }
+
         cfg = c;
         width = c.width;
         height = c.height;
@@ -99,7 +108,8 @@ struct NvencEncoder::Impl {
         const GUID codecGuid = (cfg.codec == Codec::HEVC) ? NV_ENC_CODEC_HEVC_GUID
                                                           : NV_ENC_CODEC_H264_GUID;
         const GUID presetGuid = NV_ENC_PRESET_P4_GUID;
-        const NV_ENC_TUNING_INFO tuning = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+        const NV_ENC_TUNING_INFO tuning = cfg.lowLatency ? NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY
+                                                         : NV_ENC_TUNING_INFO_HIGH_QUALITY;
 
         NV_ENC_PRESET_CONFIG preset{};
         preset.version = NV_ENC_PRESET_CONFIG_VER;
@@ -110,10 +120,10 @@ struct NvencEncoder::Impl {
         encCfg = preset.presetCfg;
         encCfg.gopLength = NVENC_INFINITE_GOPLENGTH;
         encCfg.frameIntervalP = 1;
-        encCfg.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
+        encCfg.rcParams.rateControlMode =
+            cfg.rc == RateControl::VBR ? NV_ENC_PARAMS_RC_VBR : NV_ENC_PARAMS_RC_CBR;
         encCfg.rcParams.averageBitRate = cfg.bitrateBps;
-        encCfg.rcParams.vbvBufferSize = cfg.bitrateBps / (cfg.fps ? cfg.fps : 60);
-        encCfg.rcParams.vbvInitialDelay = encCfg.rcParams.vbvBufferSize;
+        ApplyRatePlan(cfg.fps);
         if (cfg.codec == Codec::HEVC) {
             encCfg.encodeCodecConfig.hevcConfig.idrPeriod = NVENC_INFINITE_GOPLENGTH;
             encCfg.encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
@@ -146,33 +156,27 @@ struct NvencEncoder::Impl {
         if (s != NV_ENC_SUCCESS) return Fail("CreateBitstreamBuffer", s);
         bitstream = cb.bitstreamBuffer;
 
-        std::wstring path = cfg.outputPath;
-        if (!path.empty()) {
-            size_t dot = path.find_last_of(L'.');
-            if (dot != std::wstring::npos && path.substr(dot) == L".mp4") path = path.substr(0, dot) + L".h264";
-            out = _wfopen(path.c_str(), L"wb");
-            if (!out) {
-                LOGE("[NVENC] Failed to open output file.");
-                return false;
-            }
-        } else if (!cfg.onPacket) {
-            LOGE("[NVENC] No outputPath or onPacket - no output destination.");
-            return false;
-        }
+        if (!OpenEncoderOutput(cfg, "NVENC", out)) return false;
 
-        LOGI("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, %s, ULTRA_LOW_LATENCY -> %ls",
-            width, height, cfg.fps, cfg.bitrateBps / 1e6,
-            cfg.codec == Codec::HEVC ? "HEVC" : "H264",
-            path.empty() ? L"callback" : path.c_str());
+        LOGI("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, %s, %s -> %s", width, height,
+            cfg.fps, cfg.bitrateBps / 1e6, cfg.codec == Codec::HEVC ? "HEVC" : "H264",
+            cfg.lowLatency ? "ULTRA_LOW_LATENCY" : "HIGH_QUALITY",
+            out ? "file" : "callback");
         return true;
+    }
+
+    void ApplyRatePlan(uint32_t fps) {
+        const deskhub::media::RatePlan plan =
+            deskhub::media::PlanRateControl(cfg.bitrateBps, fps, cfg.lowLatency);
+        encCfg.rcParams.vbvBufferSize = plan.vbvBits;
+        encCfg.rcParams.vbvInitialDelay = plan.vbvInitialBits;
     }
 
     bool SetBitrate(uint32_t bitrateBps) {
         if (!enc || !bitrateBps) return false;
         cfg.bitrateBps = bitrateBps;
         encCfg.rcParams.averageBitRate = bitrateBps;
-        encCfg.rcParams.vbvBufferSize = bitrateBps / (cfg.fps ? cfg.fps : 60);
-        encCfg.rcParams.vbvInitialDelay = encCfg.rcParams.vbvBufferSize;
+        ApplyRatePlan(cfg.fps);
 
         NV_ENC_RECONFIGURE_PARAMS rp{};
         rp.version = NV_ENC_RECONFIGURE_PARAMS_VER;
@@ -188,8 +192,7 @@ struct NvencEncoder::Impl {
         cfg.fps = fps;
         initParams.frameRateNum = fps;
         initParams.frameRateDen = 1;
-        encCfg.rcParams.vbvBufferSize = cfg.bitrateBps / fps;
-        encCfg.rcParams.vbvInitialDelay = encCfg.rcParams.vbvBufferSize;
+        ApplyRatePlan(fps);
 
         NV_ENC_RECONFIGURE_PARAMS rp{};
         rp.version = NV_ENC_RECONFIGURE_PARAMS_VER;

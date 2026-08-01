@@ -4,7 +4,9 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "deskhubp/session/AgentLoop.h"
@@ -14,6 +16,7 @@
 #include "Viewer.h"
 #include "WinText.h"
 #include "deskhub/media/QualityPreset.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "net/Firewall.h"
 #include "deskhubp/net/NetInfo.h"
@@ -33,6 +36,8 @@ constexpr int kIdEditAddr = 202;
 constexpr int kIdConnect = 203;
 constexpr int kIdExit = 205;
 constexpr int kIdCopyBase = 300;
+
+constexpr UINT kMsgSourcesReady = WM_APP + 1;
 
 constexpr AgentOptions kShareDefaults{};
 
@@ -81,6 +86,13 @@ struct MenuState {
     HWND editAddr = nullptr;
     std::vector<std::wstring> copyIps;
     bool quit = false;
+    bool queryPending = false;
+};
+
+struct QueryResult {
+    std::string addr;
+    std::vector<deskhub::SourceInfo> available;
+    bool ok = false;
 };
 
 void DoShare(MenuState& st) {
@@ -152,21 +164,36 @@ void DoConnect(MenuState& st) {
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) {
-        const std::wstring msg = L"Invalid address: \"" + waddr +
-                                 L"\"\nEnter just the IP address (e.g., 192.168.1.10). "
-                                 L"Deskhub always uses UDP port 47777.";
+        const std::wstring msg = L"Invalid address: \"" + waddr + L"\"\n" +
+                                 FromUtf8(deskhub::ui::InvalidAddressHint());
         MessageBoxW(st.hwnd, msg.c_str(), L"Deskhub", MB_OK | MB_ICONERROR);
         return;
     }
 
-    std::vector<deskhub::SourceInfo> available;
+    if (st.queryPending) return;
+    st.queryPending = true;
+    EnableWindow(GetDlgItem(st.hwnd, kIdConnect), FALSE);
+
+    const HWND hwnd = st.hwnd;
+    std::thread([hwnd, addr, server] {
+        auto result = std::make_unique<QueryResult>();
+        result->addr = addr;
+        result->ok = QuerySources(server, result->available);
+        if (PostMessageW(hwnd, kMsgSourcesReady, 0, (LPARAM)result.get())) result.release();
+    }).detach();
+}
+
+void OnSourcesReady(MenuState& st, QueryResult& result) {
+    st.queryPending = false;
+    EnableWindow(GetDlgItem(st.hwnd, kIdConnect), TRUE);
+
     std::vector<deskhub::SourceInfo> picked;
-    if (QuerySources(server, available) && !available.empty()) {
-        if (!ShowSourcePickerDialog(st.hwnd, available, picked)) return;
+    if (result.ok && !result.available.empty()) {
+        if (!ShowSourcePickerDialog(st.hwnd, result.available, picked)) return;
     }
 
     ShowWindow(st.hwnd, SW_HIDE);
-    RunViewer(addr, picked);
+    RunViewer(result.addr, picked);
     ShowWindow(st.hwnd, SW_SHOW);
     SetForegroundWindow(st.hwnd);
 }
@@ -187,6 +214,11 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 case kIdExit: st->quit = true; return 0;
             }
             break;
+        }
+        case kMsgSourcesReady: {
+            const std::unique_ptr<QueryResult> result((QueryResult*)lp);
+            if (st && result) OnSourcesReady(*st, *result);
+            return 0;
         }
         case WM_CLOSE:
             if (st) st->quit = true;
@@ -234,7 +266,7 @@ int RunMainMenuWindow() {
     RECT wr{0, 0, kW, kH};
     AdjustWindowRect(&wr, style, FALSE);
     HWND hwnd = CreateWindowExW(0, kWndClass,
-        L"Deskhub - stream & remotely control an application", style, CW_USEDEFAULT,
+        FromUtf8(deskhub::ui::kAppTitle).c_str(), style, CW_USEDEFAULT,
         CW_USEDEFAULT, wr.right - wr.left, wr.bottom - wr.top, nullptr, nullptr, wc.hInstance,
         nullptr);
     if (!hwnd) return 1;
@@ -254,13 +286,14 @@ int RunMainMenuWindow() {
     mk(L"BUTTON", L"Host mode - share an application on THIS machine", BS_GROUPBOX, gx, hostTop,
         gw, hostH, 0);
 
-    mk(L"STATIC", L"Others connect to you using one of these IP addresses:", SS_LEFT, ix,
+    mk(L"STATIC", FromUtf8(deskhub::ui::kHostIpIntro).c_str(), SS_LEFT, ix,
         hostTop + 22, iw, 16, 0);
 
     constexpr int kCopyW = 60, kCopyH = 20;
     const int copyX = gx + gw - 14 - kCopyW;
     if (addrs.empty()) {
-        mk(L"STATIC", L"(no network address found)", SS_LEFT, ix, hostTop + 44, iw, 18, 0);
+        mk(L"STATIC", FromUtf8(deskhub::ui::kNoNetworkAddress).c_str(), SS_LEFT, ix,
+            hostTop + 44, iw, 18, 0);
     } else {
         st.copyIps.reserve(addrs.size());
         int i = 0;
@@ -277,7 +310,8 @@ int RunMainMenuWindow() {
     }
 
     const int sy = hostTop + settingsRel;
-    mk(L"STATIC", L"UDP port 47777", SS_LEFT, ix, sy + 3, 100, 18, 0);
+    mk(L"STATIC", FromUtf8(deskhub::ui::UdpPortLine()).c_str(), SS_LEFT, ix, sy + 3, 100, 18,
+        0);
     mk(L"STATIC", L"FPS", SS_LEFT, ix + 104, sy + 3, 26, 18, 0);
     st.editFps = mk(L"EDIT", L"60", WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER, ix + 132, sy, 44, 24,
         kIdEditFps);
@@ -300,13 +334,14 @@ int RunMainMenuWindow() {
             (WPARAM)deskhub::media::QualityPresetIndex(kShareDefaults.maxDim), 0);
     }
 
-    mk(L"BUTTON", L"Share...  (pick the display to share)", BS_PUSHBUTTON, ix,
+    mk(L"BUTTON", FromUtf8(deskhub::ui::kShareButton).c_str(), BS_PUSHBUTTON, ix,
         hostTop + shareRel, iw, 32, kIdShare);
 
     mk(L"BUTTON", L"Client mode - connect to ANOTHER machine", BS_GROUPBOX, gx, clientTop, gw,
         clientH, 0);
 
-    mk(L"STATIC", L"Host machine IP address:", SS_LEFT, ix, clientTop + 24, iw, 16, 0);
+    mk(L"STATIC", FromUtf8(deskhub::ui::kClientIpPrompt).c_str(), SS_LEFT, ix, clientTop + 24,
+        iw, 16, 0);
     st.editAddr =
         mk(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL, ix, clientTop + 44, iw - 110, 26,
             kIdEditAddr);

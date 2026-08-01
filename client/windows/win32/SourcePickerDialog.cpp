@@ -5,6 +5,8 @@
 #include <string>
 
 #include "deskhub/media/SourceLabel.h"
+#include "deskhub/session/ConnectFlow.h"
+#include "deskhub/ui/Strings.h"
 #include "WinText.h"
 
 namespace {
@@ -68,7 +70,7 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
     std::vector<deskhub::SourceInfo>& outSelected) {
     outSelected.clear();
     if (sources.empty()) return false;
-    if (sources.size() == 1) {
+    if (!deskhub::DecideAfterSourceQuery(sources).showPicker) {
         outSelected = sources;
         return true;
     }
@@ -93,7 +95,8 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
     const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
     RECT wr{0, 0, kW, kH};
     AdjustWindowRect(&wr, style, FALSE);
-    HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, kWndClass, L"What do you want to view?",
+    HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, kWndClass,
+        FromUtf8(deskhub::ui::kPickerTitle).c_str(),
         style, x, y, wr.right - wr.left, wr.bottom - wr.top,
         owner, nullptr, wc.hInstance, nullptr);
     if (!dlg) return false;
@@ -120,7 +123,7 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
         SendMessageW(st.list, LB_ADDSTRING, 0, (LPARAM)line.c_str());
     }
     SendMessageW(st.list, LB_SETSEL, TRUE, 0);
-    mk(L"STATIC", L"Each one you pick opens its own window.",
+    mk(L"STATIC", FromUtf8(deskhub::ui::kPickerEachWindow).c_str(),
         0, 12, kH - 74, kW - 24, 18, kIdHint);
     mk(L"BUTTON", L"View", BS_DEFPUSHBUTTON, kW - 24 - 180, kH - 46, 86, 26, kIdOk);
     mk(L"BUTTON", L"Cancel", 0, kW - 24 - 88, kH - 46, 86, 26, kIdCancel);

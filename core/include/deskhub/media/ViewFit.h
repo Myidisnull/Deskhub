@@ -1,10 +1,13 @@
 #pragma once
+#include "deskhub/input/PointerMap.h"
+
 #include <cstdint>
 
 namespace deskhub {
 
-inline constexpr int32_t kNormalizedMax = 65535;
+inline constexpr int32_t kNormalizedMax = kAbsCoordMax;
 inline constexpr double kMaxViewZoom = 5.0;
+inline constexpr int32_t kViewerMarginPx = 48;
 
 struct ViewRect {
     double x = 0;

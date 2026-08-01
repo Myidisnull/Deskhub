@@ -15,6 +15,7 @@ extern "C" {
 #include <cstring>
 #include <string>
 
+#include "deskhub/media/ViewFit.h"
 #include "deskhubp/diag/Log.h"
 
 namespace {
@@ -349,12 +350,9 @@ bool VideoRenderer::Render(int viewW, int viewH) {
     glViewport(0, 0, viewW, viewH);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    int dw = viewW, dh = int(int64_t(viewW) * fh / fw);
-    if (dh > viewH) {
-        dh = viewH;
-        dw = int(int64_t(viewH) * fw / fh);
-    }
-    glViewport((viewW - dw) / 2, (viewH - dh) / 2, dw, dh);
+    const deskhub::ViewRect rect = deskhub::FitVideoRect(double(viewW), double(viewH),
+        double(fw) / double(fh));
+    glViewport(int(rect.x), int(rect.y), int(rect.width), int(rect.height));
 
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

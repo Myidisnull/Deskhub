@@ -6,11 +6,11 @@ struct SharingSessionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Sources currently being shared:")
+            Text(DeskhubClient.string(DHStrSharingSourcesIntro))
 
             List {
                 if model.rows.isEmpty {
-                    Text("(nothing is being shared)").foregroundStyle(.secondary)
+                    Text(DeskhubClient.string(DHStrNothingShared)).foregroundStyle(.secondary)
                 } else {
                     ForEach(model.rows) { row in
                         Text(label(for: row))
@@ -20,11 +20,11 @@ struct SharingSessionView: View {
             .listStyle(.bordered)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text("Others connect by entering this machine's IP address.")
+            Text(DeskhubClient.string(DHStrSharingConnectHint))
 
             HStack {
                 Spacer()
-                Button("Stop sharing") { stop() }
+                Button(DeskhubClient.string(DHStrStopSharing)) { stop() }
             }
         }
         .padding(12)
@@ -34,8 +34,12 @@ struct SharingSessionView: View {
     }
 
     private func label(for row: AgentSourceStatus) -> String {
-        let viewer = row.viewerConnected ? ", viewer connected" : ""
-        return "\(row.name)  (\(row.width)x\(row.height)\(viewer))"
+        var buf = [CChar](repeating: 0, count: 320)
+        _ = dh_shared_source_label(
+            row.name, UInt16(clamping: row.width), UInt16(clamping: row.height),
+            row.viewerConnected, &buf, Int32(buf.count)
+        )
+        return String(cString: buf)
     }
 
     private func stop() {

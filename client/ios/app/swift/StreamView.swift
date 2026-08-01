@@ -237,9 +237,8 @@ struct StreamView: View {
     }
 
     private func sourceLabel(_ source: Source) -> String {
-        let name = source.name.isEmpty ? "Source \(source.id)" : source.name
         let mark = source.id == model.sourceId ? "✓ " : ""
-        return "\(mark)\(name) — \(source.width)×\(source.height)"
+        return mark + source.pickerLabel
     }
 
     private func send(_ hotkey: Hotkey) {

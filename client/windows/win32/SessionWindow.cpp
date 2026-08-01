@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "deskhub/media/SourceLabel.h"
+#include "deskhub/ui/Strings.h"
 #include "WinText.h"
 
 namespace {
@@ -17,7 +18,7 @@ constexpr int kIdList = 100;
 constexpr int kIdStopAll = 103;
 
 constexpr UINT kTimerId = 1;
-constexpr UINT kTimerMs = 300;
+constexpr UINT kTimerMs = 500;
 constexpr UINT WM_APP_QUIT = WM_APP + 1;
 
 SessionSourceRow ToRow(const AgentSourceStatus& status) {
@@ -66,8 +67,9 @@ void SessionWindow::RefreshList() {
 
     SendMessageW(list_, LB_RESETCONTENT, 0, 0);
     if (uiRows_.empty()) {
-        SendMessageW(list_, LB_ADDSTRING, 0,
-            (LPARAM)(agentAttached_ ? L"(nothing is being shared)" : L"(starting…)"));
+        const std::wstring placeholder =
+            agentAttached_ ? FromUtf8(deskhub::ui::kNothingShared) : L"(starting…)";
+        SendMessageW(list_, LB_ADDSTRING, 0, (LPARAM)placeholder.c_str());
         SendMessageW(list_, LB_SETITEMDATA, 0, (LPARAM)-1);
         return;
     }
@@ -137,7 +139,8 @@ void SessionWindow::ThreadMain() {
     AdjustWindowRect(&wr, style, FALSE);
     const int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
 
-    HWND hwnd = CreateWindowExW(0, kWndClass, L"Deskhub - sharing", style,
+    HWND hwnd = CreateWindowExW(0, kWndClass, FromUtf8(deskhub::ui::kSharingTitle).c_str(),
+        style,
         wa.right - ww - 24, wa.bottom - wh - 24, ww, wh,
         nullptr, nullptr, wc.hInstance, this);
     if (!hwnd) return;
@@ -150,13 +153,15 @@ void SessionWindow::ThreadMain() {
         return c;
     };
 
-    mk(L"STATIC", L"Sources currently being shared:", SS_LEFT, 12, 10, kW - 24, 16, 0);
+    mk(L"STATIC", FromUtf8(deskhub::ui::kSharingSourcesIntro).c_str(), SS_LEFT, 12, 10,
+        kW - 24, 16, 0);
     list_ = mk(L"LISTBOX", nullptr,
         LBS_NOTIFY | LBS_HASSTRINGS | WS_VSCROLL | WS_BORDER,
         12, 30, kW - 24, kH - 116, kIdList);
-    mk(L"STATIC", L"Others connect by entering this machine's IP address.", SS_LEFT, 12,
+    mk(L"STATIC", FromUtf8(deskhub::ui::kSharingConnectHint).c_str(), SS_LEFT, 12,
         kH - 78, kW - 24, 16, 0);
-    mk(L"BUTTON", L"Stop sharing", BS_PUSHBUTTON, kW - 12 - 130, kH - 50, 130, 28, kIdStopAll);
+    mk(L"BUTTON", FromUtf8(deskhub::ui::kStopSharing).c_str(), BS_PUSHBUTTON, kW - 12 - 130,
+        kH - 50, 130, 28, kIdStopAll);
 
     RefreshList();
     SetTimer(hwnd, kTimerId, kTimerMs, nullptr);

@@ -11,6 +11,7 @@
 #include "decode/IVideoDecoder.h"
 #include "decode/PanelRenderer.h"
 
+#include "deskhub/media/PresentCounters.h"
 #include "deskhub/media/VideoContract.h"
 
 struct WinRenderTarget {
@@ -40,16 +41,20 @@ public:
 
     bool Decode(const uint8_t* nal, size_t len, uint64_t ptsUs);
 
-    uint32_t TakeRenderedCount();
-
-    uint64_t lastRenderedPtsUs() const {
-        return lastRenderedPtsUs_;
+    uint32_t TakeRenderedCount() {
+        return counters_.TakeRenderedCount();
     }
 
-    uint32_t TakePresentDelayMs();
+    uint64_t lastRenderedPtsUs() const {
+        return counters_.lastRenderedPtsUs();
+    }
+
+    uint32_t TakePresentDelayMs() {
+        return counters_.TakePresentDelayMs();
+    }
 
     uint64_t lastRenderedAtUs() const {
-        return lastRenderedAtUs_;
+        return counters_.lastRenderedAtUs();
     }
 
 private:
@@ -57,11 +62,7 @@ private:
 
     WinRenderTarget target_{};
     std::unique_ptr<IVideoDecoder> decoder_;
-
-    uint32_t rendered_ = 0;
-    uint64_t lastRenderedPtsUs_ = 0;
-    uint64_t lastRenderedAtUs_ = 0;
-    uint32_t presentDelayMs_ = 0;
+    deskhub::media::PresentCounters counters_;
 };
 
 static_assert(deskhub::media::VideoDecoderLike<WinVideoDecoder>,

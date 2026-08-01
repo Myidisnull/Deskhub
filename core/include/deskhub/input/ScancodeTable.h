@@ -1,5 +1,6 @@
 #pragma once
 #include "deskhub/input/KeyMap.h"
+#include "deskhub/input/Set1Scancodes.h"
 #include "deskhub/input/VirtualKeys.h"
 
 #include <cstdint>
@@ -34,7 +35,7 @@ public:
         for (const Entry& e : entries_) {
             if (e.native != native) continue;
             vk = e.vk;
-            scan = e.scan;
+            scan = e.scan ? e.scan : VkToSet1Scancode(e.vk);
             return true;
         }
         return false;

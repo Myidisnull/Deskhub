@@ -57,16 +57,10 @@ final class RemoteVideoView: NSView {
 
     private var videoRect: CGRect {
         guard videoSize.width > 0, videoSize.height > 0 else { return bounds }
-        let viewAspect = bounds.width / max(bounds.height, 1)
-        let videoAspect = videoSize.width / videoSize.height
-        if videoAspect > viewAspect {
-            let fitHeight = bounds.width / videoAspect
-            return CGRect(x: 0, y: (bounds.height - fitHeight) / 2,
-                          width: bounds.width, height: fitHeight)
-        }
-        let fitWidth = bounds.height * videoAspect
-        return CGRect(x: (bounds.width - fitWidth) / 2, y: 0,
-                      width: fitWidth, height: bounds.height)
+        let rect = ViewTransform.baseFrame(
+            in: bounds.size, aspect: videoSize.width / videoSize.height
+        )
+        return rect.isEmpty ? bounds : rect
     }
 
     private func normalize(_ point: NSPoint) -> (nx: Int32, ny: Int32)? {
@@ -125,12 +119,13 @@ final class RemoteVideoView: NSView {
     }
 
     private func maskFor(keyCode: UInt16) -> NSEvent.ModifierFlags {
-        switch keyCode {
-        case 0x38, 0x3C: .shift
-        case 0x3B, 0x3E: .control
-        case 0x3A, 0x3D: .option
-        case 0x36, 0x37: .command
-        case 0x39: .capsLock
+        guard let mapped = DeskhubClient.mapKey(keyCode) else { return [] }
+        switch dh_modifier_class(mapped.vk) {
+        case DHModifierShift: .shift
+        case DHModifierControl: .control
+        case DHModifierOption: .option
+        case DHModifierCommand: .command
+        case DHModifierCapsLock: .capsLock
         default: []
         }
     }

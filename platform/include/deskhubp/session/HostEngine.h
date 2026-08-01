@@ -2,21 +2,26 @@
 #include "deskhub/control/QualityLadder.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/media/AgentTypes.h"
+#include "deskhub/media/VideoTypes.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/Beacon.h"
 #include "deskhub/session/SourcePipelineState.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/HostAgent.h"
 #include "deskhubp/session/HostNetLoop.h"
+#include "deskhubp/system/Clock.h"
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace deskhubp {
@@ -75,6 +80,12 @@ public:
     std::vector<deskhub::media::AgentSourceStatus> Status();
     std::string LastError();
 
+    deskhub::media::PacketHandler MakePacketSink(HostSource& st) {
+        return [this, p = &st](const uint8_t* data, size_t size, uint64_t tsUs, bool keyframe) {
+            SendEncodedFrame(*p, sock_, std::span<const uint8_t>(data, size), tsUs, keyframe);
+        };
+    }
+
     const deskhub::media::AgentOptions& options() const {
         return opt_;
     }
@@ -120,5 +131,50 @@ private:
     uint32_t startBitrateBps_ = 0;
     NetAddr replyAddr_{};
 };
+
+template <class Pipeline>
+std::unique_ptr<Pipeline> MakeHostSource(HostEngine& engine,
+    const deskhub::media::ShareSource& s, uint8_t sourceId) {
+    auto p = std::make_unique<Pipeline>(engine.startBitrateBps(), HostEngine::kMinBitrateBps);
+    p->sourceId = sourceId;
+    p->name = s.name;
+    return p;
+}
+
+template <class Pipeline>
+HostSourcePolicy MakeDefaultSourcePolicy() {
+    HostSourcePolicy sp;
+    sp.releaseInput = [](HostSource& st) { static_cast<Pipeline&>(st).injector.ReleaseAll(); };
+    sp.applyInput = [](HostSource& st, const deskhub::InputEvent& e) {
+        static_cast<Pipeline&>(st).injector.Apply(e);
+    };
+    sp.setEncoderBitrate = [](HostSource& st, uint32_t bitrateBps) {
+        Pipeline& p = static_cast<Pipeline&>(st);
+        std::lock_guard<std::mutex> lk(p.encMutex);
+        return p.encoder && p.encoder->SetBitrate(bitrateBps);
+    };
+    sp.inputSkipped = [](const HostSource& st) {
+        return static_cast<const Pipeline&>(st).injector.skipped();
+    };
+    return sp;
+}
+
+template <class Pipeline>
+SourceStatusHooks MakeDefaultStatusHooks() {
+    SourceStatusHooks hooks;
+    hooks.closed = [](const HostSource& st) {
+        return static_cast<const Pipeline&>(st).capture.Closed();
+    };
+    return hooks;
+}
+
+template <class Fn>
+void DiagEncode(HostSource& st, bool idr, Fn&& encode) {
+    const uint64_t t0 = NowUs();
+    const bool ok = std::forward<Fn>(encode)();
+    const uint32_t ms = uint32_t((NowUs() - t0) / 1000);
+    st.diag.encMs.Add(ms);
+    if (!ok) LOGW("[DIAG][%s] evt=enc_fail idr=%d ms=%u", st.name.c_str(), idr ? 1 : 0, ms);
+}
 
 }

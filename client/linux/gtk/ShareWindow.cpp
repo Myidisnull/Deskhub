@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "deskhub/media/SourceLabel.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "gtk/GtkUtil.h"
 #include "deskhubp/net/UdpSocket.h"
@@ -84,7 +85,7 @@ ShareWindow::~ShareWindow() {
 
 void ShareWindow::Build(const std::vector<AgentSource>& sources, const AgentOptions& optIn) {
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window_), "Deskhub - sharing");
+    gtk_window_set_title(GTK_WINDOW(window_), deskhub::ui::kSharingTitle);
     gtk_window_set_default_size(GTK_WINDOW(window_), kWinW, kWinH);
     gtk_window_set_resizable(GTK_WINDOW(window_), FALSE);
     PlaceBottomRight(GTK_WINDOW(window_));
@@ -94,7 +95,7 @@ void ShareWindow::Build(const std::vector<AgentSource>& sources, const AgentOpti
     gtk_container_set_border_width(GTK_CONTAINER(box), 12);
     gtk_container_add(GTK_CONTAINER(window_), box);
 
-    GtkWidget* caption = gtk_label_new("Sources currently being shared:");
+    GtkWidget* caption = gtk_label_new(deskhub::ui::kSharingSourcesIntro);
     gtk_label_set_xalign(GTK_LABEL(caption), 0.f);
     gtk_box_pack_start(GTK_BOX(box), caption, FALSE, FALSE, 0);
 
@@ -113,13 +114,13 @@ void ShareWindow::Build(const std::vector<AgentSource>& sources, const AgentOpti
     gtk_container_add(GTK_CONTAINER(scroll), rowsBox_);
     gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow("(starting…)", nullptr));
 
-    GtkWidget* hint = gtk_label_new("Others connect by entering this machine's IP address.");
+    GtkWidget* hint = gtk_label_new(deskhub::ui::kSharingConnectHint);
     gtk_label_set_xalign(GTK_LABEL(hint), 0.f);
     gtk_box_pack_start(GTK_BOX(box), hint, FALSE, FALSE, 0);
 
     GtkWidget* buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_halign(buttons, GTK_ALIGN_END);
-    GtkWidget* stop = gtk_button_new_with_label("Stop sharing");
+    GtkWidget* stop = gtk_button_new_with_label(deskhub::ui::kStopSharing);
     gtk_widget_set_size_request(stop, 130, 28);
     g_signal_connect(stop, "clicked", G_CALLBACK(OnStopClicked), this);
     gtk_box_pack_start(GTK_BOX(buttons), stop, FALSE, FALSE, 0);
@@ -172,7 +173,8 @@ void ShareWindow::RefreshList(const std::vector<AgentSourceStatus>& rows) {
     g_list_free(kids);
 
     if (rows.empty()) {
-        gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow("(nothing is being shared)", nullptr));
+        gtk_container_add(GTK_CONTAINER(rowsBox_),
+            MakeRow(deskhub::ui::kNothingShared, nullptr));
         gtk_widget_show_all(rowsBox_);
         return;
     }

@@ -74,6 +74,7 @@ struct CommonHeader {
     uint32_t sessionId;
 };
 
+inline constexpr uint16_t kDeskhubPort = 47777;
 inline constexpr size_t kMaxSources = 8;
 inline constexpr size_t kMaxSourceNameBytes = 64;
 

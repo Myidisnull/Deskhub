@@ -9,6 +9,7 @@
 
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "ViewerInput.h"
 #include "WinText.h"
@@ -64,9 +65,8 @@ struct ViewerFrame {
             std::lock_guard<std::mutex> lk(mu);
             line = statsLine;
         }
-        const char* hint = input.relativeMode() ? "Mouse locked - press F9 to release"
-                                                : deskhub::kViewerLockHint.data();
-        std::wstring t = FromUtf8(deskhub::ComposeViewerTitle(baseTitle, line, hint));
+        std::wstring t = FromUtf8(deskhub::ComposeViewerTitle(baseTitle, line,
+            deskhub::ViewerLockHintText(input.relativeMode())));
         if (t == shownTitle) return;
         shownTitle = std::move(t);
         SetWindowTextW(hwnd, shownTitle.c_str());
@@ -86,8 +86,9 @@ struct ViewerFrame {
         RECT wr{0, 0, LONG(w), LONG(h)};
         AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
         const deskhub::ViewSize fitted = deskhub::ScaleToFit(uint32_t(wr.right - wr.left),
-            uint32_t(wr.bottom - wr.top), uint32_t(std::max<LONG>(1, wa.right - wa.left - 48)),
-            uint32_t(std::max<LONG>(1, wa.bottom - wa.top - 48)));
+            uint32_t(wr.bottom - wr.top),
+            uint32_t(std::max<LONG>(1, wa.right - wa.left - deskhub::kViewerMarginPx)),
+            uint32_t(std::max<LONG>(1, wa.bottom - wa.top - deskhub::kViewerMarginPx)));
         SetWindowPos(hwnd, nullptr, 0, 0, int(fitted.width), int(fitted.height),
             SWP_NOMOVE | SWP_NOZORDER);
     }
@@ -125,8 +126,8 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 std::lock_guard<std::mutex> lk(f->mu);
                 reason = f->closedReason;
             }
-            const std::wstring msgText =
-                L"Connection ended: " + FromUtf8(reason.empty() ? "disconnected" : reason);
+            const std::wstring msgText = FromUtf8(deskhub::ui::kConnectionEndedTitle) + L": " +
+                                         FromUtf8(reason.empty() ? deskhub::ui::kDisconnected : reason.c_str());
             MessageBoxW(h, msgText.c_str(), L"Deskhub", MB_OK | MB_ICONINFORMATION);
             DestroyWindow(h);
             return 0;
@@ -165,8 +166,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     const std::string& nameUtf8) {
     auto f = std::make_unique<ViewerFrame>();
 
-    f->baseTitle = "Deskhub - viewing";
-    if (!nameUtf8.empty()) f->baseTitle += ": " + nameUtf8;
+    f->baseTitle = deskhub::ViewerBaseTitle(nameUtf8);
 
     const std::wstring initialTitle = FromUtf8(f->baseTitle);
     f->hwnd = CreateWindowExW(0, kFrameClass, initialTitle.c_str(), WS_OVERLAPPEDWINDOW,
@@ -202,7 +202,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         auto* fr = (ViewerFrame*)user;
         {
             std::lock_guard<std::mutex> lk(fr->mu);
-            fr->closedReason = reason ? reason : "disconnected";
+            fr->closedReason = reason ? reason : deskhub::ui::kDisconnected;
         }
         PostMessageW(fr->hwnd, WM_APP_CLOSED, 0, 0);
     };
@@ -239,10 +239,8 @@ void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInf
                 frames.push_back(std::move(f));
     }
     if (frames.empty()) {
-        MessageBoxW(nullptr,
-            L"Could not open a viewing session - check the address and that the other machine "
-            L"is sharing.",
-            L"Deskhub", MB_OK | MB_ICONWARNING);
+        MessageBoxW(nullptr, FromUtf8(deskhub::ui::kViewerOpenFailed).c_str(), L"Deskhub",
+            MB_OK | MB_ICONWARNING);
         return;
     }
 

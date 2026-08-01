@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/media/AgentTypes.h"
+#include "deskhub/media/VideoTypes.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/SourcePipelineState.h"
 
@@ -39,6 +40,20 @@ struct OfferUpdate {
 OfferUpdate RefreshOffer(SourcePipelineState& st, uint8_t fallbackFps);
 
 StreamSize RetargetStream(SourcePipelineState& st, uint32_t maxDim);
+
+struct FrameAdmission {
+    bool drop = false;
+    bool rebuildEncoder = false;
+    StreamSize encode;
+    std::string sizeNote;
+    std::string pauseNote;
+};
+
+FrameAdmission AdmitCapturedFrame(SourcePipelineState& st, uint32_t nativeW, uint32_t nativeH,
+    uint32_t maxDim);
+
+media::EncoderConfig MakeEncoderConfig(const SourcePipelineState& st, StreamSize encode,
+    uint32_t fallbackFps);
 
 enum class FlushReason : uint8_t { None,
     ForceIdr,

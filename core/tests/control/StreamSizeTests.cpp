@@ -128,6 +128,61 @@ void TestRetargetStream() {
     Check(st.wantW.load() == 640, "but the last good size is left alone for the encoder");
 }
 
+void TestAdmitCapturedFrame() {
+    std::printf("[size] admitting a captured frame drives resize, pause and resume...\n");
+    SourcePipelineState st(20'000'000, 1'000'000);
+
+    const FrameAdmission empty = AdmitCapturedFrame(st, 0, 0, 1920);
+    Check(empty.drop && !empty.rebuildEncoder, "an empty frame is dropped outright");
+    Check(st.nativeW.load() == 0, "and leaves no trace");
+
+    const FrameAdmission first = AdmitCapturedFrame(st, 3840, 2160, 1920);
+    Check(!first.drop, "the first real frame is admitted");
+    Check(first.rebuildEncoder, "and asks for an encoder");
+    Check(first.encode == StreamSize{1920, 1080}, "at the capped size");
+    Check(first.sizeNote.empty(), "with no resize story to tell yet");
+    Check(st.srcW.load() == 1920 && st.srcH.load() == 1080, "the encode size is published");
+    Check(st.nativeW.load() == 3840 && st.nativeH.load() == 2160, "so is the native size");
+    Check(st.sizeChanged.exchange(false), "and the offer is marked stale");
+
+    const FrameAdmission same = AdmitCapturedFrame(st, 3840, 2160, 1920);
+    Check(!same.drop && !same.rebuildEncoder, "a steady-state frame changes nothing");
+    Check(same.sizeNote.empty() && same.pauseNote.empty(), "and says nothing");
+
+    const FrameAdmission resized = AdmitCapturedFrame(st, 1280, 720, 1920);
+    Check(resized.rebuildEncoder && !resized.drop, "a resize rebuilds the encoder");
+    Check(!resized.sizeNote.empty(), "and explains itself");
+    Check(st.sizeChanged.exchange(false), "and marks the offer stale again");
+
+    const FrameAdmission tiny = AdmitCapturedFrame(st, 120, 40, 1920);
+    Check(tiny.drop, "a source below the floor is not encoded");
+    Check(!tiny.pauseNote.empty(), "the first tiny frame announces the pause");
+    Check(st.paused.load(), "and the source is paused");
+    Check(AdmitCapturedFrame(st, 120, 40, 1920).pauseNote.empty(),
+        "later tiny frames stay quiet");
+
+    const FrameAdmission grown = AdmitCapturedFrame(st, 1280, 720, 1920);
+    Check(!grown.drop, "a grown-back source is admitted");
+    Check(!grown.pauseNote.empty(), "announces the resume");
+    Check(!st.paused.load(), "and clears the pause");
+}
+
+void TestMakeEncoderConfig() {
+    std::printf("[size] the encoder config is derived from the pipeline state...\n");
+    SourcePipelineState st(20'000'000, 1'000'000);
+
+    const media::EncoderConfig fresh = MakeEncoderConfig(st, {1920, 1080}, 60);
+    Check(fresh.width == 1920 && fresh.height == 1080, "the encode size is taken as given");
+    Check(fresh.fps == 60, "no negotiated fps yet -> the option fps");
+    Check(fresh.bitrateBps == 20'000'000, "the start bitrate carries over");
+
+    st.curFps.store(30);
+    st.curBitrateBps.store(5'000'000);
+    const media::EncoderConfig tuned = MakeEncoderConfig(st, {1280, 720}, 60);
+    Check(tuned.fps == 30, "a negotiated fps wins over the option");
+    Check(tuned.bitrateBps == 5'000'000, "so does the controlled bitrate");
+}
+
 void TestClampEncodeSize() {
     std::printf("[size] the encoder size is clamped to the source, even, and floored...\n");
     Check(ClampEncodeSize(0, 0, 1920, 1080, 1920).size == StreamSize{},
@@ -165,5 +220,7 @@ void RunStreamSizeTests() {
     TestLegacyClientAndGarbage();
     TestQualityScale();
     TestRetargetStream();
+    TestAdmitCapturedFrame();
+    TestMakeEncoderConfig();
     TestClampEncodeSize();
 }

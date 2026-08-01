@@ -25,6 +25,8 @@ public:
     void ReleaseAll();
 
     void SetEnabled(bool on) {
+        if (enabled_ == on) return;
+        if (!on) ReleaseAll();
         enabled_ = on;
     }
     bool enabled() const {

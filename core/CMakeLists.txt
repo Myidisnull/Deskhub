@@ -27,6 +27,8 @@ add_library(core STATIC
 
     src/media/ViewFit.cpp
     src/media/H264Sps.cpp
+    src/media/AnnexB.cpp
+    src/media/RatePlan.cpp
 
     src/diag/ClientDiag.cpp
     src/diag/AgentDiag.cpp
@@ -63,6 +65,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/ClientPumpTests.cpp
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
+        tests/session/ConnectFlowTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp
@@ -82,6 +85,8 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ContractTests.cpp
         tests/media/BitWriterTests.cpp
         tests/media/H264SpsTests.cpp
+        tests/media/AnnexBTests.cpp
+        tests/media/RatePlanTests.cpp
         tests/media/QualityPresetTests.cpp
         tests/media/ViewFitTests.cpp
 

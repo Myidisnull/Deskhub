@@ -8,6 +8,7 @@
 #include <span>
 #include <vector>
 
+#include "deskhub/media/AnnexB.h"
 #include "deskhub/media/H264Sps.h"
 #include "deskhubp/diag/Log.h"
 
@@ -98,15 +99,9 @@ void VtEncoder::OnEncoded(void* sampleBufferOpaque, int32_t status, uint32_t inf
     }
 
     const auto* p = reinterpret_cast<const uint8_t*>(dataPtr);
-    size_t off = 0;
-    while (off + size_t(nalLenSize) <= totalLen) {
-        size_t nalLen = 0;
-        for (int i = 0; i < nalLenSize; ++i) nalLen = (nalLen << 8) | p[off + size_t(i)];
-        off += size_t(nalLenSize);
-        if (!nalLen || off + nalLen > totalLen) break;
-        AppendNal(out, p + off, nalLen);
-        off += nalLen;
-    }
+    const std::vector<uint8_t> body = deskhub::media::AvccToAnnexB(
+        std::span<const uint8_t>(p, totalLen), size_t(nalLenSize));
+    out.insert(out.end(), body.begin(), body.end());
     if (out.empty()) return;
 
     const CMTime pts = CMSampleBufferGetPresentationTimeStamp(sb);

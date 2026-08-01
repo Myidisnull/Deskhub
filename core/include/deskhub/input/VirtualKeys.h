@@ -54,4 +54,35 @@ inline constexpr int32_t kVkOem5 = 0xDC;
 inline constexpr int32_t kVkOem6 = 0xDD;
 inline constexpr int32_t kVkOem7 = 0xDE;
 
+enum class ModifierKey : uint8_t { None,
+    Shift,
+    Control,
+    Menu,
+    Win,
+    CapsLock };
+
+constexpr ModifierKey ModifierKeyOf(int32_t vk) {
+    switch (vk) {
+        case kVkShift:
+        case kVkLShift:
+        case kVkRShift:
+            return ModifierKey::Shift;
+        case kVkControl:
+        case kVkLControl:
+        case kVkRControl:
+            return ModifierKey::Control;
+        case kVkMenu:
+        case kVkLMenu:
+        case kVkRMenu:
+            return ModifierKey::Menu;
+        case kVkLWin:
+        case kVkRWin:
+            return ModifierKey::Win;
+        case kVkCapital:
+            return ModifierKey::CapsLock;
+        default:
+            return ModifierKey::None;
+    }
+}
+
 }

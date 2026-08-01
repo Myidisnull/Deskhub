@@ -30,7 +30,7 @@ struct SourcePickerView: View {
             .listStyle(.bordered)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text("Each one you pick opens its own window.")
+            Text(DeskhubClient.string(DHStrPickerEachWindow))
 
             HStack {
                 Spacer()

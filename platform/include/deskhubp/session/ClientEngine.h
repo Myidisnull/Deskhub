@@ -96,6 +96,15 @@ public:
         return true;
     }
 
+    bool Start(const NetAddr& server, uint8_t sourceId, uint32_t screenW, uint32_t screenH) {
+        ClientEngineConfig cfg;
+        cfg.server = server;
+        cfg.sourceId = sourceId;
+        cfg.screenW = screenW;
+        cfg.screenH = screenH;
+        return Start(cfg);
+    }
+
     void Stop() {
         quit_.store(true);
         decCv_.notify_all();

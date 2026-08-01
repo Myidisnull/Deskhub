@@ -1,5 +1,6 @@
 #include "deskhub/media/H264Sps.h"
 
+#include "deskhub/media/AnnexB.h"
 #include "deskhub/media/BitWriter.h"
 
 namespace deskhub::media {
@@ -165,12 +166,6 @@ SpsPrefix ParseUpToVuiFlag(std::span<const uint8_t> rbsp) {
     return sps;
 }
 
-size_t StartCodeLength(std::span<const uint8_t> d, size_t at) {
-    if (at + 3 < d.size() && !d[at] && !d[at + 1] && !d[at + 2] && d[at + 3] == 1) return 4;
-    if (at + 2 < d.size() && !d[at] && !d[at + 1] && d[at + 2] == 1) return 3;
-    return 0;
-}
-
 void WriteZeroReorderVui(BitWriter& w, uint32_t maxDecFrameBuffering) {
     w.U(1, 0);
     w.U(1, 0);
@@ -216,7 +211,7 @@ std::vector<uint8_t> AnnexBStreamWithZeroReorder(std::span<const uint8_t> annexb
     size_t at = 0;
 
     while (at < annexb.size()) {
-        const size_t startCode = StartCodeLength(annexb, at);
+        const size_t startCode = StartCodeLengthAt(annexb, at);
         if (!startCode) {
             ++at;
             continue;
@@ -224,7 +219,7 @@ std::vector<uint8_t> AnnexBStreamWithZeroReorder(std::span<const uint8_t> annexb
 
         const size_t nalStart = at + startCode;
         size_t nalEnd = nalStart;
-        while (nalEnd < annexb.size() && !StartCodeLength(annexb, nalEnd)) ++nalEnd;
+        while (nalEnd < annexb.size() && !StartCodeLengthAt(annexb, nalEnd)) ++nalEnd;
 
         if (nalStart < nalEnd && (annexb[nalStart] & 0x1F) == kNalTypeSps) {
             const std::vector<uint8_t> sps =

@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/media/CaptureContract.h"
+#include "deskhub/media/PresentCounters.h"
 #include "deskhub/media/VideoContract.h"
 
 #include <cstdio>
@@ -193,7 +194,8 @@ void RunMediaContractTests() {
     Check(ec.lowLatency, "EncoderConfig: low latency is the default");
     Check(ec.bitrateBps == 20'000'000, "EncoderConfig: bitrate defaults to 20 Mbps");
     Check(ec.srcWidth == 0 && ec.srcHeight == 0,
-        "EncoderConfig: 0 means 'same as width/height' — every platform reads it that way");
+        "EncoderConfig: 0 means 'same as width/height' — backends that cannot crop must "
+        "refuse a mismatch");
     Check(!ec.onPacket, "EncoderConfig: with onPacket unset there is no output path");
 
     const DecoderConfig dc;
@@ -201,4 +203,22 @@ void RunMediaContractTests() {
     Check(dc.codec == Codec::H264, "DecoderConfig: codec defaults to H264");
     Check(dc.width == 0 && dc.height == 0,
         "DecoderConfig: 0 = unknown, the decoder reads it back from the SPS");
+
+    std::printf("[media] shared present counters (harvested by the client engine)...\n");
+    PresentCounters pc;
+    pc.FramePresented(1'000, 2'000);
+    pc.FramePresented(0, 9'999);
+    pc.RecordPresentDelayMs(7);
+    pc.CountCongestionDrop();
+    Check(pc.TakeRenderedCount() == 2, "every presented frame is counted");
+    Check(pc.TakeRenderedCount() == 0, "and the count resets on harvest");
+    Check(pc.lastRenderedPtsUs() == 1'000 && pc.lastRenderedAtUs() == 2'000,
+        "a zero pts does not clobber the last timed frame");
+    Check(pc.TakePresentDelayMs() == 7 && pc.TakePresentDelayMs() == 0,
+        "the present delay is a take-once value");
+    Check(pc.TakeCongestionDrops() == 1, "congestion drops are counted");
+    pc.FramePresented(5, 6);
+    pc.Reset();
+    Check(pc.TakeRenderedCount() == 0 && pc.lastRenderedPtsUs() == 0,
+        "a decoder restart clears everything");
 }

@@ -15,6 +15,8 @@
 #include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/media/QualityPreset.h"
+#include "deskhub/session/ConnectFlow.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -60,12 +62,12 @@ bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sour
     std::vector<deskhub::SourceInfo>& out) {
     out.clear();
     if (sources.empty()) return false;
-    if (sources.size() == 1) {
+    if (!deskhub::DecideAfterSourceQuery(sources).showPicker) {
         out = sources;
         return true;
     }
 
-    GtkWidget* dlg = gtk_dialog_new_with_buttons("What do you want to view?", parent,
+    GtkWidget* dlg = gtk_dialog_new_with_buttons(deskhub::ui::kPickerTitle, parent,
         GTK_DIALOG_MODAL, "_Cancel", GTK_RESPONSE_CANCEL, "_View", GTK_RESPONSE_ACCEPT, nullptr);
     gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_ACCEPT);
     gtk_window_set_default_size(GTK_WINDOW(dlg), 460, 340);
@@ -106,7 +108,7 @@ bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sour
     gtk_container_add(GTK_CONTAINER(scroll), tree);
     gtk_box_pack_start(GTK_BOX(box), scroll, TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Label("Each one you pick opens its own window."), FALSE,
+    gtk_box_pack_start(GTK_BOX(box), Label(deskhub::ui::kPickerEachWindow), FALSE,
         FALSE, 0);
     gtk_widget_show_all(dlg);
 
@@ -140,8 +142,7 @@ void MainWindow::Open(GtkApplication* app) {
 
 void MainWindow::Build(GtkApplication* app) {
     window_ = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(window_),
-        "Deskhub - stream & remotely control an application");
+    gtk_window_set_title(GTK_WINDOW(window_), deskhub::ui::kAppTitle);
     gtk_window_set_resizable(GTK_WINDOW(window_), FALSE);
     gtk_widget_set_size_request(window_, kWinW, -1);
     g_signal_connect(window_, "destroy", G_CALLBACK(OnDestroy), this);
@@ -175,12 +176,13 @@ GtkWidget* MainWindow::BuildHostBox() {
     gtk_container_set_border_width(GTK_CONTAINER(box), 12);
     gtk_container_add(GTK_CONTAINER(frame), box);
 
-    gtk_box_pack_start(GTK_BOX(box), Label("Others connect to you using one of these IP addresses:"),
+    gtk_box_pack_start(GTK_BOX(box), Label(deskhub::ui::kHostIpIntro),
         FALSE, FALSE, 0);
 
     const auto addrs = ListLocalIPv4();
     if (addrs.empty()) {
-        gtk_box_pack_start(GTK_BOX(box), Label("(no network address found)"), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(box), Label(deskhub::ui::kNoNetworkAddress), FALSE, FALSE,
+            0);
     } else {
         GtkWidget* grid = gtk_grid_new();
         gtk_grid_set_row_spacing(GTK_GRID(grid), 2);
@@ -203,9 +205,8 @@ GtkWidget* MainWindow::BuildHostBox() {
         gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
     }
 
-    char portText[32];
-    std::snprintf(portText, sizeof(portText), "UDP port %u", unsigned(kDeskhubPort));
-    gtk_box_pack_start(GTK_BOX(box), Label(portText), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Label(deskhub::ui::UdpPortLine().c_str()), FALSE, FALSE,
+        0);
 
     GtkWidget* settings = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_pack_start(GTK_BOX(settings), Label("FPS"), FALSE, FALSE, 0);
@@ -239,7 +240,7 @@ GtkWidget* MainWindow::BuildClientBox() {
     gtk_container_set_border_width(GTK_CONTAINER(box), 12);
     gtk_container_add(GTK_CONTAINER(frame), box);
 
-    gtk_box_pack_start(GTK_BOX(box), Label("Host machine IP address:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Label(deskhub::ui::kClientIpPrompt), FALSE, FALSE, 0);
 
     GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     addressEntry_ = gtk_entry_new();
@@ -339,15 +340,12 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
 
     NetAddr server{};
     if (!ParseNetAddr(text, server)) {
-        char msg[256];
-        std::snprintf(msg, sizeof(msg),
-            "Enter just the IP address (e.g., 192.168.1.10). Deskhub always uses UDP port %u.",
-            unsigned(kDeskhubPort));
-        ShowError(GTK_WINDOW(self->window_), ("Invalid address: \"" + text + "\"").c_str(), msg);
+        ShowError(GTK_WINDOW(self->window_), ("Invalid address: \"" + text + "\"").c_str(),
+            deskhub::ui::InvalidAddressHint().c_str());
         return;
     }
 
-    self->SetBusy(true, "Asking the other machine what it is sharing…");
+    self->SetBusy(true, deskhub::ui::kQueryingSources);
 
     std::thread([self, server, alive = self->alive_] {
         std::vector<deskhub::SourceInfo> sources;
@@ -378,8 +376,7 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
             if (opened == 0) {
                 self->ShowAfterSession();
                 ShowWarning(GTK_WINDOW(self->window_), "Deskhub",
-                    "Could not open a viewing session - check the address and that the other "
-                    "machine is sharing.");
+                    deskhub::ui::kViewerOpenFailed);
             }
         });
     }).detach();

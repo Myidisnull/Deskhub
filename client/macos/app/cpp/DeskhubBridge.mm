@@ -30,6 +30,10 @@ bool dh_map_key(uint16_t mac_key_code, int32_t* out_vk, int32_t* out_scan) {
     return mackeys::MacToWin(mac_key_code, *out_vk, *out_scan);
 }
 
+DHModifier dh_modifier_class(int32_t vk) {
+    return DHModifier(int(mackeys::ModifierOf(vk)));
+}
+
 bool dh_has_screen_recording(void) {
     return macperm::HasScreenRecording();
 }
@@ -130,6 +134,7 @@ int dha_status(DHAgentStatus* out, int capacity) {
         out[i].width = rows[i].width;
         out[i].height = rows[i].height;
         out[i].viewerConnected = rows[i].viewerConnected;
+        out[i].zeroCopy = rows[i].zeroCopy;
         out[i].captureFps = rows[i].captureFps;
         out[i].sendFps = rows[i].sendFps;
         out[i].sendKbps = rows[i].sendKbps;

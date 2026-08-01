@@ -1,4 +1,5 @@
 #pragma once
+#include "deskhub/input/Set1Scancodes.h"
 #include "deskhub/input/VirtualKeys.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -20,16 +21,16 @@ struct Hotkey {
 };
 
 inline constexpr Hotkey kTouchHotkeys[] = {
-    {"Esc", kVkEscape, 0x01},
-    {"Tab", kVkTab, 0x0F},
-    {"Enter", kVkReturn, 0x1C},
-    {"↑", kVkUp, 0x48 | kScanExtended},
-    {"↓", kVkDown, 0x50 | kScanExtended},
-    {"←", kVkLeft, 0x4B | kScanExtended},
-    {"→", kVkRight, 0x4D | kScanExtended},
-    {"Del", kVkDelete, 0x53 | kScanExtended},
-    {"Ctrl+C", 'C', 0x2E, kVkControl, 0x1D},
-    {"Ctrl+V", 'V', 0x2F, kVkControl, 0x1D},
+    {"Esc", kVkEscape, VkToSet1Scancode(kVkEscape)},
+    {"Tab", kVkTab, VkToSet1Scancode(kVkTab)},
+    {"Enter", kVkReturn, VkToSet1Scancode(kVkReturn)},
+    {"↑", kVkUp, VkToSet1Scancode(kVkUp)},
+    {"↓", kVkDown, VkToSet1Scancode(kVkDown)},
+    {"←", kVkLeft, VkToSet1Scancode(kVkLeft)},
+    {"→", kVkRight, VkToSet1Scancode(kVkRight)},
+    {"Del", kVkDelete, VkToSet1Scancode(kVkDelete)},
+    {"Ctrl+C", 'C', VkToSet1Scancode('C'), kVkControl, VkToSet1Scancode(kVkControl)},
+    {"Ctrl+V", 'V', VkToSet1Scancode('V'), kVkControl, VkToSet1Scancode(kVkControl)},
 };
 
 constexpr std::span<const Hotkey> TouchHotkeys() {

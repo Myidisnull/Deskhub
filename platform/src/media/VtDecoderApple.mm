@@ -5,8 +5,10 @@
 #include "deskhubp/media/VtDecoder.h"
 
 #include <cstring>
+#include <span>
 #include <vector>
 
+#include "deskhub/media/AnnexB.h"
 #include "deskhubp/diag/Log.h"
 
 namespace {
@@ -19,36 +21,14 @@ struct Nal {
 
 std::vector<Nal> ParseAnnexB(const uint8_t* d, size_t n) {
     std::vector<Nal> out;
-    auto sc4 = [&](size_t p) {
-        return p + 3 < n && d[p] == 0 && d[p + 1] == 0 && d[p + 2] == 0 && d[p + 3] == 1;
-    };
-    auto sc3 = [&](size_t p) {
-        return p + 2 < n && d[p] == 0 && d[p + 1] == 0 && d[p + 2] == 1;
-    };
-
-    size_t p = 0;
-    while (p < n) {
-        size_t sc = sc4(p) ? 4 : (sc3(p) ? 3 : 0);
-        if (sc == 0) {
-            ++p;
-            continue;
-        }
-        const size_t start = p + sc;
-        size_t q = start;
-        while (q < n && !sc4(q) && !sc3(q)) ++q;
-        if (start < q)
-            out.push_back(Nal{d + start, q - start, uint8_t(d[start] & 0x1F)});
-        p = q;
-    }
+    for (const deskhub::media::NalRef& x :
+        deskhub::media::ParseAnnexB(std::span<const uint8_t>(d, n)))
+        out.push_back(Nal{d + x.offset, x.size, deskhub::media::H264NalType(x.header)});
     return out;
 }
 
 void AppendAvcc(std::vector<uint8_t>& out, const uint8_t* nal, size_t len) {
-    out.push_back(uint8_t(len >> 24));
-    out.push_back(uint8_t(len >> 16));
-    out.push_back(uint8_t(len >> 8));
-    out.push_back(uint8_t(len));
-    out.insert(out.end(), nal, nal + len);
+    deskhub::media::AppendLengthPrefixed(out, std::span<const uint8_t>(nal, len));
 }
 
 }

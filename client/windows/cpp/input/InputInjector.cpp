@@ -57,7 +57,7 @@ void InputInjector::OnLocalUserIdle() {
 }
 
 void InputInjector::SendKey(int32_t vk, int32_t scan, bool down) {
-    held_.SetKey(scan, vk, down);
+    held_.SetKey(vk, scan, down);
 
     INPUT in{};
     in.type = INPUT_KEYBOARD;
@@ -127,6 +127,6 @@ void InputInjector::ReleaseAll() {
     if (held_.nothingHeld()) return;
     LOGI("[Inject] Releasing %zu keys + %zu mouse buttons still held.",
         held_.heldKeyCount(), held_.heldButtonCount());
-    for (const auto& key : held_.TakeHeldKeys()) SendKey(key.native, key.id, false);
+    for (const auto& key : held_.TakeHeldKeys()) SendKey(key.id, key.native, false);
     for (deskhub::MouseButton btn : held_.TakeHeldButtons()) SendButton(btn, false);
 }

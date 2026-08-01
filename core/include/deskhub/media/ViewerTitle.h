@@ -6,6 +6,27 @@ namespace deskhub {
 
 inline constexpr std::string_view kViewerConnectingStatus = "connecting...";
 inline constexpr std::string_view kViewerLockHint = "Press F9 to lock mouse";
+inline constexpr std::string_view kViewerLockedHint = "Mouse locked - press F9 to release";
+
+inline std::string_view ViewerLockHintText(bool mouseLocked) {
+    return mouseLocked ? kViewerLockedHint : kViewerLockHint;
+}
+
+inline std::string ViewerBaseTitle(std::string_view sourceName) {
+    std::string base = "Deskhub - viewing";
+    if (!sourceName.empty()) {
+        base += ": ";
+        base += sourceName;
+    }
+    return base;
+}
+
+inline std::string ViewerStatusWithHint(std::string_view statusLine, bool mouseLocked) {
+    std::string s(statusLine.empty() ? kViewerConnectingStatus : statusLine);
+    s += " \xC2\xB7 ";
+    s += ViewerLockHintText(mouseLocked);
+    return s;
+}
 
 inline std::string ComposeViewerTitle(std::string_view base, std::string_view statusLine,
     std::string_view hint) {

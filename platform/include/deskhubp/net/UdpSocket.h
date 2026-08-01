@@ -1,4 +1,6 @@
 #pragma once
+#include "deskhub/protocol/Wire.h"
+
 #include <cstdint>
 #include <string>
 
@@ -17,7 +19,7 @@ struct NetAddr {
     std::string ToString() const;
 };
 
-inline constexpr uint16_t kDeskhubPort = 47777;
+using deskhub::kDeskhubPort;
 
 bool ParseNetAddr(const std::string& s, NetAddr& out);
 

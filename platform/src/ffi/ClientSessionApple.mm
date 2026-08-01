@@ -13,6 +13,7 @@
 
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientSessionForward.h"
+#include "deskhubp/ffi/ClientSessionShell.h"
 #include "deskhubp/media/VtDecoder.h"
 #include "deskhubp/session/ClientEngine.h"
 
@@ -52,13 +53,8 @@ void LocalScreenPixels(uint32_t& outW, uint32_t& outH) {
 
 }
 
-struct DHSession {
-    DHSession() : engine(deskhub::diag::ClientDiagCaps{false, true}) {}
-
-    AppleClientEngine engine;
-    DHSessionCallbacks callbacks{};
-    char statusBuf[256] = {};
-    char reasonBuf[256] = {};
+struct DHSession : deskhubp::FfiClientSession<AppleClientEngine> {
+    DHSession() : FfiClientSession(deskhub::diag::ClientDiagCaps{false, true}) {}
 };
 
 namespace {
@@ -71,15 +67,11 @@ AppleClientEngine& EngineOf(DHSession* s) {
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
     const DHSessionCallbacks* callbacks) {
-    if (!address) return nullptr;
     NetAddr server;
-    if (!ParseNetAddr(address, server)) {
-        LOGE("[Bridge] Invalid address: %s", address);
-        return nullptr;
-    }
+    if (!deskhubp::ParseSessionAddress(address, server)) return nullptr;
 
     auto session = std::make_unique<DHSession>();
-    if (callbacks) session->callbacks = *callbacks;
+    session->AdoptCallbacks(callbacks);
     DHSession* raw = session.get();
 
     deskhubp::ClientEngineConfig cfg;
@@ -92,9 +84,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     cfg.onStatus = [raw](const char* compact) {
         if (raw->callbacks.onStatus) raw->callbacks.onStatus(compact, raw->callbacks.user);
     };
-    cfg.onEnded = [raw](const char* reason) {
-        if (raw->callbacks.onClosed) raw->callbacks.onClosed(reason, raw->callbacks.user);
-    };
+    raw->WireLifecycle(cfg);
 
     if (surface) session->engine.SetSurface(surface);
     if (!session->engine.Start(cfg)) return nullptr;
@@ -103,7 +93,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
 
 void dh_session_stop(DHSession* s) {
     if (!s) return;
-    s->engine.Stop();
+    s->StopQuietly();
     delete s;
 }
 

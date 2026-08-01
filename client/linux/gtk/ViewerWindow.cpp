@@ -12,13 +12,14 @@
 
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
+#include "deskhub/ui/Strings.h"
 
 namespace {
 
 constexpr guint kKeyLockPointer = GDK_KEY_F9;
 constexpr guint kKeyPauseInput = GDK_KEY_F10;
 
-constexpr int32_t kWheelDelta = 120;
+constexpr int32_t kWheelDelta = deskhub::kWheelDeltaPerNotch;
 
 constexpr int kInitialW = 1024;
 constexpr int kInitialH = 600;
@@ -74,8 +75,7 @@ ViewerWindow::~ViewerWindow() {
 }
 
 bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName) {
-    baseTitle_ = "Deskhub - viewing";
-    if (!sourceName.empty()) baseTitle_ += ": " + sourceName;
+    baseTitle_ = deskhub::ViewerBaseTitle(sourceName);
 
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window_), baseTitle_.c_str());
@@ -192,9 +192,8 @@ gboolean ViewerWindow::OnStatusTimer(gpointer user) {
 }
 
 void ViewerWindow::UpdateTitle() {
-    const char* hint = pointerLocked_ ? "Mouse locked - press F9 or Esc to release"
-                                      : deskhub::kViewerLockHint.data();
-    std::string title = deskhub::ComposeViewerTitle(baseTitle_, loop_.StatusLine(), hint);
+    std::string title = deskhub::ComposeViewerTitle(baseTitle_, loop_.StatusLine(),
+        deskhub::ViewerLockHintText(pointerLocked_));
     if (inputPaused_) title += " \xC2\xB7 input paused (F10)";
 
     if (title == shownTitle_) return;
@@ -210,7 +209,8 @@ void ViewerWindow::SizeToVideo() {
 
     const GdkRectangle wa = WorkArea(window_);
     const deskhub::ViewSize fitted = deskhub::ScaleToFit(uint32_t(vw), uint32_t(vh),
-        uint32_t(std::max(320, wa.width - 48)), uint32_t(std::max(240, wa.height - 48)));
+        uint32_t(std::max(320, wa.width - deskhub::kViewerMarginPx)),
+        uint32_t(std::max(240, wa.height - deskhub::kViewerMarginPx)));
     gtk_window_resize(GTK_WINDOW(window_), int(fitted.width), int(fitted.height));
 }
 
@@ -222,7 +222,8 @@ void ViewerWindow::EndSession() {
     const std::string why = loop_.EndReason();
     gtk_widget_destroy(window_);
     RunOnMain([why] {
-        ShowInfo(nullptr, "Connection ended", why.empty() ? std::string("disconnected") : why);
+        ShowInfo(nullptr, deskhub::ui::kConnectionEndedTitle,
+            why.empty() ? std::string(deskhub::ui::kDisconnected) : why);
     });
 }
 

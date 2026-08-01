@@ -6,39 +6,26 @@
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 #include <cstdio>
-#include <map>
 #include <mutex>
-#include <utility>
 
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
+#include "gpu/D3D11VideoProcessor.h"
+#include "gpu/HrCheck.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
 using Microsoft::WRL::ComPtr;
 
-#define PR_CHECK(expr, msg)                                   \
-    do {                                                      \
-        HRESULT _hr = (expr);                                 \
-        if (FAILED(_hr)) {                                    \
-            LOGE("[PanelRenderer] %s failed: 0x%08lX", (msg), \
-                (unsigned long)_hr);                          \
-            return false;                                     \
-        }                                                     \
-    } while (0)
+#define PR_CHECK(expr, msg) DH_HR_CHECK("PanelRenderer", expr, msg)
 
 struct PanelRenderer::Impl {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGISwapChain1> swapchain;
     ComPtr<ID3D11Texture2D> backbuffer;
-    ComPtr<ID3D11VideoDevice> videoDevice;
-    ComPtr<ID3D11VideoContext> videoContext;
-    ComPtr<ID3D11VideoProcessorEnumerator> vpEnum;
-    ComPtr<ID3D11VideoProcessor> vp;
-    ComPtr<ID3D11VideoProcessorOutputView> outView;
-    std::map<std::pair<ID3D11Texture2D*, UINT>, ComPtr<ID3D11VideoProcessorInputView>> inViews;
+    D3D11VideoProcessor vp;
     std::mutex renderMutex;
     uint32_t bbW = 0, bbH = 0;
     uint32_t vpSrcW = 0, vpSrcH = 0;
@@ -82,15 +69,12 @@ struct PanelRenderer::Impl {
         if (SUCCEEDED(swapchain->GetParent(IID_PPV_ARGS(&parent))))
             parent->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
         PR_CHECK(swapchain->GetBuffer(0, IID_PPV_ARGS(&backbuffer)), "GetBuffer");
-
-        PR_CHECK(device.As(&videoDevice), "ID3D11VideoDevice");
-        PR_CHECK(context.As(&videoContext), "ID3D11VideoContext");
         return true;
     }
 
     bool Resize(uint32_t w, uint32_t h) {
         backbuffer.Reset();
-        outView.Reset();
+        vp.Reset();
         PR_CHECK(swapchain->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, 0), "ResizeBuffers");
         PR_CHECK(swapchain->GetBuffer(0, IID_PPV_ARGS(&backbuffer)), "GetBuffer(resize)");
         bbW = w;
@@ -100,50 +84,17 @@ struct PanelRenderer::Impl {
     }
 
     bool EnsureVideoProcessor(uint32_t w, uint32_t h) {
-        if (vp && w == vpSrcW && h == vpSrcH) return true;
-        inViews.clear();
-        outView.Reset();
-        vp.Reset();
-        vpEnum.Reset();
+        if (vp.ready() && w == vpSrcW && h == vpSrcH) return true;
 
-        D3D11_VIDEO_PROCESSOR_CONTENT_DESC cd{};
-        cd.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-        cd.InputWidth = w;
-        cd.InputHeight = h;
-        cd.OutputWidth = bbW;
-        cd.OutputHeight = bbH;
-        cd.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
-        PR_CHECK(videoDevice->CreateVideoProcessorEnumerator(&cd, &vpEnum),
-            "CreateVideoProcessorEnumerator");
-        PR_CHECK(videoDevice->CreateVideoProcessor(vpEnum.Get(), 0, &vp), "CreateVideoProcessor");
-
-        D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC od{};
-        od.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
-        od.Texture2D.MipSlice = 0;
-        PR_CHECK(videoDevice->CreateVideoProcessorOutputView(backbuffer.Get(), vpEnum.Get(), &od,
-                     &outView),
-            "CreateVideoProcessorOutputView");
-
-        RECT src{0, 0, (LONG)w, (LONG)h};
-        videoContext->VideoProcessorSetStreamSourceRect(vp.Get(), 0, TRUE, &src);
-        RECT dst{0, 0, (LONG)bbW, (LONG)bbH};
-        videoContext->VideoProcessorSetStreamDestRect(vp.Get(), 0, TRUE, &dst);
-
-        ComPtr<ID3D11VideoContext1> vc1;
-        if (SUCCEEDED(videoContext.As(&vc1))) {
-            vc1->VideoProcessorSetStreamColorSpace1(vp.Get(), 0,
-                DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709);
-            vc1->VideoProcessorSetOutputColorSpace1(vp.Get(),
-                DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
-        }
-        D3D11_VIDEO_PROCESSOR_COLOR_SPACE inCs{};
-        inCs.YCbCr_Matrix = 1;
-        inCs.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
-        videoContext->VideoProcessorSetStreamColorSpace(vp.Get(), 0, &inCs);
-        D3D11_VIDEO_PROCESSOR_COLOR_SPACE outCs{};
-        outCs.RGB_Range = 0;
-        videoContext->VideoProcessorSetOutputColorSpace(vp.Get(), &outCs);
-        videoContext->VideoProcessorSetStreamAutoProcessingMode(vp.Get(), 0, FALSE);
+        D3D11VideoProcessor::Setup s;
+        s.srcWidth = w;
+        s.srcHeight = h;
+        s.dstWidth = bbW;
+        s.dstHeight = bbH;
+        s.srcRect = RECT{0, 0, (LONG)w, (LONG)h};
+        s.dstRect = RECT{0, 0, (LONG)bbW, (LONG)bbH};
+        s.srcYCbCr = true;
+        if (!vp.Configure(device.Get(), backbuffer.Get(), s, "PanelRenderer")) return false;
 
         vpSrcW = w;
         vpSrcH = h;
@@ -157,24 +108,7 @@ struct PanelRenderer::Impl {
         if ((w != bbW || h != bbH) && !Resize(w, h)) return false;
         if (!EnsureVideoProcessor(w, h)) return false;
 
-        auto key = std::make_pair(tex, subresource);
-        auto it = inViews.find(key);
-        if (it == inViews.end()) {
-            D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC vd{};
-            vd.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-            vd.Texture2D.MipSlice = 0;
-            vd.Texture2D.ArraySlice = subresource;
-            ComPtr<ID3D11VideoProcessorInputView> view;
-            PR_CHECK(videoDevice->CreateVideoProcessorInputView(tex, vpEnum.Get(), &vd, &view),
-                "CreateVideoProcessorInputView");
-            it = inViews.emplace(key, std::move(view)).first;
-        }
-
-        D3D11_VIDEO_PROCESSOR_STREAM stream{};
-        stream.Enable = TRUE;
-        stream.pInputSurface = it->second.Get();
-        PR_CHECK(videoContext->VideoProcessorBlt(vp.Get(), outView.Get(), 0, 1, &stream),
-            "VideoProcessorBlt");
+        if (!vp.Blt(tex, subresource)) return false;
         if (outReadyUs) *outReadyUs = NowUs();
         PR_CHECK(swapchain->Present(0, 0), "Present");
         return true;

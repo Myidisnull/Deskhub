@@ -13,7 +13,7 @@ enum class GpuVendor { Nvidia,
     Microsoft,
     Unknown };
 
-const wchar_t* GpuVendorName(GpuVendor v);
+const char* GpuVendorName(GpuVendor v);
 
 struct GpuChoice {
     Microsoft::WRL::ComPtr<ID3D11Device> device;
