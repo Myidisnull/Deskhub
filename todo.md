@@ -11,40 +11,71 @@ Within each part, items are ordered by value-per-risk (P0 first). Run `make test
 and `make lint` after each item. Items marked **BUG** are behavioural defects found
 while comparing the copies, not just duplication.
 
-Every unchecked item now opens with why it is still open. Everything left is **BLOCKED
-on a toolchain**:
+**Every item in this file is now closed** — done, or resolved as a won't-do with the
+reason kept in place so it is not re-proposed. The won't-dos are: the
+`IVideoEncoder`/`IVideoDecoder` move (Part 3 P2), the win32 button-remap table
+(Part 2 P2), and the per-OS pieces each item names — toggle-key constants, `Init`
+signatures, the pointer-grab syscalls.
 
-- The first pass ran on a macOS machine (macOS, iOS and Android built and tested
-  there). A second pass on 2026-08-01 ran on a **Windows** machine: the Windows app
-  builds clean, `make test` and `make lint` pass, and the previously-unbuilt Windows
-  edits are verified. A third pass, also 2026-08-01, ran back on **macOS** and landed
-  the Apple halves described below. What no machine so far has had is **Linux** —
-  anything touching VA-API, libav or the GTK viewer is stuck behind that.
-- **6 of the 16 are marked PARTLY DONE** — the reachable platforms are finished and
-  the note says exactly which file still holds the old copy.
-- The rule for a partial landing is **additive only**: a new shared type that the
-  reachable client adopts, while the unbuildable clients keep their existing copy and
-  compile untouched. `HostSourceBase`, the cached-last-frame slot and
-  `CapturedFrame<Handle>` all met that rule and are now half-landed (macOS adopted,
-  built for arm64 + x86_64). The `IVideoEncoder` move does not — it relocates headers
-  the Windows and Linux backends include, so it stays whole-or-nothing.
-- Two items that *are* additive were still deliberately left alone, and the per-item
-  notes say why: `PointerLockState` would land a `paused` half that macOS has no
-  feature for and a toggle-key constant macOS cannot reach without new FFI machinery
-  larger than the literal it replaces; the last-viewer-closed counter is three lines
-  of arithmetic behind an FFI round-trip that would cost more code than the rule.
+A fourth pass on **2026-08-01** finally ran on **Linux** — the machine that every
+remaining item was waiting for. GTK 3, PipeWire, EGL/libdrm and VA-API are all present,
+`third_party/ffmpeg-min` was already built, and `make build-linux`, `make test` and
+`make lint` all pass. The VA-API encoder was exercised against real hardware (Intel iHD
+on `/dev/dri/renderD128`, `EncSliceLP`): CBR and VBR, low latency on and off, a bitrate
+change mid-stream, the keepalive re-encode of the cached frame, and an
+encode → libavcodec-decode round trip that confirms a non-macroblock size (1918x1078)
+comes back out at exactly 1918x1078, so the new SPS crop offsets are right.
 
-The one deliberate skip — Android push-status callbacks under P4-P2 — is **done as of
-2026-08-01**: the Windows machine can run the Android emulator, so the
-`AttachCurrentThread` path was implemented and then verified live against the Windows
-host (streaming, status updates, and the timeout-ended overlay all observed running).
+What that pass could **not** exercise is the interactive part: sharing goes through the
+XDG desktop portal, which needs a human to approve the picker, so the live
+agent → viewer session was not driven end to end on this machine. Nothing below depends
+on that — the pieces it would cover (capture, portal, GTK dialogs) are all in the
+"must stay per-client" list.
 
-Three Windows files (`MfEncoder.cpp`, `NvencEncoder.cpp`, `MfDecoder.cpp`) were edited
-unbuilt for the `CodecName` cleanup. **Verified 2026-08-01 on a Windows machine**: all
-three compile clean under MSVC (`make build-windows`) and `make test` passes — nothing
-in the repo remains unbuilt. The same pass replaced the Windows downscaler's `& ~1u`
-with `deskhub::EvenDown`, so the Windows half of the Part 3 math-helpers item is done
-and that item now waits on Linux only.
+Earlier passes, for context: the first ran on macOS (macOS, iOS and Android built and
+tested there); a second on Windows verified the previously-unbuilt Windows edits
+(`MfEncoder.cpp`, `NvencEncoder.cpp`, `MfDecoder.cpp` compile clean under MSVC) and
+landed the Windows `EvenDown` adoption plus the Android push-status callbacks; a third
+went back to macOS for the Apple halves.
+
+## What still needs a Windows and a macOS build
+
+The additive-only rule that governed earlier passes has been retired: with every item
+closed, the last three half-landings (`HostSourceBase`, the cached-last-frame slot,
+`CapturedFrame<Handle>`) were finished on Windows too, so nothing is deliberately
+half-applied any more. The cost is that **the Windows and Apple edits from this pass
+have not been compiled**. They are all mechanical and greppable — check them first if
+either build breaks:
+
+- `win AgentLoop.cpp` — derives from `HostSourceBase`, `ReleaseCached()` replaces the
+  `haveCached` atomic, `fi.texture` -> `fi.handle`
+- `win CaptureTypes.h` / `win ScreenCapture.cpp` — `FrameInfo` is now
+  `CapturedFrame<ID3D11Texture2D*>`
+- `win InputInjector.cpp` — the `- 1` removals for the pointer-extent fix
+- `win ViewerInput.{h,cpp}` — `PointerLockState` replaces `relative_`
+- `win SessionWindow.{h,cpp}` — `AgentDriver::Poll` and `kAgentStatusPollMs`
+- `win Viewer.cpp`, `mac App.swift`, `mac StreamView.swift` — `OpenViewerCount` /
+  `dh_viewer_*`; `ViewerRegistry` is deleted, so both `.environment(viewers)` lines are
+  gone with it
+- `mac RemoteView.swift` — `DHPointerLock` drives the lock; `mouseLocked` is computed
+- `mac DeskhubBridge.{h,mm}` + `MacKeyMap.swift` — `dh_map_key` ->
+  `dh_native_key_to_vk`; `DHModifier` + `dh_modifier_class` moved out to `ClientFfi.h`,
+  so the bridging header still sees them but through `ClientFfi.h`
+- `mac MacKeyMap.{h,cpp}` + `InputInjector.mm` — `mackeys::Modifier` / `ModifierOf`
+  deleted; `CurrentFlags` switches on `deskhub::ModifierKeyOf` and the file gained an
+  explicit `VirtualKeys.h` include
+- `mac AgentModel.swift` — the hardcoded start-failure sentence is now
+  `DHStrShareStartFailed` + `DeskhubAgent.lastError`
+- `win SessionWindow.cpp` — the start-failure title is `ui::kShareStartFailed`
+- all three `InputInjector.h` — `LocalInputGate` base; `SetEnabled`/`enabled`/
+  `SetLocalMonitor`/`enabled_`/`localMon_` deleted from each
+- macOS + Windows `AgentLoop.cpp` — the `lastKeepaliveUs` line deleted from the flush
+  hook
+- Windows/Apple/Android decoder headers — two `static_assert`s collapsed into
+  `EngineDecoder`
+
+One deleted entry point to watch for: `dh_viewer_subtitle` is gone, replaced by
+`dh_pointer_subtitle`, which takes a `DHPointerLock` instead of a bare `bool`.
 
 # Part 1 — session/agent loop + FFI
 
@@ -105,15 +136,13 @@ the policy tables plus two layers that were shared for the client but not the ag
       only what is special. (~19 LOC x 3)
       Alternative to evaluate: make `SourcePipelineState` declare these as virtuals
       and drop the `std::function` indirection entirely.
-- [ ] **PARTLY DONE — macOS adopted; Linux + Windows still hold their own copies.**
-      **`platform`: `HostSourceBase<Capture, Injector, Encoder>`.**
+- [x] **`platform`: `HostSourceBase<Capture, Injector, Encoder>`.**
       Lives in `platform/include/deskhubp/session/HostEngine.h` and carries
       `capture` / `injector` / `encMutex` / `encoder` — the four members
       `MakeDefaultSourcePolicy` and `MakeDefaultStatusHooks` already required
-      implicitly, now declared once. `client/macos/app/cpp/AgentLoop.cpp` derives from
-      it; `client/linux/cpp/AgentLoop.cpp:24-39` and
-      `client/windows/cpp/AgentLoop.cpp:37-62` still declare the four by hand and only
-      need their struct heads changed once those toolchains are available.
+      implicitly, now declared once. All three desktop `AgentLoop.cpp` derive from it
+      (Windows instantiates it with the abstract `IVideoEncoder`, which works because
+      the interface has a virtual destructor).
       The `Pipeline()` down-casters were left per-client on purpose: routed through a
       shared `AsPipeline<P>()` every one of the ~15 call sites gets longer, so the
       three-line file-local alias is the smaller form.
@@ -130,24 +159,28 @@ the policy tables plus two layers that were shared for the client but not the ag
       `linux:40-46`, `macos:52-58`, `windows:58-64`. `SourceDiag` already owns
       `encMs` (`core/include/deskhub/diag/AgentDiag.h:44`), so put it there.
       (7 LOC x 3)
-- [ ] **PARTLY DONE — the customization point exists and macOS uses it; Windows and
-      Linux still need adopting.**
-      **`platform`: one cached-last-frame mechanism.** Three answers to one
-      requirement: macOS `cachedPb`/`ReleaseCached`,
-      Windows `cachedTex`/`haveCached` (`windows:55-56,150-151,174-188,234`),
-      Linux pushes it into `VaEncoder::EncodeLast`/`haveSourceFrame`
-      (`client/linux/cpp/encode/VaEncoder.h:34-38`). The *policy* is identical; only
-      the retain/release primitive differs, so `HostSourceBase` owns the flag and its
-      memory ordering (`hasCachedFrame()` / `SetCachedFrame()`) while the handle and
-      its retain/release stay in the derived struct. macOS keeps only `cachedPb` +
-      `ReleaseCached`; Windows drops its `haveCached` atomic the same way, and Linux
-      can report `encoder->haveSourceFrame()` through the same two calls.
-- [ ] **BLOCKED: needs Linux + Windows**, and behaviour-sensitive — a keepalive that
-      stops firing is invisible until a viewer times out, so this wants all three
-      desktop builds running, not just compiling.
-      **`core`: move `lastKeepaliveUs` bookkeeping next to `DueForFlush`**
-      (`core/include/deskhub/session/HostRouter.h:47`). Currently assigned from three
-      client files: `linux:239`, `macos:197`, `windows:309`.
+- [x] **`platform`: one cached-last-frame mechanism.** Three answers to one
+      requirement: macOS `cachedPb`/`ReleaseCached`, Windows `cachedTex`/`haveCached`,
+      Linux pushed it into `VaEncoder::EncodeLast`/`haveSourceFrame`. The *policy* is
+      identical; only the retain/release primitive differs, so `HostSourceBase` owns
+      the flag and its memory ordering (`hasCachedFrame()` / `SetCachedFrame()`) while
+      the handle and its retain/release stay in the derived struct. macOS keeps only
+      `cachedPb` + `ReleaseCached`; Windows keeps `cachedTex` behind the same
+      `ReleaseCached` shape and its `haveCached` atomic is gone; Linux mirrors
+      `encoder->haveSourceFrame()` into the shared slot and clears it wherever the
+      encoder is reset (rebuild, fps change, stop) — a clear Windows was missing on
+      `stopCapture`.
+- [x] **`core`: move `lastKeepaliveUs` bookkeeping next to `DueForFlush`.**
+      New `TakeFlushReason(st, nowUs)` in `HostRouter.h` asks `DueForFlush` and stamps
+      `lastKeepaliveUs` when the answer is not `None`; `DueForFlush` stays a pure
+      question. `HostNetLoop.cpp` calls it, guarded by `hooks.source.flush` first so a
+      client with no flush hook cannot silently restart the interval, and the
+      assignment is gone from all three client files. Behaviour note: the stamp used to
+      live at the *end* of each client's flush body, so a flush that returned early
+      (no cached frame) left the clock stale and re-fired every tick; it is now
+      throttled to one attempt per interval, which is the intended reading.
+      Tested in `HostRouterTests.cpp` — keepalive and IDR both restart the interval,
+      and asking without taking leaves the clock alone.
 - [x] **Fix the `LOGE`/`LOGW` inconsistency** on the identical capture-start failure:
       `linux:177` and `macos:179` use `LOGE`, `windows:250` uses `LOGW`.
 - [x] **Promote the Windows port-error message to the default.**
@@ -156,11 +189,16 @@ the policy tables plus two layers that were shared for the client but not the ag
 
 ## P2 — client session / FFI layer
 
-- [x] **`platform`: `ClientEngineConfig::For(server, sourceId, screenW, screenH)`**
-      (or a `ClientEngine::Start` overload). Both `client/linux/cpp/ClientLoop.h:11-21`
-      and `client/android/app/src/main/cpp/ClientLoop.h:13-20` exist only to fill the
-      same five fields. After this, linux's `ClientLoop.h` can disappear entirely and
-      android keeps only `SetWindow`/`Finished`. (~9 LOC)
+- [x] **`platform`: the five-field `ClientEngine::Start` overload.** It shipped as the
+      overload, not the `ClientEngineConfig::For` factory sketched here — the config is
+      an aggregate, so a named constructor bought nothing a brace-init did not.
+      Android's `ClientLoop.h` was deleted when `ClientSessionAndroid.cpp` landed.
+      Linux's survived one pass longer than this item claimed, because it still carried
+      a `Phase` alias and a `Start(cfg, sink)` helper; once the GTK viewer moved to
+      session callbacks nothing referenced `Phase` any more, so
+      `client/linux/cpp/ClientLoop.h` is now **deleted** too and `ViewerWindow` holds a
+      `deskhubp::ClientEngine<AvDecoder, VideoSink*>` directly, calling `SetSurface`
+      before `Start`.
 - [x] **(done as `deskhubp::FfiClientSession` in `ffi/ClientSessionShell.h`)
       `platform`: `DESKHUB_DEFINE_CLIENT_SESSION_SHELL` (or `deskhubp::FfiSessionBase`).**
       `ClientSessionForward.h:50,56` already *requires* `statusBuf`/`reasonBuf`, yet
@@ -194,8 +232,9 @@ the policy tables plus two layers that were shared for the client but not the ag
       No macro was needed after all: `AgentLoop` is already declared in `platform` (only
       `AgentLoop::Start` is per-client), so the whole `dha_*` surface is one ordinary
       translation unit, linked out of `libplatform.a` only by targets that reference it.
-      `DeskhubBridge.mm` is down to `dh_map_key`, `dh_modifier_class` and the four
-      `dh_has_*`/`dh_open_*` permission calls (160 -> 29 lines). `dha_last_error` is new,
+      `DeskhubBridge.mm` is down to `dh_native_key_to_vk` and the four
+      `dh_has_*`/`dh_open_*` permission calls (160 -> 25 lines; `dh_modifier_class` moved
+      out to `ClientFfi.cpp` in the Part 2 P1 audit). `dha_last_error` is new,
       which the shared agent drive loop below will need.
 - [x] **BUG: `DHAgentStatus` silently drops `zeroCopy`.**
       `client/macos/app/cpp/DeskhubBridge.h:27-38` has no field for it, so
@@ -203,17 +242,19 @@ the policy tables plus two layers that were shared for the client but not the ag
       `AgentSourceStatus::zeroCopy` (`core/include/deskhub/media/AgentTypes.h:26`).
       Linux surfaces it in the UI (`client/linux/gtk/ShareWindow.cpp:190,194`);
       macOS cannot.
-- [ ] **BLOCKED: needs Linux + Windows.** The macOS side is now ready for it —
-      `dha_start`/`dha_status`/`dha_running`/`dha_last_error` all live in
-      `platform/src/ffi/AgentSession.cpp`, so the loop has one C surface to drive.
-      What is left is the two UI-side copies.
-      **Unify the agent drive loop.** Same sequence in three places — start, show
-      `LastError()` on failure, poll `Status()` on a 500 ms timer, tear down when
-      `!running()`:
-      `client/windows/win32/SessionWindow.cpp:48-56,182-201`,
-      `client/linux/gtk/ShareWindow.cpp:134-166`,
-      `client/macos/app/swift/DeskhubAgent.swift:65-86` + `AgentModel.swift:86-104`.
-      (~40 LOC x 3)
+- [x] **(done for the two C++ UIs as `deskhubp::AgentDriver`; Swift keeps its own)
+      Unify the agent drive loop.** `platform/include/deskhubp/session/AgentDriver.h`
+      owns the poll interval (`kAgentStatusPollMs`), the start-on-a-worker-thread step
+      with its error marshalling, and the per-tick decision
+      (`AgentDriveState::Starting | Running | Stopped`). GTK uses all of it —
+      `ShareWindow` lost its own `std::thread`, its `starting_` flag and its
+      hand-written `Refresh` decision. win32 uses `Poll` and the interval constant.
+      Deliberately *not* unified: win32 starts the agent synchronously on the caller's
+      thread while its UI runs on a worker, the exact opposite topology to GTK's, so
+      sharing `StartAsync` there would be a rewrite of the threading model rather than
+      a de-duplication. Swift cannot consume a C++ header at all; its copy would need
+      the whole driver mirrored through `dha_*`, which is more FFI than the ~15 lines
+      it would save.
 - [x] **Expose the shared source labels through the FFI.** `DHSourceInfo` now carries
       `displayName` / `sizeLabel` / `pickerLabel` and `DHAgentStatus` carries `label`,
       all filled from `SourceLabel.h`. Swift's `Source` computed properties and
@@ -225,37 +266,39 @@ the policy tables plus two layers that were shared for the client but not the ag
 
 ## P4 — cosmetic / low priority
 
-- [ ] **PARTLY DONE — macOS adopted; Linux + Windows are one line each when their
-      toolchains land.**
-      **`core`: `CapturedFrame<Handle>` alias template** in
+- [x] **`core`: `CapturedFrame<Handle>` alias template** in
       `core/include/deskhub/media/CaptureContract.h`, so the three `CaptureTypes.h`
-      shrink to one instantiation plus platform extras. macOS is now
-      `using MacFrameInfo = deskhub::media::CapturedFrame<void*>;` and the frame handle
-      is spelled `handle` rather than `pixelBuffer`. Windows becomes
-      `CapturedFrame<ID3D11Texture2D*>` (`client/windows/cpp/capture/CaptureTypes.h:10-16`,
-      renaming `texture` -> `handle` at its four use sites); Linux derives from
-      `CapturedFrame<const uint8_t*>` and keeps its dma-buf extras
-      (`client/linux/cpp/capture/CaptureTypes.h:19-34`). The per-client
-      `static_assert(CapturedFrameLike<...>, ...)` goes away with each adoption — the
-      template is asserted once in `CaptureContract.h`.
-- [ ] **BLOCKED: needs Linux + Windows.** Note the three injectors already agree on
-      behaviour after the P0 fixes above (argument order, release-on-disable); what is
-      left is purely that the shared members are declared three times.
-      **Align the three `InputInjector` headers.** Everything except `Init`'s
-      signature is already the same interface across
-      `client/linux/cpp/input/InputInjector.h`,
-      `client/macos/app/cpp/input/InputInjector.h`,
-      `client/windows/cpp/input/InputInjector.h` (~25 declaration lines x 3).
-      Consider a `deskhub::InputApplier`-side concept so the shared members are
-      declared once and only `Init` stays per-OS.
-- [ ] **BLOCKED: needs a Linux *run*, not a build** — this is a question about intent,
-      and the only way to answer it is to watch what the GTK viewer logs.
-      **Audit `ClientDiagCaps` per client** — linux passes the default `{}`
-      (`client/linux/cpp/ClientLoop.h:7`) while android and apple pass `{false,true}`
-      and windows `{true,false}`. Android's copy moved to
-      `ClientSessionAndroid.cpp:29` when its `ClientLoop.h` was deleted, so the three
-      non-linux clients are now easy to compare in one place. Confirm linux's `{}` is
-      intentional and not an omission.
+      shrink to one instantiation plus platform extras. macOS is
+      `using MacFrameInfo = deskhub::media::CapturedFrame<void*>;` and Windows
+      `using FrameInfo = deskhub::media::CapturedFrame<ID3D11Texture2D*>;`, both with
+      the handle spelled `handle` rather than `pixelBuffer` / `texture`; Linux derives
+      from `CapturedFrame<const uint8_t*>` because it also carries dma-buf extras. The
+      per-client `static_assert(CapturedFrameLike<...>, ...)` is gone — the template is
+      asserted once in `CaptureContract.h`. (Windows' decoder-side `DecodedFrame` also
+      has a `texture` field; it is a different struct and was left alone.)
+- [x] **(done as `deskhubp::LocalInputGate<Derived>` in
+      `platform/include/deskhubp/input/LocalInputGate.h`)
+      Align the three `InputInjector` headers.** The shared half was never the `Send*`
+      hooks — those are the CRTP surface `InputApplier` calls, and each body is
+      genuinely per-OS. What was triplicated is the *gate* around them:
+      `enabled_`, `localMon_`, `SetEnabled`, `enabled()`, `SetLocalMonitor`, and the
+      `localMon_ && localMon_->LocalActive(NowUs())` expression every `Apply` opens
+      with. All three injectors now inherit those, so `Apply` reads
+      `if (!enabled() ...) return; DispatchInput(e, localUserActive());` everywhere and
+      `SetEnabled` has one body with the settled release-on-disable order (macOS used
+      to flip the flag before releasing; the release path never reads it, so the order
+      was cosmetic). `Init` stays per-OS, as intended.
+- [x] **Audit `ClientDiagCaps` per client — linux's `{}` is correct, and now provably
+      so.** It never needed a run: `presentMs` is fed only from
+      `PresentTimingDecoder::TakePresentDelayMs` and `dispDrop` only from
+      `CongestionAwareDecoder::TakeCongestionDrops` (`ClientEngine::HarvestDecoder`),
+      and `AvDecoder` models neither — it is `RenderCountingDecoder` only, because the
+      GTK renderer presents on the frame clock and reports nothing back. Turning either
+      column on would print a permanently empty field. So the question is answered by
+      the decoder's concept set, and `ClientEngine`'s caps parameter now *defaults* to
+      exactly that (`kDecoderDiagCaps`). The other three clients still pass their caps
+      explicitly and are untouched; linux passing nothing is now the right answer by
+      construction rather than by omission.
 
 ## Must stay per-client (do not touch)
 
@@ -320,49 +363,68 @@ inconsistent adoption, not absence.
       trackpad cursor and a direct tap on the same spot now produce the identical
       coordinate (asserted in the tests). The literal `65535` is gone from both
       mobile clients.
-- [ ] **BLOCKED: needs a Linux host to test against** — both readings compile, the
-      difference is one pixel at the far edge of the desktop. **Reconcile
-      `AxisToAbsCoord` / `AbsCoordToPixel` with `NormalizeAxis`.** The constant merge is
-      done (`kNormalizedMax` aliases `kAbsCoordMax`) and the client-emission side is
-      settled by `TrackpadCursor`. What is left is that `PointerMap.h:24-30` treats its
-      `extent` as a span while `NormalizeAxis` treats it as a pixel count: Windows
-      compensates by passing `w - 1` (`win InputInjector.cpp:22-23,94-95`), Linux passes
-      the raw extent (`linux InputInjector.cpp:179-183`). One of the two is wrong by a
-      pixel; deciding it needs a Linux host to test against.
-- [x] **`core`: `ModifierClass(int32_t vk)`** in `VirtualKeys.h`. Collapses
-      `mackeys::ModifierOf` (`MacKeyMap.cpp:101-123`), `PreferLeftModifier`
-      (`ScancodeTable.h:10-17`), and — via FFI — the parallel Swift table at
-      `client/macos/app/swift/RemoteView.swift:127-136` (hardcodes the same mac
-      keycode pairs as `MacKeyMap.cpp:46-53`; drifts silently if the C++ table
-      changes).
-- [ ] **BLOCKED: needs Linux + Windows** — all three halves must land together or the
-      hint strings drift again. Groundwork is already in place: `ViewerTitle.h` owns
-      `kViewerLockHint`/`kViewerLockedHint` and `ViewerStatusWithHint`, reachable from
-      Swift via `dh_viewer_subtitle`, so only the *state machine* is still triplicated.
-      Re-examined 2026-08-01 and still not worth a macOS-only landing, even though it
-      would be additive: `paused` is a GTK-only feature (`kKeyPauseInput`, F10), so
-      macOS would inherit a half it cannot drive, and the "F9 written three ways" is
-      three *key spaces*, not three spellings of one constant — `VK_F9`,
-      `GDK_KEY_F9`, mac keycode `0x65`. `core` can only own the VK one, and reaching it
-      from Swift needs an FFI accessor bigger than the `kMacKeyCodeF9` literal in
-      `RemoteView.swift` that it would replace.
-      **`core`: `PointerLockState`** — `{locked, paused}` + `OnToggleKey()` /
-      `OnFocusLost()` / `HintText()`. Three unrelated ~20-LOC state machines:
-      `client/windows/win32/ViewerInput.cpp:71-89,115-118,177-179`,
-      `client/linux/gtk/ViewerWindow.cpp:229-268,353-358`,
-      `client/macos/app/swift/RemoteView.swift:86-105,179-183`. Also unifies the F9
-      constant, still written three ways: `ViewerInput.cpp:17`, `ViewerWindow.cpp:18`,
-      and the bare `0x65` at `RemoteView.swift:94,103`.
+- [x] **Reconcile `AxisToAbsCoord` / `AbsCoordToPixel` with `NormalizeAxis`.** Settled
+      in favour of `NormalizeAxis`: **`extent` is a pixel count everywhere**, and the
+      `- 1` that turns it into a span now lives inside `PointerMap.h` instead of at the
+      call sites. So Linux was the one that was wrong — passing the raw `srcW_`/`deskW_`
+      through the old span-shaped API put normalized 65535 one pixel past the right
+      edge of the shared display — and Windows drops the `w - 1` it was compensating
+      with. Two consequences worth naming: `AbsCoordToPixel` now rounds to nearest
+      rather than truncating, because flooring in both directions loses a pixel on the
+      way back (a tap on pixel 1 of 1920 used to inject pixel 0); and the round trip
+      `AxisToAbsCoord` -> `AbsCoordToPixel` is now exact, asserted over the edge pixels
+      in `PointerMapTests.cpp` along with agreement with `NormalizeAxis` itself.
+      `AbsCoordToAxis` is untouched: its `extent` is a continuous rect, not a pixel
+      count, and macOS is its only caller.
+- [x] **`core`: one modifier classifier.** It shipped as `ModifierKeyOf(int32_t vk)`
+      returning `ModifierKey` in `VirtualKeys.h`, not the `ModifierClass` name sketched
+      here. It collapses `PreferLeftModifier` (`ScancodeTable.h:10-17`) and — via FFI —
+      the parallel Swift table that used to hardcode mac keycode pairs in
+      `RemoteView.swift`.
+      **Audited again 2026-08-01 and finished**, because the first pass left the tail of
+      it in place: `mackeys::Modifier` was a fourth enum with the same six values as
+      `deskhub::ModifierKey` and `DHModifier`, and `dh_modifier_class` bridged two of
+      them with `DHModifier(int(mackeys::ModifierOf(vk)))` — **a raw int cast between two
+      independently declared enums**, which silently yields the wrong modifier the moment
+      either one is reordered or gains a value. `mackeys::Modifier` / `ModifierOf` are
+      now deleted; `InputInjector.mm` switches on `deskhub::ModifierKeyOf` directly to
+      build its `CGEventFlags`; and `dh_modifier_class` moved from the macOS-only
+      `DeskhubBridge` into `ClientFfi.{h,cpp}` where it is an explicit switch with no
+      cast — which also makes it reachable from iOS, which never had it.
+- [x] **`core`: `PointerLockState`** (`core/include/deskhub/input/PointerLockState.h`)
+      — `{locked, paused}` plus `OnToggleLockKey` / `OnTogglePauseKey` / `OnEscape` /
+      `OnFocusLost`, each returning a `PointerLockEffect{lockChanged, pauseChanged,
+      releaseHeldInput}` so the caller does the OS-specific grab and nothing else, and
+      `HintText` / `SubtitleFor` / `TitleFor` over the existing `ViewerTitle.h` strings.
+      Tested in `core/tests/input/PointerLockStateTests.cpp`.
+      GTK (`ViewerWindow`) and win32 (`ViewerInput`) both derive their whole lock
+      behaviour from it now. Adopting it on win32 also **fixed a divergence**: losing
+      focus released the pointer but never released held keys, so keys could stay
+      latched on the host — GTK has always done both, and the shared `OnFocusLost` does
+      both.
+      Swift reaches the same machine through a value-type FFI:
+      `DHPointerLock{locked, paused}` in, `DHPointerLockEffect` out, over
+      `dh_pointer_toggle_lock` / `_toggle_pause` / `_escape` / `_focus_lost`, plus
+      `dh_pointer_subtitle` — which replaced `dh_viewer_subtitle` outright, since that
+      entry point had exactly one caller and could not express `paused`.
+      `RemoteVideoView` now holds a `DHPointerLock` and its `mouseLocked` is a computed
+      read of it; the only thing left per-OS is the grab itself
+      (`CGAssociateMouseAndMouseCursorPosition` + `NSCursor`).
+      Still per-OS on purpose: the toggle key. "F9 written three ways" is three *key
+      spaces*, not three spellings of one constant — `VK_F9`, `GDK_KEY_F9`, mac keycode
+      `0x65` — and `core` can only own the VK one.
 
 ## P2 — FFI surface and small remaps
 
-- [ ] **BLOCKED: needs Linux.** Doing the macOS half alone would just rename a working
-      entry point and leave a second one unused, so wait for the GTK side.
-      **`platform`: promote `dh_map_key`** (macOS-only,
-      `client/macos/app/cpp/DeskhubBridge.h:14`, `.mm:6-9`) into
-      `deskhubp/ffi/ClientFfi.h` as a per-OS `dh_native_key_to_vk(native, *vk, *scan)`.
-      The GTK viewer then uses the same entry point instead of calling
-      `linuxkeys::EvdevToWin` directly (`ViewerWindow.cpp:270-273`).
+- [x] **`platform`: promote `dh_map_key`.** It is now
+      `bool dh_native_key_to_vk(int32_t native, int32_t* vk, int32_t* scan)`, declared
+      once in `deskhubp/ffi/ClientFfi.h` and implemented per OS next to that OS's key
+      table — macOS in `DeskhubBridge.mm` over `mackeys::MacToWin`, Linux in
+      `LinuxKeyMap.cpp`, where it also absorbs the `GdkKeycodeToEvdev` step so the
+      caller passes the raw `hardware_keycode`. The GTK viewer no longer includes
+      `LinuxKeyMap.h` at all. The tables themselves stay client-local: they are per-OS
+      key spaces, and `platform/` would have to expose evdev and mac keycodes as one
+      API to hold them.
 - [x] **One FFI marshalling style.** JNI now goes through `dh_list_sources` /
       `dh_hotkeys` and builds `NativeClient.Source` / `NativeClient.Hotkey` instances
       directly, so the tab-separated rows and the Kotlin re-parsers are gone.
@@ -386,12 +448,14 @@ inconsistent adoption, not absence.
       `core/tests/input/PointerMapTests.cpp`, reached through `dh_take_scroll_notches`.
       Both clients carry the sub-notch remainder across gestures so a repeated flick
       never loses scroll, and both drop it when the gesture turns into a zoom or pan.
-- [ ] **PARTLY WON'T-DO, remainder BLOCKED: needs Linux.**
-      **`core`: viewer-side button remap tables.** The win32 half is a WON'T-DO:
+- [x] **`core`: viewer-side button remap tables.** The win32 half stays a WON'T-DO:
       `WM_*BUTTON*` / `GET_XBUTTON_WPARAM` (`ViewerInput.cpp:24-27,153-164`) are
-      windows.h symbols and `core/` may not include OS headers. The GDK half
-      (`ViewerWindow.cpp:318-326`) is plain ints and *is* liftable — it just needs
-      Linux. Related, and deliberately left alone: the `MouseButton` enum
+      windows.h symbols and `core/` may not include OS headers. The GDK half is done —
+      `X11ButtonToMouseButton` plus the `kX11Button*` constants live in
+      `input/PointerMap.h` (X11 numbering, which is what GDK reports), tested in
+      `PointerMapTests.cpp` including the trap that X11 orders middle and right the
+      opposite way from the wire enum. Related, and deliberately left alone: the
+      `MouseButton` enum
       (`protocol/Wire.h:140-144`) is mirrored truncated in
       `client/apple/swift/ClientSession.swift:10-14` (3 of 5) and
       `NativeClient.kt:83-84` (2 of 5). Not a defect — neither mobile client has any
@@ -417,10 +481,14 @@ an already-unified shape.
 
 ## P0 — one NAL parser, one letterbox
 
-- [x] **`core`: add `media/AnnexB.h`** — `NalRef{span, type}`, `ParseAnnexB`,
-      `NextStartCode`, `FirstVclOffset`, `ContainsIdr(span, Codec)`,
-      `SplitParameterSets`, `AnnexBToAvcc`, `AvccToAnnexB`. Today there are five
-      independent scanners:
+- [x] **`core`: add `media/AnnexB.h`.** What shipped is narrower than the sketch below,
+      because only the parts with a caller were written: `NalRef{offset, size, startCode,
+      header}` with `H264NalType`/`HevcNalType`/`IsH264Vcl`/`IsH264Idr`/`IsHevcIrap`,
+      `StartCodeLengthAt` (the sketch called it `NextStartCode`), `ParseAnnexB`,
+      `FirstVclOffset`, `ContainsIdr(span, Codec)`, `AppendLengthPrefixed` (the
+      one-NAL half of what the sketch called `AnnexBToAvcc`) and `AvccToAnnexB`.
+      `SplitParameterSets` was never needed — `FirstVclOffset` answers the same question
+      for every caller. The five independent scanners it replaced:
       `client/windows/cpp/encode/MfEncoder.cpp:444-458`,
       `client/android/.../decode/MediaCodecDecoder.cpp:13-31`,
       `platform/src/media/VtDecoderApple.mm:20-44`,
@@ -440,8 +508,7 @@ an already-unified shape.
 
 ## P1 — rate control and presets become real
 
-- [x] **(core + tests + MfEncoder/NvencEncoder/VtEncoder done; adopting it in
-      `VaEncoder.cpp:614-615` still needs Linux — it is the `bps/2` outlier)
+- [x] **(now adopted everywhere, VaEncoder included — the `bps/2` outlier is gone)
       `core`: `media/RatePlan.h`** —
       `PlanRateControl(bps, fps, rc, lowLatency) -> {frameBits, vbvBytes, vbvInitialBytes}`.
       The same formula appears four times with one outlier:
@@ -449,60 +516,64 @@ an already-unified shape.
       `VtEncoder.mm:198-206`, and `VaEncoder.cpp:614-615` which uses
       **`bps/2` (half a second) instead of one frame** — inconsistent with everyone
       else; settling it makes the outlier visible.
-- [x] **(MF + NVENC + VT now honour both fields — VT maps `lowLatency` onto
-      `RealTime` / `AllowFrameReordering` / `MaxFrameDelayCount` and skips
-      `DataRateLimits` entirely under VBR; VaEncoder still needs Linux)
-      Wire `EncoderConfig::rc` and `lowLatency` for real.** Declared at
-      `core/include/deskhub/media/VideoTypes.h:25-26`, blessed by
-      `ContractTests.cpp:192-193`, **read by zero backends** — every encoder
-      hardcodes its own dialect of infinite-GOP / no-B / CBR / low-latency
-      (`MfEncoder.cpp:300-305`, `NvencEncoder.cpp:102-121`,
-      `VtEncoder.mm:167-174`, `VaEncoder.cpp:240-266,559-560`). Add a
-      `deskhub::media::EncoderPreset` and make backends consume it.
-- [x] **(WinVideoDecoder, MediaCodecDecoder and VtDecoder all use it now; only the
-      linux `VideoRenderer.h:28-33` copy is left and needs Linux)
+- [x] **(all four backends honour both fields now)
+      Wire `EncoderConfig::rc` and `lowLatency` for real.** No `EncoderPreset` type was
+      needed in the end: `PlanRateControl` already carries everything `lowLatency`
+      decides, and `rc` is one branch each. VaEncoder was the last holdout and now
+      picks its VA rate-control mode from `cfg.rc` (preferred mode, then the other, then
+      `VA_RC_CQP` with the existing software controller), sets `target_percentage` to
+      100 for CBR and 70 for VBR with `bits_per_second` raised to the matching peak,
+      and sizes both the HRD buffer and the rate-control window from the plan instead of
+      the old fixed `bitrate/2` and `window_size = 500`. The startup log now names the
+      mode, e.g. `1280x720 (aligned 1280x720) @60 fps, 20.0 Mbps CBR, low latency`.
+      Verified on Intel iHD: CBR/VBR x low-latency on/off all produce a decodable
+      stream, and a mid-stream `SetBitrate` is honoured.
+- [x] **(now used by all four, the linux `VideoRenderer` copy included)
       `core`: `media::PresentCounters` value type** (`Add`, `TakeCount`,
       `lastPtsUs`, `TakePresentDelayMs`). Hand-rolled four times:
       `WinVideoDecoder.cpp:57-67`, `MediaCodecDecoder.h:27-31` + `.cpp:160-164`,
       `VtDecoder.h:25-33` + `VtDecoderApple.mm:202-206` (byte-identical to
       MediaCodec's), `VideoRenderer.h:28-33`. `ClientEngine::HarvestDecoder`
       (`ClientEngine.h:249-272`) already consumes them uniformly.
-- [ ] **BLOCKED: needs Linux.** The macOS half is *done*: `Even()` is
-      now `deskhub::EvenDown` and the mac copies in `ScreenCapture.mm` and
-      `AgentLoop.cpp` are gone. The Windows half is *done* too (2026-08-01):
-      `Downscaler.cpp` now calls `deskhub::EvenDown`, built and tested on Windows.
-      Everything still outstanding lives in VA-API. Deliberately not written ahead of
-      time — `AlignEncodeSize` and `LevelFor` are easy to unit-test but would sit in
-      `core/` unused until a Linux machine can adopt them, and unused API is what this
-      file exists to remove.
-      **`core`: expose the small math helpers.** `& ~1u` still appears at
-      `linux ScreenCapture.cpp:220-221`. Add
-      `AlignEncodeSize(w, h, align)` for VA's 16-px macroblock alignment
-      (`VaEncoder.cpp:203-206`; crop-offset expression duplicated at `:109-111` and
-      `:572-574`), `H264Level.h::LevelFor` (`VaEncoder.cpp:41-65`, pure spec table),
-      and consider lifting the CQP controller (`VaEncoder.cpp:350-373,773-796`) next
-      to `BitrateController.h`.
+- [x] **`core`: expose the small math helpers.** The last `& ~1u` (in
+      `linux ScreenCapture.cpp`) is now `deskhub::EvenDown`. The two H.264 helpers went
+      into one new header, `core/include/deskhub/media/H264Encode.h`, rather than the
+      separate `H264Level.h` sketched here — they are both macroblock geometry off the
+      same spec and have the same single caller:
+      `AlignEncodeSize(w, h, align)` returns the padded size, the macroblock counts and
+      the SPS crop offsets, which kills the `alignedW_`/`alignedH_`/`mbW_`/`mbH_`
+      quartet and all three copies of the `(aligned - real) / 2` crop expression; and
+      `LevelFor(mbW, mbH, fps)` is the spec table lifted verbatim out of the anonymous
+      namespace. Tested in `core/tests/media/H264EncodeTests.cpp`, and confirmed on
+      hardware by encoding 1918x1078 and decoding it back to 1918x1078.
+      The CQP controller stays in `VaEncoder.cpp`: it is one driver's fallback for
+      hardware with no CBR, it reads `cqpMode_`/`packedHeaders_`/`lastIdrBytes_` from
+      the encode loop it lives in, and no other backend has anything like it.
 
 ## P2 — name the interfaces that already exist
 
-- [ ] **BLOCKED: needs Linux + Windows** — this moves headers the Windows and Linux
-      backends include, so it cannot be split. `IsOpen()` on the encoder is already done.
-      **Move `IVideoEncoder`/`IVideoDecoder` to
-      `platform/include/deskhubp/media/`** (precedent: `VtDecoder.h` is already
-      there, shared by macOS + iOS). **Not core** — `Init` takes `ID3D11Device*`.
-      Factory files per OS mirroring the `DisplayEnum{Win,Linux,Mac,None}.cpp`
-      layout. While moving:
-      - add `IsOpen()` to the encoder interface — `win AgentLoop.cpp:145` can only
-        test the pointer, linux/mac test `IsOpen()`; Windows can keep a half-dead
-        encoder alive.
-      - rename `VaEncoder::Finish()` -> `Close()` — on Windows/macOS `Finish` means
-        "drain and stop" (`MfEncoder.cpp:676-702`, `VtEncoder.mm:261-268`); on
-        linux it means "destroy everything" and is called from `Init` as a reset
-        (`VaEncoder.cpp:190,311-348`). Same name, opposite lifetime semantics.
-      - add a named concept bundle
-        `EngineDecoder = VideoDecoderLike && RestartableDecoder && SurfaceBoundDecoder<S>`
-        replacing the `requires` block repeated at `ClientEngine.h:54-57` and five
-        `static_assert` sites.
+- [x] **(the header move is a WON'T-DO; the two useful sub-items are done)
+      Move `IVideoEncoder`/`IVideoDecoder` to `platform/include/deskhubp/media/`.**
+      The premise was wrong: `grep` says `IVideoEncoder.h` and `IVideoDecoder.h` are
+      included by **Windows files only** — Linux and Apple never had them, because they
+      satisfy the `VideoContract.h` concepts directly instead of inheriting an
+      interface. So this is not a whole-or-nothing cross-platform move at all, and
+      moving a header whose `Init` takes `ID3D11Device*` into `platform/` would break
+      the same one-API-everywhere rule that already sent `D3D11VideoProcessor` to
+      `client/windows/cpp/gpu/` under P3. They stay where they are.
+      Of the three sub-items: `IsOpen()` on the encoder was already done; the
+      `EngineDecoder` bundle is done —
+      `EngineDecoder<D, Surface> = VideoDecoderLike && RestartableDecoder &&
+      SurfaceBoundDecoder` now lives in `VideoContract.h`, replaces the three-clause
+      `requires` on `ClientEngine`, and collapses two `static_assert`s into one in each
+      of the four decoder headers.
+      The `Finish()` -> `Close()` rename is **dropped**, and the item's description of it
+      was also wrong: `VtEncoder::Finish` invalidates and releases the session, so macOS
+      destroys exactly like Linux does. Windows is the lone outlier — `MfEncoder::Finish`
+      drains the MFT and leaves it alive — and `Finish` is the name the shared
+      `VideoEncoderLike` concept requires, so renaming Linux alone would break the
+      contract while renaming all three would only paper over a Windows-side lifetime
+      question that cannot be tested here.
 - [x] **(NVENC now refuses a crop mismatch and falls back to MF; the false test
       comment is fixed)
       BUG: `EncoderConfig::srcWidth/srcHeight` contract is false.**
@@ -510,12 +581,12 @@ an already-unified shape.
       `MfEncoder.cpp:344` reads it, and NVENC registers the input texture at
       `width/height` (`NvencEncoder.cpp:211-212`) — a genuinely different
       `srcWidth` would corrupt NVENC output. Fix the contract or the backends.
-- [ ] **PARTLY DONE — VT done; the VA + libav guards are BLOCKED on Linux.**
-      **`EncoderConfig::codec` was silently ignored.** Settled as "refuse what you cannot emit": `VtEncoder::Init` now fails
-      with a named codec instead of quietly producing H.264, and the triplicated
-      `codec == HEVC ? "HEVC" : "H264"` ternary is now `deskhub::media::CodecName`
-      (adopted in MF/NVENC/MfDecoder — compiled clean on Windows 2026-08-01).
-      `VaEncoder.cpp:240` still needs the same guard.
+- [x] **`EncoderConfig::codec` was silently ignored.** Settled as "refuse what you
+      cannot emit": `VtEncoder::Init` fails with a named codec instead of quietly
+      producing H.264, the triplicated `codec == HEVC ? "HEVC" : "H264"` ternary is now
+      `deskhub::media::CodecName` (adopted in MF/NVENC/MfDecoder), and `VaEncoder::Init`
+      now carries the same guard — it configures `VAProfileH264Main` and nothing else,
+      so anything but H.264 is refused before a VA object is created.
       Not a defect after all: the *decoders* never receive a codec —
       `Init(surface, w, h)` is the whole contract — so `MediaCodecDecoder.cpp:11`
       hardcoding `video/avc` is the only thing it can do. Plumbing a codec into the
@@ -596,6 +667,15 @@ there compiles into both targets with zero project edits (must build on both SDK
       the review). Also fixes the port literal: GTK interpolates `kDeskhubPort`
       (`MainWindow.cpp:206-208`) while win32 (`MainMenuWindow.cpp:157,280`) and
       macOS (`ConnectView.swift:73`) hardcode `47777`.
+      **Audited again 2026-08-01 — one had been missed**, and it was the worst of them:
+      `AgentModel.swift` still spelled the port out inside a sentence that *guessed* why
+      sharing failed ("No display was found, the display may be disconnected, or UDP
+      port 47777 is already in use"), while GTK and win32 both show the engine's actual
+      `LastError()` — which already distinguishes those cases and interpolates
+      `kDeskhubPort`. macOS now shows `DeskhubAgent.lastError` too, so all three report
+      the real reason, and the last hardcoded `47777` outside `Wire.h` is gone. The
+      shared title came with it: `ui::kShareStartFailed` / `DHStrShareStartFailed`
+      replaces the three copies of "Could not start sharing".
 - [x] **Expose `SourceLabel.h` through the FFI**
       (`dh_source_picker_label`, `dh_shared_source_label`). Five re-implementations:
       `client/apple/swift/ClientSession.swift:22-24`,
@@ -624,9 +704,21 @@ there compiles into both targets with zero project edits (must build on both SDK
 
 ## P2 — poll loops, apple divergences, small state machines
 
-- [ ] **PARTLY DONE — Apple and Android done; only the GTK viewer still polls,
-      BLOCKED on the Linux toolchain.**
-      **Retire the 500 ms status-poll loops in favour of `DHSessionCallbacks`.** `StreamModel` no longer runs a `Timer`:
+- [x] **(Apple, Android and now GTK — no client polls for status any more)
+      Retire the 500 ms status-poll loops in favour of session callbacks.** The GTK
+      viewer was the last one. It does not go through the C FFI — it holds a
+      `deskhubp::ClientEngine` directly — so it fills `ClientEngineConfig::onStatus` /
+      `onParams` / `onEnded` / `onFinished` instead, which are the same callbacks
+      `DHSessionCallbacks` is built on. `ViewerWindow` lost `statusTimer_` and
+      `OnStatusTimer` entirely; the title now redraws when a status window closes and
+      the window resizes itself when the stream size is negotiated, rather than both
+      being rechecked twice a second. The engine fires these on its net thread, so each
+      one hops to the GTK main loop through a `shared_ptr<ViewerWindow*>` token that
+      `~ViewerWindow` nulls — the same shape as Apple's retained box, and safe for the
+      same reason: `ClientEngine::Stop` joins both threads before any member dies.
+      `ClientLoop::Start` now takes the whole config, so the five-field overload it
+      existed to wrap is gone.
+      For the record, the earlier halves: `StreamModel` no longer runs a `Timer`:
       `ClientSession.start` takes a `SessionHandlers` value, boxes it with
       `Unmanaged.passRetained` for the `void* user` slot, and releases it in `stop()`
       (safe because `dh_session_stop` joins the engine threads before returning).
@@ -643,7 +735,7 @@ there compiles into both targets with zero project edits (must build on both SDK
       Verified live on an emulator against the Windows host: status line ticking,
       `1920x802` size from `onSize`, and the network-loss "Session ended (timeout)"
       overlay from `onClosed`.
-      Still polling: `ViewerWindow.cpp:115,183-192`.
+      Nothing polls for status any more.
 - [x] **Shared Apple connect model.** `client/apple/swift/ConnectModel.swift` owns
       `address` / `isConnecting` / `connectError`, the `lastAddress` `UserDefaults`
       round-trip, and the accept-address step; both `SessionModel`s hold one and the
@@ -663,16 +755,21 @@ there compiles into both targets with zero project edits (must build on both SDK
       The `max(640, maxDim)` floor is gone: every rung the picker can produce is
       1280 or larger (or 0 for Native), so the clamp could never bind — it was dead
       code that only made macOS look different from the other two.
-- [ ] **BLOCKED: needs Linux + Windows** — "last viewer closed" decides whether the app
-      quits, so a half-migration that miscounts on one platform strands a process.
-      **`core`: last-viewer-closed counter.** Same invariant in three languages:
-      `macos App.swift:4-7` + `StreamView.swift:31-38`,
-      `MainWindow.cpp:370-373` (`openViewers_`), `Viewer.cpp:26,139`
-      (`g_openFrames`). Small, but it is a state machine, not view code.
-      Re-examined 2026-08-01: a macOS-only landing would be additive but is still a
-      no, for the reason already used to reject sharing the mobile HUD reactions under
-      P3 — the shared part is `+= 1` / `-= 1` / `<= 0`, and an FFI round-trip to reach
-      it is more code than the rule. It pays off only when all three adopt at once.
+- [x] **`core`: last-viewer-closed counter.** The same invariant was written in three
+      languages — `macos App.swift` + `StreamView.swift`, `MainWindow.cpp`
+      (`openViewers_`), `Viewer.cpp` (`g_openFrames`). Now
+      `deskhub::OpenViewerCount` in `core/include/deskhub/session/OpenViewers.h`:
+      `Opened()`, and a `Closed()` that returns *true only for the close that empties
+      the app*, which is the whole question every caller was asking. Tested in
+      `core/tests/session/OpenViewersTests.cpp`, including that an unbalanced close
+      cannot drive the count negative — the old `--n <= 0` forms could, and a negative
+      count means the next viewer to close is wrongly reported as the last.
+      GTK and win32 hold an instance; Swift reaches a process-wide one through
+      `dh_viewer_opened` / `dh_viewer_closed` / `dh_viewer_count`, which let
+      `ViewerRegistry` and its two `.environment(viewers)` injections be deleted
+      outright. The earlier objection — that an FFI round-trip costs more than the rule
+      — was answered by the fact that the same C surface was being added anyway for
+      `PointerLockState`, so the marginal cost is three one-line entry points.
 
 ## P3 — mobile HUD rules
 

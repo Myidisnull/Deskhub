@@ -21,6 +21,7 @@ inline constexpr const char* kSharingConnectHint =
     "Others connect by entering this machine's IP address.";
 inline constexpr const char* kNothingShared = "(nothing is being shared)";
 inline constexpr const char* kStopSharing = "Stop sharing";
+inline constexpr const char* kShareStartFailed = "Could not start sharing";
 inline constexpr const char* kQueryingSources =
     "Asking the other machine what it is sharing...";
 inline constexpr const char* kViewerOpenFailed =

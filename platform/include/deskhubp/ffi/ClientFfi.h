@@ -51,6 +51,26 @@ typedef struct {
 } DHHotkey;
 
 typedef enum {
+    DHModifierNone = 0,
+    DHModifierShift = 1,
+    DHModifierControl = 2,
+    DHModifierOption = 3,
+    DHModifierCommand = 4,
+    DHModifierCapsLock = 5,
+} DHModifier;
+
+typedef struct {
+    bool locked;
+    bool paused;
+} DHPointerLock;
+
+typedef struct {
+    bool lockChanged;
+    bool pauseChanged;
+    bool releaseHeldInput;
+} DHPointerLockEffect;
+
+typedef enum {
     DHStrAppTitle = 0,
     DHStrHostIpIntro = 1,
     DHStrNoNetworkAddress = 2,
@@ -70,9 +90,14 @@ typedef enum {
     DHStrUdpPortLine = 16,
     DHStrInvalidAddressHint = 17,
     DHStrSessionEnded = 18,
+    DHStrShareStartFailed = 19,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
+
+bool dh_native_key_to_vk(int32_t native_key_code, int32_t* out_vk, int32_t* out_scan);
+
+DHModifier dh_modifier_class(int32_t vk);
 
 bool dh_parse_address(const char* address);
 
@@ -87,8 +112,6 @@ int dh_zoom_label(double zoom, char* out, int capacity);
 bool dh_is_zoomed(double zoom);
 
 int dh_viewer_base_title(const char* sourceName, char* out, int capacity);
-
-int dh_viewer_subtitle(const char* statusLine, bool mouseLocked, char* out, int capacity);
 
 int dh_hotkeys(DHHotkey* out, int capacity);
 
@@ -110,6 +133,22 @@ DHCursor dh_cursor_move(DHCursor cur, double dx, double dy, DHViewRect video, do
 bool dh_cursor_point(DHCursor cur, DHViewRect video, double* px, double* py);
 
 bool dh_cursor_normalize(DHCursor cur, DHViewRect video, int32_t* nx, int32_t* ny);
+
+DHPointerLockEffect dh_pointer_toggle_lock(DHPointerLock* state);
+
+DHPointerLockEffect dh_pointer_toggle_pause(DHPointerLock* state);
+
+DHPointerLockEffect dh_pointer_escape(DHPointerLock* state);
+
+DHPointerLockEffect dh_pointer_focus_lost(DHPointerLock* state);
+
+int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, int capacity);
+
+void dh_viewer_opened(void);
+
+bool dh_viewer_closed(void);
+
+int dh_viewer_count(void);
 
 #ifdef __cplusplus
 }

@@ -189,7 +189,6 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         if (!p.cachedPb || !p.ensureEncoderFn(p.srcW.load(), p.srcH.load())) return;
         p.EncodeTimed(p.cachedPb, nowUs, p.forceIdr.exchange(false));
         p.encoder->Flush();
-        p.lastKeepaliveUs = nowUs;
     };
 
     return engine_.Start(sources, opt, std::move(policy));

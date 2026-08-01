@@ -8,6 +8,8 @@
 
 #include "capture/CaptureTypes.h"
 
+#include "deskhub/media/H264Encode.h"
+#include "deskhub/media/RatePlan.h"
 #include "deskhub/media/VideoContract.h"
 
 using deskhub::media::EncoderConfig;
@@ -57,6 +59,9 @@ public:
 private:
     bool CreateContexts();
     void BuildParameterSets();
+    uint32_t TargetPercentage() const;
+    uint32_t PeakBitrate() const;
+    uint32_t VbvWindowMs(const deskhub::media::RatePlan& plan) const;
     int IdrQp() const;
     VASurfaceID ImportDmaBuf(const LinuxFrameInfo& fi);
     bool UploadMapped(const LinuxFrameInfo& fi);
@@ -66,8 +71,7 @@ private:
     VADisplay dpy_ = nullptr;
     EncoderConfig cfg_{};
 
-    uint32_t alignedW_ = 0, alignedH_ = 0;
-    uint32_t mbW_ = 0, mbH_ = 0;
+    deskhub::media::AlignedEncodeSize aligned_{};
 
     VAEntrypoint encEntrypoint_ = VAEntrypointEncSlice;
     VAConfigID encConfig_ = VA_INVALID_ID;
@@ -96,6 +100,7 @@ private:
 
     uint32_t pendingBitrate_ = 0;
 
+    uint32_t rcMode_ = VA_RC_CQP;
     bool cqpMode_ = false;
     int qp_ = kPicInitQp;
     double logRatioEma_ = 0.0;

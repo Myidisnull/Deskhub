@@ -7,9 +7,10 @@
 #include <utility>
 
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/ffi/ClientFfi.h"
 #include "gtk/GtkUtil.h"
-#include "input/LinuxKeyMap.h"
 
+#include "deskhub/input/PointerMap.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/ui/Strings.h"
@@ -70,12 +71,19 @@ ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
 }
 
 ViewerWindow::~ViewerWindow() {
-    if (statusTimer_) g_source_remove(statusTimer_);
+    if (alive_) *alive_ = nullptr;
     loop_.Stop();
+}
+
+void ViewerWindow::PostToMain(std::function<void(ViewerWindow&)> fn) {
+    RunOnMain([token = alive_, fn = std::move(fn)] {
+        if (ViewerWindow* self = *token) fn(*self);
+    });
 }
 
 bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName) {
     baseTitle_ = deskhub::ViewerBaseTitle(sourceName);
+    alive_ = std::make_shared<ViewerWindow*>(this);
 
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window_), baseTitle_.c_str());
@@ -106,13 +114,39 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
 
     uint32_t sw = 0, sh = 0;
     LargestScreenPixels(window_, sw, sh);
-    if (!loop_.Start(server, sourceId, &renderer_, sw, sh)) {
+
+    deskhubp::ClientEngineConfig cfg;
+    cfg.server = server;
+    cfg.sourceId = sourceId;
+    cfg.screenW = sw;
+    cfg.screenH = sh;
+    cfg.onStatus = [this](const char* status) {
+        std::string line = status ? status : "";
+        PostToMain([line = std::move(line)](ViewerWindow& v) {
+            v.statusLine_ = line;
+            v.UpdateTitle();
+        });
+    };
+    cfg.onParams = [this](uint32_t, uint32_t, uint8_t) {
+        PostToMain([](ViewerWindow& v) {
+            v.SizeToVideo();
+            v.UpdateTitle();
+        });
+    };
+    cfg.onEnded = [this](const char*) {
+        PostToMain([](ViewerWindow& v) { v.EndSession(); });
+    };
+    cfg.onFinished = [this](const char*) {
+        PostToMain([](ViewerWindow& v) { v.EndSession(); });
+    };
+
+    loop_.SetSurface(&renderer_);
+    if (!loop_.Start(cfg)) {
         gtk_widget_destroy(window_);
         return false;
     }
 
     tickId_ = gtk_widget_add_tick_callback(glArea_, OnTick, this, nullptr);
-    statusTimer_ = g_timeout_add(500, OnStatusTimer, this);
 
     UpdateTitle();
     gtk_widget_show_all(window_);
@@ -180,22 +214,8 @@ gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer) {
     return G_SOURCE_CONTINUE;
 }
 
-gboolean ViewerWindow::OnStatusTimer(gpointer user) {
-    auto* self = static_cast<ViewerWindow*>(user);
-    if (self->loop_.phase() == ClientLoop::Phase::Ended) {
-        self->EndSession();
-        return G_SOURCE_REMOVE;
-    }
-    self->SizeToVideo();
-    self->UpdateTitle();
-    return G_SOURCE_CONTINUE;
-}
-
 void ViewerWindow::UpdateTitle() {
-    std::string title = deskhub::ComposeViewerTitle(baseTitle_, loop_.StatusLine(),
-        deskhub::ViewerLockHintText(pointerLocked_));
-    if (inputPaused_) title += " \xC2\xB7 input paused (F10)";
-
+    std::string title = pointer_.TitleFor(baseTitle_, statusLine_);
     if (title == shownTitle_) return;
     shownTitle_ = std::move(title);
     gtk_window_set_title(GTK_WINDOW(window_), shownTitle_.c_str());
@@ -217,7 +237,6 @@ void ViewerWindow::SizeToVideo() {
 void ViewerWindow::EndSession() {
     if (ended_) return;
     ended_ = true;
-    statusTimer_ = 0;
 
     const std::string why = loop_.EndReason();
     gtk_widget_destroy(window_);
@@ -227,9 +246,7 @@ void ViewerWindow::EndSession() {
     });
 }
 
-void ViewerWindow::SetPointerLocked(bool locked) {
-    if (locked == pointerLocked_) return;
-    pointerLocked_ = locked;
+void ViewerWindow::GrabPointer(bool locked) {
     GdkWindow* gw = gtk_widget_get_window(window_);
     if (!gw) return;
 
@@ -244,7 +261,12 @@ void ViewerWindow::SetPointerLocked(bool locked) {
         gdk_seat_ungrab(seat);
     }
     haveLastPos_ = false;
-    UpdateTitle();
+}
+
+void ViewerWindow::ApplyLockEffect(const deskhub::PointerLockEffect& effect) {
+    if (effect.releaseHeldInput) loop_.ReleaseAllInput();
+    if (effect.lockChanged) GrabPointer(pointer_.locked());
+    if (effect.anyChange()) UpdateTitle();
 }
 
 gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
@@ -252,35 +274,32 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
     const bool down = e->type == GDK_KEY_PRESS;
 
     if (down && e->keyval == kKeyLockPointer) {
-        self->SetPointerLocked(!self->pointerLocked_);
+        self->ApplyLockEffect(self->pointer_.OnToggleLockKey());
         return TRUE;
     }
     if (down && e->keyval == kKeyPauseInput) {
-        self->inputPaused_ = !self->inputPaused_;
-        if (self->inputPaused_) self->loop_.ReleaseAllInput();
-        self->UpdateTitle();
+        self->ApplyLockEffect(self->pointer_.OnTogglePauseKey());
         return TRUE;
     }
-    if (down && e->keyval == GDK_KEY_Escape && self->pointerLocked_) {
-        self->SetPointerLocked(false);
+    if (down && e->keyval == GDK_KEY_Escape && self->pointer_.locked()) {
+        self->ApplyLockEffect(self->pointer_.OnEscape());
         return TRUE;
     }
 
-    if (self->inputPaused_) return TRUE;
+    if (!self->pointer_.acceptsInput()) return TRUE;
 
     int32_t vk = 0, scan = 0;
-    const uint16_t evdev = linuxkeys::GdkKeycodeToEvdev(e->hardware_keycode);
-    if (!linuxkeys::EvdevToWin(evdev, vk, scan)) return TRUE;
+    if (!dh_native_key_to_vk(int32_t(e->hardware_keycode), &vk, &scan)) return TRUE;
     self->loop_.QueueKey(vk, scan, down);
     return TRUE;
 }
 
 gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
-    if (!self->pointerLocked_ && !self->InContent(e->x, e->y)) return FALSE;
-    if (self->inputPaused_) return TRUE;
+    if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
+    if (!self->pointer_.acceptsInput()) return TRUE;
 
-    if (!self->pointerLocked_) {
+    if (!self->pointer_.locked()) {
         int32_t nx = 0, ny = 0;
         if (self->ToNormalized(e->x, e->y, nx, ny)) self->loop_.QueueMouseMoveAbs(nx, ny);
         self->haveLastPos_ = false;
@@ -312,31 +331,25 @@ gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
 
 gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
-    if (!self->pointerLocked_ && !self->InContent(e->x, e->y)) return FALSE;
-    if (self->inputPaused_) return TRUE;
+    if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
+    if (!self->pointer_.acceptsInput()) return TRUE;
     if (e->type != GDK_BUTTON_PRESS && e->type != GDK_BUTTON_RELEASE) return TRUE;
 
-    int32_t btn = 0;
-    switch (e->button) {
-        case 1: btn = int32_t(deskhub::MouseButton::Left); break;
-        case 2: btn = int32_t(deskhub::MouseButton::Middle); break;
-        case 3: btn = int32_t(deskhub::MouseButton::Right); break;
-        case 8: btn = int32_t(deskhub::MouseButton::X1); break;
-        case 9: btn = int32_t(deskhub::MouseButton::X2); break;
-        default: return TRUE;
-    }
-    if (!self->pointerLocked_) {
+    deskhub::MouseButton btn{};
+    if (!deskhub::X11ButtonToMouseButton(e->button, btn)) return TRUE;
+
+    if (!self->pointer_.locked()) {
         int32_t nx = 0, ny = 0;
         if (self->ToNormalized(e->x, e->y, nx, ny)) self->loop_.QueueMouseMoveAbs(nx, ny);
     }
-    self->loop_.QueueMouseButton(btn, e->type == GDK_BUTTON_PRESS);
+    self->loop_.QueueMouseButton(int32_t(btn), e->type == GDK_BUTTON_PRESS);
     return TRUE;
 }
 
 gboolean ViewerWindow::OnScroll(GtkWidget*, GdkEventScroll* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
-    if (!self->pointerLocked_ && !self->InContent(e->x, e->y)) return FALSE;
-    if (self->inputPaused_) return TRUE;
+    if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
+    if (!self->pointer_.acceptsInput()) return TRUE;
 
     int32_t delta = 0;
     switch (e->direction) {
@@ -353,8 +366,7 @@ gboolean ViewerWindow::OnScroll(GtkWidget*, GdkEventScroll* e, gpointer user) {
 
 gboolean ViewerWindow::OnFocusOut(GtkWidget*, GdkEventFocus*, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
-    self->loop_.ReleaseAllInput();
-    self->SetPointerLocked(false);
+    self->ApplyLockEffect(self->pointer_.OnFocusLost());
     return FALSE;
 }
 

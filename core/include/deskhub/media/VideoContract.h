@@ -51,4 +51,8 @@ concept CongestionAwareDecoder = requires {
     static_cast<uint32_t (D::*)()>(&D::TakeCongestionDrops);
 };
 
+template <class D, class Surface>
+concept EngineDecoder = VideoDecoderLike<D> && RestartableDecoder<D> &&
+                        SurfaceBoundDecoder<D, Surface>;
+
 }

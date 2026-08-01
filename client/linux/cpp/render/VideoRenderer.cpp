@@ -17,6 +17,7 @@ extern "C" {
 
 #include "deskhub/media/ViewFit.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
 
 namespace {
 
@@ -358,7 +359,6 @@ bool VideoRenderer::Render(int viewW, int viewH) {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
 
-    rendered_.fetch_add(1, std::memory_order_relaxed);
-    lastRenderedPts_.store(ptsUs_, std::memory_order_relaxed);
+    counters_.FramePresented(ptsUs_, NowUs());
     return true;
 }

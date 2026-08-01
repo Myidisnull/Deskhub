@@ -11,7 +11,6 @@ struct ViewerWindow: View {
     @State private var model: StreamModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
-    @Environment(ViewerRegistry.self) private var viewers
 
     init(request: ViewerRequest) {
         _model = State(initialValue: StreamModel(
@@ -28,14 +27,13 @@ struct ViewerWindow: View {
             .frame(minWidth: 640, idealWidth: 1024, maxWidth: .infinity,
                    minHeight: 400, idealHeight: 634, maxHeight: .infinity)
             .task {
-                viewers.count += 1
+                dh_viewer_opened()
                 await model.start()
             }
             .onDisappear {
                 model.setLayer(nil)
                 model.disconnect()
-                viewers.count -= 1
-                if viewers.count <= 0 { openWindow(id: "main") }
+                if dh_viewer_closed() { openWindow(id: "main") }
             }
             .alert("Deskhub", isPresented: failedShown) {
                 Button("OK") { dismiss() }
@@ -52,7 +50,8 @@ struct ViewerWindow: View {
 
     private var subtitle: String {
         var buf = [CChar](repeating: 0, count: 320)
-        _ = dh_viewer_subtitle(model.statusLine, model.mouseLocked, &buf, Int32(buf.count))
+        let lock = DHPointerLock(locked: model.mouseLocked, paused: false)
+        _ = dh_pointer_subtitle(lock, model.statusLine, &buf, Int32(buf.count))
         return String(cString: buf)
     }
 

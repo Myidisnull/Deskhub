@@ -1,11 +1,14 @@
 #include "deskhubp/ffi/ClientFfi.h"
 
 #include "deskhub/input/Hotkeys.h"
+#include "deskhub/input/PointerLockState.h"
+#include "deskhub/input/VirtualKeys.h"
 #include "deskhub/input/TrackpadCursor.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/FfiText.h"
@@ -20,6 +23,21 @@ namespace {
 
 deskhub::ViewRect ToRect(DHViewRect r) {
     return {r.x, r.y, r.width, r.height};
+}
+
+deskhub::OpenViewerCount& OpenViewers() {
+    static deskhub::OpenViewerCount count;
+    return count;
+}
+
+template <class Fn>
+DHPointerLockEffect ApplyPointerLock(DHPointerLock* state, Fn&& step) {
+    if (!state) return DHPointerLockEffect{false, false, false};
+    deskhub::PointerLockState s(state->locked, state->paused);
+    const deskhub::PointerLockEffect e = step(s);
+    state->locked = s.locked();
+    state->paused = s.paused();
+    return DHPointerLockEffect{e.lockChanged, e.pauseChanged, e.releaseHeldInput};
 }
 
 }
@@ -49,6 +67,7 @@ const char* dh_string(DHStringId id) {
             return line.c_str();
         }
         case DHStrSessionEnded: return deskhub::ui::kSessionEnded;
+        case DHStrShareStartFailed: return deskhub::ui::kShareStartFailed;
         case DHStrInvalidAddressHint: {
             static const std::string hint = deskhub::ui::InvalidAddressHint();
             return hint.c_str();
@@ -90,13 +109,6 @@ int dh_viewer_base_title(const char* sourceName, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     deskhubp::CopyToBuf(out, size_t(capacity),
         deskhub::ViewerBaseTitle(sourceName ? sourceName : ""));
-    return int(std::strlen(out));
-}
-
-int dh_viewer_subtitle(const char* statusLine, bool mouseLocked, char* out, int capacity) {
-    if (!out || capacity <= 0) return 0;
-    deskhubp::CopyToBuf(out, size_t(capacity),
-        deskhub::ViewerStatusWithHint(statusLine ? statusLine : "", mouseLocked));
     return int(std::strlen(out));
 }
 
@@ -194,5 +206,53 @@ bool dh_cursor_point(DHCursor cur, DHViewRect video, double* px, double* py) {
 bool dh_cursor_normalize(DHCursor cur, DHViewRect video, int32_t* nx, int32_t* ny) {
     if (!nx || !ny) return false;
     return deskhub::NormalizeCursor({cur.x, cur.y}, ToRect(video), *nx, *ny);
+}
+
+DHModifier dh_modifier_class(int32_t vk) {
+    switch (deskhub::ModifierKeyOf(vk)) {
+        case deskhub::ModifierKey::Shift: return DHModifierShift;
+        case deskhub::ModifierKey::Control: return DHModifierControl;
+        case deskhub::ModifierKey::Menu: return DHModifierOption;
+        case deskhub::ModifierKey::Win: return DHModifierCommand;
+        case deskhub::ModifierKey::CapsLock: return DHModifierCapsLock;
+        case deskhub::ModifierKey::None: return DHModifierNone;
+    }
+    return DHModifierNone;
+}
+
+DHPointerLockEffect dh_pointer_toggle_lock(DHPointerLock* state) {
+    return ApplyPointerLock(state, [](deskhub::PointerLockState& s) { return s.OnToggleLockKey(); });
+}
+
+DHPointerLockEffect dh_pointer_toggle_pause(DHPointerLock* state) {
+    return ApplyPointerLock(state,
+        [](deskhub::PointerLockState& s) { return s.OnTogglePauseKey(); });
+}
+
+DHPointerLockEffect dh_pointer_escape(DHPointerLock* state) {
+    return ApplyPointerLock(state, [](deskhub::PointerLockState& s) { return s.OnEscape(); });
+}
+
+DHPointerLockEffect dh_pointer_focus_lost(DHPointerLock* state) {
+    return ApplyPointerLock(state, [](deskhub::PointerLockState& s) { return s.OnFocusLost(); });
+}
+
+int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    const deskhub::PointerLockState s(state.locked, state.paused);
+    deskhubp::CopyToBuf(out, size_t(capacity), s.SubtitleFor(statusLine ? statusLine : ""));
+    return int(std::strlen(out));
+}
+
+void dh_viewer_opened() {
+    OpenViewers().Opened();
+}
+
+bool dh_viewer_closed() {
+    return OpenViewers().Closed();
+}
+
+int dh_viewer_count() {
+    return OpenViewers().count();
 }
 }

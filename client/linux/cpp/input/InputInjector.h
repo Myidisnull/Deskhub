@@ -3,10 +3,10 @@
 
 #include "deskhub/input/InputApplier.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhubp/input/LocalInputGate.h"
 
-class LocalInputMonitor;
-
-class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t> {
+class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t>,
+                      public deskhubp::LocalInputGate<InputInjector> {
 public:
     static constexpr const char* kKeyboardName = "Deskhub Keyboard";
     static constexpr const char* kPointerName = "Deskhub Mouse";
@@ -23,19 +23,6 @@ public:
     void Apply(const deskhub::InputEvent& e);
 
     void ReleaseAll();
-
-    void SetEnabled(bool on) {
-        if (enabled_ == on) return;
-        if (!on) ReleaseAll();
-        enabled_ = on;
-    }
-    bool enabled() const {
-        return enabled_;
-    }
-
-    void SetLocalMonitor(LocalInputMonitor* mon) {
-        localMon_ = mon;
-    }
 
     void SendKey(int32_t vk, int32_t scan, bool down);
     void SendButton(deskhub::MouseButton btn, bool down);
@@ -54,7 +41,4 @@ private:
     uint32_t srcW_ = 0, srcH_ = 0;
     int32_t deskX_ = 0, deskY_ = 0;
     uint32_t deskW_ = 0, deskH_ = 0;
-
-    LocalInputMonitor* localMon_ = nullptr;
-    bool enabled_ = true;
 };

@@ -147,6 +147,12 @@ FlushReason DueForFlush(const SourcePipelineState& st, uint64_t nowUs) {
     return FlushReason::None;
 }
 
+FlushReason TakeFlushReason(SourcePipelineState& st, uint64_t nowUs) {
+    const FlushReason reason = DueForFlush(st, nowUs);
+    if (reason != FlushReason::None) st.lastKeepaliveUs = nowUs;
+    return reason;
+}
+
 NegotiationResult BeginNegotiation(SourcePipelineState& st, const Hello& hello, uint8_t maxFps,
     const NegotiationHooks& hooks) {
     st.step = QualityStep{};

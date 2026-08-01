@@ -46,10 +46,8 @@ private:
     std::vector<uint8_t> avcc_;
 };
 
-static_assert(deskhub::media::VideoDecoderLike<VtDecoder>,
-    "VtDecoder must match the shared decoder signature");
-static_assert(deskhub::media::RestartableDecoder<VtDecoder>,
-    "VtDecoder must be restartable in place (Shutdown + IsOpen)");
+static_assert(deskhub::media::EngineDecoder<VtDecoder, void*>,
+    "VtDecoder must decode, restart in place, and bind to the layer it is handed at Init");
 static_assert(deskhub::media::RenderCountingDecoder<VtDecoder>,
     "VtDecoder counts presented frames itself — the enqueue is async so Decode cannot count them");
 static_assert(deskhub::media::CongestionAwareDecoder<VtDecoder>,

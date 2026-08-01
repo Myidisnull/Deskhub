@@ -12,7 +12,6 @@
 #include <thread>
 
 #include "deskhubp/diag/Log.h"
-#include "deskhubp/system/Clock.h"
 #include "input/LinuxKeyMap.h"
 #include "deskhub/input/PointerMap.h"
 #include "deskhubp/input/LocalInput.h"
@@ -132,8 +131,8 @@ bool InputInjector::Init(int32_t srcX, int32_t srcY, uint32_t srcW, uint32_t src
 }
 
 void InputInjector::Apply(const deskhub::InputEvent& e) {
-    if (!enabled_ || kbdFd_ < 0) return;
-    DispatchInput(e, localMon_ && localMon_->LocalActive(NowUs()));
+    if (!enabled() || kbdFd_ < 0) return;
+    DispatchInput(e, localUserActive());
 }
 
 void InputInjector::OnLocalUserTookOver() {

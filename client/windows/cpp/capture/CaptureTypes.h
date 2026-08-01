@@ -7,10 +7,4 @@
 
 #include "deskhub/media/CaptureContract.h"
 
-struct FrameInfo {
-    ID3D11Texture2D* texture = nullptr;
-    deskhub::media::FrameMeta meta;
-};
-
-static_assert(deskhub::media::CapturedFrameLike<FrameInfo>,
-    "FrameInfo must carry the shared frame metadata");
+using FrameInfo = deskhub::media::CapturedFrame<ID3D11Texture2D*>;

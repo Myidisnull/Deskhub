@@ -52,12 +52,14 @@ struct ClientEngineConfig {
 };
 
 template <class Decoder, class Surface>
-    requires deskhub::media::VideoDecoderLike<Decoder> &&
-             deskhub::media::RestartableDecoder<Decoder> &&
-             deskhub::media::SurfaceBoundDecoder<Decoder, Surface>
+    requires deskhub::media::EngineDecoder<Decoder, Surface>
 class ClientEngine {
 public:
-    explicit ClientEngine(deskhub::diag::ClientDiagCaps caps = {}) : diag_(caps) {}
+    static constexpr deskhub::diag::ClientDiagCaps kDecoderDiagCaps{
+        deskhub::media::PresentTimingDecoder<Decoder>,
+        deskhub::media::CongestionAwareDecoder<Decoder>};
+
+    explicit ClientEngine(deskhub::diag::ClientDiagCaps caps = kDecoderDiagCaps) : diag_(caps) {}
 
     ~ClientEngine() {
         Stop();

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <mutex>
 
+#include "deskhub/media/PresentCounters.h"
 #include "render/VideoSink.h"
 
 class VideoRenderer : public VideoSink {
@@ -26,10 +27,10 @@ public:
     void ClearBlack();
 
     uint32_t TakeRenderedCount() override {
-        return rendered_.exchange(0, std::memory_order_relaxed);
+        return counters_.TakeRenderedCount();
     }
     uint64_t lastRenderedPtsUs() const override {
-        return lastRenderedPts_.load(std::memory_order_relaxed);
+        return counters_.lastRenderedPtsUs();
     }
     bool hasFrame() const {
         return hasFrame_.load(std::memory_order_acquire);
@@ -54,6 +55,5 @@ private:
     int uPlanarUv_ = -1;
     bool glReady_ = false;
 
-    std::atomic<uint32_t> rendered_{0};
-    std::atomic<uint64_t> lastRenderedPts_{0};
+    deskhub::media::PresentCounters counters_;
 };

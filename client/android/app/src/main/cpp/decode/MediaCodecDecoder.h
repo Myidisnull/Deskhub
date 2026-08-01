@@ -43,10 +43,9 @@ private:
     deskhub::media::PresentCounters counters_;
 };
 
-static_assert(deskhub::media::VideoDecoderLike<MediaCodecDecoder>,
-    "MediaCodecDecoder must match the shared decoder signature");
-static_assert(deskhub::media::RestartableDecoder<MediaCodecDecoder>,
-    "MediaCodecDecoder must be restartable in place (Shutdown + IsOpen)");
+static_assert(deskhub::media::EngineDecoder<MediaCodecDecoder, ANativeWindow*>,
+    "MediaCodecDecoder must decode, restart in place, and bind to the window it is handed at "
+    "Init");
 static_assert(deskhub::media::RenderCountingDecoder<MediaCodecDecoder>,
     "MediaCodecDecoder counts presented frames itself — the enqueue is async so Decode cannot count them");
 static_assert(deskhub::media::CongestionAwareDecoder<MediaCodecDecoder>,

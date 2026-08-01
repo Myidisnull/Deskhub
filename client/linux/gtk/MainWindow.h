@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "deskhub/session/OpenViewers.h"
+
 class MainWindow {
 public:
     static void Open(GtkApplication* app);
@@ -40,7 +42,7 @@ private:
     GtkWidget* connectButton_ = nullptr;
     GtkWidget* statusLabel_ = nullptr;
 
-    int openViewers_ = 0;
+    deskhub::OpenViewerCount openViewers_;
 
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 };

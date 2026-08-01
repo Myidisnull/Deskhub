@@ -1,7 +1,26 @@
 #pragma once
 #include <cstdint>
 
+#include "deskhub/protocol/Wire.h"
+
 namespace deskhub {
+
+inline constexpr uint32_t kX11ButtonLeft = 1;
+inline constexpr uint32_t kX11ButtonMiddle = 2;
+inline constexpr uint32_t kX11ButtonRight = 3;
+inline constexpr uint32_t kX11ButtonBack = 8;
+inline constexpr uint32_t kX11ButtonForward = 9;
+
+constexpr bool X11ButtonToMouseButton(uint32_t x11Button, MouseButton& out) {
+    switch (x11Button) {
+        case kX11ButtonLeft: out = MouseButton::Left; return true;
+        case kX11ButtonMiddle: out = MouseButton::Middle; return true;
+        case kX11ButtonRight: out = MouseButton::Right; return true;
+        case kX11ButtonBack: out = MouseButton::X1; return true;
+        case kX11ButtonForward: out = MouseButton::X2; return true;
+        default: return false;
+    }
+}
 
 inline constexpr int32_t kAbsCoordMax = 65535;
 inline constexpr int32_t kWheelDeltaPerNotch = 120;
@@ -16,16 +35,17 @@ constexpr double AbsCoordToAxis(int32_t normalized, double origin, double extent
     return origin + double(ClampAbsCoord(normalized)) / double(kAbsCoordMax) * extent;
 }
 
-constexpr int64_t AbsCoordToPixel(int32_t normalized, int64_t origin, int64_t extent) {
-    if (extent <= 0) return origin;
-    return origin + int64_t(ClampAbsCoord(normalized)) * extent / kAbsCoordMax;
+constexpr int64_t AbsCoordToPixel(int32_t normalized, int64_t origin, int64_t pixels) {
+    if (pixels <= 1) return origin;
+    const int64_t scaled = int64_t(ClampAbsCoord(normalized)) * (pixels - 1) + kAbsCoordMax / 2;
+    return origin + scaled / kAbsCoordMax;
 }
 
-constexpr int32_t AxisToAbsCoord(int64_t pixel, int64_t origin, int64_t extent) {
-    if (extent <= 0) return 0;
+constexpr int32_t AxisToAbsCoord(int64_t pixel, int64_t origin, int64_t pixels) {
+    if (pixels <= 1) return 0;
     const int64_t offset = pixel - origin;
     if (offset <= 0) return 0;
-    const int64_t scaled = offset * kAbsCoordMax / extent;
+    const int64_t scaled = offset * kAbsCoordMax / (pixels - 1);
     return scaled >= kAbsCoordMax ? kAbsCoordMax : int32_t(scaled);
 }
 

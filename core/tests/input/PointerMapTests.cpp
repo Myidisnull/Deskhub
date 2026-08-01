@@ -3,6 +3,7 @@
 
 #include "deskhub/input/InputApplier.h"
 #include "deskhub/input/PointerMap.h"
+#include "deskhub/media/ViewFit.h"
 
 #include <cstdio>
 #include <string>
@@ -21,20 +22,51 @@ void TestClamp() {
 }
 
 void TestPixelMapping() {
-    std::printf("[pointer] normalized maps onto a rectangle and back...\n");
-    Check(AbsCoordToPixel(0, 100, 1920) == 100, "0 lands on the left edge");
-    Check(AbsCoordToPixel(kAbsCoordMax, 100, 1920) == 100 + 1920, "the max lands on the far edge");
+    std::printf("[pointer] normalized maps onto a pixel count and back...\n");
+    Check(AbsCoordToPixel(0, 100, 1920) == 100, "0 lands on the first pixel");
+    Check(AbsCoordToPixel(kAbsCoordMax, 100, 1920) == 100 + 1919,
+        "the max lands on the last pixel, not one past it");
     Check(AbsCoordToPixel(kAbsCoordMax / 2, 0, 1920) == 959, "the midpoint lands mid-screen");
-    Check(AbsCoordToPixel(30000, 0, 0) == 0, "an empty extent collapses to the origin");
+    Check(AbsCoordToPixel(30000, 0, 0) == 0, "an empty screen collapses to the origin");
+    Check(AbsCoordToPixel(30000, 7, 1) == 7, "a one-pixel screen has only the origin to land on");
     Check(AbsCoordToPixel(-5, 40, 800) == 40, "a negative input clamps before mapping");
 
-    Check(AxisToAbsCoord(100, 100, 1920) == 0, "the left edge normalizes to 0");
-    Check(AxisToAbsCoord(100 + 1920, 100, 1920) == kAbsCoordMax, "the far edge saturates");
-    Check(AxisToAbsCoord(50, 100, 1920) == 0, "left of the rectangle clamps to 0");
-    Check(AxisToAbsCoord(500, 0, 0) == 0, "an empty extent normalizes to 0");
+    Check(AxisToAbsCoord(100, 100, 1920) == 0, "the first pixel normalizes to 0");
+    Check(AxisToAbsCoord(100 + 1919, 100, 1920) == kAbsCoordMax, "the last pixel saturates");
+    Check(AxisToAbsCoord(50, 100, 1920) == 0, "left of the screen clamps to 0");
+    Check(AxisToAbsCoord(500, 0, 0) == 0, "an empty screen normalizes to 0");
 
     const double mid = AbsCoordToAxis(kAbsCoordMax / 2, 0.0, 100.0);
     Check(mid > 49.9 && mid < 50.1, "the floating-point form agrees with the integer one");
+}
+
+void TestPixelMappingRoundTripsWithNormalizeAxis() {
+    std::printf("[pointer] a tap and an injected pixel agree on which pixel they mean...\n");
+    constexpr int64_t kOrigin = 0;
+    constexpr int64_t kPixels = 1920;
+    for (int64_t px : {int64_t(0), int64_t(1), int64_t(959), int64_t(1918), int64_t(1919)}) {
+        const int32_t n = AxisToAbsCoord(px, kOrigin, kPixels);
+        Check(AbsCoordToPixel(n, kOrigin, kPixels) == px,
+            "every pixel survives the round trip through the wire coordinate");
+    }
+
+    Check(AxisToAbsCoord(1919, kOrigin, kPixels) == NormalizeAxis(1919.0, 1920.0),
+        "the injector and the viewer normalize the same pixel identically");
+    Check(AxisToAbsCoord(0, kOrigin, kPixels) == NormalizeAxis(0.0, 1920.0),
+        "including the first one");
+}
+
+void TestX11ButtonMapping() {
+    std::printf("[pointer] the X11 button numbers a viewer sees map onto the wire buttons...\n");
+    MouseButton b = MouseButton::Left;
+    Check(X11ButtonToMouseButton(kX11ButtonLeft, b) && b == MouseButton::Left, "1 is left");
+    Check(X11ButtonToMouseButton(kX11ButtonMiddle, b) && b == MouseButton::Middle,
+        "2 is middle, not right \xE2\x80\x94 X11 orders them differently from the wire");
+    Check(X11ButtonToMouseButton(kX11ButtonRight, b) && b == MouseButton::Right, "3 is right");
+    Check(X11ButtonToMouseButton(kX11ButtonBack, b) && b == MouseButton::X1, "8 is back");
+    Check(X11ButtonToMouseButton(kX11ButtonForward, b) && b == MouseButton::X2, "9 is forward");
+    Check(!X11ButtonToMouseButton(4, b), "the scroll pseudo-buttons are not buttons");
+    Check(!X11ButtonToMouseButton(0, b), "and neither is nothing");
 }
 
 void TestWheelNotches() {
@@ -174,6 +206,8 @@ void TestHostWinsReleasesHeldInput() {
 void RunPointerMapTests() {
     TestClamp();
     TestPixelMapping();
+    TestPixelMappingRoundTripsWithNormalizeAxis();
+    TestX11ButtonMapping();
     TestWheelNotches();
     TestTouchScrollAccumulates();
     TestDispatch();

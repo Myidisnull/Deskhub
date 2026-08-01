@@ -68,8 +68,7 @@ final class AgentModel {
             startPolling()
         } else {
             startError = hasScreenRecording
-                ? "Could not start sharing. No display was found, the display may be "
-                + "disconnected, or UDP port 47777 is already in use."
+                ? DeskhubClient.string(DHStrShareStartFailed) + ". " + DeskhubAgent.lastError
                 : "Screen Recording permission is required. Grant it in System Settings, "
                 + "then quit and reopen Deskhub."
         }

@@ -18,6 +18,7 @@
 #include <mutex>
 #include <vector>
 
+#include "deskhub/control/StreamSize.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
 
@@ -217,8 +218,8 @@ void OnProcess(void* data) {
 
     LinuxFrameInfo fi;
     fi.drmFormat = im->drmFormat;
-    fi.meta.width = im->format.size.width & ~1u;
-    fi.meta.height = im->format.size.height & ~1u;
+    fi.meta.width = deskhub::EvenDown(im->format.size.width);
+    fi.meta.height = deskhub::EvenDown(im->format.size.height);
     fi.meta.timestampUs = NowUs();
 
     bool ok = false;
@@ -235,7 +236,7 @@ void OnProcess(void* data) {
         im->dmaBufActive.store(true, std::memory_order_relaxed);
     } else if (sb->datas[0].data) {
         fi.memory = FrameMemory::Mapped;
-        fi.data = static_cast<const uint8_t*>(sb->datas[0].data) + sb->datas[0].chunk->offset;
+        fi.handle = static_cast<const uint8_t*>(sb->datas[0].data) + sb->datas[0].chunk->offset;
         fi.stride = uint32_t(sb->datas[0].chunk->stride);
         ok = sb->datas[0].chunk->size > 0 && fi.stride > 0;
         im->dmaBufActive.store(false, std::memory_order_relaxed);

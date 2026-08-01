@@ -5,8 +5,10 @@
 #include <memory>
 #include <string>
 
-#include "ClientLoop.h"
+#include "decode/AvDecoder.h"
+#include "deskhub/input/PointerLockState.h"
 #include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/session/ClientEngine.h"
 #include "render/VideoRenderer.h"
 
 class ViewerWindow {
@@ -27,10 +29,13 @@ private:
 
     bool InContent(double px, double py) const;
 
-    void SetPointerLocked(bool locked);
+    void ApplyLockEffect(const deskhub::PointerLockEffect& effect);
+    void GrabPointer(bool locked);
     void UpdateTitle();
     void SizeToVideo();
     void EndSession();
+
+    void PostToMain(std::function<void(ViewerWindow&)> fn);
 
     static gboolean OnRender(GtkGLArea* area, GdkGLContext* ctx, gpointer user);
     static void OnRealize(GtkGLArea* area, gpointer user);
@@ -41,25 +46,25 @@ private:
     static gboolean OnScroll(GtkWidget* w, GdkEventScroll* e, gpointer user);
     static gboolean OnFocusOut(GtkWidget* w, GdkEventFocus* e, gpointer user);
     static gboolean OnTick(GtkWidget* w, GdkFrameClock* clock, gpointer user);
-    static gboolean OnStatusTimer(gpointer user);
     static void OnDestroy(GtkWidget* w, gpointer user);
 
     GtkWidget* window_ = nullptr;
     GtkWidget* glArea_ = nullptr;
-    guint statusTimer_ = 0;
     guint tickId_ = 0;
 
+    std::shared_ptr<ViewerWindow*> alive_;
+
     std::string baseTitle_;
+    std::string statusLine_;
     std::string shownTitle_;
     bool sizedToVideo_ = false;
     bool ended_ = false;
     std::function<void()> onClosed_;
 
     VideoRenderer renderer_;
-    ClientLoop loop_;
+    deskhubp::ClientEngine<AvDecoder, VideoSink*> loop_;
 
-    bool pointerLocked_ = false;
-    bool inputPaused_ = false;
+    deskhub::PointerLockState pointer_;
     double lastPx_ = 0, lastPy_ = 0;
     bool haveLastPos_ = false;
 };

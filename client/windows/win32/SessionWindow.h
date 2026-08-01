@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 
+#include "deskhubp/session/AgentDriver.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "SessionRow.h"
 
@@ -38,6 +39,7 @@ private:
     void RefreshList();
 
     std::atomic<AgentLoop*> agent_{nullptr};
+    deskhubp::AgentDriver driver_;
     std::thread thread_;
     std::atomic<bool> stopReq_{false};
     std::atomic<bool> quitReq_{false};

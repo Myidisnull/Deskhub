@@ -18,7 +18,7 @@ constexpr int kIdList = 100;
 constexpr int kIdStopAll = 103;
 
 constexpr UINT kTimerId = 1;
-constexpr UINT kTimerMs = 500;
+constexpr UINT kTimerMs = deskhubp::kAgentStatusPollMs;
 constexpr UINT WM_APP_QUIT = WM_APP + 1;
 
 SessionSourceRow ToRow(const AgentSourceStatus& status) {
@@ -51,8 +51,11 @@ void SessionWindow::PullRows() {
     AgentLoop* agent = agent_.load(std::memory_order_acquire);
     if (!agent) return;
 
+    std::vector<AgentSourceStatus> statuses;
+    if (driver_.Poll(*agent, statuses) != deskhubp::AgentDriveState::Running) return;
+
     std::vector<SessionSourceRow> rows;
-    for (const AgentSourceStatus& status : agent->Status()) rows.push_back(ToRow(status));
+    for (const AgentSourceStatus& status : statuses) rows.push_back(ToRow(status));
     if (agentAttached_ && rows == uiRows_) return;
     agentAttached_ = true;
     uiRows_ = std::move(rows);
@@ -202,6 +205,7 @@ void RunSharingSession(HWND owner, const std::vector<AgentSource>& sources,
     agent.Stop();
 
     if (started) return;
-    const std::wstring msg = L"Could not start sharing.\n\n" + FromUtf8(agent.LastError());
+    const std::wstring msg =
+        FromUtf8(deskhub::ui::kShareStartFailed) + L".\n\n" + FromUtf8(agent.LastError());
     MessageBoxW(owner, msg.c_str(), L"Deskhub", MB_OK | MB_ICONERROR);
 }

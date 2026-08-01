@@ -367,9 +367,9 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
             for (const auto& s : picked) {
                 if (ViewerWindow::Open(server, s.sourceId, s.name, [self, alive] {
                         if (!alive->load()) return;
-                        if (--self->openViewers_ <= 0) self->ShowAfterSession();
+                        if (self->openViewers_.Closed()) self->ShowAfterSession();
                     })) {
-                    ++self->openViewers_;
+                    self->openViewers_.Opened();
                     ++opened;
                 }
             }

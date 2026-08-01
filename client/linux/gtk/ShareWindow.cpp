@@ -78,7 +78,7 @@ void ShareWindow::Open(const std::vector<AgentSource>& sources, const AgentOptio
 
 ShareWindow::~ShareWindow() {
     if (timer_) g_source_remove(timer_);
-    if (starter_.joinable()) starter_.join();
+    driver_.Join();
     agent_.Stop();
     deskhubp::ReleaseDisplays();
 }
@@ -131,24 +131,23 @@ void ShareWindow::Build(const std::vector<AgentSource>& sources, const AgentOpti
     AgentOptions opt = optIn;
     DesktopBounds(opt.desktopX, opt.desktopY, opt.desktopW, opt.desktopH);
 
-    const std::vector<AgentSource> agentSources = sources;
-
-    starter_ = std::thread([this, agentSources, opt, alive = alive_] {
-        const bool ok = agent_.Start(agentSources, opt);
-        const std::string err = ok ? std::string() : agent_.LastError();
-        RunOnMain([this, ok, err, alive] {
-            if (!alive->load()) return;
-            starting_ = false;
-            if (!ok) {
-                ShowError(GTK_WINDOW(window_), "Could not start sharing", err);
+    driver_.StartAsync(
+        agent_, sources, opt,
+        [alive = alive_](std::function<void()> fn) {
+            RunOnMain([alive, fn = std::move(fn)] {
+                if (alive->load()) fn();
+            });
+        },
+        [this](bool started, const std::string& error) {
+            if (!started) {
+                ShowError(GTK_WINDOW(window_), deskhub::ui::kShareStartFailed, error);
                 gtk_widget_destroy(window_);
                 return;
             }
             Refresh();
         });
-    });
 
-    timer_ = g_timeout_add(500, OnTimer, this);
+    timer_ = g_timeout_add(deskhubp::kAgentStatusPollMs, OnTimer, this);
 }
 
 gboolean ShareWindow::OnTimer(gpointer user) {
@@ -157,14 +156,14 @@ gboolean ShareWindow::OnTimer(gpointer user) {
 }
 
 void ShareWindow::Refresh() {
-    if (starting_ || !window_) return;
+    if (!window_) return;
 
-    if (!agent_.running()) {
-        gtk_widget_destroy(window_);
-        return;
+    std::vector<AgentSourceStatus> rows;
+    switch (driver_.Poll(agent_, rows)) {
+        case deskhubp::AgentDriveState::Starting: return;
+        case deskhubp::AgentDriveState::Stopped: gtk_widget_destroy(window_); return;
+        case deskhubp::AgentDriveState::Running: RefreshList(rows); return;
     }
-
-    RefreshList(agent_.Status());
 }
 
 void ShareWindow::RefreshList(const std::vector<AgentSourceStatus>& rows) {

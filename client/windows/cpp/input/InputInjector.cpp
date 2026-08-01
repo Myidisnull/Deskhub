@@ -8,7 +8,6 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhub/input/PointerMap.h"
 #include "deskhubp/input/LocalInput.h"
-#include "deskhubp/system/Clock.h"
 
 #pragma comment(lib, "user32.lib")
 
@@ -19,8 +18,8 @@ void ScreenToVirtualDesk(int px, int py, LONG& nx, LONG& ny) {
     const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
     const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    nx = LONG(deskhub::AxisToAbsCoord(px, vx, vw - 1));
-    ny = LONG(deskhub::AxisToAbsCoord(py, vy, vh - 1));
+    nx = LONG(deskhub::AxisToAbsCoord(px, vx, vw));
+    ny = LONG(deskhub::AxisToAbsCoord(py, vy, vh));
 }
 
 DWORD ButtonFlag(deskhub::MouseButton b, bool down) {
@@ -40,12 +39,6 @@ bool InputInjector::Init(HMONITOR monitor) {
     if (!monitor) return false;
     monitor_ = monitor;
     return true;
-}
-
-void InputInjector::SetEnabled(bool on) {
-    if (enabled_ == on) return;
-    if (!on) ReleaseAll();
-    enabled_ = on;
 }
 
 void InputInjector::OnLocalUserTookOver() {
@@ -91,8 +84,8 @@ void InputInjector::SendMoveAbsolute(int32_t nx, int32_t ny) {
     const int h = mi.rcMonitor.bottom - mi.rcMonitor.top;
     if (w <= 1 || h <= 1) return;
     POINT pt{};
-    pt.x = LONG(deskhub::AbsCoordToPixel(nx, mi.rcMonitor.left, w - 1));
-    pt.y = LONG(deskhub::AbsCoordToPixel(ny, mi.rcMonitor.top, h - 1));
+    pt.x = LONG(deskhub::AbsCoordToPixel(nx, mi.rcMonitor.left, w));
+    pt.y = LONG(deskhub::AbsCoordToPixel(ny, mi.rcMonitor.top, h));
 
     INPUT in{};
     in.type = INPUT_MOUSE;
@@ -111,8 +104,8 @@ void InputInjector::SendMoveRelative(int32_t dx, int32_t dy) {
 }
 
 void InputInjector::Apply(const deskhub::InputEvent& e) {
-    if (!enabled_ || !monitor_) return;
-    DispatchInput(e, localMon_ && localMon_->LocalActive(NowUs()));
+    if (!enabled() || !monitor_) return;
+    DispatchInput(e, localUserActive());
 }
 
 void InputInjector::SendWheel(int32_t delta) {

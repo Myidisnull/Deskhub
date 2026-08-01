@@ -97,7 +97,7 @@ struct ScreenCapture::Impl {
 
             if (onFrame) {
                 FrameInfo info{};
-                info.texture = tex.get();
+                info.handle = tex.get();
                 info.meta.width = static_cast<uint32_t>(size.Width);
                 info.meta.height = static_cast<uint32_t>(size.Height);
                 info.meta.timestampUs =

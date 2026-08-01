@@ -10,7 +10,6 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/media/PortalScreenCast.h"
-#include "deskhubp/system/Clock.h"
 #include "encode/VaEncoder.h"
 #include "input/InputInjector.h"
 
@@ -21,21 +20,16 @@
 
 namespace {
 
-struct SourcePipeline : deskhub::SourcePipelineState {
+using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, VaEncoder>;
+
+struct SourcePipeline : LinuxSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : deskhub::SourcePipelineState(startBps, minBps,
-              deskhub::diag::AgentDiagCaps{false, true}) {}
+        : LinuxSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true}) {}
 
     uint32_t nodeId = 0;
     int32_t srcX = 0, srcY = 0;
 
-    ScreenCapture capture;
-    InputInjector injector;
-
     deskhub::FrameGate frameGate;
-
-    std::mutex encMutex;
-    std::unique_ptr<VaEncoder> encoder;
 };
 
 SourcePipeline& Pipeline(deskhubp::HostSource& st) {
@@ -107,7 +101,10 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
             const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
                 fi.meta.height, maxDim);
-            if (adm.rebuildEncoder) p->encoder.reset();
+            if (adm.rebuildEncoder) {
+                p->encoder.reset();
+                p->SetCachedFrame(false);
+            }
             if (!adm.sizeNote.empty())
                 LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
             if (!adm.pauseNote.empty())
@@ -126,6 +123,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             VaEncoder* enc = p->encoder.get();
             deskhubp::DiagEncode(*p, idr,
                 [enc, &fi, idr] { return enc->Encode(fi, fi.meta.timestampUs, idr); });
+            p->SetCachedFrame(enc->haveSourceFrame());
         };
 
         if (!p->capture.Start(p->nodeId, deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
@@ -140,6 +138,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         p.capture.Stop();
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (p.encoder) p.encoder->Finish();
+        p.SetCachedFrame(false);
     };
 
     policy.source.attachInput = [engine](deskhubp::HostSource& st) {
@@ -162,6 +161,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         if (prev.fps != next.fps) {
             std::lock_guard<std::mutex> lk(p.encMutex);
             p.encoder.reset();
+            p.SetCachedFrame(false);
         }
         return t;
     };
@@ -169,11 +169,10 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
         SourcePipeline& p = Pipeline(st);
         std::lock_guard<std::mutex> lk(p.encMutex);
-        if (!p.encoder || !p.encoder->haveSourceFrame()) return;
+        if (!p.encoder || !p.hasCachedFrame()) return;
         const bool idr = p.forceIdr.exchange(false);
         VaEncoder* enc = p.encoder.get();
         deskhubp::DiagEncode(p, idr, [enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); });
-        p.lastKeepaliveUs = nowUs;
     };
 
     return engine_.Start(sources, opt, std::move(policy));

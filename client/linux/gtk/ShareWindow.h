@@ -5,9 +5,9 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
+#include "deskhubp/session/AgentDriver.h"
 #include "deskhubp/session/AgentLoop.h"
 
 class ShareWindow {
@@ -34,8 +34,7 @@ private:
     guint timer_ = 0;
 
     AgentLoop agent_;
-    std::thread starter_;
-    bool starting_ = true;
+    deskhubp::AgentDriver driver_;
 
     std::function<void()> onClosed_;
 

@@ -15,8 +15,13 @@
 #include "encode/VaDisplay.h"
 
 #include "deskhub/media/BitWriter.h"
+#include "deskhub/media/H264Encode.h"
+#include "deskhub/media/RatePlan.h"
 
+using deskhub::media::AlignEncodeSize;
 using deskhub::media::BitWriter;
+using deskhub::media::kH264MacroblockPx;
+using deskhub::media::LevelFor;
 
 namespace {
 
@@ -28,6 +33,14 @@ bool VaCheck(VAStatus st, const char* what) {
     return false;
 }
 
+const char* RateControlName(uint32_t vaRcMode) {
+    switch (vaRcMode) {
+        case VA_RC_CBR: return "CBR";
+        case VA_RC_VBR: return "VBR";
+        default: return "CQP";
+    }
+}
+
 uint32_t DrmToVaFourcc(uint32_t drm) {
     switch (drm) {
         case DRM_FORMAT_XRGB8888: return VA_FOURCC_BGRX;
@@ -36,32 +49,6 @@ uint32_t DrmToVaFourcc(uint32_t drm) {
         case DRM_FORMAT_ABGR8888: return VA_FOURCC_RGBA;
         default: return 0;
     }
-}
-
-uint8_t LevelFor(uint32_t mbW, uint32_t mbH, uint32_t fps) {
-    const uint64_t frameMbs = uint64_t(mbW) * mbH;
-    const uint64_t mbps = frameMbs * (fps ? fps : 60);
-    struct Level {
-        uint8_t idc;
-        uint64_t maxMbps;
-        uint64_t maxFrameMbs;
-    };
-    static const Level kLevels[] = {
-        {30, 40500, 1620},
-        {31, 108000, 3600},
-        {32, 216000, 5120},
-        {40, 245760, 8192},
-        {42, 522240, 8704},
-        {50, 589824, 22080},
-        {51, 983040, 36864},
-        {52, 2073600, 36864},
-        {60, 4177920, 139264},
-        {61, 8355840, 139264},
-        {62, 16711680, 139264},
-    };
-    for (const Level& l : kLevels)
-        if (mbps <= l.maxMbps && frameMbs <= l.maxFrameMbs) return l.idc;
-    return 62;
 }
 
 template <typename T>
@@ -97,6 +84,9 @@ constexpr double kIdrSeconds = 0.25;
 constexpr int kIdrQpJump = 6;
 constexpr double kMaxBudgetFrames = 4.0;
 
+constexpr uint32_t kVbrTargetPercentage = 70;
+constexpr uint32_t kMinVbvWindowMs = 16;
+
 }
 
 VaEncoder::~VaEncoder() {
@@ -104,11 +94,7 @@ VaEncoder::~VaEncoder() {
 }
 
 void VaEncoder::BuildParameterSets() {
-    const uint8_t level = LevelFor(mbW_, mbH_, cfg_.fps);
-
-    const uint32_t cropRight = (alignedW_ - cfg_.width) / 2;
-    const uint32_t cropBottom = (alignedH_ - cfg_.height) / 2;
-    const bool crop = cropRight || cropBottom;
+    const uint8_t level = LevelFor(aligned_.mbWidth, aligned_.mbHeight, cfg_.fps);
 
     BitWriter w;
     w.StartNal(3, 7);
@@ -121,16 +107,16 @@ void VaEncoder::BuildParameterSets() {
     w.UE(kLog2MaxPocLsbMinus4);
     w.UE(kMaxRefFrames);
     w.U(1, 0);
-    w.UE(mbW_ - 1);
-    w.UE(mbH_ - 1);
+    w.UE(aligned_.mbWidth - 1);
+    w.UE(aligned_.mbHeight - 1);
     w.U(1, 1);
     w.U(1, 1);
-    w.U(1, crop ? 1 : 0);
-    if (crop) {
+    w.U(1, aligned_.cropped ? 1 : 0);
+    if (aligned_.cropped) {
         w.UE(0);
-        w.UE(cropRight);
+        w.UE(aligned_.cropRightOffset);
         w.UE(0);
-        w.UE(cropBottom);
+        w.UE(aligned_.cropBottomOffset);
     }
     w.U(1, 1);
     {
@@ -194,16 +180,18 @@ bool VaEncoder::Init(const EncoderConfig& cfg) {
             cfg.height);
         return false;
     }
+    if (cfg.codec != deskhub::media::Codec::H264) {
+        LOGE("[VaEnc] Refusing %s — this backend emits H264 only.",
+            deskhub::media::CodecName(cfg.codec));
+        return false;
+    }
     VaDisplay& vd = VaDisplay::Instance();
     if (!vd.Open()) return false;
 
     cfg_ = cfg;
     dpy_ = vd.handle();
     encEntrypoint_ = vd.encodeEntrypoint();
-    mbW_ = (cfg_.width + 15) / 16;
-    mbH_ = (cfg_.height + 15) / 16;
-    alignedW_ = mbW_ * 16;
-    alignedH_ = mbH_ * 16;
+    aligned_ = AlignEncodeSize(cfg_.width, cfg_.height, kH264MacroblockPx);
 
     frameCount_ = 0;
     frameNum_ = 0;
@@ -226,8 +214,9 @@ bool VaEncoder::Init(const EncoderConfig& cfg) {
         return false;
     }
 
-    LOGI("[VaEnc] %ux%u (aligned %ux%u) @%u fps, %.1f Mbps — %s, packed headers %s.", cfg_.width,
-        cfg_.height, alignedW_, alignedH_, cfg_.fps, cfg_.bitrateBps / 1e6,
+    LOGI("[VaEnc] %ux%u (aligned %ux%u) @%u fps, %.1f Mbps %s%s — %s, packed headers %s.",
+        cfg_.width, cfg_.height, aligned_.width, aligned_.height, cfg_.fps,
+        cfg_.bitrateBps / 1e6, RateControlName(rcMode_), cfg_.lowLatency ? ", low latency" : "",
         vd.driverName().c_str(), packedHeaders_ ? "on" : "OFF (driver writes its own SPS/PPS)");
     return true;
 }
@@ -245,14 +234,27 @@ bool VaEncoder::CreateContexts() {
         LOGE("[VaEnc] Driver does not support YUV420 encode surfaces.");
         return false;
     }
-    const bool haveCbr = (attrs[1].value != VA_ATTRIB_NOT_SUPPORTED) &&
-                         (attrs[1].value & VA_RC_CBR);
-    cqpMode_ = !haveCbr;
+    const uint32_t offered =
+        attrs[1].value == VA_ATTRIB_NOT_SUPPORTED ? 0u : uint32_t(attrs[1].value);
+    const bool wantVbr = cfg_.rc == deskhub::media::RateControl::VBR;
+    const uint32_t preferred = wantVbr ? VA_RC_VBR : VA_RC_CBR;
+    const uint32_t fallback = wantVbr ? VA_RC_CBR : VA_RC_VBR;
+
+    rcMode_ = VA_RC_CQP;
+    if (offered & preferred)
+        rcMode_ = preferred;
+    else if (offered & fallback)
+        rcMode_ = fallback;
+
+    cqpMode_ = rcMode_ == VA_RC_CQP;
     if (cqpMode_)
         LOGI(
-            "[VaEnc] Driver offers no CBR — using constant QP with software rate control "
+            "[VaEnc] Driver offers no %s — using constant QP with software rate control "
             "(QP %d..%d).",
-            kQpMin, kQpMax);
+            RateControlName(preferred), kQpMin, kQpMax);
+    else if (rcMode_ != preferred)
+        LOGI("[VaEnc] Driver offers no %s — falling back to %s.", RateControlName(preferred),
+            RateControlName(rcMode_));
 
     packedHeaders_ = (attrs[2].value != VA_ATTRIB_NOT_SUPPORTED) &&
                      (attrs[2].value & VA_ENC_PACKED_HEADER_SEQUENCE) &&
@@ -263,7 +265,7 @@ bool VaEncoder::CreateContexts() {
     cfgAttrs[nCfgAttrs].type = VAConfigAttribRTFormat;
     cfgAttrs[nCfgAttrs++].value = VA_RT_FORMAT_YUV420;
     cfgAttrs[nCfgAttrs].type = VAConfigAttribRateControl;
-    cfgAttrs[nCfgAttrs++].value = haveCbr ? VA_RC_CBR : VA_RC_CQP;
+    cfgAttrs[nCfgAttrs++].value = rcMode_;
     if (packedHeaders_) {
         cfgAttrs[nCfgAttrs].type = VAConfigAttribEncPackedHeaders;
         cfgAttrs[nCfgAttrs++].value =
@@ -276,7 +278,7 @@ bool VaEncoder::CreateContexts() {
         return false;
 
     VASurfaceID surfaces[3];
-    if (!VaCheck(vaCreateSurfaces(dpy_, VA_RT_FORMAT_YUV420, alignedW_, alignedH_, surfaces, 3,
+    if (!VaCheck(vaCreateSurfaces(dpy_, VA_RT_FORMAT_YUV420, aligned_.width, aligned_.height, surfaces, 3,
                      nullptr, 0),
             "vaCreateSurfaces(NV12)"))
         return false;
@@ -284,13 +286,13 @@ bool VaEncoder::CreateContexts() {
     reconNv12_[0] = surfaces[1];
     reconNv12_[1] = surfaces[2];
 
-    if (!VaCheck(vaCreateContext(dpy_, encConfig_, int(alignedW_), int(alignedH_),
+    if (!VaCheck(vaCreateContext(dpy_, encConfig_, int(aligned_.width), int(aligned_.height),
                      VA_PROGRESSIVE, surfaces, 3, &encContext_),
             "vaCreateContext(encode)"))
         return false;
 
     const size_t codedSize =
-        std::max(kMinCodedBufSize, size_t(alignedW_) * alignedH_ * 3 / 2);
+        std::max(kMinCodedBufSize, size_t(aligned_.width) * aligned_.height * 3 / 2);
     if (!VaCheck(vaCreateBuffer(dpy_, encContext_, VAEncCodedBufferType, uint32_t(codedSize), 1,
                      nullptr, &codedBuf_),
             "vaCreateBuffer(coded)"))
@@ -300,7 +302,7 @@ bool VaEncoder::CreateContexts() {
                      &vppConfig_),
             "vaCreateConfig(vpp)"))
         return false;
-    if (!VaCheck(vaCreateContext(dpy_, vppConfig_, int(alignedW_), int(alignedH_), VA_PROGRESSIVE,
+    if (!VaCheck(vaCreateContext(dpy_, vppConfig_, int(aligned_.width), int(aligned_.height), VA_PROGRESSIVE,
                      &srcNv12_, 1, &vppContext_),
             "vaCreateContext(vpp)"))
         return false;
@@ -345,6 +347,20 @@ void VaEncoder::Finish() {
         srcNv12_ = reconNv12_[0] = reconNv12_[1] = VA_INVALID_SURFACE;
     }
     dpy_ = nullptr;
+}
+
+uint32_t VaEncoder::TargetPercentage() const {
+    return rcMode_ == VA_RC_VBR ? kVbrTargetPercentage : 100;
+}
+
+uint32_t VaEncoder::PeakBitrate() const {
+    return uint32_t(uint64_t(cfg_.bitrateBps) * 100 / TargetPercentage());
+}
+
+uint32_t VaEncoder::VbvWindowMs(const deskhub::media::RatePlan& plan) const {
+    if (!cfg_.bitrateBps) return kMinVbvWindowMs;
+    const uint32_t ms = uint32_t(uint64_t(plan.vbvBits) * 1000 / cfg_.bitrateBps);
+    return std::max(ms, kMinVbvWindowMs);
 }
 
 int VaEncoder::IdrQp() const {
@@ -442,7 +458,7 @@ VASurfaceID VaEncoder::ImportDmaBuf(const LinuxFrameInfo& fi) {
 
 bool VaEncoder::UploadMapped(const LinuxFrameInfo& fi) {
     const uint32_t vaFourcc = DrmToVaFourcc(fi.drmFormat);
-    if (!vaFourcc || !fi.data || !fi.stride) return false;
+    if (!vaFourcc || !fi.handle || !fi.stride) return false;
 
     if (rgbFourcc_ != vaFourcc || rgbSurface_ == VA_INVALID_SURFACE) {
         if (haveRgbImage_) {
@@ -492,7 +508,7 @@ bool VaEncoder::UploadMapped(const LinuxFrameInfo& fi) {
     const uint32_t copyBytes = rowBytes < dstPitch ? rowBytes : dstPitch;
     for (uint32_t y = 0; y < fi.meta.height; ++y)
         std::memcpy(dst + rgbImage_.offsets[0] + size_t(y) * dstPitch,
-            fi.data + size_t(y) * fi.stride, copyBytes);
+            fi.handle + size_t(y) * fi.stride, copyBytes);
     vaUnmapBuffer(dpy_, rgbImage_.buf);
 
     return VaCheck(vaPutImage(dpy_, rgbSurface_, rgbImage_.image_id, 0, 0, fi.meta.width, fi.meta.height, 0,
@@ -555,23 +571,23 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
     if (idr) {
         VAEncSequenceParameterBufferH264 seq{};
         seq.seq_parameter_set_id = 0;
-        seq.level_idc = LevelFor(mbW_, mbH_, cfg_.fps);
+        seq.level_idc = LevelFor(aligned_.mbWidth, aligned_.mbHeight, cfg_.fps);
         seq.intra_period = 0;
         seq.intra_idr_period = 0;
         seq.ip_period = 1;
-        seq.bits_per_second = cfg_.bitrateBps;
+        seq.bits_per_second = PeakBitrate();
         seq.max_num_ref_frames = kMaxRefFrames;
-        seq.picture_width_in_mbs = uint16_t(mbW_);
-        seq.picture_height_in_mbs = uint16_t(mbH_);
+        seq.picture_width_in_mbs = uint16_t(aligned_.mbWidth);
+        seq.picture_height_in_mbs = uint16_t(aligned_.mbHeight);
         seq.seq_fields.bits.chroma_format_idc = 1;
         seq.seq_fields.bits.frame_mbs_only_flag = 1;
         seq.seq_fields.bits.direct_8x8_inference_flag = 1;
         seq.seq_fields.bits.log2_max_frame_num_minus4 = kLog2MaxFrameNumMinus4;
         seq.seq_fields.bits.pic_order_cnt_type = 0;
         seq.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 = kLog2MaxPocLsbMinus4;
-        seq.frame_cropping_flag = (alignedW_ != cfg_.width || alignedH_ != cfg_.height) ? 1 : 0;
-        seq.frame_crop_right_offset = (alignedW_ - cfg_.width) / 2;
-        seq.frame_crop_bottom_offset = (alignedH_ - cfg_.height) / 2;
+        seq.frame_cropping_flag = aligned_.cropped ? 1 : 0;
+        seq.frame_crop_right_offset = aligned_.cropRightOffset;
+        seq.frame_crop_bottom_offset = aligned_.cropBottomOffset;
         seq.vui_parameters_present_flag = 1;
         seq.vui_fields.bits.timing_info_present_flag = 1;
         seq.vui_fields.bits.fixed_frame_rate_flag = 1;
@@ -592,12 +608,15 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
     }
 
     if (idr || pendingBitrate_) {
+        const deskhub::media::RatePlan plan =
+            deskhub::media::PlanRateControl(cfg_.bitrateBps, cfg_.fps, cfg_.lowLatency);
+
         VAEncMiscParameterRateControl* rc = nullptr;
         VABufferID id = MakeMiscBuffer(dpy_, encContext_, VAEncMiscParameterTypeRateControl, &rc);
         if (id != VA_INVALID_ID) {
-            rc->bits_per_second = cfg_.bitrateBps;
-            rc->target_percentage = 100;
-            rc->window_size = 500;
+            rc->bits_per_second = PeakBitrate();
+            rc->target_percentage = TargetPercentage();
+            rc->window_size = VbvWindowMs(plan);
             rc->initial_qp = 0;
             rc->min_qp = 0;
             rc->max_qp = 0;
@@ -611,8 +630,8 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
         VAEncMiscParameterHRD* hrd = nullptr;
         VABufferID hrdId = MakeMiscBuffer(dpy_, encContext_, VAEncMiscParameterTypeHRD, &hrd);
         if (hrdId != VA_INVALID_ID) {
-            hrd->buffer_size = cfg_.bitrateBps / 2;
-            hrd->initial_buffer_fullness = hrd->buffer_size / 2;
+            hrd->buffer_size = plan.vbvBits;
+            hrd->initial_buffer_fullness = plan.vbvInitialBits;
             vaUnmapBuffer(dpy_, hrdId);
             push(hrdId);
             vaRenderPicture(dpy_, encContext_, &hrdId, 1);
@@ -621,7 +640,7 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
         VAEncMiscParameterFrameRate* fr = nullptr;
         VABufferID frId = MakeMiscBuffer(dpy_, encContext_, VAEncMiscParameterTypeFrameRate, &fr);
         if (frId != VA_INVALID_ID) {
-            fr->framerate = cfg_.fps ? cfg_.fps : 60;
+            fr->framerate = plan.fps;
             vaUnmapBuffer(dpy_, frId);
             push(frId);
             vaRenderPicture(dpy_, encContext_, &frId, 1);
@@ -712,7 +731,7 @@ bool VaEncoder::EncodeNv12(bool idr, size_t& outSize) {
 
     VAEncSliceParameterBufferH264 slice{};
     slice.macroblock_address = 0;
-    slice.num_macroblocks = mbW_ * mbH_;
+    slice.num_macroblocks = aligned_.mbWidth * aligned_.mbHeight;
     slice.macroblock_info = VA_INVALID_ID;
     slice.slice_type = idr ? 2 : 0;
     slice.pic_parameter_set_id = 0;

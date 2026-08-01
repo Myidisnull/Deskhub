@@ -41,6 +41,14 @@ Datagram BuildHelloFor(uint8_t sourceId) {
     return Datagram(buf, buf + n);
 }
 
+void GiveStreamingSession(SourcePipelineState& st) {
+    GiveSession(st);
+    st.session->HandlePacket(BuildHelloFor(0), kT0);
+    uint8_t start[kMaxDatagram];
+    const size_t sn = BuildStart(start, st.session->sessionId());
+    st.session->HandlePacket(std::span<const uint8_t>(start, sn), kT0);
+}
+
 void TestHelloRoutesBySourceId() {
     std::printf("[router] a HELLO goes to the source it names, not the first one...\n");
     auto a = MakePipe(0), b = MakePipe(1), c = MakePipe(2);
@@ -228,14 +236,7 @@ void TestFlushTiming() {
 void TestFlushPrefersIdrOverKeepalive() {
     std::printf("[router] the flush reasons are ordered: a pending IDR wins...\n");
     SourcePipelineState st(kStartBps, kMinBps);
-    HostCallbacks cb;
-    cb.send = [](std::span<const uint8_t>) {};
-    cb.randomBytes = TestRandomBytes;
-    st.session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
-    st.session->HandlePacket(BuildHelloFor(0), kT0);
-    uint8_t start[kMaxDatagram];
-    const size_t sn = BuildStart(start, st.session->sessionId());
-    st.session->HandlePacket(std::span<const uint8_t>(start, sn), kT0);
+    GiveStreamingSession(st);
     Check(st.session->state() == HostSession::State::Streaming, "the host is streaming");
     st.lastFrameUs.store(kT0);
     st.lastKeepaliveUs = kT0;
@@ -256,6 +257,32 @@ void TestFlushPrefersIdrOverKeepalive() {
     st.lastKeepaliveUs = kT0 + 600'000;
     Check(DueForFlush(st, kT0 + 700'000) == FlushReason::None,
         "and having just sent one, it waits another interval");
+}
+
+void TestTakingAFlushRestartsTheKeepaliveInterval() {
+    std::printf("[router] taking a flush reason is what restarts the keepalive interval...\n");
+    SourcePipelineState st(kStartBps, kMinBps);
+    GiveStreamingSession(st);
+    st.lastFrameUs.store(kT0);
+    st.lastKeepaliveUs = kT0;
+
+    Check(TakeFlushReason(st, kT0 + 600'000) == FlushReason::Keepalive, "600 ms idle is due");
+    Check(st.lastKeepaliveUs == kT0 + 600'000, "and taking it stamps the clock");
+    Check(TakeFlushReason(st, kT0 + 700'000) == FlushReason::None,
+        "so the next tick is inside the interval and asks for nothing");
+
+    st.forceIdr.store(true);
+    Check(TakeFlushReason(st, kT0 + 900'000) == FlushReason::ForceIdr, "a pending IDR is due");
+    Check(st.lastKeepaliveUs == kT0 + 900'000,
+        "an IDR flush restarts the interval too \xE2\x80\x94 the viewer just got a frame");
+
+    st.forceIdr.store(false);
+    Check(TakeFlushReason(st, kT0 + 1'000'000) == FlushReason::None,
+        "so no keepalive follows it inside the interval");
+
+    Check(DueForFlush(st, kT0 + 1'500'000) == FlushReason::Keepalive,
+        "asking without taking leaves the clock alone");
+    Check(st.lastKeepaliveUs == kT0 + 900'000, "DueForFlush stays a pure question");
 }
 
 void TestBeginNegotiation() {
@@ -363,6 +390,7 @@ void RunHostRouterTests() {
     TestOfferFallsBackToTheConfiguredFps();
     TestFlushTiming();
     TestFlushPrefersIdrOverKeepalive();
+    TestTakingAFlushRestartsTheKeepaliveInterval();
     TestBeginNegotiation();
     TestNegotiationRejectsAnUnusableSize();
     TestStatusProjection();

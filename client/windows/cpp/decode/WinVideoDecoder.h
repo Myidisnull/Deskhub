@@ -65,12 +65,9 @@ private:
     deskhub::media::PresentCounters counters_;
 };
 
-static_assert(deskhub::media::VideoDecoderLike<WinVideoDecoder>,
-    "WinVideoDecoder must match the shared decoder signature");
-static_assert(deskhub::media::RestartableDecoder<WinVideoDecoder>,
-    "WinVideoDecoder must be restartable in place (Shutdown + IsOpen)");
-static_assert(deskhub::media::SurfaceBoundDecoder<WinVideoDecoder, WinRenderTarget>,
-    "WinVideoDecoder renders into the panel it is handed at Init");
+static_assert(deskhub::media::EngineDecoder<WinVideoDecoder, WinRenderTarget>,
+    "WinVideoDecoder must decode, restart in place, and render into the panel it is handed at "
+    "Init");
 static_assert(deskhub::media::PresentTimingDecoder<WinVideoDecoder>,
     "the swap chain reports when a frame actually reached the screen");
 static_assert(deskhub::media::RenderCountingDecoder<WinVideoDecoder>,

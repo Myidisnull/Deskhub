@@ -34,26 +34,27 @@
 
 namespace {
 
-struct SourcePipeline : deskhub::SourcePipelineState {
+using WinSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, IVideoEncoder>;
+
+struct SourcePipeline : WinSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : deskhub::SourcePipelineState(startBps, minBps, deskhub::diag::AgentDiagCaps{}) {}
+        : WinSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{}) {}
 
     HMONITOR monitor = nullptr;
-
-    ScreenCapture capture;
-    InputInjector injector;
 
     std::atomic<uint32_t> srcTexW{0}, srcTexH{0};
     deskhub::FrameGate frameGate;
 
     Downscaler scaler;
 
-    std::mutex encMutex;
-    std::unique_ptr<IVideoEncoder> encoder;
     std::function<bool(uint32_t, uint32_t, uint32_t, uint32_t)> ensureEncoderFn;
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> cachedTex;
-    std::atomic<bool> haveCached{false};
+
+    void ReleaseCached() {
+        cachedTex.Reset();
+        SetCachedFrame(false);
+    }
 
     void EncodeTimed(ID3D11Texture2D* tex, bool idr) {
         deskhubp::DiagEncode(*this, idr,
@@ -147,8 +148,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                 fi.meta.height, maxDim);
             if (adm.rebuildEncoder) {
                 p->encoder.reset();
-                p->cachedTex.Reset();
-                p->haveCached.store(false, std::memory_order_release);
+                p->ReleaseCached();
             }
             if (!adm.sizeNote.empty())
                 LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
@@ -160,12 +160,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             const uint64_t frameUs = NowUs();
             if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed), frameUs)) return;
 
-            ID3D11Texture2D* encTex = fi.texture;
+            ID3D11Texture2D* encTex = fi.handle;
             if (encW != fi.meta.width || encH != fi.meta.height) {
                 if (!p->scaler.Configure(gpu->device.Get(), fi.meta.width, fi.meta.height, encW,
                         encH))
                     return;
-                encTex = p->scaler.Scale(fi.texture);
+                encTex = p->scaler.Scale(fi.handle);
                 if (!encTex) return;
             }
             p->srcTexW.store(encW);
@@ -184,7 +184,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             }
             if (p->cachedTex) {
                 gpu->context->CopyResource(p->cachedTex.Get(), encTex);
-                p->haveCached.store(true, std::memory_order_release);
+                p->SetCachedFrame(true);
             }
             p->lastFrameUs.store(frameUs, std::memory_order_relaxed);
 
@@ -207,6 +207,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         p.capture.Stop();
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (p.encoder) p.encoder->Finish();
+        p.ReleaseCached();
     };
 
     policy.source.attachInput = [engine](deskhubp::HostSource& st) {
@@ -231,13 +232,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
         SourcePipeline& p = Pipeline(st);
-        if (!p.haveCached.load(std::memory_order_acquire)) return;
+        if (!p.hasCachedFrame()) return;
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (!p.ensureEncoderFn(p.srcW.load(), p.srcH.load(), p.srcTexW.load(),
                 p.srcTexH.load()))
             return;
         p.EncodeTimed(p.cachedTex.Get(), p.forceIdr.exchange(false));
-        p.lastKeepaliveUs = nowUs;
     };
 
     return engine_.Start(sources, opt, std::move(policy));

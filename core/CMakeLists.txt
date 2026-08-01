@@ -30,6 +30,7 @@ add_library(core STATIC
     src/media/H264Sps.cpp
     src/media/AnnexB.cpp
     src/media/RatePlan.cpp
+    src/media/H264Encode.cpp
 
     src/diag/ClientDiag.cpp
     src/diag/AgentDiag.cpp
@@ -67,6 +68,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
         tests/session/ConnectFlowTests.cpp
+        tests/session/OpenViewersTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp
@@ -74,6 +76,7 @@ if(DESKHUB_CORE_TESTS)
         tests/input/ScancodeTableTests.cpp
         tests/input/HotkeysTests.cpp
         tests/input/PointerMapTests.cpp
+        tests/input/PointerLockStateTests.cpp
         tests/input/TrackpadCursorTests.cpp
 
         tests/control/ControlTests.cpp
@@ -89,6 +92,7 @@ if(DESKHUB_CORE_TESTS)
         tests/media/H264SpsTests.cpp
         tests/media/AnnexBTests.cpp
         tests/media/RatePlanTests.cpp
+        tests/media/H264EncodeTests.cpp
         tests/media/QualityPresetTests.cpp
         tests/media/ViewFitTests.cpp
 

@@ -3,6 +3,7 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include "deskhub/input/PointerLockState.h"
 #include "deskhub/protocol/Wire.h"
 
 struct DHSession;
@@ -15,18 +16,19 @@ public:
     bool OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
     bool relativeMode() const {
-        return relative_;
+        return pointer_.locked();
     }
     void ToggleRelativeMode();
 
 private:
-    void SetRelativeMode(bool on);
+    void ApplyLockEffect(const deskhub::PointerLockEffect& effect);
+    void GrabPointer(bool locked);
     void OnRawInput(LPARAM lp);
     void EmitButton(deskhub::MouseButton button, bool down);
 
     HWND hwnd_ = nullptr;
     DHSession* session_ = nullptr;
-    bool relative_ = false;
+    deskhub::PointerLockState pointer_;
     bool attached_ = false;
     int buttonsDown_ = 0;
 };

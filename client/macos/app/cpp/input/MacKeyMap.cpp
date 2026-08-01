@@ -96,21 +96,4 @@ bool WinVkToMac(int32_t vk, uint16_t& macKeyCode) {
     return deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, macKeyCode);
 }
 
-Modifier ModifierOf(int32_t vk) {
-    switch (deskhub::ModifierKeyOf(vk)) {
-        case deskhub::ModifierKey::Shift:
-            return Modifier::Shift;
-        case deskhub::ModifierKey::Control:
-            return Modifier::Control;
-        case deskhub::ModifierKey::Menu:
-            return Modifier::Option;
-        case deskhub::ModifierKey::Win:
-            return Modifier::Command;
-        case deskhub::ModifierKey::CapsLock:
-            return Modifier::CapsLock;
-        default:
-            return Modifier::None;
-    }
-}
-
 }

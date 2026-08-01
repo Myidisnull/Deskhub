@@ -61,6 +61,8 @@ enum class FlushReason : uint8_t { None,
 
 FlushReason DueForFlush(const SourcePipelineState& st, uint64_t nowUs);
 
+FlushReason TakeFlushReason(SourcePipelineState& st, uint64_t nowUs);
+
 struct NegotiationHooks {
     std::function<StreamSize(uint16_t clientW, uint16_t clientH)> resolveSize;
 };

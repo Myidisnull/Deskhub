@@ -9,6 +9,7 @@
 
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
+#include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "ViewerInput.h"
@@ -24,7 +25,7 @@ constexpr UINT WM_APP_SIZE = WM_APP + 2;
 constexpr UINT WM_APP_CLOSED = WM_APP + 3;
 constexpr UINT kTimerHint = 1;
 
-int g_openFrames = 0;
+deskhub::OpenViewerCount g_openFrames;
 
 struct ViewerFrame {
     HWND hwnd = nullptr;
@@ -137,7 +138,7 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_DESTROY:
             if (f) f->input.Detach();
-            if (--g_openFrames <= 0) PostQuitMessage(0);
+            if (g_openFrames.Closed()) PostQuitMessage(0);
             return 0;
     }
     return DefWindowProcW(h, msg, wp, lp);
@@ -215,7 +216,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
     f->input.Attach(f->video, f->session);
 
-    ++g_openFrames;
+    g_openFrames.Opened();
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
     f->UpdateTitle();
     f->Relayout();
@@ -228,7 +229,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
 void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources) {
     RegisterClasses();
-    g_openFrames = 0;
+    g_openFrames = deskhub::OpenViewerCount{};
 
     std::vector<std::unique_ptr<ViewerFrame>> frames;
     if (sources.empty()) {

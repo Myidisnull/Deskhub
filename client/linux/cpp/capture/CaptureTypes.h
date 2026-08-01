@@ -16,10 +16,9 @@ struct DmaPlane {
     uint32_t stride = 0;
 };
 
-struct LinuxFrameInfo {
+struct LinuxFrameInfo : deskhub::media::CapturedFrame<const uint8_t*> {
     FrameMemory memory = FrameMemory::Mapped;
 
-    const uint8_t* data = nullptr;
     uint32_t stride = 0;
 
     DmaPlane planes[kMaxDmaPlanes]{};
@@ -27,8 +26,4 @@ struct LinuxFrameInfo {
     uint64_t modifier = 0;
 
     uint32_t drmFormat = 0;
-    deskhub::media::FrameMeta meta;
 };
-
-static_assert(deskhub::media::CapturedFrameLike<LinuxFrameInfo>,
-    "LinuxFrameInfo must carry the shared frame metadata");

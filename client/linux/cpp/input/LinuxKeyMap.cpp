@@ -4,6 +4,7 @@
 
 #include "deskhub/input/VirtualKeys.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhubp/ffi/ClientFfi.h"
 
 namespace linuxkeys {
 namespace {
@@ -133,4 +134,10 @@ bool WinVkToEvdev(int32_t vk, uint16_t& evdevCode) {
     return deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, evdevCode);
 }
 
+}
+
+bool dh_native_key_to_vk(int32_t native_key_code, int32_t* out_vk, int32_t* out_scan) {
+    if (!out_vk || !out_scan || native_key_code < 0) return false;
+    const uint16_t evdev = linuxkeys::GdkKeycodeToEvdev(uint32_t(native_key_code));
+    return linuxkeys::EvdevToWin(evdev, *out_vk, *out_scan);
 }

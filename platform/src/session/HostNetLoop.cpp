@@ -202,8 +202,8 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
                 st->forceIdr.store(true);
             }
 
-            if (deskhub::DueForFlush(*st, now) != deskhub::FlushReason::None &&
-                hooks.source.flush)
+            if (hooks.source.flush &&
+                deskhub::TakeFlushReason(*st, now) != deskhub::FlushReason::None)
                 hooks.source.flush(*st, now);
         }
 

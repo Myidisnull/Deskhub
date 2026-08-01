@@ -36,6 +36,9 @@ int main() {
     std::printf("--- session: viewer connect flow ---\n");
     RunConnectFlowTests();
 
+    std::printf("--- session: open viewer count ---\n");
+    RunOpenViewersTests();
+
     std::printf("--- input ---\n");
     RunInputTests();
 
@@ -53,6 +56,9 @@ int main() {
 
     std::printf("--- input: pointer mapping + shared injector dispatch ---\n");
     RunPointerMapTests();
+
+    std::printf("--- input: viewer pointer lock / input pause ---\n");
+    RunPointerLockStateTests();
 
     std::printf("--- input: touch trackpad cursor ---\n");
     RunTrackpadCursorTests();
@@ -89,6 +95,9 @@ int main() {
 
     std::printf("--- media: encoder rate plan (VBV sizing) ---\n");
     RunRatePlanTests();
+
+    std::printf("--- media: H.264 macroblock geometry and levels ---\n");
+    RunH264EncodeTests();
 
     std::printf("--- media: share quality presets ---\n");
     RunQualityPresetTests();

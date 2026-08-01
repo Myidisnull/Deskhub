@@ -50,7 +50,7 @@ bool ViewerInput::Attach(HWND hwnd, DHSession* session) {
 
 void ViewerInput::Detach() {
     if (!attached_) return;
-    SetRelativeMode(false);
+    ApplyLockEffect(pointer_.OnFocusLost());
     RAWINPUTDEVICE rid[2] = {};
     rid[0].usUsagePage = kUsagePageGeneric;
     rid[0].usUsage = kUsageMouse;
@@ -65,12 +65,15 @@ void ViewerInput::Detach() {
 }
 
 void ViewerInput::ToggleRelativeMode() {
-    SetRelativeMode(!relative_);
+    ApplyLockEffect(pointer_.OnToggleLockKey());
 }
 
-void ViewerInput::SetRelativeMode(bool on) {
-    if (relative_ == on) return;
-    relative_ = on;
+void ViewerInput::ApplyLockEffect(const deskhub::PointerLockEffect& effect) {
+    if (effect.releaseHeldInput && session_) dh_session_release_all_input(session_);
+    if (effect.lockChanged) GrabPointer(pointer_.locked());
+}
+
+void ViewerInput::GrabPointer(bool on) {
     if (on) {
         RECT r{};
         GetClientRect(hwnd_, &r);
@@ -92,7 +95,7 @@ void ViewerInput::EmitButton(deskhub::MouseButton button, bool down) {
     if (down) {
         if (buttonsDown_++ == 0) SetCapture(hwnd_);
     } else if (buttonsDown_ > 0) {
-        if (--buttonsDown_ == 0 && !relative_ && GetCapture() == hwnd_) ReleaseCapture();
+        if (--buttonsDown_ == 0 && !pointer_.locked() && GetCapture() == hwnd_) ReleaseCapture();
     }
     if (session_) dh_session_mouse_button(session_, int32_t(button), down);
 }
@@ -123,7 +126,7 @@ void ViewerInput::OnRawInput(LPARAM lp) {
         return;
     }
 
-    if (ri->header.dwType == RIM_TYPEMOUSE && relative_) {
+    if (ri->header.dwType == RIM_TYPEMOUSE && pointer_.locked()) {
         const RAWMOUSE& m = ri->data.mouse;
         if (m.usFlags & MOUSE_MOVE_ABSOLUTE) return;
         if ((m.lLastX || m.lLastY) && session_)
@@ -140,7 +143,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return false;
 
         case WM_MOUSEMOVE: {
-            if (relative_) return true;
+            if (pointer_.locked()) return true;
             RECT r{};
             GetClientRect(hwnd_, &r);
             if (session_)
@@ -175,7 +178,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return true;
 
         case WM_KILLFOCUS:
-            SetRelativeMode(false);
+            ApplyLockEffect(pointer_.OnFocusLost());
             return false;
     }
     return false;

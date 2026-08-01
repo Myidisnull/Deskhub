@@ -11,7 +11,8 @@ final class RemoteVideoView: NSView {
         didSet { needsLayout = true }
     }
 
-    private(set) var mouseLocked = false
+    private var pointer = DHPointerLock(locked: false, paused: false)
+    var mouseLocked: Bool { pointer.locked }
     var onLockChanged: ((Bool) -> Void)?
 
     private var trackingArea: NSTrackingArea?
@@ -76,9 +77,13 @@ final class RemoteVideoView: NSView {
         return (nx, ny)
     }
 
-    func setMouseLocked(_ on: Bool, notify: Bool = true) {
-        guard mouseLocked != on else { return }
-        mouseLocked = on
+    private func apply(_ effect: DHPointerLockEffect, notify: Bool = true) {
+        if effect.releaseHeldInput { model?.releaseAllInput() }
+        if effect.lockChanged { grabPointer(pointer.locked) }
+        if notify, effect.lockChanged { onLockChanged?(pointer.locked) }
+    }
+
+    private func grabPointer(_ on: Bool) {
         if on {
             CGAssociateMouseAndMouseCursorPosition(0)
             NSCursor.hide()
@@ -86,12 +91,16 @@ final class RemoteVideoView: NSView {
             CGAssociateMouseAndMouseCursorPosition(1)
             NSCursor.unhide()
         }
-        if notify { onLockChanged?(on) }
+    }
+
+    func setMouseLocked(_ on: Bool, notify: Bool = true) {
+        guard pointer.locked != on else { return }
+        apply(dh_pointer_toggle_lock(&pointer), notify: notify)
     }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == kMacKeyCodeF9 {
-            setMouseLocked(!mouseLocked)
+            apply(dh_pointer_toggle_lock(&pointer))
             return
         }
         guard !event.isARepeat else { return }
@@ -171,8 +180,7 @@ final class RemoteVideoView: NSView {
     }
 
     override func resignFirstResponder() -> Bool {
-        setMouseLocked(false)
-        model?.releaseAllInput()
+        apply(dh_pointer_focus_lost(&pointer))
         return true
     }
 }

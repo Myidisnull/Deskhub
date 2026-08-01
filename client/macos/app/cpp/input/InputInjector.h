@@ -3,10 +3,10 @@
 
 #include "deskhub/input/InputApplier.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhubp/input/LocalInputGate.h"
 
-class LocalInputMonitor;
-
-class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t> {
+class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t>,
+                      public deskhubp::LocalInputGate<InputInjector> {
 public:
     InputInjector();
     ~InputInjector();
@@ -18,15 +18,6 @@ public:
     void Apply(const deskhub::InputEvent& e);
 
     void ReleaseAll();
-
-    void SetEnabled(bool on);
-    bool enabled() const {
-        return enabled_;
-    }
-
-    void SetLocalMonitor(LocalInputMonitor* mon) {
-        localMon_ = mon;
-    }
 
     void SendKey(int32_t vk, int32_t scan, bool down);
     void SendButton(deskhub::MouseButton btn, bool down);
@@ -43,9 +34,6 @@ private:
 
     uint32_t displayId_ = 0;
     void* source_ = nullptr;
-    LocalInputMonitor* localMon_ = nullptr;
-
-    bool enabled_ = true;
 
     double rectX_ = 0, rectY_ = 0, rectW_ = 0, rectH_ = 0;
     uint64_t rectUs_ = 0;

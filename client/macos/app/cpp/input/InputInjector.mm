@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "deskhub/input/PointerMap.h"
+#include "deskhub/input/VirtualKeys.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "Permissions.h"
@@ -130,30 +131,24 @@ bool InputInjector::SourceRect(double& x, double& y, double& w, double& h) {
     return true;
 }
 
-void InputInjector::SetEnabled(bool on) {
-    if (enabled_ == on) return;
-    enabled_ = on;
-    if (!on) ReleaseAll();
-}
-
 uint64_t InputInjector::CurrentFlags() const {
     CGEventFlags f = 0;
     for (const auto& [vk, keycode] : held_.heldKeys()) {
-        switch (mackeys::ModifierOf(vk)) {
-            case mackeys::Modifier::Shift: f |= kCGEventFlagMaskShift; break;
-            case mackeys::Modifier::Control: f |= kCGEventFlagMaskControl; break;
-            case mackeys::Modifier::Option: f |= kCGEventFlagMaskAlternate; break;
-            case mackeys::Modifier::Command: f |= kCGEventFlagMaskCommand; break;
-            case mackeys::Modifier::CapsLock: f |= kCGEventFlagMaskAlphaShift; break;
-            case mackeys::Modifier::None: break;
+        switch (deskhub::ModifierKeyOf(vk)) {
+            case deskhub::ModifierKey::Shift: f |= kCGEventFlagMaskShift; break;
+            case deskhub::ModifierKey::Control: f |= kCGEventFlagMaskControl; break;
+            case deskhub::ModifierKey::Menu: f |= kCGEventFlagMaskAlternate; break;
+            case deskhub::ModifierKey::Win: f |= kCGEventFlagMaskCommand; break;
+            case deskhub::ModifierKey::CapsLock: f |= kCGEventFlagMaskAlphaShift; break;
+            case deskhub::ModifierKey::None: break;
         }
     }
     return uint64_t(f);
 }
 
 void InputInjector::Apply(const deskhub::InputEvent& e) {
-    if (!enabled_) return;
-    DispatchInput(e, localMon_ && localMon_->LocalActive(NowUs()));
+    if (!enabled()) return;
+    DispatchInput(e, localUserActive());
 }
 
 void InputInjector::OnLocalUserTookOver() {
