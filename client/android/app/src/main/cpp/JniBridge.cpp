@@ -1,6 +1,7 @@
 #include <android/native_window_jni.h>
 #include <jni.h>
 
+#include <atomic>
 #include <string>
 
 #include "ClientSessionAndroid.h"
@@ -14,6 +15,55 @@ namespace {
 
 DHSession* g_session = nullptr;
 ANativeWindow* g_window = nullptr;
+
+JavaVM* g_vm = nullptr;
+jclass g_nativeClientClass = nullptr;
+jmethodID g_onSessionStatus = nullptr;
+jmethodID g_onSessionSize = nullptr;
+jmethodID g_onSessionEnded = nullptr;
+std::atomic<DHSession*> g_callbackSession{nullptr};
+
+template <class Call>
+void CallIntoJava(Call&& call) {
+    JavaVM* vm = g_vm;
+    if (!vm || !g_nativeClientClass) return;
+    JNIEnv* env = nullptr;
+    const jint state = vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    const bool needsAttach = state == JNI_EDETACHED;
+    if (needsAttach) {
+        if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
+    } else if (state != JNI_OK) {
+        return;
+    }
+    call(env);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (needsAttach) vm->DetachCurrentThread();
+}
+
+void NotifySessionStatus(const char* statusUtf8, void*) {
+    const jint phase =
+        jint(dh_session_phase(g_callbackSession.load(std::memory_order_acquire)));
+    CallIntoJava([statusUtf8, phase](JNIEnv* env) {
+        jstring line = env->NewStringUTF(statusUtf8 ? statusUtf8 : "");
+        env->CallStaticVoidMethod(g_nativeClientClass, g_onSessionStatus, line, phase);
+        env->DeleteLocalRef(line);
+    });
+}
+
+void NotifySessionSize(uint32_t width, uint32_t height, void*) {
+    CallIntoJava([width, height](JNIEnv* env) {
+        env->CallStaticVoidMethod(g_nativeClientClass, g_onSessionSize, jint(width),
+            jint(height));
+    });
+}
+
+void NotifySessionClosed(const char* reasonUtf8, void*) {
+    CallIntoJava([reasonUtf8](JNIEnv* env) {
+        jstring reason = env->NewStringUTF(reasonUtf8 ? reasonUtf8 : "");
+        env->CallStaticVoidMethod(g_nativeClientClass, g_onSessionEnded, reason);
+        env->DeleteLocalRef(reason);
+    });
+}
 
 jstring ToJString(JNIEnv* env, const std::string& s) {
     return env->NewStringUTF(s.c_str());
@@ -47,6 +97,22 @@ void DropWindow() {
 }
 
 extern "C" {
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+    jclass cls = env->FindClass("com/deskhub/app/NativeClient");
+    if (!cls) return JNI_ERR;
+    g_nativeClientClass = static_cast<jclass>(env->NewGlobalRef(cls));
+    g_onSessionStatus =
+        env->GetStaticMethodID(g_nativeClientClass, "onSessionStatus", "(Ljava/lang/String;I)V");
+    g_onSessionSize = env->GetStaticMethodID(g_nativeClientClass, "onSessionSize", "(II)V");
+    g_onSessionEnded =
+        env->GetStaticMethodID(g_nativeClientClass, "onSessionEnded", "(Ljava/lang/String;)V");
+    if (!g_onSessionStatus || !g_onSessionSize || !g_onSessionEnded) return JNI_ERR;
+    g_vm = vm;
+    return JNI_VERSION_1_6;
+}
 
 JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeString(JNIEnv* env, jobject, jint id) {
@@ -146,7 +212,16 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
         screenH > 0 ? uint32_t(screenH) : 0);
 
     dh_session_stop(g_session);
-    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, nullptr);
+    g_callbackSession.store(nullptr, std::memory_order_release);
+    g_session = nullptr;
+
+    DHSessionCallbacks callbacks{};
+    callbacks.onStatus = NotifySessionStatus;
+    callbacks.onSize = NotifySessionSize;
+    callbacks.onClosed = NotifySessionClosed;
+
+    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks);
+    g_callbackSession.store(g_session, std::memory_order_release);
     return jlong(reinterpret_cast<uintptr_t>(g_session));
 }
 
@@ -155,6 +230,7 @@ Java_com_deskhub_app_NativeClient_nativeStop(JNIEnv*, jobject, jlong handle) {
     if (!g_session) return;
     if (handle != 0 && reinterpret_cast<uintptr_t>(g_session) != uintptr_t(handle)) return;
     dh_session_stop(g_session);
+    g_callbackSession.store(nullptr, std::memory_order_release);
     g_session = nullptr;
 }
 

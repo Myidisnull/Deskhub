@@ -1,5 +1,6 @@
 #include "capture/Downscaler.h"
 
+#include "deskhub/control/StreamSize.h"
 #include "deskhubp/diag/Log.h"
 #include "gpu/HrCheck.h"
 
@@ -17,8 +18,8 @@ bool Downscaler::Configure(ID3D11Device* device, uint32_t srcW, uint32_t srcH, u
     if (!device || !srcW || !srcH || !dstW || !dstH) return false;
     if (dstW > srcW) dstW = srcW;
     if (dstH > srcH) dstH = srcH;
-    dstW &= ~1u;
-    dstH &= ~1u;
+    dstW = deskhub::EvenDown(dstW);
+    dstH = deskhub::EvenDown(dstH);
     if (!dstW || !dstH) return false;
 
     if (device == device_.Get() && srcW == srcW_ && srcH == srcH_ && dstW == dstW_ &&

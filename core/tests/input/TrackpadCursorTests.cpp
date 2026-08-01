@@ -54,13 +54,15 @@ void TestCursorStopsAtTheEdge() {
 }
 
 void TestZoomedPictureClampsToWhatIsOnScreen() {
-    std::printf("[cursor] when the picture is zoomed past the screen, only the visible part is "
-                "reachable...\n");
+    std::printf(
+        "[cursor] when the picture is zoomed past the screen, only the visible part is "
+        "reachable...\n");
     const ViewRect video{-400, -300, 1600, 1200};
 
     const TrackpadCursor clamped = ClampToVisible({0.0, 0.0}, video, 800, 600);
-    Check(Near(clamped.x, 0.25), "the left quarter is off-screen, so 0.25 is as far left as it "
-                                 "goes");
+    Check(Near(clamped.x, 0.25),
+        "the left quarter is off-screen, so 0.25 is as far left as it "
+        "goes");
     Check(Near(clamped.y, 0.25), "same vertically");
 
     const TrackpadCursor far = ClampToVisible({1.0, 1.0}, video, 800, 600);
@@ -80,8 +82,9 @@ void TestOffScreenPictureLeavesTheCursorAlone() {
 }
 
 void TestNormalizationMatchesADirectTap() {
-    std::printf("[cursor] the trackpad and a direct tap on the same spot send the same "
-                "coordinate...\n");
+    std::printf(
+        "[cursor] the trackpad and a direct tap on the same spot send the same "
+        "coordinate...\n");
     const ViewRect video{100, 50, 800, 600};
 
     int32_t nx = 0, ny = 0;

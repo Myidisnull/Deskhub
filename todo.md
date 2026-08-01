@@ -11,13 +11,15 @@ Within each part, items are ordered by value-per-risk (P0 first). Run `make test
 and `make lint` after each item. Items marked **BUG** are behavioural defects found
 while comparing the copies, not just duplication.
 
-Every unchecked item now opens with why it is still open. All 16 left are **BLOCKED on
-a toolchain** — nothing remains that this repo can act on without a Linux or Windows
-machine:
+Every unchecked item now opens with why it is still open. Everything left is **BLOCKED
+on a toolchain**:
 
-- macOS, iOS and Android build and test on the machine this pass was done on; Linux
-  and Windows do not exist here. Anything touching VA-API, libav, the GTK viewer, the
-  D3D encoders or win32 input is stuck behind that, and most cannot be half-done:
+- The first pass ran on a macOS machine (macOS, iOS and Android built and tested
+  there). A second pass on 2026-08-01 ran on a **Windows** machine: the Windows app
+  builds clean, `make test` and `make lint` pass, and the previously-unbuilt Windows
+  edits are verified. What no machine so far has had is **Linux** — anything touching
+  VA-API, libav or the GTK viewer is stuck behind that. The cross-platform items also
+  cannot be half-done from one OS:
   `HostSourceBase`, the `IVideoEncoder` move and the three `CaptureTypes.h` all change
   headers the unbuildable clients include, so a partial commit breaks them. Each item
   names the toolchain it wants.
@@ -30,14 +32,17 @@ machine:
   point blind, and for the counter the shared part is three lines of arithmetic while
   the action at zero differs on every platform.
 
-One deliberate skip is recorded rather than blocked: Android push-status callbacks
-(under P4-P2). They need `AttachCurrentThread` on the engine's threads, and a
-threading mistake there does not show up in a compile, which is all this machine can
-do for Android.
+The one deliberate skip — Android push-status callbacks under P4-P2 — is **done as of
+2026-08-01**: the Windows machine can run the Android emulator, so the
+`AttachCurrentThread` path was implemented and then verified live against the Windows
+host (streaming, status updates, and the timeout-ended overlay all observed running).
 
 Three Windows files (`MfEncoder.cpp`, `NvencEncoder.cpp`, `MfDecoder.cpp`) were edited
-unbuilt for the `CodecName` cleanup. They are the only changes in the repo that have
-never been through a compiler — build Windows before trusting them.
+unbuilt for the `CodecName` cleanup. **Verified 2026-08-01 on a Windows machine**: all
+three compile clean under MSVC (`make build-windows`) and `make test` passes — nothing
+in the repo remains unbuilt. The same pass replaced the Windows downscaler's `& ~1u`
+with `deskhub::EvenDown`, so the Windows half of the Part 3 math-helpers item is done
+and that item now waits on Linux only.
 
 # Part 1 — session/agent loop + FFI
 
@@ -440,14 +445,16 @@ an already-unified shape.
       `VtDecoder.h:25-33` + `VtDecoderApple.mm:202-206` (byte-identical to
       MediaCodec's), `VideoRenderer.h:28-33`. `ClientEngine::HarvestDecoder`
       (`ClientEngine.h:249-272`) already consumes them uniformly.
-- [ ] **BLOCKED: needs Linux + Windows.** The macOS half of this is *done*: `Even()` is
+- [ ] **BLOCKED: needs Linux.** The macOS half is *done*: `Even()` is
       now `deskhub::EvenDown` and the mac copies in `ScreenCapture.mm` and
-      `AgentLoop.cpp` are gone. Everything still outstanding lives in VA-API or the
-      Windows downscaler. Deliberately not written ahead of time — `AlignEncodeSize`
-      and `LevelFor` are easy to unit-test but would sit in `core/` unused until a
-      Linux machine can adopt them, and unused API is what this file exists to remove.
+      `AgentLoop.cpp` are gone. The Windows half is *done* too (2026-08-01):
+      `Downscaler.cpp` now calls `deskhub::EvenDown`, built and tested on Windows.
+      Everything still outstanding lives in VA-API. Deliberately not written ahead of
+      time — `AlignEncodeSize` and `LevelFor` are easy to unit-test but would sit in
+      `core/` unused until a Linux machine can adopt them, and unused API is what this
+      file exists to remove.
       **`core`: expose the small math helpers.** `& ~1u` still appears at
-      `linux ScreenCapture.cpp:220-221` and `Downscaler.cpp:38-41`. Add
+      `linux ScreenCapture.cpp:220-221`. Add
       `AlignEncodeSize(w, h, align)` for VA's 16-px macroblock alignment
       (`VaEncoder.cpp:203-206`; crop-offset expression duplicated at `:109-111` and
       `:572-574`), `H264Level.h::LevelFor` (`VaEncoder.cpp:41-65`, pure spec table),
@@ -485,7 +492,7 @@ an already-unified shape.
       **`EncoderConfig::codec` was silently ignored.** Settled as "refuse what you cannot emit": `VtEncoder::Init` now fails
       with a named codec instead of quietly producing H.264, and the triplicated
       `codec == HEVC ? "HEVC" : "H264"` ternary is now `deskhub::media::CodecName`
-      (adopted in MF/NVENC/MfDecoder — those edits are **unbuilt**, no Windows here).
+      (adopted in MF/NVENC/MfDecoder — compiled clean on Windows 2026-08-01).
       `VaEncoder.cpp:240` still needs the same guard.
       Not a defect after all: the *decoders* never receive a codec —
       `Init(surface, w, h)` is the whole contract — so `MediaCodecDecoder.cpp:11`
@@ -595,18 +602,26 @@ there compiles into both targets with zero project edits (must build on both SDK
 
 ## P2 — poll loops, apple divergences, small state machines
 
-- [ ] **PARTLY DONE — Apple done. Linux is BLOCKED on the toolchain; Android is a
-      deliberate skip, not a blocker.**
+- [ ] **PARTLY DONE — Apple and Android done; only the GTK viewer still polls,
+      BLOCKED on the Linux toolchain.**
       **Retire the 500 ms status-poll loops in favour of `DHSessionCallbacks`.** `StreamModel` no longer runs a `Timer`:
       `ClientSession.start` takes a `SessionHandlers` value, boxes it with
       `Unmanaged.passRetained` for the `void* user` slot, and releases it in `stop()`
       (safe because `dh_session_stop` joins the engine threads before returning).
       `resumePolling`/`suspendPolling` collapsed into one `refresh()` for `onAppear`.
-      Still polling: `StreamActivity.kt:178-196` and `ViewerWindow.cpp:115,183-192`.
-      Android was deliberately left alone — routing the callbacks into Kotlin needs a
-      `JavaVM` global ref plus `AttachCurrentThread` on the engine's net/decode threads,
-      and a threading mistake there would not show up in a compile, which is all this
-      machine can do for Android.
+      Android done 2026-08-01: `JNI_OnLoad` caches the `NativeClient` class and three
+      static method ids, the callback trampolines attach/detach the engine's net
+      thread per call, `NativeClient` posts to the main looper, and `StreamScreen`
+      installs a `SessionListener` in a `DisposableEffect` seeded with one initial
+      read. Trampolines read the session through an atomic set only after
+      `dh_session_start` returns and cleared on stop; join-before-delete makes that
+      safe. One runtime-only trap, exactly the kind the old skip note feared: Kotlin
+      mangles `internal` JVM names (`onSessionStatus$app_debug`), so the methods carry
+      `@JvmName` — without it `GetStaticMethodID` aborts the VM at `loadLibrary`.
+      Verified live on an emulator against the Windows host: status line ticking,
+      `1920x802` size from `onSize`, and the network-loss "Session ended (timeout)"
+      overlay from `onClosed`.
+      Still polling: `ViewerWindow.cpp:115,183-192`.
 - [x] **Shared Apple connect model.** `client/apple/swift/ConnectModel.swift` owns
       `address` / `isConnecting` / `connectError`, the `lastAddress` `UserDefaults`
       round-trip, and the accept-address step; both `SessionModel`s hold one and the

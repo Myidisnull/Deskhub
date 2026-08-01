@@ -2,6 +2,8 @@ package com.deskhub.app
 
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.view.WindowManager
 import androidx.compose.ui.geometry.Offset
@@ -75,6 +77,49 @@ object NativeClient {
     ): Long
 
     external fun nativeStop(handle: Long)
+
+    interface SessionListener {
+        fun onStatus(
+            line: String,
+            phase: Int,
+        )
+
+        fun onSize(
+            width: Int,
+            height: Int,
+        )
+
+        fun onEnded(reason: String)
+    }
+
+    @Volatile
+    var sessionListener: SessionListener? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @JvmStatic
+    @JvmName("onSessionStatus")
+    internal fun onSessionStatus(
+        line: String,
+        phase: Int,
+    ) {
+        mainHandler.post { sessionListener?.onStatus(line, phase) }
+    }
+
+    @JvmStatic
+    @JvmName("onSessionSize")
+    internal fun onSessionSize(
+        width: Int,
+        height: Int,
+    ) {
+        mainHandler.post { sessionListener?.onSize(width, height) }
+    }
+
+    @JvmStatic
+    @JvmName("onSessionEnded")
+    internal fun onSessionEnded(reason: String) {
+        mainHandler.post { sessionListener?.onEnded(reason) }
+    }
 
     external fun nativeSetSurface(surface: Surface?)
 

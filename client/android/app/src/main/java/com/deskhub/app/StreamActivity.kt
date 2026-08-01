@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -190,23 +191,44 @@ private fun StreamScreen(
     var videoW by remember { mutableIntStateOf(0) }
     var videoH by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(sessionKey) {
+    DisposableEffect(sessionKey) {
         phase = NativeClient.PHASE_IDLE
         statusLine = ""
         endReason = ""
         videoW = 0
         videoH = 0
-        if (!started) return@LaunchedEffect
-        while (true) {
-            phase = NativeClient.nativePhase()
-            statusLine = NativeClient.nativeStatusLine()
-            videoW = NativeClient.nativeVideoWidth()
-            videoH = NativeClient.nativeVideoHeight()
-            if (phase == NativeClient.PHASE_ENDED) {
-                endReason = NativeClient.nativeEndReason()
-                return@LaunchedEffect
+        if (!started) return@DisposableEffect onDispose {}
+        val listener =
+            object : NativeClient.SessionListener {
+                override fun onStatus(
+                    line: String,
+                    phase_: Int,
+                ) {
+                    statusLine = line
+                    phase = phase_
+                }
+
+                override fun onSize(
+                    width: Int,
+                    height: Int,
+                ) {
+                    videoW = width
+                    videoH = height
+                }
+
+                override fun onEnded(reason: String) {
+                    endReason = reason
+                    phase = NativeClient.PHASE_ENDED
+                }
             }
-            delay(500)
+        NativeClient.sessionListener = listener
+        phase = NativeClient.nativePhase()
+        statusLine = NativeClient.nativeStatusLine()
+        videoW = NativeClient.nativeVideoWidth()
+        videoH = NativeClient.nativeVideoHeight()
+        if (phase == NativeClient.PHASE_ENDED) endReason = NativeClient.nativeEndReason()
+        onDispose {
+            if (NativeClient.sessionListener === listener) NativeClient.sessionListener = null
         }
     }
 
