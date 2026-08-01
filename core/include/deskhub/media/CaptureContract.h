@@ -21,6 +21,15 @@ concept CapturedFrameLike = requires(const F& f) {
     { f.meta } -> std::convertible_to<const FrameMeta&>;
 };
 
+template <class Handle>
+struct CapturedFrame {
+    Handle handle{};
+    FrameMeta meta;
+};
+
+static_assert(CapturedFrameLike<CapturedFrame<void*>>,
+    "CapturedFrame must satisfy the shared frame contract for every handle type");
+
 template <class C>
 concept ScreenCaptureLike = requires {
     static_cast<void (C::*)()>(&C::Stop);

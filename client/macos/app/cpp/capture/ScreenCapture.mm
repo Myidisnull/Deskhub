@@ -70,7 +70,7 @@ struct ScreenCapture::Impl {
     if (!pb) return;
 
     MacFrameInfo fi;
-    fi.pixelBuffer = (void*)pb;
+    fi.handle = (void*)pb;
     fi.meta.width = uint32_t(CVPixelBufferGetWidth(pb));
     fi.meta.height = uint32_t(CVPixelBufferGetHeight(pb));
     fi.meta.timestampUs = NowUs();

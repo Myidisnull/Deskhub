@@ -132,6 +132,29 @@ private:
     NetAddr replyAddr_{};
 };
 
+template <class Capture, class Injector, class Encoder>
+struct HostSourceBase : HostSource {
+    HostSourceBase(uint32_t startBps, uint32_t minBps, deskhub::diag::AgentDiagCaps caps)
+        : HostSource(startBps, minBps, caps) {}
+
+    Capture capture;
+    Injector injector;
+
+    std::mutex encMutex;
+    std::unique_ptr<Encoder> encoder;
+
+    bool hasCachedFrame() const {
+        return haveCached_.load(std::memory_order_acquire);
+    }
+
+    void SetCachedFrame(bool present) {
+        haveCached_.store(present, std::memory_order_release);
+    }
+
+private:
+    std::atomic<bool> haveCached_{false};
+};
+
 template <class Pipeline>
 std::unique_ptr<Pipeline> MakeHostSource(HostEngine& engine,
     const deskhub::media::ShareSource& s, uint8_t sourceId) {

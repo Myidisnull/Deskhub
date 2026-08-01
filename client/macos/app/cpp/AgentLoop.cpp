@@ -22,10 +22,11 @@
 
 namespace {
 
-struct SourcePipeline : deskhub::SourcePipelineState {
+using MacSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, VtEncoder>;
+
+struct SourcePipeline : MacSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : deskhub::SourcePipelineState(startBps, minBps,
-              deskhub::diag::AgentDiagCaps{true, false}) {}
+        : MacSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{true, false}) {}
 
     ~SourcePipeline() {
         ReleaseCached();
@@ -33,21 +34,15 @@ struct SourcePipeline : deskhub::SourcePipelineState {
 
     uint32_t displayId = 0;
 
-    ScreenCapture capture;
-    InputInjector injector;
-
-    std::mutex encMutex;
-    std::unique_ptr<VtEncoder> encoder;
     std::function<bool(uint32_t, uint32_t)> ensureEncoderFn;
 
     void* cachedPb = nullptr;
-    std::atomic<bool> haveCached{false};
 
     void ReleaseCached() {
         if (!cachedPb) return;
         CVPixelBufferRelease(static_cast<CVPixelBufferRef>(cachedPb));
         cachedPb = nullptr;
-        haveCached.store(false, std::memory_order_release);
+        SetCachedFrame(false);
     }
 
     void EncodeTimed(void* pb, uint64_t tsUs, bool idr) {
@@ -133,13 +128,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             if (adm.drop) return;
 
             if (p->cachedPb) CVPixelBufferRelease(static_cast<CVPixelBufferRef>(p->cachedPb));
-            p->cachedPb = CVPixelBufferRetain(static_cast<CVPixelBufferRef>(fi.pixelBuffer));
-            p->haveCached.store(p->cachedPb != nullptr, std::memory_order_release);
+            p->cachedPb = CVPixelBufferRetain(static_cast<CVPixelBufferRef>(fi.handle));
+            p->SetCachedFrame(p->cachedPb != nullptr);
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
             if (!p->netReady.load(std::memory_order_acquire)) return;
             if (!p->ensureEncoderFn(adm.encode.width, adm.encode.height)) return;
-            p->EncodeTimed(fi.pixelBuffer, fi.meta.timestampUs, p->forceIdr.exchange(false));
+            p->EncodeTimed(fi.handle, fi.meta.timestampUs, p->forceIdr.exchange(false));
         };
 
         if (!p->capture.Start(p->displayId,
@@ -189,7 +184,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
         SourcePipeline& p = Pipeline(st);
-        if (!p.haveCached.load(std::memory_order_acquire)) return;
+        if (!p.hasCachedFrame()) return;
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (!p.cachedPb || !p.ensureEncoderFn(p.srcW.load(), p.srcH.load())) return;
         p.EncodeTimed(p.cachedPb, nowUs, p.forceIdr.exchange(false));

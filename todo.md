@@ -17,20 +17,22 @@ on a toolchain**:
 - The first pass ran on a macOS machine (macOS, iOS and Android built and tested
   there). A second pass on 2026-08-01 ran on a **Windows** machine: the Windows app
   builds clean, `make test` and `make lint` pass, and the previously-unbuilt Windows
-  edits are verified. What no machine so far has had is **Linux** — anything touching
-  VA-API, libav or the GTK viewer is stuck behind that. The cross-platform items also
-  cannot be half-done from one OS:
-  `HostSourceBase`, the `IVideoEncoder` move and the three `CaptureTypes.h` all change
-  headers the unbuildable clients include, so a partial commit breaks them. Each item
-  names the toolchain it wants.
-- **3 of the 16 are also marked PARTLY DONE** — the reachable platforms are finished
-  and the note says exactly which file still holds the old copy.
-- Four of them (`HostSourceBase`, `PointerLockState`, the last-viewer-closed counter,
-  `CapturedFrame<Handle>`) *could* technically be half-done from macOS alone, since
-  the change would be additive. They were not, and the per-item notes say why: with
-  only one of three backends compilable you would be designing the customization
-  point blind, and for the counter the shared part is three lines of arithmetic while
-  the action at zero differs on every platform.
+  edits are verified. A third pass, also 2026-08-01, ran back on **macOS** and landed
+  the Apple halves described below. What no machine so far has had is **Linux** —
+  anything touching VA-API, libav or the GTK viewer is stuck behind that.
+- **6 of the 16 are marked PARTLY DONE** — the reachable platforms are finished and
+  the note says exactly which file still holds the old copy.
+- The rule for a partial landing is **additive only**: a new shared type that the
+  reachable client adopts, while the unbuildable clients keep their existing copy and
+  compile untouched. `HostSourceBase`, the cached-last-frame slot and
+  `CapturedFrame<Handle>` all met that rule and are now half-landed (macOS adopted,
+  built for arm64 + x86_64). The `IVideoEncoder` move does not — it relocates headers
+  the Windows and Linux backends include, so it stays whole-or-nothing.
+- Two items that *are* additive were still deliberately left alone, and the per-item
+  notes say why: `PointerLockState` would land a `paused` half that macOS has no
+  feature for and a toggle-key constant macOS cannot reach without new FFI machinery
+  larger than the literal it replaces; the last-viewer-closed counter is three lines
+  of arithmetic behind an FFI round-trip that would cost more code than the rule.
 
 The one deliberate skip — Android push-status callbacks under P4-P2 — is **done as of
 2026-08-01**: the Windows machine can run the Android emulator, so the
@@ -103,13 +105,18 @@ the policy tables plus two layers that were shared for the client but not the ag
       only what is special. (~19 LOC x 3)
       Alternative to evaluate: make `SourcePipelineState` declare these as virtuals
       and drop the `std::function` indirection entirely.
-- [ ] **BLOCKED: needs Linux + Windows.** macOS builds here, but all three `AgentLoop`s
-      must move in one commit or the other two stop compiling.
-      **`platform`: `HostSourceBase<Capture, Encoder>`.** Carries
-      `capture` / `injector` / `encMutex` / `encoder`, the two `Pipeline()`
-      down-casters (byte-identical: `linux:49-55`, `macos:59-61`, `windows:67-73`),
-      and the cached-last-frame protocol. Collapses `linux:22-57`,
-      `macos:25-61`, `windows:35-75`.
+- [ ] **PARTLY DONE — macOS adopted; Linux + Windows still hold their own copies.**
+      **`platform`: `HostSourceBase<Capture, Injector, Encoder>`.**
+      Lives in `platform/include/deskhubp/session/HostEngine.h` and carries
+      `capture` / `injector` / `encMutex` / `encoder` — the four members
+      `MakeDefaultSourcePolicy` and `MakeDefaultStatusHooks` already required
+      implicitly, now declared once. `client/macos/app/cpp/AgentLoop.cpp` derives from
+      it; `client/linux/cpp/AgentLoop.cpp:24-39` and
+      `client/windows/cpp/AgentLoop.cpp:37-62` still declare the four by hand and only
+      need their struct heads changed once those toolchains are available.
+      The `Pipeline()` down-casters were left per-client on purpose: routed through a
+      shared `AsPipeline<P>()` every one of the ~15 call sites gets longer, so the
+      three-line file-local alias is the smaller form.
 - [x] **`platform`: generic `source.create`.** `MakeSource<Pipeline>(engine, s, sourceId)`
       sets `sourceId` + `name`; the client assigns only its typed target handle.
       Replaces `linux:81-91`, `macos:96-104`, `windows:122-130`. (~10 LOC x 3)
@@ -123,13 +130,18 @@ the policy tables plus two layers that were shared for the client but not the ag
       `linux:40-46`, `macos:52-58`, `windows:58-64`. `SourceDiag` already owns
       `encMs` (`core/include/deskhub/diag/AgentDiag.h:44`), so put it there.
       (7 LOC x 3)
-- [ ] **BLOCKED: needs Linux + Windows** (rides on `HostSourceBase` above).
+- [ ] **PARTLY DONE — the customization point exists and macOS uses it; Windows and
+      Linux still need adopting.**
       **`platform`: one cached-last-frame mechanism.** Three answers to one
-      requirement: macOS `cachedPb`/`ReleaseCached` (`macos:43-51,127,135-137,158,192-195`),
-      Windows `cachedTex`/`haveCached` (`windows:55-56,194-195,225-239,303-308`),
+      requirement: macOS `cachedPb`/`ReleaseCached`,
+      Windows `cachedTex`/`haveCached` (`windows:55-56,150-151,174-188,234`),
       Linux pushes it into `VaEncoder::EncodeLast`/`haveSourceFrame`
       (`client/linux/cpp/encode/VaEncoder.h:34-38`). The *policy* is identical; only
-      the retain/release primitive differs -> customization point on `HostSourceBase`.
+      the retain/release primitive differs, so `HostSourceBase` owns the flag and its
+      memory ordering (`hasCachedFrame()` / `SetCachedFrame()`) while the handle and
+      its retain/release stay in the derived struct. macOS keeps only `cachedPb` +
+      `ReleaseCached`; Windows drops its `haveCached` atomic the same way, and Linux
+      can report `encoder->haveSourceFrame()` through the same two calls.
 - [ ] **BLOCKED: needs Linux + Windows**, and behaviour-sensitive — a keepalive that
       stops firing is invisible until a viewer times out, so this wants all three
       desktop builds running, not just compiling.
@@ -213,16 +225,19 @@ the policy tables plus two layers that were shared for the client but not the ag
 
 ## P4 — cosmetic / low priority
 
-- [ ] **BLOCKED: needs Linux + Windows** — the three `CaptureTypes.h` must be verified
-      together, and a `CapturedFrameLike` mismatch only shows up as a `static_assert`
-      on the platform you did not build.
+- [ ] **PARTLY DONE — macOS adopted; Linux + Windows are one line each when their
+      toolchains land.**
       **`core`: `CapturedFrame<Handle>` alias template** in
       `core/include/deskhub/media/CaptureContract.h`, so the three `CaptureTypes.h`
-      shrink to one instantiation plus platform extras:
-      `client/linux/cpp/capture/CaptureTypes.h:19-34`,
-      `client/macos/app/cpp/capture/CaptureTypes.h:6-12`,
-      `client/windows/cpp/capture/CaptureTypes.h:10-16`.
-      All three repeat the same `static_assert(CapturedFrameLike<...>, ...)`.
+      shrink to one instantiation plus platform extras. macOS is now
+      `using MacFrameInfo = deskhub::media::CapturedFrame<void*>;` and the frame handle
+      is spelled `handle` rather than `pixelBuffer`. Windows becomes
+      `CapturedFrame<ID3D11Texture2D*>` (`client/windows/cpp/capture/CaptureTypes.h:10-16`,
+      renaming `texture` -> `handle` at its four use sites); Linux derives from
+      `CapturedFrame<const uint8_t*>` and keeps its dma-buf extras
+      (`client/linux/cpp/capture/CaptureTypes.h:19-34`). The per-client
+      `static_assert(CapturedFrameLike<...>, ...)` goes away with each adoption — the
+      template is asserted once in `CaptureContract.h`.
 - [ ] **BLOCKED: needs Linux + Windows.** Note the three injectors already agree on
       behaviour after the P0 fixes above (argument order, release-on-disable); what is
       left is purely that the shared members are declared three times.
@@ -324,6 +339,13 @@ inconsistent adoption, not absence.
       hint strings drift again. Groundwork is already in place: `ViewerTitle.h` owns
       `kViewerLockHint`/`kViewerLockedHint` and `ViewerStatusWithHint`, reachable from
       Swift via `dh_viewer_subtitle`, so only the *state machine* is still triplicated.
+      Re-examined 2026-08-01 and still not worth a macOS-only landing, even though it
+      would be additive: `paused` is a GTK-only feature (`kKeyPauseInput`, F10), so
+      macOS would inherit a half it cannot drive, and the "F9 written three ways" is
+      three *key spaces*, not three spellings of one constant — `VK_F9`,
+      `GDK_KEY_F9`, mac keycode `0x65`. `core` can only own the VK one, and reaching it
+      from Swift needs an FFI accessor bigger than the `kMacKeyCodeF9` literal in
+      `RemoteView.swift` that it would replace.
       **`core`: `PointerLockState`** — `{locked, paused}` + `OnToggleKey()` /
       `OnFocusLost()` / `HintText()`. Three unrelated ~20-LOC state machines:
       `client/windows/win32/ViewerInput.cpp:71-89,115-118,177-179`,
@@ -647,6 +669,10 @@ there compiles into both targets with zero project edits (must build on both SDK
       `macos App.swift:4-7` + `StreamView.swift:31-38`,
       `MainWindow.cpp:370-373` (`openViewers_`), `Viewer.cpp:26,139`
       (`g_openFrames`). Small, but it is a state machine, not view code.
+      Re-examined 2026-08-01: a macOS-only landing would be additive but is still a
+      no, for the reason already used to reject sharing the mobile HUD reactions under
+      P3 — the shared part is `+= 1` / `-= 1` / `<= 0`, and an FFI round-trip to reach
+      it is more code than the rule. It pays off only when all three adopt at once.
 
 ## P3 — mobile HUD rules
 
