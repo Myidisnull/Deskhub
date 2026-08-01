@@ -1,6 +1,7 @@
 #include "deskhub/input/ClientInputQueue.h"
 
 #include "deskhub/input/KeyMap.h"
+#include "deskhub/input/Set1Scancodes.h"
 
 namespace deskhub {
 
@@ -9,7 +10,7 @@ InputEvent ClientInputQueue::KeyEvent(int32_t vk, int32_t scan, bool down, uint6
     e.type = InputType::Key;
     e.timestampUs = nowUs;
     e.a = vk;
-    e.b = scan;
+    e.b = NeedsVirtualKeyInjection(vk) ? 0 : scan;
     e.state = down ? 1 : 0;
     return e;
 }

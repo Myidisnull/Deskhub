@@ -6,6 +6,9 @@
 int main() {
     std::printf("=== core self-test (offline: no network, no GPU) ===\n");
 
+    std::printf("--- wire: big-endian field accessors ---\n");
+    RunByteOrderTests();
+
     std::printf("--- wire ---\n");
     RunWireTests();
 
@@ -39,6 +42,9 @@ int main() {
     std::printf("--- session: open viewer count ---\n");
     RunOpenViewersTests();
 
+    std::printf("--- session: per-source pipeline state defaults ---\n");
+    RunSourcePipelineStateTests();
+
     std::printf("--- input ---\n");
     RunInputTests();
 
@@ -50,6 +56,9 @@ int main() {
 
     std::printf("--- input: shared scancode table lookups ---\n");
     RunScancodeTableTests();
+
+    std::printf("--- input: the vk -> set-1 scancode table as a whole ---\n");
+    RunSet1ScancodeTests();
 
     std::printf("--- input: shared on-screen hotkey bar ---\n");
     RunHotkeysTests();
@@ -105,8 +114,17 @@ int main() {
     std::printf("--- media: view fit (letterbox, zoom/pan, pointer mapping) ---\n");
     RunViewFitTests();
 
+    std::printf("--- media: source names and size labels ---\n");
+    RunSourceLabelTests();
+
+    std::printf("--- media: viewer window title (status + lock hint) ---\n");
+    RunViewerTitleTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
+
+    std::printf("--- ui: shared strings every client shows ---\n");
+    RunStringsTests();
 
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");

@@ -26,7 +26,7 @@ jobs:
             brew install ninja
           fi
 
-      - name: Build + run core tests (make test-ctest)
+      - name: Build + run core and platform tests (make test-ctest)
         run: make test-ctest
 
   coverage:
@@ -68,10 +68,10 @@ jobs:
       - name: Configure
         run: cmake --preset x64-release
 
-      - name: Build (deskhub_app + core_tests)
+      - name: Build (deskhub_app + core_tests + platform_tests)
         run: cmake --build --preset x64-release
 
-      - name: Run core tests (CTest, offline)
+      - name: Run core and platform tests (CTest)
         run: ctest --test-dir out/build/x64-release --output-on-failure
 
       - name: Upload app

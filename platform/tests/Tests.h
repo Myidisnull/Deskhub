@@ -1,0 +1,10 @@
+#pragma once
+void RunNetAddrTests();
+void RunUdpSocketTests();
+void RunClientIdTests();
+void RunClockTests();
+void RunRandomTests();
+void RunLogFileTests();
+void RunFfiTextTests();
+void RunLocalInputGateTests();
+void RunHostCallbackTests();

@@ -1,5 +1,6 @@
 #pragma once
 void RunWireTests();
+void RunByteOrderTests();
 void RunReassemblerTests();
 void RunFecTests();
 void RunRetransmitCacheTests();
@@ -10,10 +11,12 @@ void RunHostFeedbackTests();
 void RunHostRouterTests();
 void RunConnectFlowTests();
 void RunOpenViewersTests();
+void RunSourcePipelineStateTests();
 void RunInputTests();
 void RunPressedInputTests();
 void RunClientInputQueueTests();
 void RunScancodeTableTests();
+void RunSet1ScancodeTests();
 void RunHotkeysTests();
 void RunPointerMapTests();
 void RunPointerLockStateTests();
@@ -32,4 +35,7 @@ void RunRatePlanTests();
 void RunH264EncodeTests();
 void RunQualityPresetTests();
 void RunViewFitTests();
+void RunSourceLabelTests();
+void RunViewerTitleTests();
 void RunBeaconTests();
+void RunStringsTests();

@@ -80,3 +80,34 @@ endif()
 if(ANDROID)
     target_link_libraries(platform PUBLIC log)
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(deskhub_platform_tests_default OFF)
+else()
+    set(deskhub_platform_tests_default ON)
+endif()
+option(DESKHUB_PLATFORM_TESTS "Build platform_tests" ${deskhub_platform_tests_default})
+
+if(DESKHUB_PLATFORM_TESTS)
+    add_executable(platform_tests
+        tests/TestMain.cpp
+        tests/support/TestSupport.cpp
+
+        tests/diag/LogFileTests.cpp
+        tests/ffi/FfiTextTests.cpp
+        tests/input/LocalInputGateTests.cpp
+        tests/net/NetAddrTests.cpp
+        tests/net/UdpSocketTests.cpp
+        tests/session/HostCallbackTests.cpp
+        tests/system/ClockTests.cpp
+        tests/system/RandomTests.cpp
+    )
+    target_link_libraries(platform_tests PRIVATE platform)
+    target_include_directories(platform_tests PRIVATE tests)
+    if(MSVC)
+        target_compile_options(platform_tests PRIVATE /W4 /permissive-)
+    endif()
+
+    include(CTest)
+    add_test(NAME platform_tests COMMAND platform_tests)
+endif()

@@ -15,6 +15,8 @@ Deskhub - no platform is built by default, name the one you want:
 
   Core tests:
     make test            build core_tests and run it offline
+    make test-platform   build platform_tests and run it (loopback sockets, no remote peer)
+    make test-all        both suites, core first
     make test-ctest      the same tests through CTest, as CI runs them
     make coverage        core coverage report via clang + llvm-cov
 

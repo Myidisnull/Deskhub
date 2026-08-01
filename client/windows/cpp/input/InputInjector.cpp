@@ -7,6 +7,7 @@
 
 #include "deskhubp/diag/Log.h"
 #include "deskhub/input/PointerMap.h"
+#include "deskhub/input/Set1Scancodes.h"
 #include "deskhubp/input/LocalInput.h"
 
 #pragma comment(lib, "user32.lib")
@@ -55,7 +56,10 @@ void InputInjector::SendKey(int32_t vk, int32_t scan, bool down) {
     INPUT in{};
     in.type = INPUT_KEYBOARD;
     in.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
-    if (!(scan & 0xFF)) scan = int32_t(MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC));
+    if (deskhub::NeedsVirtualKeyInjection(vk))
+        scan = 0;
+    else if (!(scan & 0xFF))
+        scan = int32_t(MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC));
     if (scan & 0xFF) {
         in.ki.wScan = WORD(scan & 0xFF);
         in.ki.dwFlags |= KEYEVENTF_SCANCODE;

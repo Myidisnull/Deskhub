@@ -71,7 +71,6 @@ constexpr int32_t VkToSet1Scancode(int32_t vk) {
         case kVkSpace: return 0x39;
         case kVkCapital: return 0x3A;
         case kVkNumLock: return 0x45;
-        case kVkPause: return 0x45;
         case kVkScroll: return 0x46;
         case kVkNumpad0 + 0: return 0x52;
         case kVkNumpad0 + 1: return 0x4F;
@@ -102,6 +101,10 @@ constexpr int32_t VkToSet1Scancode(int32_t vk) {
         case kVkApps: return 0x5D | kScanExtended;
         default: return 0;
     }
+}
+
+constexpr bool NeedsVirtualKeyInjection(int32_t vk) {
+    return vk == kVkPause;
 }
 
 }

@@ -6,6 +6,7 @@
 #include "deskhub/media/VideoContract.h"
 
 #include <cstdio>
+#include <cstring>
 
 using namespace deskhub::media;
 
@@ -203,6 +204,12 @@ void RunMediaContractTests() {
     Check(dc.codec == Codec::H264, "DecoderConfig: codec defaults to H264");
     Check(dc.width == 0 && dc.height == 0,
         "DecoderConfig: 0 = unknown, the decoder reads it back from the SPS");
+
+    std::printf("[media] codec names (they end up in logs and in the diag line)...\n");
+    Check(std::strcmp(CodecName(Codec::H264), "H264") == 0, "H264 is spelled the same everywhere");
+    Check(std::strcmp(CodecName(Codec::HEVC), "HEVC") == 0, "HEVC is spelled the same everywhere");
+    Check(std::strcmp(CodecName(Codec::H264), CodecName(Codec::HEVC)) != 0,
+        "the two codecs never read alike in a log");
 
     std::printf("[media] shared present counters (harvested by the client engine)...\n");
     PresentCounters pc;

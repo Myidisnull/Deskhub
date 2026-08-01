@@ -43,6 +43,8 @@
 #   make setup-linux-permissions    udev rule + add the user to the `input` group
 #
 #   make test           build core_tests and run it (offline, no client/GPU needed)
+#   make test-platform  build platform_tests and run it (local only: loopback sockets)
+#   make test-all       both suites, core first
 #   make test-ctest     run through CTest (--output-on-failure) — matches how CI runs it
 #   make coverage       measure core coverage (clang + llvm-cov — works on Windows/macOS/Ubuntu)
 #

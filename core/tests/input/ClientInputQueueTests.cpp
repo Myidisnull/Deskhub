@@ -221,6 +221,33 @@ void TestTapsAreNotTrackedAsHeld() {
     Check(q.pendingDelayed() == 3, "and its own release is still on the way");
 }
 
+void TestPauseIsSentWithoutAScancode() {
+    std::printf(
+        "[cinput] Pause travels as a virtual key, so the host does not hear "
+        "NumLock...\n");
+    ClientInputQueue q;
+
+    q.Key(kVkPause, 0x45, true, kT0);
+    q.Key(kVkPause, 0x45, false, kT0 + 1);
+    const auto batch = Drain(q, kT0 + 2);
+    Check(batch.size() == 2, "both halves of the press come out");
+    Check(IsKey(batch[0], kVkPause, 0, true) && IsKey(batch[1], kVkPause, 0, false),
+        "a scancode a viewer guessed for Pause is dropped before it reaches the host");
+
+    q.KeyTap(kVkPause, 0x1D, kT0);
+    const auto tap = Drain(q, kT0);
+    Check(tap.size() == 1 && IsKey(tap[0], kVkPause, 0, true),
+        "the same holds for a tap from the on-screen key bar");
+    const auto release = Drain(q, kT0 + kTapHoldUs);
+    Check(release.size() == 1 && IsKey(release[0], kVkPause, 0, false),
+        "and for its delayed release, so the key does not stay down");
+
+    q.Key('A', 30, true, kT0);
+    const auto ordinary = Drain(q, kT0);
+    Check(ordinary.size() == 1 && IsKey(ordinary[0], 'A', 30, true),
+        "every other key keeps the scancode the viewer measured");
+}
+
 }
 
 void RunClientInputQueueTests() {
@@ -235,4 +262,5 @@ void RunClientInputQueueTests() {
     TestCharTap();
     TestDelayedEventsSurviveOutOfOrderDrains();
     TestTapsAreNotTrackedAsHeld();
+    TestPauseIsSentWithoutAScancode();
 }

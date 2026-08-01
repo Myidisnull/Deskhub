@@ -56,6 +56,7 @@ if(DESKHUB_CORE_TESTS)
         tests/TestMain.cpp
         tests/support/TestSupport.cpp
 
+        tests/protocol/ByteOrderTests.cpp
         tests/protocol/WireTests.cpp
 
         tests/transport/ReassemblerTests.cpp
@@ -69,11 +70,13 @@ if(DESKHUB_CORE_TESTS)
         tests/session/HostRouterTests.cpp
         tests/session/ConnectFlowTests.cpp
         tests/session/OpenViewersTests.cpp
+        tests/session/SourcePipelineStateTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp
         tests/input/ClientInputQueueTests.cpp
         tests/input/ScancodeTableTests.cpp
+        tests/input/Set1ScancodeTests.cpp
         tests/input/HotkeysTests.cpp
         tests/input/PointerMapTests.cpp
         tests/input/PointerLockStateTests.cpp
@@ -95,8 +98,12 @@ if(DESKHUB_CORE_TESTS)
         tests/media/H264EncodeTests.cpp
         tests/media/QualityPresetTests.cpp
         tests/media/ViewFitTests.cpp
+        tests/media/SourceLabelTests.cpp
+        tests/media/ViewerTitleTests.cpp
 
         tests/session/BeaconTests.cpp
+
+        tests/ui/StringsTests.cpp
     )
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)
