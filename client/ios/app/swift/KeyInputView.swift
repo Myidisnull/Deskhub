@@ -138,7 +138,7 @@ final class KeyCaptureUIView: UIView, UIKeyInput {
 
     private func chordScalar(for key: UIKey) -> Unicode.Scalar? {
         let held: UIKeyModifierFlags = [.control, .command, .alternate]
-        guard !key.modifierFlags.intersection(held).isEmpty else { return nil }
+        guard !key.modifierFlags.isDisjoint(with: held) else { return nil }
         guard let scalar = key.charactersIgnoringModifiers.unicodeScalars.first,
               scalar.value >= 0x20 else { return nil }
         return scalar
