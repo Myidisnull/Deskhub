@@ -2,6 +2,8 @@ ifeq ($(UNAME),Darwin)
 IOS_PROJ   := client/ios/Deskhub.xcodeproj
 IOS_OUT    := $(CURDIR)/out/build/ios
 IOS_BUNDLE := com.ios.deskhub
+IOS_APP    := out/build/ios/Debug-iphonesimulator/app.app
+IOS_DEVICE ?=
 
 build-ios:
 	xcodebuild -project $(IOS_PROJ) -target app -configuration Debug -sdk iphonesimulator SYMROOT=$(IOS_OUT) build
@@ -10,10 +12,21 @@ release-ios:
 	xcodebuild -project $(IOS_PROJ) -target app -configuration Release -sdk iphonesimulator SYMROOT=$(IOS_OUT) build
 
 run-ios: build-ios
-	open -a Simulator
-	xcrun simctl bootstatus booted -b
-	xcrun simctl install booted out/build/ios/Debug-iphonesimulator/app.app
-	xcrun simctl launch booted $(IOS_BUNDLE)
+	@udid="$(IOS_DEVICE)"; \
+	if [ -z "$$udid" ]; then \
+		udid=$$(xcrun simctl list devices booted | grep -oE '[0-9A-F-]{36}' | head -1); \
+	fi; \
+	if [ -z "$$udid" ]; then \
+		udid=$$(xcrun simctl list devices available | grep -E '^ +iPhone' | grep -oE '[0-9A-F-]{36}' | head -1); \
+	fi; \
+	if [ -z "$$udid" ]; then \
+		echo "make run-ios: no iPhone simulator available"; exit 1; \
+	fi; \
+	xcrun simctl boot "$$udid" 2>/dev/null || true; \
+	open -a Simulator --args -CurrentDeviceUDID "$$udid"; \
+	xcrun simctl bootstatus "$$udid" -b; \
+	xcrun simctl install "$$udid" $(IOS_APP); \
+	xcrun simctl launch "$$udid" $(IOS_BUNDLE)
 else
 build-ios release-ios run-ios:
 	@echo "make $@: needs macOS + Xcode"; exit 1
