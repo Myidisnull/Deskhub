@@ -167,7 +167,7 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
 
     if (ApiInformation::IsPropertyPresent(
             L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsCursorCaptureEnabled")) {
-        impl_->session.IsCursorCaptureEnabled(false);
+        impl_->session.IsCursorCaptureEnabled(true);
     }
     if (ApiInformation::IsPropertyPresent(
             L"Windows.Graphics.Capture.GraphicsCaptureSession", L"IsBorderRequired")) {

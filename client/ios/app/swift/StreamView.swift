@@ -39,6 +39,7 @@ struct StreamView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .background:
+                model.releaseAllInput()
                 releaseLayer()
             case .active:
                 if let layer {

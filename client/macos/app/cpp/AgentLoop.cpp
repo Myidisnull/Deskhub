@@ -46,8 +46,11 @@ struct SourcePipeline : MacSourceBase {
     }
 
     void EncodeTimed(void* pb, uint64_t tsUs, bool idr) {
-        deskhubp::DiagEncode(*this, idr,
+        const bool ok = deskhubp::DiagEncode(*this, idr,
             [this, pb, tsUs, idr] { return encoder->Encode(pb, tsUs, idr); });
+        if (ok) return;
+        encoder.reset();
+        forceIdr.store(true);
     }
 };
 
@@ -188,7 +191,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (!p.cachedPb || !p.ensureEncoderFn(p.srcW.load(), p.srcH.load())) return;
         p.EncodeTimed(p.cachedPb, nowUs, p.forceIdr.exchange(false));
-        p.encoder->Flush();
+        if (p.encoder) p.encoder->Flush();
     };
 
     return engine_.Start(sources, opt, std::move(policy));

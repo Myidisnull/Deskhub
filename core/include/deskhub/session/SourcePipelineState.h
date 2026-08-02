@@ -51,6 +51,7 @@ struct SourcePipelineState {
     bool shutdownDone = false;
 
     std::atomic<uint64_t> peerPacked{0};
+    std::atomic<uint64_t> replyPacked{0};
     std::atomic<uint64_t> bytesSent{0}, framesSent{0};
     std::atomic<uint32_t> captured{0};
     std::atomic<uint32_t> nextFrameId{0};

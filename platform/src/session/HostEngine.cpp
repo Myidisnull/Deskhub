@@ -70,8 +70,10 @@ void HostEngine::AttachSession(HostSource& st) {
 
     HostSessionHooks hooks;
     hooks.fps = opt_.fps;
-    hooks.send = [this](std::span<const uint8_t> d) {
-        sock_.SendTo(replyAddr_, d.data(), d.size());
+    hooks.send = [this, p](std::span<const uint8_t> d) {
+        const uint64_t packed = p->replyPacked.load(std::memory_order_acquire);
+        if (!packed) return;
+        sock_.SendTo(NetAddr::Unpack(packed), d.data(), d.size());
     };
     hooks.sendToPeer = [this, p](std::span<const uint8_t> d) {
         sock_.SendTo(NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire)), d.data(),
@@ -201,7 +203,6 @@ void HostEngine::RecvLoop() {
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
-    loop.onPeerDatagram = [this](const NetAddr& from) { replyAddr_ = from; };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;

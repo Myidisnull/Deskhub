@@ -36,6 +36,7 @@ AcceptedDatagram AcceptDatagram(std::span<SourcePipelineState* const> live,
 
     SourcePipelineState* dst = RouteDatagram(live, *header, pkt);
     if (!dst || dst->failed.load(std::memory_order_acquire)) return out;
+    dst->replyPacked.store(packedFrom, std::memory_order_release);
     if (!dst->session || !dst->session->HandlePacket(pkt, nowUs)) return out;
 
     out.target = dst;

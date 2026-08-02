@@ -121,8 +121,14 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             if (!ensureEncoder(adm.encode.width, adm.encode.height)) return;
             const bool idr = p->forceIdr.exchange(false);
             VaEncoder* enc = p->encoder.get();
-            deskhubp::DiagEncode(*p, idr,
+            const bool ok = deskhubp::DiagEncode(*p, idr,
                 [enc, &fi, idr] { return enc->Encode(fi, fi.meta.timestampUs, idr); });
+            if (!ok) {
+                p->encoder.reset();
+                p->SetCachedFrame(false);
+                p->forceIdr.store(true);
+                return;
+            }
             p->SetCachedFrame(enc->haveSourceFrame());
         };
 
@@ -172,7 +178,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         if (!p.encoder || !p.hasCachedFrame()) return;
         const bool idr = p.forceIdr.exchange(false);
         VaEncoder* enc = p.encoder.get();
-        deskhubp::DiagEncode(p, idr, [enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); });
+        const bool ok = deskhubp::DiagEncode(p, idr,
+            [enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); });
+        if (!ok) {
+            p.encoder.reset();
+            p.SetCachedFrame(false);
+            p.forceIdr.store(true);
+        }
     };
 
     return engine_.Start(sources, opt, std::move(policy));

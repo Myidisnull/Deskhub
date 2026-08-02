@@ -99,6 +99,8 @@ bool dh_native_key_to_vk(int32_t native_key_code, int32_t* out_vk, int32_t* out_
 
 DHModifier dh_modifier_class(int32_t vk);
 
+int32_t dh_vk_scancode(int32_t vk);
+
 bool dh_parse_address(const char* address);
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);

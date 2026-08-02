@@ -31,18 +31,22 @@ bool WinVideoDecoder::Init(WinRenderTarget target, int width, int height) {
 void WinVideoDecoder::Shutdown() {
     decoder_.reset();
     counters_.Reset();
+    renderFailed_.store(false, std::memory_order_release);
 }
 
 bool WinVideoDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     if (!decoder_) return false;
-    return decoder_->Decode(nal, len, ptsUs);
+    if (!decoder_->Decode(nal, len, ptsUs)) return false;
+    return !renderFailed_.exchange(false, std::memory_order_acq_rel);
 }
 
 void WinVideoDecoder::OnDecoded(const DecodedFrame& frame) {
     uint64_t readyUs = 0;
     if (!target_.renderer->RenderNV12(frame.texture, frame.subresource, frame.width,
-            frame.height, &readyUs))
+            frame.height, &readyUs)) {
+        renderFailed_.store(true, std::memory_order_release);
         return;
+    }
 
     const uint64_t nowUs = NowUs();
     if (readyUs) counters_.RecordPresentDelayMs(uint32_t((nowUs - readyUs) / 1000));

@@ -17,6 +17,7 @@ final class RemoteVideoView: NSView {
 
     private var trackingArea: NSTrackingArea?
     private var lastFlags: NSEvent.ModifierFlags = []
+    private var scrollCarry: Double = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -164,8 +165,16 @@ final class RemoteVideoView: NSView {
     override func mouseUp(with _: NSEvent) { button(.left, down: false) }
     override func rightMouseDown(with _: NSEvent) { button(.right, down: true) }
     override func rightMouseUp(with _: NSEvent) { button(.right, down: false) }
-    override func otherMouseDown(with _: NSEvent) { button(.middle, down: true) }
-    override func otherMouseUp(with _: NSEvent) { button(.middle, down: false) }
+    override func otherMouseDown(with event: NSEvent) { button(otherButton(event), down: true) }
+    override func otherMouseUp(with event: NSEvent) { button(otherButton(event), down: false) }
+
+    private func otherButton(_ event: NSEvent) -> MouseButton {
+        switch event.buttonNumber {
+        case 3: .x1
+        case 4: .x2
+        default: .middle
+        }
+    }
 
     private func button(_ btn: MouseButton, down: Bool) {
         if down { window?.makeFirstResponder(self) }
@@ -173,7 +182,12 @@ final class RemoteVideoView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        let raw = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 10 : event.scrollingDeltaY
+        if event.hasPreciseScrollingDeltas {
+            let notches = dh_take_scroll_notches(Double(event.scrollingDeltaY), &scrollCarry)
+            if notches != 0 { model?.mouseWheelNotches(notches) }
+            return
+        }
+        let raw = event.scrollingDeltaY
         guard raw != 0 else { return }
         let notches = max(1, Int32(abs(raw).rounded()))
         model?.mouseWheelNotches(raw > 0 ? notches : -notches)

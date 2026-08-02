@@ -57,8 +57,11 @@ struct SourcePipeline : WinSourceBase {
     }
 
     void EncodeTimed(ID3D11Texture2D* tex, bool idr) {
-        deskhubp::DiagEncode(*this, idr,
+        const bool ok = deskhubp::DiagEncode(*this, idr,
             [this, tex, idr] { return encoder->Encode(tex, NowUs(), idr); });
+        if (ok) return;
+        encoder.reset();
+        forceIdr.store(true);
     }
 };
 

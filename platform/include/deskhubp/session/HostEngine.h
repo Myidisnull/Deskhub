@@ -129,7 +129,6 @@ private:
     deskhub::Beacon beacon_;
 
     uint32_t startBitrateBps_ = 0;
-    NetAddr replyAddr_{};
 };
 
 template <class Capture, class Injector, class Encoder>
@@ -192,12 +191,13 @@ SourceStatusHooks MakeDefaultStatusHooks() {
 }
 
 template <class Fn>
-void DiagEncode(HostSource& st, bool idr, Fn&& encode) {
+bool DiagEncode(HostSource& st, bool idr, Fn&& encode) {
     const uint64_t t0 = NowUs();
     const bool ok = std::forward<Fn>(encode)();
     const uint32_t ms = uint32_t((NowUs() - t0) / 1000);
     st.diag.encMs.Add(ms);
     if (!ok) LOGW("[DIAG][%s] evt=enc_fail idr=%d ms=%u", st.name.c_str(), idr ? 1 : 0, ms);
+    return ok;
 }
 
 }

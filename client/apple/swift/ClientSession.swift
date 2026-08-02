@@ -11,6 +11,8 @@ nonisolated enum MouseButton: Int32, Sendable {
     case left = 1
     case right = 2
     case middle = 3
+    case x1 = 4
+    case x2 = 5
 }
 
 struct Source: Identifiable, Sendable, Hashable {

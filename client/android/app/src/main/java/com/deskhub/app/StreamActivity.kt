@@ -158,13 +158,17 @@ class StreamActivity : ComponentActivity() {
 
     private fun switchSource(sourceId: Int) {
         if (sourceId == currentSourceId) return
-        if (session != 0L) NativeClient.nativeStop(session)
+        if (session != 0L) {
+            NativeClient.releaseAllInput()
+            NativeClient.nativeStop(session)
+        }
         currentSourceId = sourceId
         session = NativeClient.nativeStart(address, sourceId, screenPx.first, screenPx.second)
     }
 
     override fun onStop() {
         super.onStop()
+        if (session != 0L) NativeClient.releaseAllInput()
         if (!isFinishing && !isChangingConfigurations) finish()
     }
 
@@ -379,8 +383,12 @@ private fun StreamScreen(
                 AndroidView(
                     factory = { ctx ->
                         KeyInputView(ctx)
-                            .apply { onChar = { cp -> NativeClient.charTap(cp) } }
-                            .also { keyView = it }
+                            .apply {
+                                onChar = { cp -> NativeClient.charTap(cp) }
+                                onKey = { vk, down ->
+                                    NativeClient.key(vk, NativeClient.vkScancode(vk), down)
+                                }
+                            }.also { keyView = it }
                     },
                     modifier = Modifier.size(1.dp),
                 )

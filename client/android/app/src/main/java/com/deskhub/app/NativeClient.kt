@@ -134,6 +134,8 @@ object NativeClient {
         down: Boolean,
     )
 
+    private external fun nativeVkScancode(vk: Int): Int
+
     private external fun nativeKeyTap(
         vk: Int,
         scan: Int,
@@ -181,6 +183,8 @@ object NativeClient {
     ) {
         nativeKey(vk, scan, down)
     }
+
+    fun vkScancode(vk: Int): Int = nativeVkScancode(vk)
 
     fun keyTap(
         vk: Int,

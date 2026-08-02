@@ -84,4 +84,63 @@ final class KeyCaptureUIView: UIView, UIKeyInput {
     func deleteBackward() {
         model?.charTap(0x08)
     }
+
+    private static let hidToVk: [UIKeyboardHIDUsage: Int32] = [
+        .keyboardEscape: 0x1B,
+        .keyboardLeftArrow: 0x25, .keyboardUpArrow: 0x26,
+        .keyboardRightArrow: 0x27, .keyboardDownArrow: 0x28,
+        .keyboardHome: 0x24, .keyboardEnd: 0x23,
+        .keyboardPageUp: 0x21, .keyboardPageDown: 0x22,
+        .keyboardInsert: 0x2D, .keyboardDeleteForward: 0x2E,
+        .keyboardF1: 0x70, .keyboardF2: 0x71, .keyboardF3: 0x72, .keyboardF4: 0x73,
+        .keyboardF5: 0x74, .keyboardF6: 0x75, .keyboardF7: 0x76, .keyboardF8: 0x77,
+        .keyboardF9: 0x78, .keyboardF10: 0x79, .keyboardF11: 0x7A, .keyboardF12: 0x7B,
+        .keyboardLeftShift: 0xA0, .keyboardRightShift: 0xA1,
+        .keyboardLeftControl: 0xA2, .keyboardRightControl: 0xA3,
+        .keyboardLeftAlt: 0xA4, .keyboardRightAlt: 0xA5,
+        .keyboardLeftGUI: 0x5B, .keyboardRightGUI: 0x5C,
+    ]
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = handlePresses(presses, down: true)
+        if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = handlePresses(presses, down: false)
+        if !unhandled.isEmpty { super.pressesEnded(unhandled, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = handlePresses(presses, down: false)
+        if !unhandled.isEmpty { super.pressesCancelled(unhandled, with: event) }
+    }
+
+    private func handlePresses(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
+        var unhandled = Set<UIPress>()
+        for press in presses {
+            guard let key = press.key else {
+                unhandled.insert(press)
+                continue
+            }
+            if let vk = Self.hidToVk[key.keyCode] {
+                model?.key(vk: vk, scan: dh_vk_scancode(vk), down: down)
+                continue
+            }
+            if down, let scalar = chordScalar(for: key) {
+                model?.charTap(scalar.value)
+                continue
+            }
+            unhandled.insert(press)
+        }
+        return unhandled
+    }
+
+    private func chordScalar(for key: UIKey) -> Unicode.Scalar? {
+        let held: UIKeyModifierFlags = [.control, .command, .alternate]
+        guard !key.modifierFlags.intersection(held).isEmpty else { return nil }
+        guard let scalar = key.charactersIgnoringModifiers.unicodeScalars.first,
+              scalar.value >= 0x20 else { return nil }
+        return scalar
+    }
 }

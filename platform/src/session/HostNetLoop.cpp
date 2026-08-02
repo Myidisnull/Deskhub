@@ -173,7 +173,6 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
             } else {
                 const deskhub::AcceptedDatagram acc =
                     deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);
-                if (acc.parsed && hooks.onPeerDatagram) hooks.onPeerDatagram(from);
                 if (acc.peerChanged)
                     LOGI("[Agent][%s] Peer: %s", acc.target->name.c_str(),
                         from.ToString().c_str());

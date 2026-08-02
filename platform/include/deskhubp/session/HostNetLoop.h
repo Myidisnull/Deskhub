@@ -40,7 +40,6 @@ struct HostSourceHooks {
 
 struct HostNetLoopHooks {
     std::function<bool()> stopped;
-    std::function<void(const NetAddr& from)> onPeerDatagram;
     std::function<void()> publishStatus;
     std::function<void()> onSocketError;
 

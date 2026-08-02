@@ -149,6 +149,31 @@ void TestAcceptDatagramDoesTheWholeIntake() {
     Check(b->peerPacked.load() == kPeer, "and keeps the peer it had");
 }
 
+void TestReplyAddressIsStampedBeforeTheSessionReplies() {
+    std::printf("[router] the reply address is the sender's, stamped before any reply...\n");
+    constexpr uint64_t kPeer = 0xC0A80009'0000ULL;
+    auto p = MakePipe(0);
+
+    uint64_t replySeenAtSendTime = 0;
+    HostCallbacks cb;
+    cb.send = [&](std::span<const uint8_t>) {
+        replySeenAtSendTime = p->replyPacked.load();
+    };
+    cb.randomBytes = TestRandomBytes;
+    p->session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+    SourcePipelineState* live[] = {p.get()};
+
+    const Datagram hello = BuildHelloFor(0);
+    const AcceptedDatagram acc = AcceptDatagram(live, hello, kPeer, kT0);
+    Check(acc.target == p.get(), "the HELLO reached its source");
+    Check(replySeenAtSendTime == kPeer,
+        "the HELLO_ACK went back to the sender of this very datagram");
+
+    constexpr uint64_t kOther = 0xC0A8000A'0000ULL;
+    AcceptDatagram(live, hello, kOther, kT0 + 1);
+    Check(replySeenAtSendTime == kOther, "a retry from a new address is answered there");
+}
+
 void TestOfferRefreshNeedsAReason() {
     std::printf("[router] nothing is re-offered unless size or quality actually changed...\n");
     auto p = MakePipe(0);
@@ -416,6 +441,7 @@ void RunHostRouterTests() {
     TestSessionTrafficRoutesBySessionId();
     TestAdoptPeerReportsOnlyChanges();
     TestAcceptDatagramDoesTheWholeIntake();
+    TestReplyAddressIsStampedBeforeTheSessionReplies();
     TestOfferRefreshNeedsAReason();
     TestPausedSourceStillClearsItsFlags();
     TestReconfigOnlyWithAStreamingPeer();

@@ -2,6 +2,7 @@
 
 #include "deskhub/input/Hotkeys.h"
 #include "deskhub/input/PointerLockState.h"
+#include "deskhub/input/Set1Scancodes.h"
 #include "deskhub/input/VirtualKeys.h"
 #include "deskhub/input/TrackpadCursor.h"
 #include "deskhub/media/SourceLabel.h"
@@ -218,6 +219,10 @@ DHModifier dh_modifier_class(int32_t vk) {
         case deskhub::ModifierKey::None: return DHModifierNone;
     }
     return DHModifierNone;
+}
+
+int32_t dh_vk_scancode(int32_t vk) {
+    return deskhub::VkToSet1Scancode(vk);
 }
 
 DHPointerLockEffect dh_pointer_toggle_lock(DHPointerLock* state) {

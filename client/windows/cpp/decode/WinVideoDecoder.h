@@ -63,6 +63,7 @@ private:
     WinRenderTarget target_{};
     std::unique_ptr<IVideoDecoder> decoder_;
     deskhub::media::PresentCounters counters_;
+    std::atomic<bool> renderFailed_{false};
 };
 
 static_assert(deskhub::media::EngineDecoder<WinVideoDecoder, WinRenderTarget>,

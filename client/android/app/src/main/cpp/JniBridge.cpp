@@ -265,6 +265,11 @@ Java_com_deskhub_app_NativeClient_nativeKey(JNIEnv*, jobject, jint vk, jint scan
     dh_session_key(g_session, int32_t(vk), int32_t(scan), down == JNI_TRUE);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeVkScancode(JNIEnv*, jobject, jint vk) {
+    return jint(dh_vk_scancode(int32_t(vk)));
+}
+
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeKeyTap(JNIEnv*, jobject, jint vk, jint scan) {
     dh_session_key_tap(g_session, int32_t(vk), int32_t(scan));
