@@ -28,6 +28,20 @@ desktop tools can't pull off.
 | **Ubuntu** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — verified between two machines over LAN |
 | **Web** | — | 📐 | Designed (QUIC/WebTransport + WASM), not yet implemented |
 
+## 🔒 Before you share a screen
+
+> **⚠️ Deskhub has no password and no encryption of its own. Anyone who can reach UDP
+> 47777 on a sharing machine gets full mouse and keyboard control of it.**
+>
+> Run it on a **network you trust**, or over a **VPN** — install
+> [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z`
+> address. **Never port-forward UDP 47777**, and don't share your screen on café,
+> hotel, office or any other shared Wi-Fi.
+
+That is the whole security model: Deskhub borrows its encryption and its identity check
+from the layer underneath it. Read [`SECURITY.md`](SECURITY.md) for the full threat
+model, what is and isn't protected, and how to report a vulnerability.
+
 ## 🚀 Get it
 
 **🪟 Windows & 🍎 macOS** — grab a single `.exe` / `.dmg` from
@@ -77,8 +91,9 @@ or join the Play beta — three steps, **same Google account** as your phone's P
 
 **Using it:** on desktop, **Share** picks the display(s) to expose; **Connect** takes the
 other machine's IP (port is always UDP 47777) — whoever connects gets mouse and keyboard,
-there is no view-only mode. Over the Internet: run [Tailscale](https://tailscale.com) on
-both machines and use the 100.x.y.z IP. On mobile the video frame is a trackpad:
+with no password asked and no view-only mode, so only share on a network you trust.
+Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
+100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:
 drag = move, tap = click, hold-drag = drag, **Keys** = virtual keyboard.
 
 Build from source: `make bootstrap` then `make build-<os>` — every target is documented

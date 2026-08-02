@@ -106,8 +106,12 @@ permission, it will be requested in-context and this policy will be updated.
 - Streaming traffic stays inside your own network or your own VPN tunnel.
   When you use a VPN such as Tailscale, traffic between devices is end-to-end
   encrypted by that VPN (WireGuard).
-- On a plain local network, traffic is not additionally encrypted by Deskhub;
-  use it only on networks you trust, or through a VPN.
+- On a plain local network, traffic is not additionally encrypted by Deskhub,
+  and a sharing machine asks for no password before accepting a connection.
+  Use it only on networks you trust, or through a VPN, and never expose it to
+  the Internet directly. The full threat model — what is protected, what is
+  not, and how to report a vulnerability — is in
+  [`SECURITY.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
 - Because we hold no data about you, there is no developer-side database that
   could be breached.
 
