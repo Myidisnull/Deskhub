@@ -47,7 +47,7 @@ public:
     WindowCount sendFail;
     WindowMax burstMs;
 
-    void LatchIdr(uint64_t bytes, uint32_t pkts, uint32_t burstMs);
+    void LatchIdr(uint64_t bytes, uint32_t pkts, uint32_t burst);
 
     const char* FormatIdr(char* buf, size_t cap, const char* name);
 

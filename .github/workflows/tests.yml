@@ -94,12 +94,14 @@ jobs:
 
   android-tests:
     name: android · ${{ matrix.abi }}
+    # Google ships no aarch64-Linux emulator, so arm64-v8a is cross-compiled for
+    # the compile coverage and never booted. x86_64 is the ABI that actually runs.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    abi: x86_64 }
-          - { os: ubuntu-24.04-arm, abi: arm64-v8a }
+          - { os: ubuntu-latest, abi: x86_64,    emulator: true }
+          - { os: ubuntu-latest, abi: arm64-v8a, emulator: false }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -133,35 +135,24 @@ jobs:
             --target core_tests platform_tests integration_tests
 
       - name: Enable KVM for the emulator
+        if: matrix.emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # The action feeds `script` to the shell one line at a time, so the loop
+      # has to live in a file rather than inline here.
       - name: Run them on an emulator
+        if: matrix.emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 30
           arch: ${{ matrix.abi }}
           target: default
           disable-animations: true
-          script: |
-            adb wait-for-device
-            adb shell mkdir -p /data/local/tmp/deskhub
-            build=out/build/android-${{ matrix.abi }}
-            for t in core_tests platform_tests integration_tests; do
-              case $t in
-                core_tests)        src=$build/core/$t ;;
-                platform_tests)    src=$build/platform/$t ;;
-                integration_tests) src=$build/tests/integration/$t ;;
-              esac
-              adb push "$src" /data/local/tmp/deskhub/$t
-              adb shell chmod 755 /data/local/tmp/deskhub/$t
-              echo "===== $t on Android (${{ matrix.abi }}) ====="
-              adb shell "cd /data/local/tmp/deskhub && ./$t; echo EXIT=\$?" | tee /tmp/$t.log
-              grep -q "EXIT=0" /tmp/$t.log || { echo "::error::$t failed on Android ${{ matrix.abi }}"; exit 1; }
-            done
+          script: scripts/run-android-tests.sh ${{ matrix.abi }}
 
   ios-tests:
     runs-on: macos-latest

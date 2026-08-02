@@ -79,7 +79,7 @@ void main() {
 }
 )";
 
-std::string ShaderHeader(bool fragment) {
+const char* ShaderHeader(bool fragment) {
     if (epoxy_is_desktop_gl()) return "#version 150\n";
     return fragment ? "#version 300 es\nprecision mediump float;\n" : "#version 300 es\n";
 }
@@ -103,10 +103,10 @@ AVFrame* CopyToSystemMemory(AVFrame* src) {
     return dst;
 }
 
-unsigned CompileShader(GLenum type, const std::string& src) {
+unsigned CompileShader(GLenum type, const char* header, const char* body) {
     const unsigned id = glCreateShader(type);
-    const char* p = src.c_str();
-    glShaderSource(id, 1, &p, nullptr);
+    const char* parts[] = {header, body};
+    glShaderSource(id, 2, parts, nullptr);
     glCompileShader(id);
     GLint ok = 0;
     glGetShaderiv(id, GL_COMPILE_STATUS, &ok);
@@ -201,8 +201,8 @@ void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
 bool VideoRenderer::Realize() {
     if (glReady_) return true;
 
-    const unsigned vs = CompileShader(GL_VERTEX_SHADER, ShaderHeader(false) + kVertexBody);
-    const unsigned fs = CompileShader(GL_FRAGMENT_SHADER, ShaderHeader(true) + kFragmentBody);
+    const unsigned vs = CompileShader(GL_VERTEX_SHADER, ShaderHeader(false), kVertexBody);
+    const unsigned fs = CompileShader(GL_FRAGMENT_SHADER, ShaderHeader(true), kFragmentBody);
     if (!vs || !fs) {
         if (vs) glDeleteShader(vs);
         if (fs) glDeleteShader(fs);

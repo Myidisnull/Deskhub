@@ -1,5 +1,7 @@
 #include "deskhub/media/H264Sps.h"
 
+#include <cstring>
+
 #include "deskhub/media/AnnexB.h"
 #include "deskhub/media/BitWriter.h"
 
@@ -186,6 +188,13 @@ void WriteZeroReorderVui(BitWriter& w, uint32_t maxDecFrameBuffering) {
     w.UE(maxDecFrameBuffering);
 }
 
+void AppendBytes(std::vector<uint8_t>& out, std::span<const uint8_t> bytes) {
+    if (bytes.empty()) return;
+    const size_t at = out.size();
+    out.resize(at + bytes.size());
+    std::memcpy(out.data() + at, bytes.data(), bytes.size());
+}
+
 }
 
 std::vector<uint8_t> AnnexBSpsWithZeroReorder(std::span<const uint8_t> spsNal) {
@@ -225,8 +234,8 @@ std::vector<uint8_t> AnnexBStreamWithZeroReorder(std::span<const uint8_t> annexb
             const std::vector<uint8_t> sps =
                 AnnexBSpsWithZeroReorder(annexb.subspan(nalStart, nalEnd - nalStart));
             if (!sps.empty()) {
-                out.insert(out.end(), annexb.begin() + copiedTo, annexb.begin() + at);
-                out.insert(out.end(), sps.begin(), sps.end());
+                AppendBytes(out, annexb.subspan(copiedTo, at - copiedTo));
+                AppendBytes(out, sps);
                 copiedTo = nalEnd;
             }
         }
@@ -234,7 +243,7 @@ std::vector<uint8_t> AnnexBStreamWithZeroReorder(std::span<const uint8_t> annexb
     }
 
     if (out.empty()) return {};
-    out.insert(out.end(), annexb.begin() + copiedTo, annexb.end());
+    AppendBytes(out, annexb.subspan(copiedTo));
     return out;
 }
 

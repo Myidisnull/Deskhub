@@ -46,9 +46,9 @@ void Append(char*& p, char* end, const char* fmt, ...) {
 
 }
 
-void SourceDiag::LatchIdr(uint64_t bytes, uint32_t pkts, uint32_t burstMs) {
+void SourceDiag::LatchIdr(uint64_t bytes, uint32_t pkts, uint32_t burst) {
     idrPkts_.store(pkts, std::memory_order_relaxed);
-    idrBurstMs_.store(burstMs, std::memory_order_relaxed);
+    idrBurstMs_.store(burst, std::memory_order_relaxed);
     idrBytes_.store(bytes, std::memory_order_release);
 }
 

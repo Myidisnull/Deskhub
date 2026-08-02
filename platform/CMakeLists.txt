@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(NOT COMMAND deskhub_target_warnings)
+    include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)
+endif()
+
 if(WIN32)
     set(deskhub_platform_os
         src/net/UdpSocketWin.cpp

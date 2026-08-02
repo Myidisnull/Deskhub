@@ -55,7 +55,7 @@ void VtDecoder::Shutdown() {
     }
     if (layer_) {
         AVSampleBufferDisplayLayer* l = (__bridge AVSampleBufferDisplayLayer*)layer_;
-        [l flush];
+        [l.sampleBufferRenderer flush];
         layer_ = nullptr;
     }
     spsLen_ = ppsLen_ = 0;
@@ -156,22 +156,23 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
     }
 
     AVSampleBufferDisplayLayer* l = (__bridge AVSampleBufferDisplayLayer*)layer_;
+    AVSampleBufferVideoRenderer* r = l.sampleBufferRenderer;
 
-    if (l.status == AVQueuedSampleBufferRenderingStatusFailed) {
+    if (r.status == AVQueuedSampleBufferRenderingStatusFailed) {
         LOGW("[Decoder] display layer failed (%s); flushing.",
-            l.error ? l.error.localizedDescription.UTF8String : "unknown");
-        [l flush];
+            r.error ? r.error.localizedDescription.UTF8String : "unknown");
+        [r flush];
         CFRelease(sb);
         return false;
     }
 
-    if (!l.isReadyForMoreMediaData) {
+    if (!r.isReadyForMoreMediaData) {
         counters_.CountCongestionDrop();
         CFRelease(sb);
         return true;
     }
 
-    [l enqueueSampleBuffer:sb];
+    [r enqueueSampleBuffer:sb];
     CFRelease(sb);
 
     counters_.FramePresented(ptsUs, NowUs());

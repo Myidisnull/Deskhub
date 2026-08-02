@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(DeskhubCore LANGUAGES CXX)
 
+if(NOT COMMAND deskhub_target_warnings)
+    include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)
+endif()
+
 add_library(core STATIC
     src/protocol/Wire.cpp
 

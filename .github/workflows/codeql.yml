@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - { language: c-cpp,       os: ubuntu-latest, build-mode: manual }
-          - { language: java-kotlin, os: ubuntu-latest, build-mode: none }
+          - { language: java-kotlin, os: ubuntu-latest, build-mode: manual }
           - { language: swift,       os: macos-latest,  build-mode: manual }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -37,6 +37,22 @@ jobs:
       - name: Install Ninja
         if: matrix.language == 'c-cpp'
         run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
+
+      - name: Setup JDK 17
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Android SDK
+        if: matrix.language == 'java-kotlin'
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+
+      - name: Install NDK + CMake
+        if: matrix.language == 'java-kotlin'
+        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@a2983b8bed1923f44751c5c43237f479442827b3 # v3.37.4
@@ -51,9 +67,13 @@ jobs:
           cmake --build --preset x64-debug \
             --target core_tests platform_tests integration_tests
 
+      - name: Build the Android app
+        if: matrix.language == 'java-kotlin'
+        run: make build-android
+
       - name: Build the macOS app
         if: matrix.language == 'swift'
-        run: make build-macos
+        run: make build-macos MACOS_SIGN=adhoc
 
       - name: Analyze
         uses: github/codeql-action/analyze@a2983b8bed1923f44751c5c43237f479442827b3 # v3.37.4
