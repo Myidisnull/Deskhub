@@ -71,9 +71,14 @@ jobs:
         if: matrix.language == 'java-kotlin'
         run: make build-android
 
+      # Xcode 26 compiles Swift in a way the CodeQL extractor can end up seeing
+      # nothing of. These two settings force the plainest possible compile so it
+      # has a chance to observe every swift-frontend invocation.
       - name: Build the macOS app
         if: matrix.language == 'swift'
-        run: make build-macos MACOS_SIGN=adhoc
+        run: >
+          make build-macos MACOS_SIGN=adhoc
+          MACOS_XCARGS="SWIFT_WHOLE_MODULE_OPTIMIZATION=NO COMPILER_INDEX_STORE_ENABLE=NO"
 
       - name: Analyze
         uses: github/codeql-action/analyze@a2983b8bed1923f44751c5c43237f479442827b3 # v3.37.4

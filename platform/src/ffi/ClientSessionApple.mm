@@ -23,10 +23,24 @@ using AppleClientEngine = deskhubp::ClientEngine<VtDecoder, void*>;
 
 constexpr uint32_t kMaxDisplays = 16;
 
+#if TARGET_OS_IPHONE
+UIScreen* ActiveScreen() {
+    UIScreen* fallback = nil;
+    for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        UIWindowScene* windowScene = (UIWindowScene*)scene;
+        if (scene.activationState == UISceneActivationStateForegroundActive)
+            return windowScene.screen;
+        if (!fallback) fallback = windowScene.screen;
+    }
+    return fallback;
+}
+#endif
+
 void LocalScreenPixels(uint32_t& outW, uint32_t& outH) {
     outW = outH = 0;
 #if TARGET_OS_IPHONE
-    UIScreen* screen = UIScreen.mainScreen;
+    UIScreen* screen = ActiveScreen();
     if (!screen) return;
     const CGRect bounds = screen.nativeBounds;
     if (bounds.size.width <= 0 || bounds.size.height <= 0) return;
