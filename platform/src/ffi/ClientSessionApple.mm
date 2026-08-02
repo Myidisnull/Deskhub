@@ -21,8 +21,6 @@ namespace {
 
 using AppleClientEngine = deskhubp::ClientEngine<VtDecoder, void*>;
 
-constexpr uint32_t kMaxDisplays = 16;
-
 #if TARGET_OS_IPHONE
 UIScreen* ActiveScreen() {
     UIScreen* fallback = nil;
@@ -35,6 +33,8 @@ UIScreen* ActiveScreen() {
     }
     return fallback;
 }
+#else
+constexpr uint32_t kMaxDisplays = 16;
 #endif
 
 void LocalScreenPixels(uint32_t& outW, uint32_t& outH) {
