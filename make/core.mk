@@ -41,6 +41,10 @@ test-integration:
 
 test-all: test test-platform test-integration
 
+ifeq ($(OS),Windows_NT)
+test-asan test-tsan:
+	@echo make $@: needs clang or gcc on Linux/macOS, not MSVC && exit /b 1
+else
 test-asan:
 	@cmake --preset asan >$(NULDEV) && cmake --build --preset asan --target core_tests platform_tests integration_tests
 	@ctest --test-dir out/build/asan --output-on-failure
@@ -48,6 +52,7 @@ test-asan:
 test-tsan:
 	@cmake --preset tsan >$(NULDEV) && cmake --build --preset tsan --target core_tests platform_tests integration_tests
 	@ctest --test-dir out/build/tsan --output-on-failure
+endif
 
 test-ctest:
 	@$(DEVCMD) cmake --preset x64-debug >$(NULDEV) && cmake --build --preset x64-debug --target core_tests

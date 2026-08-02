@@ -26,7 +26,11 @@ if [ "$ONLY" = all ] || [ "$ONLY" = cpp ]; then
         echo "clang-format not found - run 'make bootstrap' first." >&2
         exit 1
     }
-    CPP_LIST=$(git ls-files 'core/*' 'platform/*' 'client/*' 'tests/*' | grep -E '\.(h|hpp|cpp|cc|c)$')
+    CPP_LIST=$(git ls-files 'core/*' 'platform/*' 'client/*' 'tests/*' | grep -E '\.(h|hpp|cpp|cc|c)$' || true)
+    if [ -z "$CPP_LIST" ]; then
+        echo "codestyle.sh: found no C++ files - is this a full checkout?" >&2
+        exit 1
+    fi
     echo "[clang-format] $(echo "$CPP_LIST" | grep -c .) files ($(command -v clang-format))"
     if [ "$CHECK" = 1 ]; then
         if echo "$CPP_LIST" | xargs clang-format --dry-run --Werror; then
@@ -53,7 +57,7 @@ if [ "$ONLY" = all ] || [ "$ONLY" = kotlin ]; then
         if java -jar "$KTLINT" $KT_ARGS 'client/android/**/*.kt'; then
             echo "  OK"
         else
-            if [ "$CHECK" = 1 ]; then fail=1; fi
+            fail=1
         fi
     else
         echo "[ktlint] skipped (java not found)"
@@ -75,7 +79,7 @@ if [ "$ONLY" = all ] || [ "$ONLY" = swift ]; then
     if "$SWIFTFORMAT" $SF_ARGS; then
         echo "  OK"
     else
-        if [ "$CHECK" = 1 ]; then fail=1; fi
+        fail=1
     fi
 
     SWIFTLINT=$(command -v swiftlint 2>/dev/null || true)

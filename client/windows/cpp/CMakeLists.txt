@@ -1,6 +1,12 @@
 set(NVENC_INTERFACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/nvenc-13.0/include/ffnvcodec"
     CACHE PATH "Directory containing nvEncodeAPI.h")
 
+if(NOT EXISTS "${NVENC_INTERFACE_DIR}/nvEncodeAPI.h")
+    message(FATAL_ERROR
+        "nvEncodeAPI.h not found in '${NVENC_INTERFACE_DIR}' - "
+        "run 'git submodule update --init' or point NVENC_INTERFACE_DIR at it")
+endif()
+
 add_library(deskhub_win_core STATIC
     AgentLoop.cpp
     ElevatedShare.cpp
@@ -32,7 +38,8 @@ target_include_directories(deskhub_win_core PUBLIC
 target_link_libraries(deskhub_win_core PUBLIC core platform)
 target_link_libraries(deskhub_win_core PUBLIC ws2_32 iphlpapi)
 
+deskhub_target_warnings(deskhub_win_core)
 if(MSVC)
     target_compile_options(deskhub_win_core PUBLIC /utf-8)
-    target_compile_options(deskhub_win_core PRIVATE /W3 /permissive- /sdl)
+    target_compile_options(deskhub_win_core PRIVATE /sdl)
 endif()

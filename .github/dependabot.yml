@@ -17,3 +17,9 @@ updates:
     groups:
       gradle:
         patterns: ['*']
+
+  # Keeps the nvenc header submodule pin from rotting.
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly

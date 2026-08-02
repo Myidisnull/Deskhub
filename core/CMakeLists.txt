@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22)
 project(DeskhubCore LANGUAGES CXX)
 
 if(NOT COMMAND deskhub_target_warnings)
@@ -49,7 +49,7 @@ if(MSVC)
     target_compile_options(core PRIVATE /sdl)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(deskhub_tests_default OFF)
 else()
     set(deskhub_tests_default ON)

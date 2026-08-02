@@ -5,7 +5,8 @@
 # means adding make/<name>.mk plus one include line below, without touching the
 # shared part.
 #
-#   make/toolchain.mk   HOST-dependent vars: SHELL, VsDevCmd, LLVM, NULDEV (include FIRST)
+#   make/toolchain.mk   HOST-dependent vars: SHELL, DEVCMD (VsDevCmd), LLVM/LLVMPATH,
+#                       BOOTSTRAP, RMRF, HELPCAT, NULDEV (include FIRST)
 #   make/core.mk        shared CMake tree: debug/release/test*/test-ctest/coverage
 #   make/windows.mk     Windows app — CMake (Win32 app, ONE Deskhub.exe)
 #   make/macos.mk       macOS app   — xcodebuild
@@ -25,11 +26,15 @@
 #   make build-windows   / release-windows   / run-windows   Win32 app, one Deskhub.exe (needs Windows + MSVC)
 #   make build-macos     / release-macos     / run-macos     macOS app — both roles (needs macOS + Xcode)
 #   make build-linux     / release-linux     / run-linux     Ubuntu app — both roles (needs Ubuntu + the -dev packages)
-#   make build-android   / release-android   / run-android   debug APK / release APK (unsigned — see the notes)
+#   make build-android   / release-android   / run-android   debug APK / release APK (unsigned)
 #   make build-ios       / release-ios       / run-ios       iOS app for the Simulator (needs macOS + Xcode)
 #
-# run-windows takes ARGS="--share ...". run-android installs and opens on the connected
-# device/emulator via adb; run-ios does the same on the Simulator.
+# run-windows and run-linux take ARGS="--share ...". run-android installs and opens on
+# the connected device/emulator via adb; run-ios does the same on the Simulator.
+#
+# Ubuntu only — build the static minimal FFmpeg the app links (build-linux and
+# release-linux run it automatically, it is a no-op once built):
+#   make ffmpeg-min
 #
 # Distribution:
 #   make dist-macos     macOS dmg signed with Developer ID + notarized + stapled

@@ -27,10 +27,13 @@ if ($Only -in @('all', 'cpp')) {
     Write-Host "[clang-format] $($cpp.Count) files ($clangFormat)"
     if ($Check) {
         $bad = @()
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         foreach ($f in $cpp) {
             & $clangFormat --dry-run --Werror $f 2>$null
             if ($LASTEXITCODE -ne 0) { $bad += $f }
         }
+        $ErrorActionPreference = $prevEap
         if ($bad.Count) { $fail = 1; Write-Host "  NOT formatted:"; $bad | ForEach-Object { Write-Host "   - $_" } }
         else { Write-Host "  OK" }
     } else {
@@ -51,7 +54,7 @@ if ($Only -in @('all', 'kotlin')) {
         if (-not $Check) { $ktArgs += '-F' }
         $ktArgs += 'client/android/**/*.kt'
         & $java @ktArgs
-        if ($LASTEXITCODE -ne 0) { if ($Check) { $fail = 1 } }
+        if ($LASTEXITCODE -ne 0) { $fail = 1 }
         else { Write-Host "  OK" }
     } else {
         Write-Host "[ktlint] skipped (java not found)"
@@ -70,7 +73,7 @@ if ($Only -in @('all', 'swift')) {
     $sfArgs = @('client/apple', 'client/ios', 'client/macos')
     if ($Check) { $sfArgs += '--lint' }
     & $swiftformat @sfArgs
-    if ($LASTEXITCODE -ne 0) { if ($Check) { $fail = 1 } }
+    if ($LASTEXITCODE -ne 0) { $fail = 1 }
     else { Write-Host "  OK" }
 
     $swiftlint = (Get-Command swiftlint -ErrorAction SilentlyContinue).Source

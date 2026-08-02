@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22)
 
 if(NOT COMMAND deskhub_target_warnings)
     include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)

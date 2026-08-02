@@ -42,6 +42,8 @@ run-macos: build-macos
 
 dist-macos:
 	@test -n "$(ASC_KEY_P8)" || { echo "dist-macos: missing ASC_KEY_P8 (path to the .p8 file)"; exit 1; }
+	@test -n "$(ASC_KEY_ID)" || { echo "dist-macos: missing ASC_KEY_ID"; exit 1; }
+	@test -n "$(ASC_ISSUER_ID)" || { echo "dist-macos: missing ASC_ISSUER_ID"; exit 1; }
 	$(MAKE) release-macos MACOS_SIGN=developerid MACOS_XCARGS="$(MACOS_XCARGS)"
 	mkdir -p $(MACOS_DIST)
 	ditto -c -k --keepParent $(MACOS_APP) $(MACOS_ZIP)

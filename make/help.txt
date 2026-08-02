@@ -7,7 +7,7 @@ Deskhub - no platform is built by default, name the one you want:
     make build-ios       release-ios       run-ios         needs macOS + Xcode, Simulator
     make build-android   release-android   run-android     needs the Android SDK/NDK, adb
 
-    run-windows takes ARGS="--share ..."
+    run-windows and run-linux take ARGS="--share ..."
 
   Shared CMake tree - core + platform + the current OS client:
     make debug           configure + build the debug preset
@@ -35,6 +35,7 @@ Deskhub - no platform is built by default, name the one you want:
   Setup:
     make bootstrap                  install every dev dependency for this OS
     make setup-linux-permissions    Ubuntu host role: udev rule + 'input' group
+    make ffmpeg-min                 Ubuntu: build the static minimal FFmpeg (auto-run by build-linux)
     make clean                      remove out/
 
   Every target is documented in full at the top of the Makefile.

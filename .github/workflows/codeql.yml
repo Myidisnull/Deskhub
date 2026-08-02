@@ -38,6 +38,10 @@ jobs:
         if: matrix.language == 'c-cpp'
         run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
 
+      - name: Validate the Gradle wrapper
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/wrapper-validation@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+
       - name: Setup JDK 17
         if: matrix.language == 'java-kotlin'
         uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4.9.0

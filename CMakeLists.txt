@@ -38,11 +38,12 @@ if(DESKHUB_INTEGRATION_TESTS)
     add_subdirectory(tests/integration)
 endif()
 
+option(DESKHUB_LINUX_APP "Build the Ubuntu desktop app" ON)
+
 if(WIN32)
     add_subdirectory(client/windows/cpp)
     add_subdirectory(client/windows/win32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    option(DESKHUB_LINUX_APP "Build the Ubuntu desktop app" ON)
     if(DESKHUB_LINUX_APP)
         add_subdirectory(client/linux)
     endif()

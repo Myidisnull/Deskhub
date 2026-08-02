@@ -88,6 +88,13 @@ explicitly.
 
 Run `make test` and `make lint` before considering a change done.
 
+CI gates more than those two: clang-tidy over `core/src` + `platform/src`
+(`scripts/clang-tidy.sh`), SwiftLint `--strict` (runs in `make lint` only where
+swiftlint is installed), Android Lint, actionlint + shellcheck on the workflows and
+scripts, and core coverage ≥ 90% lines / 80% branches (`scripts/check-coverage.sh`,
+checked after `make coverage`). A green local `make test` + `make lint` does not cover
+those.
+
 ## Conventions
 
 - C++20, no compiler extensions. Warnings are errors-adjacent on MSVC (`/W4 /permissive-`).

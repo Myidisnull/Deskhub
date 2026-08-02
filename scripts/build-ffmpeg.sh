@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 FFMPEG_VERSION=8.0
+FFMPEG_SHA256=b2751fccb6cc4c77708113cd78b561059b6fa904b24162fa0be2d60273d27b8e
 PREFIX="$PWD/third_party/ffmpeg-min"
 STAMP="$PREFIX/.stamp"
 
@@ -34,8 +35,14 @@ BUILD="$PREFIX/src"
 rm -rf "$PREFIX"
 mkdir -p "$BUILD"
 
-curl -sSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" \
-    | tar xJ -C "$BUILD" --strip-components=1
+TARBALL="$BUILD/ffmpeg-$FFMPEG_VERSION.tar.xz"
+curl -fsSL -o "$TARBALL" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+echo "$FFMPEG_SHA256  $TARBALL" | sha256sum --check --status - || {
+    echo "build-ffmpeg.sh: ffmpeg-$FFMPEG_VERSION.tar.xz failed the checksum check." >&2
+    exit 1
+}
+tar xJ -f "$TARBALL" -C "$BUILD" --strip-components=1
+rm -f "$TARBALL"
 
 (
     cd "$BUILD"
