@@ -185,11 +185,14 @@ jobs:
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid"
 
+      # CMake wraps every executable in an .app bundle when it targets iOS, so
+      # the binary to spawn sits inside the bundle, not at the target path.
       - name: Run them on the simulator
         run: |
           for t in core/core_tests platform/platform_tests tests/integration/integration_tests; do
-            echo "===== $(basename $t) on the iOS Simulator ====="
-            xcrun simctl spawn "$SIM_UDID" "$PWD/out/build/ios-sim/$t"
+            name=$(basename "$t")
+            echo "===== $name on the iOS Simulator ====="
+            xcrun simctl spawn "$SIM_UDID" "$PWD/out/build/ios-sim/$t.app/$name"
           done
 
   coverage:
