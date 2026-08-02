@@ -352,6 +352,156 @@ void TestStreamWithoutSpsIsLeftAlone() {
         "bytes with no start code at all");
 }
 
+void FinishSpsTail(BitWriter& w, bool frameMbsOnly = true, bool withCrop = false) {
+    w.UE(1);
+    w.U(1, 0);
+    w.UE(79);
+    w.UE(51);
+    w.U(1, frameMbsOnly ? 1 : 0);
+    if (!frameMbsOnly) w.U(1, 0);
+    w.U(1, 1);
+    w.U(1, withCrop ? 1 : 0);
+    if (withCrop) {
+        w.UE(0);
+        w.UE(4);
+        w.UE(0);
+        w.UE(2);
+    }
+    w.U(1, 0);
+    w.Trailing();
+}
+
+std::vector<uint8_t> NalOf(const BitWriter& w) {
+    return std::vector<uint8_t>(w.bytes().begin() + kStartCodeBytes, w.bytes().end());
+}
+
+std::vector<uint8_t> MakeHighProfileSps(uint32_t profileIdc, uint32_t chromaFormatIdc,
+    bool withScalingLists) {
+    BitWriter w;
+    w.StartNal(3, 7);
+    w.U(8, profileIdc);
+    w.U(8, 0);
+    w.U(8, 42);
+    w.UE(0);
+    w.UE(chromaFormatIdc);
+    if (chromaFormatIdc == 3) w.U(1, 0);
+    w.UE(0);
+    w.UE(0);
+    w.U(1, 0);
+    w.U(1, withScalingLists ? 1 : 0);
+    if (withScalingLists) {
+        const uint32_t lists = chromaFormatIdc == 3 ? 12 : 8;
+        for (uint32_t i = 0; i < lists; ++i) {
+            if (i == 0) {
+                w.U(1, 1);
+                for (int e = 0; e < 16; ++e) w.SE(1);
+            } else if (i == 6) {
+                w.U(1, 1);
+                w.SE(-8);
+            } else {
+                w.U(1, 0);
+            }
+        }
+    }
+    w.UE(0);
+    w.UE(0);
+    w.UE(0);
+    FinishSpsTail(w);
+    return NalOf(w);
+}
+
+std::vector<uint8_t> MakePocType1Sps(uint32_t cycle, bool truncateAfterCycle) {
+    BitWriter w;
+    w.StartNal(3, 7);
+    w.U(8, 66);
+    w.U(8, 0);
+    w.U(8, 42);
+    w.UE(0);
+    w.UE(0);
+    w.UE(1);
+    w.U(1, 0);
+    w.SE(-1);
+    w.SE(1);
+    w.UE(cycle);
+    if (truncateAfterCycle) {
+        w.Trailing();
+        return NalOf(w);
+    }
+    for (uint32_t i = 0; i < cycle; ++i) w.SE(2);
+    w.UE(0);
+    FinishSpsTail(w);
+    return NalOf(w);
+}
+
+void CheckRewriteRoundTrips(const std::vector<uint8_t>& nal, const char* what) {
+    const std::vector<uint8_t> patched = AnnexBSpsWithZeroReorder(nal);
+    Check(!patched.empty(), what);
+    if (patched.empty()) return;
+    const std::span<const uint8_t> patchedNal =
+        std::span<const uint8_t>(patched).subspan(kStartCodeBytes);
+    Check(patched[kStartCodeBytes] == kSpsHeaderByte, "the rewrite is still an SPS NAL");
+    Check(AnnexBSpsWithZeroReorder(patchedNal).empty(),
+        "rewriting it again finds a VUI already there");
+}
+
+void TestHighProfileVariantsAreParsed() {
+    std::printf("[h264sps] high profiles with chroma and scaling lists are stepped over...\n");
+    CheckRewriteRoundTrips(MakeHighProfileSps(44, 3, true),
+        "profile 44 with 4:4:4 chroma and scaling lists is rewritten");
+    CheckRewriteRoundTrips(MakeHighProfileSps(83, 1, false),
+        "profile 83 with 4:2:0 chroma is rewritten");
+    CheckRewriteRoundTrips(MakeHighProfileSps(86, 1, true),
+        "profile 86 with 8 scaling lists is rewritten");
+}
+
+void TestInterlacedAndCroppedSps() {
+    std::printf("[h264sps] interlaced and cropped streams keep their flags...\n");
+    BitWriter w;
+    w.StartNal(3, 7);
+    w.U(8, 66);
+    w.U(8, 0);
+    w.U(8, 42);
+    w.UE(0);
+    w.UE(0);
+    w.UE(0);
+    w.UE(0);
+    FinishSpsTail(w, false, true);
+    CheckRewriteRoundTrips(NalOf(w),
+        "an interlaced SPS with frame cropping is rewritten");
+}
+
+void TestPocType1IsSteppedOver() {
+    std::printf("[h264sps] pic_order_cnt_type 1 offsets are consumed, not misread...\n");
+    CheckRewriteRoundTrips(MakePocType1Sps(2, false),
+        "an SPS with a 2-entry POC cycle is rewritten");
+    Check(AnnexBSpsWithZeroReorder(MakePocType1Sps(50'000, true)).empty(),
+        "an absurd POC cycle count is rejected before looping on it");
+}
+
+void TestEmulationBytesInTheInputAreUnescaped() {
+    std::printf("[h264sps] 00 00 03 in the incoming SPS is stripped before parsing...\n");
+    SpsFields f;
+    f.profileIdc = 66;
+    f.levelIdc = 0;
+    const std::vector<uint8_t> clean = MakeSpsNal(f);
+    Check(clean[2] == 0 && clean[3] == 0, "the constraint and level bytes form a zero run");
+
+    std::vector<uint8_t> escaped = clean;
+    escaped.insert(escaped.begin() + 4, 0x03);
+    const std::vector<uint8_t> fromEscaped = AnnexBSpsWithZeroReorder(escaped);
+    Check(!fromEscaped.empty(), "the escaped SPS still parses");
+    Check(fromEscaped == AnnexBSpsWithZeroReorder(clean),
+        "and rewrites to exactly what the unescaped SPS gives");
+}
+
+void TestEndlessZeroBitsAreRejected() {
+    std::printf("[h264sps] a run of zero bits cannot spin the exp-golomb reader...\n");
+    std::vector<uint8_t> nal{0x67, 0x42, 0x00, 0x00};
+    nal.insert(nal.end(), 6, 0x00);
+    Check(AnnexBSpsWithZeroReorder(nal).empty(),
+        "32+ leading zeros in one field give up instead of looping");
+}
+
 }
 
 void RunH264SpsTests() {
@@ -364,4 +514,9 @@ void RunH264SpsTests() {
     TestStreamSpsIsRewrittenInPlace();
     TestStreamWithThreeByteStartCodes();
     TestStreamWithoutSpsIsLeftAlone();
+    TestHighProfileVariantsAreParsed();
+    TestInterlacedAndCroppedSps();
+    TestPocType1IsSteppedOver();
+    TestEmulationBytesInTheInputAreUnescaped();
+    TestEndlessZeroBitsAreRejected();
 }

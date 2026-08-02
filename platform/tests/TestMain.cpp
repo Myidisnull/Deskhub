@@ -48,6 +48,9 @@ int main() {
     std::printf("--- net: UDP socket over loopback + local adapters ---\n");
     RunUdpSocketTests();
 
+    std::printf("--- net: pre-session source query over loopback ---\n");
+    RunSourceQueryTests();
+
     std::printf("--- ffi: string handover to the managed clients ---\n");
     RunFfiTextTests();
 

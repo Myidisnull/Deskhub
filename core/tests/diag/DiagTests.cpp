@@ -109,7 +109,7 @@ void TestClientSum() {
         Check(Has(buf, "gap_ms_max=25"), "client evt=sum: gap_ms_max comes from the Reassembler");
         Check(Has(buf, "loop_busy_ms_max=31"), "client evt=sum: Net loop health");
         Check(Has(buf, "min_rtt_ms=1.5"), "client evt=sum: RTT floor in ms");
-        Check(Has(buf, "e2e_ms=17.0"), "client evt=sum: e2e theo ms");
+        Check(Has(buf, "e2e_ms=17.0"), "client evt=sum: e2e in ms");
 
         d.FormatSum(buf, sizeof(buf), "01:02:04", w, 0, -1);
         Check(Has(buf, "asm_ms=0.0/0") && Has(buf, "dq_drop=0") && Has(buf, "loop_busy_ms_max=0"),
@@ -250,6 +250,143 @@ void TestAgentLoopSum() {
     Check(Has(buf, "loop_busy_ms_max=0"), "agent evt=sum: read-and-clear");
 }
 
+void TestClientCompact() {
+    std::printf("[diag] client compact line: the short form the UI overlays...\n");
+    const LinkWindow w = MakeWindow();
+    char buf[ClientDiag::kCompactBufBytes];
+
+    ClientDiag::FormatCompact(buf, sizeof(buf), w, 2400, 17'000);
+    Check(Has(buf, "59 fps"), "compact: fps");
+    Check(Has(buf, "8.0 Mbps"), "compact: bitrate in Mbps, not kbps");
+    Check(Has(buf, "loss 2.5%"), "compact: loss");
+    Check(Has(buf, "RTT 2 ms"), "compact: RTT rounded to whole ms");
+    Check(Has(buf, "e2e 17 ms"), "compact: e2e");
+    Check(Has(buf, "fps  8.0"), "compact: the default separator is two spaces");
+
+    ClientDiag::FormatCompact(buf, sizeof(buf), w, 0, -1, " | ");
+    Check(Has(buf, "fps | "), "compact: a custom separator is used");
+    Check(Has(buf, "e2e 0 ms"), "compact: e2e with no samples prints as 0");
+}
+
+Reassembler::FrameDropInfo MakeDrop(Reassembler::DropReason reason, uint16_t missing,
+    uint16_t total, uint16_t first, uint16_t last) {
+    Reassembler::FrameDropInfo d;
+    d.frameId = 42;
+    d.reason = reason;
+    d.missing = missing;
+    d.total = total;
+    d.firstMissing = first;
+    d.lastMissing = last;
+    d.waitedMs = 33;
+    d.bytesGot = 900;
+    return d;
+}
+
+void TestFrameDropLine() {
+    std::printf("[diag] evt=frame_drop: reason names and where the hole sits...\n");
+    char buf[ClientDiag::kFrameDropBufBytes];
+
+    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+        MakeDrop(Reassembler::DropReason::Timeout, 2, 10, 3, 5));
+    Check(Has(buf, "evt=frame_drop id=42"), "frame_drop: the frame id is named");
+    Check(Has(buf, "reason=timeout"), "frame_drop: timeout is spelled out");
+    Check(Has(buf, "miss=2/10"), "frame_drop: missing over total");
+    Check(Has(buf, "pos=mid"), "frame_drop: a hole in the middle");
+    Check(Has(buf, "waited_ms=33"), "frame_drop: how long we waited");
+    Check(Has(buf, "got_bytes=900"), "frame_drop: how much did arrive");
+
+    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+        MakeDrop(Reassembler::DropReason::Overtaken, 1, 8, 0, 0));
+    Check(Has(buf, "reason=overtaken") && Has(buf, "pos=head"),
+        "frame_drop: a missing first packet reads as head");
+
+    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+        MakeDrop(Reassembler::DropReason::Evicted, 1, 8, 7, 7));
+    Check(Has(buf, "reason=evicted") && Has(buf, "pos=tail"),
+        "frame_drop: a missing last packet reads as tail");
+
+    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+        MakeDrop(Reassembler::DropReason::PreIdr, 8, 8, 0, 7));
+    Check(Has(buf, "reason=pre_idr") && Has(buf, "pos=all"),
+        "frame_drop: nothing arrived reads as all");
+
+    Reassembler::FrameDropInfo none = MakeDrop(Reassembler::DropReason::Timeout, 0, 4, 0, 0);
+    none.idr = true;
+    ClientDiag::FormatFrameDrop(buf, sizeof(buf), none);
+    Check(Has(buf, "pos=-"), "frame_drop: no hole prints a dash");
+    Check(Has(buf, "idr=1"), "frame_drop: an IDR drop is flagged");
+
+    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+        MakeDrop(Reassembler::DropReason(9), 1, 4, 1, 1));
+    Check(Has(buf, "reason=?"), "frame_drop: an unknown reason never indexes off the table");
+}
+
+void TestKeyframeRequestLog() {
+    std::printf("[diag] kf_req/idr_rx: one line per request, one per arrival...\n");
+    KeyframeRequestLog log;
+    char buf[KeyframeRequestLog::kBufBytes];
+
+    Check(!log.pending(), "kf log: nothing pending at rest");
+    Check(log.Arrived(buf, sizeof(buf), 5'000'000, 100) == nullptr,
+        "kf log: an IDR nobody asked for logs nothing");
+
+    const char* line = log.Request(buf, sizeof(buf), 5'000'000, "dec_fail");
+    Check(line && Has(line, "evt=kf_req reason=dec_fail"), "kf log: the first request is a line");
+    Check(log.pending(), "kf log: and marks a request pending");
+    Check(log.Request(buf, sizeof(buf), 5'100'000, "loss") == nullptr,
+        "kf log: repeats while pending stay quiet");
+
+    line = log.Arrived(buf, sizeof(buf), 5'250'000, 4096);
+    Check(line && Has(line, "evt=idr_rx bytes=4096 after_ms=250"),
+        "kf log: the arrival names the wait");
+    Check(!log.pending(), "kf log: the arrival clears the pending mark");
+
+    log.Request(buf, sizeof(buf), 0, "at_zero");
+    Check(log.pending(), "kf log: a request at t=0 is still remembered");
+    line = log.Arrived(buf, sizeof(buf), 0, 10);
+    Check(line && Has(line, "after_ms=0"), "kf log: a same-instant arrival waited 0 ms");
+}
+
+void TestStateNameAndSourceRate() {
+    std::printf("[diag] StateName + SourceRate windows...\n");
+    Check(Has(StateName(HostSession::State::Idle), "IDLE"), "StateName: Idle");
+    Check(Has(StateName(HostSession::State::Ready), "READY"), "StateName: Ready");
+    Check(Has(StateName(HostSession::State::Streaming), "STREAMING"), "StateName: Streaming");
+    Check(Has(StateName(HostSession::State(200)), "?"), "StateName: garbage prints ?");
+
+    SourceRate rate;
+    SourceRate::Window w = rate.Close(60, 60, 1'000'000, 10'000'000);
+    Check(w.secs == 0.0 && w.captureFps == 0.0 && w.sendKbps == 0.0,
+        "SourceRate: the first window has no baseline and reports zeros");
+
+    w = rate.Close(120, 119, 2'000'000, 11'000'000);
+    Check(w.secs > 0.99 && w.secs < 1.01, "SourceRate: window length in seconds");
+    Check(w.captureFps > 59.9 && w.captureFps < 60.1, "SourceRate: capture fps is the delta");
+    Check(w.sendFps > 58.9 && w.sendFps < 59.1, "SourceRate: send fps is the delta");
+    Check(w.sendKbps > 7999.0 && w.sendKbps < 8001.0, "SourceRate: kbps from the byte delta");
+
+    w = rate.Close(120, 119, 2'000'000, 11'000'000);
+    Check(w.captureFps == 0.0 && w.sendKbps == 0.0,
+        "SourceRate: a zero-length window cannot divide by zero");
+}
+
+void TestZeroCapacityBuffers() {
+    std::printf("[diag] a zero-byte buffer is legal and writes nothing...\n");
+    ClientDiag d;
+    char one = 0x55;
+    Check(d.FormatSum(&one, 0, "01:02:03", MakeWindow(), 0, 0) == &one,
+        "client evt=sum: cap=0 returns without writing");
+    Check(one == 0x55, "client evt=sum: the byte is untouched");
+
+    SourceDiag s;
+    Check(s.FormatSum(&one, 0, "01:02:03", "Screen 1", 0, false) == &one,
+        "source evt=sum: cap=0 returns without writing");
+    SourceDiag::Window w;
+    Check(SourceDiag::FormatStatus(&one, 0, "01:02:03", "Screen 1", "IDLE", w, {}) == &one,
+        "source status: cap=0 returns without writing");
+    Check(one == 0x55, "source formats: the byte is untouched");
+}
+
 void TestTruncation() {
     std::printf("[diag] a tight buffer TRUNCATES instead of overflowing...\n");
     struct Guarded {
@@ -287,5 +424,10 @@ void RunDiagTests() {
     TestSourceIdr();
     TestAgentStatus();
     TestAgentLoopSum();
+    TestClientCompact();
+    TestFrameDropLine();
+    TestKeyframeRequestLog();
+    TestStateNameAndSourceRate();
+    TestZeroCapacityBuffers();
     TestTruncation();
 }

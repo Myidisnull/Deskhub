@@ -73,6 +73,17 @@ void TestNotReady() {
     Check(!co.ready(), "Reset forgets everything (a new session carries a different C)");
 }
 
+void TestFloorIsExposed() {
+    ClockOffset co;
+    Check(co.floorUs() == 0, "no floor before any sample");
+    co.AddSample(1'000'000, 1'020'000);
+    Check(co.floorUs() == 20'000, "the floor is the best offset seen");
+    co.AddSample(1'016'000, 1'038'000);
+    Check(co.floorUs() == 20'000, "a slower frame cannot lower the floor");
+    co.Reset();
+    Check(co.floorUs() == 0, "Reset clears the floor");
+}
+
 void BothSkews(void (*fn)(int64_t), const char* name) {
     std::printf("[clock] %s...\n", name);
     fn(kSkewFresh);
@@ -88,4 +99,6 @@ void RunClockOffsetTests() {
     BothSkews(TestLongSilence, "an idle source silent for several windows");
     std::printf("[clock] no samples / Reset...\n");
     TestNotReady();
+    std::printf("[clock] the floor itself is readable for diagnostics...\n");
+    TestFloorIsExposed();
 }

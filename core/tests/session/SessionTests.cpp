@@ -393,6 +393,95 @@ void TestRejectCodecMismatch() {
     Check(r.host.state() == HostSession::State::Idle, "host stays IDLE after the codec reject");
 }
 
+void RunHandshakeAgainstBrokenRng(HostCallbacks hcb, const char* what) {
+    WirePair w;
+    uint64_t now = 10'000'000;
+    hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
+    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+
+    std::string cliDead;
+    ClientCallbacks ccb;
+    ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
+    ccb.onDisconnect = [&](const char* r) { cliDead = r; };
+    ClientSession cli(ccb);
+
+    cli.Start(Hello{0x3, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    while (!w.toHost.empty()) {
+        auto d = std::move(w.toHost.front());
+        w.toHost.pop_front();
+        host.HandlePacket(d, now);
+    }
+    while (!w.toClient.empty()) {
+        auto d = std::move(w.toClient.front());
+        w.toClient.pop_front();
+        cli.HandlePacket(d, now);
+    }
+
+    Check(host.state() == HostSession::State::Idle, what);
+    Check(cli.state() == ClientSession::State::Dead, "and the client is told to go away");
+    Check(cliDead.find("rejected") != std::string::npos, "with a reject, not a timeout");
+    Check(cli.rejectReason() == RejectReason::None,
+        "the generic reject carries no specific reason");
+}
+
+void TestRejectWhenNoSessionIdCanBeMade() {
+    std::printf("[session] a host whose RNG fails refuses the client cleanly...\n");
+    HostCallbacks failing;
+    failing.randomBytes = [](std::span<uint8_t>) { return false; };
+    RunHandshakeAgainstBrokenRng(failing, "a failed RNG leaves the host IDLE");
+
+    HostCallbacks missing;
+    missing.randomBytes = nullptr;
+    RunHandshakeAgainstBrokenRng(missing, "a host with no RNG at all also stays IDLE");
+}
+
+void TestUnknownMessagesAreIgnored() {
+    std::printf("[session] messages meant for the other side fall through safely...\n");
+    Rig r;
+    r.Handshake();
+
+    uint8_t buf[kMaxDatagram];
+    HelloAck ack{};
+    ack.sessionId = r.host.sessionId();
+    ack.codec = Codec::H264;
+    size_t n = BuildHelloAck(buf, ack);
+    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+        "a HELLO_ACK sent at a host is refused");
+    Check(r.host.state() == HostSession::State::Streaming, "and changes nothing");
+
+    n = BuildHello(buf, Hello{0x9, kCodecMaskH264, 640, 480, 30, 0});
+    Check(!r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+        "a HELLO sent at a client is refused");
+    Check(r.cli.state() == ClientSession::State::Streaming, "and changes nothing");
+}
+
+void TestIdleClientTickIsInert() {
+    std::printf("[session] a client that never started stays silent...\n");
+    std::deque<Datagram> sent;
+    ClientCallbacks cb;
+    cb.send = [&](std::span<const uint8_t> d) { sent.emplace_back(d.begin(), d.end()); };
+    ClientSession cli(cb);
+    cli.Tick(10'000'000);
+    cli.Tick(30'000'000);
+    Check(sent.empty(), "no pings, no hellos before Start()");
+    Check(cli.state() == ClientSession::State::Idle, "and the state stays IDLE");
+}
+
+void TestHostInputStats() {
+    std::printf("[session] the host exposes the input counters for its status line...\n");
+    Rig r;
+    r.Handshake();
+    Check(r.host.inputStats().applied == 0, "no input applied yet");
+
+    r.cli.QueueInput(SessionKey(0x41, true));
+    r.cli.QueueInput(SessionKey(0x41, false));
+    r.now += 20'000;
+    r.cli.Tick(r.now);
+    r.Pump();
+    Check(r.host.inputStats().applied == 2, "both key events are counted as applied");
+    Check(r.host.inputStats().lost == 0, "nothing was lost on a clean wire");
+}
+
 void TestInputThroughSession() {
     std::printf("[session] input flows client -> host, deduped, gated on STREAMING...\n");
     Rig r;
@@ -532,6 +621,10 @@ void RunSessionTests() {
     TestSessionsNackInvalidate();
     TestReconfigFocusFeedback();
     TestHandshakeDuplicates();
+    TestRejectWhenNoSessionIdCanBeMade();
+    TestUnknownMessagesAreIgnored();
+    TestIdleClientTickIsInert();
+    TestHostInputStats();
     TestClientDeathPaths();
     TestRejectCodecMismatch();
     TestInputThroughSession();

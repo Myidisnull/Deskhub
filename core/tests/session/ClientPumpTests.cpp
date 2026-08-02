@@ -309,6 +309,260 @@ void TestStrayTrafficIsIgnored() {
     Check(r.frames.empty(), "a runt datagram is harmless too");
 }
 
+HostCallbacks HostSendTo(Rig& r) {
+    HostCallbacks hcb;
+    hcb.send = [&r](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.randomBytes = TestRandomBytes;
+    return hcb;
+}
+
+void TestReconfigIsAppliedMidStream() {
+    std::printf("[pump] a host RECONFIG updates the params and the reassembler...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    pump.Start(ClientPumpConfig{1, 1920, 1080, 0, 60}, now);
+    Exchange(r, pump, host, now);
+
+    uint8_t msg[64];
+    Reconfig early{1280, 720, 10'000'000, 30};
+    size_t n = BuildReconfig(msg, host.sessionId(), early);
+    pump.OnDatagram(std::span<const uint8_t>(msg, n), now);
+    Check(r.reconfigCalls == 1, "a reconfig before any video still reaches the client");
+    Check(r.params.width == 1280 && r.params.fps == 30, "and carries the new mode");
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    for (const auto& d : Packetize(pk, MakeIdrFrame(0, 4), now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+
+    Reconfig later{1920, 1080, 20'000'000, 60};
+    n = BuildReconfig(msg, host.sessionId(), later);
+    pump.OnDatagram(std::span<const uint8_t>(msg, n), now);
+    Check(r.reconfigCalls == 2, "a mid-stream reconfig fires onParams again");
+    Check(r.params.width == 1920 && r.params.fps == 60, "with the restored mode");
+    Check(r.LoggedContaining("Host reconfigured"), "and it was logged");
+}
+
+void TestOfferWithoutFpsFallsBackToDefault() {
+    std::printf("[pump] a host that offers no fps still gets a working reassembler...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 0, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    pump.Start(ClientPumpConfig{1, 1920, 1080, 0, 60}, now);
+    Exchange(r, pump, host, now);
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    const TestFrame idr = MakeIdrFrame(0, 3);
+    for (const auto& d : Packetize(pk, idr, now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+    Check(r.frames.size() == 1 && SameFrame(r.frames[0], idr),
+        "frames still reassemble at the default fps");
+
+    uint8_t msg[64];
+    const size_t n = BuildReconfig(msg, host.sessionId(), Reconfig{0, 0, 0, 0});
+    pump.OnDatagram(std::span<const uint8_t>(msg, n), now);
+    Check(r.reconfigCalls == 1, "an all-zero reconfig is delivered and changes nothing");
+}
+
+void TestFecRecoversALostPacket() {
+    std::printf("[pump] a parity packet fills the hole a lost datagram left...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    pump.Start(ClientPumpConfig{1, 1920, 1080, 0, 60}, now);
+    Exchange(r, pump, host, now);
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    pk.SetFecEnabled(true);
+    Check(pk.fecEnabled(), "FEC can be switched on");
+    Check(pk.sessionId() == host.sessionId(), "the packetizer carries the session id");
+
+    const TestFrame idr = MakeIdrFrame(0, 4);
+    const auto pkts = Packetize(pk, idr, now);
+    bool sawFec = false;
+    for (const auto& d : pkts) sawFec = sawFec || IsFec(d);
+    Check(sawFec, "an FEC-enabled packetizer emits parity");
+
+    const size_t lost = NthDataPacket(pkts, 1);
+    for (size_t i = 0; i < pkts.size(); ++i)
+        if (i != lost) pump.OnDatagram(pkts[i], now);
+
+    pump.PollFrames(now);
+    Check(r.frames.size() == 1, "the frame completed without the lost datagram");
+    Check(SameFrame(r.frames[0], idr), "and is byte-identical after recovery");
+}
+
+void TestNackGoesOutForAHole() {
+    std::printf("[pump] with NACKs on, a hole is reported back to the host...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostCallbacks hcb = HostSendTo(r);
+    uint32_t nackFrame = 0;
+    std::vector<uint16_t> nackIdx;
+    hcb.onNack = [&](uint32_t frameId, std::span<const uint16_t> idx) {
+        nackFrame = frameId;
+        nackIdx.assign(idx.begin(), idx.end());
+    };
+    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    pump.PlanNacks(now);
+    Check(r.toHost.empty(), "NACKs stay off unless the config asks for them");
+
+    ClientPumpConfig cfg{1, 1920, 1080, 0, 60};
+    cfg.sendNacks = true;
+    pump.Start(cfg, now);
+    Exchange(r, pump, host, now);
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+
+    const auto pkts = Packetize(pk, MakeIdrFrame(1, 4), now);
+    const size_t lost = NthDataPacket(pkts, 2);
+    for (size_t i = 0; i < pkts.size(); ++i)
+        if (i != lost) pump.OnDatagram(pkts[i], now);
+
+    r.toHost.clear();
+    pump.PlanNacks(now + 5'000);
+    Check(CountToHost(r.toHost, MsgType::Nack) == 1, "with NACKs on, the hole goes out");
+
+    Exchange(r, pump, host, now + 5'000);
+    Check(nackFrame == 1, "the host learned which frame");
+    Check(nackIdx.size() == 1 && nackIdx[0] == 2, "and exactly which packet is missing");
+}
+
+void TestLossAsksForAKeyframe() {
+    std::printf("[pump] a dropped frame is logged and answered with a keyframe request...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    pump.Start(ClientPumpConfig{1, 1920, 1080, 0, 60}, now);
+    Exchange(r, pump, host, now);
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+    r.logs.clear();
+
+    const auto pkts = Packetize(pk, MakeIdrFrame(1, 4), now);
+    const size_t lost = NthDataPacket(pkts, 1);
+    for (size_t i = 0; i < pkts.size(); ++i)
+        if (i != lost) pump.OnDatagram(pkts[i], now);
+
+    now += 50'000;
+    pump.PollFrames(now);
+    Check(r.LoggedContaining("evt=frame_drop"), "the drop itself is a diagnostic line");
+    Check(r.LoggedContaining("reason=loss"), "and the keyframe request names loss");
+
+    pump.PollFrames(now + 1'000);
+    Check(r.frames.size() == 1, "still only the first frame came out");
+
+    const TestFrame recovery = MakeIdrFrame(2, 2);
+    for (const auto& d : Packetize(pk, recovery, now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+    Check(r.frames.size() == 2 && r.frames[1].idr, "the next IDR unblocks the stream");
+    Check(r.LoggedContaining("evt=idr_rx"), "and its arrival closes the request log");
+}
+
+void TestLossRunsLineIsPrinted() {
+    std::printf("[pump] with logLossRuns on, the run histogram is printed at the window...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    ClientPumpConfig cfg{1, 1920, 1080, 0, 60};
+    cfg.logLossRuns = true;
+    pump.Start(cfg, now);
+    Exchange(r, pump, host, now);
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+
+    const auto pkts = Packetize(pk, MakeIdrFrame(1, 4), now);
+    const size_t lost = NthDataPacket(pkts, 1);
+    for (size_t i = 0; i < pkts.size(); ++i)
+        if (i != lost) pump.OnDatagram(pkts[i], now);
+    pump.PollFrames(now + 50'000);
+
+    now += 1'100'000;
+    pump.Tick(now);
+    Check(r.LoggedContaining("loss runs:"), "the histogram line is printed");
+    Check(r.LoggedContaining("longest ever"), "with the worst run ever seen");
+}
+
+void TestFocusInputByeAndRtt() {
+    std::printf("[pump] focus, input, RTT and BYE all pass through to the session...\n");
+    Rig r;
+    ClientPump pump(r.Callbacks(), r.diag);
+    HostCallbacks hcb = HostSendTo(r);
+    bool focused = false;
+    int inputs = 0;
+    bool hostEnded = false;
+    hcb.onFocus = [&](bool on) { focused = on; };
+    hcb.onInput = [&](const InputEvent&) { ++inputs; };
+    hcb.onDisconnect = [&] { hostEnded = true; };
+    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+
+    uint64_t now = 10'000'000;
+    pump.Start(ClientPumpConfig{1, 1920, 1080, 0, 60}, now);
+    Exchange(r, pump, host, now);
+
+    Packetizer pk;
+    pk.SetSessionId(host.sessionId());
+    for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
+    pump.PollFrames(now);
+    Check(pump.streaming(), "streaming after the first frame");
+
+    pump.SetFocused(true);
+    InputEvent e;
+    e.type = InputType::Key;
+    e.a = 65;
+    e.state = 1;
+    pump.QueueInput(e);
+    now += 60'000;
+    pump.Tick(now);
+    Exchange(r, pump, host, now);
+    Check(focused, "the focus change reached the host");
+    Check(inputs == 1, "so did the key press");
+
+    Check(pump.lastRttUs() == 0, "no RTT sample yet");
+    now += 1'100'000;
+    pump.Tick(now);
+    while (!r.toHost.empty()) {
+        auto d = std::move(r.toHost.front());
+        r.toHost.pop_front();
+        host.HandlePacket(d, now);
+    }
+    const uint64_t pongAt = now + 30'000;
+    while (!r.toClient.empty()) {
+        auto d = std::move(r.toClient.front());
+        r.toClient.pop_front();
+        pump.OnDatagram(d, pongAt);
+    }
+    Check(pump.lastRttUs() == 30'000, "the pong round trip is measured");
+
+    pump.SendBye();
+    Exchange(r, pump, host, pongAt);
+    Check(hostEnded, "the BYE told the host we left");
+}
+
 }
 
 void RunClientPumpTests() {
@@ -320,4 +574,11 @@ void RunClientPumpTests() {
     TestDisconnectEndsTheLoop();
     TestLoopBusyWarning();
     TestStrayTrafficIsIgnored();
+    TestReconfigIsAppliedMidStream();
+    TestOfferWithoutFpsFallsBackToDefault();
+    TestFecRecoversALostPacket();
+    TestNackGoesOutForAHole();
+    TestLossAsksForAKeyframe();
+    TestLossRunsLineIsPrinted();
+    TestFocusInputByeAndRtt();
 }

@@ -92,8 +92,21 @@ void TestHintAndTitleFollowTheState() {
 
 }
 
+namespace {
+
+void TestSeededState() {
+    std::printf("[lock] a restored viewer starts from the state it saved...\n");
+    const PointerLockState st(true, true);
+    Check(st.locked(), "restored as locked");
+    Check(st.paused(), "restored as paused");
+    Check(!st.acceptsInput(), "and a paused restore keeps input gated");
+}
+
+}
+
 void RunPointerLockStateTests() {
     TestLockTogglesAndReports();
+    TestSeededState();
     TestEscapeOnlyReleasesWhenLocked();
     TestFocusLossAlwaysReleasesHeldInput();
     TestPauseGatesInputAndReleases();

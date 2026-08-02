@@ -172,6 +172,12 @@ static_assert(!VideoDecoderLike<DecoderTakingIntPts>);
 void RunMediaContractTests() {
     std::printf("[media] encoder/decoder signature contract for all five platforms (checked at compile time)...\n");
 
+    std::printf("[media] codec names for logs and pickers...\n");
+    volatile Codec h264 = Codec::H264;
+    volatile Codec hevc = Codec::HEVC;
+    Check(std::strcmp(CodecName(h264), "H264") == 0, "H264 names itself");
+    Check(std::strcmp(CodecName(hevc), "HEVC") == 0, "HEVC names itself");
+
     std::printf("[media] capture contract: the concepts reject a type that does not fit...\n");
     Check(!ScreenCaptureLike<NotACapture>, "a capture with no Closed() is not a capture");
     Check(!CapturedFrameLike<FrameWithLooseFields>,

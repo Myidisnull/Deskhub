@@ -173,8 +173,21 @@ void TestScaleToFitNeverUpscales() {
 
 }
 
+namespace {
+
+void TestZoomedThreshold() {
+    std::printf("[viewfit] the zoomed flag ignores rounding jitter around 1.0...\n");
+    Check(!IsZoomed(1.0), "exactly 1.0 is not zoomed");
+    Check(!IsZoomed(1.005), "a hair over 1.0 is still just fit");
+    Check(IsZoomed(1.02), "a real zoom is zoomed");
+    Check(!IsZoomed(0.5), "scaled down to fit is not zoomed");
+}
+
+}
+
 void RunViewFitTests() {
     TestLetterboxing();
+    TestZoomedThreshold();
     TestDegenerateInputs();
     TestZoomIsCentredAndBounded();
     TestPanCannotOpenAGap();

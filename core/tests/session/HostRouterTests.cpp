@@ -211,6 +211,38 @@ void TestReconfigOnlyWithAStreamingPeer() {
     Check(u.qualityChanged, "a quality change is reported all the same");
 }
 
+void TestReconfigReachesAStreamingPeer() {
+    std::printf("[router] a streaming peer is told about the new offer...\n");
+    auto p = MakePipe(0);
+    GiveStreamingSession(*p);
+    p->peerPacked.store(0xC0A80001'0000ULL);
+    p->srcW.store(1600);
+    p->srcH.store(900);
+    p->curBitrateBps.store(9'000'000);
+    p->step.fps = 30;
+
+    p->sizeChanged.store(true);
+    const OfferUpdate u = RefreshOffer(*p, 60);
+    Check(u.sendReconfig, "size change + streaming peer -> RECONFIG");
+    Check(u.reconfig.width == 1600 && u.reconfig.height == 900,
+        "the RECONFIG carries the new size");
+    Check(u.reconfig.fps == 30 && u.reconfig.bitrateBps == 9'000'000,
+        "and the ladder's rate");
+}
+
+void TestZeroSizedCaptureIsDropped() {
+    std::printf("[router] a capture with no size is dropped before it hurts anything...\n");
+    auto p = MakePipe(0);
+    FrameAdmission a = AdmitCapturedFrame(*p, 0, 1080, 0);
+    Check(a.drop, "zero width is dropped");
+    a = AdmitCapturedFrame(*p, 1920, 0, 0);
+    Check(a.drop, "zero height is dropped");
+    Check(p->srcW.load() == 0, "and no encode size was ever adopted");
+
+    a = AdmitCapturedFrame(*p, 1, 1080, 0);
+    Check(a.drop, "a one-pixel-wide capture rounds to nothing and is dropped");
+}
+
 void TestOfferFallsBackToTheConfiguredFps() {
     std::printf("[router] before a ladder exists the offer uses the configured fps...\n");
     auto p = MakePipe(0);
@@ -387,6 +419,8 @@ void RunHostRouterTests() {
     TestOfferRefreshNeedsAReason();
     TestPausedSourceStillClearsItsFlags();
     TestReconfigOnlyWithAStreamingPeer();
+    TestReconfigReachesAStreamingPeer();
+    TestZeroSizedCaptureIsDropped();
     TestOfferFallsBackToTheConfiguredFps();
     TestFlushTiming();
     TestFlushPrefersIdrOverKeepalive();

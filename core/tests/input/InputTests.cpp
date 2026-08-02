@@ -4,6 +4,7 @@
 #include "deskhub/input/InputReceiver.h"
 #include "deskhub/input/InputSender.h"
 #include "deskhub/input/KeyMap.h"
+#include "deskhub/input/VirtualKeys.h"
 
 #include <cstdio>
 #include <vector>
@@ -233,6 +234,21 @@ void TestCharToKeyChord() {
         Check(chord(cp).has_value(), "every printable ASCII char has a chord");
 }
 
+void TestModifierKeyOf() {
+    std::printf("[input] every alias of a modifier maps to the same modifier...\n");
+    for (const int32_t vk : {kVkShift, kVkLShift, kVkRShift})
+        Check(ModifierKeyOf(vk) == ModifierKey::Shift, "all shift codes are Shift");
+    for (const int32_t vk : {kVkControl, kVkLControl, kVkRControl})
+        Check(ModifierKeyOf(vk) == ModifierKey::Control, "all control codes are Control");
+    for (const int32_t vk : {kVkMenu, kVkLMenu, kVkRMenu})
+        Check(ModifierKeyOf(vk) == ModifierKey::Menu, "all alt codes are Menu");
+    for (const int32_t vk : {kVkLWin, kVkRWin})
+        Check(ModifierKeyOf(vk) == ModifierKey::Win, "both win codes are Win");
+    Check(ModifierKeyOf(kVkCapital) == ModifierKey::CapsLock, "caps lock stands alone");
+    Check(ModifierKeyOf('A') == ModifierKey::None, "a letter is no modifier");
+    Check(ModifierKeyOf(kVkSpace) == ModifierKey::None, "space is no modifier");
+}
+
 }
 
 void RunInputTests() {
@@ -243,4 +259,5 @@ void RunInputTests() {
     TestInputMultiBatchAndTrim();
     TestInputReset();
     TestCharToKeyChord();
+    TestModifierKeyOf();
 }

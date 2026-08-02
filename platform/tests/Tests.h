@@ -1,6 +1,7 @@
 #pragma once
 void RunNetAddrTests();
 void RunUdpSocketTests();
+void RunSourceQueryTests();
 void RunClientIdTests();
 void RunClockTests();
 void RunRandomTests();

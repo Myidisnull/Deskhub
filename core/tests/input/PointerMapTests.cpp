@@ -164,6 +164,14 @@ InputEvent Wheel(int32_t delta) {
     return e;
 }
 
+InputEvent Button(bool down) {
+    InputEvent e;
+    e.type = InputType::MouseButton;
+    e.a = int32_t(MouseButton::Left);
+    e.state = down ? 1 : 0;
+    return e;
+}
+
 void TestDispatch() {
     std::printf("[applier] every event type reaches the matching backend call...\n");
     FakeInjector inj;
@@ -172,11 +180,19 @@ void TestDispatch() {
     Check(inj.Apply(Move(true)), "an absolute move is applied");
     Check(inj.Apply(Move(false)), "a relative move is applied");
     Check(inj.Apply(Wheel(240)), "a wheel event is applied");
+    Check(inj.Apply(Button(true)), "a button down is applied");
+    Check(inj.Apply(Button(false)), "a button up is applied");
 
-    const std::vector<std::string> want{"key:65:down", "move:abs", "move:rel", "wheel:240"};
+    const std::vector<std::string> want{
+        "key:65:down", "move:abs", "move:rel", "wheel:240", "btn:down", "btn:up"};
     Check(inj.calls == want, "the calls arrive in order with no extras");
-    Check(inj.applied() == 4, "each applied event is counted");
+    Check(inj.applied() == 6, "each applied event is counted");
     Check(inj.skipped() == 0, "and nothing was skipped");
+
+    InputEvent junk;
+    junk.type = InputType(0x7F);
+    Check(!inj.Apply(junk), "an unknown event type is refused");
+    Check(inj.applied() == 6, "and never counted as applied");
 }
 
 void TestHostWinsReleasesHeldInput() {

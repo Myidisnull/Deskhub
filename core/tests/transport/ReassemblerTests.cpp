@@ -356,6 +356,33 @@ void TestLossRunBucketsAndDropInfo() {
     Check(st.lossRunMax == 10, "longest run recorded");
 }
 
+void TestLongLossRunBuckets() {
+    std::printf("[reasm] very long bursts land in the top lossRuns buckets...\n");
+    Packetizer pk;
+    pk.SetSessionId(42);
+    Reassembler ra(16'667);
+
+    uint64_t now = 1'000'000;
+    for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) Feed(ra, d, now);
+    ra.PopReady(now);
+
+    const auto f1 = Packetize(pk, MakePFrame(1, 30), now);
+    for (size_t i = 0; i < f1.size(); ++i)
+        if (i < 2 || i > 21) Feed(ra, f1[i], now);
+
+    const auto f2 = Packetize(pk, MakePFrame(2, 40), now);
+    Feed(ra, f2[0], now);
+    Feed(ra, f2[39], now);
+
+    now += 40'000;
+    Check(!ra.PopReady(now).has_value(), "both mutilated frames time out");
+
+    const auto& st = ra.stats();
+    Check(st.lossRuns[5] == 1, "a run of 20 lands in the 16..31 bucket");
+    Check(st.lossRuns[6] == 1, "a run of 38 lands in the 32+ bucket");
+    Check(st.lossRunMax == 38, "and becomes the longest run ever");
+}
+
 void TestPacketizerEdges() {
     std::printf("[reasm] Packetizer edge inputs -> 0 packets...\n");
     Packetizer pk;
@@ -384,5 +411,6 @@ void RunReassemblerTests() {
     TestMaxGap();
     TestPktCountMismatch();
     TestLossRunBucketsAndDropInfo();
+    TestLongLossRunBuckets();
     TestPacketizerEdges();
 }

@@ -408,8 +408,21 @@ void TestParseGarbage() {
 
 }
 
+namespace {
+
+void TestStateEventClassification() {
+    std::printf("[wire] only keys and mouse buttons carry pressed state...\n");
+    Check(IsStateEvent(InputType::Key), "a key press is a state event");
+    Check(IsStateEvent(InputType::MouseButton), "a mouse button is a state event");
+    Check(!IsStateEvent(InputType::MouseMove), "a mouse move is not");
+    Check(!IsStateEvent(InputType::MouseWheel), "a wheel tick is not");
+}
+
+}
+
 void RunWireTests() {
     TestWireRoundtrip();
+    TestStateEventClassification();
     TestSourceListWire();
     TestOversizedPacketsRejected();
     TestNackWire();

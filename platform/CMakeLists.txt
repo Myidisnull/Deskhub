@@ -119,6 +119,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/ffi/FfiTextTests.cpp
         tests/input/LocalInputGateTests.cpp
         tests/net/NetAddrTests.cpp
+        tests/net/SourceQueryTests.cpp
         tests/net/UdpSocketTests.cpp
         tests/session/HostCallbackTests.cpp
         tests/system/ClockTests.cpp
