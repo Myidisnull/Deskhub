@@ -76,6 +76,17 @@ if (-not $clangFormatOk) {
     }
 }
 
+if (Test-Path (Join-Path $root '.git')) {
+    $subStatus = git -C $root submodule status
+    if ($subStatus -match '(?m)^-') {
+        Write-Host "[install] git submodules (nvenc headers)..."
+        git -C $root submodule update --init
+        if ($LASTEXITCODE -ne 0) { throw "git submodule update failed (exit $LASTEXITCODE)" }
+    } else {
+        Write-Host "[ok]      git submodules"
+    }
+}
+
 $toolsDir = Join-Path $root 'tools'
 New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
 

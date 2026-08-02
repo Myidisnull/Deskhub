@@ -4,7 +4,8 @@ set(NVENC_INTERFACE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/nvenc-
 if(NOT EXISTS "${NVENC_INTERFACE_DIR}/nvEncodeAPI.h")
     message(FATAL_ERROR
         "nvEncodeAPI.h not found in '${NVENC_INTERFACE_DIR}' - "
-        "run 'git submodule update --init' or point NVENC_INTERFACE_DIR at it")
+        "run 'git submodule update --init' (or 'make bootstrap') first, "
+        "or point NVENC_INTERFACE_DIR at it")
 endif()
 
 add_library(deskhub_win_core STATIC

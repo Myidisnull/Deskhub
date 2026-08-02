@@ -11,6 +11,16 @@ SWIFTFORMAT_LINUX_SHA256=61ff55f3581e2144a4ad114831167102c38be853df75c1477d20b40
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+sync_submodules() {
+    [ -e .git ] || return 0
+    if git submodule status | grep -q '^-'; then
+        echo "[install] git submodules (nvenc headers)..."
+        git submodule update --init
+    else
+        echo "[ok]      git submodules"
+    fi
+}
+
 verify_sha256() {
     if have sha256sum; then
         echo "$2  $1" | sha256sum --check --status -
@@ -87,6 +97,8 @@ install_android_packages() {
         echo "[action]  Android cmdline-tools missing - install Android Studio or sdkmanager, set ANDROID_HOME, then re-run bootstrap."
     fi
 }
+
+sync_submodules
 
 case "$(uname -s)" in
 Darwin)

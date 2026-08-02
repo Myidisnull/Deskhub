@@ -230,7 +230,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return t;
     };
 
-    policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
+    policy.source.flush = [](deskhubp::HostSource& st, uint64_t) {
         SourcePipeline& p = Pipeline(st);
         if (!p.hasCachedFrame()) return;
         std::lock_guard<std::mutex> lk(p.encMutex);

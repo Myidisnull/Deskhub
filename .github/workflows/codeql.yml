@@ -25,7 +25,10 @@ jobs:
         include:
           - { language: c-cpp,       os: ubuntu-latest, build-mode: manual }
           - { language: java-kotlin, os: ubuntu-latest, build-mode: manual }
-          - { language: swift,       os: macos-latest,  build-mode: manual }
+          # macos-latest is macOS 26 with only Xcode 26.x, which the CodeQL swift
+          # extractor cannot trace yet (github/codeql#20669) - the job has never
+          # gone green there. macos-15 still defaults to Xcode 16.x, which works.
+          - { language: swift,       os: macos-15,      build-mode: manual }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
@@ -75,9 +78,9 @@ jobs:
         if: matrix.language == 'java-kotlin'
         run: make build-android
 
-      # Xcode 26 compiles Swift in a way the CodeQL extractor can end up seeing
-      # nothing of. These two settings force the plainest possible compile so it
-      # has a chance to observe every swift-frontend invocation.
+      # The CodeQL extractor has to observe every swift-frontend invocation.
+      # These two settings force the plainest possible compile so none of them
+      # are batched or indexed away.
       - name: Build the macOS app
         if: matrix.language == 'swift'
         run: >
