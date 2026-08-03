@@ -77,31 +77,80 @@ jobs:
             out/deskhub-${{ github.ref_name }}-amd64.deb
             out/deskhub-${{ github.ref_name }}-x86_64.rpm
           body: |
-            | Platform | File / channel |
-            |---|---|
-            | Windows | `deskhub-${{ github.ref_name }}-windows.exe` — single file, just run it |
-            | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — notarized, opens without warnings |
-            | Ubuntu / Debian / Mint | `deskhub-${{ github.ref_name }}-amd64.deb` — `sudo apt install ./deskhub-${{ github.ref_name }}-amd64.deb` |
-            | Fedora / openSUSE | `deskhub-${{ github.ref_name }}-x86_64.rpm` — `sudo dnf install ./…` / `sudo zypper install ./…` |
-            | Arch / other Linux | `deskhub-${{ github.ref_name }}-linux-x86_64` — portable binary, `chmod +x` and run |
-            | Android | `deskhub-${{ github.ref_name }}-android.apk` — release-signed, same key as the Google Play build |
-            | iOS | TestFlight / App Store (ipa cannot be sideloaded) |
+            ## 📦 Get it
 
-            **Linux — connecting and viewing needs nothing installed.** The binary links only against GTK3, PipeWire and
-            libva, which a stock desktop already has; the H.264 decoder is compiled in, so no FFmpeg package is involved.
-            The deb and the rpm carry identical content — pick the one your package manager understands.
-
-            **To share your screen** three things must be in place (full per-distro guide in the README):
-
-            1. **Screen-capture portal** — preinstalled with GNOME and KDE, nothing to do there.
-               sway/river/Wayfire (wlroots compositors, no built-in backend) need `xdg-desktop-portal-wlr` · Hyprland: `-hyprland`.
-            2. **VA-API driver** — H.264 is encoded on the GPU, no software fallback. Ubuntu: `sudo apt install va-driver-all vainfo` ·
-               Fedora needs the RPM Fusion drivers (see README) · Arch: `libva-mesa-driver` / `intel-media-driver`.
-               Then `vainfo | grep -E 'H264.*Enc'` must print ≥1 line.
-            3. **Write access to `/dev/uinput`** — a udev rule the deb/rpm installs for you. Portable-binary users:
-               `curl -fsSL https://raw.githubusercontent.com/manhpham90vn/Deskhub/main/scripts/setup-uinput.sh | sudo bash`
+            | Platform | File | Install |
+            | --- | --- | --- |
+            | 🪟 Windows | `deskhub-${{ github.ref_name }}-windows.exe` | Single file — just run it. Sharing prompts for admin once and the app configures the firewall by itself. |
+            | 🍎 macOS | `deskhub-${{ github.ref_name }}-macos.dmg` | Notarized — opens without warnings. |
+            | 🐧 Ubuntu, Kubuntu, Debian, Mint | `deskhub-${{ github.ref_name }}-amd64.deb` | `sudo apt install ./deskhub-${{ github.ref_name }}-amd64.deb` |
+            | 🐧 Fedora (Workstation & KDE spin) | `deskhub-${{ github.ref_name }}-x86_64.rpm` | `sudo dnf install ./deskhub-${{ github.ref_name }}-x86_64.rpm` |
+            | 🐧 openSUSE | `deskhub-${{ github.ref_name }}-x86_64.rpm` | `sudo zypper install ./deskhub-${{ github.ref_name }}-x86_64.rpm` |
+            | 🐧 Arch, anything else | `deskhub-${{ github.ref_name }}-linux-x86_64` | `chmod +x deskhub-${{ github.ref_name }}-linux-x86_64 && ./deskhub-${{ github.ref_name }}-linux-x86_64` |
+            | 🤖 Android | `deskhub-${{ github.ref_name }}-android.apk` | Release-signed, same key as the Google Play build — or join the [Play beta](https://play.google.com/apps/testing/com.manhpham.deskhub). |
+            | 📱 iOS | — | [TestFlight](https://testflight.apple.com/join/7qY7wgpd) / App Store (an ipa cannot be sideloaded) |
 
             The macOS dmg and the Android apk are attached by their own jobs — they may show up a few minutes later.
+
+            ## 🐧 Linux notes
+
+            **To connect and view, installing is all it takes.** The app links only against GTK3, PipeWire and libva,
+            which every stock desktop already has; the H.264 decoder is compiled in, so no FFmpeg package is involved.
+            The deb and the rpm carry identical content — pick the one your package manager understands. The portable
+            binary runs on any x86_64 distro with glibc 2.35+ (Ubuntu 22.04, Fedora 36, openSUSE 15.5, any current Arch).
+
+            **To share this machine's screen**, three more things must be in place:
+
+            1. **A screen-capture portal.** GNOME and KDE ship theirs out of the box — **nothing to do** on
+               Ubuntu, Kubuntu, Fedora, openSUSE or Arch with GNOME/KDE. Standalone wlroots compositors
+               (sway / river / Wayfire) need one; Hyprland has its own `xdg-desktop-portal-hyprland`:
+
+               ```bash
+               sudo apt install xdg-desktop-portal-wlr      # sway / river / Wayfire on Debian-family
+               sudo dnf install xdg-desktop-portal-wlr      # …on Fedora
+               sudo pacman -S xdg-desktop-portal-wlr        # …on Arch
+               ```
+
+            2. **A VA-API driver.** H.264 is encoded on the GPU; there is no software fallback:
+
+               ```bash
+               # Ubuntu / Debian / Mint
+               sudo apt install va-driver-all vainfo        # NVIDIA also needs: nvidia-vaapi-driver
+
+               # Fedora — stock Mesa has H.264 disabled; the working drivers live in RPM Fusion:
+               sudo dnf install libva-utils
+               sudo dnf install mesa-va-drivers-freeworld   # AMD (RPM Fusion)
+               sudo dnf install intel-media-driver          # Intel (RPM Fusion)
+               sudo dnf install nvidia-vaapi-driver         # NVIDIA (RPM Fusion)
+
+               # openSUSE
+               sudo zypper install libva-utils              # plus your GPU vendor's VA-API driver
+
+               # Arch
+               sudo pacman -S libva-utils
+               sudo pacman -S libva-mesa-driver             # AMD · Intel: intel-media-driver · NVIDIA: libva-nvidia-driver
+
+               # then on every distro:
+               vainfo | grep -E 'H264.*Enc'                 # must print ≥1 line, or this machine cannot host
+               ```
+
+            3. **Write access to `/dev/uinput`** — how mouse and keyboard get injected. The deb/rpm installs
+               this udev rule for you — nothing to do. On the portable binary, one command sets it up:
+
+               ```bash
+               curl -fsSL https://raw.githubusercontent.com/manhpham90vn/Deskhub/main/scripts/setup-uinput.sh | sudo bash
+               ```
+
+            If you enabled a firewall, also open UDP 47777 (`sudo ufw allow 47777/udp` /
+            `sudo firewall-cmd --add-port=47777/udp --permanent`).
+
+            ## 🔒 Before you share a screen
+
+            **Deskhub has no password and no encryption of its own. Anyone who can reach UDP 47777 on a sharing
+            machine gets full mouse and keyboard control of it.** Run it on a network you trust, or over a VPN —
+            install [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z` address.
+            **Never port-forward UDP 47777.** Full threat model in
+            [SECURITY.md](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
 
   ios:
     needs: apps

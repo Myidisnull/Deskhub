@@ -25,7 +25,7 @@ desktop tools can't pull off.
 | **macOS** | ✅ | ✅ | Both roles working (ScreenCaptureKit + VideoToolbox + CGEvent) |
 | **Android** | — | ✅ | Video + input (trackpad, keyboard) — testing on Google Play |
 | **iOS** | — | ✅ | Video + input (trackpad, keyboard) — testing via TestFlight |
-| **Ubuntu** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — verified between two machines over LAN |
+| **Linux** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — Ubuntu, Debian, Mint, Fedora, openSUSE, Arch via deb / rpm / portable binary; verified between two machines over LAN |
 | **Web** | — | 📐 | Designed (QUIC/WebTransport + WASM), not yet implemented |
 
 ## 🔒 Before you share a screen
