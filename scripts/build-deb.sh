@@ -2,12 +2,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BIN=out/build/x64-release/client/linux/deskhub
-[ -f "$BIN" ] || {
-    echo "build-deb.sh: $BIN not found - run 'make release-linux' first." >&2
-    exit 1
-}
-
 for tool in dpkg-deb dpkg-shlibdeps dpkg; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "build-deb.sh: '$tool' is required (sudo apt install dpkg-dev)." >&2
@@ -22,47 +16,7 @@ STAGE="$DIST/deb"
 DEB="$DIST/deskhub_${VERSION}_${ARCH}.deb"
 
 rm -rf "$STAGE" "$DEB"
-
-install -Dm755 "$BIN" "$STAGE/usr/bin/deskhub"
-strip "$STAGE/usr/bin/deskhub"
-
-install -Dm644 client/macos/app/Assets.xcassets/AppIcon.appiconset/icon_256.png \
-    "$STAGE/usr/share/icons/hicolor/256x256/apps/deskhub.png"
-install -Dm644 client/macos/app/Assets.xcassets/AppIcon.appiconset/icon_512.png \
-    "$STAGE/usr/share/icons/hicolor/512x512/apps/deskhub.png"
-
-mkdir -p "$STAGE/usr/share/applications"
-cat > "$STAGE/usr/share/applications/deskhub.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Deskhub
-Comment=Share and control desktops over the local network
-Exec=deskhub
-Icon=deskhub
-Terminal=false
-Categories=Network;RemoteAccess;
-EOF
-
-# 60- sorts before systemd's 73-seat-late.rules, which is what turns the
-# uaccess tag into an ACL for the user at the active seat (no group, no
-# re-login). GROUP="input" stays as the fallback for headless sessions.
-mkdir -p "$STAGE/usr/lib/udev/rules.d"
-cat > "$STAGE/usr/lib/udev/rules.d/60-deskhub-uinput.rules" <<'EOF'
-KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", TAG+="uaccess", OPTIONS+="static_node=uinput"
-EOF
-
-mkdir -p "$STAGE/usr/lib/modules-load.d"
-echo uinput > "$STAGE/usr/lib/modules-load.d/deskhub.conf"
-
-mkdir -p "$STAGE/usr/share/doc/deskhub"
-{
-    echo "Deskhub is distributed under the MIT License."
-    echo "Third-party components and their licenses: see THIRD_PARTY_NOTICES.md."
-    echo
-    cat LICENSE
-} > "$STAGE/usr/share/doc/deskhub/copyright"
-install -Dm644 THIRD_PARTY_NOTICES.md "$STAGE/usr/share/doc/deskhub/THIRD_PARTY_NOTICES.md"
-install -Dm644 licenses/LGPL-2.1.txt "$STAGE/usr/share/doc/deskhub/LGPL-2.1.txt"
+scripts/stage-linux-pkgroot.sh "$STAGE"
 
 # dpkg-shlibdeps computes the exact runtime Depends from the binary's NEEDED
 # entries; it insists on a debian/control stub existing next to the binary.

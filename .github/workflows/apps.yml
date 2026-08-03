@@ -145,6 +145,35 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      - name: Package the rpm (scripts/build-rpm.sh)
+        if: matrix.release
+        run: |
+          sudo apt-get install -y rpm
+          scripts/build-rpm.sh
+
+      - name: Install the rpm in a Fedora container and verify its payload
+        if: matrix.release
+        run: |
+          docker run --rm -v "$PWD/out/dist/linux:/pkg:ro" fedora:latest bash -ec '
+            dnf install -y -q /pkg/deskhub-*.rpm
+            test -x /usr/bin/deskhub
+            test -f /usr/lib/udev/rules.d/60-deskhub-uinput.rules
+            test -f /usr/lib/modules-load.d/deskhub.conf
+            if ldd /usr/bin/deskhub | grep "not found"; then
+              echo "::error::unresolved shared libraries after dnf install"
+              exit 1
+            fi
+            rpm -q deskhub'
+
+      - name: Upload rpm
+        if: matrix.release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deskhub-linux-rpm
+          path: out/dist/linux/deskhub-*.rpm
+          retention-days: 14
+          if-no-files-found: error
+
   macos:
     if: ${{ !inputs.for_release }}
     runs-on: macos-latest

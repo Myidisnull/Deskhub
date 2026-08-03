@@ -36,8 +36,8 @@ int CreateDevice(const char* name, const uint16_t* keys, size_t keyCount, bool w
     const int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
         LOGE(
-            "[Inject] Cannot open /dev/uinput (%s). Run 'make setup-linux-permissions' to add "
-            "the udev rule and join the 'input' group.",
+            "[Inject] Cannot open /dev/uinput (%s). Install the deb/rpm package, or run "
+            "scripts/setup-uinput.sh (make setup-linux-permissions) to add the udev rule.",
             std::strerror(errno));
         return -1;
     }

@@ -133,9 +133,9 @@ Darwin)
 Linux)
     have apt-get || { echo "Only Ubuntu/Debian (apt) is supported for now." >&2; exit 1; }
 
-    echo "[install] apt packages (build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config)..."
+    echo "[install] apt packages (build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config rpm)..."
     sudo apt-get update -qq
-    sudo apt-get install -y build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config
+    sudo apt-get install -y build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config rpm
 
     echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, GTK3, nasm)..."
     sudo apt-get install -y \

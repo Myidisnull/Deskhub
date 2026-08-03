@@ -16,13 +16,10 @@ run-linux: build-linux
 
 dist-linux: release-linux
 	@scripts/build-deb.sh
+	@scripts/build-rpm.sh
 
 setup-linux-permissions:
-	@echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
-	  | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules >/dev/null
-	@sudo udevadm control --reload-rules && sudo udevadm trigger
-	@sudo usermod -aG input "$$USER"
-	@echo "setup-linux-permissions: done — LOG OUT and back in for the group change to apply."
+	@sudo scripts/setup-uinput.sh
 else
 build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min:
 	@echo "make $@: needs Ubuntu/Linux"; exit 1

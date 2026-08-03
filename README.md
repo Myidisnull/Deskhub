@@ -48,43 +48,81 @@ model, what is and isn't protected, and how to report a vulnerability.
 **[Releases](https://github.com/manhpham90vn/Deskhub/releases)** — no install, no setup.
 On Windows, sharing prompts for admin once and the app configures the firewall by itself.
 
-**🐧 Ubuntu** — grab the `.deb` from [Releases](https://github.com/manhpham90vn/Deskhub/releases):
+**🐧 Linux** — pick the file matching your distro from
+[Releases](https://github.com/manhpham90vn/Deskhub/releases); the deb and the rpm carry
+identical content:
+
+| Distro | File | Install |
+| --- | --- | --- |
+| Ubuntu, Kubuntu, Debian, Mint | `deskhub_*_amd64.deb` | `sudo apt install ./deskhub_*_amd64.deb` |
+| Fedora (Workstation & KDE spin) | `deskhub-*.x86_64.rpm` | `sudo dnf install ./deskhub-*.x86_64.rpm` |
+| openSUSE | `deskhub-*.x86_64.rpm` | `sudo zypper install ./deskhub-*.x86_64.rpm` |
+| Arch, anything else | `deskhub-*-linux-x86_64` | `chmod +x deskhub-*-linux-x86_64 && ./deskhub-*-linux-x86_64` |
+
+Both packages ship the `/dev/uinput` udev rule (requirement 3 below), so remote input
+works right after install — no group change, no re-login. The portable binary runs on any
+x86_64 distro with glibc 2.35+ (Ubuntu 22.04, Fedora 36, openSUSE 15.5, any current
+Arch); it links only against GTK3, PipeWire and libva, which every stock desktop already
+has, and the H.264 decoder is compiled in.
+
+**To connect and view, installing is all it takes.** To **share this machine's screen**,
+three more things must be in place:
+
+**1. A screen-capture portal.** Deskhub always captures through `xdg-desktop-portal` — it
+is what shows the "which screen to share?" dialog. GNOME and KDE ship their portal
+backend out of the box on every major distro — **nothing to do** on Ubuntu, Kubuntu,
+Fedora Workstation, Fedora KDE, openSUSE or Arch with GNOME/KDE. Standalone window
+managers do need one:
 
 ```bash
-sudo apt install ./deskhub_*_amd64.deb
+sudo apt install xdg-desktop-portal-wlr      # sway / river / Wayfire on Debian-family
+sudo dnf install xdg-desktop-portal-wlr      # …on Fedora
+sudo pacman -S xdg-desktop-portal-wlr        # …on Arch
 ```
 
-The package ships the `/dev/uinput` udev rule (step 3 below), so remote input works right
-after install — no group change, no re-login. A portable single binary is also attached;
-**to connect and view it needs nothing** — it links only against GTK3, PipeWire and libva,
-which a stock Ubuntu 22.04+ desktop already has, and the H.264 decoder is compiled in:
+sway, river and Wayfire are Wayland compositors built on the **wlroots** library; unlike
+GNOME/KDE they ship no portal backend of their own, and `-wlr` is the backend that
+implements screen capture for all of them (Hyprland has its own
+`xdg-desktop-portal-hyprland`).
+
+**2. A VA-API driver.** H.264 is encoded on the GPU; there is no software fallback:
 
 ```bash
-chmod +x deskhub && ./deskhub
-```
-
-**To share this machine's screen** you need three more things — the deb covers the third,
-the portable binary does not:
-
-```bash
-# 1. Portal backend — on Wayland an app cannot read the screen; the portal asks for you.
-sudo apt install xdg-desktop-portal xdg-desktop-portal-gnome   # KDE: -kde · sway/wlroots: -wlr
-
-# 2. VA-API driver — H.264 is encoded on the GPU, there is no software fallback.
+# Ubuntu / Debian / Mint
 sudo apt install va-driver-all vainfo        # NVIDIA also needs: nvidia-vaapi-driver
-vainfo | grep -E 'H264.*Enc'                 # must print ≥1 line, or this machine cannot host
 
-# 3. PORTABLE BINARY ONLY — write access to /dev/uinput, how mouse and keyboard get injected.
-echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
-  | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-sudo usermod -aG input "$USER"               # then LOG OUT and back in
+# Fedora — stock Mesa has H.264 disabled; the working drivers live in RPM Fusion:
+sudo dnf install libva-utils
+sudo dnf install mesa-va-drivers-freeworld   # AMD (RPM Fusion)
+sudo dnf install intel-media-driver          # Intel (RPM Fusion)
+sudo dnf install nvidia-vaapi-driver         # NVIDIA (RPM Fusion)
+
+# openSUSE
+sudo zypper install libva-utils              # plus your GPU vendor's VA-API driver
+
+# Arch
+sudo pacman -S libva-utils
+sudo pacman -S libva-mesa-driver             # AMD · Intel: intel-media-driver · NVIDIA: libva-nvidia-driver
+
+# then on every distro:
+vainfo | grep -E 'H264.*Enc'                 # must print ≥1 line, or this machine cannot host
 ```
 
-Building from source? Step 3 is just `make setup-linux-permissions`, or build the package
-yourself with `make dist-linux`. If you enabled `ufw`,
-also `sudo ufw allow 47777/udp`. Without the permission grant the app still runs and can
-still view — it just cannot inject mouse/keyboard into this machine.
+**3. Write access to `/dev/uinput`** — how mouse and keyboard get injected. This is a
+udev rule the deb/rpm installs for you. On the portable binary, one command sets it up
+(no clone, no re-login on the desktop):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manhpham90vn/Deskhub/main/scripts/setup-uinput.sh | sudo bash
+```
+
+Prefer reading before piping to sudo? Download
+[`scripts/setup-uinput.sh`](scripts/setup-uinput.sh) first — it is a dozen lines. From a
+source checkout the same thing is `make setup-linux-permissions`.
+
+If you enabled a firewall, also open UDP 47777 (`sudo ufw allow 47777/udp` /
+`sudo firewall-cmd --add-port=47777/udp --permanent`). Without the uinput grant the app
+still runs and can still view — it just cannot inject mouse/keyboard into this machine.
 
 **📱 iOS** — install [TestFlight](https://apps.apple.com/app/testflight/id899247664), then
 join the beta: **[testflight.apple.com/join/7qY7wgpd](https://testflight.apple.com/join/7qY7wgpd)**
