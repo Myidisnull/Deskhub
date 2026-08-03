@@ -14,6 +14,9 @@ release-linux: ffmpeg-min
 run-linux: build-linux
 	$(LINUX_APP_DEBUG) $(ARGS)
 
+dist-linux: release-linux
+	@scripts/build-deb.sh
+
 setup-linux-permissions:
 	@echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
 	  | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules >/dev/null
@@ -21,8 +24,8 @@ setup-linux-permissions:
 	@sudo usermod -aG input "$$USER"
 	@echo "setup-linux-permissions: done — LOG OUT and back in for the group change to apply."
 else
-build-linux release-linux run-linux setup-linux-permissions ffmpeg-min:
+build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min:
 	@echo "make $@: needs Ubuntu/Linux"; exit 1
 endif
 
-.PHONY: build-linux release-linux run-linux setup-linux-permissions ffmpeg-min
+.PHONY: build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min

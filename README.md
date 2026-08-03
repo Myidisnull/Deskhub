@@ -48,16 +48,23 @@ model, what is and isn't protected, and how to report a vulnerability.
 **[Releases](https://github.com/manhpham90vn/Deskhub/releases)** — no install, no setup.
 On Windows, sharing prompts for admin once and the app configures the firewall by itself.
 
-**🐧 Ubuntu** — a single binary from [Releases](https://github.com/manhpham90vn/Deskhub/releases).
-**To connect and view, that is all** — it links only against GTK3, PipeWire and libva, which
-a stock Ubuntu 22.04+ desktop already has, and the H.264 decoder is compiled in:
+**🐧 Ubuntu** — grab the `.deb` from [Releases](https://github.com/manhpham90vn/Deskhub/releases):
+
+```bash
+sudo apt install ./deskhub_*_amd64.deb
+```
+
+The package ships the `/dev/uinput` udev rule (step 3 below), so remote input works right
+after install — no group change, no re-login. A portable single binary is also attached;
+**to connect and view it needs nothing** — it links only against GTK3, PipeWire and libva,
+which a stock Ubuntu 22.04+ desktop already has, and the H.264 decoder is compiled in:
 
 ```bash
 chmod +x deskhub && ./deskhub
 ```
 
-**To share this machine's screen** you need three more things — Linux gives none of them
-away by default:
+**To share this machine's screen** you need three more things — the deb covers the third,
+the portable binary does not:
 
 ```bash
 # 1. Portal backend — on Wayland an app cannot read the screen; the portal asks for you.
@@ -67,14 +74,15 @@ sudo apt install xdg-desktop-portal xdg-desktop-portal-gnome   # KDE: -kde · sw
 sudo apt install va-driver-all vainfo        # NVIDIA also needs: nvidia-vaapi-driver
 vainfo | grep -E 'H264.*Enc'                 # must print ≥1 line, or this machine cannot host
 
-# 3. Write access to /dev/uinput — how mouse and keyboard get injected.
+# 3. PORTABLE BINARY ONLY — write access to /dev/uinput, how mouse and keyboard get injected.
 echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
   | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo usermod -aG input "$USER"               # then LOG OUT and back in
 ```
 
-Building from source? Step 3 is just `make setup-linux-permissions`. If you enabled `ufw`,
+Building from source? Step 3 is just `make setup-linux-permissions`, or build the package
+yourself with `make dist-linux`. If you enabled `ufw`,
 also `sudo ufw allow 47777/udp`. Without the permission grant the app still runs and can
 still view — it just cannot inject mouse/keyboard into this machine.
 

@@ -65,6 +65,7 @@ jobs:
           mv dist/deskhub-windows/Deskhub.exe "out/deskhub-${GITHUB_REF_NAME}-windows.exe"
           mv dist/deskhub-linux/deskhub "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
           chmod +x "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
+          mv dist/deskhub-linux-deb/deskhub_*.deb "out/deskhub-${GITHUB_REF_NAME}-amd64.deb"
 
       - name: Create release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -72,12 +73,14 @@ jobs:
           files: |
             out/deskhub-${{ github.ref_name }}-windows.exe
             out/deskhub-${{ github.ref_name }}-linux-x86_64
+            out/deskhub-${{ github.ref_name }}-amd64.deb
           body: |
             | Platform | File / channel |
             |---|---|
             | Windows | `deskhub-${{ github.ref_name }}-windows.exe` — single file, just run it |
             | macOS | `deskhub-${{ github.ref_name }}-macos.dmg` — notarized, opens without warnings |
-            | Ubuntu | `deskhub-${{ github.ref_name }}-linux-x86_64` — `chmod +x` and run (Ubuntu 22.04+, x86_64) |
+            | Ubuntu | `deskhub-${{ github.ref_name }}-amd64.deb` — `sudo apt install ./deskhub-${{ github.ref_name }}-amd64.deb` (Ubuntu 22.04+) |
+            | Ubuntu (portable) | `deskhub-${{ github.ref_name }}-linux-x86_64` — `chmod +x` and run, needs the manual uinput setup below |
             | Android | `deskhub-${{ github.ref_name }}-android.apk` — release-signed, same key as the Google Play build |
             | iOS | TestFlight / App Store (ipa cannot be sideloaded) |
 
@@ -85,7 +88,7 @@ jobs:
             libva, which a stock desktop already has; the H.264 decoder is compiled in, so it runs on 22.04 through 26.04
             with no FFmpeg package involved.
 
-            **To share your screen** you need three more things:
+            **To share your screen** you need three more things — the deb already covers step 3:
 
             ```bash
             # 1. Portal backend — on Wayland an app cannot read the screen; the portal asks for you.
@@ -95,7 +98,7 @@ jobs:
             sudo apt install va-driver-all vainfo
             vainfo | grep -E 'H264.*Enc'      # must print ≥1 line, or this machine cannot host
 
-            # 3. Write access to /dev/uinput — how mouse and keyboard get injected.
+            # 3. PORTABLE BINARY ONLY — write access to /dev/uinput (the deb installs this rule for you).
             echo 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' \
               | sudo tee /etc/udev/rules.d/60-deskhub-uinput.rules
             sudo udevadm control --reload-rules && sudo udevadm trigger

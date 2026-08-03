@@ -123,6 +123,28 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      - name: Package the deb (scripts/build-deb.sh)
+        if: matrix.release
+        run: scripts/build-deb.sh
+
+      - name: Install the deb and verify its payload
+        if: matrix.release
+        run: |
+          sudo apt-get install -y ./out/dist/linux/deskhub_*.deb
+          test -x /usr/bin/deskhub
+          test -f /usr/lib/udev/rules.d/60-deskhub-uinput.rules
+          test -f /usr/lib/modules-load.d/deskhub.conf
+          dpkg-deb --info out/dist/linux/deskhub_*.deb
+
+      - name: Upload deb
+        if: matrix.release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deskhub-linux-deb
+          path: out/dist/linux/deskhub_*.deb
+          retention-days: 14
+          if-no-files-found: error
+
   macos:
     if: ${{ !inputs.for_release }}
     runs-on: macos-latest
