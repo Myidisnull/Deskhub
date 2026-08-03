@@ -30,7 +30,7 @@ Version: $VERSION
 Release: 1
 Summary: LAN remote desktop - share and control screens
 License: MIT
-URL: https://github.com/manhpham90vn/mp_remote
+URL: https://github.com/manhpham90vn/Deskhub
 Recommends: xdg-desktop-portal
 
 %description

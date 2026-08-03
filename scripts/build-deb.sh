@@ -38,7 +38,7 @@ Priority: optional
 Installed-Size: $INSTALLED_SIZE
 Depends: $DEPENDS
 Recommends: xdg-desktop-portal, va-driver-all
-Homepage: https://github.com/manhpham90vn/mp_remote
+Homepage: https://github.com/manhpham90vn/Deskhub
 Description: LAN remote desktop - share and control screens
  Deskhub shares the screen of one machine and controls it from another
  over UDP on the local network.

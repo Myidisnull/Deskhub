@@ -54,10 +54,10 @@ identical content:
 
 | Distro | File | Install |
 | --- | --- | --- |
-| Ubuntu, Kubuntu, Debian, Mint | `deskhub_*_amd64.deb` | `sudo apt install ./deskhub_*_amd64.deb` |
-| Fedora (Workstation & KDE spin) | `deskhub-*.x86_64.rpm` | `sudo dnf install ./deskhub-*.x86_64.rpm` |
-| openSUSE | `deskhub-*.x86_64.rpm` | `sudo zypper install ./deskhub-*.x86_64.rpm` |
-| Arch, anything else | `deskhub-*-linux-x86_64` | `chmod +x deskhub-*-linux-x86_64 && ./deskhub-*-linux-x86_64` |
+| Ubuntu, Kubuntu, Debian, Mint | `deskhub-v*-amd64.deb` | `sudo apt install ./deskhub-v*-amd64.deb` |
+| Fedora (Workstation & KDE spin) | `deskhub-v*-x86_64.rpm` | `sudo dnf install ./deskhub-v*-x86_64.rpm` |
+| openSUSE | `deskhub-v*-x86_64.rpm` | `sudo zypper install ./deskhub-v*-x86_64.rpm` |
+| Arch, anything else | `deskhub-v*-linux-x86_64` | `chmod +x deskhub-v*-linux-x86_64 && ./deskhub-v*-linux-x86_64` |
 
 Both packages ship the `/dev/uinput` udev rule (requirement 3 below), so remote input
 works right after install — no group change, no re-login. The portable binary runs on any
