@@ -387,7 +387,7 @@ void TestClientDeathPaths() {
 void TestRejectCodecMismatch() {
     std::printf("[session] HELLO without H.264 -> rejected at handshake...\n");
     Rig r;
-    r.cli.Start(Hello{0x2, kCodecMaskHevc, 1920, 1080, 60, 0}, r.now);
+    r.cli.Start(Hello{0x2, uint16_t(0), 1920, 1080, 60, 0}, r.now);
     r.Pump();
     Check(!r.cliDead.empty(), "client without H.264 refused at handshake");
     Check(r.host.state() == HostSession::State::Idle, "host stays IDLE after the codec reject");

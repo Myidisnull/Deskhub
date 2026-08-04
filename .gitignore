@@ -23,7 +23,6 @@ compile_commands.json
 
 *.bmp
 *.h264
-*.hevc
 *.mp4
 
 third_party/*

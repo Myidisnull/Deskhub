@@ -121,11 +121,6 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
         LOGE("[Encoder] Bad size %ux%u (must be non-zero and even).", cfg.width, cfg.height);
         return false;
     }
-    if (cfg.codec != deskhub::media::Codec::H264) {
-        LOGE("[Encoder] This backend only emits H264, not %s.",
-            deskhub::media::CodecName(cfg.codec));
-        return false;
-    }
     cfg_ = cfg;
 
     NSDictionary* spec = @{

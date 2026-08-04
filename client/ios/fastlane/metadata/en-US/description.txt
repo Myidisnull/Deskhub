@@ -1,7 +1,7 @@
 Deskhub streams your Windows PC screen to your phone and lets you control it with ultra-low latency — built for gaming, not just remote work.
 
 FEATURES
-• Live H.264/HEVC video stream with hardware decoding
+• Live H.264 video stream with hardware decoding
 • Virtual trackpad: move the mouse by dragging anywhere, tap to click, two-finger tap for right click, hold and drag to select
 • Full keyboard input, plus a hotkey bar for Esc, Tab, Enter, arrows, Del, Ctrl+C/Ctrl+V
 • Clipboard sync between phone and PC

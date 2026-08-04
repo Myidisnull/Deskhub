@@ -172,12 +172,6 @@ static_assert(!VideoDecoderLike<DecoderTakingIntPts>);
 void RunMediaContractTests() {
     std::printf("[media] encoder/decoder signature contract for all five platforms (checked at compile time)...\n");
 
-    std::printf("[media] codec names for logs and pickers...\n");
-    volatile Codec h264 = Codec::H264;
-    volatile Codec hevc = Codec::HEVC;
-    Check(std::strcmp(CodecName(h264), "H264") == 0, "H264 names itself");
-    Check(std::strcmp(CodecName(hevc), "HEVC") == 0, "HEVC names itself");
-
     std::printf("[media] capture contract: the concepts reject a type that does not fit...\n");
     Check(!ScreenCaptureLike<NotACapture>, "a capture with no Closed() is not a capture");
     Check(!CapturedFrameLike<FrameWithLooseFields>,
@@ -196,7 +190,6 @@ void RunMediaContractTests() {
     std::printf("[media] EncoderConfig/DecoderConfig defaults...\n");
     const EncoderConfig ec;
     Check(ec.fps == 60, "EncoderConfig: fps defaults to 60");
-    Check(ec.codec == Codec::H264, "EncoderConfig: codec defaults to H264");
     Check(ec.rc == RateControl::CBR, "EncoderConfig: rate control defaults to CBR");
     Check(ec.lowLatency, "EncoderConfig: low latency is the default");
     Check(ec.bitrateBps == 20'000'000, "EncoderConfig: bitrate defaults to 20 Mbps");
@@ -207,15 +200,8 @@ void RunMediaContractTests() {
 
     const DecoderConfig dc;
     Check(dc.fps == 60, "DecoderConfig: fps defaults to 60");
-    Check(dc.codec == Codec::H264, "DecoderConfig: codec defaults to H264");
     Check(dc.width == 0 && dc.height == 0,
         "DecoderConfig: 0 = unknown, the decoder reads it back from the SPS");
-
-    std::printf("[media] codec names (they end up in logs and in the diag line)...\n");
-    Check(std::strcmp(CodecName(Codec::H264), "H264") == 0, "H264 is spelled the same everywhere");
-    Check(std::strcmp(CodecName(Codec::HEVC), "HEVC") == 0, "HEVC is spelled the same everywhere");
-    Check(std::strcmp(CodecName(Codec::H264), CodecName(Codec::HEVC)) != 0,
-        "the two codecs never read alike in a log");
 
     std::printf("[media] shared present counters (harvested by the client engine)...\n");
     PresentCounters pc;

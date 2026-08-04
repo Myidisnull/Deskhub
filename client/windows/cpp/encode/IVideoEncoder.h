@@ -12,8 +12,6 @@
 #include "deskhub/media/VideoContract.h"
 #include "deskhubp/diag/Log.h"
 
-using deskhub::media::Codec;
-using deskhub::media::CodecName;
 using deskhub::media::PacketHandler;
 using deskhub::media::RateControl;
 

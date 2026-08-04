@@ -300,6 +300,7 @@ std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
     const uint8_t* p = payload.data();
     HelloAck m;
     m.sessionId = GetU32(p);
+    if (p[4] != uint8_t(Codec::H264) && p[4] != uint8_t(Codec::Rejected)) return std::nullopt;
     m.codec = Codec(p[4]);
     m.width = GetU16(p + 5);
     m.height = GetU16(p + 7);

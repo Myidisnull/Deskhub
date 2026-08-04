@@ -18,7 +18,6 @@ inline constexpr uint64_t kFocusRetryUs = 50'000;
 inline constexpr int kFocusRepeats = 3;
 
 struct NegotiatedParams {
-    Codec codec = Codec::H264;
     uint16_t width = 0;
     uint16_t height = 0;
     uint8_t fps = 60;

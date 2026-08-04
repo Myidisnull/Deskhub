@@ -14,7 +14,7 @@ void TestWireRoundtrip() {
     std::printf("[wire] round-trip HELLO / HELLO_ACK / PING / REQUEST_KEYFRAME...\n");
     uint8_t buf[kMaxDatagram];
 
-    Hello h{0xDEADBEEF, kCodecMaskH264 | kCodecMaskHevc, 2560, 1440, 120, 0x0001};
+    Hello h{0xDEADBEEF, kCodecMaskH264, 2560, 1440, 120, 0x0001};
     size_t n = BuildHello(buf, h);
     Check(n == kCommonHeaderSize + 14, "HELLO size");
     auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));

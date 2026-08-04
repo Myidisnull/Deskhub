@@ -33,7 +33,7 @@ size_t FirstVclOffset(std::span<const uint8_t> data) {
     return 0;
 }
 
-bool ContainsIdr(std::span<const uint8_t> data, Codec codec) {
+bool ContainsIdr(std::span<const uint8_t> data) {
     size_t at = 0;
     while (at < data.size()) {
         const size_t sc = StartCodeLengthAt(data, at);
@@ -44,7 +44,7 @@ bool ContainsIdr(std::span<const uint8_t> data, Codec codec) {
         const size_t start = at + sc;
         if (start >= data.size()) return false;
         const uint8_t header = data[start];
-        if (codec == Codec::HEVC ? IsHevcIrap(header) : IsH264Idr(header)) return true;
+        if (IsH264Idr(header)) return true;
         at = start;
     }
     return false;

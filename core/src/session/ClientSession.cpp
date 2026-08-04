@@ -39,7 +39,6 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             }
             rejectReason_ = RejectReason::None;
             sessionId_ = m->sessionId;
-            params_.codec = m->codec;
             params_.width = m->width;
             params_.height = m->height;
             params_.fps = m->fps;

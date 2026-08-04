@@ -59,11 +59,7 @@ inline constexpr uint8_t kVideoFlagIdr = 1u << 0;
 inline constexpr uint8_t kVideoFlagFrameEnd = 1u << 1;
 
 inline constexpr uint16_t kCodecMaskH264 = 1u << 0;
-inline constexpr uint16_t kCodecMaskHevc = 1u << 1;
-inline constexpr uint16_t kCodecMaskAv1 = 1u << 2;
 enum class Codec : uint8_t { H264 = 0,
-    Hevc = 1,
-    Av1 = 2,
     Rejected = 0xFF };
 
 struct CommonHeader {

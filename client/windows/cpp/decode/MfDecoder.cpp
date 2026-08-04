@@ -47,10 +47,6 @@ struct MfDecoder::Impl {
         if (mfStarted) MFShutdown();
     }
 
-    GUID SubtypeFor(Codec c) const {
-        return (c == Codec::HEVC) ? MFVideoFormat_HEVC : MFVideoFormat_H264;
-    }
-
     bool Init(ID3D11Device* device, const DecoderConfig& c, FrameHandler handler) {
         cfg = c;
         onFrame = std::move(handler);
@@ -63,7 +59,7 @@ struct MfDecoder::Impl {
         MFD_CHECK(MFStartup(MF_VERSION, MFSTARTUP_LITE), "MFStartup");
         mfStarted = true;
 
-        MFT_REGISTER_TYPE_INFO inInfo{MFMediaType_Video, SubtypeFor(cfg.codec)};
+        MFT_REGISTER_TYPE_INFO inInfo{MFMediaType_Video, MFVideoFormat_H264};
         MFT_REGISTER_TYPE_INFO outInfo{MFMediaType_Video, MFVideoFormat_NV12};
         IMFActivate** activates = nullptr;
         UINT32 count = 0;
@@ -101,7 +97,7 @@ struct MfDecoder::Impl {
         ComPtr<IMFMediaType> inType;
         MFD_CHECK(MFCreateMediaType(&inType), "MFCreateMediaType(in)");
         inType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-        inType->SetGUID(MF_MT_SUBTYPE, SubtypeFor(cfg.codec));
+        inType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
         if (cfg.width && cfg.height) {
             MFSetAttributeSize(inType.Get(), MF_MT_FRAME_SIZE, cfg.width, cfg.height);
         }
@@ -117,8 +113,7 @@ struct MfDecoder::Impl {
             "NOTIFY_START_OF_STREAM");
         streaming = true;
 
-        LOGI("[MfDecoder] Initialized: %s, D3D11VA, low-latency.",
-            CodecName(cfg.codec));
+        LOGI("[MfDecoder] Initialized: H264, D3D11VA, low-latency.");
         return true;
     }
 

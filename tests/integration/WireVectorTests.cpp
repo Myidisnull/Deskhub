@@ -34,7 +34,7 @@ std::vector<uint8_t> Built(Builder build) {
 Hello SampleHello() {
     Hello h{};
     h.clientId = 0x01020304;
-    h.codecMask = kCodecMaskH264 | kCodecMaskHevc;
+    h.codecMask = kCodecMaskH264;
     h.maxWidth = 1920;
     h.maxHeight = 1080;
     h.desiredFps = 60;
@@ -99,7 +99,7 @@ std::vector<Vector> AllVectors() {
     v.push_back({"HELLO", [](std::span<uint8_t> out) {
                      return BuildHello(out, SampleHello());
                  },
-        "0101000000000000010203040003078004383c000102"});
+        "0101000000000000010203040001078004383c000102"});
 
     v.push_back({"HELLO_ACK", [](std::span<uint8_t> out) {
                      return BuildHelloAck(out, SampleAck());

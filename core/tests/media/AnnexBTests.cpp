@@ -43,21 +43,13 @@ void TestParse() {
 }
 
 void TestContainsIdr() {
-    std::printf("[annexb] keyframe detection sees IDR/IRAP wherever it sits...\n");
-    Check(ContainsIdr(Stream({{0x67}, {0x68}, {0x65, 0x00}}), Codec::H264),
+    std::printf("[annexb] keyframe detection sees an IDR wherever it sits...\n");
+    Check(ContainsIdr(Stream({{0x67}, {0x68}, {0x65, 0x00}})),
         "an IDR behind SPS/PPS is found");
-    Check(!ContainsIdr(Stream({{0x41, 0x00}}), Codec::H264), "a P-slice is not a keyframe");
+    Check(!ContainsIdr(Stream({{0x41, 0x00}})), "a P-slice is not a keyframe");
 
     const auto tail = Stream({{0x41, 0x00}, {0x65}});
-    Check(ContainsIdr(tail, Codec::H264), "an IDR as the very last NAL is still found");
-
-    const uint8_t idrWRadl = uint8_t(19 << 1);
-    const uint8_t trailR = uint8_t(1 << 1);
-    Check(ContainsIdr(Stream({{idrWRadl, 0x01}}), Codec::HEVC), "an HEVC IRAP is a keyframe");
-    Check(!ContainsIdr(Stream({{trailR, 0x01}}), Codec::HEVC),
-        "an HEVC trailing picture is not");
-    Check(!ContainsIdr(Stream({{idrWRadl, 0x01}}), Codec::H264),
-        "codecs do not share NAL numbering");
+    Check(ContainsIdr(tail), "an IDR as the very last NAL is still found");
 }
 
 void TestFirstVcl() {

@@ -17,7 +17,6 @@ bool WinVideoDecoder::Init(WinRenderTarget target, int width, int height) {
     target_ = target;
 
     DecoderConfig cfg;
-    cfg.codec = deskhub::media::Codec::H264;
     cfg.width = uint32_t(width);
     cfg.height = uint32_t(height);
     cfg.fps = target_.fps ? target_.fps->load(std::memory_order_relaxed) : 0;

@@ -5,13 +5,6 @@
 
 namespace deskhub::media {
 
-enum class Codec { H264,
-    HEVC };
-
-constexpr const char* CodecName(Codec codec) {
-    return codec == Codec::HEVC ? "HEVC" : "H264";
-}
-
 enum class RateControl { CBR,
     VBR };
 
@@ -19,7 +12,6 @@ using PacketHandler =
     std::function<void(const uint8_t* data, size_t size, uint64_t timestampUs, bool keyframe)>;
 
 struct EncoderConfig {
-    Codec codec = Codec::H264;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t srcWidth = 0;
@@ -32,7 +24,6 @@ struct EncoderConfig {
 };
 
 struct DecoderConfig {
-    Codec codec = Codec::H264;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t fps = 60;

@@ -105,8 +105,7 @@ struct NvencEncoder::Impl {
             return Fail("OpenEncodeSessionEx", s);
         }
 
-        const GUID codecGuid = (cfg.codec == Codec::HEVC) ? NV_ENC_CODEC_HEVC_GUID
-                                                          : NV_ENC_CODEC_H264_GUID;
+        const GUID codecGuid = NV_ENC_CODEC_H264_GUID;
         const GUID presetGuid = NV_ENC_PRESET_P4_GUID;
         const NV_ENC_TUNING_INFO tuning = cfg.lowLatency ? NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY
                                                          : NV_ENC_TUNING_INFO_HIGH_QUALITY;
@@ -124,13 +123,8 @@ struct NvencEncoder::Impl {
             cfg.rc == RateControl::VBR ? NV_ENC_PARAMS_RC_VBR : NV_ENC_PARAMS_RC_CBR;
         encCfg.rcParams.averageBitRate = cfg.bitrateBps;
         ApplyRatePlan(cfg.fps);
-        if (cfg.codec == Codec::HEVC) {
-            encCfg.encodeCodecConfig.hevcConfig.idrPeriod = NVENC_INFINITE_GOPLENGTH;
-            encCfg.encodeCodecConfig.hevcConfig.repeatSPSPPS = 1;
-        } else {
-            encCfg.encodeCodecConfig.h264Config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
-            encCfg.encodeCodecConfig.h264Config.repeatSPSPPS = 1;
-        }
+        encCfg.encodeCodecConfig.h264Config.idrPeriod = NVENC_INFINITE_GOPLENGTH;
+        encCfg.encodeCodecConfig.h264Config.repeatSPSPPS = 1;
 
         initParams = {};
         NV_ENC_INITIALIZE_PARAMS& ip = initParams;
@@ -158,8 +152,8 @@ struct NvencEncoder::Impl {
 
         if (!OpenEncoderOutput(cfg, "NVENC", out)) return false;
 
-        LOGI("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, %s, %s -> %s", width, height,
-            cfg.fps, cfg.bitrateBps / 1e6, CodecName(cfg.codec),
+        LOGI("[NVENC] Initialized: %ux%u @%ufps, %.1f Mbps, H264, %s -> %s", width, height,
+            cfg.fps, cfg.bitrateBps / 1e6,
             cfg.lowLatency ? "ULTRA_LOW_LATENCY" : "HIGH_QUALITY",
             out ? "file" : "callback");
         return true;

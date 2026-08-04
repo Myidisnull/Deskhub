@@ -76,12 +76,8 @@ struct MfEncoder::Impl {
         if (mfStarted) MFShutdown();
     }
 
-    GUID SubtypeFor(Codec c) const {
-        return (c == Codec::HEVC) ? MFVideoFormat_HEVC : MFVideoFormat_H264;
-    }
-
     bool FindActivate() {
-        MFT_REGISTER_TYPE_INFO outInfo{MFMediaType_Video, SubtypeFor(cfg.codec)};
+        MFT_REGISTER_TYPE_INFO outInfo{MFMediaType_Video, MFVideoFormat_H264};
         IMFActivate** activates = nullptr;
         UINT32 count = 0;
         MF_CHECK(MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
@@ -141,12 +137,10 @@ struct MfEncoder::Impl {
         ComPtr<IMFMediaType> outType;
         MF_CHECK(MFCreateMediaType(&outType), "MFCreateMediaType(out)");
         outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-        outType->SetGUID(MF_MT_SUBTYPE, SubtypeFor(cfg.codec));
+        outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
         outType->SetUINT32(MF_MT_AVG_BITRATE, cfg.bitrateBps);
         outType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-        if (cfg.codec == Codec::H264) {
-            outType->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Main);
-        }
+        outType->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Main);
         MF_CHECK(MFSetAttributeSize(outType.Get(), MF_MT_FRAME_SIZE, cfg.width, cfg.height),
             "FRAME_SIZE(out)");
         MF_CHECK(MFSetAttributeRatio(outType.Get(), MF_MT_FRAME_RATE, cfg.fps, 1),
@@ -227,9 +221,8 @@ struct MfEncoder::Impl {
 
         if (!OpenEncoderOutput(cfg, "MfEncoder", out)) return false;
 
-        LOGI("[MfEncoder] Initialized: %ux%u @%ufps, %.1f Mbps, %s%s -> %s",
+        LOGI("[MfEncoder] Initialized: %ux%u @%ufps, %.1f Mbps, H264%s -> %s",
             cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6,
-            CodecName(cfg.codec),
             isAsync ? " (async MFT)" : " (sync MFT)",
             out ? "file" : "callback");
         return true;
@@ -366,7 +359,7 @@ struct MfEncoder::Impl {
         MF_CHECK(buffer->Lock(&data, nullptr, &len), "Lock(out)");
 
         const bool keyframe =
-            deskhub::media::ContainsIdr(std::span<const uint8_t>(data, len), cfg.codec);
+            deskhub::media::ContainsIdr(std::span<const uint8_t>(data, len));
         if (keyframe && spsPps.empty()) CacheSpsPps();
 
         LONGLONG timeHns = 0;
@@ -411,7 +404,7 @@ struct MfEncoder::Impl {
             }
             GUID sub{};
             t->GetGUID(MF_MT_SUBTYPE, &sub);
-            if (sub != SubtypeFor(cfg.codec)) continue;
+            if (sub != MFVideoFormat_H264) continue;
             if (SUCCEEDED(mft->SetOutputType(0, t.Get(), 0))) {
                 MFT_OUTPUT_STREAM_INFO si{};
                 if (SUCCEEDED(mft->GetOutputStreamInfo(0, &si))) {

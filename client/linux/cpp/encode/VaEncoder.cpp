@@ -180,11 +180,6 @@ bool VaEncoder::Init(const EncoderConfig& cfg) {
             cfg.height);
         return false;
     }
-    if (cfg.codec != deskhub::media::Codec::H264) {
-        LOGE("[VaEnc] Refusing %s — this backend emits H264 only.",
-            deskhub::media::CodecName(cfg.codec));
-        return false;
-    }
     VaDisplay& vd = VaDisplay::Instance();
     if (!vd.Open()) return false;
 
