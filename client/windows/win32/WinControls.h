@@ -6,8 +6,7 @@
 class ChildControlFactory {
 public:
     ChildControlFactory(HWND parent, HINSTANCE instance)
-        : parent_(parent), instance_(instance),
-          font_((HFONT)GetStockObject(DEFAULT_GUI_FONT)) {}
+        : parent_(parent), instance_(instance), font_((HFONT)GetStockObject(DEFAULT_GUI_FONT)) {}
 
     HWND operator()(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w,
         int h, int id) const {

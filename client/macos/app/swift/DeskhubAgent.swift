@@ -23,9 +23,11 @@ struct QualityPreset: Identifiable, Sendable {
 
 nonisolated enum DeskhubAgent {
     static let qualityPresets: [QualityPreset] =
-        DeskhubClient.ffiList(8, DHQualityPreset(), { dha_quality_presets($0, $1) }) { raw in
-            QualityPreset(label: DeskhubClient.cString(raw.label), maxDim: Int(raw.maxDim))
-        }
+        DeskhubClient.ffiList(
+            8, DHQualityPreset(),
+            { dha_quality_presets($0, $1) },
+            { raw in QualityPreset(label: DeskhubClient.cString(raw.label), maxDim: Int(raw.maxDim)) }
+        )
 
     static var hasScreenRecording: Bool { dh_has_screen_recording() }
     static var hasAccessibility: Bool { dh_has_accessibility() }
@@ -34,14 +36,18 @@ nonisolated enum DeskhubAgent {
     static func openAccessibilitySettings() { dh_open_accessibility_settings() }
 
     static func listShareSources() -> [ShareSource] {
-        DeskhubClient.ffiList(128, DHShareSource(), { dha_list_share_sources($0, $1) }) { info in
-            ShareSource(
-                rawId: info.id,
-                width: info.width,
-                height: info.height,
-                name: cString(info.name)
-            )
-        }
+        DeskhubClient.ffiList(
+            128, DHShareSource(),
+            { dha_list_share_sources($0, $1) },
+            { info in
+                ShareSource(
+                    rawId: info.id,
+                    width: info.width,
+                    height: info.height,
+                    name: cString(info.name)
+                )
+            }
+        )
     }
 
     @discardableResult
@@ -61,9 +67,11 @@ nonisolated enum DeskhubAgent {
     static var isRunning: Bool { dha_running() }
 
     static func status() -> [AgentSourceStatus] {
-        DeskhubClient.ffiList(16, DHAgentStatus(), { dha_status($0, $1) }) { row in
-            AgentSourceStatus(id: row.sourceId, label: cString(row.label))
-        }
+        DeskhubClient.ffiList(
+            16, DHAgentStatus(),
+            { dha_status($0, $1) },
+            { row in AgentSourceStatus(id: row.sourceId, label: cString(row.label)) }
+        )
     }
 
     static var lastError: String { String(cString: dha_last_error()) }

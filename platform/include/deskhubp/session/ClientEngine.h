@@ -364,10 +364,11 @@ private:
         };
         cb.localTime = [] { return LocalTimeHms(); };
         cb.log = [](bool warn, const char* line) {
-            if (warn)
+            if (warn) {
                 LOGW("%s", line);
-            else
-                LOGI("%s", line);
+                return;
+            }
+            LOGI("%s", line);
         };
         return cb;
     }

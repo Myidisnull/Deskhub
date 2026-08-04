@@ -4,6 +4,7 @@
 #include "deskhub/session/HostSession.h"
 #include "deskhubp/diag/Log.h"
 
+#include <cstdio>
 #include <span>
 #include <utility>
 
@@ -21,7 +22,11 @@ std::string DefaultPortError(const UdpSocket& sock, uint16_t port) {
 }
 
 HostEngine::~HostEngine() {
-    Stop();
+    try {
+        Stop();
+    } catch (...) {
+        std::fputs("[Deskhub] [Agent] stop failed during shutdown\n", stderr);
+    }
 }
 
 std::vector<deskhub::media::AgentSourceStatus> HostEngine::Status() {

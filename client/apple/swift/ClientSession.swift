@@ -104,15 +104,19 @@ nonisolated enum DeskhubClient {
     }
 
     static func listSources(address: String) -> [Source] {
-        ffiList(16, DHSourceInfo(), { dh_list_sources(address, $0, $1) }) { info in
-            Source(
-                id: info.sourceId,
-                name: cString(info.name),
-                displayName: cString(info.displayName),
-                sizeLabel: cString(info.sizeLabel),
-                pickerLabel: cString(info.pickerLabel)
-            )
-        }
+        ffiList(
+            16, DHSourceInfo(),
+            { dh_list_sources(address, $0, $1) },
+            { info in
+                Source(
+                    id: info.sourceId,
+                    name: cString(info.name),
+                    displayName: cString(info.displayName),
+                    sizeLabel: cString(info.sizeLabel),
+                    pickerLabel: cString(info.pickerLabel)
+                )
+            }
+        )
     }
 }
 

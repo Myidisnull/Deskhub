@@ -174,22 +174,22 @@ logic + test nhưng client mobile viết lại bằng Swift/Kotlin vì chưa exp
       ReleaseAllHeld/ReleaseKey), platform NativeKeyMapLinux. Test tay: connect,
       picker, F9 lock, Esc nhả, phím + chuột trong viewer, share + tooltip, >8 màn
       hình nếu có
-- [ ] **macOS**: build Xcode + chạy. Đổi nhiều Swift: ClientRoute (bỏ Route/.menu),
-      bỏ SessionModel (view dùng ConnectModel), ffiList, viewerBaseTitle/
-      pointerSubtitle, Esc thoát lock (`dh_pointer_escape` — TÍNH NĂNG MỚI),
-      scroll line qua `dh_scroll_notches_from_lines`, snapshot trong refresh,
-      InputInjector.mm dùng `deskhubp::WinVkToNative`, platform NativeKeyMapMac.
-      Test tay: connect/picker/share, F9 + Esc trong viewer, gõ phím, cuộn chuột
-      thường (line-scroll) + trackpad, status share list
-- [ ] **iOS**: build Xcode + chạy. Đổi: bàn phím cứng map qua
-      `DeskhubClient.mapKey` (platform NativeKeyMapIos — bảng HID mới), ClientRoute,
-      aspect qua `StreamModel.aspectRatio`, reset scrollCarry khi zoom/pan, overlay
-      ended theo phase, connectDecision, snapshot. Test tay: connect, stream, touch
-      (tap/double-tap/long-press-drag/2 ngón cuộn + pan khi zoom), bàn phím cứng
-      nếu có, switch source
-- [ ] **swiftlint --strict** (CI chạy, máy này không có swiftlint) và
-      **clang-tidy** (`scripts/clang-tidy.sh`) — xem CI
-- [ ] Coverage core ≥90%/80% (`make coverage` — cần clang, máy này chưa chạy được)
+- [x] **macOS build** 2026-08-04: `make build-macos` PASS trên máy Mac (Darwin 25.5,
+      Xcode). CÒN LẠI test tay: connect/picker/share, F9 + Esc trong viewer, gõ
+      phím, cuộn chuột thường (line-scroll) + trackpad, status share list
+- [x] **iOS build** 2026-08-04: `make build-ios` (simulator) PASS. CÒN LẠI test tay:
+      connect, stream, touch (tap/double-tap/long-press-drag/2 ngón cuộn + pan khi
+      zoom), bàn phím cứng nếu có, switch source
+- [x] **swiftlint --strict** + **clang-tidy** 2026-08-04: chạy local (swiftlint
+      0.65.0, clang-tidy 22.1.8 pinned như CI) — CI đỏ ở commit 7aa59dc, đã sửa:
+      5 lỗi `multiple_closures_with_trailing_closure` (call site `ffiList`),
+      clang-format `WinControls.h`, `bugprone-branch-clone` (LOGW/LOGI trong
+      `ClientEngine.h` — desktop LOGW = LOGI nên then/else trùng),
+      `bugprone-incorrect-roundings` (`ScrollNotchesFromLines`),
+      `bugprone-exception-escape` (`~HostEngine` — Stop() có thể throw). Sau sửa:
+      `make lint` OK, clang-tidy sạch, `make test` PASS. Chờ push để CI xác nhận
+- [x] Coverage core 2026-08-04: `make coverage` + `check-coverage.sh` =
+      **99.88% lines / 87.81% branches** (min 90/80) — PASS
 
 ## Ghi chú — lỗ hổng chung (chưa client nào có, nếu làm thì làm ở tầng chung)
 
