@@ -15,15 +15,6 @@
             deskhub::Hotkey{"", vk, scan, modVk, modScan});                                \
     }                                                                                      \
                                                                                            \
-    void dh_session_key_tap(DHSession* s, int32_t vk, int32_t scan) {                      \
-        if (s) engineOf(s).QueueKeyTap(vk, scan);                                          \
-    }                                                                                      \
-                                                                                           \
-    void dh_session_key_chord(DHSession* s, int32_t modVk, int32_t modScan, int32_t vk,    \
-        int32_t scan) {                                                                    \
-        if (s) engineOf(s).QueueKeyChord(modVk, modScan, vk, scan);                        \
-    }                                                                                      \
-                                                                                           \
     void dh_session_char_tap(DHSession* s, uint32_t codepoint) {                           \
         if (s) engineOf(s).QueueCharTap(codepoint);                                        \
     }                                                                                      \
@@ -50,6 +41,19 @@
                                                                                            \
     void dh_session_mouse_wheel_notches(DHSession* s, int32_t notches) {                   \
         if (s) engineOf(s).QueueMouseWheel(notches * deskhub::kWheelDeltaPerNotch);        \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_snapshot(DHSession* s, DHSessionState* out) {                          \
+        if (!out) return;                                                                  \
+        *out = DHSessionState{};                                                           \
+        if (!s) return;                                                                    \
+        out->phase = DHPhase(int(engineOf(s).phase()));                                    \
+        out->videoWidth = engineOf(s).videoWidth();                                        \
+        out->videoHeight = engineOf(s).videoHeight();                                      \
+        deskhubp::CopyToBuf(out->statusLine, sizeof(out->statusLine),                      \
+            engineOf(s).StatusLine());                                                     \
+        deskhubp::CopyToBuf(out->endReason, sizeof(out->endReason),                        \
+            engineOf(s).EndReason());                                                      \
     }                                                                                      \
                                                                                            \
     DHPhase dh_session_phase(DHSession* s) {                                               \

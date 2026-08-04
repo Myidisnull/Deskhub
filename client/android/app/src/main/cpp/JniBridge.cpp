@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <string>
+#include <vector>
 
 #include "ClientSessionAndroid.h"
 
@@ -10,6 +11,13 @@
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/ffi/ClientFfi.h"
+
+static_assert(DHPhaseIdle == 0 && DHPhaseConnecting == 1 && DHPhaseStreaming == 2 &&
+              DHPhaseEnded == 3);
+static_assert(DHStrClientIpPrompt == 3 && DHStrQueryingSources == 12 &&
+              DHStrInvalidAddressHint == 17 && DHStrSessionEnded == 18);
+static_assert(int32_t(deskhub::MouseButton::Left) == 1 &&
+              int32_t(deskhub::MouseButton::Right) == 2);
 
 namespace {
 
@@ -119,6 +127,19 @@ Java_com_deskhub_app_NativeClient_nativeString(JNIEnv* env, jobject, jint id) {
     return env->NewStringUTF(dh_string(DHStringId(id)));
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeParseAddress(JNIEnv* env, jobject, jstring addrStr) {
+    return dh_parse_address(FromJString(env, addrStr).c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeCouldNotConnect(JNIEnv* env, jobject, jstring addrStr) {
+    const std::string addr = FromJString(env, addrStr);
+    char buf[320];
+    dh_could_not_connect(addr.c_str(), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeConnectingTo(JNIEnv* env, jobject, jstring addrStr) {
     const std::string addr = FromJString(env, addrStr);
@@ -153,8 +174,8 @@ JNIEXPORT jobjectArray JNICALL
 Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstring addrStr) {
     jclass cls = env->FindClass(kSourceClass);
     if (!cls) return nullptr;
-    jmethodID ctor = env->GetMethodID(cls, "<init>",
-        "(IIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    jmethodID ctor =
+        env->GetMethodID(cls, "<init>", "(ILjava/lang/String;Ljava/lang/String;)V");
     if (!ctor) return nullptr;
 
     const std::string addr = FromJString(env, addrStr);
@@ -164,18 +185,13 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
     for (int i = 0; i < count && arr; ++i) {
         const DHSourceInfo& s = sources[i];
-        jstring name = env->NewStringUTF(s.name);
         jstring displayName = env->NewStringUTF(s.displayName);
         jstring sizeLabel = env->NewStringUTF(s.sizeLabel);
-        jstring pickerLabel = env->NewStringUTF(s.pickerLabel);
-        jobject item = env->NewObject(cls, ctor, jint(s.sourceId), jint(s.width), jint(s.height),
-            name, displayName, sizeLabel, pickerLabel);
+        jobject item = env->NewObject(cls, ctor, jint(s.sourceId), displayName, sizeLabel);
         env->SetObjectArrayElement(arr, jsize(i), item);
         env->DeleteLocalRef(item);
-        env->DeleteLocalRef(pickerLabel);
         env->DeleteLocalRef(sizeLabel);
         env->DeleteLocalRef(displayName);
-        env->DeleteLocalRef(name);
     }
     return arr;
 }
@@ -270,15 +286,47 @@ Java_com_deskhub_app_NativeClient_nativeVkScancode(JNIEnv*, jobject, jint vk) {
     return jint(dh_vk_scancode(int32_t(vk)));
 }
 
-JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeKeyTap(JNIEnv*, jobject, jint vk, jint scan) {
-    dh_session_key_tap(g_session, int32_t(vk), int32_t(scan));
+JNIEXPORT jobject JNICALL
+Java_com_deskhub_app_NativeClient_nativeSnapshot(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass("com/deskhub/app/NativeClient$Snapshot");
+    if (!cls) return nullptr;
+    jmethodID ctor =
+        env->GetMethodID(cls, "<init>", "(ILjava/lang/String;Ljava/lang/String;II)V");
+    if (!ctor) return nullptr;
+
+    DHSessionState state{};
+    dh_session_snapshot(g_session, &state);
+    jstring statusLine = env->NewStringUTF(state.statusLine);
+    jstring endReason = env->NewStringUTF(state.endReason);
+    jobject out = env->NewObject(cls, ctor, jint(state.phase), statusLine, endReason,
+        jint(state.videoWidth), jint(state.videoHeight));
+    env->DeleteLocalRef(endReason);
+    env->DeleteLocalRef(statusLine);
+    return out;
 }
 
-JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeKeyChord(JNIEnv*, jobject, jint modVk, jint modScan,
-    jint vk, jint scan) {
-    dh_session_key_chord(g_session, int32_t(modVk), int32_t(modScan), int32_t(vk), int32_t(scan));
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeConnectDecision(JNIEnv* env, jobject, jintArray ids) {
+    std::vector<DHSourceInfo> infos;
+    if (ids) {
+        const jsize n = env->GetArrayLength(ids);
+        if (n > 0) {
+            infos.resize(size_t(n));
+            jint* raw = env->GetIntArrayElements(ids, nullptr);
+            for (jsize i = 0; i < n; ++i) infos[size_t(i)].sourceId = uint8_t(raw[i]);
+            env->ReleaseIntArrayElements(ids, raw, JNI_ABORT);
+        }
+    }
+    uint8_t sourceId = 0;
+    if (dh_connect_decision(infos.data(), int(infos.size()), &sourceId)) return -1;
+    return jint(sourceId);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeKeyToVk(JNIEnv*, jobject, jint keyCode) {
+    int32_t vk = 0, scan = 0;
+    if (!dh_native_key_to_vk(int32_t(keyCode), &vk, &scan)) return 0;
+    return jint(vk);
 }
 
 JNIEXPORT void JNICALL
@@ -303,11 +351,6 @@ Java_com_deskhub_app_NativeClient_nativeMouseMove(JNIEnv*, jobject, jint nx, jin
 }
 
 JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeMouseMoveRel(JNIEnv*, jobject, jint dx, jint dy) {
-    dh_session_mouse_move_rel(g_session, int32_t(dx), int32_t(dy));
-}
-
-JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeMouseButton(JNIEnv*, jobject, jint button,
     jboolean down) {
     dh_session_mouse_button(g_session, int32_t(button), down == JNI_TRUE);
@@ -316,31 +359,6 @@ Java_com_deskhub_app_NativeClient_nativeMouseButton(JNIEnv*, jobject, jint butto
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeMouseWheel(JNIEnv*, jobject, jint notches) {
     dh_session_mouse_wheel_notches(g_session, int32_t(notches));
-}
-
-JNIEXPORT jint JNICALL
-Java_com_deskhub_app_NativeClient_nativePhase(JNIEnv*, jobject) {
-    return jint(dh_session_phase(g_session));
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_deskhub_app_NativeClient_nativeStatusLine(JNIEnv* env, jobject) {
-    return ToJString(env, dh_session_status_line(g_session));
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_deskhub_app_NativeClient_nativeEndReason(JNIEnv* env, jobject) {
-    return ToJString(env, dh_session_end_reason(g_session));
-}
-
-JNIEXPORT jint JNICALL
-Java_com_deskhub_app_NativeClient_nativeVideoWidth(JNIEnv*, jobject) {
-    return jint(dh_session_video_width(g_session));
-}
-
-JNIEXPORT jint JNICALL
-Java_com_deskhub_app_NativeClient_nativeVideoHeight(JNIEnv*, jobject) {
-    return jint(dh_session_video_height(g_session));
 }
 
 JNIEXPORT jfloatArray JNICALL

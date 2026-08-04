@@ -59,7 +59,6 @@ add_executable(deskhub_app
     cpp/render/VideoRenderer.cpp
 
     cpp/input/InputInjector.cpp
-    cpp/input/LinuxKeyMap.cpp
 
 )
 

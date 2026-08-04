@@ -8,9 +8,9 @@
 #include <shellapi.h>
 #include <vector>
 
+#include "deskhub/session/ShareArgs.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/diag/LogFile.h"
-#include "ElevatedShare.h"
 #include "MainMenuWindow.h"
 #include "SessionWindow.h"
 #include "capture/ScreenCapture.h"
@@ -26,7 +26,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (wchar_t** wargv = CommandLineToArgvW(GetCommandLineW(), &argc)) {
         std::vector<AgentSource> sources;
         AgentOptions opt;
-        const bool elevatedShare = ParseElevatedShareArgs(argc, wargv, sources, opt);
+        const bool elevatedShare = deskhub::ParseElevatedShareArgs(argc, wargv, sources, opt);
         LocalFree(wargv);
         if (elevatedShare) {
             RunSharingSession(nullptr, sources, opt);

@@ -157,7 +157,7 @@ final class TouchCaptureUIView: UIView {
             )
             lastDragLocation = location
             if panMode {
-                onTransform(1, .zero, CGSize(width: delta.x, height: delta.y))
+                transform(1, .zero, CGSize(width: delta.x, height: delta.y))
             } else {
                 moveCursor(by: delta)
             }
@@ -194,7 +194,7 @@ final class TouchCaptureUIView: UIView {
         case .changed:
             let factor = gesture.scale
             gesture.scale = 1
-            onTransform(factor, gesture.location(in: self), .zero)
+            transform(factor, gesture.location(in: self), .zero)
         default:
             break
         }
@@ -208,13 +208,18 @@ final class TouchCaptureUIView: UIView {
             let translation = gesture.translation(in: self)
             gesture.setTranslation(.zero, in: self)
             if zoomed {
-                onTransform(1, .zero, CGSize(width: translation.x, height: translation.y))
+                transform(1, .zero, CGSize(width: translation.x, height: translation.y))
             } else {
                 scrollRemote(by: translation.y)
             }
         default:
             break
         }
+    }
+
+    private func transform(_ factor: CGFloat, _ centroid: CGPoint, _ panDelta: CGSize) {
+        scrollCarry = 0
+        onTransform(factor, centroid, panDelta)
     }
 
     private func scrollRemote(by dragPoints: CGFloat) {

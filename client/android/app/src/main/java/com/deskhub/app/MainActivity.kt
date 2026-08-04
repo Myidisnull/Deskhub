@@ -78,12 +78,8 @@ class MainActivity : ComponentActivity() {
                 .putExtra("addr", addr)
                 .putExtra("source", sourceId)
                 .putExtra("srcIds", sources.map { it.id }.toIntArray())
-                .putExtra("srcW", sources.map { it.width }.toIntArray())
-                .putExtra("srcH", sources.map { it.height }.toIntArray())
-                .putExtra("srcNames", sources.map { it.name }.toTypedArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
-                .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray())
-                .putExtra("srcPickerLabels", sources.map { it.pickerLabel }.toTypedArray()),
+                .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
         )
     }
 }
@@ -108,21 +104,28 @@ private fun MainScreen(
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
     var address by remember { mutableStateOf(initialAddress) }
+    var connectError by remember { mutableStateOf("") }
     var querySeq by remember { mutableStateOf(0L) }
     val scope = rememberCoroutineScope()
 
     BackHandler(enabled = step != Step.Address) { step = Step.Address }
 
-    val connect: (String) -> Unit = { addr ->
+    val connect: (String) -> Unit = connectLambda@{ addr ->
+        if (!NativeClient.parseAddress(addr)) {
+            connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
+            return@connectLambda
+        }
+        connectError = ""
         onRemember(addr)
         val mine = Step.Querying(++querySeq)
         step = mine
         scope.launch {
             val sources = NativeClient.listSources(addr)
             if (step == mine) {
-                if (sources.size <= 1) {
+                val decision = NativeClient.connectDecision(sources)
+                if (decision >= 0) {
                     step = Step.Address
-                    onOpenStream(addr, sources.firstOrNull()?.id ?: 0, sources)
+                    onOpenStream(addr, decision, sources)
                 } else {
                     step = Step.Picking(sources)
                 }
@@ -136,6 +139,7 @@ private fun MainScreen(
                 address = address,
                 onAddressChange = { address = it },
                 busy = false,
+                error = connectError,
                 onConnect = connect,
             )
 
@@ -144,6 +148,7 @@ private fun MainScreen(
                 address = address,
                 onAddressChange = {},
                 busy = true,
+                error = "",
                 onConnect = {},
             )
 
@@ -164,6 +169,7 @@ private fun AddressScreen(
     address: String,
     onAddressChange: (String) -> Unit,
     busy: Boolean,
+    error: String,
     onConnect: (String) -> Unit,
 ) {
     val trimmed = address.trim()
@@ -179,7 +185,7 @@ private fun AddressScreen(
         OutlinedTextField(
             value = address,
             onValueChange = onAddressChange,
-            label = { Text("Host IP address") },
+            label = { Text(NativeClient.string(NativeClient.STR_CLIENT_IP_PROMPT)) },
             singleLine = true,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
@@ -199,7 +205,12 @@ private fun AddressScreen(
 
             if (busy) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text(NativeClient.string(NativeClient.STR_QUERYING_SOURCES))
             }
+        }
+
+        if (error.isNotEmpty()) {
+            Text(error, color = MaterialTheme.colorScheme.error)
         }
     }
 }

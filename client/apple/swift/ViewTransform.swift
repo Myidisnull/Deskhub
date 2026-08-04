@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct ViewTransform {
-    static let maxZoom: CGFloat = 5
-
     var zoom: CGFloat = 1
     var pan: CGSize = .zero
 

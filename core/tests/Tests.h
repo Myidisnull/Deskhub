@@ -10,6 +10,7 @@ void RunClientPumpTests();
 void RunHostFeedbackTests();
 void RunHostRouterTests();
 void RunConnectFlowTests();
+void RunShareArgsTests();
 void RunOpenViewersTests();
 void RunSourcePipelineStateTests();
 void RunInputTests();

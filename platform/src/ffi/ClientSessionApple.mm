@@ -8,10 +8,6 @@
 
 #include "deskhubp/ffi/ClientSession.h"
 
-#include <memory>
-#include <string>
-
-#include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientSessionForward.h"
 #include "deskhubp/ffi/ClientSessionShell.h"
 #include "deskhubp/media/VtDecoder.h"
@@ -81,34 +77,14 @@ AppleClientEngine& EngineOf(DHSession* s) {
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
     const DHSessionCallbacks* callbacks) {
-    NetAddr server;
-    if (!deskhubp::ParseSessionAddress(address, server)) return nullptr;
-
-    auto session = std::make_unique<DHSession>();
-    session->AdoptCallbacks(callbacks);
-    DHSession* raw = session.get();
-
-    deskhubp::ClientEngineConfig cfg;
-    cfg.server = server;
-    cfg.sourceId = sourceId;
-    LocalScreenPixels(cfg.screenW, cfg.screenH);
-    cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t) {
-        if (raw->callbacks.onSize) raw->callbacks.onSize(width, height, raw->callbacks.user);
-    };
-    cfg.onStatus = [raw](const char* compact) {
-        if (raw->callbacks.onStatus) raw->callbacks.onStatus(compact, raw->callbacks.user);
-    };
-    raw->WireLifecycle(cfg);
-
-    if (surface) session->engine.SetSurface(surface);
-    if (!session->engine.Start(cfg)) return nullptr;
-    return session.release();
+    uint32_t screenW = 0, screenH = 0;
+    LocalScreenPixels(screenW, screenH);
+    return deskhubp::StartFfiClientSession<DHSession, void*>(address, sourceId, surface,
+        callbacks, screenW, screenH);
 }
 
 void dh_session_stop(DHSession* s) {
-    if (!s) return;
-    s->StopQuietly();
-    delete s;
+    deskhubp::StopFfiClientSession(s);
 }
 
 void dh_session_set_layer(DHSession* s, void* layer) {

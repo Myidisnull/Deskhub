@@ -124,6 +124,9 @@ void InputInjector::ReleaseAll() {
     if (held_.nothingHeld()) return;
     LOGI("[Inject] Releasing %zu keys + %zu mouse buttons still held.",
         held_.heldKeyCount(), held_.heldButtonCount());
-    for (const auto& key : held_.TakeHeldKeys()) SendKey(key.id, key.native, false);
-    for (deskhub::MouseButton btn : held_.TakeHeldButtons()) SendButton(btn, false);
+    ReleaseAllHeld();
+}
+
+void InputInjector::ReleaseKey(int32_t vk, int32_t native) {
+    SendKey(vk, native, false);
 }

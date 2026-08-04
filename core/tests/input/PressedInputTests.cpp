@@ -1,15 +1,64 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/input/InputApplier.h"
 #include "deskhub/input/PressedInputTracker.h"
 
 #include <cstdio>
+#include <vector>
 
 using namespace deskhub;
 
 namespace {
 
 using Tracker = PressedInputTracker<uint16_t>;
+
+struct FakeInjector : InputApplier<FakeInjector, uint16_t> {
+    std::vector<uint16_t> releasedKeys;
+    std::vector<MouseButton> releasedButtons;
+
+    void Hold(int32_t vk, uint16_t native, MouseButton button) {
+        held_.SetKey(vk, native, true);
+        held_.SetButton(button, true);
+    }
+
+    void Release() {
+        ReleaseAllHeld();
+    }
+
+    void ReleaseKey(int32_t, uint16_t native) {
+        releasedKeys.push_back(native);
+    }
+
+    void SendButton(MouseButton button, bool down) {
+        if (!down) releasedButtons.push_back(button);
+    }
+
+    void SendKey(int32_t, int32_t, bool) {}
+    void SendMoveAbsolute(int32_t, int32_t) {}
+    void SendMoveRelative(int32_t, int32_t) {}
+    void SendWheel(int32_t) {}
+    void OnLocalUserTookOver() {}
+    void OnLocalUserIdle() {}
+    void ReleaseAll() {}
+};
+
+void TestReleaseAllHeldDrainsThroughTheBackend() {
+    std::printf("[held] the shared release helper lifts every held key and button...\n");
+    FakeInjector fake;
+    fake.Hold(0x41, 30, MouseButton::Left);
+    fake.Hold(0x42, 48, MouseButton::Right);
+
+    fake.Release();
+    Check(fake.releasedKeys.size() == 2, "both keys were released via the backend hook");
+    Check(fake.releasedButtons.size() == 2, "and both buttons");
+
+    fake.releasedKeys.clear();
+    fake.releasedButtons.clear();
+    fake.Release();
+    Check(fake.releasedKeys.empty() && fake.releasedButtons.empty(),
+        "a second call has nothing left to release");
+}
 
 void TestGateLatch() {
     std::printf("[held] the host-wins gate reports each transition exactly once...\n");
@@ -154,4 +203,5 @@ void RunPressedInputTests() {
     TestTakeHeldClearsBeforeTheCallerSendsUpEvents();
     TestReleaseDoesNotTouchTheGate();
     TestWindowsStyleScanKeyedTracker();
+    TestReleaseAllHeldDrainsThroughTheBackend();
 }

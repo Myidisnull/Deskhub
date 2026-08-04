@@ -12,11 +12,18 @@
 #include <thread>
 
 #include "deskhubp/diag/Log.h"
-#include "input/LinuxKeyMap.h"
 #include "deskhub/input/PointerMap.h"
 #include "deskhubp/input/LocalInput.h"
+#include "deskhubp/input/NativeKeyMap.h"
 
 namespace {
+
+bool WinVkToEvdev(int32_t vk, uint16_t& code) {
+    int32_t native = 0;
+    if (!deskhubp::WinVkToNative(vk, native)) return false;
+    code = uint16_t(native);
+    return true;
+}
 
 bool Emit(int fd, uint16_t type, uint16_t code, int32_t value) {
     if (fd < 0) return false;
@@ -110,7 +117,7 @@ bool InputInjector::Init(int32_t srcX, int32_t srcY, uint32_t srcW, uint32_t src
     size_t nKeys = 0;
     for (int vk = 0; vk < 256 && nKeys < 256; ++vk) {
         uint16_t code = 0;
-        if (linuxkeys::WinVkToEvdev(vk, code)) keys[nKeys++] = code;
+        if (WinVkToEvdev(vk, code)) keys[nKeys++] = code;
     }
     kbdFd_ = CreateDevice(kKeyboardName, keys, nKeys, false, false);
 
@@ -148,7 +155,7 @@ void InputInjector::SendKey(int32_t vk, int32_t, bool down) {
     if (!down) {
         if (const uint16_t* stored = held_.FindKey(vk)) code = *stored;
     }
-    if (!code && !linuxkeys::WinVkToEvdev(vk, code)) return;
+    if (!code && !WinVkToEvdev(vk, code)) return;
 
     if (!Emit(kbdFd_, EV_KEY, code, down ? 1 : 0)) return;
     Sync(kbdFd_);
@@ -201,9 +208,10 @@ void InputInjector::ReleaseAll() {
     if (kbdFd_ < 0 || held_.nothingHeld()) return;
     LOGI("[Inject] Releasing %zu keys + %zu mouse buttons still held.", held_.heldKeyCount(),
         held_.heldButtonCount());
-    for (const auto& key : held_.TakeHeldKeys()) {
-        Emit(kbdFd_, EV_KEY, key.native, 0);
-        Sync(kbdFd_);
-    }
-    for (deskhub::MouseButton b : held_.TakeHeldButtons()) SendButton(b, false);
+    ReleaseAllHeld();
+}
+
+void InputInjector::ReleaseKey(int32_t, uint16_t native) {
+    Emit(kbdFd_, EV_KEY, native, 0);
+    Sync(kbdFd_);
 }

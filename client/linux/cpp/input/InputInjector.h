@@ -23,6 +23,7 @@ public:
     void Apply(const deskhub::InputEvent& e);
 
     void ReleaseAll();
+    void ReleaseKey(int32_t vk, uint16_t native);
 
     void SendKey(int32_t vk, int32_t scan, bool down);
     void SendButton(deskhub::MouseButton btn, bool down);

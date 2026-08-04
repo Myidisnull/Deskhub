@@ -117,10 +117,7 @@ struct StreamView: View {
     }
 
     private var aspectRatio: CGFloat {
-        let width = CGFloat(model.videoWidth)
-        let height = CGFloat(model.videoHeight)
-        guard width > 0, height > 0 else { return 16.0 / 9.0 }
-        return width / height
+        CGFloat(model.aspectRatio)
     }
 
     private var controlsLayer: some View {

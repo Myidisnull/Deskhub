@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "deskhub/session/OpenViewers.h"
+#include "deskhubp/session/ConnectDriver.h"
 
 class MainWindow {
 public:
@@ -43,6 +44,7 @@ private:
     GtkWidget* statusLabel_ = nullptr;
 
     deskhub::OpenViewerCount openViewers_;
+    deskhubp::ConnectDriver connectDriver_;
 
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 };

@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 struct MainMenuView: View {
-    @Binding var route: Route
-    @Bindable var session: SessionModel
+    @Binding var route: ClientRoute
+    @Bindable var connect: ConnectModel
     @Bindable var agent: AgentModel
 
     @State private var shareAlert = ""
@@ -98,7 +98,7 @@ struct MainMenuView: View {
                 if agent.isStarting {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity)
                 } else {
-                    Text("Share...  (pick the display to share)")
+                    Text(DeskhubClient.string(DHStrShareButton))
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -110,23 +110,23 @@ struct MainMenuView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(DeskhubClient.string(DHStrClientIpPrompt))
             HStack(spacing: 8) {
-                TextField("", text: $session.connect.address)
+                TextField("", text: $connect.address)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit(connect)
-                    .disabled(session.connect.isConnecting)
-                Button("Connect", action: connect)
+                    .onSubmit(beginConnect)
+                    .disabled(connect.isConnecting)
+                Button("Connect", action: beginConnect)
                     .buttonStyle(.borderedProminent)
-                    .disabled(session.connect.address.isEmpty || session.connect.isConnecting)
+                    .disabled(connect.address.isEmpty || connect.isConnecting)
             }
-            if session.connect.isConnecting {
+            if connect.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(DeskhubClient.string(DHStrQueryingSources))
                         .foregroundStyle(.secondary)
                 }
             }
-            if !session.connect.connectError.isEmpty {
-                Text(session.connect.connectError)
+            if !connect.connectError.isEmpty {
+                Text(connect.connectError)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -140,8 +140,7 @@ struct MainMenuView: View {
     private func share() async {
         agent.refreshPermissions()
         if !agent.hasScreenRecording {
-            shareAlert = "Screen Recording permission is required. Grant it in "
-                + "System Settings, then quit and reopen Deskhub."
+            shareAlert = DeskhubClient.string(DHStrScreenRecordingRequired)
             return
         }
         if !agent.hasAccessibility {
@@ -159,14 +158,14 @@ struct MainMenuView: View {
         }
     }
 
-    private func connect() {
-        guard !session.connect.address.isEmpty, !session.connect.isConnecting else { return }
+    private func beginConnect() {
+        guard !connect.address.isEmpty, !connect.isConnecting else { return }
         Task {
-            let sources = await session.listSources()
-            if sources.count > 1 {
+            let sources = await connect.listSources()
+            if DeskhubClient.connectDecision(sources).showPicker {
                 route = .sourcePicker(sources)
             } else {
-                openViewers(sources, address: session.connect.address,
+                openViewers(sources, address: connect.address,
                             openWindow: openWindow, dismissWindow: dismissWindow)
             }
         }

@@ -9,10 +9,12 @@
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/ConnectFlow.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/FfiText.h"
+#include "deskhubp/input/NativeKeyMap.h"
 #include "deskhubp/net/SourceQuery.h"
 
 #include <cstdio>
@@ -33,12 +35,11 @@ deskhub::OpenViewerCount& OpenViewers() {
 
 template <class Fn>
 DHPointerLockEffect ApplyPointerLock(DHPointerLock* state, Fn&& step) {
-    if (!state) return DHPointerLockEffect{false, false, false};
-    deskhub::PointerLockState s(state->locked, state->paused);
+    if (!state) return DHPointerLockEffect{false, false};
+    deskhub::PointerLockState s(state->locked);
     const deskhub::PointerLockEffect e = step(s);
     state->locked = s.locked();
-    state->paused = s.paused();
-    return DHPointerLockEffect{e.lockChanged, e.pauseChanged, e.releaseHeldInput};
+    return DHPointerLockEffect{e.lockChanged, e.releaseHeldInput};
 }
 
 }
@@ -69,6 +70,7 @@ const char* dh_string(DHStringId id) {
         }
         case DHStrSessionEnded: return deskhub::ui::kSessionEnded;
         case DHStrShareStartFailed: return deskhub::ui::kShareStartFailed;
+        case DHStrScreenRecordingRequired: return deskhub::ui::kScreenRecordingRequired;
         case DHStrInvalidAddressHint: {
             static const std::string hint = deskhub::ui::InvalidAddressHint();
             return hint.c_str();
@@ -86,6 +88,13 @@ bool dh_parse_address(const char* address) {
 int dh_connecting_to(const char* address, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::ConnectingTo(address ? address : ""));
+    return int(std::strlen(out));
+}
+
+int dh_could_not_connect(const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ui::CouldNotConnectTo(address ? address : ""));
     return int(std::strlen(out));
 }
 
@@ -142,6 +151,17 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     return count;
 }
 
+bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id) {
+    std::vector<deskhub::SourceInfo> list;
+    if (sources && count > 0) {
+        list.resize(size_t(count));
+        for (int i = 0; i < count; ++i) list[size_t(i)].sourceId = sources[i].sourceId;
+    }
+    const deskhub::ConnectDecision d = deskhub::DecideAfterSourceQuery(list);
+    if (out_source_id) *out_source_id = d.sourceId;
+    return d.showPicker;
+}
+
 int dh_hotkeys(DHHotkey* out, int capacity) {
     if (!out || capacity <= 0) return 0;
 
@@ -186,6 +206,10 @@ int32_t dh_take_scroll_notches(double dragPoints, double* carry) {
     return deskhub::TakeScrollNotches(dragPoints, *carry);
 }
 
+int32_t dh_scroll_notches_from_lines(double lines) {
+    return deskhub::ScrollNotchesFromLines(lines);
+}
+
 DHCursor dh_cursor_clamp(DHCursor cur, DHViewRect video, double viewportW, double viewportH) {
     const deskhub::TrackpadCursor out = deskhub::ClampToVisible({cur.x, cur.y}, ToRect(video),
         viewportW, viewportH);
@@ -221,17 +245,25 @@ DHModifier dh_modifier_class(int32_t vk) {
     return DHModifierNone;
 }
 
+bool dh_native_key_to_vk(int32_t native_key_code, int32_t* out_vk, int32_t* out_scan) {
+    if (!out_vk || !out_scan) return false;
+    return deskhubp::NativeKeyToWin(native_key_code, *out_vk, *out_scan);
+}
+
 int32_t dh_vk_scancode(int32_t vk) {
     return deskhub::VkToSet1Scancode(vk);
 }
 
-DHPointerLockEffect dh_pointer_toggle_lock(DHPointerLock* state) {
-    return ApplyPointerLock(state, [](deskhub::PointerLockState& s) { return s.OnToggleLockKey(); });
+bool dh_is_lock_toggle_vk(int32_t vk) {
+    return vk == deskhub::kViewerLockToggleVk;
 }
 
-DHPointerLockEffect dh_pointer_toggle_pause(DHPointerLock* state) {
-    return ApplyPointerLock(state,
-        [](deskhub::PointerLockState& s) { return s.OnTogglePauseKey(); });
+bool dh_is_escape_vk(int32_t vk) {
+    return vk == deskhub::kVkEscape;
+}
+
+DHPointerLockEffect dh_pointer_toggle_lock(DHPointerLock* state) {
+    return ApplyPointerLock(state, [](deskhub::PointerLockState& s) { return s.OnToggleLockKey(); });
 }
 
 DHPointerLockEffect dh_pointer_escape(DHPointerLock* state) {
@@ -244,7 +276,7 @@ DHPointerLockEffect dh_pointer_focus_lost(DHPointerLock* state) {
 
 int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
-    const deskhub::PointerLockState s(state.locked, state.paused);
+    const deskhub::PointerLockState s(state.locked);
     deskhubp::CopyToBuf(out, size_t(capacity), s.SubtitleFor(statusLine ? statusLine : ""));
     return int(std::strlen(out));
 }
@@ -255,9 +287,5 @@ void dh_viewer_opened() {
 
 bool dh_viewer_closed() {
     return OpenViewers().Closed();
-}
-
-int dh_viewer_count() {
-    return OpenViewers().count();
 }
 }

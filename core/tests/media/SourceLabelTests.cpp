@@ -1,6 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/media/ShareStatusText.h"
 #include "deskhub/media/SourceLabel.h"
 
 #include <cstdio>
@@ -48,6 +49,32 @@ void TestSharedLabelCallsOutAViewer() {
         "the viewer note is appended, so the row does not jump around when it appears");
 }
 
+void TestShareTooltipCoversBothStates() {
+    std::printf("[label] the share tooltip tells the whole story in both states...\n");
+    deskhub::media::AgentSourceStatus s;
+    s.captureFps = 33;
+    s.zeroCopy = true;
+
+    const std::string waiting = deskhub::media::ShareStatusTooltip(s);
+    Check(waiting.find("waiting for a viewer") != std::string::npos,
+        "no viewer yet: the tooltip says so");
+    Check(waiting.find("33") != std::string::npos && waiting.find("zero-copy") != std::string::npos,
+        "and still reports how capture is doing");
+    Check(waiting.find(std::to_string(deskhub::kDeskhubPort)) != std::string::npos,
+        "the port comes from the protocol constant");
+
+    s.viewerConnected = true;
+    s.viewerAddr = "192.168.1.7:50000";
+    s.sendFps = 30;
+    s.sendKbps = 4500;
+    s.rttMs = 8;
+    const std::string busy = deskhub::media::ShareStatusTooltip(s);
+    Check(busy.find("192.168.1.7:50000") != std::string::npos, "a viewer shows its address");
+    Check(busy.find("30") != std::string::npos && busy.find("4500") != std::string::npos &&
+              busy.find("RTT 8") != std::string::npos,
+        "with the live send statistics");
+}
+
 }
 
 void RunSourceLabelTests() {
@@ -55,4 +82,5 @@ void RunSourceLabelTests() {
     TestUnnamedSourcesStayDistinguishable();
     TestPickerLabelShowsBothNameAndSize();
     TestSharedLabelCallsOutAViewer();
+    TestShareTooltipCoversBothStates();
 }

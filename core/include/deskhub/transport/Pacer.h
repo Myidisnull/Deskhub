@@ -5,6 +5,7 @@
 namespace deskhub {
 
 inline constexpr uint64_t kPacerMinSleepUs = 500;
+inline constexpr uint32_t kPacingRateMultiple = 3;
 
 class Pacer {
 public:

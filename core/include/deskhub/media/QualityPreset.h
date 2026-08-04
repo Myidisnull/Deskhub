@@ -25,4 +25,8 @@ inline constexpr size_t QualityPresetIndex(uint32_t maxDim) {
     return 0;
 }
 
+inline constexpr uint32_t QualityPresetMaxDim(size_t index, uint32_t fallback) {
+    return index < kQualityPresets.size() ? kQualityPresets[index].maxDim : fallback;
+}
+
 }

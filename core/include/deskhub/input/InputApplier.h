@@ -56,6 +56,11 @@ protected:
         return true;
     }
 
+    void ReleaseAllHeld() {
+        for (const auto& key : held_.TakeHeldKeys()) backend().ReleaseKey(key.id, key.native);
+        for (MouseButton button : held_.TakeHeldButtons()) backend().SendButton(button, false);
+    }
+
     PressedInputTracker<NativeKey> held_;
 };
 

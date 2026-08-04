@@ -30,6 +30,33 @@ inline constexpr const char* kViewerOpenFailed =
 inline constexpr const char* kConnectionEndedTitle = "Connection ended";
 inline constexpr const char* kDisconnected = "disconnected";
 inline constexpr const char* kSessionEnded = "Session ended";
+inline constexpr const char* kScreenRecordingRequired =
+    "Screen Recording permission is required. Grant it in System Settings, then quit and "
+    "reopen Deskhub.";
+
+inline std::string TrimAscii(std::string_view s) {
+    const size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string_view::npos) return {};
+    const size_t e = s.find_last_not_of(" \t\r\n");
+    return std::string(s.substr(b, e - b + 1));
+}
+
+inline uint32_t ParsePositiveUint(std::string_view s, uint32_t fallback) {
+    if (s.empty()) return fallback;
+    uint64_t v = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return fallback;
+        v = v * 10 + uint64_t(c - '0');
+        if (v > 0xFFFFFFFFull) return fallback;
+    }
+    return v > 0 ? uint32_t(v) : fallback;
+}
+
+inline std::string ShareClampWarning() {
+    const std::string cap = std::to_string(kMaxSources);
+    return "This machine has more than " + cap + " displays. Only the first " + cap +
+           " will be shared.";
+}
 
 inline std::string ConnectingTo(std::string_view address) {
     return "Connecting to " + std::string(address) + "\xE2\x80\xA6";
@@ -47,6 +74,10 @@ inline std::string HostTitle(std::string_view address, uint32_t width, uint32_t 
 
 inline std::string UdpPortLine() {
     return "UDP port " + std::to_string(kDeskhubPort);
+}
+
+inline std::string CouldNotConnectTo(std::string_view address) {
+    return "Could not connect to " + std::string(address) + ".";
 }
 
 inline std::string InvalidAddressHint() {

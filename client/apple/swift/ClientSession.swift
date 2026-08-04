@@ -17,8 +17,6 @@ nonisolated enum MouseButton: Int32, Sendable {
 
 struct Source: Identifiable, Sendable, Hashable {
     let id: UInt8
-    let width: UInt16
-    let height: UInt16
     let name: String
     let displayName: String
     let sizeLabel: String
@@ -34,6 +32,10 @@ nonisolated enum DeskhubClient {
         buffered(320) { dh_connecting_to(address, $0, $1) }
     }
 
+    static func couldNotConnect(_ address: String) -> String {
+        buffered(320) { dh_could_not_connect(address, $0, $1) }
+    }
+
     static func hostTitle(_ address: String, width: UInt32, height: UInt32) -> String {
         buffered(320) { dh_host_title(address, width, height, $0, $1) }
     }
@@ -46,12 +48,33 @@ nonisolated enum DeskhubClient {
         dh_is_zoomed(zoom)
     }
 
-    private static func buffered(
+    static func buffered(
         _ capacity: Int, _ fill: (UnsafeMutablePointer<CChar>, Int32) -> Int32
     ) -> String {
         var buf = [CChar](repeating: 0, count: capacity)
         _ = fill(&buf, Int32(capacity))
         return String(cString: buf)
+    }
+
+    static func viewerBaseTitle(_ sourceName: String) -> String {
+        buffered(320) { dh_viewer_base_title(sourceName, $0, $1) }
+    }
+
+    static func pointerSubtitle(locked: Bool, statusLine: String) -> String {
+        buffered(320) { dh_pointer_subtitle(DHPointerLock(locked: locked), statusLine, $0, $1) }
+    }
+
+    static func ffiList<Raw, Item>(
+        _ capacity: Int, _ empty: Raw,
+        _ fill: (UnsafeMutablePointer<Raw>?, Int32) -> Int32,
+        _ transform: (Raw) -> Item
+    ) -> [Item] {
+        var buf = [Raw](repeating: empty, count: capacity)
+        let count = buf.withUnsafeMutableBufferPointer { ptr in
+            fill(ptr.baseAddress, Int32(ptr.count))
+        }
+        guard count > 0 else { return [] }
+        return (0 ..< Int(count)).map { transform(buf[$0]) }
     }
 
     static func cString(_ tuple: some Any) -> String {
@@ -67,18 +90,23 @@ nonisolated enum DeskhubClient {
         return addr
     }
 
-    static func listSources(address: String) -> [Source] {
-        var buf = [DHSourceInfo](repeating: DHSourceInfo(), count: 16)
-        let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count))
+    static func connectDecision(_ sources: [Source]) -> (showPicker: Bool, sourceId: UInt8) {
+        let infos = sources.map { source -> DHSourceInfo in
+            var info = DHSourceInfo()
+            info.sourceId = source.id
+            return info
         }
-        guard count > 0 else { return [] }
-        return (0 ..< Int(count)).map { idx in
-            let info = buf[idx]
-            return Source(
+        var sourceId: UInt8 = 0
+        let showPicker = infos.withUnsafeBufferPointer {
+            dh_connect_decision($0.baseAddress, Int32($0.count), &sourceId)
+        }
+        return (showPicker, sourceId)
+    }
+
+    static func listSources(address: String) -> [Source] {
+        ffiList(16, DHSourceInfo(), { dh_list_sources(address, $0, $1) }) { info in
+            Source(
                 id: info.sourceId,
-                width: info.width,
-                height: info.height,
                 name: cString(info.name),
                 displayName: cString(info.displayName),
                 sizeLabel: cString(info.sizeLabel),
@@ -154,14 +182,6 @@ final class ClientSession: @unchecked Sendable {
         dh_session_key(handle, vk, scan, down)
     }
 
-    func keyTap(vk: Int32, scan: Int32) {
-        dh_session_key_tap(handle, vk, scan)
-    }
-
-    func keyChord(modVk: Int32, modScan: Int32, vk: Int32, scan: Int32) {
-        dh_session_key_chord(handle, modVk, modScan, vk, scan)
-    }
-
     func hotkey(_ hotkey: Hotkey) {
         dh_session_hotkey(handle, hotkey.vk, hotkey.scan, hotkey.modVk, hotkey.modScan)
     }
@@ -186,31 +206,31 @@ final class ClientSession: @unchecked Sendable {
         dh_session_mouse_button(handle, button.rawValue, down)
     }
 
-    func mouseWheel(_ delta: Int32) {
-        dh_session_mouse_wheel(handle, delta)
-    }
-
     func mouseWheelNotches(_ notches: Int32) {
         dh_session_mouse_wheel_notches(handle, notches)
     }
 
+    struct Snapshot {
+        let phase: Phase
+        let statusLine: String
+        let endReason: String
+        let videoWidth: UInt32
+        let videoHeight: UInt32
+    }
+
+    func snapshot() -> Snapshot {
+        var raw = DHSessionState()
+        dh_session_snapshot(handle, &raw)
+        return Snapshot(
+            phase: Phase(rawValue: Int(raw.phase.rawValue)) ?? .idle,
+            statusLine: DeskhubClient.cString(raw.statusLine),
+            endReason: DeskhubClient.cString(raw.endReason),
+            videoWidth: raw.videoWidth,
+            videoHeight: raw.videoHeight
+        )
+    }
+
     func phase() -> Phase {
         Phase(rawValue: Int(dh_session_phase(handle).rawValue)) ?? .idle
-    }
-
-    func statusLine() -> String {
-        String(cString: dh_session_status_line(handle))
-    }
-
-    func endReason() -> String {
-        String(cString: dh_session_end_reason(handle))
-    }
-
-    func videoWidth() -> UInt32 {
-        dh_session_video_width(handle)
-    }
-
-    func videoHeight() -> UInt32 {
-        dh_session_video_height(handle)
     }
 }

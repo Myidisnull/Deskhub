@@ -40,10 +40,14 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
 
     st.packetizer.SetSessionId(st.session->sessionId());
     st.packetizer.SetFecEnabled(st.wantFec.load(std::memory_order_relaxed));
+    st.pacer.SetRateBps(uint64_t(st.curBitrateBps.load(std::memory_order_relaxed)) *
+                        deskhub::kPacingRateMultiple);
 
     const uint64_t sendT0 = NowUs();
     const size_t pkts = st.packetizer.SendFrame(frame, st.nextFrameId++, timestampUs, keyframe,
         [&st, &sock, &peer](std::span<const uint8_t> d) {
+            const uint64_t waitUs = st.pacer.Gate(d.size(), NowUs());
+            if (waitUs) SleepUs(waitUs);
             if (sock.SendTo(peer, d.data(), d.size()))
                 st.bytesSent.fetch_add(d.size(), std::memory_order_relaxed);
             else

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SharingSessionView: View {
-    @Binding var route: Route
+    @Binding var route: ClientRoute
     @Bindable var model: AgentModel
 
     var body: some View {
@@ -29,12 +29,12 @@ struct SharingSessionView: View {
         }
         .padding(12)
         .onChange(of: model.isSharing) { _, sharing in
-            if !sharing { route = .menu }
+            if !sharing { route = .connect }
         }
     }
 
     private func stop() {
         model.stopSharing()
-        route = .menu
+        route = .connect
     }
 }

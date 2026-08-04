@@ -11,11 +11,11 @@
 #include "gtk/ShareWindow.h"
 #include "gtk/ViewerWindow.h"
 #include "deskhubp/net/NetInfo.h"
-#include "deskhubp/net/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/session/ConnectFlow.h"
+#include "deskhub/session/ShareFlow.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/protocol/Wire.h"
@@ -26,22 +26,14 @@ constexpr AgentOptions kShareDefaults{};
 
 constexpr int kWinW = 496;
 
-std::string Trim(const std::string& s) {
-    const size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return {};
-    const size_t e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);
-}
-
 uint32_t EntryUint(GtkWidget* entry, uint32_t fallback) {
-    const int v = std::atoi(gtk_entry_get_text(GTK_ENTRY(entry)));
-    return v > 0 ? uint32_t(v) : fallback;
+    return deskhub::ui::ParsePositiveUint(gtk_entry_get_text(GTK_ENTRY(entry)), fallback);
 }
 
 uint32_t ComboMaxDim(GtkWidget* combo, uint32_t fallback) {
     const gint active = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
-    if (active < 0 || size_t(active) >= deskhub::media::kQualityPresets.size()) return fallback;
-    return deskhub::media::kQualityPresets[size_t(active)].maxDim;
+    if (active < 0) return fallback;
+    return deskhub::media::QualityPresetMaxDim(size_t(active), fallback);
 }
 
 GtkWidget* Label(const char* text) {
@@ -306,17 +298,14 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
                 return;
             }
 
-            if (sources.size() > deskhub::kMaxSources) {
-                char msg[192];
-                std::snprintf(msg, sizeof(msg),
-                    "More than %zu screens were picked. Only the first %zu will be shared.",
-                    deskhub::kMaxSources, deskhub::kMaxSources);
-                ShowWarning(GTK_WINDOW(self->window_), "Deskhub", msg);
-                sources.resize(deskhub::kMaxSources);
-            }
+            const deskhub::ShareClampResult clamp =
+                deskhub::ClampShareSources(std::move(sources));
+            if (clamp.clamped)
+                ShowWarning(GTK_WINDOW(self->window_), "Deskhub",
+                    deskhub::ui::ShareClampWarning().c_str());
 
             self->HideForSession();
-            ShareWindow::Open(sources, opt, [self, alive] {
+            ShareWindow::Open(clamp.sources, opt, [self, alive] {
                 if (!alive->load()) return;
                 self->ShowAfterSession();
             });
@@ -331,7 +320,8 @@ void MainWindow::OnAddressActivate(GtkEntry*, gpointer user) {
 void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
 
-    const std::string text = Trim(gtk_entry_get_text(GTK_ENTRY(self->addressEntry_)));
+    const std::string text =
+        deskhub::ui::TrimAscii(gtk_entry_get_text(GTK_ENTRY(self->addressEntry_)));
     if (text.empty()) {
         ShowWarning(GTK_WINDOW(self->window_), "Deskhub",
             "Enter the host machine's IP address first (e.g., 192.168.1.10).");
@@ -345,27 +335,22 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
         return;
     }
 
-    self->SetBusy(true, deskhub::ui::kQueryingSources);
-
-    std::thread([self, server, alive = self->alive_] {
-        std::vector<deskhub::SourceInfo> sources;
-        const bool ok = QuerySources(server, sources);
-
-        RunOnMain([self, server, sources, ok, alive] {
-            if (!alive->load()) return;
+    const bool started = self->connectDriver_.QueryAsync(server, [alive = self->alive_](std::function<void()> fn) { RunOnMain([alive, fn = std::move(fn)] {
+                                                                                                                        if (alive->load()) fn();
+                                                                                                                    }); }, [self, server](const deskhubp::ConnectOutcome& outcome) {
             self->SetBusy(false, nullptr);
 
             std::vector<deskhub::SourceInfo> picked;
-            if (ok && !sources.empty()) {
-                if (!PickSources(GTK_WINDOW(self->window_), sources, picked)) return;
+            if (outcome.hasSources()) {
+                if (!PickSources(GTK_WINDOW(self->window_), outcome.sources, picked)) return;
             } else {
-                picked.push_back(deskhub::SourceInfo{});
+                picked = deskhubp::DefaultViewTargets();
             }
 
             self->HideForSession();
             int opened = 0;
             for (const auto& s : picked) {
-                if (ViewerWindow::Open(server, s.sourceId, s.name, [self, alive] {
+                if (ViewerWindow::Open(server, s.sourceId, s.name, [self, alive = self->alive_] {
                         if (!alive->load()) return;
                         if (self->openViewers_.Closed()) self->ShowAfterSession();
                     })) {
@@ -377,9 +362,8 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
                 self->ShowAfterSession();
                 ShowWarning(GTK_WINDOW(self->window_), "Deskhub",
                     deskhub::ui::kViewerOpenFailed);
-            }
-        });
-    }).detach();
+            } });
+    if (started) self->SetBusy(true, deskhub::ui::kQueryingSources);
 }
 
 void MainWindow::OnDestroy(GtkWidget*, gpointer user) {

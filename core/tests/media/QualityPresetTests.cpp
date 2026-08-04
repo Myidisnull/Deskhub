@@ -11,6 +11,7 @@ using deskhub::media::AgentOptions;
 using deskhub::media::kNativeMaxDim;
 using deskhub::media::kQualityPresets;
 using deskhub::media::QualityPresetIndex;
+using deskhub::media::QualityPresetMaxDim;
 
 namespace {
 
@@ -49,6 +50,15 @@ void TestUnknownCapFallsBackToTheSafestRung() {
     Check(i == 0, "it resolves to the smallest rung, which cannot send more than asked for");
 }
 
+void TestMaxDimIsTheInverseOfIndex() {
+    std::printf("[quality] a combo row maps back to the cap that filled it...\n");
+    for (size_t i = 0; i < kQualityPresets.size(); ++i)
+        Check(QualityPresetMaxDim(i, 12345) == kQualityPresets[i].maxDim,
+            "every row returns its own cap");
+    Check(QualityPresetMaxDim(kQualityPresets.size(), 12345) == 12345,
+        "an out-of-range selection falls back instead of reading past the table");
+}
+
 }
 
 void RunQualityPresetTests() {
@@ -56,4 +66,5 @@ void RunQualityPresetTests() {
     TestIndexRoundTrips();
     TestSharedDefaultIsOffered();
     TestUnknownCapFallsBackToTheSafestRung();
+    TestMaxDimIsTheInverseOfIndex();
 }

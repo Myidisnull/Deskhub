@@ -7,6 +7,7 @@
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/session/ConnectFlow.h"
 #include "deskhub/ui/Strings.h"
+#include "WinControls.h"
 #include "WinText.h"
 
 namespace {
@@ -106,13 +107,7 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
     st.sources = &sources;
     SetWindowLongPtrW(dlg, GWLP_USERDATA, (LONG_PTR)&st);
 
-    const HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD s, int cx, int cy, int cw, int ch, int id) {
-        HWND c = CreateWindowExW(0, cls, text, s | WS_CHILD | WS_VISIBLE, cx, cy, cw, ch,
-            dlg, (HMENU)(INT_PTR)id, wc.hInstance, nullptr);
-        if (c) SendMessageW(c, WM_SETFONT, (WPARAM)font, TRUE);
-        return c;
-    };
+    const ChildControlFactory mk(dlg, wc.hInstance);
 
     st.list = mk(L"LISTBOX", nullptr,
         LBS_NOTIFY | LBS_HASSTRINGS | LBS_MULTIPLESEL | WS_VSCROLL | WS_BORDER,
@@ -132,16 +127,7 @@ bool ShowSourcePickerDialog(HWND owner, const std::vector<deskhub::SourceInfo>& 
     ShowWindow(dlg, SW_SHOW);
     SetForegroundWindow(dlg);
 
-    MSG msg;
-    BOOL got = TRUE;
-    while (!st.done && (got = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (got == -1) break;
-        if (!IsDialogMessageW(dlg, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-    if (got == 0) PostQuitMessage(0);
+    if (PumpMessagesUntil(dlg, [&st] { return !st.done; })) PostQuitMessage(0);
 
     if (owner) {
         EnableWindow(owner, TRUE);

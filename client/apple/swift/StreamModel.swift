@@ -36,7 +36,7 @@ final class StreamModel {
         guard let opened else {
             failedToStart = true
             phase = .ended
-            endReason = "Could not connect to \(address)."
+            endReason = DeskhubClient.couldNotConnect(address)
             return
         }
         failedToStart = false
@@ -76,14 +76,6 @@ final class StreamModel {
         session?.key(vk: vk, scan: scan, down: down)
     }
 
-    func keyTap(vk: Int32, scan: Int32) {
-        session?.keyTap(vk: vk, scan: scan)
-    }
-
-    func keyChord(modVk: Int32, modScan: Int32, vk: Int32, scan: Int32) {
-        session?.keyChord(modVk: modVk, modScan: modScan, vk: vk, scan: scan)
-    }
-
     func hotkey(_ hotkey: Hotkey) {
         session?.hotkey(hotkey)
     }
@@ -112,18 +104,20 @@ final class StreamModel {
         session?.mouseWheelNotches(notches)
     }
 
-    func mouseWheel(_ delta: Int32) {
-        session?.mouseWheel(delta)
+    var aspectRatio: Double {
+        guard videoWidth > 0, videoHeight > 0 else { return 16.0 / 9.0 }
+        return Double(videoWidth) / Double(videoHeight)
     }
 
     func refresh() {
         guard let session else { return }
-        phase = session.phase()
-        statusLine = session.statusLine()
-        videoWidth = session.videoWidth()
-        videoHeight = session.videoHeight()
+        let state = session.snapshot()
+        phase = state.phase
+        statusLine = state.statusLine
+        videoWidth = state.videoWidth
+        videoHeight = state.videoHeight
         if phase == .ended {
-            endReason = session.endReason()
+            endReason = state.endReason
             mouseLocked = false
         }
     }

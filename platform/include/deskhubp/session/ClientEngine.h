@@ -131,10 +131,6 @@ public:
         return phase_.load(std::memory_order_acquire);
     }
 
-    bool finished() const {
-        return finished_.load(std::memory_order_acquire);
-    }
-
     uint32_t videoWidth() const {
         return negW_.load();
     }
@@ -178,10 +174,6 @@ public:
     }
     void ReleaseAllInput() {
         input_.ReleaseAll(NowUs());
-    }
-
-    void ReportRendered(uint32_t frames) {
-        stRendered_.fetch_add(frames, std::memory_order_relaxed);
     }
 
     void ReportPresented(uint64_t ptsUs, uint64_t shownUs) {

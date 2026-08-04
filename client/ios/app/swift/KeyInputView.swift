@@ -85,22 +85,6 @@ final class KeyCaptureUIView: UIView, UIKeyInput {
         model?.charTap(0x08)
     }
 
-    private static let hidToVk: [UIKeyboardHIDUsage: Int32] = [
-        .keyboardEscape: 0x1B,
-        .keyboardLeftArrow: 0x25, .keyboardUpArrow: 0x26,
-        .keyboardRightArrow: 0x27, .keyboardDownArrow: 0x28,
-        .keyboardHome: 0x24, .keyboardEnd: 0x23,
-        .keyboardPageUp: 0x21, .keyboardPageDown: 0x22,
-        .keyboardInsert: 0x2D, .keyboardDeleteForward: 0x2E,
-        .keyboardF1: 0x70, .keyboardF2: 0x71, .keyboardF3: 0x72, .keyboardF4: 0x73,
-        .keyboardF5: 0x74, .keyboardF6: 0x75, .keyboardF7: 0x76, .keyboardF8: 0x77,
-        .keyboardF9: 0x78, .keyboardF10: 0x79, .keyboardF11: 0x7A, .keyboardF12: 0x7B,
-        .keyboardLeftShift: 0xA0, .keyboardRightShift: 0xA1,
-        .keyboardLeftControl: 0xA2, .keyboardRightControl: 0xA3,
-        .keyboardLeftAlt: 0xA4, .keyboardRightAlt: 0xA5,
-        .keyboardLeftGUI: 0x5B, .keyboardRightGUI: 0x5C,
-    ]
-
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let unhandled = handlePresses(presses, down: true)
         if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
@@ -123,8 +107,8 @@ final class KeyCaptureUIView: UIView, UIKeyInput {
                 unhandled.insert(press)
                 continue
             }
-            if let vk = Self.hidToVk[key.keyCode] {
-                model?.key(vk: vk, scan: dh_vk_scancode(vk), down: down)
+            if let mapped = DeskhubClient.mapKey(Int32(key.keyCode.rawValue)) {
+                model?.key(vk: mapped.vk, scan: mapped.scan, down: down)
                 continue
             }
             if down, let scalar = chordScalar(for: key) {

@@ -14,7 +14,6 @@ import kotlinx.coroutines.withContext
 
 object NativeClient {
     const val PHASE_IDLE = 0
-    const val PHASE_CONNECTING = 1
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
 
@@ -37,9 +36,16 @@ object NativeClient {
         }
     }
 
+    const val STR_CLIENT_IP_PROMPT = 3
+    const val STR_QUERYING_SOURCES = 12
+    const val STR_INVALID_ADDRESS_HINT = 17
     const val STR_SESSION_ENDED = 18
 
     private external fun nativeString(id: Int): String
+
+    private external fun nativeParseAddress(addr: String): Boolean
+
+    private external fun nativeCouldNotConnect(addr: String): String
 
     private external fun nativeConnectingTo(addr: String): String
 
@@ -54,6 +60,10 @@ object NativeClient {
     private external fun nativeIsZoomed(zoom: Float): Boolean
 
     fun string(id: Int): String = nativeString(id)
+
+    fun parseAddress(addr: String): Boolean = nativeParseAddress(addr)
+
+    fun couldNotConnect(addr: String): String = nativeCouldNotConnect(addr)
 
     fun connectingTo(addr: String): String = nativeConnectingTo(addr)
 
@@ -136,26 +146,13 @@ object NativeClient {
 
     private external fun nativeVkScancode(vk: Int): Int
 
-    private external fun nativeKeyTap(
-        vk: Int,
-        scan: Int,
-    )
+    private external fun nativeKeyToVk(keyCode: Int): Int
 
-    private external fun nativeKeyChord(
-        modVk: Int,
-        modScan: Int,
-        vk: Int,
-        scan: Int,
-    )
+    private external fun nativeConnectDecision(sourceIds: IntArray): Int
 
     private external fun nativeMouseMove(
         nx: Int,
         ny: Int,
-    )
-
-    private external fun nativeMouseMoveRel(
-        dx: Int,
-        dy: Int,
     )
 
     private external fun nativeMouseButton(
@@ -186,34 +183,15 @@ object NativeClient {
 
     fun vkScancode(vk: Int): Int = nativeVkScancode(vk)
 
-    fun keyTap(
-        vk: Int,
-        scan: Int,
-    ) {
-        nativeKeyTap(vk, scan)
-    }
+    fun keyToVk(keyCode: Int): Int = nativeKeyToVk(keyCode)
 
-    fun keyChord(
-        modVk: Int,
-        modScan: Int,
-        vk: Int,
-        scan: Int,
-    ) {
-        nativeKeyChord(modVk, modScan, vk, scan)
-    }
+    fun connectDecision(sources: List<Source>): Int = nativeConnectDecision(sources.map { it.id }.toIntArray())
 
     fun mouseMove(
         nx: Int,
         ny: Int,
     ) {
         nativeMouseMove(nx, ny)
-    }
-
-    fun mouseMoveRel(
-        dx: Int,
-        dy: Int,
-    ) {
-        nativeMouseMoveRel(dx, dy)
     }
 
     fun mouseButton(
@@ -238,16 +216,6 @@ object NativeClient {
     fun releaseAllInput() {
         nativeReleaseAllInput()
     }
-
-    external fun nativePhase(): Int
-
-    external fun nativeStatusLine(): String
-
-    external fun nativeEndReason(): String
-
-    external fun nativeVideoWidth(): Int
-
-    external fun nativeVideoHeight(): Int
 
     external fun nativeVideoFrame(
         viewportW: Float,
@@ -441,13 +409,19 @@ object NativeClient {
 
     data class Source(
         val id: Int,
-        val width: Int,
-        val height: Int,
-        val name: String,
         val displayName: String,
         val sizeLabel: String,
-        val pickerLabel: String,
     )
+
+    data class Snapshot(
+        val phase: Int,
+        val statusLine: String,
+        val endReason: String,
+        val videoWidth: Int,
+        val videoHeight: Int,
+    )
+
+    external fun nativeSnapshot(): Snapshot?
 
     suspend fun listSources(addr: String): List<Source> =
         withContext(Dispatchers.IO) { nativeListSources(addr).toList() }

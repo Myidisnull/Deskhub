@@ -14,7 +14,7 @@ namespace {
 constexpr USHORT kUsagePageGeneric = 0x01;
 constexpr USHORT kUsageMouse = 0x02;
 constexpr USHORT kUsageKeyboard = 0x06;
-constexpr int kToggleRelativeKey = VK_F9;
+constexpr int kToggleRelativeKey = deskhub::kViewerLockToggleVk;
 using deskhub::kScanExtended;
 
 int32_t Normalize(int v, uint32_t extent) {
@@ -117,6 +117,11 @@ void ViewerInput::OnRawInput(LPARAM lp) {
 
         if (kb.VKey == kToggleRelativeKey) {
             if (down) ToggleRelativeMode();
+            return;
+        }
+
+        if (kb.VKey == deskhub::kVkEscape && pointer_.locked()) {
+            if (down) ApplyLockEffect(pointer_.OnEscape());
             return;
         }
 

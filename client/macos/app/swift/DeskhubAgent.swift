@@ -11,17 +11,7 @@ struct ShareSource: Identifiable, Hashable, Sendable {
 
 struct AgentSourceStatus: Identifiable, Sendable {
     let id: UInt8
-    let name: String
     let label: String
-    let width: UInt32
-    let height: UInt32
-    let viewerConnected: Bool
-    let zeroCopy: Bool
-    let viewerAddr: String
-    let captureFps: Double
-    let sendFps: Double
-    let sendKbps: Double
-    let rttMs: UInt32
 }
 
 struct QualityPreset: Identifiable, Sendable {
@@ -32,19 +22,10 @@ struct QualityPreset: Identifiable, Sendable {
 }
 
 nonisolated enum DeskhubAgent {
-    static let qualityPresets: [QualityPreset] = {
-        var buf = [DHQualityPreset](repeating: DHQualityPreset(), count: 8)
-        let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dha_quality_presets(ptr.baseAddress, Int32(ptr.count))
+    static let qualityPresets: [QualityPreset] =
+        DeskhubClient.ffiList(8, DHQualityPreset(), { dha_quality_presets($0, $1) }) { raw in
+            QualityPreset(label: DeskhubClient.cString(raw.label), maxDim: Int(raw.maxDim))
         }
-        guard count > 0 else { return [] }
-        return (0 ..< Int(count)).map { idx in
-            QualityPreset(
-                label: DeskhubClient.cString(buf[idx].label),
-                maxDim: Int(buf[idx].maxDim)
-            )
-        }
-    }()
 
     static var hasScreenRecording: Bool { dh_has_screen_recording() }
     static var hasAccessibility: Bool { dh_has_accessibility() }
@@ -53,14 +34,8 @@ nonisolated enum DeskhubAgent {
     static func openAccessibilitySettings() { dh_open_accessibility_settings() }
 
     static func listShareSources() -> [ShareSource] {
-        var buf = [DHShareSource](repeating: DHShareSource(), count: 128)
-        let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dha_list_share_sources(ptr.baseAddress, Int32(ptr.count))
-        }
-        guard count > 0 else { return [] }
-        return (0 ..< Int(count)).map { idx in
-            let info = buf[idx]
-            return ShareSource(
+        DeskhubClient.ffiList(128, DHShareSource(), { dha_list_share_sources($0, $1) }) { info in
+            ShareSource(
                 rawId: info.id,
                 width: info.width,
                 height: info.height,
@@ -86,27 +61,8 @@ nonisolated enum DeskhubAgent {
     static var isRunning: Bool { dha_running() }
 
     static func status() -> [AgentSourceStatus] {
-        var buf = [DHAgentStatus](repeating: DHAgentStatus(), count: 16)
-        let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dha_status(ptr.baseAddress, Int32(ptr.count))
-        }
-        guard count > 0 else { return [] }
-        return (0 ..< Int(count)).map { idx in
-            let row = buf[idx]
-            return AgentSourceStatus(
-                id: row.sourceId,
-                name: cString(row.name),
-                label: cString(row.label),
-                width: row.width,
-                height: row.height,
-                viewerConnected: row.viewerConnected,
-                zeroCopy: row.zeroCopy,
-                viewerAddr: cString(row.viewerAddr),
-                captureFps: row.captureFps,
-                sendFps: row.sendFps,
-                sendKbps: row.sendKbps,
-                rttMs: row.rttMs
-            )
+        DeskhubClient.ffiList(16, DHAgentStatus(), { dha_status($0, $1) }) { row in
+            AgentSourceStatus(id: row.sourceId, label: cString(row.label))
         }
     }
 

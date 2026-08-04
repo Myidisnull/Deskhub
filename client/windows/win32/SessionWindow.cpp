@@ -8,6 +8,7 @@
 
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/ui/Strings.h"
+#include "WinControls.h"
 #include "WinText.h"
 
 namespace {
@@ -148,13 +149,7 @@ void SessionWindow::ThreadMain() {
         nullptr, nullptr, wc.hInstance, this);
     if (!hwnd) return;
 
-    const HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD s, int cx, int cy, int cw, int ch, int id) {
-        HWND c = CreateWindowExW(0, cls, text, s | WS_CHILD | WS_VISIBLE, cx, cy, cw, ch,
-            hwnd, (HMENU)(INT_PTR)id, wc.hInstance, nullptr);
-        if (c) SendMessageW(c, WM_SETFONT, (WPARAM)font, TRUE);
-        return c;
-    };
+    const ChildControlFactory mk(hwnd, wc.hInstance);
 
     mk(L"STATIC", FromUtf8(deskhub::ui::kSharingSourcesIntro).c_str(), SS_LEFT, 12, 10,
         kW - 24, 16, 0);
@@ -173,15 +168,7 @@ void SessionWindow::ThreadMain() {
     hwnd_.store(hwnd, std::memory_order_release);
     if (quitReq_.load(std::memory_order_acquire)) DestroyWindow(hwnd);
 
-    MSG msg;
-    BOOL got;
-    while ((got = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (got == -1) break;
-        if (!IsDialogMessageW(hwnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
+    PumpMessagesUntil(hwnd, [] { return true; });
 
     hwnd_.store(nullptr, std::memory_order_release);
     list_ = nullptr;

@@ -2,8 +2,6 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-private let kMacKeyCodeF9: UInt16 = 0x65
-
 final class RemoteVideoView: NSView {
     weak var model: StreamModel?
 
@@ -11,7 +9,7 @@ final class RemoteVideoView: NSView {
         didSet { needsLayout = true }
     }
 
-    private var pointer = DHPointerLock(locked: false, paused: false)
+    private var pointer = DHPointerLock(locked: false)
     var mouseLocked: Bool { pointer.locked }
     var onLockChanged: ((Bool) -> Void)?
 
@@ -100,8 +98,12 @@ final class RemoteVideoView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == kMacKeyCodeF9 {
+        if isLockToggle(event.keyCode) {
             apply(dh_pointer_toggle_lock(&pointer))
+            return
+        }
+        if pointer.locked, isEscape(event.keyCode) {
+            apply(dh_pointer_escape(&pointer))
             return
         }
         guard !event.isARepeat else { return }
@@ -109,8 +111,18 @@ final class RemoteVideoView: NSView {
     }
 
     override func keyUp(with event: NSEvent) {
-        guard event.keyCode != kMacKeyCodeF9 else { return }
+        guard !isLockToggle(event.keyCode) else { return }
         sendKey(event.keyCode, down: false)
+    }
+
+    private func isLockToggle(_ macKeyCode: UInt16) -> Bool {
+        guard let mapped = DeskhubClient.mapKey(Int32(macKeyCode)) else { return false }
+        return dh_is_lock_toggle_vk(mapped.vk)
+    }
+
+    private func isEscape(_ macKeyCode: UInt16) -> Bool {
+        guard let mapped = DeskhubClient.mapKey(Int32(macKeyCode)) else { return false }
+        return dh_is_escape_vk(mapped.vk)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -128,7 +140,7 @@ final class RemoteVideoView: NSView {
     }
 
     private func maskFor(keyCode: UInt16) -> NSEvent.ModifierFlags {
-        guard let mapped = DeskhubClient.mapKey(keyCode) else { return [] }
+        guard let mapped = DeskhubClient.mapKey(Int32(keyCode)) else { return [] }
         switch dh_modifier_class(mapped.vk) {
         case DHModifierShift: return .shift
         case DHModifierControl: return .control
@@ -140,7 +152,7 @@ final class RemoteVideoView: NSView {
     }
 
     private func sendKey(_ macKeyCode: UInt16, down: Bool) {
-        guard let mapped = DeskhubClient.mapKey(macKeyCode) else { return }
+        guard let mapped = DeskhubClient.mapKey(Int32(macKeyCode)) else { return }
         model?.key(vk: mapped.vk, scan: mapped.scan, down: down)
     }
 
@@ -187,10 +199,8 @@ final class RemoteVideoView: NSView {
             if notches != 0 { model?.mouseWheelNotches(notches) }
             return
         }
-        let raw = event.scrollingDeltaY
-        guard raw != 0 else { return }
-        let notches = max(1, Int32(abs(raw).rounded()))
-        model?.mouseWheelNotches(raw > 0 ? notches : -notches)
+        let notches = dh_scroll_notches_from_lines(Double(event.scrollingDeltaY))
+        if notches != 0 { model?.mouseWheelNotches(notches) }
     }
 
     override func resignFirstResponder() -> Bool {

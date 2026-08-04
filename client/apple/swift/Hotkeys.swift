@@ -1,29 +1,16 @@
 import Foundation
 
-struct Hotkey: Identifiable {
+struct Hotkey {
     let label: String
     let vk: Int32
     let scan: Int32
     let modVk: Int32
     let modScan: Int32
-
-    var id: String { label }
 }
 
-let kHotkeys: [Hotkey] = {
-    var buf = [DHHotkey](repeating: DHHotkey(), count: 32)
-    let count = buf.withUnsafeMutableBufferPointer { ptr in
-        dh_hotkeys(ptr.baseAddress, Int32(ptr.count))
-    }
-    guard count > 0 else { return [] }
-    return (0 ..< Int(count)).map { idx in
-        let entry = buf[idx]
-        let label = withUnsafeBytes(of: entry.label) { rawBuf in
-            String(cString: rawBuf.baseAddress!.assumingMemoryBound(to: CChar.self))
-        }
-        return Hotkey(
-            label: label, vk: entry.vk, scan: entry.scan,
-            modVk: entry.modVk, modScan: entry.modScan
-        )
-    }
-}()
+let kHotkeys: [Hotkey] = DeskhubClient.ffiList(32, DHHotkey(), { dh_hotkeys($0, $1) }) { entry in
+    Hotkey(
+        label: DeskhubClient.cString(entry.label), vk: entry.vk, scan: entry.scan,
+        modVk: entry.modVk, modScan: entry.modScan
+    )
+}

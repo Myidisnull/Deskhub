@@ -43,16 +43,11 @@ struct ViewerWindow: View {
     }
 
     private var title: String {
-        var buf = [CChar](repeating: 0, count: 320)
-        _ = dh_viewer_base_title(model.sourceName, &buf, Int32(buf.count))
-        return String(cString: buf)
+        DeskhubClient.viewerBaseTitle(model.sourceName)
     }
 
     private var subtitle: String {
-        var buf = [CChar](repeating: 0, count: 320)
-        let lock = DHPointerLock(locked: model.mouseLocked, paused: false)
-        _ = dh_pointer_subtitle(lock, model.statusLine, &buf, Int32(buf.count))
-        return String(cString: buf)
+        DeskhubClient.pointerSubtitle(locked: model.mouseLocked, statusLine: model.statusLine)
     }
 
     private var failedShown: Binding<Bool> {

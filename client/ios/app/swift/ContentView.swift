@@ -14,6 +14,8 @@ struct ContentView: View {
                 if let stream = model.stream {
                     StreamView(session: model, model: stream)
                 }
+            case .sharing:
+                EmptyView()
             }
         }
         .preferredColorScheme(.dark)

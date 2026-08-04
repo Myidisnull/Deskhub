@@ -7,12 +7,14 @@
 #include <memory>
 #include <mutex>
 
+#include "deskhub/input/PointerLockState.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "ViewerInput.h"
+#include "WinControls.h"
 #include "WinText.h"
 
 namespace {
@@ -66,8 +68,8 @@ struct ViewerFrame {
             std::lock_guard<std::mutex> lk(mu);
             line = statsLine;
         }
-        std::wstring t = FromUtf8(deskhub::ComposeViewerTitle(baseTitle, line,
-            deskhub::ViewerLockHintText(input.relativeMode())));
+        std::wstring t = FromUtf8(
+            deskhub::PointerLockState(input.relativeMode()).TitleFor(baseTitle, line));
         if (t == shownTitle) return;
         shownTitle = std::move(t);
         SetWindowTextW(hwnd, shownTitle.c_str());
@@ -232,26 +234,16 @@ void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInf
     g_openFrames = deskhub::OpenViewerCount{};
 
     std::vector<std::unique_ptr<ViewerFrame>> frames;
-    if (sources.empty()) {
-        if (auto f = OpenFrame(addrUtf8, 0, "")) frames.push_back(std::move(f));
-    } else {
-        for (const auto& s : sources)
-            if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name))
-                frames.push_back(std::move(f));
-    }
+    for (const auto& s : sources)
+        if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name))
+            frames.push_back(std::move(f));
     if (frames.empty()) {
         MessageBoxW(nullptr, FromUtf8(deskhub::ui::kViewerOpenFailed).c_str(), L"Deskhub",
             MB_OK | MB_ICONWARNING);
         return;
     }
 
-    MSG msg;
-    BOOL got;
-    while ((got = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (got == -1) break;
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
+    PumpMessagesUntil(nullptr, [] { return true; });
 
     for (auto& f : frames)
         if (f->session) dh_session_stop(f->session);

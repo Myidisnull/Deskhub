@@ -53,6 +53,29 @@ void TestThePortIsNeverHardcodedTwice() {
         "the hint shows an example, so the user knows what shape to type");
 }
 
+void TestTrimStripsOnlyTheEdges() {
+    std::printf("[strings] trimming eats surrounding whitespace and nothing else...\n");
+    Check(ui::TrimAscii("  192.168.1.10\r\n") == "192.168.1.10", "edges go");
+    Check(ui::TrimAscii("a b") == "a b", "inner spaces stay");
+    Check(ui::TrimAscii(" \t\r\n").empty(), "all-whitespace collapses to empty");
+    Check(ui::TrimAscii("").empty(), "empty stays empty");
+}
+
+void TestParsePositiveUintIsStrict() {
+    std::printf("[strings] numeric entry fields fall back instead of guessing...\n");
+    Check(ui::ParsePositiveUint("60", 30) == 60, "a plain number parses");
+    Check(ui::ParsePositiveUint("0", 30) == 30, "zero is not a usable fps/bitrate");
+    Check(ui::ParsePositiveUint("", 30) == 30, "empty falls back");
+    Check(ui::ParsePositiveUint("6x", 30) == 30, "trailing junk falls back, not truncates");
+    Check(ui::ParsePositiveUint("99999999999", 30) == 30, "overflow falls back");
+}
+
+void TestClampWarningQuotesTheProtocolLimit() {
+    std::printf("[strings] the too-many-displays warning quotes the real limit...\n");
+    Check(Contains(ui::ShareClampWarning(), std::to_string(kMaxSources)),
+        "the number the user reads is the number the protocol enforces");
+}
+
 }
 
 void RunStringsTests() {
@@ -60,4 +83,7 @@ void RunStringsTests() {
     TestConnectingMentionsTheAddress();
     TestHostTitleOnlyShowsAKnownSize();
     TestThePortIsNeverHardcodedTwice();
+    TestTrimStripsOnlyTheEdges();
+    TestParsePositiveUintIsStrict();
+    TestClampWarningQuotesTheProtocolLimit();
 }

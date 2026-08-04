@@ -6,7 +6,7 @@ struct StatusOverlay: View {
     let onBack: () -> Void
 
     var body: some View {
-        if !model.endReason.isEmpty {
+        if model.phase == .ended {
             ended
         } else if !streaming {
             connecting

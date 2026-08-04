@@ -39,6 +39,9 @@ int main() {
     std::printf("--- session: viewer connect flow ---\n");
     RunConnectFlowTests();
 
+    std::printf("--- session: elevated share args + source clamp ---\n");
+    RunShareArgsTests();
+
     std::printf("--- session: open viewer count ---\n");
     RunOpenViewersTests();
 
@@ -66,7 +69,7 @@ int main() {
     std::printf("--- input: pointer mapping + shared injector dispatch ---\n");
     RunPointerMapTests();
 
-    std::printf("--- input: viewer pointer lock / input pause ---\n");
+    std::printf("--- input: viewer pointer lock ---\n");
     RunPointerLockStateTests();
 
     std::printf("--- input: touch trackpad cursor ---\n");

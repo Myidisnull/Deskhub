@@ -69,8 +69,7 @@ final class AgentModel {
         } else {
             startError = hasScreenRecording
                 ? DeskhubClient.string(DHStrShareStartFailed) + ". " + DeskhubAgent.lastError
-                : "Screen Recording permission is required. Grant it in System Settings, "
-                + "then quit and reopen Deskhub."
+                : DeskhubClient.string(DHStrScreenRecordingRequired)
         }
         return ok
     }

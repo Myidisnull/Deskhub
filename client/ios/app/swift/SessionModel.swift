@@ -1,17 +1,11 @@
 import Foundation
 import Observation
 
-enum AppScreen: Sendable {
-    case connect
-    case sourcePicker([Source])
-    case stream
-}
-
 @MainActor @Observable
 final class SessionModel {
     var connect = ConnectModel()
 
-    var screen: AppScreen = .connect
+    var screen: ClientRoute = .connect
     var sources: [Source] = []
     private(set) var stream: StreamModel?
 
@@ -21,10 +15,11 @@ final class SessionModel {
             let found = await connect.listSources()
             guard !connect.address.isEmpty else { return }
             sources = found
-            if found.count > 1 {
+            let decision = DeskhubClient.connectDecision(found)
+            if decision.showPicker {
                 screen = .sourcePicker(found)
             } else {
-                startStream(sourceId: found.first?.id ?? 0)
+                startStream(sourceId: decision.sourceId)
             }
         }
     }
@@ -43,7 +38,7 @@ final class SessionModel {
             guard model.failedToStart, stream === model else { return }
             stream = nil
             screen = .connect
-            connect.connectError = "Could not connect to \(address). "
+            connect.connectError = DeskhubClient.couldNotConnect(address) + " "
                 + DeskhubClient.string(DHStrInvalidAddressHint)
         }
     }

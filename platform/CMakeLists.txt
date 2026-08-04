@@ -9,6 +9,7 @@ if(WIN32)
         src/net/UdpSocketWin.cpp
         src/net/NetInfoWin.cpp
         src/input/LocalInputWin.cpp
+        src/input/NativeKeyMapWin.cpp
         src/media/DisplayEnumWin.cpp
     )
 else()
@@ -22,6 +23,18 @@ else()
         list(APPEND deskhub_platform_os src/input/LocalInputMac.mm)
     else()
         list(APPEND deskhub_platform_os src/input/LocalInputNone.cpp)
+    endif()
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND deskhub_platform_os src/input/NativeKeyMapLinux.cpp)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        list(APPEND deskhub_platform_os src/input/NativeKeyMapIos.cpp)
+    elseif(APPLE)
+        list(APPEND deskhub_platform_os src/input/NativeKeyMapMac.cpp)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+        list(APPEND deskhub_platform_os src/input/NativeKeyMapAndroid.cpp)
+    else()
+        list(APPEND deskhub_platform_os src/input/NativeKeyMapNone.cpp)
     endif()
 
     if(APPLE)

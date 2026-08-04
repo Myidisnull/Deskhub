@@ -6,6 +6,7 @@
 #include "deskhubp/session/ClientEngine.h"
 
 #include <atomic>
+#include <memory>
 
 namespace deskhubp {
 
@@ -50,5 +51,40 @@ struct FfiClientSession {
         engine.Stop();
     }
 };
+
+template <class Session, class Surface>
+Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surface,
+    const DHSessionCallbacks* callbacks, uint32_t screenW, uint32_t screenH) {
+    NetAddr server;
+    if (!ParseSessionAddress(address, server)) return nullptr;
+
+    auto session = std::make_unique<Session>();
+    session->AdoptCallbacks(callbacks);
+    Session* raw = session.get();
+
+    ClientEngineConfig cfg;
+    cfg.server = server;
+    cfg.sourceId = sourceId;
+    cfg.screenW = screenW;
+    cfg.screenH = screenH;
+    cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t) {
+        if (raw->callbacks.onSize) raw->callbacks.onSize(width, height, raw->callbacks.user);
+    };
+    cfg.onStatus = [raw](const char* compact) {
+        if (raw->callbacks.onStatus) raw->callbacks.onStatus(compact, raw->callbacks.user);
+    };
+    raw->WireLifecycle(cfg);
+
+    if (surface) raw->engine.SetSurface(static_cast<Surface>(surface));
+    if (!raw->engine.Start(cfg)) return nullptr;
+    return session.release();
+}
+
+template <class Session>
+void StopFfiClientSession(Session* s) {
+    if (!s) return;
+    s->StopQuietly();
+    delete s;
+}
 
 }

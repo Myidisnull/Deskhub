@@ -3,13 +3,13 @@
 #include <gdk/gdkkeysyms.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <utility>
 
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "gtk/GtkUtil.h"
 
+#include "deskhub/input/PointerLockState.h"
 #include "deskhub/input/PointerMap.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
@@ -17,8 +17,9 @@
 
 namespace {
 
-constexpr guint kKeyLockPointer = GDK_KEY_F9;
-constexpr guint kKeyPauseInput = GDK_KEY_F10;
+uint16_t GdkKeycodeToEvdev(uint32_t hardwareKeycode) {
+    return hardwareKeycode >= 8 ? uint16_t(hardwareKeycode - 8) : 0;
+}
 
 constexpr int32_t kWheelDelta = deskhub::kWheelDeltaPerNotch;
 
@@ -265,31 +266,27 @@ void ViewerWindow::GrabPointer(bool locked) {
 
 void ViewerWindow::ApplyLockEffect(const deskhub::PointerLockEffect& effect) {
     if (effect.releaseHeldInput) loop_.ReleaseAllInput();
-    if (effect.lockChanged) GrabPointer(pointer_.locked());
-    if (effect.anyChange()) UpdateTitle();
+    if (effect.lockChanged) {
+        GrabPointer(pointer_.locked());
+        UpdateTitle();
+    }
 }
 
 gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     const bool down = e->type == GDK_KEY_PRESS;
 
-    if (down && e->keyval == kKeyLockPointer) {
-        self->ApplyLockEffect(self->pointer_.OnToggleLockKey());
-        return TRUE;
-    }
-    if (down && e->keyval == kKeyPauseInput) {
-        self->ApplyLockEffect(self->pointer_.OnTogglePauseKey());
-        return TRUE;
-    }
     if (down && e->keyval == GDK_KEY_Escape && self->pointer_.locked()) {
         self->ApplyLockEffect(self->pointer_.OnEscape());
         return TRUE;
     }
 
-    if (!self->pointer_.acceptsInput()) return TRUE;
-
     int32_t vk = 0, scan = 0;
-    if (!dh_native_key_to_vk(int32_t(e->hardware_keycode), &vk, &scan)) return TRUE;
+    if (!dh_native_key_to_vk(GdkKeycodeToEvdev(e->hardware_keycode), &vk, &scan)) return TRUE;
+    if (vk == deskhub::kViewerLockToggleVk) {
+        if (down) self->ApplyLockEffect(self->pointer_.OnToggleLockKey());
+        return TRUE;
+    }
     self->loop_.QueueKey(vk, scan, down);
     return TRUE;
 }
@@ -297,7 +294,6 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
 gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
-    if (!self->pointer_.acceptsInput()) return TRUE;
 
     if (!self->pointer_.locked()) {
         int32_t nx = 0, ny = 0;
@@ -332,7 +328,6 @@ gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
 gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
-    if (!self->pointer_.acceptsInput()) return TRUE;
     if (e->type != GDK_BUTTON_PRESS && e->type != GDK_BUTTON_RELEASE) return TRUE;
 
     deskhub::MouseButton btn{};
@@ -349,7 +344,6 @@ gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
 gboolean ViewerWindow::OnScroll(GtkWidget*, GdkEventScroll* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
-    if (!self->pointer_.acceptsInput()) return TRUE;
 
     int32_t delta = 0;
     switch (e->direction) {

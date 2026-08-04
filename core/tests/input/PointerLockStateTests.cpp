@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/input/PointerLockState.h"
+#include "deskhub/input/Set1Scancodes.h"
 
 #include <cstdio>
 
@@ -25,7 +26,7 @@ void TestLockTogglesAndReports() {
 void TestEscapeOnlyReleasesWhenLocked() {
     std::printf("[lock] Escape releases a locked pointer and is otherwise not ours...\n");
     PointerLockState st;
-    Check(!st.OnEscape().anyChange(), "Escape with no lock is left to the remote desktop");
+    Check(!st.OnEscape().lockChanged, "Escape with no lock is left to the remote desktop");
 
     st.OnToggleLockKey();
     Check(st.OnEscape().lockChanged, "Escape while locked releases");
@@ -46,33 +47,8 @@ void TestFocusLossAlwaysReleasesHeldInput() {
     Check(!st.locked(), "and the pointer is handed back to the local desktop");
 }
 
-void TestPauseGatesInputAndReleases() {
-    std::printf("[lock] pausing gates input and releases what is held; resuming does not...\n");
-    PointerLockState st;
-    Check(st.acceptsInput(), "input flows by default");
-
-    const PointerLockEffect paused = st.OnTogglePauseKey();
-    Check(st.paused() && paused.pauseChanged, "the pause key pauses");
-    Check(!st.acceptsInput(), "so nothing is forwarded");
-    Check(paused.releaseHeldInput, "and whatever was held is released, not left latched");
-
-    const PointerLockEffect resumed = st.OnTogglePauseKey();
-    Check(!st.paused() && st.acceptsInput(), "pressing again resumes");
-    Check(!resumed.releaseHeldInput, "resuming has nothing to release");
-}
-
-void TestPauseAndLockAreIndependent() {
-    std::printf("[lock] pausing input does not release the pointer, and vice versa...\n");
-    PointerLockState st;
-    st.OnToggleLockKey();
-    st.OnTogglePauseKey();
-    Check(st.locked() && st.paused(), "both can be on at once");
-    st.OnTogglePauseKey();
-    Check(st.locked(), "resuming input leaves the pointer locked");
-}
-
 void TestHintAndTitleFollowTheState() {
-    std::printf("[lock] the title carries the lock hint, and the pause note only when paused...\n");
+    std::printf("[lock] the title always carries the status line and the F9 hint...\n");
     PointerLockState st;
     Check(st.HintText() == kViewerLockHint, "an unlocked viewer advertises how to lock");
     st.OnToggleLockKey();
@@ -81,25 +57,25 @@ void TestHintAndTitleFollowTheState() {
     const std::string title = st.TitleFor("Deskhub - viewing: Display 1", "12 fps");
     Check(title.find("12 fps") != std::string::npos, "the status line is in the title");
     Check(title.find(kViewerLockedHint) != std::string::npos, "so is the lock hint");
-    Check(title.find(kViewerPauseHint) == std::string::npos, "and no pause note while running");
 
-    st.OnTogglePauseKey();
-    Check(st.TitleFor("Deskhub", "12 fps").find(kViewerPauseHint) != std::string::npos,
-        "pausing adds the note");
-    Check(st.SubtitleFor("12 fps").find(kViewerPauseHint) != std::string::npos,
-        "the subtitle form carries it too");
+    const std::string subtitle = st.SubtitleFor("12 fps");
+    Check(subtitle.find("12 fps") != std::string::npos &&
+              subtitle.find(kViewerLockedHint) != std::string::npos,
+        "the subtitle form carries both too");
 }
-
-}
-
-namespace {
 
 void TestSeededState() {
     std::printf("[lock] a restored viewer starts from the state it saved...\n");
-    const PointerLockState st(true, true);
+    const PointerLockState st(true);
     Check(st.locked(), "restored as locked");
-    Check(st.paused(), "restored as paused");
-    Check(!st.acceptsInput(), "and a paused restore keeps input gated");
+    Check(st.HintText() == kViewerLockedHint, "and hints accordingly");
+}
+
+void TestLockToggleKeyIsCanonical() {
+    std::printf("[lock] every platform agrees on which key toggles the lock...\n");
+    Check(kViewerLockToggleVk == kVkF1 + 8, "the toggle key is F9 in the shared VK space");
+    Check(VkToSet1Scancode(kViewerLockToggleVk) != 0,
+        "and F9 has a real scancode, so it could be forwarded if it were not consumed");
 }
 
 }
@@ -109,7 +85,6 @@ void RunPointerLockStateTests() {
     TestSeededState();
     TestEscapeOnlyReleasesWhenLocked();
     TestFocusLossAlwaysReleasesHeldInput();
-    TestPauseGatesInputAndReleases();
-    TestPauseAndLockAreIndependent();
     TestHintAndTitleFollowTheState();
+    TestLockToggleKeyIsCanonical();
 }

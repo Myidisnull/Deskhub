@@ -10,17 +10,19 @@
 #include <vector>
 
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/session/ConnectDriver.h"
 #include "ElevatedShare.h"
 #include "SessionWindow.h"
 #include "SourcePickerDialog.h"
 #include "Viewer.h"
+#include "WinControls.h"
 #include "WinText.h"
+#include "deskhub/session/ShareFlow.h"
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "net/Firewall.h"
 #include "deskhubp/net/NetInfo.h"
-#include "deskhubp/net/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -37,30 +39,25 @@ constexpr int kIdConnect = 203;
 constexpr int kIdExit = 205;
 constexpr int kIdCopyBase = 300;
 
-constexpr UINT kMsgSourcesReady = WM_APP + 1;
+constexpr UINT kMsgRunFunction = WM_APP + 1;
+
+void PostFunction(HWND hwnd, std::function<void()> fn) {
+    auto* heap = new std::function<void()>(std::move(fn));
+    if (!PostMessageW(hwnd, kMsgRunFunction, 0, (LPARAM)heap)) delete heap;
+}
 
 constexpr AgentOptions kShareDefaults{};
-
-std::wstring Trim(std::wstring s) {
-    while (!s.empty() &&
-           (s.back() == L' ' || s.back() == L'\r' || s.back() == L'\n' || s.back() == L'\t'))
-        s.pop_back();
-    const size_t b = s.find_first_not_of(L" \t");
-    return b == std::wstring::npos ? std::wstring() : s.substr(b);
-}
 
 uint32_t GetEditUint(HWND edit, uint32_t fallback) {
     wchar_t buf[16] = {};
     GetWindowTextW(edit, buf, 16);
-    const int v = _wtoi(buf);
-    return v > 0 ? (uint32_t)v : fallback;
+    return deskhub::ui::ParsePositiveUint(ToUtf8(buf), fallback);
 }
 
 uint32_t GetComboMaxDim(HWND combo, uint32_t fallback) {
     const LRESULT sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
     if (sel == CB_ERR) return fallback;
-    const LRESULT data = SendMessageW(combo, CB_GETITEMDATA, (WPARAM)sel, 0);
-    return data == CB_ERR ? fallback : (uint32_t)data;
+    return deskhub::media::QualityPresetMaxDim(size_t(sel), fallback);
 }
 
 void CopyTextToClipboard(HWND owner, const std::wstring& text) {
@@ -86,31 +83,22 @@ struct MenuState {
     HWND editAddr = nullptr;
     std::vector<std::wstring> copyIps;
     bool quit = false;
-    bool queryPending = false;
-};
-
-struct QueryResult {
-    std::string addr;
-    std::vector<deskhub::SourceInfo> available;
-    bool ok = false;
+    deskhubp::ConnectDriver connectDriver;
 };
 
 void DoShare(MenuState& st) {
-    std::vector<AgentSource> sources;
-    for (const auto& d : deskhubp::ListDisplays()) {
-        if (sources.size() >= deskhub::kMaxSources) {
-            wchar_t msg[192];
-            swprintf(msg, 192,
-                L"This machine has more than %zu displays. Only the first %zu will be shared.",
-                deskhub::kMaxSources, deskhub::kMaxSources);
-            MessageBoxW(st.hwnd, msg, L"Deskhub", MB_OK | MB_ICONWARNING);
-            break;
-        }
-        sources.push_back(d);
-    }
-    if (sources.empty()) {
-        MessageBoxW(st.hwnd, L"No display found to share.", L"Deskhub",
+    const deskhub::ShareClampResult clamp =
+        deskhub::ClampShareSources(deskhubp::ListDisplays());
+    if (clamp.clamped)
+        MessageBoxW(st.hwnd, FromUtf8(deskhub::ui::ShareClampWarning()).c_str(), L"Deskhub",
             MB_OK | MB_ICONWARNING);
+
+    const std::vector<AgentSource>& sources = clamp.sources;
+    if (sources.empty()) {
+        const std::string err = deskhubp::ListDisplaysError();
+        const std::wstring msg =
+            err.empty() ? L"No display found to share." : FromUtf8(err);
+        MessageBoxW(st.hwnd, msg.c_str(), L"Deskhub", MB_OK | MB_ICONWARNING);
         return;
     }
 
@@ -149,51 +137,44 @@ void DoShare(MenuState& st) {
     SetForegroundWindow(st.hwnd);
 }
 
+void OnSourcesReady(MenuState& st, const std::string& addr,
+    const deskhubp::ConnectOutcome& outcome);
+
 void DoConnect(MenuState& st) {
     wchar_t buf[128] = {};
     GetWindowTextW(st.editAddr, buf, 128);
-    const std::wstring waddr = Trim(buf);
-    if (waddr.empty()) {
+    const std::string addr = deskhub::ui::TrimAscii(ToUtf8(buf));
+    if (addr.empty()) {
         MessageBoxW(st.hwnd, L"Enter the host machine's IP address first (e.g., 192.168.1.10).",
             L"Deskhub", MB_OK | MB_ICONWARNING);
         return;
     }
-    std::string addr;
-    addr.reserve(waddr.size());
-    for (wchar_t c : waddr) addr.push_back(char(c));
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) {
-        const std::wstring msg = L"Invalid address: \"" + waddr + L"\"\n" +
+        const std::wstring msg = L"Invalid address: \"" + FromUtf8(addr) + L"\"\n" +
                                  FromUtf8(deskhub::ui::InvalidAddressHint());
         MessageBoxW(st.hwnd, msg.c_str(), L"Deskhub", MB_OK | MB_ICONERROR);
         return;
     }
 
-    if (st.queryPending) return;
-    st.queryPending = true;
-    EnableWindow(GetDlgItem(st.hwnd, kIdConnect), FALSE);
-
-    const HWND hwnd = st.hwnd;
-    std::thread([hwnd, addr, server] {
-        auto result = std::make_unique<QueryResult>();
-        result->addr = addr;
-        result->ok = QuerySources(server, result->available);
-        if (PostMessageW(hwnd, kMsgSourcesReady, 0, (LPARAM)result.get())) result.release();
-    }).detach();
+    const bool started = st.connectDriver.QueryAsync(server, [hwnd = st.hwnd](std::function<void()> fn) { PostFunction(hwnd, std::move(fn)); }, [&st, addr](const deskhubp::ConnectOutcome& outcome) { OnSourcesReady(st, addr, outcome); });
+    if (started) EnableWindow(GetDlgItem(st.hwnd, kIdConnect), FALSE);
 }
 
-void OnSourcesReady(MenuState& st, QueryResult& result) {
-    st.queryPending = false;
+void OnSourcesReady(MenuState& st, const std::string& addr,
+    const deskhubp::ConnectOutcome& outcome) {
     EnableWindow(GetDlgItem(st.hwnd, kIdConnect), TRUE);
 
     std::vector<deskhub::SourceInfo> picked;
-    if (result.ok && !result.available.empty()) {
-        if (!ShowSourcePickerDialog(st.hwnd, result.available, picked)) return;
+    if (outcome.hasSources()) {
+        if (!ShowSourcePickerDialog(st.hwnd, outcome.sources, picked)) return;
+    } else {
+        picked = deskhubp::DefaultViewTargets();
     }
 
     ShowWindow(st.hwnd, SW_HIDE);
-    RunViewer(result.addr, picked);
+    RunViewer(addr, picked);
     ShowWindow(st.hwnd, SW_SHOW);
     SetForegroundWindow(st.hwnd);
 }
@@ -215,9 +196,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             }
             break;
         }
-        case kMsgSourcesReady: {
-            const std::unique_ptr<QueryResult> result((QueryResult*)lp);
-            if (st && result) OnSourcesReady(*st, *result);
+        case kMsgRunFunction: {
+            const std::unique_ptr<std::function<void()>> fn((std::function<void()>*)lp);
+            if (fn && *fn) (*fn)();
             return 0;
         }
         case WM_CLOSE:
@@ -274,14 +255,7 @@ int RunMainMenuWindow() {
     st.hwnd = hwnd;
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)&st);
 
-    const HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD s, int cx, int cy, int cw,
-                  int ch, int id) {
-        HWND c = CreateWindowExW(0, cls, text, s | WS_CHILD | WS_VISIBLE, cx, cy, cw, ch, hwnd,
-            (HMENU)(INT_PTR)id, wc.hInstance, nullptr);
-        if (c) SendMessageW(c, WM_SETFONT, (WPARAM)font, TRUE);
-        return c;
-    };
+    const ChildControlFactory mk(hwnd, wc.hInstance);
 
     mk(L"BUTTON", L"Host mode - share an application on THIS machine", BS_GROUPBOX, gx, hostTop,
         gw, hostH, 0);
@@ -324,11 +298,7 @@ int RunMainMenuWindow() {
     if (st.comboQuality) {
         for (const auto& preset : deskhub::media::kQualityPresets) {
             const std::wstring label = FromUtf8(preset.label);
-            const LRESULT at = SendMessageW(st.comboQuality, CB_ADDSTRING, 0,
-                (LPARAM)label.c_str());
-            if (at != CB_ERR)
-                SendMessageW(st.comboQuality, CB_SETITEMDATA, (WPARAM)at,
-                    (LPARAM)preset.maxDim);
+            SendMessageW(st.comboQuality, CB_ADDSTRING, 0, (LPARAM)label.c_str());
         }
         SendMessageW(st.comboQuality, CB_SETCURSEL,
             (WPARAM)deskhub::media::QualityPresetIndex(kShareDefaults.maxDim), 0);
@@ -352,15 +322,7 @@ int RunMainMenuWindow() {
 
     ShowWindow(hwnd, SW_SHOW);
 
-    MSG msg;
-    BOOL got;
-    while (!st.quit && (got = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
-        if (got == -1) break;
-        if (!IsDialogMessageW(hwnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
+    PumpMessagesUntil(hwnd, [&st] { return !st.quit; });
 
     DestroyWindow(hwnd);
     return 0;

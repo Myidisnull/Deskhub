@@ -1,15 +1,14 @@
-﻿#include "input/LinuxKeyMap.h"
+#include "deskhubp/input/NativeKeyMap.h"
 
 #include <linux/input-event-codes.h>
 
-#include "deskhub/input/VirtualKeys.h"
-#include "deskhub/protocol/Wire.h"
-#include "deskhubp/ffi/ClientFfi.h"
+#include "deskhub/input/ScancodeTable.h"
 
-namespace linuxkeys {
+namespace deskhubp {
 namespace {
 
 using namespace deskhub;
+using KeyEntry = ScancodeEntry<uint16_t>;
 
 const KeyEntry kTable[] = {
     {KEY_ESC, kVkEscape},
@@ -126,18 +125,16 @@ const KeyEntry kTable[] = {
 
 }
 
-bool EvdevToWin(uint16_t evdevCode, int32_t& vk, int32_t& scan) {
-    return deskhub::ScancodeTable<uint16_t>(kTable).ToWindows(evdevCode, vk, scan);
+bool NativeKeyToWin(int32_t nativeKeyCode, int32_t& vk, int32_t& scan) {
+    if (nativeKeyCode < 0 || nativeKeyCode > 0xFFFF) return false;
+    return deskhub::ScancodeTable<uint16_t>(kTable).ToWindows(uint16_t(nativeKeyCode), vk, scan);
 }
 
-bool WinVkToEvdev(int32_t vk, uint16_t& evdevCode) {
-    return deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, evdevCode);
+bool WinVkToNative(int32_t vk, int32_t& nativeKeyCode) {
+    uint16_t code = 0;
+    if (!deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, code)) return false;
+    nativeKeyCode = code;
+    return true;
 }
 
-}
-
-bool dh_native_key_to_vk(int32_t native_key_code, int32_t* out_vk, int32_t* out_scan) {
-    if (!out_vk || !out_scan || native_key_code < 0) return false;
-    const uint16_t evdev = linuxkeys::GdkKeycodeToEvdev(uint32_t(native_key_code));
-    return linuxkeys::EvdevToWin(evdev, *out_vk, *out_scan);
 }

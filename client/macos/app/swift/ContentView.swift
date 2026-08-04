@@ -1,24 +1,18 @@
 import SwiftUI
 
-enum Route {
-    case menu
-    case sourcePicker([Source])
-    case sharing
-}
-
 struct ContentView: View {
-    @State private var route: Route = .menu
-    @State private var session = SessionModel()
+    @State private var route: ClientRoute = .connect
+    @State private var connect = ConnectModel()
     @State private var agent = AgentModel()
 
     var body: some View {
         Group {
             switch route {
-            case .menu:
-                MainMenuView(route: $route, session: session, agent: agent)
+            case .connect, .stream:
+                MainMenuView(route: $route, connect: connect, agent: agent)
                     .frame(width: 500)
             case let .sourcePicker(sources):
-                SourcePickerView(route: $route, model: session, sources: sources)
+                SourcePickerView(route: $route, connect: connect, sources: sources)
                     .frame(width: 460, height: 340)
             case .sharing:
                 SharingSessionView(route: $route, model: agent)
@@ -30,7 +24,7 @@ struct ContentView: View {
 
     private var windowTitle: String {
         switch route {
-        case .menu: DeskhubClient.string(DHStrAppTitle)
+        case .connect, .stream: DeskhubClient.string(DHStrAppTitle)
         case .sourcePicker: DeskhubClient.string(DHStrPickerTitle)
         case .sharing: DeskhubClient.string(DHStrSharingTitle)
         }

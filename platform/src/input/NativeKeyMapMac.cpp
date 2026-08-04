@@ -1,12 +1,12 @@
-#include "input/MacKeyMap.h"
+#include "deskhubp/input/NativeKeyMap.h"
 
-#include "deskhub/input/VirtualKeys.h"
-#include "deskhub/protocol/Wire.h"
+#include "deskhub/input/ScancodeTable.h"
 
-namespace mackeys {
+namespace deskhubp {
 namespace {
 
 using namespace deskhub;
+using KeyEntry = ScancodeEntry<uint16_t>;
 
 // clang-format off
 constexpr KeyEntry kTable[] = {
@@ -88,12 +88,16 @@ constexpr KeyEntry kTable[] = {
 
 }
 
-bool MacToWin(uint16_t macKeyCode, int32_t& vk, int32_t& scan) {
-    return deskhub::ScancodeTable<uint16_t>(kTable).ToWindows(macKeyCode, vk, scan);
+bool NativeKeyToWin(int32_t nativeKeyCode, int32_t& vk, int32_t& scan) {
+    if (nativeKeyCode < 0 || nativeKeyCode > 0xFFFF) return false;
+    return deskhub::ScancodeTable<uint16_t>(kTable).ToWindows(uint16_t(nativeKeyCode), vk, scan);
 }
 
-bool WinVkToMac(int32_t vk, uint16_t& macKeyCode) {
-    return deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, macKeyCode);
+bool WinVkToNative(int32_t vk, int32_t& nativeKeyCode) {
+    uint16_t code = 0;
+    if (!deskhub::ScancodeTable<uint16_t>(kTable).FromWindows(vk, code)) return false;
+    nativeKeyCode = code;
+    return true;
 }
 
 }

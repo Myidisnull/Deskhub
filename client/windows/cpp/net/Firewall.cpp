@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "deskhubp/diag/Log.h"
+#include "WinPaths.h"
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
@@ -31,12 +32,6 @@ struct ComScope {
         return SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE;
     }
 };
-
-std::wstring SelfPath() {
-    wchar_t p[MAX_PATH] = {};
-    const DWORD n = GetModuleFileNameW(nullptr, p, MAX_PATH);
-    return (n == 0 || n >= MAX_PATH) ? std::wstring() : std::wstring(p, n);
-}
 
 bool PathEq(const wchar_t* a, const std::wstring& b) {
     return a && CompareStringOrdinal(a, -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
@@ -167,7 +162,7 @@ bool AddOwnRule(INetFwRules* rules, const std::wstring& exe) {
 }
 
 bool HostFirewallRulePresent() {
-    const std::wstring exe = SelfPath();
+    const std::wstring exe = SelfExePath();
     if (exe.empty()) return false;
     ComScope com;
     if (!com.ok()) return false;
@@ -180,7 +175,7 @@ bool HostFirewallRulePresent() {
 }
 
 bool EnsureHostFirewallRule() {
-    const std::wstring exe = SelfPath();
+    const std::wstring exe = SelfExePath();
     if (exe.empty()) return false;
 
     ComScope com;

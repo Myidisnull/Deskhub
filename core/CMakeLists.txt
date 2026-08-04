@@ -74,6 +74,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
         tests/session/ConnectFlowTests.cpp
+        tests/session/ShareArgsTests.cpp
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
 

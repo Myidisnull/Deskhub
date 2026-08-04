@@ -219,6 +219,19 @@ void TestHostWinsReleasesHeldInput() {
 
 }
 
+namespace {
+
+void TestLineScrollAlwaysMovesAtLeastOneNotch() {
+    std::printf("[pmap] a coarse line-scroll tick always moves at least one notch...\n");
+    Check(ScrollNotchesFromLines(0.0) == 0, "no movement, no notch");
+    Check(ScrollNotchesFromLines(0.2) == 1, "a tiny positive tick still scrolls one notch");
+    Check(ScrollNotchesFromLines(-0.2) == -1, "and a tiny negative one, downward");
+    Check(ScrollNotchesFromLines(2.6) == 3, "bigger ticks round to the nearest notch");
+    Check(ScrollNotchesFromLines(-2.6) == -3, "in both directions");
+}
+
+}
+
 void RunPointerMapTests() {
     TestClamp();
     TestPixelMapping();
@@ -228,4 +241,5 @@ void RunPointerMapTests() {
     TestTouchScrollAccumulates();
     TestDispatch();
     TestHostWinsReleasesHeldInput();
+    TestLineScrollAlwaysMovesAtLeastOneNotch();
 }

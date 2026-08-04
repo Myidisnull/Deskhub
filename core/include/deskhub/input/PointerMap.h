@@ -56,6 +56,14 @@ constexpr int32_t WheelNotches(int32_t delta) {
     return 0;
 }
 
+constexpr int32_t ScrollNotchesFromLines(double lines) {
+    if (lines == 0) return 0;
+    const double magnitude = lines < 0 ? -lines : lines;
+    int32_t notches = int32_t(magnitude + 0.5);
+    if (notches < 1) notches = 1;
+    return lines < 0 ? -notches : notches;
+}
+
 inline constexpr double kTouchPointsPerNotch = 40.0;
 
 constexpr int32_t TakeScrollNotches(double dragPoints, double& carry) {

@@ -9,9 +9,9 @@
 #include "deskhub/input/VirtualKeys.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
+#include "deskhubp/input/NativeKeyMap.h"
 #include "Permissions.h"
 #include "deskhubp/system/Clock.h"
-#include "input/MacKeyMap.h"
 
 namespace {
 
@@ -160,8 +160,9 @@ void InputInjector::OnLocalUserIdle() {
 }
 
 void InputInjector::SendKey(int32_t vk, int32_t, bool down) {
-    uint16_t keycode = 0;
-    if (!mackeys::WinVkToMac(vk, keycode)) return;
+    int32_t native = 0;
+    if (!deskhubp::WinVkToNative(vk, native)) return;
+    const uint16_t keycode = uint16_t(native);
 
     held_.SetKey(vk, keycode, down);
 

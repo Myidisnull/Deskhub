@@ -100,9 +100,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
 }
 
 void dh_session_stop(DHSession* s) {
-    if (!s) return;
-    s->StopQuietly();
-    delete s;
+    deskhubp::StopFfiClientSession(s);
 }
 
 void dh_session_set_layer(DHSession*, void*) {}

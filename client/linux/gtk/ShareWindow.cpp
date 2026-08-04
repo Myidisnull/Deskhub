@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "deskhub/media/ShareStatusText.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/media/DisplayEnum.h"
@@ -181,20 +182,8 @@ void ShareWindow::RefreshList(const std::vector<AgentSourceStatus>& rows) {
     for (const AgentSourceStatus& r : rows) {
         const std::string text =
             deskhub::media::SharedSourceLabel(r.name, r.width, r.height, r.viewerConnected);
-
-        char tip[512];
-        if (r.viewerConnected)
-            std::snprintf(tip, sizeof(tip),
-                "viewer %s\n%.0f fps sent · %.0f kbps · RTT %u ms\ncapture %.0f fps · %s\n"
-                "UDP port %u",
-                r.viewerAddr.c_str(), r.sendFps, r.sendKbps, r.rttMs, r.captureFps,
-                r.zeroCopy ? "zero-copy" : "CPU copy", unsigned(kDeskhubPort));
-        else
-            std::snprintf(tip, sizeof(tip),
-                "waiting for a viewer\ncapture %.0f fps · %s\nUDP port %u", r.captureFps,
-                r.zeroCopy ? "zero-copy" : "CPU copy", unsigned(kDeskhubPort));
-
-        gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow(text.c_str(), tip));
+        const std::string tip = deskhub::media::ShareStatusTooltip(r);
+        gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow(text.c_str(), tip.c_str()));
     }
     gtk_widget_show_all(rowsBox_);
 }

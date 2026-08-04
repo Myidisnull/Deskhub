@@ -61,12 +61,10 @@ typedef enum {
 
 typedef struct {
     bool locked;
-    bool paused;
 } DHPointerLock;
 
 typedef struct {
     bool lockChanged;
-    bool pauseChanged;
     bool releaseHeldInput;
 } DHPointerLockEffect;
 
@@ -91,6 +89,7 @@ typedef enum {
     DHStrInvalidAddressHint = 17,
     DHStrSessionEnded = 18,
     DHStrShareStartFailed = 19,
+    DHStrScreenRecordingRequired = 20,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -101,11 +100,19 @@ DHModifier dh_modifier_class(int32_t vk);
 
 int32_t dh_vk_scancode(int32_t vk);
 
+bool dh_is_lock_toggle_vk(int32_t vk);
+
+bool dh_is_escape_vk(int32_t vk);
+
 bool dh_parse_address(const char* address);
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);
 
+bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id);
+
 int dh_connecting_to(const char* address, char* out, int capacity);
+
+int dh_could_not_connect(const char* address, char* out, int capacity);
 
 int dh_host_title(const char* address, uint32_t width, uint32_t height, char* out, int capacity);
 
@@ -127,6 +134,8 @@ bool dh_normalize_pointer(double px, double py, DHViewRect rect, int32_t* nx, in
 
 int32_t dh_take_scroll_notches(double dragPoints, double* carry);
 
+int32_t dh_scroll_notches_from_lines(double lines);
+
 DHCursor dh_cursor_clamp(DHCursor cur, DHViewRect video, double viewportW, double viewportH);
 
 DHCursor dh_cursor_move(DHCursor cur, double dx, double dy, DHViewRect video, double viewportW,
@@ -138,8 +147,6 @@ bool dh_cursor_normalize(DHCursor cur, DHViewRect video, int32_t* nx, int32_t* n
 
 DHPointerLockEffect dh_pointer_toggle_lock(DHPointerLock* state);
 
-DHPointerLockEffect dh_pointer_toggle_pause(DHPointerLock* state);
-
 DHPointerLockEffect dh_pointer_escape(DHPointerLock* state);
 
 DHPointerLockEffect dh_pointer_focus_lost(DHPointerLock* state);
@@ -149,8 +156,6 @@ int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, 
 void dh_viewer_opened(void);
 
 bool dh_viewer_closed(void);
-
-int dh_viewer_count(void);
 
 #ifdef __cplusplus
 }

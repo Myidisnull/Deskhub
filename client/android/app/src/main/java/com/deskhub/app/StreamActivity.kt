@@ -135,24 +135,11 @@ class StreamActivity : ComponentActivity() {
 
     private fun readSources(intent: android.content.Intent): List<NativeClient.Source> {
         val ids = intent.getIntArrayExtra("srcIds") ?: return emptyList()
-        val w = intent.getIntArrayExtra("srcW") ?: return emptyList()
-        val h = intent.getIntArrayExtra("srcH") ?: return emptyList()
-        val names = intent.getStringArrayExtra("srcNames") ?: return emptyList()
         val displayNames = intent.getStringArrayExtra("srcDisplayNames") ?: return emptyList()
         val sizeLabels = intent.getStringArrayExtra("srcSizeLabels") ?: return emptyList()
-        val pickerLabels = intent.getStringArrayExtra("srcPickerLabels") ?: return emptyList()
-        val sizes = listOf(w.size, h.size, names.size, displayNames.size, sizeLabels.size, pickerLabels.size)
-        if (sizes.any { it != ids.size }) return emptyList()
+        if (displayNames.size != ids.size || sizeLabels.size != ids.size) return emptyList()
         return ids.indices.map {
-            NativeClient.Source(
-                ids[it],
-                w[it],
-                h[it],
-                names[it],
-                displayNames[it],
-                sizeLabels[it],
-                pickerLabels[it],
-            )
+            NativeClient.Source(ids[it], displayNames[it], sizeLabels[it])
         }
     }
 
@@ -226,11 +213,13 @@ private fun StreamScreen(
                 }
             }
         NativeClient.sessionListener = listener
-        phase = NativeClient.nativePhase()
-        statusLine = NativeClient.nativeStatusLine()
-        videoW = NativeClient.nativeVideoWidth()
-        videoH = NativeClient.nativeVideoHeight()
-        if (phase == NativeClient.PHASE_ENDED) endReason = NativeClient.nativeEndReason()
+        NativeClient.nativeSnapshot()?.let { snap ->
+            phase = snap.phase
+            statusLine = snap.statusLine
+            videoW = snap.videoWidth
+            videoH = snap.videoHeight
+            if (phase == NativeClient.PHASE_ENDED) endReason = snap.endReason
+        }
         onDispose {
             if (NativeClient.sessionListener === listener) NativeClient.sessionListener = null
         }
@@ -273,7 +262,7 @@ private fun StreamScreen(
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    val aspect = if (videoW > 0 && videoH > 0) videoW.toFloat() / videoH else null
+    val aspect = if (videoW > 0 && videoH > 0) videoW.toFloat() / videoH else 16f / 9f
     val zoomed = NativeClient.isZoomed(zoom)
 
     var panMode by remember { mutableStateOf(false) }
@@ -300,7 +289,7 @@ private fun StreamScreen(
                 panDelta.y,
                 viewport.width.toFloat(),
                 viewport.height.toFloat(),
-                aspect ?: 0f,
+                aspect,
             )
         zoom = next.zoom
         pan = Offset(next.panX, next.panY)
@@ -396,7 +385,7 @@ private fun StreamScreen(
 
             if (!started || phase == NativeClient.PHASE_ENDED) {
                 EndedOverlay(
-                    reason = if (!started) "Could not connect to $address" else endReason,
+                    reason = if (!started) NativeClient.couldNotConnect(address) else endReason,
                     onBack = onDismiss,
                 )
             } else if (!streaming) {
@@ -803,7 +792,7 @@ private fun CursorArrow(modifier: Modifier) {
 
 private fun videoFrame(
     viewport: IntSize,
-    aspect: Float?,
+    aspect: Float,
     zoom: Float,
     pan: Offset,
 ): Rect {
@@ -812,7 +801,7 @@ private fun videoFrame(
         NativeClient.nativeVideoFrame(
             viewport.width.toFloat(),
             viewport.height.toFloat(),
-            aspect ?: 0f,
+            aspect,
             zoom,
             pan.x,
             pan.y,

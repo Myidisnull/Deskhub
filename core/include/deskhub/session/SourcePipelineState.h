@@ -3,6 +3,7 @@
 #include "deskhub/control/QualityLadder.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/session/HostSession.h"
+#include "deskhub/transport/Pacer.h"
 #include "deskhub/transport/Packetizer.h"
 #include "deskhub/transport/RetransmitCache.h"
 
@@ -29,6 +30,7 @@ struct SourcePipelineState {
     std::unique_ptr<HostSession> session;
     StreamParams offer;
     Packetizer packetizer;
+    Pacer pacer;
 
     RetransmitCache retxCache;
     std::mutex retxMutex;
