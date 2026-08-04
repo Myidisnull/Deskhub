@@ -24,7 +24,8 @@ void TestAFreshSourceIsReadyToStream() {
     Check(!st.wantFec.load(), "FEC starts off and is turned on only by measured loss");
     Check(!st.forceIdr.load(), "no keyframe is owed before a client has asked for one");
     Check(!st.haveFeedback.load(), "no link numbers are claimed before the client reports any");
-    Check(st.peerPacked.load() == 0, "there is no peer address until one connects");
+    Check(st.replyPacked.load() == 0, "there is no reply address until a datagram arrives");
+    Check(ViewerCountOf(st) == 0, "and nobody is watching yet");
     Check(!st.session, "the session object is attached by the owner, not invented here");
     Check(!st.ladder, "the quality ladder is built once the client size is known");
 }

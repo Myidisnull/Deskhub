@@ -3,16 +3,23 @@
 
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/session/SourcePipelineState.h"
+#include "deskhub/transport/Packetizer.h"
 #include "deskhubp/session/HostNetLoop.h"
 
 #include <cstdio>
 #include <memory>
 #include <vector>
 
+using deskhub::BuildHello;
 using deskhub::Feedback;
 using deskhub::Hello;
+using deskhub::HostCallbacks;
+using deskhub::HostSession;
 using deskhub::InputEvent;
+using deskhub::kMaxDatagram;
+using deskhub::Packetizer;
 using deskhub::SourcePipelineState;
+using deskhub::StreamParams;
 using deskhub::StreamSize;
 using deskhubp::HostSessionHooks;
 using deskhubp::MakeHostCallbacks;
@@ -36,7 +43,7 @@ struct Recorder {
         HostSessionHooks h;
         h.fps = 60;
         h.send = [this](std::span<const uint8_t> d) { sent.emplace_back(d.begin(), d.end()); };
-        h.sendToPeer = [this](std::span<const uint8_t> d) {
+        h.sendToRequester = [this](std::span<const uint8_t> d) {
             sentToPeer.emplace_back(d.begin(), d.end());
         };
         h.retarget = [this] {
@@ -64,6 +71,25 @@ std::unique_ptr<SourcePipelineState> MakeSource(const char* name) {
     st->srcW.store(1920);
     st->srcH.store(1080);
     return st;
+}
+
+void GiveConnectedSession(SourcePipelineState& st) {
+    HostCallbacks cb;
+    cb.send = [](std::span<const uint8_t>) {};
+    cb.randomBytes = [](std::span<uint8_t> out) {
+        for (size_t i = 0; i < out.size(); ++i) out[i] = uint8_t(i + 1);
+        return true;
+    };
+    st.session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+
+    uint8_t buf[kMaxDatagram];
+    Hello hello{};
+    hello.clientId = 0x1234;
+    hello.codecMask = deskhub::kCodecMaskH264;
+    hello.maxWidth = 1920;
+    hello.maxHeight = 1080;
+    const size_t n = BuildHello(buf, hello);
+    st.session->HandlePacket(std::span<const uint8_t>(buf, n), 0, 0xC0A80001'0000ULL);
 }
 
 Hello ClientHello(uint16_t w, uint16_t h) {
@@ -201,17 +227,23 @@ void TestLosingFocusLetsGoOfEveryKey() {
 }
 
 void TestADepartingClientIsForgottenCompletely() {
-    std::printf("[hostcb] when the client leaves, nothing of it is kept around...\n");
+    std::printf("[hostcb] when the last viewer leaves, nothing of it is kept around...\n");
     auto st = MakeSource("Display 1");
     Recorder rec;
     const auto cb = MakeHostCallbacks(*st, rec.Hooks());
 
-    st->peerPacked.store(NetAddr{0x7F000001u, 40000}.Pack());
-    cb.onDisconnect();
+    Packetizer pk;
+    pk.SetSessionId(0x1234);
+    uint8_t nal[64] = {};
+    pk.SendFrame(nal, 7, 0, true, [&st](std::span<const uint8_t> d) { st->retxCache.Store(d); });
+    Check(!st->retxCache.Find(7, 0).empty(), "the cache had something to forget");
 
-    Check(st->peerPacked.load() == 0,
-        "the peer address is cleared, so nothing is sent to an address nobody is at");
-    Check(rec.releases == 1, "and the keys it was holding are released on the host");
+    cb.onDisconnect();
+    Check(st->retxCache.Find(7, 0).empty(),
+        "the retransmit cache is dropped, so no stale frame can be resent into a new session");
+
+    cb.onControllerChange(0);
+    Check(rec.releases == 1, "and the keys the controlling viewer held are released on the host");
 }
 
 void TestANackForAnUnknownPeerSendsNothing() {
@@ -222,9 +254,9 @@ void TestANackForAnUnknownPeerSendsNothing() {
 
     const uint16_t indices[] = {0, 1, 2};
     cb.onNack(7, indices);
-    Check(rec.sentToPeer.empty(), "with no peer adopted there is nobody to retransmit to");
+    Check(rec.sentToPeer.empty(), "with no viewer connected there is nobody to retransmit to");
 
-    st->peerPacked.store(NetAddr{0x7F000001u, 40000}.Pack());
+    GiveConnectedSession(*st);
     cb.onNack(7, indices);
     Check(rec.sentToPeer.empty(), "and an empty retransmit cache has nothing to resend");
 }

@@ -20,12 +20,6 @@ SourcePipelineState* RouteDatagram(std::span<SourcePipelineState* const> live,
     return nullptr;
 }
 
-bool AdoptPeer(SourcePipelineState& st, uint64_t packedAddr) {
-    if (st.peerPacked.load(std::memory_order_relaxed) == packedAddr) return false;
-    st.peerPacked.store(packedAddr, std::memory_order_release);
-    return true;
-}
-
 AcceptedDatagram AcceptDatagram(std::span<SourcePipelineState* const> live,
     std::span<const uint8_t> pkt, uint64_t packedFrom, uint64_t nowUs) {
     AcceptedDatagram out;
@@ -37,10 +31,9 @@ AcceptedDatagram AcceptDatagram(std::span<SourcePipelineState* const> live,
     SourcePipelineState* dst = RouteDatagram(live, *header, pkt);
     if (!dst || dst->failed.load(std::memory_order_acquire)) return out;
     dst->replyPacked.store(packedFrom, std::memory_order_release);
-    if (!dst->session || !dst->session->HandlePacket(pkt, nowUs)) return out;
+    if (!dst->session || !dst->session->HandlePacket(pkt, nowUs, packedFrom)) return out;
 
     out.target = dst;
-    out.peerChanged = AdoptPeer(*dst, packedFrom);
     return out;
 }
 
@@ -129,7 +122,7 @@ OfferUpdate RefreshOffer(SourcePipelineState& st, uint8_t fallbackFps) {
     st.offer.bitrateBps = st.curBitrateBps.load(std::memory_order_relaxed);
     if (st.session) st.session->SetOffer(st.offer);
 
-    if (!st.peerPacked.load(std::memory_order_acquire)) return out;
+    if (!ViewerCountOf(st)) return out;
     if (!st.session || st.session->state() != HostSession::State::Streaming) return out;
 
     out.sendReconfig = true;
@@ -187,7 +180,8 @@ media::AgentSourceStatus MakeSourceStatus(const SourcePipelineState& st,
     row.name = st.name;
     row.width = st.srcW.load(std::memory_order_relaxed);
     row.height = st.srcH.load(std::memory_order_relaxed);
-    row.viewerConnected = st.peerPacked.load(std::memory_order_relaxed) != 0;
+    row.viewerCount = uint32_t(ViewerCountOf(st));
+    row.viewerConnected = row.viewerCount != 0;
     row.viewerAddr = row.viewerConnected ? extras.viewerAddr : std::string();
     row.captureFps = st.statWindow.captureFps;
     row.sendFps = st.statWindow.sendFps;

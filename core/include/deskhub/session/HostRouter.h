@@ -19,12 +19,9 @@ inline constexpr uint64_t kKeepaliveIntervalUs = 500'000;
 SourcePipelineState* RouteDatagram(std::span<SourcePipelineState* const> live,
     const CommonHeader& header, std::span<const uint8_t> pkt);
 
-bool AdoptPeer(SourcePipelineState& st, uint64_t packedAddr);
-
 struct AcceptedDatagram {
     bool parsed = false;
     SourcePipelineState* target = nullptr;
-    bool peerChanged = false;
 };
 
 AcceptedDatagram AcceptDatagram(std::span<SourcePipelineState* const> live,

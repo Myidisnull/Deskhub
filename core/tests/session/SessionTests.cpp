@@ -48,7 +48,7 @@ void TestSessions() {
             while (!w.toHost.empty()) {
                 auto d = std::move(w.toHost.front());
                 w.toHost.pop_front();
-                host.HandlePacket(d, now);
+                host.HandlePacket(d, now, kTestViewer);
             }
             while (!w.toClient.empty()) {
                 auto d = std::move(w.toClient.front());
@@ -87,11 +87,13 @@ void TestSessions() {
     Check(hostKeyframeReq, "REQUEST_KEYFRAME reaches host");
 
     {
+        constexpr uint64_t kSecondViewer = kTestViewer + 0x1'0000ULL;
         WirePair w2;
         std::string otherDead;
+        NegotiatedParams otherParams{};
         ClientCallbacks c2 = ccb;
         c2.send = [&](std::span<const uint8_t> d) { w2.toHost.emplace_back(d.begin(), d.end()); };
-        c2.onReady = [&](const NegotiatedParams&) {};
+        c2.onReady = [&](const NegotiatedParams& p) { otherParams = p; };
         c2.onDisconnect = [&](const char* r) { otherDead = r; };
         ClientSession other(c2);
         other.Start(Hello{0x55667788, kCodecMaskH264, 1280, 720, 30, 0}, now);
@@ -99,14 +101,25 @@ void TestSessions() {
             auto d = std::move(w2.toHost.front());
             w2.toHost.pop_front();
             const size_t before = w.toClient.size();
-            host.HandlePacket(d, now);
+            host.HandlePacket(d, now, kSecondViewer);
             while (w.toClient.size() > before) {
                 other.HandlePacket(w.toClient.back(), now);
                 w.toClient.pop_back();
             }
         }
-        Check(!otherDead.empty(), "second client refused while host is busy");
+        Check(otherDead.empty(), "a second viewer is welcome, not refused");
+        Check(host.viewerCount() == 2, "the host counts both");
+        Check(other.sessionId() == host.sessionId(), "and both ride the same session");
+        Check(otherParams.width == np.width && otherParams.height == np.height,
+            "the newcomer gets the stream the first viewer negotiated");
         Check(host.state() == HostSession::State::Streaming, "existing session unaffected");
+
+        uint8_t bye[kMaxDatagram];
+        const size_t byeLen = BuildBye(bye, host.sessionId());
+        host.HandlePacket(std::span<const uint8_t>(bye, byeLen), now, kSecondViewer);
+        Check(host.viewerCount() == 1 && host.state() == HostSession::State::Streaming,
+            "and when it leaves the first viewer keeps streaming");
+        w.toClient.clear();
     }
 
     cli.SendBye();
@@ -118,7 +131,7 @@ void TestSessions() {
     cliDead.clear();
     cli2.Start(Hello{0x99AA0001, kCodecMaskH264, 1920, 1080, 60, 0}, now);
     while (!w.toHost.empty()) {
-        host.HandlePacket(w.toHost.front(), now);
+        host.HandlePacket(w.toHost.front(), now, kTestViewer);
         w.toHost.pop_front();
     }
     w.toClient.clear();
@@ -157,7 +170,7 @@ void TestSessionsNackInvalidate() {
             while (!w.toHost.empty()) {
                 auto d = std::move(w.toHost.front());
                 w.toHost.pop_front();
-                host.HandlePacket(d, now);
+                host.HandlePacket(d, now, kTestViewer);
             }
             while (!w.toClient.empty()) {
                 auto d = std::move(w.toClient.front());
@@ -217,7 +230,7 @@ void TestReconfigFocusFeedback() {
             while (!w.toHost.empty()) {
                 auto d = std::move(w.toHost.front());
                 w.toHost.pop_front();
-                host.HandlePacket(d, now);
+                host.HandlePacket(d, now, kTestViewer);
             }
             while (!w.toClient.empty()) {
                 auto d = std::move(w.toClient.front());
@@ -312,7 +325,7 @@ struct Rig {
             while (!w.toHost.empty()) {
                 auto d = std::move(w.toHost.front());
                 w.toHost.pop_front();
-                host.HandlePacket(d, now);
+                host.HandlePacket(d, now, kTestViewer);
             }
             while (!w.toClient.empty()) {
                 auto d = std::move(w.toClient.front());
@@ -350,7 +363,7 @@ void TestHandshakeDuplicates() {
     const uint32_t sid = r.host.sessionId();
     r.w.toClient.clear();
     n = BuildHello(buf, Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0});
-    Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+    Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
         "re-HELLO from the same client accepted");
     Check(r.host.sessionId() == sid && r.host.state() == HostSession::State::Streaming,
         "re-HELLO keeps the existing session");
@@ -359,7 +372,7 @@ void TestHandshakeDuplicates() {
     Check(ack && ack->sessionId == sid, "re-sent ACK carries the same sessionId");
 
     n = BuildStart(buf, sid);
-    r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now);
+    r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
     Check(r.startCalls == 1, "repeated START doesn't re-fire onStart");
 }
 
@@ -409,7 +422,7 @@ void RunHandshakeAgainstBrokenRng(HostCallbacks hcb, const char* what) {
     while (!w.toHost.empty()) {
         auto d = std::move(w.toHost.front());
         w.toHost.pop_front();
-        host.HandlePacket(d, now);
+        host.HandlePacket(d, now, kTestViewer);
     }
     while (!w.toClient.empty()) {
         auto d = std::move(w.toClient.front());
@@ -445,7 +458,7 @@ void TestUnknownMessagesAreIgnored() {
     ack.sessionId = r.host.sessionId();
     ack.codec = Codec::H264;
     size_t n = BuildHelloAck(buf, ack);
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
         "a HELLO_ACK sent at a host is refused");
     Check(r.host.state() == HostSession::State::Streaming, "and changes nothing");
 
@@ -526,15 +539,15 @@ void TestStraySessionIdIgnored() {
 
     r.w.toClient.clear();
     n = BuildPing(buf, bad, PingPong{1, 1});
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now) && r.w.toClient.empty(),
+    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.w.toClient.empty(),
         "stray PING rejected, no PONG sent");
     const uint16_t idx[] = {1};
     n = BuildNack(buf, bad, 7, idx);
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now) && r.nackCalls == 0,
+    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.nackCalls == 0,
         "stray NACK rejected, onNack not called");
     const InputEvent ev = SessionKey('Z', true);
     n = BuildInputEvents(buf, bad, 0, std::span<const InputEvent>(&ev, 1));
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now) && r.hostInput.empty(),
+    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.hostInput.empty(),
         "stray INPUT_EVENT rejected, nothing injected");
 }
 
@@ -581,7 +594,7 @@ void TestSessionsSurviveGarbage() {
     for (int i = 0; i < 500; ++i) {
         Datagram d(Rnd() % 1300, 0);
         for (auto& b : d) b = uint8_t(Rnd());
-        r.host.HandlePacket(d, r.now);
+        r.host.HandlePacket(d, r.now, kTestViewer);
         r.cli.HandlePacket(d, r.now);
     }
     Check(r.host.state() == HostSession::State::Streaming && r.host.sessionId() == sid,
@@ -609,7 +622,7 @@ void TestInputAlwaysFlows() {
         const InputEvent ev{InputType::Key, 1, 65, 30, 1, 0};
         const size_t n = BuildInputEvents(buf, r.cli.sessionId(), 0,
             std::span<const InputEvent>(&ev, 1));
-        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now), "the packet is valid");
+        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer), "the packet is valid");
         Check(r.hostInput.size() == 1, "and it reaches the injector");
     }
 }

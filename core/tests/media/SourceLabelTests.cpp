@@ -39,14 +39,18 @@ void TestPickerLabelShowsBothNameAndSize() {
 
 void TestSharedLabelCallsOutAViewer() {
     std::printf("[label] the sharing list says whether someone is actually watching...\n");
-    const std::string idle = SharedSourceLabel("Display 1", 1920, 1080, false);
+    const std::string idle = SharedSourceLabel("Display 1", 1920, 1080, 0);
     Check(idle == "Display 1  (1920x1080)", "nobody watching: just the name and size");
 
-    const std::string busy = SharedSourceLabel("Display 1", 1920, 1080, true);
-    Check(busy == "Display 1  (1920x1080, viewer connected)",
+    const std::string one = SharedSourceLabel("Display 1", 1920, 1080, 1);
+    Check(one == "Display 1  (1920x1080, 1 viewer)",
         "someone watching: the row says so, so the user is never surprised");
-    Check(busy.find(idle.substr(0, idle.size() - 1)) == 0,
+    Check(one.find(idle.substr(0, idle.size() - 1)) == 0,
         "the viewer note is appended, so the row does not jump around when it appears");
+
+    const std::string many = SharedSourceLabel("Display 1", 1920, 1080, 3);
+    Check(many == "Display 1  (1920x1080, 3 viewers)",
+        "several viewers are counted, not just flagged");
 }
 
 void TestShareTooltipCoversBothStates() {
@@ -64,6 +68,7 @@ void TestShareTooltipCoversBothStates() {
         "the port comes from the protocol constant");
 
     s.viewerConnected = true;
+    s.viewerCount = 1;
     s.viewerAddr = "192.168.1.7:50000";
     s.sendFps = 30;
     s.sendKbps = 4500;

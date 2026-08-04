@@ -19,12 +19,13 @@ typedef struct {
     uint32_t width;
     uint32_t height;
     bool viewerConnected;
+    uint32_t viewerCount;
     bool zeroCopy;
     double captureFps;
     double sendFps;
     double sendKbps;
     uint32_t rttMs;
-    char viewerAddr[64];
+    char viewerAddr[192];
     char name[256];
     char label[320];
 } DHAgentStatus;

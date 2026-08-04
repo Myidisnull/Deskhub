@@ -32,8 +32,8 @@ FeedbackOutcome ApplyFeedback(SourcePipelineState& st, const Feedback& fb, uint6
     const FeedbackHooks& hooks);
 
 void RespondToNack(SourcePipelineState& st, uint32_t frameId, std::span<const uint16_t> indices,
-    const std::function<void(std::span<const uint8_t>)>& sendToPeer);
+    const std::function<void(std::span<const uint8_t>)>& sendToRequester);
 
-void ForgetPeer(SourcePipelineState& st);
+void ForgetViewers(SourcePipelineState& st);
 
 }

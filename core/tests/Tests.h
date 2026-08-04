@@ -9,6 +9,7 @@ void RunSessionTests();
 void RunClientPumpTests();
 void RunHostFeedbackTests();
 void RunHostRouterTests();
+void RunHostViewersTests();
 void RunConnectFlowTests();
 void RunShareArgsTests();
 void RunOpenViewersTests();

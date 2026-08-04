@@ -181,7 +181,7 @@ void ShareWindow::RefreshList(const std::vector<AgentSourceStatus>& rows) {
 
     for (const AgentSourceStatus& r : rows) {
         const std::string text =
-            deskhub::media::SharedSourceLabel(r.name, r.width, r.height, r.viewerConnected);
+            deskhub::media::SharedSourceLabel(r.name, r.width, r.height, r.viewerCount);
         const std::string tip = deskhub::media::ShareStatusTooltip(r);
         gtk_container_add(GTK_CONTAINER(rowsBox_), MakeRow(text.c_str(), tip.c_str()));
     }

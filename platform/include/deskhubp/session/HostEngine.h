@@ -115,6 +115,7 @@ private:
     std::atomic<bool> quit_{false};
     std::atomic<bool> running_{false};
 
+    deskhub::ViewerBudget viewerBudget_;
     std::vector<std::unique_ptr<HostSource>> pipes_;
     std::vector<HostSource*> live_;
     uint8_t nextSourceId_ = 0;

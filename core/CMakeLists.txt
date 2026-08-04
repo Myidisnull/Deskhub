@@ -13,6 +13,7 @@ add_library(core STATIC
     src/transport/RetransmitCache.cpp
 
     src/session/HostSession.cpp
+    src/session/HostViewers.cpp
     src/session/ClientSession.cpp
     src/session/ClientPump.cpp
     src/session/HostFeedback.cpp
@@ -73,6 +74,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/ClientPumpTests.cpp
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
+        tests/session/HostViewersTests.cpp
         tests/session/ConnectFlowTests.cpp
         tests/session/ShareArgsTests.cpp
         tests/session/OpenViewersTests.cpp

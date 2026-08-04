@@ -41,12 +41,16 @@ Datagram BuildHelloFor(uint8_t sourceId) {
     return Datagram(buf, buf + n);
 }
 
-void GiveStreamingSession(SourcePipelineState& st) {
+void GiveConnectedSession(SourcePipelineState& st) {
     GiveSession(st);
-    st.session->HandlePacket(BuildHelloFor(0), kT0);
+    st.session->HandlePacket(BuildHelloFor(0), kT0, kTestViewer);
+}
+
+void GiveStreamingSession(SourcePipelineState& st) {
+    GiveConnectedSession(st);
     uint8_t start[kMaxDatagram];
     const size_t sn = BuildStart(start, st.session->sessionId());
-    st.session->HandlePacket(std::span<const uint8_t>(start, sn), kT0);
+    st.session->HandlePacket(std::span<const uint8_t>(start, sn), kT0, kTestViewer);
 }
 
 void TestHelloRoutesBySourceId() {
@@ -81,7 +85,7 @@ void TestSessionTrafficRoutesBySessionId() {
     cb.send = [&out](std::span<const uint8_t> d) { out.emplace_back(d.begin(), d.end()); };
     cb.randomBytes = TestRandomBytes;
     b->session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
-    b->session->HandlePacket(hello, kT0);
+    b->session->HandlePacket(hello, kT0, kTestViewer);
 
     const uint32_t sid = b->session->sessionId();
     Check(sid != 0, "the session started");
@@ -105,17 +109,8 @@ void TestSessionTrafficRoutesBySessionId() {
     Check(RouteDatagram(live, *zh, zeroPkt) == nullptr, "session id 0 routes nowhere");
 }
 
-void TestAdoptPeerReportsOnlyChanges() {
-    std::printf("[router] the peer address is logged when it changes, not every packet...\n");
-    auto p = MakePipe(0);
-    Check(AdoptPeer(*p, 0xC0A80001'0000ULL), "the first peer is new");
-    Check(!AdoptPeer(*p, 0xC0A80001'0000ULL), "the same peer again is not");
-    Check(AdoptPeer(*p, 0xC0A80002'0000ULL), "a different peer is");
-    Check(p->peerPacked.load() == 0xC0A80002'0000ULL, "and the state follows");
-}
-
 void TestAcceptDatagramDoesTheWholeIntake() {
-    std::printf("[router] one call parses, routes, feeds the session and adopts the peer...\n");
+    std::printf("[router] one call parses, routes and feeds the session...\n");
     constexpr uint64_t kPeer = 0xC0A80005'0000ULL;
     auto a = MakePipe(0), b = MakePipe(1);
     GiveSession(*a);
@@ -126,18 +121,17 @@ void TestAcceptDatagramDoesTheWholeIntake() {
     AcceptedDatagram acc = AcceptDatagram(live, hello, kPeer, kT0);
     Check(acc.parsed, "the datagram parsed");
     Check(acc.target == b.get(), "it reached the source it named");
-    Check(acc.peerChanged, "the first peer is adopted");
-    Check(b->peerPacked.load() == kPeer, "and recorded on the pipeline");
-    Check(a->peerPacked.load() == 0, "the other source is untouched");
+    Check(ViewerCountOf(*b) == 1, "the viewer is on the pipeline it asked for");
+    Check(ViewerCountOf(*a) == 0, "the other source is untouched");
 
     acc = AcceptDatagram(live, hello, kPeer, kT0);
     Check(acc.target == b.get(), "a repeat still routes");
-    Check(!acc.peerChanged, "but the peer is not re-announced");
+    Check(ViewerCountOf(*b) == 1, "and does not take a second slot");
 
     const Datagram absent = BuildHelloFor(9);
     acc = AcceptDatagram(live, absent, kPeer, kT0);
     Check(acc.parsed, "a HELLO for an unknown source still parses");
-    Check(acc.target == nullptr && !acc.peerChanged, "but routes nowhere");
+    Check(acc.target == nullptr, "but routes nowhere");
 
     const Datagram runt(3, 0);
     acc = AcceptDatagram(live, runt, kPeer, kT0);
@@ -146,7 +140,7 @@ void TestAcceptDatagramDoesTheWholeIntake() {
     b->failed.store(true);
     acc = AcceptDatagram(live, hello, 0xDEAD'0000ULL, kT0);
     Check(acc.parsed && acc.target == nullptr, "a failed source accepts nothing");
-    Check(b->peerPacked.load() == kPeer, "and keeps the peer it had");
+    Check(ViewerCountOf(*b) == 1, "and keeps the viewer it had");
 }
 
 void TestReplyAddressIsStampedBeforeTheSessionReplies() {
@@ -223,13 +217,13 @@ void TestReconfigOnlyWithAStreamingPeer() {
 
     p->sizeChanged.store(true);
     OfferUpdate u = RefreshOffer(*p, 60);
-    Check(!u.sendReconfig, "with no peer there is nobody to reconfigure");
+    Check(!u.sendReconfig, "with no viewer there is nobody to reconfigure");
     Check(p->offer.fps == 30, "the offer still took the ladder's fps");
 
-    p->peerPacked.store(0xC0A80001'0000ULL);
+    GiveConnectedSession(*p);
     p->sizeChanged.store(true);
     u = RefreshOffer(*p, 60);
-    Check(!u.sendReconfig, "a peer that is not streaming yet gets nothing either");
+    Check(!u.sendReconfig, "a viewer that is not streaming yet gets nothing either");
 
     p->qualityChanged.store(true);
     u = RefreshOffer(*p, 60);
@@ -240,7 +234,6 @@ void TestReconfigReachesAStreamingPeer() {
     std::printf("[router] a streaming peer is told about the new offer...\n");
     auto p = MakePipe(0);
     GiveStreamingSession(*p);
-    p->peerPacked.store(0xC0A80001'0000ULL);
     p->srcW.store(1600);
     p->srcH.store(900);
     p->curBitrateBps.store(9'000'000);
@@ -412,7 +405,8 @@ void TestStatusProjection() {
 
     const media::AgentSourceStatus idle =
         MakeSourceStatus(*p, StatusExtras{"192.168.1.7:47777", false});
-    Check(!idle.viewerConnected, "no peer adopted yet");
+    Check(!idle.viewerConnected, "nobody is watching yet");
+    Check(idle.viewerCount == 0, "and the viewer count says so");
     Check(idle.viewerAddr.empty(),
         "and the address is dropped, so a stale peer cannot show up in the UI");
     Check(idle.sourceId == 3 && idle.name == "Display 1", "identity is carried over");
@@ -422,10 +416,11 @@ void TestStatusProjection() {
         "the closed stats window is carried over verbatim");
     Check(!idle.zeroCopy, "zero-copy is reported by the caller, not inferred");
 
-    p->peerPacked.store(0xC0A80107ull);
+    GiveConnectedSession(*p);
     const media::AgentSourceStatus live =
         MakeSourceStatus(*p, StatusExtras{"192.168.1.7:47777", true});
-    Check(live.viewerConnected, "an adopted peer marks the source as viewed");
+    Check(live.viewerConnected && live.viewerCount == 1,
+        "a connected viewer marks the source as viewed");
     Check(live.viewerAddr == "192.168.1.7:47777", "and the formatted address comes through");
     Check(live.zeroCopy, "the zero-copy flag is passed through");
 
@@ -439,7 +434,6 @@ void TestStatusProjection() {
 void RunHostRouterTests() {
     TestHelloRoutesBySourceId();
     TestSessionTrafficRoutesBySessionId();
-    TestAdoptPeerReportsOnlyChanges();
     TestAcceptDatagramDoesTheWholeIntake();
     TestReplyAddressIsStampedBeforeTheSessionReplies();
     TestOfferRefreshNeedsAReason();

@@ -27,6 +27,27 @@ bool AwaitingFirstFrame(const deskhub::SourcePipelineState& st, const SourcePred
 
 }
 
+size_t SendToViewers(const deskhub::SourcePipelineState& st, UdpSocket& sock,
+    std::span<const uint8_t> datagram) {
+    uint64_t addrs[deskhub::kMaxViewersPerSource];
+    const size_t viewers = deskhub::SnapshotViewerAddrs(st, addrs);
+    size_t sent = 0;
+    for (size_t i = 0; i < viewers; ++i)
+        if (sock.SendTo(NetAddr::Unpack(addrs[i]), datagram.data(), datagram.size())) ++sent;
+    return sent;
+}
+
+std::string ViewerAddrList(const deskhub::SourcePipelineState& st) {
+    uint64_t addrs[deskhub::kMaxViewersPerSource];
+    const size_t viewers = deskhub::SnapshotViewerAddrs(st, addrs);
+    std::string joined;
+    for (size_t i = 0; i < viewers; ++i) {
+        if (!joined.empty()) joined += ", ";
+        joined += NetAddr::Unpack(addrs[i]).ToString();
+    }
+    return joined;
+}
+
 void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe) {
     if (!st.session || st.session->state() != deskhub::HostSession::State::Streaming) return;
@@ -34,9 +55,9 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     const uint64_t nowUs = NowUs();
     st.diag.encLatMs.Add(nowUs > timestampUs ? uint32_t((nowUs - timestampUs) / 1000) : 0);
 
-    const uint64_t packed = st.peerPacked.load(std::memory_order_acquire);
-    if (!packed) return;
-    const NetAddr peer = NetAddr::Unpack(packed);
+    uint64_t addrs[deskhub::kMaxViewersPerSource];
+    const size_t viewers = deskhub::SnapshotViewerAddrs(st, addrs);
+    if (!viewers) return;
 
     st.packetizer.SetSessionId(st.session->sessionId());
     st.packetizer.SetFecEnabled(st.wantFec.load(std::memory_order_relaxed));
@@ -45,13 +66,15 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
 
     const uint64_t sendT0 = NowUs();
     const size_t pkts = st.packetizer.SendFrame(frame, st.nextFrameId++, timestampUs, keyframe,
-        [&st, &sock, &peer](std::span<const uint8_t> d) {
-            const uint64_t waitUs = st.pacer.Gate(d.size(), NowUs());
+        [&st, &sock, &addrs, viewers](std::span<const uint8_t> d) {
+            const uint64_t waitUs = st.pacer.Gate(d.size() * viewers, NowUs());
             if (waitUs) SleepUs(waitUs);
-            if (sock.SendTo(peer, d.data(), d.size()))
-                st.bytesSent.fetch_add(d.size(), std::memory_order_relaxed);
-            else
-                st.diag.sendFail.Add();
+            for (size_t i = 0; i < viewers; ++i) {
+                if (sock.SendTo(NetAddr::Unpack(addrs[i]), d.data(), d.size()))
+                    st.bytesSent.fetch_add(d.size(), std::memory_order_relaxed);
+                else
+                    st.diag.sendFail.Add();
+            }
             std::lock_guard<std::mutex> lk(st.retxMutex);
             st.retxCache.Store(d);
         });
@@ -102,12 +125,10 @@ std::vector<deskhub::SourcePipelineState*> SelectLiveSources(
 
 void EndHostSession(deskhub::SourcePipelineState& st, UdpSocket& sock) {
     if (!st.session || st.session->state() == deskhub::HostSession::State::Idle) return;
-    const uint64_t packed = st.peerPacked.load();
-    if (!packed) return;
 
     uint8_t bye[deskhub::kCommonHeaderSize];
     const size_t n = deskhub::BuildBye(bye, st.session->sessionId());
-    if (n) sock.SendTo(NetAddr::Unpack(packed), bye, n);
+    if (n) SendToViewers(st, sock, std::span<const uint8_t>(bye, n));
 }
 
 std::vector<deskhub::media::AgentSourceStatus> PublishSourceStatus(
@@ -122,8 +143,7 @@ std::vector<deskhub::media::AgentSourceStatus> PublishSourceStatus(
 
         deskhub::StatusExtras extras;
         extras.zeroCopy = hooks.zeroCopy && hooks.zeroCopy(*p);
-        if (const uint64_t peer = p->peerPacked.load(std::memory_order_relaxed))
-            extras.viewerAddr = NetAddr::Unpack(peer).ToString();
+        extras.viewerAddr = ViewerAddrList(*p);
 
         rows.push_back(deskhub::MakeSourceStatus(*p, extras));
         infos.push_back(deskhub::MakeSourceInfo(*p));

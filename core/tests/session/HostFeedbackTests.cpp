@@ -4,6 +4,7 @@
 #include "deskhub/session/HostFeedback.h"
 
 #include <cstdio>
+#include <memory>
 #include <vector>
 
 using namespace deskhub;
@@ -13,6 +14,22 @@ namespace {
 constexpr uint32_t kStartBps = 20'000'000;
 constexpr uint32_t kMinBps = 1'000'000;
 constexpr uint64_t kT0 = 5'000'000;
+
+void GiveConnectedSession(SourcePipelineState& st) {
+    HostCallbacks cb;
+    cb.send = [](std::span<const uint8_t>) {};
+    cb.randomBytes = TestRandomBytes;
+    st.session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+
+    uint8_t buf[kMaxDatagram];
+    Hello h{};
+    h.clientId = 0x1234;
+    h.codecMask = kCodecMaskH264;
+    h.maxWidth = 1920;
+    h.maxHeight = 1080;
+    const size_t n = BuildHello(buf, h);
+    st.session->HandlePacket(std::span<const uint8_t>(buf, n), kT0, kTestViewer);
+}
 
 Feedback CleanLink() {
     Feedback fb{};
@@ -174,9 +191,9 @@ void TestNackRepliesOnlyForKnownPackets() {
 
     const uint16_t wanted[] = {0, 1};
     RespondToNack(st, 7, wanted, capture);
-    Check(sent.empty(), "with no peer connected nothing is retransmitted");
+    Check(sent.empty(), "with nobody connected nothing is retransmitted");
 
-    st.peerPacked.store(0xC0A80001'0000ULL, std::memory_order_release);
+    GiveConnectedSession(st);
     RespondToNack(st, 7, wanted, capture);
     Check(sent.size() == 2, "both requested packets came back");
 
@@ -190,19 +207,17 @@ void TestNackRepliesOnlyForKnownPackets() {
     Check(sent.empty(), "nor does an unknown frame");
 }
 
-void TestForgetPeerClearsRetransmitState() {
-    std::printf("[hostfb] when the client leaves, the peer and its cache go with it...\n");
+void TestForgetViewersClearsRetransmitState() {
+    std::printf("[hostfb] when the last viewer leaves, the retransmit cache goes with it...\n");
     SourcePipelineState st(kStartBps, kMinBps);
     Packetizer pk;
     pk.SetSessionId(0x1234);
     for (const auto& d : Packetize(pk, MakeIdrFrame(1, 2), kT0)) st.retxCache.Store(d);
-    st.peerPacked.store(0xC0A80001'0000ULL, std::memory_order_release);
+    GiveConnectedSession(st);
 
-    ForgetPeer(st);
-    Check(st.peerPacked.load() == 0, "the peer address is dropped");
+    ForgetViewers(st);
 
     std::vector<std::vector<uint8_t>> sent;
-    st.peerPacked.store(0xC0A80001'0000ULL, std::memory_order_release);
     const uint16_t wanted[] = {0};
     RespondToNack(st, 1, wanted, [&sent](std::span<const uint8_t> d) {
         sent.emplace_back(d.begin(), d.end());
@@ -220,5 +235,5 @@ void RunHostFeedbackTests() {
     TestQualityStepIsAppliedThroughTheHook();
     TestNoLadderMeansNoQualityWork();
     TestNackRepliesOnlyForKnownPackets();
-    TestForgetPeerClearsRetransmitState();
+    TestForgetViewersClearsRetransmitState();
 }

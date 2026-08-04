@@ -14,7 +14,7 @@ namespace deskhubp {
 
 struct HostSessionHooks {
     std::function<void(std::span<const uint8_t>)> send;
-    std::function<void(std::span<const uint8_t>)> sendToPeer;
+    std::function<void(std::span<const uint8_t>)> sendToRequester;
     std::function<deskhub::StreamSize()> retarget;
     std::function<void(const deskhub::InputEvent&)> applyInput;
     std::function<void()> releaseInput;

@@ -80,9 +80,10 @@ void HostEngine::AttachSession(HostSource& st) {
         if (!packed) return;
         sock_.SendTo(NetAddr::Unpack(packed), d.data(), d.size());
     };
-    hooks.sendToPeer = [this, p](std::span<const uint8_t> d) {
-        sock_.SendTo(NetAddr::Unpack(p->peerPacked.load(std::memory_order_acquire)), d.data(),
-            d.size());
+    hooks.sendToRequester = [this, p](std::span<const uint8_t> d) {
+        const uint64_t packed = p->replyPacked.load(std::memory_order_acquire);
+        if (!packed) return;
+        sock_.SendTo(NetAddr::Unpack(packed), d.data(), d.size());
     };
     hooks.retarget = [p, sp] { return sp->retarget(*p); };
     hooks.applyInput = [p, sp](const deskhub::InputEvent& e) { sp->applyInput(*p, e); };
@@ -97,7 +98,7 @@ void HostEngine::AttachSession(HostSource& st) {
 
     const deskhub::HostCallbacks cb = MakeHostCallbacks(st, std::move(hooks));
 
-    st.session = std::make_unique<deskhub::HostSession>(cb, st.offer);
+    st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
     st.netReady.store(true, std::memory_order_release);
 }
 

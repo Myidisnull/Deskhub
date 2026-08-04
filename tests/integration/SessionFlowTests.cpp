@@ -19,6 +19,7 @@ namespace {
 constexpr uint32_t kLoopbackIp = 0x7F000001u;
 constexpr uint32_t kConnectTimeoutMs = 30'000;
 constexpr uint32_t kStreamTimeoutMs = 30'000;
+constexpr uint32_t kClashWindowMs = 750;
 
 void* const kDummySurface = reinterpret_cast<void*>(0x1);
 
@@ -44,6 +45,12 @@ void ResetObservations() {
 
 bool Streaming(Viewer& v) {
     return v.phase() == deskhubp::ClientPhase::Streaming;
+}
+
+bool SawKey(const std::vector<deskhub::InputEvent>& inputs, int32_t virtualKey) {
+    for (const deskhub::InputEvent& e : inputs)
+        if (e.type == deskhub::InputType::Key && e.a == virtualKey) return true;
+    return false;
 }
 
 void TestAViewerConnectsAndSeesTheFramesTheHostEncoded() {
@@ -285,6 +292,84 @@ void TestSourceDiscoveryBeforeAnySession() {
     agent.Stop();
 }
 
+void TestTwoViewersShareOneSourceAndOneEncoder() {
+    std::printf("[e2e] two viewers watch the same source off a single encode...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+        Check(false, "the host could not start");
+        return;
+    }
+
+    Viewer first;
+    first.SetSurface(kDummySurface);
+    first.Start(ViewerConfig(port, 0));
+    if (!WaitFor([&] { return Streaming(first); }, kConnectTimeoutMs)) {
+        Check(false, "the first viewer never reached Streaming");
+        first.Stop();
+        agent.Stop();
+        return;
+    }
+
+    Viewer second;
+    second.SetSurface(kDummySurface);
+    second.Start(ViewerConfig(port, 0));
+    Check(WaitFor([&] { return Streaming(second); }, kConnectTimeoutMs),
+        "the second viewer is let in rather than turned away as busy");
+
+    Check(WaitFor(
+              [&] {
+                  const auto rows = agent.Status();
+                  return !rows.empty() && rows[0].viewerCount == 2;
+              },
+              kStreamTimeoutMs),
+        "and the sharing UI counts both of them");
+
+    const uint32_t encodedBefore = fake::Host().framesEncoded.load();
+    Check(WaitFor([&] { return fake::Decoded().frameCount() >= 6; }, kStreamTimeoutMs),
+        "both viewers decode video");
+    const uint32_t encoded = fake::Host().framesEncoded.load() - encodedBefore;
+    Check(encoded < fake::Decoded().frameCount(),
+        "the host encoded fewer frames than were decoded, so one encode fed both viewers");
+
+    second.QueueKey('B', 0x30, true);
+    second.QueueKey('B', 0x30, false);
+    Check(WaitFor([&] { return SawKey(fake::Host().TakeInputs(), 'B'); }, kStreamTimeoutMs),
+        "with the other viewer idle, the second one drives the host");
+
+    first.QueueKey('A', 0x1E, true);
+    first.QueueKey('A', 0x1E, false);
+    Check(WaitFor([&] { return SawKey(fake::Host().TakeInputs(), 'A'); }, kStreamTimeoutMs),
+        "the viewer that connected first can cut in at any time");
+
+    fake::Host().TakeInputs();
+    second.QueueKey('D', 0x20, true);
+    second.QueueKey('D', 0x20, false);
+    Check(!WaitFor([&] { return SawKey(fake::Host().TakeInputs(), 'D'); }, kClashWindowMs),
+        "and while it is driving, the later viewer loses the clash");
+
+    first.Stop();
+    Check(WaitFor(
+              [&] {
+                  const auto rows = agent.Status();
+                  return !rows.empty() && rows[0].viewerCount == 1;
+              },
+              kStreamTimeoutMs),
+        "when the first viewer leaves the count drops");
+    Check(Streaming(second), "and the remaining viewer keeps streaming");
+
+    fake::Host().TakeInputs();
+    second.QueueKey('C', 0x2E, true);
+    second.QueueKey('C', 0x2E, false);
+    Check(WaitFor([&] { return SawKey(fake::Host().TakeInputs(), 'C'); }, kStreamTimeoutMs),
+        "control passes to it, so its keys now reach the host");
+
+    second.Stop();
+    agent.Stop();
+}
+
 void TestTheHostSurvivesAViewerThatVanishes() {
     std::printf("[e2e] a viewer that disappears without a BYE does not wedge the host...\n");
     ResetObservations();
@@ -326,6 +411,7 @@ void RunSessionFlowTests() {
     TestPauseArrivesWithoutAScancode();
     TestTheHostReportsWhoIsWatching();
     TestTwoSourcesStayApart();
+    TestTwoViewersShareOneSourceAndOneEncoder();
     TestSourceDiscoveryBeforeAnySession();
     TestTheHostSurvivesAViewerThatVanishes();
 }

@@ -36,6 +36,9 @@ int main() {
     std::printf("--- session: host router (demux, re-offer, keepalive timing) ---\n");
     RunHostRouterTests();
 
+    std::printf("--- session: many viewers per source (fan-out, input priority) ---\n");
+    RunHostViewersTests();
+
     std::printf("--- session: viewer connect flow ---\n");
     RunConnectFlowTests();
 

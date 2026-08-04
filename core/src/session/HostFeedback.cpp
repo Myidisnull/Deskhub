@@ -43,18 +43,17 @@ FeedbackOutcome ApplyFeedback(SourcePipelineState& st, const Feedback& fb, uint6
 }
 
 void RespondToNack(SourcePipelineState& st, uint32_t frameId, std::span<const uint16_t> indices,
-    const std::function<void(std::span<const uint8_t>)>& sendToPeer) {
-    if (!st.peerPacked.load(std::memory_order_acquire) || !sendToPeer) return;
+    const std::function<void(std::span<const uint8_t>)>& sendToRequester) {
+    if (!ViewerCountOf(st) || !sendToRequester) return;
 
     std::lock_guard<std::mutex> lk(st.retxMutex);
     for (uint16_t idx : indices) {
         const auto d = st.retxCache.Find(frameId, idx);
-        if (!d.empty()) sendToPeer(d);
+        if (!d.empty()) sendToRequester(d);
     }
 }
 
-void ForgetPeer(SourcePipelineState& st) {
-    st.peerPacked.store(0, std::memory_order_release);
+void ForgetViewers(SourcePipelineState& st) {
     std::lock_guard<std::mutex> lk(st.retxMutex);
     st.retxCache.Reset();
 }

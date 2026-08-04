@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <vector>
 
+inline constexpr uint64_t kTestViewer = 0xC0A80001'0000ULL;
+
 extern int g_failures;
 void Check(bool ok, const char* what);
 

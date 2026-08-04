@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/input/InputReceiver.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/HostViewers.h"
 
 #include <atomic>
 #include <cstdint>
@@ -25,6 +26,9 @@ struct HostCallbacks {
     std::function<void(const Hello&)> onHello;
     std::function<void()> onStart;
     std::function<void()> onKeyframeRequest;
+    std::function<void(uint64_t addrPacked, size_t viewerCount)> onViewerJoin;
+    std::function<void(uint64_t addrPacked, size_t viewerCount)> onViewerLeave;
+    std::function<void(uint64_t addrPacked)> onControllerChange;
     std::function<void()> onDisconnect;
     std::function<void(const Feedback&)> onFeedback;
     std::function<void(const InputEvent&)> onInput;
@@ -40,14 +44,16 @@ public:
         Ready,
         Streaming };
 
-    HostSession(HostCallbacks cb, StreamParams offer)
-        : cb_(std::move(cb)), offer_(offer) {}
+    HostSession(HostCallbacks cb, StreamParams offer, ViewerBudget* hostBudget = nullptr)
+        : cb_(std::move(cb)), offer_(offer) {
+        viewers_.SetHostBudget(hostBudget);
+    }
 
     void SetOffer(const StreamParams& p) {
         offer_ = p;
     }
 
-    bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs);
+    bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs, uint64_t fromPacked);
     void Tick(uint64_t nowUs);
 
     State state() const {
@@ -56,8 +62,17 @@ public:
     uint32_t sessionId() const {
         return sessionId_.load(std::memory_order_relaxed);
     }
-    const InputReceiver::Stats& inputStats() const {
-        return input_.stats();
+    size_t viewerCount() const {
+        return viewers_.viewerCount();
+    }
+    size_t SnapshotViewerAddrs(std::span<uint64_t> out) const {
+        return viewers_.SnapshotAddrs(out);
+    }
+    InputReceiver::Stats inputStats() const {
+        return viewers_.inputStats();
+    }
+    uint64_t inputDenied() const {
+        return inputDenied_.load(std::memory_order_relaxed);
     }
 
 private:
@@ -66,18 +81,26 @@ private:
         return cur != 0 && sid == cur;
     }
 
+    bool HandleHello(std::span<const uint8_t> payload, uint64_t nowUs, uint64_t fromPacked);
+    bool HandleFromViewer(const CommonHeader& header, std::span<const uint8_t> payload,
+        ViewerSlot& viewer, uint64_t nowUs);
+    void ApplyInput(std::span<const uint8_t> payload, ViewerSlot& viewer, uint64_t nowUs);
+    void HandOverControl(uint64_t addrPacked);
+
     void SendHelloAck(uint64_t nowUs);
     void SendReject(RejectReason reason);
-    bool BeginSession(uint64_t nowUs);
+    bool BeginSession();
+    void DropViewer(ViewerSlot& viewer);
+    void RefreshState();
     void Disconnect();
 
     HostCallbacks cb_;
     StreamParams offer_;
-    InputReceiver input_;
+    ViewerTable viewers_;
     std::atomic<State> state_{State::Idle};
     std::atomic<uint32_t> sessionId_{0};
-    uint32_t clientId_ = 0;
-    uint64_t lastRecvUs_ = 0;
+    std::atomic<uint64_t> inputDenied_{0};
+    uint64_t controllingAddr_ = 0;
     uint8_t buf_[kMaxDatagram] = {};
 };
 

@@ -8,9 +8,11 @@
 #include "deskhub/transport/RetransmitCache.h"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 
 namespace deskhub {
@@ -52,7 +54,6 @@ struct SourcePipelineState {
     std::atomic<bool> forceIdr{false};
     bool shutdownDone = false;
 
-    std::atomic<uint64_t> peerPacked{0};
     std::atomic<uint64_t> replyPacked{0};
     std::atomic<uint64_t> bytesSent{0}, framesSent{0};
     std::atomic<uint32_t> captured{0};
@@ -73,5 +74,13 @@ struct SourcePipelineState {
     diag::SourceRate::Window statWindow;
     diag::SourceDiag diag;
 };
+
+inline size_t ViewerCountOf(const SourcePipelineState& st) {
+    return st.session ? st.session->viewerCount() : 0;
+}
+
+inline size_t SnapshotViewerAddrs(const SourcePipelineState& st, std::span<uint64_t> out) {
+    return st.session ? st.session->SnapshotViewerAddrs(out) : 0;
+}
 
 }

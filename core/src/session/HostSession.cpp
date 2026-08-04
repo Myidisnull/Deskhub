@@ -2,79 +2,116 @@
 
 namespace deskhub {
 
-bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
+bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs, uint64_t fromPacked) {
     const auto h = ParseCommonHeader(pkt);
     if (!h) return false;
     const auto payload = PayloadOf(pkt);
 
-    switch (h->type) {
-        case MsgType::Hello: {
-            const auto m = ParseHello(payload);
-            if (!m) return false;
-            const State st = state();
-            if ((st == State::Ready || st == State::Streaming) && m->clientId != clientId_) {
-                SendReject(RejectReason::Busy);
-                return false;
-            }
-            if (st == State::Idle) {
-                if (!(m->codecMask & kCodecMaskH264)) {
-                    SendReject(RejectReason::CodecMismatch);
-                    return false;
-                }
-                clientId_ = m->clientId;
-                if (!BeginSession(nowUs)) return false;
-                if (cb_.onHello) cb_.onHello(*m);
-                SendHelloAck(nowUs);
-                return true;
-            }
-            lastRecvUs_ = nowUs;
-            SendHelloAck(nowUs);
-            return true;
-        }
+    if (h->type == MsgType::Hello) return HandleHello(payload, nowUs, fromPacked);
+
+    if (!InSession(h->sessionId)) return false;
+    ViewerSlot* viewer = viewers_.Find(fromPacked);
+    if (!viewer) return false;
+    viewer->lastRecvUs = nowUs;
+
+    if (h->type == MsgType::Bye) {
+        DropViewer(*viewer);
+        return false;
+    }
+    return HandleFromViewer(*h, payload, *viewer, nowUs);
+}
+
+bool HostSession::HandleHello(std::span<const uint8_t> payload, uint64_t nowUs,
+    uint64_t fromPacked) {
+    const auto m = ParseHello(payload);
+    if (!m || !fromPacked) return false;
+    if (!(m->codecMask & kCodecMaskH264)) {
+        SendReject(RejectReason::CodecMismatch);
+        return false;
+    }
+
+    ViewerSlot* known = viewers_.Find(fromPacked);
+    if (known && known->clientId != m->clientId) {
+        DropViewer(*known);
+        known = nullptr;
+    }
+    if (!known) known = viewers_.FindByClient(m->clientId);
+
+    if (known) {
+        viewers_.Rebind(*known, fromPacked);
+        known->lastRecvUs = nowUs;
+        SendHelloAck(nowUs);
+        return true;
+    }
+
+    const bool firstViewer = viewers_.empty();
+    if (firstViewer && !BeginSession()) return false;
+
+    if (!viewers_.Admit(m->clientId, fromPacked, nowUs)) {
+        SendReject(RejectReason::Busy);
+        return false;
+    }
+
+    RefreshState();
+    if (firstViewer && cb_.onHello) cb_.onHello(*m);
+    if (cb_.onViewerJoin) cb_.onViewerJoin(fromPacked, viewers_.viewerCount());
+    SendHelloAck(nowUs);
+    return true;
+}
+
+bool HostSession::HandleFromViewer(const CommonHeader& header, std::span<const uint8_t> payload,
+    ViewerSlot& viewer, uint64_t nowUs) {
+    const bool streaming = state() == State::Streaming;
+
+    switch (header.type) {
         case MsgType::Start:
-            if (!InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
-            if (state() != State::Streaming) {
-                state_.store(State::Streaming, std::memory_order_release);
-                if (cb_.onStart) cb_.onStart();
+            if (!viewer.started) {
+                viewer.started = true;
+                if (!streaming) {
+                    state_.store(State::Streaming, std::memory_order_release);
+                    if (cb_.onStart) cb_.onStart();
+                } else if (cb_.onKeyframeRequest) {
+                    cb_.onKeyframeRequest();
+                }
             }
             return true;
         case MsgType::Ping: {
-            if (!InSession(h->sessionId)) return false;
             const auto m = ParsePingPong(payload);
             if (!m) return false;
-            lastRecvUs_ = nowUs;
             const size_t n = BuildPong(buf_, sessionId(), *m);
             if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
             return true;
         }
         case MsgType::RequestKeyframe:
-            if (state() != State::Streaming || !InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
+            if (!streaming) return false;
             if (cb_.onKeyframeRequest) cb_.onKeyframeRequest();
             return true;
         case MsgType::InputEvent:
-            if (state() != State::Streaming || !InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
-            input_.HandlePacket(payload, cb_.onInput);
+            if (!streaming) return false;
+            ApplyInput(payload, viewer, nowUs);
             return true;
         case MsgType::SetFocus: {
-            if (state() != State::Streaming || !InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
+            if (!streaming) return false;
             const auto focused = ParseSetFocus(payload);
-            if (focused && cb_.onFocus) cb_.onFocus(*focused);
+            if (!focused) return false;
+            if (controllingAddr_ && controllingAddr_ != viewer.addrPacked) return true;
+            if (!*focused) {
+                viewer.lastInputUs = 0;
+                HandOverControl(0);
+            }
+            if (cb_.onFocus) cb_.onFocus(*focused);
             return true;
         }
         case MsgType::Feedback: {
-            if (!InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
             const auto m = ParseFeedback(payload);
-            if (m && cb_.onFeedback) cb_.onFeedback(*m);
+            if (!m) return false;
+            viewer.feedback = *m;
+            viewer.haveFeedback = true;
+            if (cb_.onFeedback) cb_.onFeedback(WorstCaseFeedback(viewers_.slots()));
             return true;
         }
         case MsgType::Nack: {
-            if (state() != State::Streaming || !InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
+            if (!streaming) return false;
             uint16_t idx[kMaxNackIndices];
             uint32_t frameId = 0;
             const size_t n = ParseNack(payload, frameId, idx);
@@ -82,27 +119,62 @@ bool HostSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             return true;
         }
         case MsgType::InvalidateRef: {
-            if (state() != State::Streaming || !InSession(h->sessionId)) return false;
-            lastRecvUs_ = nowUs;
+            if (!streaming) return false;
             const auto fid = ParseInvalidateRef(payload);
             if (fid && cb_.onInvalidateRef) cb_.onInvalidateRef(*fid);
             return true;
         }
-        case MsgType::Bye:
-            if (!InSession(h->sessionId)) return false;
-            Disconnect();
-            return false;
         default:
             return false;
     }
 }
 
-void HostSession::Tick(uint64_t nowUs) {
-    if (state() == State::Idle) return;
-    if (nowUs - lastRecvUs_ > kSessionTimeoutUs) Disconnect();
+void HostSession::ApplyInput(std::span<const uint8_t> payload, ViewerSlot& viewer,
+    uint64_t nowUs) {
+    if (viewers_.HigherPriorityIsDriving(viewer, nowUs)) {
+        inputDenied_.fetch_add(1, std::memory_order_relaxed);
+        viewer.input.HandlePacket(payload, nullptr);
+        return;
+    }
+    viewer.lastInputUs = nowUs;
+    HandOverControl(viewer.addrPacked);
+    viewer.input.HandlePacket(payload, cb_.onInput);
 }
 
-bool HostSession::BeginSession(uint64_t nowUs) {
+void HostSession::HandOverControl(uint64_t addrPacked) {
+    if (controllingAddr_ == addrPacked) return;
+    controllingAddr_ = addrPacked;
+    if (cb_.onControllerChange) cb_.onControllerChange(addrPacked);
+}
+
+void HostSession::Tick(uint64_t nowUs) {
+    if (state() == State::Idle) return;
+    for (ViewerSlot& s : viewers_.slots()) {
+        if (!s.active) continue;
+        if (nowUs - s.lastRecvUs > kSessionTimeoutUs) DropViewer(s);
+    }
+}
+
+void HostSession::DropViewer(ViewerSlot& viewer) {
+    const uint64_t addr = viewer.addrPacked;
+
+    viewers_.Drop(viewer);
+    if (cb_.onViewerLeave) cb_.onViewerLeave(addr, viewers_.viewerCount());
+
+    if (viewers_.empty()) {
+        Disconnect();
+        return;
+    }
+    RefreshState();
+    if (controllingAddr_ == addr) HandOverControl(0);
+}
+
+void HostSession::RefreshState() {
+    state_.store(viewers_.anyStarted() ? State::Streaming : State::Ready,
+        std::memory_order_release);
+}
+
+bool HostSession::BeginSession() {
     uint32_t sid = 0;
     if (cb_.randomBytes) {
         uint8_t b[4];
@@ -112,12 +184,9 @@ bool HostSession::BeginSession(uint64_t nowUs) {
     if (!sid) {
         SendReject(RejectReason::None);
         state_.store(State::Idle, std::memory_order_release);
-        clientId_ = 0;
         return false;
     }
     sessionId_.store(sid, std::memory_order_relaxed);
-    lastRecvUs_ = nowUs;
-    state_.store(State::Ready, std::memory_order_release);
     return true;
 }
 
@@ -145,8 +214,8 @@ void HostSession::SendReject(RejectReason reason) {
 void HostSession::Disconnect() {
     state_.store(State::Idle, std::memory_order_release);
     sessionId_.store(0, std::memory_order_relaxed);
-    clientId_ = 0;
-    input_.Reset();
+    viewers_.Clear();
+    HandOverControl(0);
     if (cb_.onDisconnect) cb_.onDisconnect();
 }
 

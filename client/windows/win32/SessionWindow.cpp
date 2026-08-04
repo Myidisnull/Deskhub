@@ -26,7 +26,7 @@ SessionSourceRow ToRow(const AgentSourceStatus& status) {
     SessionSourceRow row;
     row.sourceId = status.sourceId;
     row.label = FromUtf8(deskhub::media::SharedSourceLabel(status.name, status.width,
-        status.height, status.viewerConnected));
+        status.height, status.viewerCount));
     return row;
 }
 

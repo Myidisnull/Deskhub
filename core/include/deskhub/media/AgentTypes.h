@@ -23,6 +23,7 @@ struct AgentSourceStatus {
     std::string name;
     uint32_t width = 0, height = 0;
     bool viewerConnected = false;
+    uint32_t viewerCount = 0;
     std::string viewerAddr;
     double captureFps = 0, sendFps = 0, sendKbps = 0;
     uint32_t rttMs = 0;

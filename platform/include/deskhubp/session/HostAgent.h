@@ -8,11 +8,17 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace deskhubp {
 
 using SourcePredicate = std::function<bool(const deskhub::SourcePipelineState&)>;
+
+size_t SendToViewers(const deskhub::SourcePipelineState& st, UdpSocket& sock,
+    std::span<const uint8_t> datagram);
+
+std::string ViewerAddrList(const deskhub::SourcePipelineState& st);
 
 void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe);

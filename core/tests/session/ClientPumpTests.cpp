@@ -82,7 +82,7 @@ void Exchange(Rig& r, ClientPump& pump, HostSession& host, uint64_t now) {
         while (!r.toHost.empty()) {
             auto d = std::move(r.toHost.front());
             r.toHost.pop_front();
-            host.HandlePacket(d, now);
+            host.HandlePacket(d, now, kTestViewer);
         }
         while (!r.toClient.empty()) {
             auto d = std::move(r.toClient.front());
@@ -548,7 +548,7 @@ void TestFocusInputByeAndRtt() {
     while (!r.toHost.empty()) {
         auto d = std::move(r.toHost.front());
         r.toHost.pop_front();
-        host.HandlePacket(d, now);
+        host.HandlePacket(d, now, kTestViewer);
     }
     const uint64_t pongAt = now + 30'000;
     while (!r.toClient.empty()) {

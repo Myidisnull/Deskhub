@@ -4,6 +4,7 @@
 #include "deskhub/session/HostFeedback.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/session/HostAgent.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/Random.h"
@@ -28,12 +29,12 @@ void SendReconfig(UdpSocket& sock, deskhub::SourcePipelineState& st,
     uint8_t buf[deskhub::kMaxDatagram];
     const size_t n = deskhub::BuildReconfig(buf, st.session->sessionId(), reconfig);
     if (!n) return;
-    sock.SendTo(NetAddr::Unpack(st.peerPacked.load()), buf, n);
+    SendToViewers(st, sock, std::span<const uint8_t>(buf, n));
 }
 
 void ReportWindow(deskhub::SourcePipelineState& st, const HostSourceHooks& hooks,
     const std::string& hms, uint64_t nowUs, char* line, size_t lineBytes) {
-    const auto& inputStats = st.session->inputStats();
+    const deskhub::InputReceiver::Stats inputStats = st.session->inputStats();
     st.statWindow = st.statRate.Close(st.captured.load(), st.framesSent.load(),
         st.bytesSent.load(), nowUs);
 
@@ -41,7 +42,8 @@ void ReportWindow(deskhub::SourcePipelineState& st, const HostSourceHooks& hooks
     window.rate = st.statWindow;
     window.inputApplied = inputStats.applied;
     window.inputLost = inputStats.lost;
-    window.inputSkipped = hooks.inputSkipped ? hooks.inputSkipped(st) : 0;
+    window.inputSkipped = (hooks.inputSkipped ? hooks.inputSkipped(st) : 0) +
+                          st.session->inputDenied();
 
     deskhub::diag::SourceDiag::LinkView link;
     link.have = st.haveFeedback.load(std::memory_order_acquire);
@@ -95,8 +97,8 @@ deskhub::HostCallbacks MakeHostCallbacks(deskhub::SourcePipelineState& st,
     cb.onKeyframeRequest = [p] { p->forceIdr.store(true); };
 
     cb.onNack = [p, shared](uint32_t frameId, std::span<const uint16_t> indices) {
-        if (!shared->sendToPeer) return;
-        deskhub::RespondToNack(*p, frameId, indices, shared->sendToPeer);
+        if (!shared->sendToRequester) return;
+        deskhub::RespondToNack(*p, frameId, indices, shared->sendToRequester);
     };
 
     cb.onInput = [shared](const deskhub::InputEvent& e) {
@@ -107,10 +109,29 @@ deskhub::HostCallbacks MakeHostCallbacks(deskhub::SourcePipelineState& st,
         if (!focused && shared->releaseInput) shared->releaseInput();
     };
 
-    cb.onDisconnect = [p, shared] {
-        deskhub::ForgetPeer(*p);
+    cb.onViewerJoin = [p](uint64_t addrPacked, size_t viewerCount) {
+        LOGI("[Agent][%s] Viewer %s joined (%zu connected).", p->name.c_str(),
+            NetAddr::Unpack(addrPacked).ToString().c_str(), viewerCount);
+    };
+
+    cb.onViewerLeave = [p](uint64_t addrPacked, size_t viewerCount) {
+        LOGI("[Agent][%s] Viewer %s left (%zu connected).", p->name.c_str(),
+            NetAddr::Unpack(addrPacked).ToString().c_str(), viewerCount);
+    };
+
+    cb.onControllerChange = [p, shared](uint64_t addrPacked) {
         if (shared->releaseInput) shared->releaseInput();
-        LOGI("[Agent][%s] Client left (BYE/timeout).", p->name.c_str());
+        if (!addrPacked) {
+            LOGI("[Agent][%s] Input is idle \xE2\x80\x94 any viewer may take it.", p->name.c_str());
+            return;
+        }
+        LOGI("[Agent][%s] Input is being driven by %s.", p->name.c_str(),
+            NetAddr::Unpack(addrPacked).ToString().c_str());
+    };
+
+    cb.onDisconnect = [p] {
+        deskhub::ForgetViewers(*p);
+        LOGI("[Agent][%s] Last viewer left (BYE/timeout).", p->name.c_str());
     };
 
     cb.onFeedback = [p, shared](const deskhub::Feedback& fb) {
@@ -171,11 +192,7 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
             if (const size_t rn = beacon.Reply(beaconBuf, pkt); rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else {
-                const deskhub::AcceptedDatagram acc =
-                    deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);
-                if (acc.peerChanged)
-                    LOGI("[Agent][%s] Peer: %s", acc.target->name.c_str(),
-                        from.ToString().c_str());
+                deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);
             }
         }
 

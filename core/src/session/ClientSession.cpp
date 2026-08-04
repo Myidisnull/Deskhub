@@ -30,7 +30,7 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
                         Die("host rejected (codec mismatch)");
                         return false;
                     case RejectReason::Busy:
-                        Die("host is busy with another client");
+                        Die("the host already has as many viewers as it can take");
                         return false;
                     default:
                         Die("host rejected (busy or codec mismatch)");

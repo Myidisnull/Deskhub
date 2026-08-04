@@ -116,6 +116,7 @@ int dha_status(DHAgentStatus* out, int capacity) {
         out[i].width = row.width;
         out[i].height = row.height;
         out[i].viewerConnected = row.viewerConnected;
+        out[i].viewerCount = row.viewerCount;
         out[i].zeroCopy = row.zeroCopy;
         out[i].captureFps = row.captureFps;
         out[i].sendFps = row.sendFps;
@@ -124,8 +125,7 @@ int dha_status(DHAgentStatus* out, int capacity) {
         deskhubp::CopyToBuf(out[i].viewerAddr, sizeof(out[i].viewerAddr), row.viewerAddr);
         deskhubp::CopyToBuf(out[i].name, sizeof(out[i].name), row.name);
         deskhubp::CopyToBuf(out[i].label, sizeof(out[i].label),
-            deskhub::media::SharedSourceLabel(row.name, row.width, row.height,
-                row.viewerConnected));
+            deskhub::media::SharedSourceLabel(row.name, row.width, row.height, row.viewerCount));
     }
     return count;
 }
