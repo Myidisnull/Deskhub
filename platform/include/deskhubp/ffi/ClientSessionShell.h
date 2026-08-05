@@ -54,7 +54,8 @@ struct FfiClientSession {
 
 template <class Session, class Surface>
 Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks, uint32_t screenW, uint32_t screenH) {
+    const DHSessionCallbacks* callbacks, uint32_t screenW, uint32_t screenH,
+    const char* passcode = nullptr) {
     NetAddr server;
     if (!ParseSessionAddress(address, server)) return nullptr;
 
@@ -67,6 +68,7 @@ Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surf
     cfg.sourceId = sourceId;
     cfg.screenW = screenW;
     cfg.screenH = screenH;
+    cfg.passcode = passcode ? passcode : "";
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t) {
         if (raw->callbacks.onSize) raw->callbacks.onSize(width, height, raw->callbacks.user);
     };

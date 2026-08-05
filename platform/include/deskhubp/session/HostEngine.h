@@ -73,6 +73,9 @@ public:
         const deskhub::media::AgentOptions& opt, HostEnginePolicy policy);
     void Stop();
 
+    void RequestStopSource(uint8_t sourceId);
+    void RequestKickViewer(uint8_t sourceId, uint64_t addrPacked);
+
     bool running() const {
         return running_.load(std::memory_order_acquire);
     }
@@ -106,6 +109,8 @@ private:
     void PublishStatus();
     std::vector<HostSource*> AllSources();
     void RecvLoop();
+    void DrainControlRequests();
+    HostSource* FindLiveSource(uint8_t sourceId);
 
     deskhub::media::AgentOptions opt_;
     HostEnginePolicy policy_;
@@ -122,6 +127,10 @@ private:
 
     std::mutex statusMutex_;
     std::vector<deskhub::media::AgentSourceStatus> statusRows_;
+
+    std::mutex controlMutex_;
+    std::vector<uint8_t> pendingSourceStops_;
+    std::vector<std::pair<uint8_t, uint64_t>> pendingViewerKicks_;
 
     std::mutex errMutex_;
     std::string lastError_;

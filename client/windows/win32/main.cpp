@@ -1,20 +1,18 @@
-﻿#define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define _CRT_SECURE_NO_WARNINGS
 
 #include <windows.h>
 #include <clocale>
 
-#include <shellapi.h>
-#include <vector>
-
-#include "deskhub/session/ShareArgs.h"
-#include "deskhubp/session/AgentLoop.h"
-#include "deskhubp/diag/LogFile.h"
-#include "MainMenuWindow.h"
-#include "SessionWindow.h"
+#include "MainFrame.h"
 #include "capture/ScreenCapture.h"
-#include "deskhub/protocol/Wire.h"
+#include "deskhubp/diag/LogFile.h"
+
+#pragma comment(linker,                                                              \
+    "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' "   \
+    "version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' " \
+    "language='*'\"")
 
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     deskhubp::StartProcessLog();
@@ -22,17 +20,5 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     std::setlocale(LC_ALL, ".UTF8");
     capture::InitRuntime();
 
-    int argc = 0;
-    if (wchar_t** wargv = CommandLineToArgvW(GetCommandLineW(), &argc)) {
-        std::vector<AgentSource> sources;
-        AgentOptions opt;
-        const bool elevatedShare = deskhub::ParseElevatedShareArgs(argc, wargv, sources, opt);
-        LocalFree(wargv);
-        if (elevatedShare) {
-            RunSharingSession(nullptr, sources, opt);
-            return RunMainMenuWindow();
-        }
-    }
-
-    return RunMainMenuWindow();
+    return RunDeskhubApp();
 }

@@ -37,10 +37,10 @@ AndroidClientEngine& EngineOf(DHSession* s) {
 }
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks) {
+    const DHSessionCallbacks* callbacks, const char* passcode) {
     return deskhubp::StartFfiClientSession<DHSession, ANativeWindow*>(address, sourceId, surface,
         callbacks, g_screenW.load(std::memory_order_relaxed),
-        g_screenH.load(std::memory_order_relaxed));
+        g_screenH.load(std::memory_order_relaxed), passcode);
 }
 
 void dh_session_stop(DHSession* s) {

@@ -3,11 +3,4 @@
 #define NOMINMAX
 #include <windows.h>
 
-#include <span>
-
-#include "deskhubp/session/AgentLoop.h"
-
 bool IsProcessElevated();
-
-bool RelaunchElevatedShare(std::span<const AgentSource> sources,
-    const AgentOptions& opt, bool& outCancelled);

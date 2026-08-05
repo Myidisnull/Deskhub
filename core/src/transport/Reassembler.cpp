@@ -20,6 +20,7 @@ Reassembler::Pending* Reassembler::Slot(uint32_t id, uint16_t pktCount,
         f.firstSeenUs = nowUs;
     }
     if (it->second.pktCount != pktCount) return nullptr;
+    it->second.lastPushUs = nowUs;
     return &it->second;
 }
 
@@ -41,6 +42,7 @@ void Reassembler::Push(const VideoPacketView& pkt, uint64_t nowUs) {
     if (!fp) return;
     Pending& f = *fp;
     if (pkt.hdr.pktIndex >= f.pktCount) return;
+    if (pkt.hdr.pktIndex > f.maxIndexSeen) f.maxIndexSeen = pkt.hdr.pktIndex;
     auto& slot = f.pieces[pkt.hdr.pktIndex];
     if (!slot.empty()) return;
     slot.assign(pkt.payload.begin(), pkt.payload.end());
@@ -130,16 +132,20 @@ std::optional<Reassembler::Frame> Reassembler::PopReady(uint64_t nowUs) {
             return out;
         }
 
-        size_t newerComplete = 0;
-        for (auto n = std::next(head); n != pending_.end(); ++n)
-            if (n->second.Complete()) ++newerComplete;
-        if (nowUs - f.firstSeenUs > 2 * frameIntervalUs_) {
+        const uint64_t activityUs =
+            f.lastNackUs > f.lastPushUs ? f.lastNackUs : f.lastPushUs;
+        if (nowUs - f.firstSeenUs > HardTimeoutUs() || nowUs - activityUs > StallTimeoutUs()) {
             Drop(head, DropReason::Timeout, nowUs);
             continue;
         }
-        if (newerComplete >= 2) {
-            Drop(head, DropReason::Overtaken, nowUs);
-            continue;
+        if (!f.idr) {
+            size_t newerComplete = 0;
+            for (auto n = std::next(head); n != pending_.end(); ++n)
+                if (n->second.Complete()) ++newerComplete;
+            if (newerComplete >= 2) {
+                Drop(head, DropReason::Overtaken, nowUs);
+                continue;
+            }
         }
         return std::nullopt;
     }
@@ -151,13 +157,15 @@ size_t Reassembler::PlanNack(uint64_t nowUs, uint64_t rttUs, uint32_t& frameId,
     if (out.empty()) return 0;
     for (auto& [id, f] : pending_) {
         if (f.Complete()) continue;
-        if (nowUs - f.firstSeenUs >= 2 * frameIntervalUs_) continue;
+        if (nowUs - f.firstSeenUs >= HardTimeoutUs()) continue;
         if (nowUs - f.firstSeenUs < kNackHoldUs) return 0;
         const uint64_t interval = rttUs > kNackMinIntervalUs ? rttUs : kNackMinIntervalUs;
         if (f.lastNackUs && nowUs - f.lastNackUs < interval) return 0;
 
+        const bool tailStalled = nowUs - f.lastPushUs >= frameIntervalUs_;
+        const uint16_t scanLimit = tailStalled ? f.pktCount : f.maxIndexSeen;
         size_t n = 0;
-        for (uint16_t i = 0; i < f.pktCount && n < out.size(); ++i)
+        for (uint16_t i = 0; i < scanLimit && n < out.size(); ++i)
             if (f.pieces[i].empty()) out[n++] = i;
         if (n == 0) return 0;
         f.lastNackUs = nowUs;

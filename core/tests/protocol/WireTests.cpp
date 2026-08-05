@@ -15,8 +15,9 @@ void TestWireRoundtrip() {
     uint8_t buf[kMaxDatagram];
 
     Hello h{0xDEADBEEF, kCodecMaskH264, 2560, 1440, 120, 0x0001};
+    h.passcode = "0417";
     size_t n = BuildHello(buf, h);
-    Check(n == kCommonHeaderSize + 14, "HELLO size");
+    Check(n == kCommonHeaderSize + 14 + kPasscodeDigits, "HELLO size");
     auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
     Check(ch && ch->type == MsgType::Hello && ch->sessionId == 0, "HELLO header");
     auto hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
@@ -24,6 +25,21 @@ void TestWireRoundtrip() {
               hp->maxWidth == h.maxWidth && hp->maxHeight == h.maxHeight &&
               hp->desiredFps == h.desiredFps && hp->features == h.features,
         "HELLO payload");
+    Check(hp && hp->passcode == "0417", "HELLO carries the passcode with leading zero");
+
+    h.passcode.clear();
+    n = BuildHello(buf, h);
+    hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(hp && hp->passcode.empty(), "HELLO without a passcode parses as empty");
+
+    h.passcode = "12ab";
+    n = BuildHello(buf, h);
+    hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(hp && hp->passcode.empty(), "an invalid passcode is never put on the wire");
+
+    Check(IsValidPasscode("0000") && IsValidPasscode("9999"), "all-digit passcodes are valid");
+    Check(!IsValidPasscode("123") && !IsValidPasscode("12345") && !IsValidPasscode("12a4"),
+        "wrong length or non-digits are invalid");
 
     HelloAck a{0xCAFE0001, Codec::H264, 1920, 1080, 60, 20'000'000, 123'456'789'012ull};
     n = BuildHelloAck(buf, a);

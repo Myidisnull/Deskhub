@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <utility>
 
@@ -14,6 +15,17 @@ namespace {
 
 bool StartsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
+}
+
+uint8_t PrefixLenOf(const sockaddr* netmask) {
+    if (!netmask || netmask->sa_family != AF_INET) return 24;
+    uint32_t mask = ntohl(reinterpret_cast<const sockaddr_in*>(netmask)->sin_addr.s_addr);
+    uint8_t bits = 0;
+    while (mask & 0x80000000u) {
+        ++bits;
+        mask <<= 1;
+    }
+    return bits == 0 ? uint8_t(24) : bits;
 }
 
 #if defined(__APPLE__)
@@ -78,7 +90,9 @@ std::vector<AdapterAddr> ListLocalIPv4() {
         if (std::strncmp(ip, "169.254.", 8) == 0) continue;
 
         const std::string ifname = ifa->ifa_name ? ifa->ifa_name : "?";
-        ranked.emplace_back(Rank(ifname), AdapterAddr{FriendlyName(ifname), ip});
+        const int rank = Rank(ifname);
+        ranked.emplace_back(rank,
+            AdapterAddr{FriendlyName(ifname), ip, PrefixLenOf(ifa->ifa_netmask), rank == 2});
     }
     freeifaddrs(head);
 

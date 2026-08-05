@@ -14,6 +14,7 @@ namespace deskhubp {
 
 struct HostSessionHooks {
     std::function<void(std::span<const uint8_t>)> send;
+    std::function<void(uint64_t addrPacked, std::span<const uint8_t>)> sendToAddr;
     std::function<void(std::span<const uint8_t>)> sendToRequester;
     std::function<deskhub::StreamSize()> retarget;
     std::function<void(const deskhub::InputEvent&)> applyInput;
@@ -40,6 +41,7 @@ struct HostSourceHooks {
 
 struct HostNetLoopHooks {
     std::function<bool()> stopped;
+    std::function<void()> onTick;
     std::function<void()> publishStatus;
     std::function<void()> onSocketError;
 

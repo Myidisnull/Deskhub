@@ -55,6 +55,43 @@ void TestBeaconSourcesAndProbe() {
         "in-session PING is not the Beacon's business");
 }
 
+void TestBeaconHidesSourcesBehindThePasscode() {
+    std::printf("[disc] Beacon: a passcode hides what is shared but not that we are alive...\n");
+    Beacon b;
+    SourceInfo s;
+    s.sourceId = 0;
+    s.width = 3440;
+    s.height = 1440;
+    s.name = "DELL U2723QE";
+    b.SetSources(std::span<const SourceInfo>(&s, 1));
+    b.SetPasscode("4726");
+
+    uint8_t req[kMaxDatagram];
+    SourceInfo got[kMaxSources];
+
+    size_t rn = BuildListSources(req);
+    auto rep = Ask(b, std::span<const uint8_t>(req, rn));
+    auto h = ParseCommonHeader(rep);
+    Check(h && h->type == MsgType::SourceList,
+        "a query without the passcode is still answered, so the host reads as online");
+    Check(ParseSourceList(PayloadOf(rep), got) == 0,
+        "but it learns nothing about the displays");
+
+    rn = BuildListSources(req, "1111");
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
+        "a wrong passcode learns nothing either");
+
+    rn = BuildListSources(req, "4726");
+    rep = Ask(b, std::span<const uint8_t>(req, rn));
+    Check(ParseSourceList(PayloadOf(rep), got) == 1 && got[0].name == "DELL U2723QE",
+        "the right passcode gets the real list");
+
+    b.SetPasscode("bad");
+    rn = BuildListSources(req);
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 1,
+        "an invalid passcode leaves the host unprotected rather than locked out");
+}
+
 void TestBeaconIgnoresSessionTraffic() {
     std::printf("[disc] Beacon: leaves session traffic alone...\n");
     const Beacon b;
@@ -78,5 +115,6 @@ void TestBeaconIgnoresSessionTraffic() {
 
 void RunBeaconTests() {
     TestBeaconSourcesAndProbe();
+    TestBeaconHidesSourcesBehindThePasscode();
     TestBeaconIgnoresSessionTraffic();
 }

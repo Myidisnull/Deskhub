@@ -9,6 +9,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace deskhub {
 
@@ -75,6 +76,7 @@ NegotiationResult BeginNegotiation(SourcePipelineState& st, const Hello& hello, 
 
 struct StatusExtras {
     std::string viewerAddr;
+    std::vector<std::string> viewerAddrs;
     bool zeroCopy = false;
 };
 

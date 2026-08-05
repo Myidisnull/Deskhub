@@ -1,6 +1,6 @@
 # Deskhub Privacy Policy
 
-_Effective date: July 24, 2026 — Version 1.0_
+_Effective date: August 5, 2026 — Version 1.1_
 
 ## 1. Introduction
 
@@ -35,7 +35,9 @@ party.
 |---|---|---|---|
 | Screen content of your PC (video frames) | Displaying your PC screen on your phone | Sent directly from your PC to your phone, encrypted in transit only by your own network/VPN layer | Never stored; exists only in memory during the session |
 | Mouse, keyboard, and touch input | Controlling your PC from your phone | Sent directly from your phone to your PC | Never stored; discarded after injection |
-| The PC address (IP/hostname) you type | Connecting to your PC | Stays on your phone | Kept locally until you change it |
+| The PC address (IP/hostname) you type | Connecting to your PC | Stays on the device you typed it on | Kept locally until you change it |
+| On Windows: the last 10 addresses you connected to, the time of each, and the passcode you used for each | Filling in the *Recent devices* list so you can reconnect with one click | Written to `recent-devices.txt` in `%USERPROFILE%\.deskhub` on your own machine | Kept until you connect to 10 newer addresses, or you delete the file |
+| On Windows: your sharing preferences (frame rate, bitrate, resolution cap, port, whether viewers may control the machine, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder | Kept until you change them or delete the file |
 | Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your phone and your PC | Never stored; discarded when the session ends |
 
 ### 3.1 Peer-to-peer by design
@@ -65,11 +67,14 @@ pop-ups, and any window you open while sharing. (Sharing a single application
 window was removed on 2026-07-27; the Software now shares whole displays
 only.) When you allow remote control, the viewer's input is injected as if
 they were sitting at the PC and can reach **any application visible on the
-shared display** — it is no longer limited to one window. Two safety
-mechanisms remain active: if the person at the PC touches the real mouse or
-keyboard, remote input pauses ("host wins"), and any keys held by the remote
-side are automatically released when the connection ends or the viewer
-switches away.
+shared display** — it is no longer limited to one window. On Windows you can
+turn remote control off entirely in the Settings tab, which makes the share
+view-only: input that arrives is discarded instead of injected. Two safety
+mechanisms remain active whenever control is allowed: if the person at the PC
+touches the real mouse or keyboard, remote input pauses ("host wins"), and any
+keys held by the remote side are automatically released when the connection
+ends or the viewer switches away. Up to five viewers can watch one PC at once,
+but only one of them drives the mouse and keyboard at any moment.
 
 ## 4. Permissions the apps request
 
@@ -106,12 +111,18 @@ permission, it will be requested in-context and this policy will be updated.
 - Streaming traffic stays inside your own network or your own VPN tunnel.
   When you use a VPN such as Tailscale, traffic between devices is end-to-end
   encrypted by that VPN (WireGuard).
-- On a plain local network, traffic is not additionally encrypted by Deskhub,
-  and a sharing machine asks for no password before accepting a connection.
-  Use it only on networks you trust, or through a VPN, and never expose it to
+- On a plain local network, traffic is not additionally encrypted by Deskhub.
+  A Windows host can require a 4-digit passcode before accepting a connection,
+  but that code travels in the clear like the rest of the traffic, and no other
+  platform offers it; hosts without one accept whoever connects first. Use
+  Deskhub only on networks you trust, or through a VPN, and never expose it to
   the Internet directly. The full threat model — what is protected, what is
   not, and how to report a vulnerability — is in
   [`SECURITY.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
+- The passcodes saved in `recent-devices.txt` and `ui-settings.txt` are
+  obfuscated with a fixed key so they are not legible at a glance. That is not
+  encryption and is not meant to defend against someone who already has access
+  to your user account.
 - Because we hold no data about you, there is no developer-side database that
   could be breached.
 
@@ -119,7 +130,10 @@ permission, it will be requested in-context and this policy will be updated.
 
 We retain nothing, so there is nothing for us to delete. All session data
 disappears when the session ends. The PC address saved in the app is removed
-by clearing the field or uninstalling the app.
+by clearing the field or uninstalling the app. On Windows, the recent-device
+list and the saved settings — including any passcodes — are removed by deleting
+the `%USERPROFILE%\.deskhub` folder, which the app recreates empty on the next
+launch.
 
 ## 8. Your rights (GDPR, CCPA, and similar laws)
 
@@ -153,6 +167,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1 | 2026-08-05 | The Windows app now saves data between launches: a list of the last 10 addresses you connected to, your sharing settings, and the passcodes used with either. All of it stays in `%USERPROFILE%\.deskhub` on your own machine; none of it is transmitted anywhere. Documented view-only sharing and the 5-viewer limit. |
 | 1.0 | 2026-07-24 | First publication. |
 
 ## 12. Contact

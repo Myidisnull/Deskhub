@@ -59,6 +59,11 @@ void TestComposedTitleKeepsAllThreeParts() {
 
     Check(Contains(ComposeViewerTitle("Deskhub", "", kViewerLockHint), kViewerConnectingStatus),
         "the composed title uses the same connecting placeholder");
+
+    const std::string viewOnly = ComposeViewerTitle("Deskhub", "60fps", kViewerViewOnlyHint);
+    Check(Contains(viewOnly, kViewerViewOnlyHint),
+        "a view-only session says so instead of promising a mouse lock");
+    Check(!Contains(viewOnly, kViewerLockHint), "and drops the F9 hint that would be a lie");
 }
 
 }

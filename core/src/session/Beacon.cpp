@@ -8,8 +8,11 @@ size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const
     const auto payload = PayloadOf(pkt);
 
     switch (h->type) {
-        case MsgType::ListSources:
+        case MsgType::ListSources: {
+            if (!passcode_.empty() && ParseListSourcesPasscode(payload) != passcode_)
+                return BuildSourceList(out, {});
             return BuildSourceList(out, sources_);
+        }
         case MsgType::Ping: {
             if (h->sessionId != 0) return 0;
             const auto m = ParsePingPong(payload);

@@ -26,6 +26,7 @@ struct ClientPumpConfig {
     bool sendNacks = false;
     bool logLossRuns = false;
     const char* statusSeparator = "  ";
+    std::string passcode;
 };
 
 struct ClientPumpCallbacks {

@@ -71,6 +71,9 @@ deskhub::HostCallbacks MakeHostCallbacks(deskhub::SourcePipelineState& st,
     cb.send = [shared](std::span<const uint8_t> d) {
         if (shared->send) shared->send(d);
     };
+    cb.sendTo = [shared](uint64_t addrPacked, std::span<const uint8_t> d) {
+        if (shared->sendToAddr) shared->sendToAddr(addrPacked, d);
+    };
     cb.randomBytes = [](std::span<uint8_t> out) {
         return RandomBytes(out.data(), out.size());
     };
@@ -170,6 +173,8 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
     deskhub::diag::AgentDiag loopDiag;
 
     while (!hooks.stopped || !hooks.stopped()) {
+        if (hooks.onTick) hooks.onTick();
+
         bool anyAlive = false;
         for (deskhub::SourcePipelineState* st : live)
             if (Alive(*st, hooks.source)) anyAlive = true;

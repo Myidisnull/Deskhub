@@ -42,6 +42,7 @@ struct ClientEngineConfig {
     bool logLossRuns = true;
     bool alwaysFocused = false;
     const char* statusSeparator = "  ";
+    std::string passcode;
 
     std::function<void(uint32_t width, uint32_t height, uint8_t fps)> onParams;
     std::function<void(const char* status)> onStatus;
@@ -385,6 +386,7 @@ private:
         pcfg.sendNacks = cfg_.sendNacks;
         pcfg.logLossRuns = cfg_.logLossRuns;
         pcfg.statusSeparator = cfg_.statusSeparator;
+        pcfg.passcode = cfg_.passcode;
         pump.Start(pcfg, NowUs());
 
         std::vector<deskhub::InputEvent> batch;

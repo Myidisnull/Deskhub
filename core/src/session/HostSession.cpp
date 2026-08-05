@@ -25,6 +25,7 @@ bool HostSession::HandleHello(std::span<const uint8_t> payload, uint64_t nowUs,
     uint64_t fromPacked) {
     const auto m = ParseHello(payload);
     if (!m || !fromPacked) return false;
+    if (!PasscodeAllows(*m, nowUs)) return false;
     if (!(m->codecMask & kCodecMaskH264)) {
         SendReject(RejectReason::CodecMismatch);
         return false;
@@ -155,6 +156,17 @@ void HostSession::Tick(uint64_t nowUs) {
     }
 }
 
+bool HostSession::KickViewer(uint64_t addrPacked) {
+    ViewerSlot* viewer = viewers_.Find(addrPacked);
+    if (!viewer || !viewer->active) return false;
+
+    const size_t n = BuildBye(buf_, sessionId());
+    if (n && cb_.sendTo) cb_.sendTo(addrPacked, std::span<const uint8_t>(buf_, n));
+
+    DropViewer(*viewer);
+    return true;
+}
+
 void HostSession::DropViewer(ViewerSlot& viewer) {
     const uint64_t addr = viewer.addrPacked;
 
@@ -201,6 +213,23 @@ void HostSession::SendHelloAck(uint64_t nowUs) {
     a.timebaseUs = nowUs;
     const size_t n = BuildHelloAck(buf_, a);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
+}
+
+bool HostSession::PasscodeAllows(const Hello& m, uint64_t nowUs) {
+    if (passcode_.empty()) return true;
+    if (nowUs < passcodeLockUntilUs_) return false;
+
+    if (m.passcode == passcode_) {
+        wrongPasscodes_ = 0;
+        return true;
+    }
+
+    if (++wrongPasscodes_ >= kMaxPasscodeAttempts) {
+        wrongPasscodes_ = 0;
+        passcodeLockUntilUs_ = nowUs + kPasscodeLockoutUs;
+    }
+    SendReject(RejectReason::WrongPasscode);
+    return false;
 }
 
 void HostSession::SendReject(RejectReason reason) {

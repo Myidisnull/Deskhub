@@ -28,8 +28,16 @@ std::string ToUtf8(const wchar_t* w) {
     return s;
 }
 
-bool IsVirtual(const AdapterAddr& a) {
-    return a.name.rfind("vEthernet", 0) == 0;
+bool IsVirtual(const std::string& friendlyName, const std::string& description) {
+    if (friendlyName.rfind("vEthernet", 0) == 0) return true;
+    for (const char* marker : {"Hyper-V", "VirtualBox", "VMware", "Virtual Adapter", "Loopback"})
+        if (description.find(marker) != std::string::npos) return true;
+    return false;
+}
+
+uint8_t PrefixLenOf(const IP_ADAPTER_UNICAST_ADDRESS* u) {
+    const uint8_t reported = u->OnLinkPrefixLength;
+    return reported == 0 || reported > 32 ? uint8_t(24) : reported;
 }
 
 }
@@ -56,18 +64,20 @@ std::vector<AdapterAddr> ListLocalIPv4() {
     for (auto* a = (IP_ADAPTER_ADDRESSES*)buf.data(); a; a = a->Next) {
         if (a->OperStatus != IfOperStatusUp) continue;
         if (a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+        const std::string name = ToUtf8(a->FriendlyName);
+        const bool isVirtual = IsVirtual(name, ToUtf8(a->Description));
         for (auto* u = a->FirstUnicastAddress; u; u = u->Next) {
             if (!u->Address.lpSockaddr || u->Address.lpSockaddr->sa_family != AF_INET) continue;
             const auto* sin = (const sockaddr_in*)u->Address.lpSockaddr;
             char ip[32];
             if (!InetNtopA(AF_INET, &sin->sin_addr, ip, sizeof(ip))) continue;
             if (std::strncmp(ip, "169.254.", 8) == 0) continue;
-            out.push_back(AdapterAddr{ToUtf8(a->FriendlyName), ip});
+            out.push_back(AdapterAddr{name, ip, PrefixLenOf(u), isVirtual});
         }
     }
 
     std::stable_sort(out.begin(), out.end(), [](const AdapterAddr& x, const AdapterAddr& y) {
-        return IsVirtual(x) < IsVirtual(y);
+        return x.virtualAdapter < y.virtualAdapter;
     });
     return out;
 }

@@ -14,32 +14,40 @@ NetAddr Addr(uint32_t ip, uint16_t port) {
     return NetAddr{ip, port};
 }
 
-void TestParsingAcceptsOnlyABareIPv4() {
-    std::printf("[netaddr] the address box takes an IP and nothing else...\n");
+void TestParsingAcceptsAnIPv4WithDefaultPort() {
+    std::printf("[netaddr] a bare IP parses and gets the default port...\n");
 
     NetAddr a{};
     Check(ParseNetAddr("192.168.1.10", a), "a dotted quad parses");
     Check(a.ip == 0xC0A8010Au, "and lands in host byte order, high octet first");
-    Check(a.port == kDeskhubPort, "the port is ours to choose, never the user's");
+    Check(a.port == kDeskhubPort, "no port given means the default Deskhub port");
 
     Check(ParseNetAddr("0.0.0.0", a) && a.ip == 0, "the all-zero address parses");
     Check(ParseNetAddr("255.255.255.255", a) && a.ip == 0xFFFFFFFFu, "so does the broadcast one");
     Check(ParseNetAddr("127.0.0.1", a) && a.ip == 0x7F000001u, "so does loopback");
 
-    const char* bad[] = {"", "192.168.1.10:47777", "localhost", "192.168.1", "192.168.1.256",
-        "192.168.1.10 ", "1.2.3.4.5", "::1", "hello"};
+    const char* bad[] = {"", "localhost", "192.168.1", "192.168.1.256", "192.168.1.10 ",
+        "1.2.3.4.5", "::1", "hello"};
     for (const char* s : bad) {
         NetAddr out{0xDEADBEEFu, 1234};
-        Check(!ParseNetAddr(s, out), "anything that is not a bare IPv4 address is refused");
+        Check(!ParseNetAddr(s, out), "anything that is not an IPv4 address is refused");
     }
 }
 
-void TestParsingRejectsAnAddressWithAPort() {
-    std::printf("[netaddr] a pasted host:port is refused rather than half-understood...\n");
+void TestParsingAcceptsAnOptionalPort() {
+    std::printf("[netaddr] an explicit host:port is honoured, a broken one refused...\n");
     NetAddr a{};
-    Check(!ParseNetAddr("192.168.1.10:1234", a),
-        "we would otherwise silently ignore the port the user typed");
-    Check(!ParseNetAddr(":47777", a), "a bare port is not an address either");
+    Check(ParseNetAddr("192.168.1.10:1234", a) && a.ip == 0xC0A8010Au && a.port == 1234,
+        "the port the user typed is the port that is used");
+    Check(ParseNetAddr("127.0.0.1:65535", a) && a.port == 65535, "the highest port works");
+    Check(ParseNetAddr("10.0.0.7:1", a) && a.port == 1, "so does the lowest");
+
+    const char* bad[] = {":47777", "192.168.1.10:", "192.168.1.10:0", "192.168.1.10:65536",
+        "192.168.1.10:12:34", "192.168.1.10:abc", "192.168.1.10:12b"};
+    for (const char* s : bad) {
+        NetAddr out{};
+        Check(!ParseNetAddr(s, out), "a malformed port is refused, never half-understood");
+    }
 }
 
 void TestToStringIsWhatTheUserTyped() {
@@ -84,8 +92,8 @@ void TestEquality() {
 }
 
 void RunNetAddrTests() {
-    TestParsingAcceptsOnlyABareIPv4();
-    TestParsingRejectsAnAddressWithAPort();
+    TestParsingAcceptsAnIPv4WithDefaultPort();
+    TestParsingAcceptsAnOptionalPort();
     TestToStringIsWhatTheUserTyped();
     TestPackingSurvivesTheRoundTrip();
     TestEquality();

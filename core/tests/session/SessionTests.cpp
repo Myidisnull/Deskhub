@@ -143,6 +143,60 @@ void TestSessions() {
     Check(!cliDead.empty(), "client gives up when host goes silent");
 }
 
+void TestHostKicksOneViewer() {
+    std::printf("[session] the host can kick a single viewer by address...\n");
+    WirePair w;
+    const uint64_t now = 10'000'000;
+
+    std::vector<std::pair<uint64_t, Datagram>> targeted;
+    HostCallbacks hcb;
+    hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.sendTo = [&](uint64_t addr, std::span<const uint8_t> d) {
+        targeted.emplace_back(addr, Datagram(d.begin(), d.end()));
+    };
+    hcb.randomBytes = TestRandomBytes;
+    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+
+    std::string cliDead;
+    ClientCallbacks ccb;
+    ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
+    ccb.onDisconnect = [&](const char* r) { cliDead = r; };
+    ClientSession cli(ccb);
+
+    auto pump = [&] {
+        for (int guard = 0; guard < 8; ++guard) {
+            if (w.toHost.empty() && w.toClient.empty()) break;
+            while (!w.toHost.empty()) {
+                auto d = std::move(w.toHost.front());
+                w.toHost.pop_front();
+                host.HandlePacket(d, now, kTestViewer);
+            }
+            while (!w.toClient.empty()) {
+                auto d = std::move(w.toClient.front());
+                w.toClient.pop_front();
+                cli.HandlePacket(d, now);
+            }
+        }
+    };
+
+    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    pump();
+    Check(host.viewerCount() == 1, "one viewer is connected");
+
+    Check(!host.KickViewer(kTestViewer + 1), "an unknown address cannot be kicked");
+    Check(host.viewerCount() == 1, "and the real viewer is untouched by that");
+
+    Check(host.KickViewer(kTestViewer), "the connected viewer can be kicked");
+    Check(host.viewerCount() == 0, "it is gone from the viewer table");
+    Check(targeted.size() == 1 && targeted[0].first == kTestViewer,
+        "a farewell went to exactly that address");
+    const auto header = ParseCommonHeader(targeted[0].second);
+    Check(header.has_value() && header->type == MsgType::Bye, "and it really is a BYE");
+
+    cli.HandlePacket(targeted[0].second, now);
+    Check(!cliDead.empty(), "the kicked viewer shuts its session down");
+}
+
 void TestSessionsNackInvalidate() {
     std::printf("[session] NACK / INVALIDATE_REF routing + pre-stream gating...\n");
     WirePair w;
@@ -406,6 +460,64 @@ void TestRejectCodecMismatch() {
     Check(r.host.state() == HostSession::State::Idle, "host stays IDLE after the codec reject");
 }
 
+void TestPasscodeGate() {
+    std::printf("[session] 4-digit passcode: wrong rejected, right admitted, lockout...\n");
+    {
+        Rig r;
+        r.host.SetPasscode("0417");
+        Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
+        h.passcode = "1111";
+        r.cli.Start(h, r.now);
+        r.Pump();
+        Check(r.cliDead.find("passcode") != std::string::npos, "wrong passcode is told why");
+        Check(r.cli.rejectReason() == RejectReason::WrongPasscode,
+            "the reject reason names the passcode");
+        Check(r.host.state() == HostSession::State::Idle && r.host.viewerCount() == 0,
+            "host stays idle after a wrong passcode");
+    }
+    {
+        Rig r;
+        r.host.SetPasscode("0417");
+        Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
+        h.passcode = "0417";
+        r.cli.Start(h, r.now);
+        r.Pump();
+        Check(r.readyCalls == 1 && r.host.viewerCount() == 1, "the right passcode is admitted");
+    }
+    {
+        Rig r;
+        Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
+        h.passcode = "9999";
+        r.cli.Start(h, r.now);
+        r.Pump();
+        Check(r.readyCalls == 1, "a host with no passcode ignores whatever the client sends");
+    }
+    {
+        Rig r;
+        r.host.SetPasscode("0417");
+        uint8_t buf[kMaxDatagram];
+        Hello bad{0x9, kCodecMaskH264, 1920, 1080, 60, 0};
+        bad.passcode = "0000";
+        for (uint32_t i = 0; i < kMaxPasscodeAttempts; ++i) {
+            const size_t n = BuildHello(buf, bad);
+            r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+        }
+        r.w.toClient.clear();
+
+        Hello good = bad;
+        good.passcode = "0417";
+        size_t n = BuildHello(buf, good);
+        r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+        Check(r.w.toClient.empty() && r.host.viewerCount() == 0,
+            "locked out after repeated wrong guesses, even with the right code");
+
+        r.now += kPasscodeLockoutUs + 1;
+        n = BuildHello(buf, good);
+        r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+        Check(r.host.viewerCount() == 1, "the lockout expires and the right code works again");
+    }
+}
+
 void RunHandshakeAgainstBrokenRng(HostCallbacks hcb, const char* what) {
     WirePair w;
     uint64_t now = 10'000'000;
@@ -631,6 +743,7 @@ void TestInputAlwaysFlows() {
 
 void RunSessionTests() {
     TestSessions();
+    TestHostKicksOneViewer();
     TestSessionsNackInvalidate();
     TestReconfigFocusFeedback();
     TestHandshakeDuplicates();
@@ -640,6 +753,7 @@ void RunSessionTests() {
     TestHostInputStats();
     TestClientDeathPaths();
     TestRejectCodecMismatch();
+    TestPasscodeGate();
     TestInputThroughSession();
     TestStraySessionIdIgnored();
     TestFocusRepeatsAndKeyframeCancel();

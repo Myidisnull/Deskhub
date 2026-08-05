@@ -8,7 +8,7 @@ desktop tools can't pull off.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
-| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~280 KB** exe; macOS is a **1.9 MB** dmg. | Two buttons: **Share** a display or **Connect** to an IP. That's the entire UI. |
+| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | Three tabs on Windows — **Host**, **Client**, **Settings**; two buttons everywhere else. **Share** a display or **Connect** to an IP, and that's it. |
 
 ## 💡 Why
 
@@ -30,8 +30,10 @@ desktop tools can't pull off.
 
 ## 🔒 Before you share a screen
 
-> **⚠️ Deskhub has no password and no encryption of its own. Anyone who can reach UDP
-> 47777 on a sharing machine gets full mouse and keyboard control of it.**
+> **⚠️ Deskhub encrypts nothing. A Windows host can ask viewers for a 4-digit passcode,
+> but that code travels in the clear like everything else, and it is off by default —
+> without one, anyone who can reach UDP 47777 on a sharing machine gets full mouse and
+> keyboard control of it.**
 >
 > Run it on a **network you trust**, or over a **VPN** — install
 > [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z`
@@ -46,7 +48,8 @@ model, what is and isn't protected, and how to report a vulnerability.
 
 **🪟 Windows & 🍎 macOS** — grab a single `.exe` / `.dmg` from
 **[Releases](https://github.com/manhpham90vn/Deskhub/releases)** — no install, no setup.
-On Windows, sharing prompts for admin once and the app configures the firewall by itself.
+On Windows the app asks for administrator once as it starts — it needs that to inject
+input into elevated windows — and adds its own Windows Firewall rule when you share.
 
 **🐧 Linux** — pick the file matching your distro from
 [Releases](https://github.com/manhpham90vn/Deskhub/releases); the deb and the rpm carry
@@ -135,9 +138,21 @@ or join the Play beta — three steps, **same Google account** as your phone's P
 3. Install (give Play a few minutes to sync): [play.google.com/store/apps/details?id=com.manhpham.deskhub](https://play.google.com/store/apps/details?id=com.manhpham.deskhub)
    — then please keep it installed **14+ days** (Google's requirement to go public).
 
-**Using it:** on desktop, **Share** picks the display(s) to expose; **Connect** takes the
-other machine's IP (port is always UDP 47777) — whoever connects gets mouse and keyboard,
-with no password asked and no view-only mode, so only share on a network you trust.
+**Using it:** on desktop, **Host** picks the display(s) to expose; **Client** takes the
+other machine's IP (UDP 47777 unless you change the port). Up to **5 viewers** can watch
+one host at a time, and machines you have connected to before come back under **Recent
+devices** with a live online/offline dot.
+
+Only one viewer drives the mouse and keyboard at a time: the earliest to have joined
+wins ties, and the others' input is dropped until it has been idle for a second. The
+person sitting at the host outranks all of them. On Windows the **Settings** tab
+adds two more controls — untick *Viewers can control this machine* to share **view-only**
+(the host drops every input packet it receives), and set a **4-digit passcode** that
+viewers must enter, with three wrong tries locking the host for 30 seconds. Both are off
+/ blank by default, and the passcode is not encryption — see
+[`SECURITY.md`](SECURITY.md). The mobile, macOS and Linux clients have no passcode field
+yet, so they cannot connect to a host that requires one.
+
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:
 drag = move, tap = click, hold-drag = drag, **Keys** = virtual keyboard.

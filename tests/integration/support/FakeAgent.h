@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhubp/session/HostEngine.h"
 
+#include <string>
 #include <vector>
 
 namespace fake {
@@ -15,7 +16,7 @@ public:
     }
 
     bool Start(const std::vector<deskhub::media::ShareSource>& sources, uint16_t port,
-        uint32_t fps = 30, uint32_t maxDim = 1920);
+        uint32_t fps = 30, uint32_t maxDim = 1920, const std::string& passcode = std::string());
 
     void Stop() {
         engine_.Stop();

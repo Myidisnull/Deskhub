@@ -50,7 +50,7 @@ WinClientEngine& EngineOf(DHSession* s) {
 }
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks) {
+    const DHSessionCallbacks* callbacks, const char* passcode) {
     if (!surface) return nullptr;
 
     NetAddr server{};
@@ -78,6 +78,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     cfg.screenH = uint32_t(GetSystemMetrics(SM_CYVIRTUALSCREEN));
     cfg.alwaysFocused = true;
     cfg.statusSeparator = kStatusSeparator;
+    cfg.passcode = passcode ? passcode : "";
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t fps) {
         raw->negotiatedFps.store(fps ? fps : 60, std::memory_order_relaxed);
         raw->negotiated.store(true, std::memory_order_release);

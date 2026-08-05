@@ -10,7 +10,8 @@ constexpr uint64_t kQueryTimeoutUs = 3'000'000;
 constexpr uint64_t kResendUs = 500'000;
 }
 
-bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) {
+bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
+    const std::string& passcode) {
     out.clear();
 
     UdpSocket sock;
@@ -21,7 +22,7 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out) 
     sock.SetRecvTimeout(200);
 
     uint8_t query[deskhub::kMaxDatagram];
-    const size_t qn = deskhub::BuildListSources(query);
+    const size_t qn = deskhub::BuildListSources(query, passcode);
     if (!qn) return false;
 
     uint8_t buf[deskhub::kMaxDatagram];

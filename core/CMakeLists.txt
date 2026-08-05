@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(DeskhubCore LANGUAGES CXX)
+project(DeskhubCore LANGUAGES CXX VERSION 2.0.7)
 
 if(NOT COMMAND deskhub_target_warnings)
     include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)
@@ -41,9 +41,16 @@ add_library(core STATIC
     src/diag/AgentDiag.cpp
 
     src/session/Beacon.cpp
+
+    src/net/LanScan.cpp
+
+    src/ui/RecentDevices.cpp
+    src/ui/SecretText.cpp
+    src/ui/UiSettings.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_definitions(core PUBLIC DESKHUB_VERSION="${PROJECT_VERSION}")
 
 deskhub_target_warnings(core)
 if(MSVC)
@@ -76,7 +83,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/HostRouterTests.cpp
         tests/session/HostViewersTests.cpp
         tests/session/ConnectFlowTests.cpp
-        tests/session/ShareArgsTests.cpp
+        tests/session/ShareFlowTests.cpp
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
 
@@ -111,7 +118,12 @@ if(DESKHUB_CORE_TESTS)
 
         tests/session/BeaconTests.cpp
 
+        tests/net/LanScanTests.cpp
+
         tests/ui/StringsTests.cpp
+        tests/ui/RecentDevicesTests.cpp
+        tests/ui/SecretTextTests.cpp
+        tests/ui/UiSettingsTests.cpp
     )
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)

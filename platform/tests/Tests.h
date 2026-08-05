@@ -9,3 +9,6 @@ void RunLogFileTests();
 void RunFfiTextTests();
 void RunLocalInputGateTests();
 void RunHostCallbackTests();
+void RunHostProbeTests();
+void RunLanScannerTests();
+void RunAppDataFileTests();

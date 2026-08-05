@@ -5,6 +5,7 @@
 
 #include <cstdio>
 
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 
 #pragma comment(lib, "ws2_32.lib")
@@ -21,11 +22,13 @@ std::string NetAddr::ToString() const {
 }
 
 bool ParseNetAddr(const std::string& s, NetAddr& out) {
-    if (s.find(':') != std::string::npos) return false;
+    std::string host;
+    uint16_t port = kDeskhubPort;
+    if (!deskhub::ui::SplitHostPort(s, host, port)) return false;
     IN_ADDR a{};
-    if (InetPtonA(AF_INET, s.c_str(), &a) != 1) return false;
+    if (InetPtonA(AF_INET, host.c_str(), &a) != 1) return false;
     out.ip = ntohl(a.S_un.S_addr);
-    out.port = kDeskhubPort;
+    out.port = port;
     return true;
 }
 

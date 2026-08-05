@@ -7,6 +7,7 @@ namespace deskhub {
 inline constexpr std::string_view kViewerConnectingStatus = "connecting...";
 inline constexpr std::string_view kViewerLockHint = "Press F9 to lock mouse";
 inline constexpr std::string_view kViewerLockedHint = "Mouse locked - press F9 to release";
+inline constexpr std::string_view kViewerViewOnlyHint = "View only - input is not sent";
 
 inline std::string_view ViewerLockHintText(bool mouseLocked) {
     return mouseLocked ? kViewerLockedHint : kViewerLockHint;

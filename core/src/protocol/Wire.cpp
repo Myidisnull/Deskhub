@@ -44,7 +44,7 @@ size_t BuildPingPongImpl(std::span<uint8_t> out, MsgType type, uint32_t sessionI
 }
 
 size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
-    constexpr size_t kPayload = 14;
+    constexpr size_t kPayload = 14 + kPasscodeDigits;
     const size_t total = WriteCommon(out, MsgType::Hello, 0, Chan::Control, 0, kPayload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
@@ -55,11 +55,21 @@ size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
     p[10] = m.desiredFps;
     PutU16(p + 11, m.features);
     p[13] = m.sourceId;
+    const bool hasPasscode = IsValidPasscode(m.passcode);
+    for (size_t i = 0; i < kPasscodeDigits; ++i)
+        p[14 + i] = hasPasscode ? uint8_t(m.passcode[i]) : 0;
     return total;
 }
 
-size_t BuildListSources(std::span<uint8_t> out) {
-    return BuildEmpty(out, MsgType::ListSources, 0);
+size_t BuildListSources(std::span<uint8_t> out, std::string_view passcode) {
+    const size_t total = WriteCommon(out, MsgType::ListSources, 0, Chan::Control, 0,
+        kPasscodeDigits);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    const bool hasPasscode = IsValidPasscode(passcode);
+    for (size_t i = 0; i < kPasscodeDigits; ++i)
+        p[i] = hasPasscode ? uint8_t(passcode[i]) : 0;
+    return total;
 }
 
 size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources) {
@@ -266,7 +276,17 @@ std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {
     m.desiredFps = p[10];
     m.features = GetU16(p + 11);
     m.sourceId = payload.size() >= 14 ? p[13] : 0;
+    if (payload.size() >= 14 + kPasscodeDigits) {
+        const std::string_view code(reinterpret_cast<const char*>(p + 14), kPasscodeDigits);
+        if (IsValidPasscode(code)) m.passcode = code;
+    }
     return m;
+}
+
+std::string ParseListSourcesPasscode(std::span<const uint8_t> payload) {
+    if (payload.size() < kPasscodeDigits) return {};
+    const std::string_view code(reinterpret_cast<const char*>(payload.data()), kPasscodeDigits);
+    return IsValidPasscode(code) ? std::string(code) : std::string();
 }
 
 size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> out) {
@@ -308,7 +328,7 @@ std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload) {
     m.bitrateBps = GetU32(p + 10);
     m.timebaseUs = GetU64(p + 14);
 
-    if (payload.size() >= 25 && p[24] <= uint8_t(RejectReason::CodecMismatch))
+    if (payload.size() >= 25 && p[24] <= uint8_t(RejectReason::WrongPasscode))
         m.reason = RejectReason(p[24]);
     return m;
 }

@@ -93,9 +93,11 @@ private:
         std::map<uint8_t, std::vector<uint8_t>> parity;
         uint16_t pktCount = 0;
         uint16_t received = 0;
+        uint16_t maxIndexSeen = 0;
         uint64_t timestampUs = 0;
         bool idr = false;
         uint64_t firstSeenUs = 0;
+        uint64_t lastPushUs = 0;
         uint64_t lastNackUs = 0;
         size_t bytes = 0;
         bool Complete() const {
@@ -109,10 +111,20 @@ private:
     bool TryRecover(Pending& f, uint8_t group);
     void NoteLatePacket(uint32_t id, uint64_t nowUs);
 
-    static constexpr size_t kMaxPendingFrames = 4;
+    static constexpr size_t kMaxPendingFrames = 8;
+
+    static constexpr uint64_t kStallTimeoutMultiple = 2;
+    static constexpr uint64_t kHardTimeoutMultiple = 30;
 
     static constexpr uint64_t kNackHoldUs = 2'000;
     static constexpr uint64_t kNackMinIntervalUs = 10'000;
+
+    uint64_t StallTimeoutUs() const {
+        return kStallTimeoutMultiple * frameIntervalUs_;
+    }
+    uint64_t HardTimeoutUs() const {
+        return kHardTimeoutMultiple * frameIntervalUs_;
+    }
 
     PendingMap pending_;
     uint64_t frameIntervalUs_;

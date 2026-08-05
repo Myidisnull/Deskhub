@@ -51,6 +51,15 @@ int main() {
     std::printf("--- net: pre-session source query over loopback ---\n");
     RunSourceQueryTests();
 
+    std::printf("--- net: host probe + device status poller over loopback ---\n");
+    RunHostProbeTests();
+
+    std::printf("--- net: which neighbours a LAN scan would knock on ---\n");
+    RunLanScannerTests();
+
+    std::printf("--- system: app data files next to the logs ---\n");
+    RunAppDataFileTests();
+
     std::printf("--- ffi: string handover to the managed clients ---\n");
     RunFfiTextTests();
 

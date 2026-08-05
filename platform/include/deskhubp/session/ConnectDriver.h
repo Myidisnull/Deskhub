@@ -6,6 +6,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -30,12 +31,13 @@ public:
     using UiPost = std::function<void(std::function<void()>)>;
     using DoneHandler = std::function<void(const ConnectOutcome&)>;
 
-    bool QueryAsync(const NetAddr& server, UiPost postToUi, DoneHandler onDone) {
+    bool QueryAsync(const NetAddr& server, std::string passcode, UiPost postToUi,
+        DoneHandler onDone) {
         if (pending_->exchange(true, std::memory_order_acq_rel)) return false;
-        std::thread([pending = pending_, server, postToUi = std::move(postToUi),
-                        onDone = std::move(onDone)] {
+        std::thread([pending = pending_, server, passcode = std::move(passcode),
+                        postToUi = std::move(postToUi), onDone = std::move(onDone)] {
             auto outcome = std::make_shared<ConnectOutcome>();
-            outcome->ok = QuerySources(server, outcome->sources);
+            outcome->ok = QuerySources(server, outcome->sources, passcode);
             pending->store(false, std::memory_order_release);
             postToUi([outcome, onDone] { onDone(*outcome); });
         }).detach();

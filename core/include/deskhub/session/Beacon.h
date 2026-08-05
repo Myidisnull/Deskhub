@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace deskhub {
@@ -13,10 +15,15 @@ public:
         sources_.assign(sources.begin(), sources.end());
     }
 
+    void SetPasscode(std::string passcode) {
+        passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
+    }
+
     size_t Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const;
 
 private:
     std::vector<SourceInfo> sources_;
+    std::string passcode_;
 };
 
 }

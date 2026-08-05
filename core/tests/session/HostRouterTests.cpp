@@ -403,12 +403,16 @@ void TestStatusProjection() {
     p->statWindow.sendFps = 58.25;
     p->statWindow.sendKbps = 12'500;
 
-    const media::AgentSourceStatus idle =
-        MakeSourceStatus(*p, StatusExtras{"192.168.1.7:47777", false});
+    StatusExtras idleExtras;
+    idleExtras.viewerAddr = "192.168.1.7:47777";
+    idleExtras.viewerAddrs = {"192.168.1.7:47777"};
+    idleExtras.zeroCopy = false;
+
+    const media::AgentSourceStatus idle = MakeSourceStatus(*p, idleExtras);
     Check(!idle.viewerConnected, "nobody is watching yet");
     Check(idle.viewerCount == 0, "and the viewer count says so");
-    Check(idle.viewerAddr.empty(),
-        "and the address is dropped, so a stale peer cannot show up in the UI");
+    Check(idle.viewerAddr.empty() && idle.viewerAddrs.empty(),
+        "and the addresses are dropped, so a stale peer cannot show up in the UI");
     Check(idle.sourceId == 3 && idle.name == "Display 1", "identity is carried over");
     Check(idle.width == 1920 && idle.height == 1080, "so is the encoded size");
     Check(idle.rttMs == 17, "and the link RTT");
@@ -417,11 +421,17 @@ void TestStatusProjection() {
     Check(!idle.zeroCopy, "zero-copy is reported by the caller, not inferred");
 
     GiveConnectedSession(*p);
-    const media::AgentSourceStatus live =
-        MakeSourceStatus(*p, StatusExtras{"192.168.1.7:47777", true});
+    StatusExtras liveExtras;
+    liveExtras.viewerAddr = "192.168.1.7:47777";
+    liveExtras.viewerAddrs = {"192.168.1.7:47777"};
+    liveExtras.zeroCopy = true;
+
+    const media::AgentSourceStatus live = MakeSourceStatus(*p, liveExtras);
     Check(live.viewerConnected && live.viewerCount == 1,
         "a connected viewer marks the source as viewed");
     Check(live.viewerAddr == "192.168.1.7:47777", "and the formatted address comes through");
+    Check(live.viewerAddrs.size() == 1 && live.viewerAddrs[0] == "192.168.1.7:47777",
+        "so does the per-viewer address list");
     Check(live.zeroCopy, "the zero-copy flag is passed through");
 
     const SourceInfo info = MakeSourceInfo(*p);

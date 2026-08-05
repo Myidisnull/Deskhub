@@ -236,7 +236,7 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     callbacks.onSize = NotifySessionSize;
     callbacks.onClosed = NotifySessionClosed;
 
-    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks);
+    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks, nullptr);
     g_callbackSession.store(g_session, std::memory_order_release);
     return jlong(reinterpret_cast<uintptr_t>(g_session));
 }

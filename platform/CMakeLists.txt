@@ -67,6 +67,9 @@ endif()
 add_library(platform STATIC
     ${deskhub_platform_os}
     src/net/SourceQuery.cpp
+    src/net/HostProbe.cpp
+    src/net/DeviceStatusPoller.cpp
+    src/net/LanScanner.cpp
     src/net/ClientNetLoop.cpp
     src/session/HostNetLoop.cpp
     src/session/HostAgent.cpp
@@ -133,7 +136,10 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/input/LocalInputGateTests.cpp
         tests/net/NetAddrTests.cpp
         tests/net/SourceQueryTests.cpp
+        tests/net/HostProbeTests.cpp
+        tests/net/LanScannerTests.cpp
         tests/net/UdpSocketTests.cpp
+        tests/system/AppDataFileTests.cpp
         tests/session/HostCallbackTests.cpp
         tests/system/ClockTests.cpp
         tests/system/RandomTests.cpp

@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <cstdio>
 
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 
 std::string NetAddr::ToString() const {
@@ -19,11 +20,13 @@ std::string NetAddr::ToString() const {
 }
 
 bool ParseNetAddr(const std::string& s, NetAddr& out) {
-    if (s.find(':') != std::string::npos) return false;
+    std::string host;
+    uint16_t port = kDeskhubPort;
+    if (!deskhub::ui::SplitHostPort(s, host, port)) return false;
     in_addr a{};
-    if (inet_pton(AF_INET, s.c_str(), &a) != 1) return false;
+    if (inet_pton(AF_INET, host.c_str(), &a) != 1) return false;
     out.ip = ntohl(a.s_addr);
-    out.port = kDeskhubPort;
+    out.port = port;
     return true;
 }
 

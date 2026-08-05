@@ -13,6 +13,7 @@
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
+#include "AppIcon.h"
 #include "ViewerInput.h"
 #include "WinControls.h"
 #include "WinText.h"
@@ -27,12 +28,12 @@ constexpr UINT WM_APP_SIZE = WM_APP + 2;
 constexpr UINT WM_APP_CLOSED = WM_APP + 3;
 constexpr UINT kTimerHint = 1;
 
-deskhub::OpenViewerCount g_openFrames;
-
 struct ViewerFrame {
     HWND hwnd = nullptr;
     HWND video = nullptr;
     DHSession* session = nullptr;
+    deskhub::OpenViewerCount* openCount = nullptr;
+    bool viewOnly = false;
     ViewerInput input;
     std::string baseTitle;
     std::wstring shownTitle;
@@ -68,8 +69,11 @@ struct ViewerFrame {
             std::lock_guard<std::mutex> lk(mu);
             line = statsLine;
         }
-        std::wstring t = FromUtf8(
-            deskhub::PointerLockState(input.relativeMode()).TitleFor(baseTitle, line));
+        const std::string title =
+            viewOnly
+                ? deskhub::ComposeViewerTitle(baseTitle, line, deskhub::kViewerViewOnlyHint)
+                : deskhub::PointerLockState(input.relativeMode()).TitleFor(baseTitle, line);
+        std::wstring t = FromUtf8(title);
         if (t == shownTitle) return;
         shownTitle = std::move(t);
         SetWindowTextW(hwnd, shownTitle.c_str());
@@ -139,36 +143,41 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             DestroyWindow(h);
             return 0;
         case WM_DESTROY:
-            if (f) f->input.Detach();
-            if (g_openFrames.Closed()) PostQuitMessage(0);
+            if (f) {
+                f->input.Detach();
+                if (f->openCount && f->openCount->Closed()) PostQuitMessage(0);
+            }
             return 0;
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
 
 void RegisterClasses() {
-    static bool done = false;
-    if (done) return;
-    WNDCLASSW wc{};
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    static std::once_flag once;
+    std::call_once(once, [] {
+        WNDCLASSW wc{};
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
 
-    wc.lpfnWndProc = FrameProc;
-    wc.lpszClassName = kFrameClass;
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    RegisterClassW(&wc);
+        wc.lpfnWndProc = FrameProc;
+        wc.lpszClassName = kFrameClass;
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        RegisterClassW(&wc);
 
-    wc.lpfnWndProc = VideoProc;
-    wc.lpszClassName = kVideoClass;
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    RegisterClassW(&wc);
-    done = true;
+        wc.lpfnWndProc = VideoProc;
+        wc.lpszClassName = kVideoClass;
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        RegisterClassW(&wc);
+    });
 }
 
 std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId,
-    const std::string& nameUtf8) {
+    const std::string& nameUtf8, deskhub::OpenViewerCount& openCount, bool control,
+    const std::string& passcode) {
     auto f = std::make_unique<ViewerFrame>();
 
+    f->openCount = &openCount;
+    f->viewOnly = !control;
     f->baseTitle = deskhub::ViewerBaseTitle(nameUtf8);
 
     const std::wstring initialTitle = FromUtf8(f->baseTitle);
@@ -176,6 +185,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         CW_USEDEFAULT, CW_USEDEFAULT, 1024, 600, nullptr, nullptr,
         GetModuleHandleW(nullptr), nullptr);
     if (!f->hwnd) return nullptr;
+    SetAppWindowIcon(f->hwnd);
     SetWindowLongPtrW(f->hwnd, GWLP_USERDATA, (LONG_PTR)f.get());
 
     f->video = CreateWindowExW(0, kVideoClass, L"", WS_CHILD | WS_VISIBLE, 0, 0, 16, 16,
@@ -210,15 +220,16 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         PostMessageW(fr->hwnd, WM_APP_CLOSED, 0, 0);
     };
 
-    f->session = dh_session_start(addr.c_str(), sourceId, f->video, &callbacks);
+    f->session = dh_session_start(addr.c_str(), sourceId, f->video, &callbacks,
+        passcode.c_str());
     if (!f->session) {
         DestroyWindow(f->hwnd);
         return nullptr;
     }
 
-    f->input.Attach(f->video, f->session);
+    if (control) f->input.Attach(f->video, f->session);
 
-    g_openFrames.Opened();
+    openCount.Opened();
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
     f->UpdateTitle();
     f->Relayout();
@@ -229,13 +240,14 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
 }
 
-void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources) {
+void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
+    bool control, const std::string& passcode) {
     RegisterClasses();
-    g_openFrames = deskhub::OpenViewerCount{};
+    deskhub::OpenViewerCount openFrames;
 
     std::vector<std::unique_ptr<ViewerFrame>> frames;
     for (const auto& s : sources)
-        if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name))
+        if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name, openFrames, control, passcode))
             frames.push_back(std::move(f));
     if (frames.empty()) {
         MessageBoxW(nullptr, FromUtf8(deskhub::ui::kViewerOpenFailed).c_str(), L"Deskhub",

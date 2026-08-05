@@ -1,0 +1,108 @@
+#include "Tests.h"
+#include "support/TestSupport.h"
+
+#include "deskhub/ui/UiSettings.h"
+
+#include <cstdio>
+#include <string>
+
+using namespace deskhub;
+
+namespace {
+
+void TestRoundTrip() {
+    std::printf("[settings] saved settings come back exactly as chosen...\n");
+    ui::UiSettings s;
+    s.fps = 30;
+    s.bitrateMbps = 50;
+    s.maxDim = 2560;
+    s.port = 50123;
+    s.allowInput = false;
+    s.clientControl = false;
+    s.passcode = "0417";
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
+        "serialize then parse is identity");
+}
+
+void TestPasscodePersistence() {
+    std::printf("[settings] the passcode persists only when it is 4 digits...\n");
+    ui::UiSettings s;
+    s.passcode = "0417";
+    const std::string text = ui::SerializeUiSettings(s);
+    Check(ui::ParseUiSettings(text).passcode == "0417",
+        "a 4-digit passcode round-trips, leading zero kept");
+    Check(text.find("passcode=0417") == std::string::npos,
+        "the file never carries the digits in the clear");
+
+    Check(ui::ParseUiSettings("").passcode.empty(), "no passcode by default");
+    Check(ui::ParseUiSettings("passcode=0417").passcode == "0417",
+        "a hand-written passcode still works");
+    Check(ui::ParseUiSettings("passcode=123").passcode.empty(), "too short is dropped");
+    Check(ui::ParseUiSettings("passcode=12345").passcode.empty(), "too long is dropped");
+    Check(ui::ParseUiSettings("passcode=12ab").passcode.empty(), "non-digits are dropped");
+
+    s.passcode = "not4";
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)).passcode.empty(),
+        "an invalid in-memory passcode is not written out");
+}
+
+void TestDefaultsMatchShareDefaults() {
+    std::printf("[settings] a missing or empty file yields the share defaults...\n");
+    const ui::UiSettings defaults;
+    Check(defaults.fps == 60 && defaults.bitrateMbps == 20 && defaults.maxDim == 1920,
+        "defaults are the long-standing share defaults");
+    Check(defaults.port == kDeskhubPort, "the default port is the protocol default");
+    Check(defaults.allowInput, "remote control is allowed unless the user turns it off");
+    Check(ui::ParseUiSettings("") == defaults, "empty text is all defaults");
+}
+
+void TestNativeQualityIsPreserved() {
+    std::printf("[settings] the Native preset (max_dim=0) survives a round trip...\n");
+    ui::UiSettings s;
+    s.maxDim = 0;
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)).maxDim == 0,
+        "zero means native resolution, not a parse failure");
+}
+
+void TestGarbageFallsBackPerKey() {
+    std::printf("[settings] each bad value falls back alone, good ones still apply...\n");
+    const ui::UiSettings s = ui::ParseUiSettings(
+        "fps=abc\n"
+        "bitrate_mbps=50\n"
+        "max_dim=999999\n"
+        "unknown_key=7\n"
+        "no equals sign here\n");
+    Check(s.fps == 60, "junk fps falls back to the default");
+    Check(s.bitrateMbps == 50, "the valid bitrate is kept");
+    Check(s.maxDim == 1920, "an absurd dimension falls back to the default");
+}
+
+void TestBoundsAreEnforced() {
+    std::printf("[settings] zero and overflow values cannot smuggle in...\n");
+    Check(ui::ParseUiSettings("fps=0").fps == 60, "fps zero is rejected");
+    Check(ui::ParseUiSettings("fps=241").fps == 60, "fps above the cap is rejected");
+    Check(ui::ParseUiSettings("bitrate_mbps=0").bitrateMbps == 20, "bitrate zero is rejected");
+    Check(ui::ParseUiSettings("port=0").port == kDeskhubPort, "port zero is rejected");
+    Check(ui::ParseUiSettings("port=65536").port == kDeskhubPort,
+        "a port past 16 bits is rejected");
+    Check(ui::ParseUiSettings("port=50123").port == 50123, "a real custom port is kept");
+    Check(!ui::ParseUiSettings("allow_input=0").allowInput, "view-only mode round-trips");
+    Check(ui::ParseUiSettings("allow_input=1").allowInput, "so does control mode");
+    Check(!ui::ParseUiSettings("client_control=0").clientControl,
+        "the client-side view-only choice round-trips too");
+    Check(ui::ParseUiSettings("").clientControl, "and defaults to controlling");
+    Check(ui::ParseUiSettings("allow_input=x").allowInput,
+        "junk falls back to allowing control, the long-standing behaviour");
+    Check(ui::ParseUiSettings("fps = 30 ").fps == 30, "spaces around key and value are fine");
+}
+
+}
+
+void RunUiSettingsTests() {
+    TestRoundTrip();
+    TestPasscodePersistence();
+    TestDefaultsMatchShareDefaults();
+    TestNativeQualityIsPreserved();
+    TestGarbageFallsBackPerKey();
+    TestBoundsAreEnforced();
+}

@@ -403,10 +403,118 @@ void TestTheHostSurvivesAViewerThatVanishes() {
     Check(!agent.running(), "and the host shuts down cleanly");
 }
 
+void TestPasscodeGatesTheStream() {
+    std::printf("[e2e] a host with a passcode only streams to viewers that know it...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920, "4726")) {
+        Check(false, "the host could not start");
+        std::printf("  host error: %s\n", agent.LastError().c_str());
+        return;
+    }
+
+    {
+        Viewer wrong;
+        wrong.SetSurface(kDummySurface);
+        deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+        cfg.passcode = "1111";
+        wrong.Start(cfg);
+
+        Check(WaitFor([&] { return wrong.phase() == deskhubp::ClientPhase::Ended; },
+                  kConnectTimeoutMs),
+            "a viewer with the wrong passcode is turned away instead of hanging");
+        Check(wrong.EndReason().find("passcode") != std::string::npos,
+            "and is told the passcode was the problem");
+        Check(fake::Decoded().frameCount() == 0, "not one frame of the screen leaked to it");
+        wrong.Stop();
+    }
+
+    {
+        Viewer blank;
+        blank.SetSurface(kDummySurface);
+        blank.Start(ViewerConfig(port, 0));
+        Check(WaitFor([&] { return blank.phase() == deskhubp::ClientPhase::Ended; },
+                  kConnectTimeoutMs),
+            "so is a viewer that sends no passcode at all");
+        Check(fake::Decoded().frameCount() == 0, "still nothing decoded");
+        blank.Stop();
+    }
+
+    ResetObservations();
+    Viewer right;
+    right.SetSurface(kDummySurface);
+    deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+    cfg.passcode = "4726";
+    right.Start(cfg);
+
+    Check(WaitFor([&] { return Streaming(right); }, kConnectTimeoutMs),
+        "the viewer with the right passcode is let in");
+    Check(WaitFor([&] { return fake::Decoded().frameCount() >= 3; }, kStreamTimeoutMs),
+        "and receives real video once past the gate");
+
+    right.Stop();
+    agent.Stop();
+}
+
+void TestDiscoveryIsGatedByThePasscode() {
+    std::printf("[e2e] a protected host answers discovery but names no displays...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    if (!agent.Start({fake::Source("DELL U2723QE", 1280, 720, 1)}, port, 30, 1920, "4726")) {
+        Check(false, "the host could not start");
+        return;
+    }
+
+    std::vector<deskhub::SourceInfo> sources;
+    Check(QuerySources(HostAddr(port), sources),
+        "the host still replies, so it shows as online in the device list");
+    Check(sources.empty(), "but a viewer without the passcode sees no display names or sizes");
+
+    Check(QuerySources(HostAddr(port), sources, "1111") && sources.empty(),
+        "a wrong passcode learns nothing either");
+
+    Check(QuerySources(HostAddr(port), sources, "4726"), "the right passcode is answered");
+    Check(sources.size() == 1 && sources[0].name == "DELL U2723QE",
+        "and gets the real display list");
+
+    agent.Stop();
+}
+
+void TestNoPasscodeMeansAnyoneMayWatch() {
+    std::printf("[e2e] a host with no passcode still admits a viewer that sends one...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+        Check(false, "the host could not start");
+        return;
+    }
+
+    Viewer viewer;
+    viewer.SetSurface(kDummySurface);
+    deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+    cfg.passcode = "0000";
+    viewer.Start(cfg);
+
+    Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
+        "an unprotected host ignores whatever passcode arrives");
+
+    viewer.Stop();
+    agent.Stop();
+}
+
 }
 
 void RunSessionFlowTests() {
     TestAViewerConnectsAndSeesTheFramesTheHostEncoded();
+    TestPasscodeGatesTheStream();
+    TestDiscoveryIsGatedByThePasscode();
+    TestNoPasscodeMeansAnyoneMayWatch();
     TestKeystrokesReachTheHostInjector();
     TestPauseArrivesWithoutAScancode();
     TestTheHostReportsWhoIsWatching();

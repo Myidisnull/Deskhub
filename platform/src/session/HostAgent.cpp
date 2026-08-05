@@ -144,6 +144,10 @@ std::vector<deskhub::media::AgentSourceStatus> PublishSourceStatus(
         deskhub::StatusExtras extras;
         extras.zeroCopy = hooks.zeroCopy && hooks.zeroCopy(*p);
         extras.viewerAddr = ViewerAddrList(*p);
+        uint64_t addrs[deskhub::kMaxViewersPerSource];
+        const size_t viewers = deskhub::SnapshotViewerAddrs(*p, addrs);
+        for (size_t i = 0; i < viewers; ++i)
+            extras.viewerAddrs.push_back(NetAddr::Unpack(addrs[i]).ToString());
 
         rows.push_back(deskhub::MakeSourceStatus(*p, extras));
         infos.push_back(deskhub::MakeSourceInfo(*p));

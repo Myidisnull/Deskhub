@@ -14,6 +14,9 @@ namespace deskhub {
 
 inline constexpr uint64_t kSessionTimeoutUs = 5'000'000;
 
+inline constexpr uint32_t kMaxPasscodeAttempts = 3;
+inline constexpr uint64_t kPasscodeLockoutUs = 30'000'000;
+
 struct StreamParams {
     uint16_t width = 0;
     uint16_t height = 0;
@@ -23,6 +26,7 @@ struct StreamParams {
 
 struct HostCallbacks {
     std::function<void(std::span<const uint8_t>)> send;
+    std::function<void(uint64_t addrPacked, std::span<const uint8_t>)> sendTo;
     std::function<void(const Hello&)> onHello;
     std::function<void()> onStart;
     std::function<void()> onKeyframeRequest;
@@ -53,8 +57,13 @@ public:
         offer_ = p;
     }
 
+    void SetPasscode(std::string passcode) {
+        passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
+    }
+
     bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs, uint64_t fromPacked);
     void Tick(uint64_t nowUs);
+    bool KickViewer(uint64_t addrPacked);
 
     State state() const {
         return state_.load(std::memory_order_acquire);
@@ -94,6 +103,8 @@ private:
     void RefreshState();
     void Disconnect();
 
+    bool PasscodeAllows(const Hello& m, uint64_t nowUs);
+
     HostCallbacks cb_;
     StreamParams offer_;
     ViewerTable viewers_;
@@ -101,6 +112,9 @@ private:
     std::atomic<uint32_t> sessionId_{0};
     std::atomic<uint64_t> inputDenied_{0};
     uint64_t controllingAddr_ = 0;
+    std::string passcode_;
+    uint32_t wrongPasscodes_ = 0;
+    uint64_t passcodeLockUntilUs_ = 0;
     uint8_t buf_[kMaxDatagram] = {};
 };
 

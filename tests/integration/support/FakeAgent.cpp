@@ -39,12 +39,13 @@ deskhub::media::ShareSource Source(const char* name, uint32_t width, uint32_t he
 }
 
 bool Agent::Start(const std::vector<deskhub::media::ShareSource>& sources, uint16_t port,
-    uint32_t fps, uint32_t maxDim) {
+    uint32_t fps, uint32_t maxDim, const std::string& passcode) {
     deskhub::media::AgentOptions opt;
     opt.fps = fps;
     opt.maxDim = maxDim;
     opt.bitrateMbps = 8;
     opt.port = port;
+    opt.passcode = passcode;
 
     deskhubp::HostEngine* engine = &engine_;
 

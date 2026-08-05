@@ -56,6 +56,7 @@ void ClientPump::Start(const ClientPumpConfig& cfg, uint64_t nowUs) {
     hello.desiredFps = cfg.desiredFps;
     hello.features = 0;
     hello.sourceId = cfg.sourceId;
+    hello.passcode = cfg.passcode;
     session_.Start(hello, nowUs);
 }
 

@@ -44,8 +44,19 @@ bundled or modified; users may replace the system libraries freely.
 
 | Component | License | Linkage |
 | --- | --- | --- |
+| [wxWidgets](https://www.wxwidgets.org) 3.3 | wxWindows Library Licence 3.1 | **static** |
 | [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) (NVENC SDK 13.0 headers) | MIT | headers only |
 | Media Foundation, Direct3D 11, DXGI | Microsoft Windows SDK | OS component |
+
+### wxWidgets (wxWindows Library Licence, statically linked)
+
+The Windows app builds unmodified upstream wxWidgets from the official release archive
+(fetched by CMake at configure time, see `client/windows/win32/CMakeLists.txt`) and
+links it statically into `Deskhub.exe`. The wxWindows Library Licence is the LGPL plus
+an exception that explicitly permits distributing binaries linked against the library —
+statically or dynamically — under the distributor's own terms, so the single-file MIT
+distribution of Deskhub is unaffected. Licence text:
+<https://www.wxwidgets.org/about/licence/>.
 
 `third_party/nvenc-13.0` is a git submodule containing only the NVIDIA Video Codec SDK
 API headers as redistributed by the FFmpeg project under the MIT License. The NVENC

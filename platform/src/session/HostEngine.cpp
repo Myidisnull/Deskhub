@@ -80,13 +80,20 @@ void HostEngine::AttachSession(HostSource& st) {
         if (!packed) return;
         sock_.SendTo(NetAddr::Unpack(packed), d.data(), d.size());
     };
+    hooks.sendToAddr = [this](uint64_t addrPacked, std::span<const uint8_t> d) {
+        if (!addrPacked) return;
+        sock_.SendTo(NetAddr::Unpack(addrPacked), d.data(), d.size());
+    };
     hooks.sendToRequester = [this, p](std::span<const uint8_t> d) {
         const uint64_t packed = p->replyPacked.load(std::memory_order_acquire);
         if (!packed) return;
         sock_.SendTo(NetAddr::Unpack(packed), d.data(), d.size());
     };
     hooks.retarget = [p, sp] { return sp->retarget(*p); };
-    hooks.applyInput = [p, sp](const deskhub::InputEvent& e) { sp->applyInput(*p, e); };
+    hooks.applyInput = [this, p, sp](const deskhub::InputEvent& e) {
+        if (!opt_.allowInput) return;
+        sp->applyInput(*p, e);
+    };
     hooks.releaseInput = [p, sp] { sp->releaseInput(*p); };
     hooks.setEncoderBitrate = [p, sp](uint32_t bitrateBps) {
         return sp->setEncoderBitrate(*p, bitrateBps);
@@ -99,6 +106,7 @@ void HostEngine::AttachSession(HostSource& st) {
     const deskhub::HostCallbacks cb = MakeHostCallbacks(st, std::move(hooks));
 
     st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
+    st.session->SetPasscode(opt_.passcode);
     st.netReady.store(true, std::memory_order_release);
 }
 
@@ -205,10 +213,58 @@ void HostEngine::Stop() {
     pipes_.clear();
 }
 
+void HostEngine::RequestStopSource(uint8_t sourceId) {
+    std::lock_guard<std::mutex> lk(controlMutex_);
+    pendingSourceStops_.push_back(sourceId);
+}
+
+void HostEngine::RequestKickViewer(uint8_t sourceId, uint64_t addrPacked) {
+    if (!addrPacked) return;
+    std::lock_guard<std::mutex> lk(controlMutex_);
+    pendingViewerKicks_.emplace_back(sourceId, addrPacked);
+}
+
+HostSource* HostEngine::FindLiveSource(uint8_t sourceId) {
+    for (HostSource* st : live_)
+        if (st->sourceId == sourceId) return st;
+    return nullptr;
+}
+
+void HostEngine::DrainControlRequests() {
+    std::vector<uint8_t> stops;
+    std::vector<std::pair<uint8_t, uint64_t>> kicks;
+    {
+        std::lock_guard<std::mutex> lk(controlMutex_);
+        stops.swap(pendingSourceStops_);
+        kicks.swap(pendingViewerKicks_);
+    }
+    if (stops.empty() && kicks.empty()) return;
+
+    for (const auto& [sourceId, addrPacked] : kicks) {
+        HostSource* st = FindLiveSource(sourceId);
+        if (!st || st->failed.load() || !st->session) continue;
+        if (st->session->KickViewer(addrPacked))
+            LOGI("[Agent][%s] Viewer %s disconnected by the host.", st->name.c_str(),
+                NetAddr::Unpack(addrPacked).ToString().c_str());
+    }
+
+    for (const uint8_t sourceId : stops) {
+        HostSource* st = FindLiveSource(sourceId);
+        if (!st || st->shutdownDone) continue;
+        LOGI("[Agent][%s] Sharing stopped by the host.", st->name.c_str());
+        ShutdownSource(*st);
+    }
+
+    PublishStatus();
+}
+
 void HostEngine::RecvLoop() {
+    beacon_.SetPasscode(opt_.passcode);
+
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
+    loop.onTick = [this] { DrainControlRequests(); };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;

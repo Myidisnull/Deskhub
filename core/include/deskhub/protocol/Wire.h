@@ -4,6 +4,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace deskhub {
 
@@ -81,6 +82,15 @@ struct SourceInfo {
     std::string name;
 };
 
+inline constexpr size_t kPasscodeDigits = 4;
+
+inline constexpr bool IsValidPasscode(std::string_view p) {
+    if (p.size() != kPasscodeDigits) return false;
+    for (char c : p)
+        if (c < '0' || c > '9') return false;
+    return true;
+}
+
 struct Hello {
     uint32_t clientId;
     uint16_t codecMask;
@@ -89,12 +99,14 @@ struct Hello {
     uint8_t desiredFps;
     uint16_t features;
     uint8_t sourceId = 0;
+    std::string passcode;
 };
 
 enum class RejectReason : uint8_t {
     None = 0,
     Busy = 1,
     CodecMismatch = 2,
+    WrongPasscode = 3,
 };
 
 struct HelloAck {
@@ -185,7 +197,7 @@ struct FecPacketView {
 size_t BuildHello(std::span<uint8_t> out, const Hello& m);
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m);
 size_t BuildStart(std::span<uint8_t> out, uint32_t sessionId);
-size_t BuildListSources(std::span<uint8_t> out);
+size_t BuildListSources(std::span<uint8_t> out, std::string_view passcode = {});
 size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources);
 size_t BuildBye(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildPing(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);
@@ -208,6 +220,7 @@ std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram)
 std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram);
 
 std::optional<Hello> ParseHello(std::span<const uint8_t> payload);
+std::string ParseListSourcesPasscode(std::span<const uint8_t> payload);
 size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> out);
 std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload);
 std::optional<PingPong> ParsePingPong(std::span<const uint8_t> payload);

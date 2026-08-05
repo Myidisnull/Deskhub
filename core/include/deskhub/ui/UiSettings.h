@@ -1,0 +1,30 @@
+#pragma once
+#include "deskhub/protocol/Wire.h"
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+namespace deskhub::ui {
+
+struct UiSettings {
+    uint32_t fps = 60;
+    uint32_t bitrateMbps = 20;
+    uint32_t maxDim = 1920;
+    uint32_t port = kDeskhubPort;
+    bool allowInput = true;
+    bool clientControl = true;
+    std::string passcode;
+
+    bool operator==(const UiSettings&) const = default;
+};
+
+inline constexpr uint32_t kMaxSettingsFps = 240;
+inline constexpr uint32_t kMaxSettingsBitrateMbps = 1000;
+inline constexpr uint32_t kMaxSettingsDim = 16384;
+inline constexpr uint32_t kMaxSettingsPort = 65535;
+
+UiSettings ParseUiSettings(std::string_view text);
+std::string SerializeUiSettings(const UiSettings& settings);
+
+}

@@ -210,7 +210,19 @@ void TestNackPlanning() {
         Feed(r3, gp[0], 3'000'000);
         uint16_t o[8];
         uint32_t id = 0;
-        Check(r3.PlanNack(3'040'000, 0, id, o) == 0, "no NACK for a frame past the reassembly deadline");
+        Check(r3.PlanNack(3'040'000, 0, id, o) == 2, "stalled tail is NACKed for repair");
+        Check(r3.PlanNack(3'600'000, 0, id, o) == 0, "no NACK for a frame past the hard timeout");
+    }
+    {
+        Reassembler r4(16'667);
+        auto g = MakeIdrFrame(0, 5);
+        auto gp = Packetize(pk, g, 4'000'000);
+        Feed(r4, gp[0], 4'000'000);
+        Feed(r4, gp[1], 4'005'000);
+        uint16_t o[8];
+        uint32_t id = 0;
+        Check(r4.PlanNack(4'006'000, 0, id, o) == 0,
+            "in-flight tail with no gaps is not NACKed");
     }
 }
 
@@ -255,7 +267,7 @@ void TestEvictedDrop() {
     const uint64_t now = 1'000'000;
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) Feed(ra, d, now);
     ra.PopReady(now);
-    for (uint32_t id = 1; id <= 5; ++id) {
+    for (uint32_t id = 1; id <= 9; ++id) {
         auto p = Packetize(pk, MakePFrame(id, 2), now);
         p.pop_back();
         for (const auto& d : p) Feed(ra, d, now);
@@ -383,6 +395,70 @@ void TestLongLossRunBuckets() {
     Check(st.lossRunMax == 38, "and becomes the longest run ever");
 }
 
+void TestSlowIdrAssembly() {
+    std::printf("[reasm] large IDR trickling in past 2 frame intervals still completes...\n");
+    Packetizer pk;
+    pk.SetSessionId(42);
+    Reassembler ra(16'667);
+    const auto f = MakeIdrFrame(0, 12);
+    const auto pkts = Packetize(pk, f, 1'000'000);
+    uint64_t now = 1'000'000;
+    size_t fed = 0;
+    for (const auto& d : pkts) {
+        Feed(ra, d, now);
+        if (++fed < pkts.size()) {
+            Check(!ra.PopReady(now).has_value(), "no drop while packets keep arriving");
+            now += 10'000;
+        }
+    }
+    auto out = ra.PopReady(now);
+    Check(out.has_value() && SameFrame(*out, f), "slow IDR assembled intact");
+    Check(ra.stats().framesDropped == 0 && !ra.TakeLossEvent(), "no loss during slow assembly");
+}
+
+void TestIdrHeadNotOvertaken() {
+    std::printf("[reasm] incomplete IDR head survives newer complete frames...\n");
+    Packetizer pk;
+    pk.SetSessionId(42);
+    Reassembler ra(16'667);
+    const auto f = MakeIdrFrame(0, 4);
+    auto pkts = Packetize(pk, f, 1'000'000);
+    const Datagram tail = pkts.back();
+    pkts.pop_back();
+    const uint64_t now = 1'000'000;
+    for (const auto& d : pkts) Feed(ra, d, now);
+    for (uint32_t id = 1; id <= 3; ++id)
+        for (const auto& d : Packetize(pk, MakePFrame(id, 2), now)) Feed(ra, d, now);
+    Check(!ra.PopReady(now).has_value(), "IDR head not overtaken by complete P-frames");
+    Check(ra.stats().framesDropped == 0, "nothing dropped while IDR is in flight");
+    Feed(ra, tail, now + 20'000);
+    std::vector<uint32_t> got;
+    while (auto out = ra.PopReady(now + 20'000)) got.push_back(out->frameId);
+    Check(got == std::vector<uint32_t>({0, 1, 2, 3}),
+        "IDR then queued P-frames emitted in order");
+}
+
+void TestTrickleHardCap() {
+    std::printf("[reasm] frame kept alive by duplicates still dies at the hard timeout...\n");
+    Packetizer pk;
+    pk.SetSessionId(42);
+    Reassembler ra(16'667);
+    const auto f = MakeIdrFrame(0, 3);
+    const auto pkts = Packetize(pk, f, 1'000'000);
+    uint64_t now = 1'000'000;
+    Feed(ra, pkts[0], now);
+    Feed(ra, pkts[1], now);
+    int drops = 0;
+    ra.onFrameDrop = [&](const Reassembler::FrameDropInfo&) { ++drops; };
+    while (now < 1'000'000 + 30 * 16'667 + 20'000) {
+        now += 10'000;
+        Feed(ra, pkts[0], now);
+        ra.PopReady(now);
+    }
+    Check(drops == 1, "trickling frame dropped exactly once at the hard cap");
+    Check(ra.stats().framesDropped == 1, "hard-capped frame counted as dropped");
+}
+
 void TestPacketizerEdges() {
     std::printf("[reasm] Packetizer edge inputs -> 0 packets...\n");
     Packetizer pk;
@@ -412,5 +488,8 @@ void RunReassemblerTests() {
     TestPktCountMismatch();
     TestLossRunBucketsAndDropInfo();
     TestLongLossRunBuckets();
+    TestSlowIdrAssembly();
+    TestIdrHeadNotOvertaken();
+    TestTrickleHardCap();
     TestPacketizerEdges();
 }

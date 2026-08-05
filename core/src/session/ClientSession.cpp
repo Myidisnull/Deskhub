@@ -32,6 +32,9 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
                     case RejectReason::Busy:
                         Die("the host already has as many viewers as it can take");
                         return false;
+                    case RejectReason::WrongPasscode:
+                        Die("wrong passcode — check the 4-digit code on the host");
+                        return false;
                     default:
                         Die("host rejected (busy or codec mismatch)");
                         return false;

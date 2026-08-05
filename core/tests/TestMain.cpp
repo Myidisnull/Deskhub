@@ -43,7 +43,7 @@ int main() {
     RunConnectFlowTests();
 
     std::printf("--- session: elevated share args + source clamp ---\n");
-    RunShareArgsTests();
+    RunShareFlowTests();
 
     std::printf("--- session: open viewer count ---\n");
     RunOpenViewersTests();
@@ -129,8 +129,20 @@ int main() {
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 
+    std::printf("--- net: which addresses a LAN scan should try ---\n");
+    RunLanScanTests();
+
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();
+
+    std::printf("--- ui: recent devices list (parse, touch, cap) ---\n");
+    RunRecentDevicesTests();
+
+    std::printf("--- ui: persisted share settings ---\n");
+    RunUiSettingsTests();
+
+    std::printf("--- ui: passcodes stored on disk ---\n");
+    RunSecretTextTests();
 
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");

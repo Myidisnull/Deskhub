@@ -20,6 +20,14 @@ public:
         engine_.Stop();
     }
 
+    void StopSource(uint8_t sourceId) {
+        engine_.RequestStopSource(sourceId);
+    }
+
+    void KickViewer(uint8_t sourceId, uint64_t addrPacked) {
+        engine_.RequestKickViewer(sourceId, addrPacked);
+    }
+
     bool running() const {
         return engine_.running();
     }

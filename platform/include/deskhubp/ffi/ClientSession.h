@@ -23,7 +23,7 @@ typedef struct {
 } DHSessionCallbacks;
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks);
+    const DHSessionCallbacks* callbacks, const char* passcode);
 
 void dh_session_stop(DHSession* s);
 

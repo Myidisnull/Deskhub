@@ -40,6 +40,7 @@ Hello SampleHello() {
     h.desiredFps = 60;
     h.features = 0x0001;
     h.sourceId = 2;
+    h.passcode = "7391";
     return h;
 }
 
@@ -99,7 +100,7 @@ std::vector<Vector> AllVectors() {
     v.push_back({"HELLO", [](std::span<uint8_t> out) {
                      return BuildHello(out, SampleHello());
                  },
-        "0101000000000000010203040001078004383c000102"});
+        "0101000000000000010203040001078004383c00010237333931"});
 
     v.push_back({"HELLO_ACK", [](std::span<uint8_t> out) {
                      return BuildHelloAck(out, SampleAck());
@@ -119,7 +120,7 @@ std::vector<Vector> AllVectors() {
     v.push_back({"LIST_SOURCES", [](std::span<uint8_t> out) {
                      return BuildListSources(out);
                  },
-        "0105000000000000"});
+        "010500000000000000000000"});
 
     v.push_back({"SOURCE_LIST", [](std::span<uint8_t> out) {
                      const auto s = SampleSources();

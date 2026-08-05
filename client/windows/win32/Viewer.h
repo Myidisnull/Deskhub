@@ -4,4 +4,5 @@
 
 #include "deskhub/protocol/Wire.h"
 
-void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources);
+void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
+    bool control, const std::string& passcode = std::string());
