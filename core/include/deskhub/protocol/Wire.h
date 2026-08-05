@@ -79,7 +79,7 @@ struct SourceInfo {
     uint8_t sourceId = 0;
     uint16_t width = 0;
     uint16_t height = 0;
-    std::string name;
+    std::string name{};
 };
 
 inline constexpr size_t kPasscodeDigits = 4;
@@ -99,7 +99,7 @@ struct Hello {
     uint8_t desiredFps;
     uint16_t features;
     uint8_t sourceId = 0;
-    std::string passcode;
+    std::string passcode{};
 };
 
 enum class RejectReason : uint8_t {

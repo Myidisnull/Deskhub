@@ -11,7 +11,15 @@ struct ShareSource: Identifiable, Hashable, Sendable {
 
 struct AgentSourceStatus: Identifiable, Sendable {
     let id: UInt8
-    let label: String
+    let name: String
+    let size: String
+    let viewerCount: UInt32
+    let viewerAddr: String
+    let captureFps: String
+    let sendFps: String
+    let sendMbps: String
+    let rtt: String
+    let viewerConnected: Bool
 }
 
 struct QualityPreset: Identifiable, Sendable {
@@ -55,11 +63,17 @@ nonisolated enum DeskhubAgent {
         sources: [ShareSource],
         fps: UInt32,
         bitrateMbps: UInt32,
-        maxDim: UInt32
+        maxDim: UInt32,
+        port: UInt16,
+        allowInput: Bool,
+        passcode: String
     ) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
-            dha_start(ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps, maxDim)
+            dha_start(
+                ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps, maxDim, port, allowInput,
+                passcode
+            )
         }
     }
 
@@ -70,7 +84,21 @@ nonisolated enum DeskhubAgent {
         DeskhubClient.ffiList(
             16, DHAgentStatus(),
             { dha_status($0, $1) },
-            { row in AgentSourceStatus(id: row.sourceId, label: cString(row.label)) }
+            { row in
+                AgentSourceStatus(
+                    id: row.sourceId,
+                    name: cString(row.name),
+                    size: "\(row.width)x\(row.height)",
+                    viewerCount: row.viewerCount,
+                    viewerAddr: cString(row.viewerAddr),
+                    captureFps: String(format: "%.0f", row.captureFps),
+                    sendFps: String(format: "%.0f", row.sendFps),
+                    sendMbps: String(format: "%.1f", row.sendKbps / 1000.0),
+                    rtt: row.viewerConnected
+                        ? DeskhubClient.buffered(32) { dh_ping_text(row.rttMs, $0, $1) } : "-",
+                    viewerConnected: row.viewerConnected
+                )
+            }
         )
     }
 

@@ -62,6 +62,8 @@ inline constexpr const char* kRequestControlLabel =
     "Control the remote machine (untick to just watch)";
 inline constexpr const char* kViewOnlyNote = "View-only: viewers can watch but not control.";
 inline constexpr const char* kPickDisplaysHint = "Tick the displays to share, then press Share.";
+inline constexpr const char* kPickDisplaysPortalHint =
+    "Press Share, then pick the displays in your desktop's screen-sharing dialog.";
 inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
 inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
 inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";

@@ -61,10 +61,11 @@ void LargestScreenPixels(GtkWidget* w, uint32_t& outW, uint32_t& outH) {
 }
 
 ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
-    const std::string& sourceName, std::function<void()> onClosed) {
+    const std::string& sourceName, const std::string& passcode,
+    std::function<void()> onClosed) {
     auto* v = new ViewerWindow();
     v->onClosed_ = std::move(onClosed);
-    if (!v->Build(server, sourceId, sourceName)) {
+    if (!v->Build(server, sourceId, sourceName, passcode)) {
         delete v;
         return nullptr;
     }
@@ -82,7 +83,8 @@ void ViewerWindow::PostToMain(std::function<void(ViewerWindow&)> fn) {
     });
 }
 
-bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName) {
+bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName,
+    const std::string& passcode) {
     baseTitle_ = deskhub::ViewerBaseTitle(sourceName);
     alive_ = std::make_shared<ViewerWindow*>(this);
 
@@ -121,6 +123,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     cfg.sourceId = sourceId;
     cfg.screenW = sw;
     cfg.screenH = sh;
+    cfg.passcode = passcode;
     cfg.onStatus = [this](const char* status) {
         std::string line = status ? status : "";
         PostToMain([line = std::move(line)](ViewerWindow& v) {

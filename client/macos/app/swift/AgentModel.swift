@@ -9,14 +9,14 @@ struct LocalAddress: Identifiable, Hashable {
 
 @MainActor @Observable
 final class AgentModel {
-    static let defaults = dha_default_options()
+    private static let stored = dh_settings_load()
 
-    var fps: Int = UserDefaults.standard.object(forKey: "shareFps") as? Int
-        ?? Int(AgentModel.defaults.fps)
-    var bitrateMbps: Int = UserDefaults.standard.object(forKey: "shareBitrate") as? Int
-        ?? Int(AgentModel.defaults.bitrateMbps)
-    var maxDim: Int = UserDefaults.standard.object(forKey: "shareMaxDim") as? Int
-        ?? Int(AgentModel.defaults.maxDim)
+    var fps = Int(AgentModel.stored.fps)
+    var bitrateMbps = Int(AgentModel.stored.bitrateMbps)
+    var maxDim = Int(AgentModel.stored.maxDim)
+    var port = Int(AgentModel.stored.port)
+    var allowInput = AgentModel.stored.allowInput
+    var passcode = DeskhubClient.cString(AgentModel.stored.passcode)
 
     var addresses: [LocalAddress] = []
 
@@ -27,6 +27,34 @@ final class AgentModel {
 
     var hasScreenRecording = false
     var hasAccessibility = false
+
+    var acceptedPasscode: String {
+        DeskhubClient.isValidPasscode(passcode) ? passcode : ""
+    }
+
+    var clientControl = AgentModel.stored.clientControl
+
+    var statusLine: String {
+        let portNum = UInt16(max(1, min(65535, port)))
+        guard isSharing else {
+            return DeskhubClient.buffered(128) { dh_idle_host_status(portNum, $0, $1) }
+        }
+        return DeskhubClient.buffered(320) {
+            dh_sharing_status(portNum, acceptedPasscode, allowInput, $0, $1)
+        }
+    }
+
+    func save() {
+        dh_settings_save(
+            UInt32(max(1, fps)),
+            UInt32(max(1, bitrateMbps)),
+            maxDim <= 0 ? 0 : UInt32(maxDim),
+            UInt32(max(1, port)),
+            allowInput,
+            clientControl,
+            acceptedPasscode
+        )
+    }
 
     private var pollTimer: Timer?
 
@@ -41,15 +69,20 @@ final class AgentModel {
 
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
+        guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {
+            startError = DeskhubClient.string(DHStrPasscodeInvalid)
+            return false
+        }
         isStarting = true
         startError = ""
-        UserDefaults.standard.set(fps, forKey: "shareFps")
-        UserDefaults.standard.set(bitrateMbps, forKey: "shareBitrate")
-        UserDefaults.standard.set(maxDim, forKey: "shareMaxDim")
+        save()
 
         let fpsNum = UInt32(max(1, fps))
         let bitrateNum = UInt32(max(1, bitrateMbps))
         let maxDimNum = maxDim <= 0 ? UInt32(0) : UInt32(maxDim)
+        let portNum = UInt16(max(1, min(65535, port)))
+        let allow = allowInput
+        let code = acceptedPasscode
 
         let ok = await Task.detached {
             let picked = DeskhubAgent.listShareSources()
@@ -58,7 +91,10 @@ final class AgentModel {
                 sources: picked,
                 fps: fpsNum,
                 bitrateMbps: bitrateNum,
-                maxDim: maxDimNum
+                maxDim: maxDimNum,
+                port: portNum,
+                allowInput: allow,
+                passcode: code
             )
         }.value
 

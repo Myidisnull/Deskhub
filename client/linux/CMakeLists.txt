@@ -45,7 +45,7 @@ target_link_libraries(ffmpeg_min INTERFACE
 add_executable(deskhub_app
     gtk/main.cpp
     gtk/MainWindow.cpp
-    gtk/ShareWindow.cpp
+    gtk/PasscodeDialog.cpp
     gtk/ViewerWindow.cpp
 
     cpp/AgentLoop.cpp

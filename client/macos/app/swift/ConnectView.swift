@@ -1,31 +1,47 @@
 import AppKit
 import SwiftUI
 
+enum DeskhubPage: Int, CaseIterable, Identifiable {
+    case host
+    case client
+    case settings
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .host: DeskhubClient.string(DHStrSidebarHost)
+        case .client: DeskhubClient.string(DHStrSidebarClient)
+        case .settings: DeskhubClient.string(DHStrSidebarSettings)
+        }
+    }
+}
+
 struct MainMenuView: View {
     @Binding var route: ClientRoute
     @Bindable var connect: ConnectModel
     @Bindable var agent: AgentModel
 
+    @State private var discovery = DiscoveryModel()
+    @State private var page: DeskhubPage = .client
     @State private var shareAlert = ""
     @State private var accessibilityWarning = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            GroupBox("Host mode - share an application on THIS machine") {
-                hostBox.padding(6)
+        HStack(spacing: 0) {
+            sidebar
+            ScrollView {
+                page(for: page).padding(16)
             }
-            GroupBox("Client mode - connect to ANOTHER machine") {
-                clientBox.padding(6)
-            }
-            Button("Exit") { NSApplication.shared.terminate(nil) }
-                .padding(.top, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .textBackgroundColor))
         }
-        .padding(12)
         .task {
             agent.refreshPermissions()
             agent.loadAddresses()
+            discovery.start()
         }
         .alert("Deskhub", isPresented: showingShareAlert) {
             if !agent.hasScreenRecording {
@@ -47,50 +63,89 @@ struct MainMenuView: View {
         }
     }
 
-    private var hostBox: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(DeskhubClient.string(DHStrHostIpIntro))
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Deskhub")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(16)
+
+            ForEach(DeskhubPage.allCases) { item in
+                Button {
+                    page = item
+                } label: {
+                    Text(item.label)
+                        .font(.system(size: 14, weight: page == item ? .bold : .regular))
+                        .foregroundStyle(page == item ? Color.white : DeskhubPalette.navText)
+                        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(page == item ? DeskhubPalette.accent : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+
+            Spacer(minLength: 0)
+
+            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
+                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
+                    .foregroundStyle(DeskhubPalette.navText)
+                    .padding(.horizontal, 16)
+            }
+
+            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
+                .font(.caption)
+                .foregroundStyle(DeskhubPalette.footnote)
+                .padding(16)
+        }
+        .frame(width: 180)
+        .frame(maxHeight: .infinity)
+        .background(DeskhubPalette.sidebar)
+    }
+
+    @ViewBuilder
+    private func page(for page: DeskhubPage) -> some View {
+        switch page {
+        case .host: hostPage
+        case .client: clientPage
+        case .settings: settingsPage
+        }
+    }
+
+    private var hostPage: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            heading(DeskhubClient.string(DHStrHostHeading))
+            hint(DeskhubClient.string(DHStrHostIpIntro))
 
             if agent.addresses.isEmpty {
                 Text(DeskhubClient.string(DHStrNoNetworkAddress)).foregroundStyle(.secondary)
             } else {
                 ForEach(agent.addresses) { addr in
-                    HStack(spacing: 8) {
-                        Text(addr.name)
-                            .frame(width: 150, alignment: .leading)
-                            .lineLimit(1)
-                        Text(addr.ip).font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                        Spacer()
+                    HStack(spacing: 14) {
+                        Text(addr.name).frame(width: 150, alignment: .leading).lineLimit(1)
+                        Text(addr.ip).fontWeight(.bold).textSelection(.enabled)
+                        Spacer(minLength: 0)
                         Button("Copy") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(addr.ip, forType: .string)
                         }
+                        .frame(width: 84)
                     }
                 }
             }
 
-            Text(DeskhubClient.string(DHStrUdpPortLine))
+            Text(agent.statusLine)
+                .fontWeight(.bold)
+                .foregroundStyle(agent.isSharing ? DeskhubPalette.online : DeskhubPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                Text("FPS").fixedSize()
-                TextField("60", value: $agent.fps, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 52)
-                Text("Bitrate (Mbps)").fixedSize()
-                TextField("20", value: $agent.bitrateMbps, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 52)
-                Text("Quality").fixedSize()
-                Picker("", selection: $agent.maxDim) {
-                    ForEach(DeskhubAgent.qualityPresets) { preset in
-                        Text(preset.label).tag(preset.maxDim)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 96)
-                Spacer(minLength: 0)
-            }
+            HostSourceTable(rows: agent.rows)
+                .frame(minHeight: 170)
 
             Button {
                 Task { await share() }
@@ -98,39 +153,162 @@ struct MainMenuView: View {
                 if agent.isStarting {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity)
                 } else {
-                    Text(DeskhubClient.string(DHStrShareButton))
-                        .frame(maxWidth: .infinity)
+                    Text(DeskhubClient.string(
+                        agent.isSharing ? DHStrStopSharing : DHStrShareButton
+                    ))
+                    .frame(maxWidth: .infinity)
                 }
             }
+            .frame(height: 40)
             .disabled(agent.isStarting)
         }
     }
 
-    private var clientBox: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(DeskhubClient.string(DHStrClientIpPrompt))
-            HStack(spacing: 8) {
-                TextField("", text: $connect.address)
+    private var clientPage: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            heading(DeskhubClient.string(DHStrClientHeading))
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    Text(DeskhubClient.string(DHStrClientIpPrompt))
+                    TextField(
+                        DeskhubClient.string(DHStrClientIpPlaceholder), text: $connect.address
+                    )
                     .textFieldStyle(.roundedBorder)
+                    .frame(width: 260)
                     .onSubmit(beginConnect)
                     .disabled(connect.isConnecting)
-                Button("Connect", action: beginConnect)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(connect.address.isEmpty || connect.isConnecting)
+                }
+                GridRow {
+                    Text(DeskhubClient.string(DHStrClientPasscodePrompt))
+                    TextField("", text: $connect.passcode)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 64)
+                        .help(DeskhubClient.string(DHStrClientPasscodeHint))
+                        .onSubmit(beginConnect)
+                        .disabled(connect.isConnecting)
+                }
             }
+
+            Button("Connect", action: beginConnect)
+                .buttonStyle(.borderedProminent)
+                .frame(width: 140)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .disabled(connect.address.isEmpty || connect.isConnecting)
+
+            Toggle(DeskhubClient.string(DHStrRequestControlLabel), isOn: $agent.clientControl)
+                .onChange(of: agent.clientControl) { _, _ in agent.save() }
+
             if connect.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(DeskhubClient.string(DHStrQueryingSources))
-                        .foregroundStyle(.secondary)
+                    Text(DeskhubClient.string(DHStrQueryingSources)).foregroundStyle(.secondary)
                 }
             }
+
             if !connect.connectError.isEmpty {
                 Text(connect.connectError)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            heading(DeskhubClient.string(DHStrLanDevicesHeading))
+            DeviceListView(
+                heading: "",
+                note: discovery.scanStatus,
+                rows: discovery.scanHits.map {
+                    DeviceListRow($0, passcode: DeskhubDiscovery.passcode(for: $0.addr))
+                },
+                enabled: !connect.isConnecting,
+                onPick: pick
+            )
+
+            heading(DeskhubClient.string(DHStrRecentDevicesHeading))
+            DeviceListView(
+                heading: "",
+                note: DeskhubClient.string(
+                    discovery.recent.isEmpty ? DHStrRecentDevicesEmpty : DHStrRecentDevicesHint
+                ),
+                rows: discovery.recent.map { DeviceListRow($0) },
+                enabled: !connect.isConnecting,
+                onPick: pick
+            )
         }
+    }
+
+    private var settingsPage: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            heading(DeskhubClient.string(DHStrSettingsHeading))
+            hint(DeskhubClient.string(DHStrSettingsHint))
+
+            section("Video")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text("FPS")
+                    TextField("", value: $agent.fps, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+                GridRow {
+                    Text("Bitrate (Mbps)")
+                    TextField("", value: $agent.bitrateMbps, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+                GridRow {
+                    Text("Quality")
+                    Picker("", selection: $agent.maxDim) {
+                        ForEach(DeskhubAgent.qualityPresets) { preset in
+                            Text(preset.label).tag(preset.maxDim)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 120)
+                }
+            }
+
+            section("Connection")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text("UDP port")
+                    TextField("", value: $agent.port, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+            }
+
+            section("Security")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text(DeskhubClient.string(DHStrPasscodeLabel))
+                    TextField("", text: $agent.passcode)
+                        .textFieldStyle(.roundedBorder).frame(width: 64)
+                }
+            }
+
+            section("Permissions")
+            Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $agent.allowInput)
+        }
+        .onChange(of: agent.fps) { _, _ in agent.save() }
+        .onChange(of: agent.bitrateMbps) { _, _ in agent.save() }
+        .onChange(of: agent.maxDim) { _, _ in agent.save() }
+        .onChange(of: agent.port) { _, _ in agent.save() }
+        .onChange(of: agent.passcode) { _, _ in agent.save() }
+        .onChange(of: agent.allowInput) { _, _ in agent.save() }
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 19, weight: .bold))
+            .foregroundStyle(DeskhubPalette.heading)
+    }
+
+    private func section(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(DeskhubPalette.heading)
+            .padding(.top, 8)
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text).foregroundStyle(DeskhubPalette.muted)
     }
 
     private var showingShareAlert: Binding<Bool> {
@@ -138,6 +316,10 @@ struct MainMenuView: View {
     }
 
     private func share() async {
+        if agent.isSharing {
+            agent.stopSharing()
+            return
+        }
         agent.refreshPermissions()
         if !agent.hasScreenRecording {
             shareAlert = DeskhubClient.string(DHStrScreenRecordingRequired)
@@ -151,37 +333,65 @@ struct MainMenuView: View {
     }
 
     private func doShare() async {
-        if await agent.startSharing() {
-            route = .sharing
-        } else {
+        if !(await agent.startSharing()) {
             shareAlert = agent.startError
         }
+    }
+
+    private func pick(_ row: DeviceListRow) {
+        connect.address = row.addr
+        connect.passcode = row.passcode
+        beginConnect()
     }
 
     private func beginConnect() {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
         Task {
             let sources = await connect.listSources()
+            guard connect.connectError.isEmpty else { return }
+            await discovery.remember(
+                address: connect.address, passcode: connect.acceptedPasscode
+            )
             if DeskhubClient.connectDecision(sources).showPicker {
                 route = .sourcePicker(sources)
             } else {
                 openViewers(sources, address: connect.address,
+                            passcode: connect.acceptedPasscode,
                             openWindow: openWindow, dismissWindow: dismissWindow)
             }
         }
     }
 }
 
+struct HostSourceTable: View {
+    let rows: [AgentSourceStatus]
+
+    var body: some View {
+        Table(rows) {
+            TableColumn("Source") { Text($0.name) }.width(140)
+            TableColumn("Size") { Text($0.size) }.width(80)
+            TableColumn("Viewers") { Text("\($0.viewerCount)") }.width(58)
+            TableColumn("Client") { Text($0.viewerAddr) }.width(120)
+            TableColumn("Capture") { Text($0.captureFps) }.width(58)
+            TableColumn("Send") { Text($0.sendFps) }.width(50)
+            TableColumn("Mbps") { Text($0.sendMbps) }.width(55)
+            TableColumn("RTT") { Text($0.rtt) }.width(55)
+        }
+    }
+}
+
 @MainActor
-func openViewers(_ picked: [Source], address: String,
+func openViewers(_ picked: [Source], address: String, passcode: String,
                  openWindow: OpenWindowAction, dismissWindow: DismissWindowAction)
 {
     if picked.isEmpty {
-        openWindow(value: ViewerRequest(address: address, sourceId: 0, name: ""))
+        openWindow(value: ViewerRequest(
+            address: address, passcode: passcode, sourceId: 0, name: ""
+        ))
     } else {
         for source in picked {
             openWindow(value: ViewerRequest(
-                address: address, sourceId: source.id, name: source.name
+                address: address, passcode: passcode, sourceId: source.id, name: source.name
             ))
         }
     }

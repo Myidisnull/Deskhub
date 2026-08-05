@@ -7,9 +7,9 @@
 namespace deskhub::ui {
 
 struct RecentDevice {
-    std::string addr;
+    std::string addr{};
     int64_t lastConnectedUnix = 0;
-    std::string passcode;
+    std::string passcode{};
 
     bool operator==(const RecentDevice&) const = default;
 };

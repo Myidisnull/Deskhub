@@ -14,7 +14,8 @@
 class ViewerWindow {
 public:
     static ViewerWindow* Open(const NetAddr& server, uint8_t sourceId,
-        const std::string& sourceName, std::function<void()> onClosed);
+        const std::string& sourceName, const std::string& passcode,
+        std::function<void()> onClosed);
 
 private:
     ViewerWindow() = default;
@@ -22,7 +23,8 @@ private:
     ViewerWindow(const ViewerWindow&) = delete;
     ViewerWindow& operator=(const ViewerWindow&) = delete;
 
-    bool Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName);
+    bool Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName,
+        const std::string& passcode);
 
     void VideoRect(int& x, int& y, int& w, int& h) const;
     bool ToNormalized(double px, double py, int32_t& nx, int32_t& ny) const;

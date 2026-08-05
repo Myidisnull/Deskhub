@@ -40,6 +40,15 @@ object NativeClient {
     const val STR_QUERYING_SOURCES = 12
     const val STR_INVALID_ADDRESS_HINT = 17
     const val STR_SESSION_ENDED = 18
+    const val STR_CLIENT_PASSCODE_PROMPT = 21
+    const val STR_CLIENT_PASSCODE_HINT = 22
+    const val STR_PASSCODE_INVALID = 23
+    const val STR_CLIENT_HEADING = 33
+    const val STR_REQUEST_CONTROL_LABEL = 39
+    const val STR_LAN_DEVICES_HEADING = 25
+    const val STR_RECENT_DEVICES_HEADING = 26
+    const val STR_RECENT_DEVICES_HINT = 27
+    const val STR_RECENT_DEVICES_EMPTY = 28
 
     private external fun nativeString(id: Int): String
 
@@ -77,13 +86,93 @@ object NativeClient {
 
     fun isZoomed(zoom: Float): Boolean = nativeIsZoomed(zoom)
 
-    private external fun nativeListSources(addr: String): Array<Source>
+    private external fun nativeListSources(
+        addr: String,
+        passcode: String,
+    ): Array<Source>
+
+    private external fun nativeIsValidPasscode(passcode: String): Boolean
+
+    private external fun nativePasscodeDigits(): Int
+
+    fun isValidPasscode(passcode: String): Boolean = nativeIsValidPasscode(passcode)
+
+    fun passcodeDigits(): Int = nativePasscodeDigits()
+
+    data class ScanHit(
+        val addr: String,
+        val ping: String,
+    )
+
+    data class RecentDevice(
+        val addr: String,
+        val passcode: String,
+        val status: String,
+        val ping: String,
+        val lastConnected: String,
+        val online: Boolean,
+    )
+
+    private external fun nativeDefaultPort(): Int
+
+    private external fun nativeClientControl(): Boolean
+
+    private external fun nativeSetClientControl(on: Boolean)
+
+    fun defaultPort(): Int = nativeDefaultPort()
+
+    fun clientControl(): Boolean = nativeClientControl()
+
+    fun setClientControl(on: Boolean) = nativeSetClientControl(on)
+
+    private external fun nativeScanStart(port: Int): Boolean
+
+    private external fun nativeScanCancel()
+
+    private external fun nativeScanRunning(): Boolean
+
+    private external fun nativeScanStatusText(port: Int): String
+
+    private external fun nativeScanHits(): Array<ScanHit>
+
+    private external fun nativeRecentDevices(): Array<RecentDevice>
+
+    private external fun nativeRecentTouch(
+        addr: String,
+        passcode: String,
+    )
+
+    private external fun nativeRecentPasscode(addr: String): String
+
+    private external fun nativeWatchRecent()
+
+    fun scanStart(port: Int): Boolean = nativeScanStart(port)
+
+    fun scanCancel() = nativeScanCancel()
+
+    fun scanRunning(): Boolean = nativeScanRunning()
+
+    fun scanStatusText(port: Int): String = nativeScanStatusText(port)
+
+    fun scanHits(): List<ScanHit> = nativeScanHits().toList()
+
+    suspend fun recentDevices(): List<RecentDevice> = withContext(Dispatchers.IO) { nativeRecentDevices().toList() }
+
+    suspend fun recentTouch(
+        addr: String,
+        passcode: String,
+    ) = withContext(Dispatchers.IO) { nativeRecentTouch(addr, passcode) }
+
+    fun recentPasscode(addr: String): String = nativeRecentPasscode(addr)
+
+    suspend fun watchRecent() = withContext(Dispatchers.IO) { nativeWatchRecent() }
 
     external fun nativeStart(
         addr: String,
         sourceId: Int,
         screenW: Int,
         screenH: Int,
+        passcode: String,
     ): Long
 
     external fun nativeStop(handle: Long)
@@ -423,6 +512,8 @@ object NativeClient {
 
     external fun nativeSnapshot(): Snapshot?
 
-    suspend fun listSources(addr: String): List<Source> =
-        withContext(Dispatchers.IO) { nativeListSources(addr).toList() }
+    suspend fun listSources(
+        addr: String,
+        passcode: String,
+    ): List<Source> = withContext(Dispatchers.IO) { nativeListSources(addr, passcode).toList() }
 }

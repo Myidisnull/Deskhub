@@ -21,14 +21,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,8 +39,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -48,18 +55,26 @@ class MainActivity : ComponentActivity() {
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (debuggable) {
             intent?.getStringExtra("addr")?.let { addr ->
+                val passcode = intent.getStringExtra("passcode").orEmpty()
                 intent.removeExtra("addr")
-                openStream(addr, 0)
+                openStream(addr, passcode, 0)
             }
         }
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            MaterialTheme(colorScheme = lightColorScheme()) {
+                Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
                     Column(modifier = Modifier.safeDrawingPadding()) {
                         MainScreen(
                             initialAddress = prefs.getString("addr", "").orEmpty(),
-                            onRemember = { addr -> prefs.edit().putString("addr", addr).apply() },
+                            initialPasscode = prefs.getString("passcode", "").orEmpty(),
+                            onRemember = { addr, passcode ->
+                                prefs
+                                    .edit()
+                                    .putString("addr", addr)
+                                    .putString("passcode", passcode)
+                                    .apply()
+                            },
                             onOpenStream = ::openStream,
                         )
                     }
@@ -70,18 +85,38 @@ class MainActivity : ComponentActivity() {
 
     private fun openStream(
         addr: String,
+        passcode: String,
         sourceId: Int,
         sources: List<NativeClient.Source> = emptyList(),
     ) {
         startActivity(
             Intent(this, StreamActivity::class.java)
                 .putExtra("addr", addr)
+                .putExtra("passcode", passcode)
                 .putExtra("source", sourceId)
                 .putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
                 .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
         )
     }
+}
+
+private const val POLL_INTERVAL_MS = 1000L
+private const val RESCAN_TICKS = 45
+
+private val HeadingColor = Color(0xFF111827)
+private val MutedColor = Color(0xFF6B7280)
+private val OnlineColor = Color(0xFF00913C)
+private val OfflineColor = Color(0xFFC82828)
+
+@Composable
+private fun Heading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        color = HeadingColor,
+    )
 }
 
 private sealed interface Step {
@@ -99,33 +134,72 @@ private sealed interface Step {
 @Composable
 private fun MainScreen(
     initialAddress: String,
-    onRemember: (String) -> Unit,
-    onOpenStream: (String, Int, List<NativeClient.Source>) -> Unit,
+    initialPasscode: String,
+    onRemember: (String, String) -> Unit,
+    onOpenStream: (String, String, Int, List<NativeClient.Source>) -> Unit,
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
     var address by remember { mutableStateOf(initialAddress) }
+    var passcode by remember { mutableStateOf(initialPasscode) }
     var connectError by remember { mutableStateOf("") }
     var querySeq by remember { mutableStateOf(0L) }
+    var scanHits by remember { mutableStateOf(emptyList<NativeClient.ScanHit>()) }
+    var recentDevices by remember { mutableStateOf(emptyList<NativeClient.RecentDevice>()) }
+    var scanStatus by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val port = remember { NativeClient.defaultPort() }
 
     BackHandler(enabled = step != Step.Address) { step = Step.Address }
+
+    DisposableEffect(Unit) {
+        onDispose { NativeClient.scanCancel() }
+    }
+
+    LaunchedEffect(Unit) {
+        NativeClient.watchRecent()
+        NativeClient.scanStart(port)
+        var idleTicks = 0
+        while (true) {
+            scanHits = NativeClient.scanHits()
+            recentDevices = NativeClient.recentDevices()
+            scanStatus = NativeClient.scanStatusText(port)
+            if (NativeClient.scanRunning()) {
+                idleTicks = 0
+            } else {
+                idleTicks++
+                if (idleTicks >= RESCAN_TICKS) {
+                    idleTicks = 0
+                    NativeClient.scanStart(port)
+                }
+            }
+            delay(POLL_INTERVAL_MS)
+        }
+    }
 
     val connect: (String) -> Unit = connectLambda@{ addr ->
         if (!NativeClient.parseAddress(addr)) {
             connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
             return@connectLambda
         }
+        val code = passcode.trim()
+        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
+            connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
+            return@connectLambda
+        }
         connectError = ""
-        onRemember(addr)
+        onRemember(addr, code)
         val mine = Step.Querying(++querySeq)
         step = mine
         scope.launch {
-            val sources = NativeClient.listSources(addr)
+            val sources = NativeClient.listSources(addr, code)
+            NativeClient.recentTouch(addr, code)
+            NativeClient.watchRecent()
+            recentDevices = NativeClient.recentDevices()
             if (step == mine) {
                 val decision = NativeClient.connectDecision(sources)
                 if (decision >= 0) {
                     step = Step.Address
-                    onOpenStream(addr, decision, sources)
+                    onOpenStream(addr, code, decision, sources)
                 } else {
                     step = Step.Picking(sources)
                 }
@@ -133,23 +207,41 @@ private fun MainScreen(
         }
     }
 
+    val pickDevice: (String, String) -> Unit = { addr, code ->
+        address = addr
+        passcode = code
+        connect(addr)
+    }
+
     when (val s = step) {
         is Step.Address ->
             AddressScreen(
                 address = address,
                 onAddressChange = { address = it },
+                passcode = passcode,
+                onPasscodeChange = { passcode = it },
                 busy = false,
                 error = connectError,
                 onConnect = connect,
+                scanHits = scanHits,
+                recentDevices = recentDevices,
+                scanStatus = scanStatus,
+                onPickDevice = pickDevice,
             )
 
         is Step.Querying ->
             AddressScreen(
                 address = address,
                 onAddressChange = {},
+                passcode = passcode,
+                onPasscodeChange = {},
                 busy = true,
                 error = "",
                 onConnect = {},
+                scanHits = scanHits,
+                recentDevices = recentDevices,
+                scanStatus = scanStatus,
+                onPickDevice = { _, _ -> },
             )
 
         is Step.Picking ->
@@ -158,7 +250,7 @@ private fun MainScreen(
                 sources = s.sources,
                 onPick = { source ->
                     step = Step.Address
-                    onOpenStream(address, source.id, s.sources)
+                    onOpenStream(address, passcode.trim(), source.id, s.sources)
                 },
             )
     }
@@ -168,9 +260,15 @@ private fun MainScreen(
 private fun AddressScreen(
     address: String,
     onAddressChange: (String) -> Unit,
+    passcode: String,
+    onPasscodeChange: (String) -> Unit,
     busy: Boolean,
     error: String,
     onConnect: (String) -> Unit,
+    scanHits: List<NativeClient.ScanHit>,
+    recentDevices: List<NativeClient.RecentDevice>,
+    scanStatus: String,
+    onPickDevice: (String, String) -> Unit,
 ) {
     val trimmed = address.trim()
     val go = { if (trimmed.isNotEmpty() && !busy) onConnect(trimmed) }
@@ -179,9 +277,12 @@ private fun AddressScreen(
         modifier =
             Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        Heading(NativeClient.string(NativeClient.STR_CLIENT_HEADING))
+
         OutlinedTextField(
             value = address,
             onValueChange = onAddressChange,
@@ -190,6 +291,24 @@ private fun AddressScreen(
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { go() }),
+        )
+
+        OutlinedTextField(
+            value = passcode,
+            onValueChange = { typed ->
+                onPasscodeChange(typed.filter { it.isDigit() }.take(NativeClient.passcodeDigits()))
+            },
+            label = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_PROMPT)) },
+            supportingText = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_HINT)) },
+            singleLine = true,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions =
+                KeyboardOptions(
+                    keyboardType = KeyboardType.NumberPassword,
+                    imeAction = ImeAction.Go,
+                ),
             keyboardActions = KeyboardActions(onGo = { go() }),
         )
 
@@ -209,8 +328,107 @@ private fun AddressScreen(
             }
         }
 
+        var control by remember { mutableStateOf(NativeClient.clientControl()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = control,
+                onCheckedChange = {
+                    control = it
+                    NativeClient.setClientControl(it)
+                },
+                enabled = !busy,
+            )
+            Text(NativeClient.string(NativeClient.STR_REQUEST_CONTROL_LABEL))
+        }
+
+        DeviceSection(
+            heading = NativeClient.string(NativeClient.STR_LAN_DEVICES_HEADING),
+            note = scanStatus,
+            rows = scanHits.map { DeviceRow(it.addr, it.ping, "", null) },
+            enabled = !busy,
+            onPick = { addr -> onPickDevice(addr, NativeClient.recentPasscode(addr)) },
+        )
+
+        DeviceSection(
+            heading = NativeClient.string(NativeClient.STR_RECENT_DEVICES_HEADING),
+            note =
+                NativeClient.string(
+                    if (recentDevices.isEmpty()) {
+                        NativeClient.STR_RECENT_DEVICES_EMPTY
+                    } else {
+                        NativeClient.STR_RECENT_DEVICES_HINT
+                    },
+                ),
+            rows =
+                recentDevices.map {
+                    DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
+                },
+            enabled = !busy,
+            onPick = { addr ->
+                onPickDevice(addr, recentDevices.first { it.addr == addr }.passcode)
+            },
+        )
+
         if (error.isNotEmpty()) {
             Text(error, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+private data class DeviceRow(
+    val addr: String,
+    val ping: String,
+    val detail: String,
+    val online: Boolean?,
+)
+
+@Composable
+private fun DeviceSection(
+    heading: String,
+    note: String,
+    rows: List<DeviceRow>,
+    enabled: Boolean,
+    onPick: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Heading(heading)
+
+        for (row in rows) {
+            val tint =
+                when (row.online) {
+                    true -> OnlineColor
+                    false -> OfflineColor
+                    null -> HeadingColor
+                }
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = enabled) { onPick(row.addr) }
+                        .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(row.addr, color = tint)
+                    if (row.detail.isNotBlank()) {
+                        Text(
+                            row.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MutedColor,
+                        )
+                    }
+                }
+                Text(row.ping, style = MaterialTheme.typography.bodySmall, color = tint)
+            }
+        }
+
+        if (note.isNotEmpty()) {
+            Text(note, style = MaterialTheme.typography.bodySmall, color = MutedColor)
         }
     }
 }

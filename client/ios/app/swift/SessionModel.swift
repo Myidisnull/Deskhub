@@ -4,16 +4,26 @@ import Observation
 @MainActor @Observable
 final class SessionModel {
     var connect = ConnectModel()
+    var discovery = DiscoveryModel()
 
     var screen: ClientRoute = .connect
     var sources: [Source] = []
     private(set) var stream: StreamModel?
 
+    func pick(_ row: DeviceListRow) {
+        connect.address = row.addr
+        connect.passcode = row.passcode
+        beginConnect()
+    }
+
     func beginConnect() {
         guard !connect.isConnecting else { return }
         Task {
             let found = await connect.listSources()
-            guard !connect.address.isEmpty else { return }
+            guard !connect.address.isEmpty, connect.connectError.isEmpty else { return }
+            await discovery.remember(
+                address: connect.address, passcode: connect.acceptedPasscode
+            )
             sources = found
             let decision = DeskhubClient.connectDecision(found)
             if decision.showPicker {
@@ -28,7 +38,8 @@ final class SessionModel {
         connect.connectError = ""
         let address = connect.address
         let model = StreamModel(
-            address: address, sourceId: sourceId, sourceName: sourceName(of: sourceId)
+            address: address, passcode: connect.acceptedPasscode, sourceId: sourceId,
+            sourceName: sourceName(of: sourceId)
         )
         stream = model
         screen = .stream

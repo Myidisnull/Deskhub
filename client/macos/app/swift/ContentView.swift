@@ -8,15 +8,12 @@ struct ContentView: View {
     var body: some View {
         Group {
             switch route {
-            case .connect, .stream:
+            case .connect, .stream, .sharing:
                 MainMenuView(route: $route, connect: connect, agent: agent)
-                    .frame(width: 500)
+                    .frame(minWidth: 720, minHeight: 620)
             case let .sourcePicker(sources):
                 SourcePickerView(route: $route, connect: connect, sources: sources)
                     .frame(width: 460, height: 340)
-            case .sharing:
-                SharingSessionView(route: $route, model: agent)
-                    .frame(width: 460, height: 330)
             }
         }
         .navigationTitle(windowTitle)
@@ -24,9 +21,8 @@ struct ContentView: View {
 
     private var windowTitle: String {
         switch route {
-        case .connect, .stream: DeskhubClient.string(DHStrAppTitle)
         case .sourcePicker: DeskhubClient.string(DHStrPickerTitle)
-        case .sharing: DeskhubClient.string(DHStrSharingTitle)
+        default: DeskhubClient.string(DHStrAppTitle)
         }
     }
 }

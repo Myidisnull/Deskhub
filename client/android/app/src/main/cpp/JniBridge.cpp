@@ -11,6 +11,7 @@
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/ffi/ClientFfi.h"
+#include "deskhubp/ffi/DiscoveryFfi.h"
 
 static_assert(DHPhaseIdle == 0 && DHPhaseConnecting == 1 && DHPhaseStreaming == 2 &&
               DHPhaseEnded == 3);
@@ -86,6 +87,8 @@ std::string FromJString(JNIEnv* env, jstring s) {
 }
 
 constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
+constexpr const char* kScanHitClass = "com/deskhub/app/NativeClient$ScanHit";
+constexpr const char* kRecentDeviceClass = "com/deskhub/app/NativeClient$RecentDevice";
 constexpr const char* kHotkeyClass = "com/deskhub/app/NativeClient$Hotkey";
 
 jfloatArray NewFloatArray2(JNIEnv* env, jfloat a, jfloat b) {
@@ -171,7 +174,8 @@ Java_com_deskhub_app_NativeClient_nativeIsZoomed(JNIEnv*, jobject, jfloat zoom) 
 }
 
 JNIEXPORT jobjectArray JNICALL
-Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstring addrStr) {
+Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr) {
     jclass cls = env->FindClass(kSourceClass);
     if (!cls) return nullptr;
     jmethodID ctor =
@@ -179,8 +183,10 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     if (!ctor) return nullptr;
 
     const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
     DHSourceInfo sources[deskhub::kMaxSources];
-    const int count = dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources));
+    const int count =
+        dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources), passcode.c_str());
 
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
     for (int i = 0; i < count && arr; ++i) {
@@ -194,6 +200,133 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
         env->DeleteLocalRef(displayName);
     }
     return arr;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeDefaultPort(JNIEnv*, jobject) {
+    return jint(dh_default_port());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeClientControl(JNIEnv*, jobject) {
+    return dh_client_control() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetClientControl(JNIEnv*, jobject, jboolean on) {
+    dh_set_client_control(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeScanStart(JNIEnv*, jobject, jint port) {
+    return dh_scan_start(uint16_t(port)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeScanCancel(JNIEnv*, jobject) {
+    dh_scan_cancel();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeScanRunning(JNIEnv*, jobject) {
+    return dh_scan_state().running ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeScanStatusText(JNIEnv* env, jobject, jint port) {
+    char buf[256];
+    dh_scan_status_text(uint16_t(port), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeScanHits(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass(kScanHitClass);
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
+    if (!ctor) return nullptr;
+
+    DHScanHit hits[64];
+    const int count = dh_scan_hits(hits, int(sizeof(hits) / sizeof(hits[0])));
+
+    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
+    for (int i = 0; i < count && arr; ++i) {
+        char ping[32];
+        dh_ping_text(hits[i].rttMs, ping, int(sizeof(ping)));
+        jstring addr = env->NewStringUTF(hits[i].addr);
+        jstring pingText = env->NewStringUTF(ping);
+        jobject item = env->NewObject(cls, ctor, addr, pingText);
+        env->SetObjectArrayElement(arr, jsize(i), item);
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(pingText);
+        env->DeleteLocalRef(addr);
+    }
+    return arr;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentDevices(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass(kRecentDeviceClass);
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(cls, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;"
+        "Ljava/lang/String;Z)V");
+    if (!ctor) return nullptr;
+
+    DHRecentRow rows[16];
+    const int count = dh_recent_rows(rows, int(sizeof(rows) / sizeof(rows[0])));
+
+    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
+    for (int i = 0; i < count && arr; ++i) {
+        jstring addr = env->NewStringUTF(rows[i].addr);
+        jstring passcode = env->NewStringUTF(rows[i].passcode);
+        jstring status = env->NewStringUTF(rows[i].status);
+        jstring ping = env->NewStringUTF(rows[i].ping);
+        jstring last = env->NewStringUTF(rows[i].lastConnected);
+        jobject item = env->NewObject(cls, ctor, addr, passcode, status, ping, last,
+            rows[i].online ? JNI_TRUE : JNI_FALSE);
+        env->SetObjectArrayElement(arr, jsize(i), item);
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(last);
+        env->DeleteLocalRef(ping);
+        env->DeleteLocalRef(status);
+        env->DeleteLocalRef(passcode);
+        env->DeleteLocalRef(addr);
+    }
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentTouch(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    dh_recent_touch(addr.c_str(), passcode.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeWatchRecent(JNIEnv*, jobject) {
+    dh_status_watch_recent();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentPasscode(JNIEnv* env, jobject, jstring addrStr) {
+    const std::string addr = FromJString(env, addrStr);
+    char buf[16];
+    dh_recent_passcode(addr.c_str(), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeIsValidPasscode(JNIEnv* env, jobject,
+    jstring passcodeStr) {
+    const std::string passcode = FromJString(env, passcodeStr);
+    return dh_is_valid_passcode(passcode.c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativePasscodeDigits(JNIEnv*, jobject) {
+    return jint(dh_passcode_digits());
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -221,8 +354,9 @@ Java_com_deskhub_app_NativeClient_nativeHotkeys(JNIEnv* env, jobject) {
 
 JNIEXPORT jlong JNICALL
 Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addrStr,
-    jint sourceId, jint screenW, jint screenH) {
+    jint sourceId, jint screenW, jint screenH, jstring passcodeStr) {
     const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
 
     dh_session_set_screen_hint(screenW > 0 ? uint32_t(screenW) : 0,
         screenH > 0 ? uint32_t(screenH) : 0);
@@ -236,7 +370,8 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     callbacks.onSize = NotifySessionSize;
     callbacks.onClosed = NotifySessionClosed;
 
-    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks, nullptr);
+    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks,
+        passcode.c_str());
     g_callbackSession.store(g_session, std::memory_order_release);
     return jlong(reinterpret_cast<uintptr_t>(g_session));
 }

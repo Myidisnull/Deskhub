@@ -90,6 +90,26 @@ typedef enum {
     DHStrSessionEnded = 18,
     DHStrShareStartFailed = 19,
     DHStrScreenRecordingRequired = 20,
+    DHStrClientPasscodePrompt = 21,
+    DHStrClientPasscodeHint = 22,
+    DHStrPasscodeInvalid = 23,
+    DHStrPasscodeLabel = 24,
+    DHStrLanDevicesHeading = 25,
+    DHStrRecentDevicesHeading = 26,
+    DHStrRecentDevicesHint = 27,
+    DHStrRecentDevicesEmpty = 28,
+    DHStrSidebarHost = 29,
+    DHStrSidebarClient = 30,
+    DHStrSidebarSettings = 31,
+    DHStrHostHeading = 32,
+    DHStrClientHeading = 33,
+    DHStrSettingsHeading = 34,
+    DHStrSettingsHint = 35,
+    DHStrProjectUrl = 36,
+    DHStrProjectLinkLabel = 37,
+    DHStrAllowControlLabel = 38,
+    DHStrRequestControlLabel = 39,
+    DHStrClientIpPlaceholder = 40,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -106,7 +126,11 @@ bool dh_is_escape_vk(int32_t vk);
 
 bool dh_parse_address(const char* address);
 
-int dh_list_sources(const char* address, DHSourceInfo* out, int capacity);
+int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode);
+
+bool dh_is_valid_passcode(const char* passcode);
+
+int dh_passcode_digits(void);
 
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id);
 

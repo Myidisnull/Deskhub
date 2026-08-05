@@ -5,6 +5,7 @@ import Observation
 @MainActor @Observable
 final class StreamModel {
     let address: String
+    let passcode: String
     private(set) var sourceId: UInt8
     private(set) var sourceName: String
 
@@ -20,8 +21,9 @@ final class StreamModel {
     private var session: ClientSession?
     private var layer: AVSampleBufferDisplayLayer?
 
-    init(address: String, sourceId: UInt8, sourceName: String) {
+    init(address: String, passcode: String, sourceId: UInt8, sourceName: String) {
         self.address = address
+        self.passcode = passcode
         self.sourceId = sourceId
         self.sourceName = sourceName
     }
@@ -29,9 +31,10 @@ final class StreamModel {
     func start() async {
         let addr = address
         let sid = sourceId
+        let code = passcode
         let handlers = makeHandlers()
         let opened = await Task.detached {
-            ClientSession.start(address: addr, sourceId: sid, handlers: handlers)
+            ClientSession.start(address: addr, sourceId: sid, passcode: code, handlers: handlers)
         }.value
         guard let opened else {
             failedToStart = true

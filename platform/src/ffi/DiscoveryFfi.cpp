@@ -1,0 +1,296 @@
+#include "deskhubp/ffi/DiscoveryFfi.h"
+
+#include <algorithm>
+#include <ctime>
+#include <cstring>
+#include <functional>
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "deskhub/protocol/Wire.h"
+#include "deskhub/ui/RecentDevices.h"
+#include "deskhub/ui/Strings.h"
+#include "deskhub/ui/UiSettings.h"
+#include "deskhubp/ffi/FfiText.h"
+#include "deskhubp/net/DeviceStatusPoller.h"
+#include "deskhubp/net/LanScanner.h"
+#include "deskhubp/system/AppDataFile.h"
+
+namespace {
+
+namespace ui = deskhub::ui;
+
+constexpr const char* kRecentDevicesFile = "recent-devices.txt";
+constexpr const char* kUiSettingsFile = "ui-settings.txt";
+
+std::mutex g_mutex;
+
+deskhubp::LanScanner g_scanner;
+std::vector<deskhubp::ScanHit> g_hits;
+std::vector<std::string> g_hitsThisRound;
+deskhubp::ScanProgress g_progress;
+bool g_scanning = false;
+bool g_scanFinished = false;
+
+deskhubp::DeviceStatusPoller g_poller;
+std::map<std::string, deskhubp::DeviceStatus> g_status;
+bool g_pollerStarted = false;
+
+std::vector<ui::RecentDevice> g_recent;
+bool g_recentLoaded = false;
+
+std::vector<ui::RecentDevice>& Recent() {
+    if (!g_recentLoaded) {
+        g_recent = ui::ParseRecentDevices(deskhubp::ReadAppDataFile(kRecentDevicesFile));
+        g_recentLoaded = true;
+    }
+    return g_recent;
+}
+
+void SaveRecent() {
+    deskhubp::WriteAppDataFile(kRecentDevicesFile, ui::SerializeRecentDevices(g_recent));
+}
+
+std::string LocalTimeText(int64_t unixTime) {
+    if (unixTime <= 0) return {};
+    const std::time_t stamp = std::time_t(unixTime);
+    std::tm parts{};
+#ifdef _WIN32
+    if (localtime_s(&parts, &stamp) != 0) return {};
+#else
+    if (!localtime_r(&stamp, &parts)) return {};
+#endif
+    char buf[32];
+    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &parts) == 0) return {};
+    return std::string(buf);
+}
+
+int FillText(char* out, int capacity, const std::string& text) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity), text);
+    return int(std::strlen(out));
+}
+
+}
+
+extern "C" {
+
+bool dh_scan_start(uint16_t port) {
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        if (g_scanning) return false;
+        g_hitsThisRound.clear();
+        g_progress = deskhubp::ScanProgress{};
+        g_scanning = true;
+    }
+
+    const bool started = g_scanner.Start(
+        port, [](const std::function<void()>& fn) { fn(); },
+        [](const deskhubp::ScanHit& hit) {
+            std::lock_guard<std::mutex> lk(g_mutex);
+            g_hitsThisRound.push_back(hit.addr);
+            for (deskhubp::ScanHit& known : g_hits) {
+                if (known.addr != hit.addr) continue;
+                known.rttMs = hit.rttMs;
+                return;
+            }
+            g_hits.push_back(hit);
+        },
+        [](const deskhubp::ScanProgress& progress) {
+            std::lock_guard<std::mutex> lk(g_mutex);
+            g_progress = progress;
+        },
+        [](const deskhubp::ScanProgress& progress) {
+            std::lock_guard<std::mutex> lk(g_mutex);
+            const auto gone = [](const deskhubp::ScanHit& hit) {
+                return std::find(g_hitsThisRound.begin(), g_hitsThisRound.end(), hit.addr) ==
+                       g_hitsThisRound.end();
+            };
+            g_hits.erase(std::remove_if(g_hits.begin(), g_hits.end(), gone), g_hits.end());
+            g_progress = progress;
+            g_progress.found = g_hits.size();
+            g_scanning = false;
+            g_scanFinished = true;
+        });
+
+    if (!started) {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_scanning = false;
+    }
+    return started;
+}
+
+void dh_scan_cancel(void) {
+    g_scanner.Cancel();
+    std::lock_guard<std::mutex> lk(g_mutex);
+    g_scanning = false;
+}
+
+DHScanState dh_scan_state(void) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    DHScanState state{};
+    state.probed = uint32_t(g_progress.probed);
+    state.total = uint32_t(g_progress.total);
+    state.found = uint32_t(g_hits.size());
+    state.running = g_scanning;
+    return state;
+}
+
+int dh_scan_hits(DHScanHit* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    const int count = int(g_hits.size()) < capacity ? int(g_hits.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), g_hits[size_t(i)].addr);
+        out[i].rttMs = g_hits[size_t(i)].rttMs;
+    }
+    return count;
+}
+
+void dh_recent_touch(const char* address, const char* passcode) {
+    if (!address || !*address) return;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    ui::TouchRecentDevice(Recent(), address, int64_t(std::time(nullptr)),
+        passcode ? passcode : "");
+    SaveRecent();
+}
+
+void dh_recent_remove(const char* address) {
+    if (!address || !*address) return;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    ui::RemoveRecentDevice(Recent(), address);
+    SaveRecent();
+}
+
+int dh_recent_passcode(const char* address, char* out, int capacity) {
+    if (!address || !out || capacity <= 0) return 0;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return FillText(out, capacity, ui::PasscodeForDevice(Recent(), address));
+}
+
+void dh_status_stop(void) {
+    g_poller.Stop();
+    std::lock_guard<std::mutex> lk(g_mutex);
+    g_pollerStarted = false;
+}
+
+DHUiSettings dh_settings_load(void) {
+    const ui::UiSettings loaded =
+        ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile));
+    DHUiSettings out{};
+    out.fps = loaded.fps;
+    out.bitrateMbps = loaded.bitrateMbps;
+    out.maxDim = loaded.maxDim;
+    out.port = loaded.port;
+    out.allowInput = loaded.allowInput;
+    out.clientControl = loaded.clientControl;
+    deskhubp::CopyToBuf(out.passcode, sizeof(out.passcode), loaded.passcode);
+    return out;
+}
+
+void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uint32_t port,
+    bool allow_input, bool client_control, const char* passcode) {
+    ui::UiSettings out;
+    out.fps = fps;
+    out.bitrateMbps = bitrate_mbps;
+    out.maxDim = max_dim;
+    out.port = port;
+    out.allowInput = allow_input;
+    out.clientControl = client_control;
+    if (passcode && deskhub::IsValidPasscode(passcode)) out.passcode = passcode;
+    deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(out));
+}
+
+int dh_recent_rows(DHRecentRow* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    const std::vector<ui::RecentDevice>& devices = Recent();
+    const int count = int(devices.size()) < capacity ? int(devices.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        const ui::RecentDevice& device = devices[size_t(i)];
+        const auto found = g_status.find(device.addr);
+        const bool known = found != g_status.end();
+        const bool online = known && found->second.online;
+
+        deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), device.addr);
+        deskhubp::CopyToBuf(out[i].passcode, sizeof(out[i].passcode), device.passcode);
+        deskhubp::CopyToBuf(out[i].status, sizeof(out[i].status),
+            !known ? ui::kStatusChecking : (online ? ui::kStatusOnline : ui::kStatusOffline));
+        deskhubp::CopyToBuf(out[i].ping, sizeof(out[i].ping),
+            online ? ui::PingMs(found->second.rttMs) : std::string("-"));
+        deskhubp::CopyToBuf(out[i].lastConnected, sizeof(out[i].lastConnected),
+            LocalTimeText(device.lastConnectedUnix));
+        out[i].online = online;
+    }
+    return count;
+}
+
+void dh_status_watch_recent(void) {
+    std::vector<std::string> list;
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        for (const ui::RecentDevice& device : Recent()) list.push_back(device.addr);
+    }
+    g_poller.SetAddresses(std::move(list));
+
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (g_pollerStarted) return;
+    g_pollerStarted = true;
+    g_poller.Start([](const deskhubp::DeviceStatus& status) {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_status[status.addr] = status;
+    });
+}
+
+int dh_ping_text(uint32_t rttMs, char* out, int capacity) {
+    return FillText(out, capacity, ui::PingMs(rttMs));
+}
+
+uint16_t dh_default_port(void) {
+    return deskhub::kDeskhubPort;
+}
+
+bool dh_client_control(void) {
+    return ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile)).clientControl;
+}
+
+void dh_set_client_control(bool on) {
+    ui::UiSettings out = ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile));
+    out.clientControl = on;
+    deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(out));
+}
+
+int dh_version_line(char* out, int capacity) {
+    return FillText(out, capacity, ui::VersionLine());
+}
+
+int dh_idle_host_status(uint16_t port, char* out, int capacity) {
+    const std::string text = std::string(ui::kNotSharing) + " " + ui::UdpPortLine(port) + ".";
+    return FillText(out, capacity, text);
+}
+
+int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, char* out,
+    int capacity) {
+    std::string text = ui::SharingStatusLine(port);
+    if (passcode && *passcode) text += " " + ui::PasscodeNote(passcode);
+    if (!allow_input) text += std::string(" ") + ui::kViewOnlyNote;
+    return FillText(out, capacity, text);
+}
+
+int dh_scan_status_text(uint16_t port, char* out, int capacity) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (g_scanning) {
+        const std::string busy = ui::ScanningStatus(g_progress.probed, g_progress.total, port);
+        return FillText(out, capacity, busy);
+    }
+    if (!g_scanFinished) return FillText(out, capacity, ui::kLanDevicesEmpty);
+    if (g_progress.total == 0) return FillText(out, capacity, ui::kScanNoLocalNetwork);
+
+    const char* const note = g_hits.empty() ? ui::kScanRescanNote : ui::kLanDevicesHint;
+    const std::string done =
+        ui::ScanFinishedStatus(g_hits.size(), g_progress.total) + " " + note;
+    return FillText(out, capacity, done);
+}
+}

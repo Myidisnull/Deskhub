@@ -103,10 +103,18 @@ nonisolated enum DeskhubClient {
         return (showPicker, sourceId)
     }
 
-    static func listSources(address: String) -> [Source] {
+    static var passcodeDigits: Int {
+        Int(dh_passcode_digits())
+    }
+
+    static func isValidPasscode(_ passcode: String) -> Bool {
+        dh_is_valid_passcode(passcode)
+    }
+
+    static func listSources(address: String, passcode: String) -> [Source] {
         ffiList(
             16, DHSourceInfo(),
-            { dh_list_sources(address, $0, $1) },
+            { dh_list_sources(address, $0, $1, passcode) },
             { info in
                 Source(
                     id: info.sourceId,
@@ -149,7 +157,7 @@ final class ClientSession: @unchecked Sendable {
     }
 
     static func start(
-        address: String, sourceId: UInt8, handlers: SessionHandlers
+        address: String, sourceId: UInt8, passcode: String, handlers: SessionHandlers
     ) -> ClientSession? {
         let box = Unmanaged.passRetained(HandlerBox(handlers)).toOpaque()
 
@@ -165,7 +173,7 @@ final class ClientSession: @unchecked Sendable {
             HandlerBox.unwrap(user)?.onClosed(reason.map { String(cString: $0) } ?? "")
         }
 
-        guard let handle = dh_session_start(address, sourceId, nil, &callbacks, nil) else {
+        guard let handle = dh_session_start(address, sourceId, nil, &callbacks, passcode) else {
             Unmanaged<HandlerBox>.fromOpaque(box).release()
             return nil
         }

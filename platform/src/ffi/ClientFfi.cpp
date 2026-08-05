@@ -64,6 +64,26 @@ const char* dh_string(DHStringId id) {
         case DHStrViewerOpenFailed: return deskhub::ui::kViewerOpenFailed;
         case DHStrConnectionEndedTitle: return deskhub::ui::kConnectionEndedTitle;
         case DHStrDisconnected: return deskhub::ui::kDisconnected;
+        case DHStrClientPasscodePrompt: return deskhub::ui::kClientPasscodePrompt;
+        case DHStrClientPasscodeHint: return deskhub::ui::kClientPasscodeHint;
+        case DHStrPasscodeInvalid: return deskhub::ui::kPasscodeInvalid;
+        case DHStrPasscodeLabel: return deskhub::ui::kPasscodeLabel;
+        case DHStrLanDevicesHeading: return deskhub::ui::kLanDevicesHeading;
+        case DHStrRecentDevicesHeading: return deskhub::ui::kRecentDevicesHeading;
+        case DHStrRecentDevicesHint: return deskhub::ui::kRecentDevicesHint;
+        case DHStrRecentDevicesEmpty: return deskhub::ui::kRecentDevicesEmpty;
+        case DHStrSidebarHost: return deskhub::ui::kSidebarHost;
+        case DHStrSidebarClient: return deskhub::ui::kSidebarClient;
+        case DHStrSidebarSettings: return deskhub::ui::kSidebarSettings;
+        case DHStrHostHeading: return deskhub::ui::kHostHeading;
+        case DHStrClientHeading: return deskhub::ui::kClientHeading;
+        case DHStrSettingsHeading: return deskhub::ui::kSettingsHeading;
+        case DHStrSettingsHint: return deskhub::ui::kSettingsHint;
+        case DHStrProjectUrl: return deskhub::ui::kProjectUrl;
+        case DHStrProjectLinkLabel: return deskhub::ui::kProjectLinkLabel;
+        case DHStrAllowControlLabel: return deskhub::ui::kAllowControlLabel;
+        case DHStrRequestControlLabel: return deskhub::ui::kRequestControlLabel;
+        case DHStrClientIpPlaceholder: return deskhub::ui::kClientIpPlaceholder;
         case DHStrUdpPortLine: {
             static const std::string line = deskhub::ui::UdpPortLine();
             return line.c_str();
@@ -122,7 +142,15 @@ int dh_viewer_base_title(const char* sourceName, char* out, int capacity) {
     return int(std::strlen(out));
 }
 
-int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
+bool dh_is_valid_passcode(const char* passcode) {
+    return passcode && deskhub::IsValidPasscode(passcode);
+}
+
+int dh_passcode_digits(void) {
+    return int(deskhub::kPasscodeDigits);
+}
+
+int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode) {
     if (!address || !out || capacity <= 0) return 0;
 
     NetAddr server;
@@ -132,7 +160,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity) {
     }
 
     std::vector<deskhub::SourceInfo> sources;
-    if (!QuerySources(server, sources)) return 0;
+    if (!QuerySources(server, sources, passcode ? passcode : "")) return 0;
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {

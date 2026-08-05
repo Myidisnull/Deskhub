@@ -89,6 +89,7 @@ class StreamActivity : ComponentActivity() {
     private var currentSourceId by mutableIntStateOf(0)
     private var sources: List<NativeClient.Source> = emptyList()
     private var address = ""
+    private var passcode = ""
 
     private val holderCallback =
         object : SurfaceHolder.Callback {
@@ -113,10 +114,18 @@ class StreamActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         address = intent.getStringExtra("addr").orEmpty()
+        passcode = intent.getStringExtra("passcode").orEmpty()
         currentSourceId = intent.getIntExtra("source", 0)
         sources = readSources(intent)
         screenPx = NativeClient.screenSizePx(this)
-        session = NativeClient.nativeStart(address, currentSourceId, screenPx.first, screenPx.second)
+        session =
+            NativeClient.nativeStart(
+                address,
+                currentSourceId,
+                screenPx.first,
+                screenPx.second,
+                passcode,
+            )
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -150,7 +159,14 @@ class StreamActivity : ComponentActivity() {
             NativeClient.nativeStop(session)
         }
         currentSourceId = sourceId
-        session = NativeClient.nativeStart(address, sourceId, screenPx.first, screenPx.second)
+        session =
+            NativeClient.nativeStart(
+                address,
+                sourceId,
+                screenPx.first,
+                screenPx.second,
+                passcode,
+            )
     }
 
     override fun onStop() {

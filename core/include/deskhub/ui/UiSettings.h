@@ -14,7 +14,7 @@ struct UiSettings {
     uint32_t port = kDeskhubPort;
     bool allowInput = true;
     bool clientControl = true;
-    std::string passcode;
+    std::string passcode{};
 
     bool operator==(const UiSettings&) const = default;
 };

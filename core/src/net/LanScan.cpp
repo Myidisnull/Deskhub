@@ -37,7 +37,7 @@ std::vector<uint32_t> SubnetScanTargets(uint32_t localIp, uint8_t prefixLen, siz
         last = first + window - 1;
     }
 
-    targets.reserve(size_t(last - first + 1));
+    targets.reserve(size_t(last) - first + 1);
     for (uint32_t ip = first; ip <= last; ++ip)
         if (ip != localIp) targets.push_back(ip);
     return targets;
@@ -55,7 +55,7 @@ std::string FormatIPv4(uint32_t ip) {
 }
 
 std::string ScanAddressText(uint32_t ip, uint16_t port) {
-    const std::string text = FormatIPv4(ip);
+    std::string text = FormatIPv4(ip);
     if (port == 0 || port == kDeskhubPort) return text;
     return text + ":" + std::to_string(port);
 }
