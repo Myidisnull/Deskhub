@@ -1,14 +1,53 @@
 import SwiftUI
 
+struct PaletteRgb {
+    let red: Double
+    let green: Double
+    let blue: Double
+}
+
+#if os(macOS)
+    import AppKit
+
+    func adaptiveColor(light: PaletteRgb, dark: PaletteRgb) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let rgb = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+        })
+    }
+#else
+    import UIKit
+
+    func adaptiveColor(light: PaletteRgb, dark: PaletteRgb) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+        })
+    }
+#endif
+
 enum DeskhubPalette {
     static let sidebar = Color(red: 0.122, green: 0.161, blue: 0.216)
     static let accent = Color(red: 0.145, green: 0.388, blue: 0.922)
     static let navText = Color(red: 0.820, green: 0.835, blue: 0.859)
     static let footnote = Color(red: 0.580, green: 0.639, blue: 0.722)
-    static let heading = Color(red: 0.067, green: 0.094, blue: 0.153)
-    static let muted = Color(red: 0.420, green: 0.447, blue: 0.502)
-    static let online = Color(red: 0.0, green: 0.569, blue: 0.235)
-    static let offline = Color(red: 0.784, green: 0.157, blue: 0.157)
+
+    static let heading = adaptiveColor(
+        light: PaletteRgb(red: 0.067, green: 0.094, blue: 0.153),
+        dark: PaletteRgb(red: 0.898, green: 0.906, blue: 0.922)
+    )
+    static let muted = adaptiveColor(
+        light: PaletteRgb(red: 0.420, green: 0.447, blue: 0.502),
+        dark: PaletteRgb(red: 0.612, green: 0.639, blue: 0.686)
+    )
+    static let online = adaptiveColor(
+        light: PaletteRgb(red: 0.0, green: 0.569, blue: 0.235),
+        dark: PaletteRgb(red: 0.290, green: 0.871, blue: 0.502)
+    )
+    static let offline = adaptiveColor(
+        light: PaletteRgb(red: 0.784, green: 0.157, blue: 0.157),
+        dark: PaletteRgb(red: 0.973, green: 0.443, blue: 0.443)
+    )
 }
 
 enum DeviceRowStyle {

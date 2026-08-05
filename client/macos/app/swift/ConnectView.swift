@@ -32,6 +32,7 @@ struct MainMenuView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
+            Divider()
             ScrollView {
                 page(for: page).padding(16)
             }
