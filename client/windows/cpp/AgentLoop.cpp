@@ -41,6 +41,7 @@ struct SourcePipeline : WinSourceBase {
         : WinSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{}) {}
 
     HMONITOR monitor = nullptr;
+    GpuChoice gpu;
 
     std::atomic<uint32_t> srcTexW{0}, srcTexH{0};
     deskhub::FrameGate frameGate;
@@ -113,14 +114,25 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return p;
     };
 
-    policy.source.startCapture = [engine, gpu](deskhubp::HostSource& st) {
+    policy.source.startCapture = [engine](deskhubp::HostSource& st) {
         SourcePipeline* p = &Pipeline(st);
         const uint32_t fps = engine->options().fps;
         const uint32_t maxDim = engine->options().maxDim;
 
+        if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, p->gpu)) {
+            LOGE("[Agent][%s] Failed to create a D3D11 device for this source.",
+                p->name.c_str());
+            p->failed.store(true);
+            return;
+        }
+        {
+            Microsoft::WRL::ComPtr<ID3D10Multithread> mt;
+            if (SUCCEEDED(p->gpu.device.As(&mt))) mt->SetMultithreadProtected(TRUE);
+        }
+
         auto onPacket = engine->MakePacketSink(*p);
 
-        p->ensureEncoderFn = [p, gpu, fps, onPacket](uint32_t w, uint32_t h, uint32_t sw,
+        p->ensureEncoderFn = [p, fps, onPacket](uint32_t w, uint32_t h, uint32_t sw,
                                  uint32_t sh) -> bool {
             if (p->encoder && p->encoder->IsOpen()) return true;
             EncoderConfig cfg;
@@ -129,7 +141,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             cfg.srcWidth = sw;
             cfg.srcHeight = sh;
             cfg.onPacket = onPacket;
-            p->encoder = CreateEncoder(gpu->device.Get(), cfg);
+            p->encoder = CreateEncoder(p->gpu.device.Get(), cfg);
             if (!p->encoder) {
                 LOGE(
                     "[Agent][%s] No usable encoder backend (NVENC + Media Foundation"
@@ -141,7 +153,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             return true;
         };
 
-        auto onFrame = [p, gpu, maxDim](const FrameInfo& fi) {
+        auto onFrame = [p, maxDim](const FrameInfo& fi) {
             p->captured.fetch_add(1, std::memory_order_relaxed);
             if (p->failed.load()) return;
 
@@ -165,7 +177,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
             ID3D11Texture2D* encTex = fi.handle;
             if (encW != fi.meta.width || encH != fi.meta.height) {
-                if (!p->scaler.Configure(gpu->device.Get(), fi.meta.width, fi.meta.height, encW,
+                if (!p->scaler.Configure(p->gpu.device.Get(), fi.meta.width, fi.meta.height, encW,
                         encH))
                     return;
                 encTex = p->scaler.Scale(fi.handle);
@@ -181,12 +193,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                 d.MiscFlags = 0;
                 d.Usage = D3D11_USAGE_DEFAULT;
                 d.CPUAccessFlags = 0;
-                if (FAILED(gpu->device->CreateTexture2D(&d, nullptr,
+                if (FAILED(p->gpu.device->CreateTexture2D(&d, nullptr,
                         p->cachedTex.GetAddressOf())))
                     p->cachedTex.Reset();
             }
             if (p->cachedTex) {
-                gpu->context->CopyResource(p->cachedTex.Get(), encTex);
+                p->gpu.context->CopyResource(p->cachedTex.Get(), encTex);
                 p->SetCachedFrame(true);
             }
             p->lastFrameUs.store(frameUs, std::memory_order_relaxed);
@@ -196,7 +208,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->EncodeTimed(encTex, p->forceIdr.exchange(false));
         };
 
-        p->capture.SetDevice(gpu->device.Get());
+        p->capture.SetDevice(p->gpu.device.Get());
         if (!p->capture.Start(uint64_t(uintptr_t(p->monitor)),
                 deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
             LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
@@ -228,15 +240,16 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                                          const deskhub::QualityStep& next) {
         SourcePipeline& p = Pipeline(st);
         const deskhub::StreamSize t = deskhub::RetargetStream(st, engine->options().maxDim);
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        if (p.encoder && prev.fps != next.fps) p.encoder->SetFps(next.fps);
+        auto lk = deskhubp::TryHoldEncoder(p.encMutex);
+        if (lk.owns_lock() && p.encoder && prev.fps != next.fps) p.encoder->SetFps(next.fps);
         return t;
     };
 
     policy.source.flush = [](deskhubp::HostSource& st, uint64_t) {
         SourcePipeline& p = Pipeline(st);
         if (!p.hasCachedFrame()) return;
-        std::lock_guard<std::mutex> lk(p.encMutex);
+        auto lk = deskhubp::TryHoldEncoder(p.encMutex);
+        if (!lk.owns_lock()) return;
         if (!p.ensureEncoderFn(p.srcW.load(), p.srcH.load(), p.srcTexW.load(),
                 p.srcTexH.load()))
             return;

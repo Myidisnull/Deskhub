@@ -98,6 +98,21 @@ void TestResetAndRateChange() {
     Check(p.Gate(1000, kStartUs) == 0, "and turning it back on starts from a clean slate");
 }
 
+void TestTheBacklogCannotGrowWithoutBound() {
+    std::printf("[pacer] a runaway backlog is capped, so a sender never sleeps forever...\n");
+    Pacer p;
+    p.SetRateBps(kOneMbps);
+
+    for (int i = 0; i < 200; ++i) p.Gate(10'000, kStartUs);
+    Check(p.Gate(1, kStartUs) == kPacerMaxBacklogUs,
+        "however far behind the sender falls, the next wait stays inside the cap");
+
+    p.SetRateBps(1000);
+    p.Gate(1'000'000, kStartUs);
+    Check(p.Gate(1, kStartUs) <= kPacerMaxBacklogUs,
+        "a huge frame at a tiny rate cannot wedge the thread either");
+}
+
 }
 
 void RunPacerTests() {
@@ -108,4 +123,5 @@ void RunPacerTests() {
     TestNoBurstCredit();
     TestSubThresholdWaitsAreNotLost();
     TestResetAndRateChange();
+    TestTheBacklogCannotGrowWithoutBound();
 }

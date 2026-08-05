@@ -174,8 +174,8 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
         SourcePipeline& p = Pipeline(st);
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        if (!p.encoder || !p.hasCachedFrame()) return;
+        auto lk = deskhubp::TryHoldEncoder(p.encMutex);
+        if (!lk.owns_lock() || !p.encoder || !p.hasCachedFrame()) return;
         const bool idr = p.forceIdr.exchange(false);
         VaEncoder* enc = p.encoder.get();
         const bool ok = deskhubp::DiagEncode(p, idr,

@@ -164,6 +164,10 @@ private:
     std::atomic<bool> haveCached_{false};
 };
 
+inline std::unique_lock<std::mutex> TryHoldEncoder(std::mutex& encoderMutex) {
+    return std::unique_lock<std::mutex>(encoderMutex, std::try_to_lock);
+}
+
 template <class Pipeline>
 std::unique_ptr<Pipeline> MakeHostSource(HostEngine& engine,
     const deskhub::media::ShareSource& s, uint8_t sourceId) {
@@ -182,8 +186,8 @@ HostSourcePolicy MakeDefaultSourcePolicy() {
     };
     sp.setEncoderBitrate = [](HostSource& st, uint32_t bitrateBps) {
         Pipeline& p = static_cast<Pipeline&>(st);
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        return p.encoder && p.encoder->SetBitrate(bitrateBps);
+        auto lk = TryHoldEncoder(p.encMutex);
+        return lk.owns_lock() && p.encoder && p.encoder->SetBitrate(bitrateBps);
     };
     sp.inputSkipped = [](const HostSource& st) {
         return static_cast<const Pipeline&>(st).injector.skipped();

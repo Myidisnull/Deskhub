@@ -264,6 +264,57 @@ void TestTwoSourcesStayApart() {
     agent.Stop();
 }
 
+void TestOneMachineWatchesBothDisplaysAtOnce() {
+    std::printf("[e2e] one machine opens a window per display of a two-display host...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    const bool started = agent.Start(
+        {fake::Source("Display 1", 1280, 720, 1), fake::Source("Display 2", 800, 600, 2)}, port);
+    if (!started) {
+        Check(false, "the host could not start");
+        std::printf("  host error: %s\n", agent.LastError().c_str());
+        return;
+    }
+
+    Viewer firstDisplay;
+    firstDisplay.SetSurface(kDummySurface);
+    Check(firstDisplay.Start(ViewerConfig(port, 0)), "the first window opened its socket");
+    Check(WaitFor([&] { return Streaming(firstDisplay); }, kConnectTimeoutMs),
+        "the window watching Display 1 reaches Streaming");
+
+    Viewer secondDisplay;
+    secondDisplay.SetSurface(kDummySurface);
+    Check(secondDisplay.Start(ViewerConfig(port, 1)), "the second window opened its socket");
+    Check(WaitFor([&] { return Streaming(secondDisplay); }, kConnectTimeoutMs),
+        "the window watching Display 2 reaches Streaming too, instead of being turned away");
+
+    Check(WaitFor([&] { return Streaming(firstDisplay); }, kClashWindowMs),
+        "and the first window is still streaming, not knocked off by the second");
+
+    Check(WaitFor(
+              [&] {
+                  const auto rows = agent.Status();
+                  return rows.size() == 2 && rows[0].viewerConnected && rows[1].viewerConnected;
+              },
+              kStreamTimeoutMs),
+        "the host reports a viewer on both displays");
+
+    Check(WaitFor([&] { return fake::Decoded().frameCount() >= 6; }, kStreamTimeoutMs),
+        "both windows keep receiving video");
+
+    Check(firstDisplay.videoWidth() > secondDisplay.videoWidth(),
+        "each window is sized from its own display, not from a single shared stream");
+
+    firstDisplay.Stop();
+    Check(WaitFor([&] { return Streaming(secondDisplay); }, kClashWindowMs),
+        "closing one window leaves the other one streaming");
+
+    secondDisplay.Stop();
+    agent.Stop();
+}
+
 void TestSourceDiscoveryBeforeAnySession() {
     std::printf("[e2e] a viewer can ask what is shared before opening a session...\n");
     ResetObservations();
@@ -519,6 +570,7 @@ void RunSessionFlowTests() {
     TestPauseArrivesWithoutAScancode();
     TestTheHostReportsWhoIsWatching();
     TestTwoSourcesStayApart();
+    TestOneMachineWatchesBothDisplaysAtOnce();
     TestTwoViewersShareOneSourceAndOneEncoder();
     TestSourceDiscoveryBeforeAnySession();
     TestTheHostSurvivesAViewerThatVanishes();
