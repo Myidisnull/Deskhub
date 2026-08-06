@@ -31,6 +31,15 @@
 
 namespace deskhubp {
 
+inline std::string& AppDataDirRef() {
+    static std::string dir;
+    return dir;
+}
+
+inline void SetAppDataDir(std::string dir) {
+    AppDataDirRef() = std::move(dir);
+}
+
 inline std::string LogFileName() {
     const std::time_t now = std::time(nullptr);
     std::tm tm{};
@@ -62,12 +71,24 @@ inline std::string LocalTimeHms() {
 
 #ifdef _WIN32
 
-inline std::wstring LogDirW() {
-    wchar_t buf[MAX_PATH] = {};
-    const DWORD n = GetEnvironmentVariableW(L"USERPROFILE", buf, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return std::wstring();
+inline std::wstring WidenUtf8(const std::string& s) {
+    if (s.empty()) return std::wstring();
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
+    if (n <= 0) return std::wstring();
+    std::wstring out(size_t(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), out.data(), n);
+    return out;
+}
 
-    std::wstring dir = std::wstring(buf, n) + L"\\.deskhub";
+inline std::wstring LogDirW() {
+    std::wstring dir = WidenUtf8(AppDataDirRef());
+    if (dir.empty()) {
+        wchar_t buf[MAX_PATH] = {};
+        const DWORD n = GetEnvironmentVariableW(L"USERPROFILE", buf, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH) return std::wstring();
+        dir = std::wstring(buf, n) + L"\\.deskhub";
+    }
+
     if (!CreateDirectoryW(dir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
         return std::wstring();
     return dir;
@@ -122,17 +143,38 @@ inline bool StartProcessLog(std::wstring* outPath = nullptr) {
 
 #else
 
-inline std::string LogDir() {
-    const char* home = std::getenv("HOME");
-    if (!home || !*home) {
-        const struct passwd* pw = getpwuid(getuid());
-        home = (pw && pw->pw_dir) ? pw->pw_dir : nullptr;
-    }
-    if (!home || !*home) return std::string();
+inline bool EnsureWritableDir(const std::string& dir) {
+    if (dir.empty()) return false;
+    return mkdir(dir.c_str(), 0700) == 0 || errno == EEXIST;
+}
 
-    std::string dir = std::string(home) + "/.deskhub";
-    if (mkdir(dir.c_str(), 0700) != 0 && errno != EEXIST) return std::string();
-    return dir;
+inline std::string HomeDir() {
+    const char* home = std::getenv("HOME");
+    if (home && *home) return std::string(home);
+
+    const struct passwd* pw = getpwuid(getuid());
+    if (pw && pw->pw_dir && *pw->pw_dir) return std::string(pw->pw_dir);
+    return std::string();
+}
+
+inline std::string LogDir() {
+    const std::string& chosen = AppDataDirRef();
+    if (!chosen.empty()) return EnsureWritableDir(chosen) ? chosen : std::string();
+
+    const std::string home = HomeDir();
+    if (!home.empty()) {
+        const std::string dir = home + "/.deskhub";
+        if (EnsureWritableDir(dir)) return dir;
+    }
+
+    const char* tmp = std::getenv("TMPDIR");
+    if (tmp && *tmp) {
+        const std::string dir = std::string(tmp) + "/.deskhub";
+        if (EnsureWritableDir(dir)) return dir;
+    }
+
+    const std::string local = ".deskhub";
+    return EnsureWritableDir(local) ? local : std::string();
 }
 
 inline std::string& LogPathRef() {

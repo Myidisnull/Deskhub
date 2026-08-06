@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NativeClient.useAppDataDir(this)
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
 
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0

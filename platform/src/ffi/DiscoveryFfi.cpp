@@ -29,7 +29,11 @@ constexpr const char* kRecentDevicesFile = "recent-devices.txt";
 
 std::mutex g_mutex;
 
-deskhubp::LanScanner g_scanner;
+deskhubp::LanScanner& Scanner() {
+    static deskhubp::LanScanner scanner;
+    return scanner;
+}
+
 std::vector<deskhubp::ScanHit> g_hits;
 std::vector<std::string> g_hitsThisRound;
 deskhubp::ScanProgress g_progress;
@@ -121,7 +125,7 @@ bool dh_scan_start(uint16_t port) {
         g_scanning = true;
     }
 
-    const bool started = g_scanner.Start(
+    const bool started = Scanner().Start(
         port, [](const std::function<void()>& fn) { fn(); },
         [](const deskhubp::ScanHit& hit) {
             std::vector<std::string> polled;
@@ -173,7 +177,7 @@ bool dh_scan_start(uint16_t port) {
 }
 
 void dh_scan_cancel(void) {
-    g_scanner.Cancel();
+    Scanner().Cancel();
     std::lock_guard<std::mutex> lk(g_mutex);
     g_scanning = false;
 }

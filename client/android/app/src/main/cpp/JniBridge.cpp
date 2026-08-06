@@ -10,6 +10,7 @@
 #include "deskhub/input/Hotkeys.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 
@@ -234,6 +235,11 @@ Java_com_deskhub_app_NativeClient_nativeScanStatusText(JNIEnv* env, jobject, jin
     char buf[256];
     dh_scan_status_text(uint16_t(port), buf, int(sizeof(buf)));
     return env->NewStringUTF(buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetDataDir(JNIEnv* env, jobject, jstring dirStr) {
+    deskhubp::SetAppDataDir(FromJString(env, dirStr));
 }
 
 JNIEXPORT jstring JNICALL

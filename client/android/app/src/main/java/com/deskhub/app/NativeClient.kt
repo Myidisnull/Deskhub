@@ -59,6 +59,12 @@ object NativeClient {
 
     fun versionLine(): String = nativeVersionLine()
 
+    private external fun nativeSetDataDir(dir: String)
+
+    fun useAppDataDir(context: Context) {
+        nativeSetDataDir(context.filesDir.absolutePath)
+    }
+
     private external fun nativeParseAddress(addr: String): Boolean
 
     private external fun nativeCouldNotConnect(addr: String): String
