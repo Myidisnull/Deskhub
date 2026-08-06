@@ -46,7 +46,7 @@ struct MainMenuView: View {
         }
         .alert("Deskhub", isPresented: showingShareAlert) {
             if !agent.hasScreenRecording {
-                Button("Open System Settings") { DeskhubAgent.openScreenRecordingSettings() }
+                Button("Grant Screen Recording") { agent.requestScreenRecording() }
             }
             Button("OK", role: .cancel) {}
         } message: {
@@ -54,8 +54,8 @@ struct MainMenuView: View {
         }
         .alert("Deskhub", isPresented: $accessibilityWarning) {
             Button("Share anyway") { Task { await doShare() } }
-            Button("Open System Settings", role: .cancel) {
-                DeskhubAgent.openAccessibilitySettings()
+            Button("Grant Accessibility", role: .cancel) {
+                agent.requestAccessibility()
             }
         } message: {
             Text("Mouse and keyboard are always shared, but macOS silently drops "
@@ -284,8 +284,7 @@ struct MainMenuView: View {
                 }
             }
 
-            section("Permissions")
-            Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $agent.allowInput)
+            PermissionsSection(agent: agent)
         }
         .onChange(of: agent.fps) { _, _ in agent.save() }
         .onChange(of: agent.bitrateMbps) { _, _ in agent.save() }

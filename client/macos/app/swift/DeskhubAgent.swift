@@ -40,6 +40,9 @@ nonisolated enum DeskhubAgent {
     static var hasScreenRecording: Bool { dh_has_screen_recording() }
     static var hasAccessibility: Bool { dh_has_accessibility() }
 
+    static func requestScreenRecording() -> Bool { dh_request_screen_recording() }
+    static func requestAccessibility() -> Bool { dh_request_accessibility() }
+
     static func openScreenRecordingSettings() { dh_open_screen_recording_settings() }
     static func openAccessibilitySettings() { dh_open_accessibility_settings() }
 

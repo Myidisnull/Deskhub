@@ -13,8 +13,10 @@ extern "C" {
 #endif
 
 bool dh_has_screen_recording(void);
+bool dh_request_screen_recording(void);
 void dh_open_screen_recording_settings(void);
 bool dh_has_accessibility(void);
+bool dh_request_accessibility(void);
 void dh_open_accessibility_settings(void);
 
 #ifdef __cplusplus

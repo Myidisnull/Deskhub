@@ -27,6 +27,7 @@ final class AgentModel {
 
     var hasScreenRecording = false
     var hasAccessibility = false
+    var screenRecordingNeedsRelaunch = false
 
     var acceptedPasscode: String {
         DeskhubClient.isValidPasscode(passcode) ? passcode : ""
@@ -61,6 +62,18 @@ final class AgentModel {
     func refreshPermissions() {
         hasScreenRecording = DeskhubAgent.hasScreenRecording
         hasAccessibility = DeskhubAgent.hasAccessibility
+        if hasScreenRecording {
+            screenRecordingNeedsRelaunch = false
+        }
+    }
+
+    func requestScreenRecording() {
+        hasScreenRecording = DeskhubAgent.requestScreenRecording()
+        screenRecordingNeedsRelaunch = !hasScreenRecording
+    }
+
+    func requestAccessibility() {
+        hasAccessibility = DeskhubAgent.requestAccessibility()
     }
 
     func loadAddresses() {

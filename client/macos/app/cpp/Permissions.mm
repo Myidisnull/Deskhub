@@ -23,8 +23,17 @@ bool HasScreenRecording() {
     return CGPreflightScreenCaptureAccess();
 }
 
+bool RequestScreenRecording() {
+    return CGRequestScreenCaptureAccess();
+}
+
 bool HasAccessibility() {
     return AXIsProcessTrusted();
+}
+
+bool RequestAccessibility() {
+    NSDictionary* options = @{(__bridge NSString*)kAXTrustedCheckOptionPrompt: @YES};
+    return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
 }
 
 void OpenScreenRecordingSettings() {
