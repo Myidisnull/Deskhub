@@ -111,6 +111,10 @@ nonisolated enum DeskhubClient {
         dh_is_valid_passcode(passcode)
     }
 
+    static func passcodeInput(_ typed: String) -> String {
+        String(typed.filter(\.isASCII).filter(\.isNumber).prefix(passcodeDigits))
+    }
+
     static func listSources(address: String, passcode: String) -> [Source] {
         ffiList(
             16, DHSourceInfo(),

@@ -113,6 +113,11 @@ typedef enum {
     DHStrRequestControlLabel = 39,
     DHStrClientIpPlaceholder = 40,
     DHStrConnectPromptTitle = 41,
+    DHStrPickDisplaysHint = 42,
+    DHStrNoDisplayTicked = 43,
+    DHStrStopSelectedDisplay = 44,
+    DHStrDisconnectSelectedViewer = 45,
+    DHStrShareClampWarning = 46,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -134,6 +139,8 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
 bool dh_is_valid_passcode(const char* passcode);
 
 int dh_passcode_digits(void);
+
+int dh_max_sources(void);
 
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id);
 

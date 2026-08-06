@@ -15,20 +15,19 @@ typedef struct {
 } DHShareSource;
 
 typedef struct {
+    bool viewer;
     uint8_t sourceId;
-    uint32_t width;
-    uint32_t height;
-    bool viewerConnected;
-    uint32_t viewerCount;
-    bool zeroCopy;
-    double captureFps;
-    double sendFps;
-    double sendKbps;
-    uint32_t rttMs;
+    bool online;
     char viewerAddr[192];
-    char name[256];
-    char label[320];
-} DHAgentStatus;
+    char source[256];
+    char size[32];
+    char viewers[16];
+    char client[192];
+    char capture[16];
+    char send[16];
+    char mbps[16];
+    char rtt[32];
+} DHHostRow;
 
 typedef struct {
     uint32_t fps;
@@ -52,9 +51,13 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
 
 void dha_stop(void);
 
+void dha_stop_source(uint8_t source_id);
+
+void dha_kick_viewer(uint8_t source_id, const char* viewer_addr);
+
 bool dha_running(void);
 
-int dha_status(DHAgentStatus* out, int capacity);
+int dha_host_rows(DHHostRow* out, int capacity);
 
 const char* dha_last_error(void);
 

@@ -85,6 +85,14 @@ const char* dh_string(DHStringId id) {
         case DHStrRequestControlLabel: return deskhub::ui::kRequestControlLabel;
         case DHStrClientIpPlaceholder: return deskhub::ui::kClientIpPlaceholder;
         case DHStrConnectPromptTitle: return deskhub::ui::kConnectPromptTitle;
+        case DHStrPickDisplaysHint: return deskhub::ui::kPickDisplaysHint;
+        case DHStrNoDisplayTicked: return deskhub::ui::kNoDisplayTicked;
+        case DHStrStopSelectedDisplay: return deskhub::ui::kStopSelectedDisplay;
+        case DHStrDisconnectSelectedViewer: return deskhub::ui::kDisconnectSelectedViewer;
+        case DHStrShareClampWarning: {
+            static const std::string warning = deskhub::ui::ShareClampWarning();
+            return warning.c_str();
+        }
         case DHStrUdpPortLine: {
             static const std::string line = deskhub::ui::UdpPortLine();
             return line.c_str();
@@ -149,6 +157,10 @@ bool dh_is_valid_passcode(const char* passcode) {
 
 int dh_passcode_digits(void) {
     return int(deskhub::kPasscodeDigits);
+}
+
+int dh_max_sources(void) {
+    return int(deskhub::kMaxSources);
 }
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode) {

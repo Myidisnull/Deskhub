@@ -106,15 +106,21 @@ struct DeviceListRow: Identifiable, Hashable {
     let addr: String
     let passcode: String
     let ping: String
-    let detail: String
+    let status: String
+    let lastConnected: String
     let online: Bool?
     var id: String { addr }
+
+    var detail: String {
+        status.isEmpty && lastConnected.isEmpty ? "" : "\(status)  \(lastConnected)"
+    }
 
     init(_ hit: ScanHit, passcode: String) {
         addr = hit.addr
         self.passcode = passcode
         ping = hit.ping
-        detail = ""
+        status = ""
+        lastConnected = ""
         online = nil
     }
 
@@ -122,7 +128,8 @@ struct DeviceListRow: Identifiable, Hashable {
         addr = device.addr
         passcode = device.passcode
         ping = device.ping
-        detail = "\(device.status)  \(device.lastConnected)"
+        status = device.status
+        lastConnected = device.lastConnected
         online = device.online
     }
 }

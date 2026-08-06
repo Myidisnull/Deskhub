@@ -6,11 +6,12 @@
 #include <vector>
 
 #include "deskhub/media/QualityPreset.h"
-#include "deskhub/media/SourceLabel.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/ui/HostRows.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/NetInfo.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -102,38 +103,56 @@ void dha_stop(void) {
     }
 }
 
+void dha_stop_source(uint8_t source_id) {
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_agent) g_agent->StopSource(source_id);
+}
+
+void dha_kick_viewer(uint8_t source_id, const char* viewer_addr) {
+    if (!viewer_addr) return;
+    NetAddr addr{};
+    if (!ParseNetAddr(viewer_addr, addr)) return;
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_agent) g_agent->KickViewer(source_id, addr.Pack());
+}
+
 bool dha_running(void) {
     std::lock_guard<std::mutex> lk(g_agentMutex);
     return g_agent && g_agent->running();
 }
 
-int dha_status(DHAgentStatus* out, int capacity) {
+int dha_host_rows(DHHostRow* out, int capacity) {
     if (!out || capacity <= 0) return 0;
-    std::vector<AgentSourceStatus> rows;
+    std::vector<AgentSourceStatus> sources;
     {
         std::lock_guard<std::mutex> lk(g_agentMutex);
         if (!g_agent) return 0;
-        rows = g_agent->Status();
+        sources = g_agent->Status();
     }
-    const int count = int(rows.size()) < capacity ? int(rows.size()) : capacity;
-    for (int i = 0; i < count; ++i) {
-        const AgentSourceStatus& row = rows[size_t(i)];
-        out[i].sourceId = row.sourceId;
-        out[i].width = row.width;
-        out[i].height = row.height;
-        out[i].viewerConnected = row.viewerConnected;
-        out[i].viewerCount = row.viewerCount;
-        out[i].zeroCopy = row.zeroCopy;
-        out[i].captureFps = row.captureFps;
-        out[i].sendFps = row.sendFps;
-        out[i].sendKbps = row.sendKbps;
-        out[i].rttMs = row.rttMs;
-        deskhubp::CopyToBuf(out[i].viewerAddr, sizeof(out[i].viewerAddr), row.viewerAddr);
-        deskhubp::CopyToBuf(out[i].name, sizeof(out[i].name), row.name);
-        deskhubp::CopyToBuf(out[i].label, sizeof(out[i].label),
-            deskhub::media::SharedSourceLabel(row.name, row.width, row.height, row.viewerCount));
+
+    const std::vector<deskhub::ui::HostRow> rows = deskhub::ui::BuildHostRows(sources);
+    int written = 0;
+    for (const deskhub::ui::HostRow& row : rows) {
+        if (written >= capacity) break;
+        const AgentSourceStatus* source = deskhub::ui::FindHostSource(sources, row.sourceId);
+        if (!source) continue;
+
+        const deskhub::ui::HostRowCells cells = deskhub::ui::HostRowText(row, *source);
+        DHHostRow& slot = out[written++];
+        slot.viewer = row.viewer;
+        slot.sourceId = row.sourceId;
+        slot.online = cells.online;
+        deskhubp::CopyToBuf(slot.viewerAddr, sizeof(slot.viewerAddr), row.viewerAddr);
+        deskhubp::CopyToBuf(slot.source, sizeof(slot.source), cells.source);
+        deskhubp::CopyToBuf(slot.size, sizeof(slot.size), cells.size);
+        deskhubp::CopyToBuf(slot.viewers, sizeof(slot.viewers), cells.viewers);
+        deskhubp::CopyToBuf(slot.client, sizeof(slot.client), cells.client);
+        deskhubp::CopyToBuf(slot.capture, sizeof(slot.capture), cells.capture);
+        deskhubp::CopyToBuf(slot.send, sizeof(slot.send), cells.send);
+        deskhubp::CopyToBuf(slot.mbps, sizeof(slot.mbps), cells.mbps);
+        deskhubp::CopyToBuf(slot.rtt, sizeof(slot.rtt), cells.rtt);
     }
-    return count;
+    return written;
 }
 
 const char* dha_last_error(void) {

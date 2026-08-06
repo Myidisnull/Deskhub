@@ -1,7 +1,6 @@
 #include "gtk/MainWindow.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <ctime>
 #include <string>
 #include <thread>
@@ -168,12 +167,6 @@ std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& device
     out.reserve(devices.size());
     for (const auto& device : devices) out.push_back(device.addr);
     return out;
-}
-
-std::string Decimals(double value, int places) {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.*f", places, value);
-    return std::string(buf);
 }
 
 bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sources,
@@ -978,23 +971,15 @@ gboolean MainWindow::OnHostTimer(gpointer user) {
 }
 
 void MainWindow::FillHostRow(
-    GtkTreeIter* it, const HostRow& ref, const AgentSourceStatus& status) {
-    if (ref.viewer) {
-        gtk_list_store_set(hostStore_, it, 0, "    \xE2\x86\xB3 viewer", 1, "", 2, "", 3,
-            ref.viewerAddr.c_str(), 4, "", 5, "", 6, "", 7, "", 8, kOnlineColour, -1);
-        return;
-    }
-
-    const std::string size = std::to_string(status.width) + "x" + std::to_string(status.height);
-    const std::string rtt = status.viewerConnected ? ui::PingMs(status.rttMs) : std::string("-");
-    gtk_list_store_set(hostStore_, it, 0, status.name.c_str(), 1, size.c_str(), 2,
-        std::to_string(status.viewerCount).c_str(), 3, "", 4,
-        Decimals(status.captureFps, 0).c_str(), 5, Decimals(status.sendFps, 0).c_str(), 6,
-        Decimals(status.sendKbps / 1000.0, 1).c_str(), 7, rtt.c_str(), 8,
-        status.viewerConnected ? kOnlineColour : kRowTextColour, -1);
+    GtkTreeIter* it, const ui::HostRow& ref, const AgentSourceStatus& status) {
+    const ui::HostRowCells cells = ui::HostRowText(ref, status);
+    gtk_list_store_set(hostStore_, it, 0, cells.source.c_str(), 1, cells.size.c_str(), 2,
+        cells.viewers.c_str(), 3, cells.client.c_str(), 4, cells.capture.c_str(), 5,
+        cells.send.c_str(), 6, cells.mbps.c_str(), 7, cells.rtt.c_str(), 8,
+        cells.online ? kOnlineColour : kRowTextColour, -1);
 }
 
-void MainWindow::SelectHostRow(const HostRow& row) {
+void MainWindow::SelectHostRow(const ui::HostRow& row) {
     for (size_t i = 0; i < hostRows_.size(); ++i) {
         if (!(hostRows_[i] == row)) continue;
         GtkTreePath* path = gtk_tree_path_new_from_indices(gint(i), -1);
@@ -1006,18 +991,9 @@ void MainWindow::SelectHostRow(const HostRow& row) {
 }
 
 void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<HostRow> refs;
-    std::vector<const AgentSourceStatus*> sources;
-    for (const AgentSourceStatus& s : rows) {
-        refs.push_back(HostRow{false, s.sourceId, {}});
-        sources.push_back(&s);
-        for (const std::string& addr : s.viewerAddrs) {
-            refs.push_back(HostRow{true, s.sourceId, addr});
-            sources.push_back(&s);
-        }
-    }
+    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows);
 
-    HostRow selected;
+    ui::HostRow selected;
     const bool hadSelection = SelectedHostRow(selected);
     const bool reuseRows = refs == hostRows_;
     hostRows_ = std::move(refs);
@@ -1031,7 +1007,8 @@ void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
         } else {
             gtk_list_store_append(hostStore_, &it);
         }
-        FillHostRow(&it, hostRows_[i], *sources[i]);
+        const AgentSourceStatus* source = ui::FindHostSource(rows, hostRows_[i].sourceId);
+        if (source) FillHostRow(&it, hostRows_[i], *source);
         if (reuseRows) haveIter = gtk_tree_model_iter_next(GTK_TREE_MODEL(hostStore_), &it);
     }
 
@@ -1039,7 +1016,7 @@ void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
     UpdateHostButtons();
 }
 
-bool MainWindow::SelectedHostRow(HostRow& out) const {
+bool MainWindow::SelectedHostRow(ui::HostRow& out) const {
     GtkTreeSelection* selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(hostView_));
     GtkTreeModel* model = nullptr;
     GtkTreeIter it;
@@ -1054,7 +1031,7 @@ bool MainWindow::SelectedHostRow(HostRow& out) const {
 }
 
 void MainWindow::UpdateHostButtons() {
-    HostRow row;
+    ui::HostRow row;
     const bool selected = hosting_ && SelectedHostRow(row);
     gtk_widget_set_sensitive(stopDisplayButton_, selected && !row.viewer);
     gtk_widget_set_sensitive(kickViewerButton_, selected && row.viewer);
@@ -1066,14 +1043,14 @@ void MainWindow::OnHostSelectionChanged(GtkTreeSelection*, gpointer user) {
 
 void MainWindow::OnStopDisplayClicked(GtkButton*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    HostRow row;
+    ui::HostRow row;
     if (!self->SelectedHostRow(row) || row.viewer) return;
     self->agentLoop_.StopSource(row.sourceId);
 }
 
 void MainWindow::OnKickViewerClicked(GtkButton*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    HostRow row;
+    ui::HostRow row;
     if (!self->SelectedHostRow(row) || !row.viewer) return;
     NetAddr addr{};
     if (!ParseNetAddr(row.viewerAddr, addr)) return;

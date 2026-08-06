@@ -26,6 +26,7 @@
 #include "Viewer.h"
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/session/ShareFlow.h"
+#include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhub/ui/UiSettings.h"
@@ -261,17 +262,9 @@ private:
     wxCheckBox* allowInputCtrl_ = nullptr;
     wxTextCtrl* passcodeCtrl_ = nullptr;
 
-    struct HostRow {
-        bool viewer = false;
-        uint8_t sourceId = 0;
-        std::string viewerAddr;
-
-        bool operator==(const HostRow&) const = default;
-    };
-
     deskhub::ui::UiSettings settings_;
     std::vector<AgentSource> availableDisplays_;
-    std::vector<HostRow> hostRows_;
+    std::vector<ui::HostRow> hostRows_;
     std::vector<ui::RecentDevice> recent_;
     std::vector<deskhubp::ScanHit> scanned_;
     std::vector<std::string> scannedThisRound_;
@@ -786,12 +779,7 @@ void MainFrame::OnHostTimer(wxTimerEvent&) {
 }
 
 void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<HostRow> refs;
-    for (const AgentSourceStatus& s : rows) {
-        refs.push_back(HostRow{false, s.sourceId, {}});
-        for (const std::string& addr : s.viewerAddrs)
-            refs.push_back(HostRow{true, s.sourceId, addr});
-    }
+    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows);
 
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
@@ -802,37 +790,22 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
     }
 
     for (size_t i = 0; i < hostRows_.size(); ++i) {
-        const HostRow& ref = hostRows_[i];
+        const ui::HostRow& ref = hostRows_[i];
         const long row = long(i);
-        const AgentSourceStatus* s = nullptr;
-        for (const AgentSourceStatus& candidate : rows)
-            if (candidate.sourceId == ref.sourceId) s = &candidate;
+        const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
         if (!s) continue;
 
-        if (ref.viewer) {
-            SetHostCell(row, 0, wxString::FromUTF8("    \xE2\x86\xB3 viewer"));
-            SetHostCell(row, 1, wxString());
-            SetHostCell(row, 2, wxString());
-            SetHostCell(row, 3, ToWx(ref.viewerAddr));
-            SetHostCell(row, 4, wxString());
-            SetHostCell(row, 5, wxString());
-            SetHostCell(row, 6, wxString());
-            SetHostCell(row, 7, wxString());
-            hostList_->SetItemTextColour(row, kOnline);
-            continue;
-        }
-
-        SetHostCell(row, 0, ToWx(s->name));
-        SetHostCell(row, 1, wxString::Format("%ux%u", s->width, s->height));
-        SetHostCell(row, 2, wxString::Format("%u", s->viewerCount));
-        SetHostCell(row, 3, wxString());
-        SetHostCell(row, 4, wxString::Format("%.0f", s->captureFps));
-        SetHostCell(row, 5, wxString::Format("%.0f", s->sendFps));
-        SetHostCell(row, 6, wxString::Format("%.1f", s->sendKbps / 1000.0));
-        SetHostCell(row, 7, s->viewerConnected ? ToWx(ui::PingMs(s->rttMs)) : wxString("-"));
+        const ui::HostRowCells cells = ui::HostRowText(ref, *s);
+        SetHostCell(row, 0, ToWx(cells.source));
+        SetHostCell(row, 1, ToWx(cells.size));
+        SetHostCell(row, 2, ToWx(cells.viewers));
+        SetHostCell(row, 3, ToWx(cells.client));
+        SetHostCell(row, 4, ToWx(cells.capture));
+        SetHostCell(row, 5, ToWx(cells.send));
+        SetHostCell(row, 6, ToWx(cells.mbps));
+        SetHostCell(row, 7, ToWx(cells.rtt));
         hostList_->SetItemTextColour(row,
-            s->viewerConnected ? kOnline
-                               : wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+            cells.online ? kOnline : wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
     }
 }
 
@@ -859,7 +832,7 @@ void MainFrame::UpdateHostButtons() {
 void MainFrame::OnStopSelectedDisplay() {
     const long row = SelectedHostRow();
     if (!hosting_ || row < 0 || size_t(row) >= hostRows_.size()) return;
-    const HostRow& ref = hostRows_[size_t(row)];
+    const ui::HostRow& ref = hostRows_[size_t(row)];
     if (ref.viewer) return;
     agentLoop_.StopSource(ref.sourceId);
 }
@@ -867,7 +840,7 @@ void MainFrame::OnStopSelectedDisplay() {
 void MainFrame::OnKickSelectedViewer() {
     const long row = SelectedHostRow();
     if (!hosting_ || row < 0 || size_t(row) >= hostRows_.size()) return;
-    const HostRow& ref = hostRows_[size_t(row)];
+    const ui::HostRow& ref = hostRows_[size_t(row)];
     if (!ref.viewer) return;
     NetAddr addr{};
     if (!ParseNetAddr(ref.viewerAddr, addr)) return;

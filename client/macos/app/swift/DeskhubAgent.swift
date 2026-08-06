@@ -18,17 +18,21 @@ struct ShareOptions: Sendable {
     let passcode: String
 }
 
-struct AgentSourceStatus: Identifiable, Sendable {
-    let id: UInt8
-    let name: String
-    let size: String
-    let viewerCount: UInt32
+struct HostRow: Identifiable, Hashable, Sendable {
+    let viewer: Bool
+    let sourceId: UInt8
+    let online: Bool
     let viewerAddr: String
-    let captureFps: String
-    let sendFps: String
-    let sendMbps: String
+    let source: String
+    let size: String
+    let viewers: String
+    let client: String
+    let capture: String
+    let send: String
+    let mbps: String
     let rtt: String
-    let viewerConnected: Bool
+
+    var id: String { "\(sourceId)/\(viewerAddr)" }
 }
 
 struct QualityPreset: Identifiable, Sendable {
@@ -84,23 +88,32 @@ nonisolated enum DeskhubAgent {
     static func stop() { dha_stop() }
     static var isRunning: Bool { dha_running() }
 
-    static func status() -> [AgentSourceStatus] {
+    static func stopSource(_ sourceId: UInt8) { dha_stop_source(sourceId) }
+
+    static func kickViewer(_ sourceId: UInt8, address: String) {
+        dha_kick_viewer(sourceId, address)
+    }
+
+    static var maxSources: Int { Int(dh_max_sources()) }
+
+    static func hostRows() -> [HostRow] {
         DeskhubClient.ffiList(
-            16, DHAgentStatus(),
-            { dha_status($0, $1) },
+            64, DHHostRow(),
+            { dha_host_rows($0, $1) },
             { row in
-                AgentSourceStatus(
-                    id: row.sourceId,
-                    name: cString(row.name),
-                    size: "\(row.width)x\(row.height)",
-                    viewerCount: row.viewerCount,
+                HostRow(
+                    viewer: row.viewer,
+                    sourceId: row.sourceId,
+                    online: row.online,
                     viewerAddr: cString(row.viewerAddr),
-                    captureFps: String(format: "%.0f", row.captureFps),
-                    sendFps: String(format: "%.0f", row.sendFps),
-                    sendMbps: String(format: "%.1f", row.sendKbps / 1000.0),
-                    rtt: row.viewerConnected
-                        ? DeskhubClient.buffered(32) { dh_ping_text(row.rttMs, $0, $1) } : "-",
-                    viewerConnected: row.viewerConnected
+                    source: cString(row.source),
+                    size: cString(row.size),
+                    viewers: cString(row.viewers),
+                    client: cString(row.client),
+                    capture: cString(row.capture),
+                    send: cString(row.send),
+                    mbps: cString(row.mbps),
+                    rtt: cString(row.rtt)
                 )
             }
         )

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "deskhub/session/OpenViewers.h"
+#include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/UiSettings.h"
 #include "deskhubp/net/DeviceStatusPoller.h"
@@ -26,14 +27,6 @@ private:
         kPageClient = 1,
         kPageSettings = 2,
         kPageCount = 3 };
-
-    struct HostRow {
-        bool viewer = false;
-        uint8_t sourceId = 0;
-        std::string viewerAddr;
-
-        bool operator==(const HostRow&) const = default;
-    };
 
     MainWindow() = default;
     ~MainWindow() = default;
@@ -73,10 +66,11 @@ private:
     void OnHostStarted(bool started, const std::string& error, const AgentOptions& options);
     void StopHosting();
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
-    void FillHostRow(GtkTreeIter* it, const HostRow& ref, const AgentSourceStatus& status);
-    void SelectHostRow(const HostRow& row);
+    void FillHostRow(GtkTreeIter* it, const deskhub::ui::HostRow& ref,
+        const AgentSourceStatus& status);
+    void SelectHostRow(const deskhub::ui::HostRow& row);
     void UpdateHostButtons();
-    bool SelectedHostRow(HostRow& out) const;
+    bool SelectedHostRow(deskhub::ui::HostRow& out) const;
     std::string IdleHostStatus() const;
     void SetHostStatus(const std::string& text, bool online);
 
@@ -137,7 +131,7 @@ private:
     std::vector<deskhubp::ScanHit> scanned_;
     std::vector<std::string> scannedThisRound_;
     std::map<std::string, deskhubp::DeviceStatus> statusByAddr_;
-    std::vector<HostRow> hostRows_;
+    std::vector<deskhub::ui::HostRow> hostRows_;
 
     deskhubp::LanScanner scanner_;
     deskhubp::DeviceStatusPoller poller_;

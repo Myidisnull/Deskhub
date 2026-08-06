@@ -29,7 +29,11 @@ final class AgentModel {
     var isSharing = false
     var isStarting = false
     var startError = ""
-    var rows: [AgentSourceStatus] = []
+    var clampWarning = ""
+    var rows: [HostRow] = []
+    var selectedRow: HostRow.ID?
+    var shareSources: [ShareSource] = []
+    var tickedSources: Set<UInt32> = []
 
     var hasScreenRecording = false
     var hasAccessibility = false
@@ -86,12 +90,61 @@ final class AgentModel {
         addresses = DeskhubAgent.localAddresses()
     }
 
+    func refreshShareSources() async {
+        guard !isSharing, !isStarting else { return }
+        let found = await Task.detached { DeskhubAgent.listShareSources() }.value
+        shareSources = found
+        tickedSources = Set(found.map(\.id))
+    }
+
+    var pickedSources: [ShareSource] {
+        shareSources.filter { tickedSources.contains($0.id) }
+    }
+
+    var selectedHostRow: HostRow? {
+        rows.first { $0.id == selectedRow }
+    }
+
+    var canStopDisplay: Bool {
+        guard isSharing, let row = selectedHostRow else { return false }
+        return !row.viewer
+    }
+
+    var canKickViewer: Bool {
+        guard isSharing, let row = selectedHostRow else { return false }
+        return row.viewer
+    }
+
+    func stopSelectedDisplay() {
+        guard let row = selectedHostRow, !row.viewer else { return }
+        DeskhubAgent.stopSource(row.sourceId)
+    }
+
+    func kickSelectedViewer() {
+        guard let row = selectedHostRow, row.viewer else { return }
+        DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
+    }
+
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
         guard DeskhubClient.isValidPasscode(passcode) else {
             startError = DeskhubClient.string(DHStrPasscodeInvalid)
             return false
         }
+        if shareSources.isEmpty { await refreshShareSources() }
+        guard !shareSources.isEmpty else {
+            startError = DeskhubClient.string(DHStrScreenRecordingRequired)
+            return false
+        }
+        guard !pickedSources.isEmpty else {
+            startError = DeskhubClient.string(DHStrNoDisplayTicked)
+            return false
+        }
+
+        let picked = Array(pickedSources.prefix(DeskhubAgent.maxSources))
+        clampWarning = picked.count < pickedSources.count
+            ? DeskhubClient.string(DHStrShareClampWarning) : ""
+
         isStarting = true
         startError = ""
         save()
@@ -106,9 +159,7 @@ final class AgentModel {
         )
 
         let ok = await Task.detached {
-            let picked = DeskhubAgent.listShareSources()
-            guard !picked.isEmpty else { return false }
-            return DeskhubAgent.start(sources: picked, options: options)
+            DeskhubAgent.start(sources: picked, options: options)
         }.value
 
         isStarting = false
@@ -116,6 +167,7 @@ final class AgentModel {
         if ok {
             startPolling()
         } else {
+            clampWarning = ""
             startError = hasScreenRecording
                 ? DeskhubClient.string(DHStrShareStartFailed) + ". " + DeskhubAgent.lastError
                 : DeskhubClient.string(DHStrScreenRecordingRequired)
@@ -128,6 +180,8 @@ final class AgentModel {
         DeskhubAgent.stop()
         isSharing = false
         rows = []
+        selectedRow = nil
+        Task { await refreshShareSources() }
     }
 
     private func startPolling() {
@@ -144,7 +198,8 @@ final class AgentModel {
     }
 
     private func poll() {
-        rows = DeskhubAgent.status()
+        rows = DeskhubAgent.hostRows()
+        if rows.first(where: { $0.id == selectedRow }) == nil { selectedRow = nil }
         if !DeskhubAgent.isRunning {
             stopSharing()
         }

@@ -22,13 +22,11 @@ struct ConnectView: View {
                 .disabled(model.connect.isConnecting)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    TextField(
-                        DeskhubClient.string(DHStrClientPasscodePrompt),
-                        text: $model.connect.passcode
+                    PasscodeField(
+                        passcode: $model.connect.passcode,
+                        prompt: DeskhubClient.string(DHStrClientPasscodePrompt),
+                        enabled: !model.connect.isConnecting
                     )
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.numberPad)
-                    .disabled(model.connect.isConnecting)
 
                     Text(DeskhubClient.string(DHStrClientPasscodeHint))
                         .font(.caption)

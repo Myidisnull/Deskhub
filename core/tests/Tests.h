@@ -42,6 +42,7 @@ void RunViewerTitleTests();
 void RunBeaconTests();
 void RunLanScanTests();
 void RunStringsTests();
+void RunHostRowsTests();
 void RunRecentDevicesTests();
 void RunUiSettingsTests();
 void RunSecretTextTests();

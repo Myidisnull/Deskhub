@@ -135,6 +135,9 @@ int main() {
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();
 
+    std::printf("--- ui: host table rows (displays, viewers, cells) ---\n");
+    RunHostRowsTests();
+
     std::printf("--- ui: recent devices list (parse, touch, cap) ---\n");
     RunRecentDevicesTests();
 

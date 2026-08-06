@@ -52,6 +52,7 @@ add_library(core STATIC
 
     src/net/LanScan.cpp
 
+    src/ui/HostRows.cpp
     src/ui/RecentDevices.cpp
     src/ui/SecretText.cpp
     src/ui/UiSettings.cpp
@@ -129,6 +130,7 @@ if(DESKHUB_CORE_TESTS)
         tests/net/LanScanTests.cpp
 
         tests/ui/StringsTests.cpp
+        tests/ui/HostRowsTests.cpp
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp
         tests/ui/UiSettingsTests.cpp

@@ -45,8 +45,7 @@ struct SettingsPage: View {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text(DeskhubClient.string(DHStrPasscodeLabel))
-                    TextField("", text: $agent.passcode)
-                        .textFieldStyle(.roundedBorder).frame(width: 64)
+                    PasscodeField(passcode: $agent.passcode, width: 64)
                 }
             }
 

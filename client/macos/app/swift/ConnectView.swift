@@ -43,6 +43,8 @@ struct MainMenuView: View {
     @State private var page: DeskhubPage = .client
     @State private var shareAlert = ""
     @State private var accessibilityWarning = false
+    @State private var prompting: DeviceListRow?
+    @State private var promptPasscode = ""
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -68,6 +70,14 @@ struct MainMenuView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(shareAlert)
+        }
+        .sheet(item: $prompting) { row in
+            PasscodePromptSheet(
+                address: row.addr,
+                passcode: $promptPasscode,
+                onCancel: { prompting = nil },
+                onConnect: { confirmPrompt(row) }
+            )
         }
         .alert("Deskhub", isPresented: $accessibilityWarning) {
             Button("Share anyway") { Task { await doShare() } }
@@ -129,41 +139,9 @@ struct MainMenuView: View {
     @ViewBuilder
     private func page(for page: DeskhubPage) -> some View {
         switch page {
-        case .host: hostPage
+        case .host: HostPage(agent: agent) { Task { await share() } }
         case .client: clientPage
         case .settings: SettingsPage(agent: agent)
-        }
-    }
-
-    private var hostPage: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            deskhubHeading(DeskhubClient.string(DHStrHostHeading))
-            deskhubHint(DeskhubClient.string(DHStrHostIpIntro))
-
-            HostAddressList(addresses: agent.addresses)
-
-            Text(agent.statusLine)
-                .fontWeight(.bold)
-                .foregroundStyle(agent.isSharing ? DeskhubPalette.online : DeskhubPalette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HostSourceTable(rows: agent.rows)
-                .frame(minHeight: 170)
-
-            Button {
-                Task { await share() }
-            } label: {
-                if agent.isStarting {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity)
-                } else {
-                    Text(DeskhubClient.string(
-                        agent.isSharing ? DHStrStopSharing : DHStrShareButton
-                    ))
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(height: 40)
-            .disabled(agent.isStarting)
         }
     }
 
@@ -184,14 +162,16 @@ struct MainMenuView: View {
                 }
                 GridRow {
                     Text(DeskhubClient.string(DHStrClientPasscodePrompt))
-                    TextField("", text: $connect.passcode)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 64)
-                        .help(DeskhubClient.string(DHStrClientPasscodeHint))
-                        .onSubmit(beginConnect)
-                        .disabled(connect.isConnecting)
+                    PasscodeField(
+                        passcode: $connect.passcode,
+                        width: 64,
+                        enabled: !connect.isConnecting,
+                        onSubmit: beginConnect
+                    )
                 }
             }
+
+            deskhubHint(DeskhubClient.string(DHStrClientPasscodeHint))
 
             Button("Connect", action: beginConnect)
                 .buttonStyle(.borderedProminent)
@@ -216,23 +196,23 @@ struct MainMenuView: View {
             }
 
             deskhubHeading(DeskhubClient.string(DHStrLanDevicesHeading))
-            DeviceListView(
-                heading: "",
-                note: discovery.scanStatus,
+            DeviceTable(
                 rows: discovery.scanHits.map {
                     DeviceListRow($0, passcode: DeskhubDiscovery.passcode(for: $0.addr))
                 },
+                note: discovery.scanStatus,
+                withHistory: false,
                 enabled: !connect.isConnecting,
                 onPick: pick
             )
 
             deskhubHeading(DeskhubClient.string(DHStrRecentDevicesHeading))
-            DeviceListView(
-                heading: "",
+            DeviceTable(
+                rows: discovery.recent.map { DeviceListRow($0) },
                 note: DeskhubClient.string(
                     discovery.recent.isEmpty ? DHStrRecentDevicesEmpty : DHStrRecentDevicesHint
                 ),
-                rows: discovery.recent.map { DeviceListRow($0) },
+                withHistory: true,
                 enabled: !connect.isConnecting,
                 onPick: pick
             )
@@ -261,14 +241,26 @@ struct MainMenuView: View {
     }
 
     private func doShare() async {
-        if await !(agent.startSharing()) {
+        guard await agent.startSharing() else {
             shareAlert = agent.startError
+            return
+        }
+        if !agent.clampWarning.isEmpty {
+            shareAlert = agent.clampWarning
+            agent.clampWarning = ""
         }
     }
 
     private func pick(_ row: DeviceListRow) {
+        promptPasscode = DeskhubClient.isValidPasscode(row.passcode)
+            ? row.passcode : connect.passcode
+        prompting = row
+    }
+
+    private func confirmPrompt(_ row: DeviceListRow) {
+        prompting = nil
         connect.address = row.addr
-        if DeskhubClient.isValidPasscode(row.passcode) { connect.passcode = row.passcode }
+        connect.passcode = promptPasscode
         beginConnect()
     }
 
@@ -287,23 +279,6 @@ struct MainMenuView: View {
                             passcode: connect.acceptedPasscode,
                             openWindow: openWindow, dismissWindow: dismissWindow)
             }
-        }
-    }
-}
-
-struct HostSourceTable: View {
-    let rows: [AgentSourceStatus]
-
-    var body: some View {
-        Table(rows) {
-            TableColumn("Source") { Text($0.name) }.width(140)
-            TableColumn("Size") { Text($0.size) }.width(80)
-            TableColumn("Viewers") { Text("\($0.viewerCount)") }.width(58)
-            TableColumn("Client") { Text($0.viewerAddr) }.width(120)
-            TableColumn("Capture") { Text($0.captureFps) }.width(58)
-            TableColumn("Send") { Text($0.sendFps) }.width(50)
-            TableColumn("Mbps") { Text($0.sendMbps) }.width(55)
-            TableColumn("RTT") { Text($0.rtt) }.width(55)
         }
     }
 }
