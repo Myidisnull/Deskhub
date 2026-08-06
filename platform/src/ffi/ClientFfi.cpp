@@ -84,6 +84,7 @@ const char* dh_string(DHStringId id) {
         case DHStrAllowControlLabel: return deskhub::ui::kAllowControlLabel;
         case DHStrRequestControlLabel: return deskhub::ui::kRequestControlLabel;
         case DHStrClientIpPlaceholder: return deskhub::ui::kClientIpPlaceholder;
+        case DHStrConnectPromptTitle: return deskhub::ui::kConnectPromptTitle;
         case DHStrUdpPortLine: {
             static const std::string line = deskhub::ui::UdpPortLine();
             return line.c_str();
@@ -151,16 +152,17 @@ int dh_passcode_digits(void) {
 }
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode) {
-    if (!address || !out || capacity <= 0) return 0;
+    if (!address || !out || capacity <= 0) return DH_SOURCE_QUERY_FAILED;
 
     NetAddr server;
     if (!ParseNetAddr(address, server)) {
         LOGE("[Bridge] Invalid address: %s", address);
-        return 0;
+        return DH_SOURCE_QUERY_FAILED;
     }
 
     std::vector<deskhub::SourceInfo> sources;
-    if (!QuerySources(server, sources, passcode ? passcode : "")) return 0;
+    if (!QuerySources(server, sources, passcode ? passcode : ""))
+        return DH_SOURCE_QUERY_FAILED;
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {

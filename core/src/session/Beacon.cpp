@@ -9,7 +9,7 @@ size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const
 
     switch (h->type) {
         case MsgType::ListSources: {
-            if (!passcode_.empty() && ParseListSourcesPasscode(payload) != passcode_)
+            if (!IsValidPasscode(passcode_) || ParseListSourcesPasscode(payload) != passcode_)
                 return BuildSourceList(out, {});
             return BuildSourceList(out, sources_);
         }

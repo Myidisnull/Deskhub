@@ -24,9 +24,10 @@ void TestBeaconSourcesAndProbe() {
     s.height = 2160;
     s.name = "DELL U2723QE";
     b.SetSources(std::span<const SourceInfo>(&s, 1));
+    b.SetPasscode(kTestPasscode);
 
     uint8_t req[kMaxDatagram];
-    size_t rn = BuildListSources(req);
+    size_t rn = BuildListSources(req, kTestPasscode);
     const auto rep = Ask(b, std::span<const uint8_t>(req, rn));
     const auto h = ParseCommonHeader(rep);
     Check(h && h->type == MsgType::SourceList, "LIST_SOURCES -> SOURCE_LIST");
@@ -88,8 +89,11 @@ void TestBeaconHidesSourcesBehindThePasscode() {
 
     b.SetPasscode("bad");
     rn = BuildListSources(req);
-    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 1,
-        "an invalid passcode leaves the host unprotected rather than locked out");
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
+        "a host left without a valid passcode shows nobody its displays");
+    rn = BuildListSources(req, "4726");
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
+        "not even the code it used to accept");
 }
 
 void TestBeaconIgnoresSessionTraffic() {

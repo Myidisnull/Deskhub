@@ -14,6 +14,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/media/SourceLabel.h"
@@ -27,7 +28,6 @@ namespace {
 namespace ui = deskhub::ui;
 
 constexpr const char* kRecentDevicesFile = "recent-devices.txt";
-constexpr const char* kUiSettingsFile = "ui-settings.txt";
 
 constexpr int kWindowW = 860;
 constexpr int kWindowH = 700;
@@ -252,7 +252,7 @@ void MainWindow::Open(GtkApplication* app) {
 }
 
 void MainWindow::LoadSettings() {
-    settings_ = ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile));
+    settings_ = deskhubp::LoadUiSettings();
     recent_ = ui::ParseRecentDevices(deskhubp::ReadAppDataFile(kRecentDevicesFile));
 }
 
@@ -596,9 +596,9 @@ void MainWindow::SaveSettings() {
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
 
     const std::string passcode = ui::TrimAscii(gtk_entry_get_text(GTK_ENTRY(hostPasscodeEntry_)));
-    settings_.passcode = deskhub::IsValidPasscode(passcode) ? passcode : std::string();
+    if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
 
-    deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(settings_));
+    deskhubp::SaveUiSettings(settings_);
     if (!hosting_ && !hostStarting_) SetHostStatus(IdleHostStatus(), false);
 }
 
@@ -731,14 +731,21 @@ void MainWindow::OnRecentRowActivated(GtkTreeView*, GtkTreePath* path, GtkTreeVi
 
 void MainWindow::ConnectWithPrompt(const std::string& addr, std::string passcode) {
     if (!ShowPasscodeDialog(GTK_WINDOW(window_), addr, passcode)) return;
+
+    const std::string code = ui::TrimAscii(passcode);
+    if (!deskhub::IsValidPasscode(code)) {
+        ShowError(GTK_WINDOW(window_), "Deskhub", ui::kPasscodeInvalid);
+        return;
+    }
+
     gtk_entry_set_text(GTK_ENTRY(addressEntry_), addr.c_str());
-    gtk_entry_set_text(GTK_ENTRY(passcodeEntry_), passcode.c_str());
-    StartConnect(addr, ui::TrimAscii(passcode));
+    gtk_entry_set_text(GTK_ENTRY(passcodeEntry_), code.c_str());
+    StartConnect(addr, code);
 }
 
 bool MainWindow::ReadPasscode(GtkWidget* entry, std::string& out) {
     out = ui::TrimAscii(gtk_entry_get_text(GTK_ENTRY(entry)));
-    if (out.empty() || deskhub::IsValidPasscode(out)) return true;
+    if (deskhub::IsValidPasscode(out)) return true;
 
     ShowError(GTK_WINDOW(window_), "Deskhub", ui::kPasscodeInvalid);
     gtk_widget_grab_focus(entry);

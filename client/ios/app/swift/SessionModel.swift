@@ -12,7 +12,7 @@ final class SessionModel {
 
     func pick(_ row: DeviceListRow) {
         connect.address = row.addr
-        connect.passcode = row.passcode
+        if DeskhubClient.isValidPasscode(row.passcode) { connect.passcode = row.passcode }
         beginConnect()
     }
 

@@ -16,7 +16,13 @@ final class AgentModel {
     var maxDim = Int(AgentModel.stored.maxDim)
     var port = Int(AgentModel.stored.port)
     var allowInput = AgentModel.stored.allowInput
-    var passcode = DeskhubClient.cString(AgentModel.stored.passcode)
+    var passcode = DeskhubClient.cString(AgentModel.stored.passcode) {
+        didSet {
+            if DeskhubClient.isValidPasscode(passcode) { lastValidPasscode = passcode }
+        }
+    }
+
+    private var lastValidPasscode = DeskhubClient.cString(AgentModel.stored.passcode)
 
     var addresses: [LocalAddress] = []
 
@@ -30,7 +36,7 @@ final class AgentModel {
     var screenRecordingNeedsRelaunch = false
 
     var acceptedPasscode: String {
-        DeskhubClient.isValidPasscode(passcode) ? passcode : ""
+        DeskhubClient.isValidPasscode(passcode) ? passcode : lastValidPasscode
     }
 
     var clientControl = AgentModel.stored.clientControl
@@ -82,7 +88,7 @@ final class AgentModel {
 
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
-        guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {
+        guard DeskhubClient.isValidPasscode(passcode) else {
             startError = DeskhubClient.string(DHStrPasscodeInvalid)
             return false
         }

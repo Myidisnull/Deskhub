@@ -67,9 +67,9 @@ inline constexpr const char* kPickDisplaysPortalHint =
 inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
 inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
 inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";
-inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, blank = off)";
-inline constexpr const char* kClientPasscodePrompt = "Passcode (optional):";
-inline constexpr const char* kClientPasscodeHint = "Leave blank if the host has none.";
+inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
+inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
+inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
 inline constexpr const char* kLanDevicesHeading = "Devices on this network";
 inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
@@ -79,7 +79,7 @@ inline constexpr const char* kScanNoLocalNetwork =
     "This machine has no network address to scan from.";
 inline constexpr const char* kConnectPromptTitle = "Connect to this device";
 inline constexpr const char* kPasscodeInvalid =
-    "The passcode must be exactly 4 digits (for example 0417), or blank to turn it off.";
+    "The passcode must be exactly 4 digits (for example 0417).";
 
 inline std::string TrimAscii(std::string_view s) {
     const size_t b = s.find_first_not_of(" \t\r\n");

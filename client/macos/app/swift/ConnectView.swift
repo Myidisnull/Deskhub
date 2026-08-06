@@ -333,14 +333,14 @@ struct MainMenuView: View {
     }
 
     private func doShare() async {
-        if !(await agent.startSharing()) {
+        if await !(agent.startSharing()) {
             shareAlert = agent.startError
         }
     }
 
     private func pick(_ row: DeviceListRow) {
         connect.address = row.addr
-        connect.passcode = row.passcode
+        if DeskhubClient.isValidPasscode(row.passcode) { connect.passcode = row.passcode }
         beginConnect()
     }
 

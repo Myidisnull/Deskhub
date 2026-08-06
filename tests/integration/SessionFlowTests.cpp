@@ -35,6 +35,7 @@ deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, uint8_t sourceId) {
     cfg.screenH = 1080;
     cfg.desiredFps = 30;
     cfg.alwaysFocused = true;
+    cfg.passcode = kTestPasscode;
     return cfg;
 }
 
@@ -329,7 +330,7 @@ void TestSourceDiscoveryBeforeAnySession() {
     }
 
     std::vector<deskhub::SourceInfo> sources;
-    Check(QuerySources(HostAddr(port), sources), "LIST_SOURCES was answered");
+    Check(QuerySources(HostAddr(port), sources, kTestPasscode), "LIST_SOURCES was answered");
     Check(sources.size() == 2, "both shared sources come back");
     if (sources.size() == 2) {
         Check(sources[0].name == "Display 1" && sources[1].name == "Display 2",
@@ -485,7 +486,9 @@ void TestPasscodeGatesTheStream() {
     {
         Viewer blank;
         blank.SetSurface(kDummySurface);
-        blank.Start(ViewerConfig(port, 0));
+        deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+        cfg.passcode.clear();
+        blank.Start(cfg);
         Check(WaitFor([&] { return blank.phase() == deskhubp::ClientPhase::Ended; },
                   kConnectTimeoutMs),
             "so is a viewer that sends no passcode at all");
@@ -535,13 +538,13 @@ void TestDiscoveryIsGatedByThePasscode() {
     agent.Stop();
 }
 
-void TestNoPasscodeMeansAnyoneMayWatch() {
-    std::printf("[e2e] a host with no passcode still admits a viewer that sends one...\n");
+void TestAHostWithoutAPasscodeServesNobody() {
+    std::printf("[e2e] a host left without a passcode turns every viewer away...\n");
     ResetObservations();
     const uint16_t port = NextTestPort();
 
     fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920, "")) {
         Check(false, "the host could not start");
         return;
     }
@@ -552,8 +555,14 @@ void TestNoPasscodeMeansAnyoneMayWatch() {
     cfg.passcode = "0000";
     viewer.Start(cfg);
 
-    Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
-        "an unprotected host ignores whatever passcode arrives");
+    Check(WaitFor([&] { return viewer.phase() == deskhubp::ClientPhase::Ended; },
+              kConnectTimeoutMs),
+        "no passcode on the host means no stream, whatever the viewer sends");
+    Check(fake::Decoded().frameCount() == 0, "and nothing of the screen leaves the machine");
+
+    std::vector<deskhub::SourceInfo> sources;
+    Check(QuerySources(HostAddr(port), sources, "0000") && sources.empty(),
+        "discovery gives up nothing either");
 
     viewer.Stop();
     agent.Stop();
@@ -565,7 +574,7 @@ void RunSessionFlowTests() {
     TestAViewerConnectsAndSeesTheFramesTheHostEncoded();
     TestPasscodeGatesTheStream();
     TestDiscoveryIsGatedByThePasscode();
-    TestNoPasscodeMeansAnyoneMayWatch();
+    TestAHostWithoutAPasscodeServesNobody();
     TestKeystrokesReachTheHostInjector();
     TestPauseArrivesWithoutAScancode();
     TestTheHostReportsWhoIsWatching();

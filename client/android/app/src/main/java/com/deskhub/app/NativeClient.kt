@@ -43,6 +43,9 @@ object NativeClient {
     const val STR_CLIENT_PASSCODE_PROMPT = 21
     const val STR_CLIENT_PASSCODE_HINT = 22
     const val STR_PASSCODE_INVALID = 23
+    const val STR_CONNECT_PROMPT_TITLE = 41
+    const val STR_PROJECT_URL = 36
+    const val STR_PROJECT_LINK_LABEL = 37
     const val STR_CLIENT_HEADING = 33
     const val STR_REQUEST_CONTROL_LABEL = 39
     const val STR_LAN_DEVICES_HEADING = 25
@@ -51,6 +54,10 @@ object NativeClient {
     const val STR_RECENT_DEVICES_EMPTY = 28
 
     private external fun nativeString(id: Int): String
+
+    private external fun nativeVersionLine(): String
+
+    fun versionLine(): String = nativeVersionLine()
 
     private external fun nativeParseAddress(addr: String): Boolean
 
@@ -89,7 +96,7 @@ object NativeClient {
     private external fun nativeListSources(
         addr: String,
         passcode: String,
-    ): Array<Source>
+    ): Array<Source>?
 
     private external fun nativeIsValidPasscode(passcode: String): Boolean
 
@@ -515,5 +522,5 @@ object NativeClient {
     suspend fun listSources(
         addr: String,
         passcode: String,
-    ): List<Source> = withContext(Dispatchers.IO) { nativeListSources(addr, passcode).toList() }
+    ): List<Source>? = withContext(Dispatchers.IO) { nativeListSources(addr, passcode)?.toList() }
 }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -40,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -146,6 +149,7 @@ private fun MainScreen(
     var scanHits by remember { mutableStateOf(emptyList<NativeClient.ScanHit>()) }
     var recentDevices by remember { mutableStateOf(emptyList<NativeClient.RecentDevice>()) }
     var scanStatus by remember { mutableStateOf("") }
+    var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
     val scope = rememberCoroutineScope()
     val port = remember { NativeClient.defaultPort() }
 
@@ -182,19 +186,22 @@ private fun MainScreen(
             return@connectLambda
         }
         val code = passcode.trim()
-        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
+        if (!NativeClient.isValidPasscode(code)) {
             connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
             return@connectLambda
         }
         connectError = ""
-        onRemember(addr, code)
         val mine = Step.Querying(++querySeq)
         step = mine
         scope.launch {
-            val sources = NativeClient.listSources(addr, code)
-            NativeClient.recentTouch(addr, code)
-            NativeClient.watchRecent()
-            recentDevices = NativeClient.recentDevices()
+            val queried = NativeClient.listSources(addr, code)
+            if (queried != null) {
+                onRemember(addr, code)
+                NativeClient.recentTouch(addr, code)
+                NativeClient.watchRecent()
+                recentDevices = NativeClient.recentDevices()
+            }
+            val sources = queried.orEmpty()
             if (step == mine) {
                 val decision = NativeClient.connectDecision(sources)
                 if (decision >= 0) {
@@ -208,9 +215,8 @@ private fun MainScreen(
     }
 
     val pickDevice: (String, String) -> Unit = { addr, code ->
-        address = addr
-        passcode = code
-        connect(addr)
+        connectError = ""
+        pendingPick = PendingPick(addr, code)
     }
 
     when (val s = step) {
@@ -254,6 +260,67 @@ private fun MainScreen(
                 },
             )
     }
+
+    pendingPick?.let { pick ->
+        PasscodeDialog(
+            addr = pick.addr,
+            initial = pick.passcode,
+            onDismiss = { pendingPick = null },
+            onConfirm = { code ->
+                pendingPick = null
+                address = pick.addr
+                passcode = code
+                connect(pick.addr)
+            },
+        )
+    }
+}
+
+private data class PendingPick(
+    val addr: String,
+    val passcode: String,
+)
+
+@Composable
+private fun PasscodeDialog(
+    addr: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var typed by remember(addr, initial) { mutableStateOf(initial) }
+    val ready = NativeClient.isValidPasscode(typed.trim())
+    val confirm = { if (ready) onConfirm(typed.trim()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(NativeClient.string(NativeClient.STR_CONNECT_PROMPT_TITLE)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(addr, style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = typed,
+                    onValueChange = { entered ->
+                        typed =
+                            entered.filter { it.isDigit() }.take(NativeClient.passcodeDigits())
+                    },
+                    label = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_PROMPT)) },
+                    supportingText = {
+                        Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_HINT))
+                    },
+                    singleLine = true,
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = KeyboardType.NumberPassword,
+                            imeAction = ImeAction.Go,
+                        ),
+                    keyboardActions = KeyboardActions(onGo = { confirm() }),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = confirm, enabled = ready) { Text("Connect") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -271,7 +338,8 @@ private fun AddressScreen(
     onPickDevice: (String, String) -> Unit,
 ) {
     val trimmed = address.trim()
-    val go = { if (trimmed.isNotEmpty() && !busy) onConnect(trimmed) }
+    val ready = trimmed.isNotEmpty() && NativeClient.isValidPasscode(passcode.trim()) && !busy
+    val go = { if (ready) onConnect(trimmed) }
 
     Column(
         modifier =
@@ -319,7 +387,7 @@ private fun AddressScreen(
         ) {
             Button(
                 onClick = go,
-                enabled = trimmed.isNotEmpty() && !busy,
+                enabled = ready,
             ) { Text("Connect") }
 
             if (busy) {
@@ -369,13 +437,39 @@ private fun AddressScreen(
                 },
             enabled = !busy,
             onPick = { addr ->
-                onPickDevice(addr, recentDevices.first { it.addr == addr }.passcode)
+                val known = recentDevices.firstOrNull { it.addr == addr }?.passcode
+                onPickDevice(addr, known ?: NativeClient.recentPasscode(addr))
             },
         )
 
         if (error.isNotEmpty()) {
             Text(error, color = MaterialTheme.colorScheme.error)
         }
+
+        ProjectFooter()
+    }
+}
+
+@Composable
+private fun ProjectFooter() {
+    val uriHandler = LocalUriHandler.current
+    val url = NativeClient.string(NativeClient.STR_PROJECT_URL)
+
+    Column(
+        modifier = Modifier.padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            NativeClient.string(NativeClient.STR_PROJECT_LINK_LABEL),
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.clickable { uriHandler.openUri(url) },
+        )
+        Text(
+            NativeClient.versionLine(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

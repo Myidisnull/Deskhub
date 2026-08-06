@@ -192,14 +192,14 @@ private fun StreamScreen(
     onDismiss: () -> Unit,
 ) {
     val started = sessionKey != 0L
-    var phase by remember { mutableIntStateOf(NativeClient.PHASE_IDLE) }
+    var sessionPhase by remember { mutableIntStateOf(NativeClient.PHASE_IDLE) }
     var statusLine by remember { mutableStateOf("") }
     var endReason by remember { mutableStateOf("") }
     var videoW by remember { mutableIntStateOf(0) }
     var videoH by remember { mutableIntStateOf(0) }
 
     DisposableEffect(sessionKey) {
-        phase = NativeClient.PHASE_IDLE
+        sessionPhase = NativeClient.PHASE_IDLE
         statusLine = ""
         endReason = ""
         videoW = 0
@@ -209,10 +209,10 @@ private fun StreamScreen(
             object : NativeClient.SessionListener {
                 override fun onStatus(
                     line: String,
-                    phase_: Int,
+                    phase: Int,
                 ) {
                     statusLine = line
-                    phase = phase_
+                    sessionPhase = phase
                 }
 
                 override fun onSize(
@@ -225,23 +225,23 @@ private fun StreamScreen(
 
                 override fun onEnded(reason: String) {
                     endReason = reason
-                    phase = NativeClient.PHASE_ENDED
+                    sessionPhase = NativeClient.PHASE_ENDED
                 }
             }
         NativeClient.sessionListener = listener
         NativeClient.nativeSnapshot()?.let { snap ->
-            phase = snap.phase
+            sessionPhase = snap.phase
             statusLine = snap.statusLine
             videoW = snap.videoWidth
             videoH = snap.videoHeight
-            if (phase == NativeClient.PHASE_ENDED) endReason = snap.endReason
+            if (sessionPhase == NativeClient.PHASE_ENDED) endReason = snap.endReason
         }
         onDispose {
             if (NativeClient.sessionListener === listener) NativeClient.sessionListener = null
         }
     }
 
-    val streaming = phase == NativeClient.PHASE_STREAMING
+    val streaming = sessionPhase == NativeClient.PHASE_STREAMING
 
     var keyboardOn by remember { mutableStateOf(false) }
     var keyView by remember { mutableStateOf<KeyInputView?>(null) }
@@ -399,7 +399,7 @@ private fun StreamScreen(
                 )
             }
 
-            if (!started || phase == NativeClient.PHASE_ENDED) {
+            if (!started || sessionPhase == NativeClient.PHASE_ENDED) {
                 EndedOverlay(
                     reason = if (!started) NativeClient.couldNotConnect(address) else endReason,
                     onBack = onDismiss,

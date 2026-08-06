@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
-project(DeskhubCore LANGUAGES CXX VERSION 2.0.7)
+
+# The one place the version lives. Every client prints DESKHUB_VERSION, and the
+# fastlane lanes read the same file for the store listings.
+file(READ ${CMAKE_CURRENT_LIST_DIR}/../VERSION DESKHUB_VERSION_TEXT)
+string(STRIP "${DESKHUB_VERSION_TEXT}" DESKHUB_VERSION_TEXT)
+project(DeskhubCore LANGUAGES CXX VERSION ${DESKHUB_VERSION_TEXT})
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_LIST_DIR}/../VERSION)
 
 if(NOT COMMAND deskhub_target_warnings)
     include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)

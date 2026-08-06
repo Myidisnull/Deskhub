@@ -38,13 +38,13 @@
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
 
 namespace ui = deskhub::ui;
 
 constexpr const char* kRecentDevicesFile = "recent-devices.txt";
-constexpr const char* kUiSettingsFile = "ui-settings.txt";
 
 constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
@@ -290,7 +290,7 @@ private:
 };
 
 MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
-    settings_ = ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile));
+    settings_ = deskhubp::LoadUiSettings();
     recent_ = ui::ParseRecentDevices(deskhubp::ReadAppDataFile(kRecentDevicesFile));
 
     auto* root = new wxBoxSizer(wxHORIZONTAL);
@@ -485,7 +485,7 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     controlCtrl_->SetValue(settings_.clientControl);
     controlCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
         settings_.clientControl = controlCtrl_->GetValue();
-        deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(settings_));
+        deskhubp::SaveUiSettings(settings_);
     });
     sizer->Add(controlCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(20)));
 
@@ -893,6 +893,11 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
     const std::string passcode = deskhub::IsValidPasscode(typed)
                                      ? typed
                                      : ui::PasscodeForDevice(recent_, addr);
+    if (!deskhub::IsValidPasscode(passcode)) {
+        wxMessageBox(ToWx(ui::kPasscodeInvalid), "Deskhub", wxOK | wxICON_ERROR, this);
+        clientPasscodeCtrl_->SetFocus();
+        return;
+    }
 
     const bool started = connectDriver_.QueryAsync(
         server, passcode,
@@ -1000,7 +1005,7 @@ void MainFrame::ConnectRow(long row, bool scanned) {
 void MainFrame::ConnectWithPrompt(const std::string& addr, std::string passcode) {
     if (!ShowPasscodePrompt(this, addr, passcode)) return;
     addrCtrl_->ChangeValue(ToWx(addr));
-    clientPasscodeCtrl_->ChangeValue(ToWx(passcode));
+    clientPasscodeCtrl_->ChangeValue(ToWx(ui::TrimAscii(passcode)));
     StartConnect(addr);
 }
 
@@ -1051,12 +1056,12 @@ void MainFrame::SaveSettings() {
     settings_.allowInput = allowInputCtrl_->GetValue();
     settings_.clientControl = controlCtrl_->GetValue();
     const std::string passcode(passcodeCtrl_->GetValue().utf8_str());
-    settings_.passcode = deskhub::IsValidPasscode(passcode) ? passcode : "";
+    if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
     const int quality = qualityChoice_->GetSelection();
     if (quality != wxNOT_FOUND)
         settings_.maxDim = deskhub::media::QualityPresetMaxDim(size_t(quality),
             settings_.maxDim);
-    deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(settings_));
+    deskhubp::SaveUiSettings(settings_);
     if (!hosting_ && !hostStarting_) hostStatusLabel_->SetLabel(ToWx(IdleHostStatus()));
 }
 

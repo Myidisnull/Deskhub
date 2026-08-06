@@ -53,9 +53,9 @@ enum DeskhubPalette {
 enum DeviceRowStyle {
     static func tint(online: Bool?) -> Color {
         switch online {
-        case true: return DeskhubPalette.online
-        case false: return DeskhubPalette.offline
-        default: return DeskhubPalette.heading
+        case true: DeskhubPalette.online
+        case false: DeskhubPalette.offline
+        default: DeskhubPalette.heading
         }
     }
 }

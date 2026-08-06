@@ -6,6 +6,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,14 +17,15 @@
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/net/DeviceStatusPoller.h"
 #include "deskhubp/net/LanScanner.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
 
 namespace ui = deskhub::ui;
 
 constexpr const char* kRecentDevicesFile = "recent-devices.txt";
-constexpr const char* kUiSettingsFile = "ui-settings.txt";
 
 std::mutex g_mutex;
 
@@ -35,7 +37,7 @@ bool g_scanning = false;
 bool g_scanFinished = false;
 
 deskhubp::DeviceStatusPoller g_poller;
-std::map<std::string, deskhubp::DeviceStatus> g_status;
+std::map<uint32_t, deskhubp::DeviceStatus> g_status;
 bool g_pollerStarted = false;
 
 std::vector<ui::RecentDevice> g_recent;
@@ -73,6 +75,39 @@ int FillText(char* out, int capacity, const std::string& text) {
     return int(std::strlen(out));
 }
 
+uint32_t IpOf(const std::string& addr) {
+    NetAddr parsed{};
+    if (!ParseNetAddr(addr, parsed)) return 0;
+    return parsed.ip;
+}
+
+std::vector<std::string> PolledAddressesLocked() {
+    std::vector<std::string> list;
+    std::vector<uint32_t> seen;
+    const auto add = [&list, &seen](const std::string& addr) {
+        const uint32_t ip = IpOf(addr);
+        if (!ip || std::find(seen.begin(), seen.end(), ip) != seen.end()) return;
+        seen.push_back(ip);
+        list.push_back(addr);
+    };
+    for (const ui::RecentDevice& device : Recent()) add(device.addr);
+    for (const deskhubp::ScanHit& hit : g_hits) add(hit.addr);
+    return list;
+}
+
+std::optional<deskhubp::DeviceStatus> StatusForLocked(const std::string& addr) {
+    const uint32_t ip = IpOf(addr);
+    if (!ip) return std::nullopt;
+    const auto found = g_status.find(ip);
+    if (found == g_status.end()) return std::nullopt;
+    return found->second;
+}
+
+void RememberStatusLocked(const deskhubp::DeviceStatus& status) {
+    const uint32_t ip = IpOf(status.addr);
+    if (ip) g_status[ip] = status;
+}
+
 }
 
 extern "C" {
@@ -89,30 +124,45 @@ bool dh_scan_start(uint16_t port) {
     const bool started = g_scanner.Start(
         port, [](const std::function<void()>& fn) { fn(); },
         [](const deskhubp::ScanHit& hit) {
-            std::lock_guard<std::mutex> lk(g_mutex);
-            g_hitsThisRound.push_back(hit.addr);
-            for (deskhubp::ScanHit& known : g_hits) {
-                if (known.addr != hit.addr) continue;
-                known.rttMs = hit.rttMs;
-                return;
+            std::vector<std::string> polled;
+            {
+                std::lock_guard<std::mutex> lk(g_mutex);
+                g_hitsThisRound.push_back(hit.addr);
+                if (!StatusForLocked(hit.addr))
+                    RememberStatusLocked(deskhubp::DeviceStatus{hit.addr, true, hit.rttMs});
+                const auto same = [&hit](const deskhubp::ScanHit& known) {
+                    return known.addr == hit.addr;
+                };
+                const auto known = std::find_if(g_hits.begin(), g_hits.end(), same);
+                if (known != g_hits.end()) {
+                    known->rttMs = hit.rttMs;
+                    return;
+                }
+                g_hits.push_back(hit);
+                polled = PolledAddressesLocked();
             }
-            g_hits.push_back(hit);
+            g_poller.SetAddresses(std::move(polled));
         },
         [](const deskhubp::ScanProgress& progress) {
             std::lock_guard<std::mutex> lk(g_mutex);
             g_progress = progress;
         },
         [](const deskhubp::ScanProgress& progress) {
-            std::lock_guard<std::mutex> lk(g_mutex);
-            const auto gone = [](const deskhubp::ScanHit& hit) {
-                return std::find(g_hitsThisRound.begin(), g_hitsThisRound.end(), hit.addr) ==
-                       g_hitsThisRound.end();
-            };
-            g_hits.erase(std::remove_if(g_hits.begin(), g_hits.end(), gone), g_hits.end());
-            g_progress = progress;
-            g_progress.found = g_hits.size();
-            g_scanning = false;
-            g_scanFinished = true;
+            std::vector<std::string> polled;
+            {
+                std::lock_guard<std::mutex> lk(g_mutex);
+                const auto gone = [](const deskhubp::ScanHit& hit) {
+                    return std::find(g_hitsThisRound.begin(), g_hitsThisRound.end(), hit.addr) ==
+                           g_hitsThisRound.end();
+                };
+                g_hits.erase(std::remove_if(g_hits.begin(), g_hits.end(), gone), g_hits.end());
+                g_progress = progress;
+                g_progress.found = g_hits.size();
+                g_scanning = false;
+                g_scanFinished = true;
+                polled = PolledAddressesLocked();
+            }
+            g_poller.SetAddresses(std::move(polled));
         });
 
     if (!started) {
@@ -143,25 +193,37 @@ int dh_scan_hits(DHScanHit* out, int capacity) {
     std::lock_guard<std::mutex> lk(g_mutex);
     const int count = int(g_hits.size()) < capacity ? int(g_hits.size()) : capacity;
     for (int i = 0; i < count; ++i) {
-        deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), g_hits[size_t(i)].addr);
-        out[i].rttMs = g_hits[size_t(i)].rttMs;
+        const deskhubp::ScanHit& hit = g_hits[size_t(i)];
+        const std::optional<deskhubp::DeviceStatus> status = StatusForLocked(hit.addr);
+        deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), hit.addr);
+        out[i].rttMs = status && status->online ? status->rttMs : hit.rttMs;
     }
     return count;
 }
 
 void dh_recent_touch(const char* address, const char* passcode) {
     if (!address || !*address) return;
-    std::lock_guard<std::mutex> lk(g_mutex);
-    ui::TouchRecentDevice(Recent(), address, int64_t(std::time(nullptr)),
-        passcode ? passcode : "");
-    SaveRecent();
+    std::vector<std::string> polled;
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        ui::TouchRecentDevice(Recent(), address, int64_t(std::time(nullptr)),
+            passcode ? passcode : "");
+        SaveRecent();
+        polled = PolledAddressesLocked();
+    }
+    g_poller.SetAddresses(std::move(polled));
 }
 
 void dh_recent_remove(const char* address) {
     if (!address || !*address) return;
-    std::lock_guard<std::mutex> lk(g_mutex);
-    ui::RemoveRecentDevice(Recent(), address);
-    SaveRecent();
+    std::vector<std::string> polled;
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        ui::RemoveRecentDevice(Recent(), address);
+        SaveRecent();
+        polled = PolledAddressesLocked();
+    }
+    g_poller.SetAddresses(std::move(polled));
 }
 
 int dh_recent_passcode(const char* address, char* out, int capacity) {
@@ -177,8 +239,7 @@ void dh_status_stop(void) {
 }
 
 DHUiSettings dh_settings_load(void) {
-    const ui::UiSettings loaded =
-        ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile));
+    const ui::UiSettings loaded = deskhubp::LoadUiSettings();
     DHUiSettings out{};
     out.fps = loaded.fps;
     out.bitrateMbps = loaded.bitrateMbps;
@@ -192,7 +253,7 @@ DHUiSettings dh_settings_load(void) {
 
 void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uint32_t port,
     bool allow_input, bool client_control, const char* passcode) {
-    ui::UiSettings out;
+    ui::UiSettings out = deskhubp::LoadUiSettings();
     out.fps = fps;
     out.bitrateMbps = bitrate_mbps;
     out.maxDim = max_dim;
@@ -200,7 +261,7 @@ void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uin
     out.allowInput = allow_input;
     out.clientControl = client_control;
     if (passcode && deskhub::IsValidPasscode(passcode)) out.passcode = passcode;
-    deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(out));
+    deskhubp::SaveUiSettings(out);
 }
 
 int dh_recent_rows(DHRecentRow* out, int capacity) {
@@ -210,16 +271,16 @@ int dh_recent_rows(DHRecentRow* out, int capacity) {
     const int count = int(devices.size()) < capacity ? int(devices.size()) : capacity;
     for (int i = 0; i < count; ++i) {
         const ui::RecentDevice& device = devices[size_t(i)];
-        const auto found = g_status.find(device.addr);
-        const bool known = found != g_status.end();
-        const bool online = known && found->second.online;
+        const std::optional<deskhubp::DeviceStatus> found = StatusForLocked(device.addr);
+        const bool known = found.has_value();
+        const bool online = known && found->online;
 
         deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), device.addr);
         deskhubp::CopyToBuf(out[i].passcode, sizeof(out[i].passcode), device.passcode);
         deskhubp::CopyToBuf(out[i].status, sizeof(out[i].status),
             !known ? ui::kStatusChecking : (online ? ui::kStatusOnline : ui::kStatusOffline));
         deskhubp::CopyToBuf(out[i].ping, sizeof(out[i].ping),
-            online ? ui::PingMs(found->second.rttMs) : std::string("-"));
+            online ? ui::PingMs(found->rttMs) : std::string("-"));
         deskhubp::CopyToBuf(out[i].lastConnected, sizeof(out[i].lastConnected),
             LocalTimeText(device.lastConnectedUnix));
         out[i].online = online;
@@ -231,7 +292,7 @@ void dh_status_watch_recent(void) {
     std::vector<std::string> list;
     {
         std::lock_guard<std::mutex> lk(g_mutex);
-        for (const ui::RecentDevice& device : Recent()) list.push_back(device.addr);
+        list = PolledAddressesLocked();
     }
     g_poller.SetAddresses(std::move(list));
 
@@ -240,7 +301,7 @@ void dh_status_watch_recent(void) {
     g_pollerStarted = true;
     g_poller.Start([](const deskhubp::DeviceStatus& status) {
         std::lock_guard<std::mutex> lk(g_mutex);
-        g_status[status.addr] = status;
+        RememberStatusLocked(status);
     });
 }
 
@@ -253,13 +314,13 @@ uint16_t dh_default_port(void) {
 }
 
 bool dh_client_control(void) {
-    return ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile)).clientControl;
+    return deskhubp::LoadUiSettings().clientControl;
 }
 
 void dh_set_client_control(bool on) {
-    ui::UiSettings out = ui::ParseUiSettings(deskhubp::ReadAppDataFile(kUiSettingsFile));
+    ui::UiSettings out = deskhubp::LoadUiSettings();
     out.clientControl = on;
-    deskhubp::WriteAppDataFile(kUiSettingsFile, ui::SerializeUiSettings(out));
+    deskhubp::SaveUiSettings(out);
 }
 
 int dh_version_line(char* out, int capacity) {

@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+#define DH_SOURCE_QUERY_FAILED (-1)
+
 typedef enum {
     DHPhaseIdle = 0,
     DHPhaseConnecting = 1,
@@ -110,6 +112,7 @@ typedef enum {
     DHStrAllowControlLabel = 38,
     DHStrRequestControlLabel = 39,
     DHStrClientIpPlaceholder = 40,
+    DHStrConnectPromptTitle = 41,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

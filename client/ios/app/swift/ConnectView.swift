@@ -78,10 +78,25 @@ struct ConnectView: View {
                     enabled: !model.connect.isConnecting,
                     onPick: model.pick
                 )
+
+                footer
             }
             .padding()
         }
         .task { model.discovery.start() }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
+                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
+            }
+
+            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
+                .font(.caption)
+                .foregroundStyle(DeskhubPalette.muted)
+        }
+        .padding(.top, 8)
     }
 
     private func heading(_ text: String) -> some View {

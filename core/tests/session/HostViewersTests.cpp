@@ -44,6 +44,7 @@ struct Recorder {
 Datagram HelloFrom(uint32_t clientId) {
     uint8_t buf[kMaxDatagram];
     Hello h{};
+    h.passcode = kTestPasscode;
     h.clientId = clientId;
     h.codecMask = kCodecMaskH264;
     h.maxWidth = 1920;
@@ -87,8 +88,10 @@ Datagram KeyPressFrom(uint32_t sessionId, InputSender& sender, int32_t scancode)
 }
 
 std::unique_ptr<HostSession> MakeSession(Recorder& rec) {
-    return std::make_unique<HostSession>(rec.Callbacks(),
+    auto session = std::make_unique<HostSession>(rec.Callbacks(),
         StreamParams{1920, 1080, 60, 20'000'000});
+    session->SetPasscode(kTestPasscode);
+    return session;
 }
 
 void JoinAndStart(HostSession& s, uint32_t clientId, uint64_t addr) {
@@ -142,7 +145,9 @@ void TestTheHostBudgetIsSharedAcrossSources() {
     ViewerBudget budget;
     Recorder recA, recB;
     HostSession a(recA.Callbacks(), StreamParams{1920, 1080, 60, 20'000'000}, &budget);
+    a.SetPasscode(kTestPasscode);
     HostSession b(recB.Callbacks(), StreamParams{1920, 1080, 60, 20'000'000}, &budget);
+    b.SetPasscode(kTestPasscode);
 
     for (uint32_t i = 0; i < 3; ++i)
         a.HandlePacket(HelloFrom(i + 1), kT0, kAlice + i);
@@ -171,6 +176,7 @@ void TestASourceGivesItsViewersBackWhenItStops() {
     Recorder rec;
     {
         HostSession s(rec.Callbacks(), StreamParams{1920, 1080, 60, 20'000'000}, &budget);
+        s.SetPasscode(kTestPasscode);
         s.HandlePacket(HelloFrom(1), kT0, kAlice);
         s.HandlePacket(HelloFrom(2), kT0, kBob);
         Check(budget.taken() == 2, "two seats are taken while it is shared");
@@ -469,6 +475,7 @@ void TestAClientWithoutH264IsTurnedAway() {
 
     uint8_t buf[kMaxDatagram];
     Hello h{};
+    h.passcode = kTestPasscode;
     h.clientId = 5;
     h.codecMask = 0;
     h.maxWidth = 1920;

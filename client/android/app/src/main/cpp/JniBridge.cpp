@@ -74,10 +74,6 @@ void NotifySessionClosed(const char* reasonUtf8, void*) {
     });
 }
 
-jstring ToJString(JNIEnv* env, const std::string& s) {
-    return env->NewStringUTF(s.c_str());
-}
-
 std::string FromJString(JNIEnv* env, jstring s) {
     if (!s) return {};
     const char* c = env->GetStringUTFChars(s, nullptr);
@@ -187,6 +183,7 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     DHSourceInfo sources[deskhub::kMaxSources];
     const int count =
         dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources), passcode.c_str());
+    if (count == DH_SOURCE_QUERY_FAILED) return nullptr;
 
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
     for (int i = 0; i < count && arr; ++i) {
@@ -236,6 +233,13 @@ JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeScanStatusText(JNIEnv* env, jobject, jint port) {
     char buf[256];
     dh_scan_status_text(uint16_t(port), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeVersionLine(JNIEnv* env, jobject) {
+    char buf[64];
+    dh_version_line(buf, int(sizeof(buf)));
     return env->NewStringUTF(buf);
 }
 

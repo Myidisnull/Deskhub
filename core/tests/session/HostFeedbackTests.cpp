@@ -20,9 +20,11 @@ void GiveConnectedSession(SourcePipelineState& st) {
     cb.send = [](std::span<const uint8_t>) {};
     cb.randomBytes = TestRandomBytes;
     st.session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+    st.session->SetPasscode(kTestPasscode);
 
     uint8_t buf[kMaxDatagram];
     Hello h{};
+    h.passcode = kTestPasscode;
     h.clientId = 0x1234;
     h.codecMask = kCodecMaskH264;
     h.maxWidth = 1920;

@@ -30,6 +30,7 @@ void TestSessions() {
     hcb.onKeyframeRequest = [&] { hostKeyframeReq = true; };
     hcb.onDisconnect = [&] { hostDisconnected = true; };
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host.SetPasscode(kTestPasscode);
 
     bool cliReady = false;
     uint32_t cliRtt = 0;
@@ -58,7 +59,7 @@ void TestSessions() {
         }
     };
 
-    cli.Start(Hello{0x11223344, kCodecMaskH264, 2560, 1440, 60, 0}, now);
+    cli.Start(Hello{0x11223344, kCodecMaskH264, 2560, 1440, 60, 0, 0, kTestPasscode}, now);
     w.toHost.clear();
     now += 600'000;
     cli.Tick(now);
@@ -96,7 +97,7 @@ void TestSessions() {
         c2.onReady = [&](const NegotiatedParams& p) { otherParams = p; };
         c2.onDisconnect = [&](const char* r) { otherDead = r; };
         ClientSession other(c2);
-        other.Start(Hello{0x55667788, kCodecMaskH264, 1280, 720, 30, 0}, now);
+        other.Start(Hello{0x55667788, kCodecMaskH264, 1280, 720, 30, 0, 0, kTestPasscode}, now);
         while (!w2.toHost.empty()) {
             auto d = std::move(w2.toHost.front());
             w2.toHost.pop_front();
@@ -129,7 +130,7 @@ void TestSessions() {
     hostDisconnected = false;
     ClientSession cli2(ccb);
     cliDead.clear();
-    cli2.Start(Hello{0x99AA0001, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    cli2.Start(Hello{0x99AA0001, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
     while (!w.toHost.empty()) {
         host.HandlePacket(w.toHost.front(), now, kTestViewer);
         w.toHost.pop_front();
@@ -156,6 +157,7 @@ void TestHostKicksOneViewer() {
     };
     hcb.randomBytes = TestRandomBytes;
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host.SetPasscode(kTestPasscode);
 
     std::string cliDead;
     ClientCallbacks ccb;
@@ -179,7 +181,7 @@ void TestHostKicksOneViewer() {
         }
     };
 
-    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
     pump();
     Check(host.viewerCount() == 1, "one viewer is connected");
 
@@ -213,6 +215,7 @@ void TestSessionsNackInvalidate() {
     };
     hcb.onInvalidateRef = [&](uint32_t fid) { invFrame = fid; };
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host.SetPasscode(kTestPasscode);
 
     ClientCallbacks ccb;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
@@ -234,7 +237,7 @@ void TestSessionsNackInvalidate() {
         }
     };
 
-    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
     pump();
     cli.NotifyVideoPacket(now);
     Check(host.state() == HostSession::State::Streaming &&
@@ -270,6 +273,7 @@ void TestReconfigFocusFeedback() {
     hcb.onFocus = [&](bool on) { focus = on; if (!on) gotFocusFalse = true; };
     hcb.onFeedback = [&](const Feedback& fb) { lastFb = fb; gotFb = true; };
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host.SetPasscode(kTestPasscode);
 
     bool reconfigured = false;
     NegotiatedParams rp{};
@@ -294,7 +298,7 @@ void TestReconfigFocusFeedback() {
         }
     };
 
-    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    cli.Start(Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
     pump();
     cli.NotifyVideoPacket(now);
 
@@ -353,7 +357,9 @@ struct Rig {
     HostSession host;
     ClientSession cli;
 
-    Rig() : host(HostCb(), StreamParams{1920, 1080, 60, 20'000'000}), cli(CliCb()) {}
+    Rig() : host(HostCb(), StreamParams{1920, 1080, 60, 20'000'000}), cli(CliCb()) {
+        host.SetPasscode(kTestPasscode);
+    }
 
     HostCallbacks HostCb() {
         HostCallbacks cb;
@@ -389,7 +395,7 @@ struct Rig {
         }
     }
     void Handshake(uint32_t clientId = 0x1) {
-        cli.Start(Hello{clientId, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+        cli.Start(Hello{clientId, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
         Pump();
         cli.NotifyVideoPacket(now);
     }
@@ -416,7 +422,7 @@ void TestHandshakeDuplicates() {
 
     const uint32_t sid = r.host.sessionId();
     r.w.toClient.clear();
-    n = BuildHello(buf, Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0});
+    n = BuildHello(buf, Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode});
     Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
         "re-HELLO from the same client accepted");
     Check(r.host.sessionId() == sid && r.host.state() == HostSession::State::Streaming,
@@ -454,7 +460,7 @@ void TestClientDeathPaths() {
 void TestRejectCodecMismatch() {
     std::printf("[session] HELLO without H.264 -> rejected at handshake...\n");
     Rig r;
-    r.cli.Start(Hello{0x2, uint16_t(0), 1920, 1080, 60, 0}, r.now);
+    r.cli.Start(Hello{0x2, uint16_t(0), 1920, 1080, 60, 0, 0, kTestPasscode}, r.now);
     r.Pump();
     Check(!r.cliDead.empty(), "client without H.264 refused at handshake");
     Check(r.host.state() == HostSession::State::Idle, "host stays IDLE after the codec reject");
@@ -486,11 +492,22 @@ void TestPasscodeGate() {
     }
     {
         Rig r;
+        r.host.SetPasscode("");
         Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
         h.passcode = "9999";
         r.cli.Start(h, r.now);
         r.Pump();
-        Check(r.readyCalls == 1, "a host with no passcode ignores whatever the client sends");
+        Check(r.readyCalls == 0 && r.host.viewerCount() == 0,
+            "a host with no passcode set admits nobody");
+        Check(r.cli.rejectReason() == RejectReason::WrongPasscode,
+            "and the viewer is told why rather than left hanging");
+    }
+    {
+        Rig r;
+        r.host.SetPasscode("");
+        r.cli.Start(Hello{0x2, kCodecMaskH264, 1920, 1080, 60, 0}, r.now);
+        r.Pump();
+        Check(r.readyCalls == 0, "not even a viewer that sends no passcode either");
     }
     {
         Rig r;
@@ -523,6 +540,7 @@ void RunHandshakeAgainstBrokenRng(HostCallbacks hcb, const char* what) {
     uint64_t now = 10'000'000;
     hcb.send = [&](std::span<const uint8_t> d) { w.toClient.emplace_back(d.begin(), d.end()); };
     HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host.SetPasscode(kTestPasscode);
 
     std::string cliDead;
     ClientCallbacks ccb;
@@ -530,7 +548,7 @@ void RunHandshakeAgainstBrokenRng(HostCallbacks hcb, const char* what) {
     ccb.onDisconnect = [&](const char* r) { cliDead = r; };
     ClientSession cli(ccb);
 
-    cli.Start(Hello{0x3, kCodecMaskH264, 1920, 1080, 60, 0}, now);
+    cli.Start(Hello{0x3, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
     while (!w.toHost.empty()) {
         auto d = std::move(w.toHost.front());
         w.toHost.pop_front();
@@ -574,7 +592,7 @@ void TestUnknownMessagesAreIgnored() {
         "a HELLO_ACK sent at a host is refused");
     Check(r.host.state() == HostSession::State::Streaming, "and changes nothing");
 
-    n = BuildHello(buf, Hello{0x9, kCodecMaskH264, 640, 480, 30, 0});
+    n = BuildHello(buf, Hello{0x9, kCodecMaskH264, 640, 480, 30, 0, 0, kTestPasscode});
     Check(!r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
         "a HELLO sent at a client is refused");
     Check(r.cli.state() == ClientSession::State::Streaming, "and changes nothing");

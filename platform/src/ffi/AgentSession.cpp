@@ -12,6 +12,7 @@
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
 
@@ -75,7 +76,8 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     opt.maxDim = max_dim;
     if (port) opt.port = port;
     opt.allowInput = allow_input;
-    if (passcode && deskhub::IsValidPasscode(passcode)) opt.passcode = passcode;
+    opt.passcode = passcode && deskhub::IsValidPasscode(passcode) ? std::string(passcode)
+                                                                  : deskhubp::HostPasscode();
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {

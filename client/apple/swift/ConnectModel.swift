@@ -22,7 +22,7 @@ final class ConnectModel {
                 + DeskhubClient.string(DHStrInvalidAddressHint)
             return nil
         }
-        guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {
+        guard DeskhubClient.isValidPasscode(passcode) else {
             connectError = DeskhubClient.string(DHStrPasscodeInvalid)
             return nil
         }

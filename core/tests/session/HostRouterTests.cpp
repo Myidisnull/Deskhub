@@ -26,11 +26,13 @@ void GiveSession(SourcePipelineState& st) {
     cb.send = [](std::span<const uint8_t>) {};
     cb.randomBytes = TestRandomBytes;
     st.session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+    st.session->SetPasscode(kTestPasscode);
 }
 
 Datagram BuildHelloFor(uint8_t sourceId) {
     uint8_t buf[kMaxDatagram];
     Hello h{};
+    h.passcode = kTestPasscode;
     h.clientId = 0x1234;
     h.codecMask = kCodecMaskH264;
     h.maxWidth = 1920;
@@ -85,6 +87,7 @@ void TestSessionTrafficRoutesBySessionId() {
     cb.send = [&out](std::span<const uint8_t> d) { out.emplace_back(d.begin(), d.end()); };
     cb.randomBytes = TestRandomBytes;
     b->session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+    b->session->SetPasscode(kTestPasscode);
     b->session->HandlePacket(hello, kT0, kTestViewer);
 
     const uint32_t sid = b->session->sessionId();
@@ -155,6 +158,7 @@ void TestReplyAddressIsStampedBeforeTheSessionReplies() {
     };
     cb.randomBytes = TestRandomBytes;
     p->session = std::make_unique<HostSession>(cb, StreamParams{1920, 1080, 60, kStartBps});
+    p->session->SetPasscode(kTestPasscode);
     SourcePipelineState* live[] = {p.get()};
 
     const Datagram hello = BuildHelloFor(0);
@@ -342,6 +346,7 @@ void TestBeginNegotiation() {
     p->curBitrateBps.store(15'000'000);
 
     Hello hello{};
+    hello.passcode = kTestPasscode;
     hello.maxWidth = 2560;
     hello.maxHeight = 1440;
 
@@ -375,6 +380,7 @@ void TestNegotiationRejectsAnUnusableSize() {
     p->step.scalePct = 50;
 
     Hello hello{};
+    hello.passcode = kTestPasscode;
     hello.maxWidth = 1920;
     hello.maxHeight = 1080;
 

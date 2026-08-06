@@ -1,4 +1,6 @@
 #pragma once
+#include "support/TestSupport.h"
+
 #include "deskhubp/session/HostEngine.h"
 
 #include <string>
@@ -16,7 +18,7 @@ public:
     }
 
     bool Start(const std::vector<deskhub::media::ShareSource>& sources, uint16_t port,
-        uint32_t fps = 30, uint32_t maxDim = 1920, const std::string& passcode = std::string());
+        uint32_t fps = 30, uint32_t maxDim = 1920, const std::string& passcode = kTestPasscode);
 
     void Stop() {
         engine_.Stop();
