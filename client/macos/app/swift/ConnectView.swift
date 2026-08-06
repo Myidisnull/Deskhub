@@ -17,6 +17,107 @@ enum DeskhubPage: Int, CaseIterable, Identifiable {
     }
 }
 
+func deskhubHeading(_ text: String) -> some View {
+    Text(text)
+        .font(.system(size: 19, weight: .bold))
+        .foregroundStyle(DeskhubPalette.heading)
+}
+
+func deskhubSection(_ text: String) -> some View {
+    Text(text)
+        .font(.system(size: 15, weight: .bold))
+        .foregroundStyle(DeskhubPalette.heading)
+        .padding(.top, 8)
+}
+
+func deskhubHint(_ text: String) -> some View {
+    Text(text).foregroundStyle(DeskhubPalette.muted)
+}
+
+struct SettingsPage: View {
+    @Bindable var agent: AgentModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            deskhubHeading(DeskhubClient.string(DHStrSettingsHeading))
+            deskhubHint(DeskhubClient.string(DHStrSettingsHint))
+
+            deskhubSection("Video")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text("FPS")
+                    TextField("", value: $agent.fps, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+                GridRow {
+                    Text("Bitrate (Mbps)")
+                    TextField("", value: $agent.bitrateMbps, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+                GridRow {
+                    Text("Quality")
+                    Picker("", selection: $agent.maxDim) {
+                        ForEach(DeskhubAgent.qualityPresets) { preset in
+                            Text(preset.label).tag(preset.maxDim)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 120)
+                }
+            }
+
+            deskhubSection("Connection")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text("UDP port")
+                    TextField("", value: $agent.port, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+            }
+
+            deskhubSection("Security")
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+                GridRow {
+                    Text(DeskhubClient.string(DHStrPasscodeLabel))
+                    TextField("", text: $agent.passcode)
+                        .textFieldStyle(.roundedBorder).frame(width: 64)
+                }
+            }
+
+            PermissionsSection(agent: agent)
+        }
+        .onChange(of: agent.fps) { _, _ in agent.save() }
+        .onChange(of: agent.bitrateMbps) { _, _ in agent.save() }
+        .onChange(of: agent.maxDim) { _, _ in agent.save() }
+        .onChange(of: agent.port) { _, _ in agent.save() }
+        .onChange(of: agent.passcode) { _, _ in agent.save() }
+        .onChange(of: agent.allowInput) { _, _ in agent.save() }
+    }
+}
+
+struct HostAddressList: View {
+    let addresses: [LocalAddress]
+
+    var body: some View {
+        if addresses.isEmpty {
+            Text(DeskhubClient.string(DHStrNoNetworkAddress)).foregroundStyle(.secondary)
+        } else {
+            ForEach(addresses) { addr in
+                HStack(spacing: 14) {
+                    Text(addr.name).frame(width: 150, alignment: .leading).lineLimit(1)
+                    Text(addr.ip).fontWeight(.bold).textSelection(.enabled)
+                    Spacer(minLength: 0)
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(addr.ip, forType: .string)
+                    }
+                    .frame(width: 84)
+                }
+            }
+        }
+    }
+}
+
 struct MainMenuView: View {
     @Binding var route: ClientRoute
     @Bindable var connect: ConnectModel
@@ -114,31 +215,16 @@ struct MainMenuView: View {
         switch page {
         case .host: hostPage
         case .client: clientPage
-        case .settings: settingsPage
+        case .settings: SettingsPage(agent: agent)
         }
     }
 
     private var hostPage: some View {
         VStack(alignment: .leading, spacing: 10) {
-            heading(DeskhubClient.string(DHStrHostHeading))
-            hint(DeskhubClient.string(DHStrHostIpIntro))
+            deskhubHeading(DeskhubClient.string(DHStrHostHeading))
+            deskhubHint(DeskhubClient.string(DHStrHostIpIntro))
 
-            if agent.addresses.isEmpty {
-                Text(DeskhubClient.string(DHStrNoNetworkAddress)).foregroundStyle(.secondary)
-            } else {
-                ForEach(agent.addresses) { addr in
-                    HStack(spacing: 14) {
-                        Text(addr.name).frame(width: 150, alignment: .leading).lineLimit(1)
-                        Text(addr.ip).fontWeight(.bold).textSelection(.enabled)
-                        Spacer(minLength: 0)
-                        Button("Copy") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(addr.ip, forType: .string)
-                        }
-                        .frame(width: 84)
-                    }
-                }
-            }
+            HostAddressList(addresses: agent.addresses)
 
             Text(agent.statusLine)
                 .fontWeight(.bold)
@@ -167,7 +253,7 @@ struct MainMenuView: View {
 
     private var clientPage: some View {
         VStack(alignment: .leading, spacing: 10) {
-            heading(DeskhubClient.string(DHStrClientHeading))
+            deskhubHeading(DeskhubClient.string(DHStrClientHeading))
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
@@ -213,7 +299,7 @@ struct MainMenuView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            heading(DeskhubClient.string(DHStrLanDevicesHeading))
+            deskhubHeading(DeskhubClient.string(DHStrLanDevicesHeading))
             DeviceListView(
                 heading: "",
                 note: discovery.scanStatus,
@@ -224,7 +310,7 @@ struct MainMenuView: View {
                 onPick: pick
             )
 
-            heading(DeskhubClient.string(DHStrRecentDevicesHeading))
+            deskhubHeading(DeskhubClient.string(DHStrRecentDevicesHeading))
             DeviceListView(
                 heading: "",
                 note: DeskhubClient.string(
@@ -235,80 +321,6 @@ struct MainMenuView: View {
                 onPick: pick
             )
         }
-    }
-
-    private var settingsPage: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            heading(DeskhubClient.string(DHStrSettingsHeading))
-            hint(DeskhubClient.string(DHStrSettingsHint))
-
-            section("Video")
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
-                GridRow {
-                    Text("FPS")
-                    TextField("", value: $agent.fps, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 90)
-                }
-                GridRow {
-                    Text("Bitrate (Mbps)")
-                    TextField("", value: $agent.bitrateMbps, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 90)
-                }
-                GridRow {
-                    Text("Quality")
-                    Picker("", selection: $agent.maxDim) {
-                        ForEach(DeskhubAgent.qualityPresets) { preset in
-                            Text(preset.label).tag(preset.maxDim)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 120)
-                }
-            }
-
-            section("Connection")
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
-                GridRow {
-                    Text("UDP port")
-                    TextField("", value: $agent.port, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 90)
-                }
-            }
-
-            section("Security")
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
-                GridRow {
-                    Text(DeskhubClient.string(DHStrPasscodeLabel))
-                    TextField("", text: $agent.passcode)
-                        .textFieldStyle(.roundedBorder).frame(width: 64)
-                }
-            }
-
-            PermissionsSection(agent: agent)
-        }
-        .onChange(of: agent.fps) { _, _ in agent.save() }
-        .onChange(of: agent.bitrateMbps) { _, _ in agent.save() }
-        .onChange(of: agent.maxDim) { _, _ in agent.save() }
-        .onChange(of: agent.port) { _, _ in agent.save() }
-        .onChange(of: agent.passcode) { _, _ in agent.save() }
-        .onChange(of: agent.allowInput) { _, _ in agent.save() }
-    }
-
-    private func heading(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 19, weight: .bold))
-            .foregroundStyle(DeskhubPalette.heading)
-    }
-
-    private func section(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(DeskhubPalette.heading)
-            .padding(.top, 8)
-    }
-
-    private func hint(_ text: String) -> some View {
-        Text(text).foregroundStyle(DeskhubPalette.muted)
     }
 
     private var showingShareAlert: Binding<Bool> {

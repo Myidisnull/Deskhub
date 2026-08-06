@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
+        prefs.edit().remove("passcode").apply()
+        val lastAddress = prefs.getString("addr", "").orEmpty()
 
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (debuggable) {
@@ -70,14 +72,10 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
                     Column(modifier = Modifier.safeDrawingPadding()) {
                         MainScreen(
-                            initialAddress = prefs.getString("addr", "").orEmpty(),
-                            initialPasscode = prefs.getString("passcode", "").orEmpty(),
-                            onRemember = { addr, passcode ->
-                                prefs
-                                    .edit()
-                                    .putString("addr", addr)
-                                    .putString("passcode", passcode)
-                                    .apply()
+                            initialAddress = lastAddress,
+                            initialPasscode = NativeClient.recentPasscode(lastAddress),
+                            onRemember = { addr, _ ->
+                                prefs.edit().putString("addr", addr).apply()
                             },
                             onOpenStream = ::openStream,
                         )

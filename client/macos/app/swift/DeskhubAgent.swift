@@ -9,6 +9,15 @@ struct ShareSource: Identifiable, Hashable, Sendable {
     var id: UInt32 { rawId }
 }
 
+struct ShareOptions: Sendable {
+    let fps: UInt32
+    let bitrateMbps: UInt32
+    let maxDim: UInt32
+    let port: UInt16
+    let allowInput: Bool
+    let passcode: String
+}
+
 struct AgentSourceStatus: Identifiable, Sendable {
     let id: UInt8
     let name: String
@@ -62,20 +71,12 @@ nonisolated enum DeskhubAgent {
     }
 
     @discardableResult
-    static func start(
-        sources: [ShareSource],
-        fps: UInt32,
-        bitrateMbps: UInt32,
-        maxDim: UInt32,
-        port: UInt16,
-        allowInput: Bool,
-        passcode: String
-    ) -> Bool {
+    static func start(sources: [ShareSource], options: ShareOptions) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
             dha_start(
-                ptr.baseAddress, Int32(ptr.count), fps, bitrateMbps, maxDim, port, allowInput,
-                passcode
+                ptr.baseAddress, Int32(ptr.count), options.fps, options.bitrateMbps,
+                options.maxDim, options.port, options.allowInput, options.passcode
             )
         }
     }

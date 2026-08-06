@@ -4,10 +4,15 @@ import Observation
 @MainActor @Observable
 final class ConnectModel {
     private static let lastAddressKey = "lastAddress"
-    private static let lastPasscodeKey = "lastPasscode"
+    private static let retiredPasscodeKey = "lastPasscode"
 
-    var address: String = UserDefaults.standard.string(forKey: ConnectModel.lastAddressKey) ?? ""
-    var passcode: String = UserDefaults.standard.string(forKey: ConnectModel.lastPasscodeKey) ?? ""
+    private static var lastAddress: String {
+        UserDefaults.standard.removeObject(forKey: retiredPasscodeKey)
+        return UserDefaults.standard.string(forKey: lastAddressKey) ?? ""
+    }
+
+    var address: String = ConnectModel.lastAddress
+    var passcode: String = DeskhubDiscovery.passcode(for: ConnectModel.lastAddress)
     var isConnecting = false
     var connectError = ""
 
@@ -29,7 +34,6 @@ final class ConnectModel {
         address = accepted
         connectError = ""
         UserDefaults.standard.set(accepted, forKey: ConnectModel.lastAddressKey)
-        UserDefaults.standard.set(acceptedPasscode, forKey: ConnectModel.lastPasscodeKey)
         return accepted
     }
 

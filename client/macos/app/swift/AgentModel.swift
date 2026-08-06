@@ -96,25 +96,19 @@ final class AgentModel {
         startError = ""
         save()
 
-        let fpsNum = UInt32(max(1, fps))
-        let bitrateNum = UInt32(max(1, bitrateMbps))
-        let maxDimNum = maxDim <= 0 ? UInt32(0) : UInt32(maxDim)
-        let portNum = UInt16(max(1, min(65535, port)))
-        let allow = allowInput
-        let code = acceptedPasscode
+        let options = ShareOptions(
+            fps: UInt32(max(1, fps)),
+            bitrateMbps: UInt32(max(1, bitrateMbps)),
+            maxDim: maxDim <= 0 ? UInt32(0) : UInt32(maxDim),
+            port: UInt16(max(1, min(65535, port))),
+            allowInput: allowInput,
+            passcode: acceptedPasscode
+        )
 
         let ok = await Task.detached {
             let picked = DeskhubAgent.listShareSources()
             guard !picked.isEmpty else { return false }
-            return DeskhubAgent.start(
-                sources: picked,
-                fps: fpsNum,
-                bitrateMbps: bitrateNum,
-                maxDim: maxDimNum,
-                port: portNum,
-                allowInput: allow,
-                passcode: code
-            )
+            return DeskhubAgent.start(sources: picked, options: options)
         }.value
 
         isStarting = false
