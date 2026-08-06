@@ -977,37 +977,65 @@ gboolean MainWindow::OnHostTimer(gpointer user) {
     return G_SOURCE_CONTINUE;
 }
 
+void MainWindow::FillHostRow(
+    GtkTreeIter* it, const HostRow& ref, const AgentSourceStatus& status) {
+    if (ref.viewer) {
+        gtk_list_store_set(hostStore_, it, 0, "    \xE2\x86\xB3 viewer", 1, "", 2, "", 3,
+            ref.viewerAddr.c_str(), 4, "", 5, "", 6, "", 7, "", 8, kOnlineColour, -1);
+        return;
+    }
+
+    const std::string size = std::to_string(status.width) + "x" + std::to_string(status.height);
+    const std::string rtt = status.viewerConnected ? ui::PingMs(status.rttMs) : std::string("-");
+    gtk_list_store_set(hostStore_, it, 0, status.name.c_str(), 1, size.c_str(), 2,
+        std::to_string(status.viewerCount).c_str(), 3, "", 4,
+        Decimals(status.captureFps, 0).c_str(), 5, Decimals(status.sendFps, 0).c_str(), 6,
+        Decimals(status.sendKbps / 1000.0, 1).c_str(), 7, rtt.c_str(), 8,
+        status.viewerConnected ? kOnlineColour : kRowTextColour, -1);
+}
+
+void MainWindow::SelectHostRow(const HostRow& row) {
+    for (size_t i = 0; i < hostRows_.size(); ++i) {
+        if (!(hostRows_[i] == row)) continue;
+        GtkTreePath* path = gtk_tree_path_new_from_indices(gint(i), -1);
+        gtk_tree_selection_select_path(
+            gtk_tree_view_get_selection(GTK_TREE_VIEW(hostView_)), path);
+        gtk_tree_path_free(path);
+        return;
+    }
+}
+
 void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
     std::vector<HostRow> refs;
+    std::vector<const AgentSourceStatus*> sources;
     for (const AgentSourceStatus& s : rows) {
         refs.push_back(HostRow{false, s.sourceId, {}});
-        for (const std::string& addr : s.viewerAddrs)
+        sources.push_back(&s);
+        for (const std::string& addr : s.viewerAddrs) {
             refs.push_back(HostRow{true, s.sourceId, addr});
-    }
-    hostRows_ = std::move(refs);
-    gtk_list_store_clear(hostStore_);
-
-    for (const HostRow& ref : hostRows_) {
-        const AgentSourceStatus* s = nullptr;
-        for (const AgentSourceStatus& candidate : rows)
-            if (candidate.sourceId == ref.sourceId) s = &candidate;
-        if (!s) continue;
-
-        GtkTreeIter it;
-        gtk_list_store_append(hostStore_, &it);
-        if (ref.viewer) {
-            gtk_list_store_set(hostStore_, &it, 0, "    \xE2\x86\xB3 viewer", 1, "", 2, "", 3,
-                ref.viewerAddr.c_str(), 4, "", 5, "", 6, "", 7, "", 8, kOnlineColour, -1);
-            continue;
+            sources.push_back(&s);
         }
-
-        const std::string size = std::to_string(s->width) + "x" + std::to_string(s->height);
-        const std::string rtt = s->viewerConnected ? ui::PingMs(s->rttMs) : std::string("-");
-        gtk_list_store_set(hostStore_, &it, 0, s->name.c_str(), 1, size.c_str(), 2,
-            std::to_string(s->viewerCount).c_str(), 3, "", 4, Decimals(s->captureFps, 0).c_str(),
-            5, Decimals(s->sendFps, 0).c_str(), 6, Decimals(s->sendKbps / 1000.0, 1).c_str(), 7,
-            rtt.c_str(), 8, s->viewerConnected ? kOnlineColour : kRowTextColour, -1);
     }
+
+    HostRow selected;
+    const bool hadSelection = SelectedHostRow(selected);
+    const bool reuseRows = refs == hostRows_;
+    hostRows_ = std::move(refs);
+    if (!reuseRows) gtk_list_store_clear(hostStore_);
+
+    GtkTreeIter it;
+    bool haveIter = reuseRows && gtk_tree_model_get_iter_first(GTK_TREE_MODEL(hostStore_), &it);
+    for (size_t i = 0; i < hostRows_.size(); ++i) {
+        if (reuseRows) {
+            if (!haveIter) break;
+        } else {
+            gtk_list_store_append(hostStore_, &it);
+        }
+        FillHostRow(&it, hostRows_[i], *sources[i]);
+        if (reuseRows) haveIter = gtk_tree_model_iter_next(GTK_TREE_MODEL(hostStore_), &it);
+    }
+
+    if (!reuseRows && hadSelection) SelectHostRow(selected);
     UpdateHostButtons();
 }
 

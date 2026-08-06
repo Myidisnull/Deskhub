@@ -73,6 +73,8 @@ private:
     void OnHostStarted(bool started, const std::string& error, const AgentOptions& options);
     void StopHosting();
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
+    void FillHostRow(GtkTreeIter* it, const HostRow& ref, const AgentSourceStatus& status);
+    void SelectHostRow(const HostRow& row);
     void UpdateHostButtons();
     bool SelectedHostRow(HostRow& out) const;
     std::string IdleHostStatus() const;
