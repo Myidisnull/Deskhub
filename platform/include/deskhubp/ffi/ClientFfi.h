@@ -118,6 +118,10 @@ typedef enum {
     DHStrStopSelectedDisplay = 44,
     DHStrDisconnectSelectedViewer = 45,
     DHStrShareClampWarning = 46,
+    DHStrShareStateOn = 47,
+    DHStrShareStateOff = 48,
+    DHStrStartSharing = 49,
+    DHStrStartingShare = 50,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

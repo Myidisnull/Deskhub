@@ -24,13 +24,16 @@ void TestEveryLabelSaysSomething() {
         ui::kSidebarClient, ui::kSidebarSettings, ui::kHostHeading, ui::kClientHeading,
         ui::kSettingsHeading, ui::kSettingsHint, ui::kRecentDevicesHeading,
         ui::kRecentDevicesHint, ui::kRecentDevicesEmpty, ui::kStatusOnline, ui::kStatusOffline,
-        ui::kStatusChecking, ui::kNotSharing, ui::kStartingShare, ui::kPickDisplaysHint,
+        ui::kStatusChecking, ui::kNotSharing, ui::kStartingShare, ui::kShareStateOn,
+        ui::kShareStateOff, ui::kStartSharing, ui::kPickDisplaysHint,
         ui::kNoDisplayTicked, ui::kStopSelectedDisplay, ui::kDisconnectSelectedViewer,
+        ui::kStopDisplayAction, ui::kDisconnectViewerAction,
         ui::kAllowControlLabel, ui::kViewOnlyNote, ui::kRequestControlLabel,
         ui::kPasscodeLabel, ui::kClientPasscodePrompt, ui::kClientPasscodeHint,
         ui::kClientIpPlaceholder, ui::kPasscodeInvalid, ui::kLanDevicesHeading,
         ui::kLanDevicesEmpty, ui::kLanDevicesHint, ui::kScanRescanNote, ui::kScanNoLocalNetwork,
-        ui::kConnectPromptTitle, ui::kAppVersion, ui::kProjectUrl, ui::kProjectLinkLabel};
+        ui::kConnectPromptTitle, ui::kAppVersion, ui::kProjectUrl, ui::kProjectLinkLabel,
+        ui::kRefreshNow};
     for (const char* s : labels) Check(s && *s, "every shared UI string is non-empty");
     Check(Contains(ui::PasscodeNote("0417"), "0417"),
         "the sharing status quotes the passcode viewers must enter");
@@ -131,6 +134,15 @@ void TestScanStatusCountsWhatWasChecked() {
         "an empty network still reports how much was checked");
 }
 
+void TestRecheckNotesQuoteTheRealInterval() {
+    std::printf("[strings] the user is told how often a list refreshes itself...\n");
+    Check(Contains(ui::ScanRecheckNote(45), "45"), "the rescan note quotes the caller's delay");
+    Check(Contains(ui::StatusRecheckNote(30), "30"),
+        "the status note quotes the poller's own round gap");
+    Check(!Contains(ui::ScanRecheckNote(45), "shortly"),
+        "no vague wording survives where a number is available");
+}
+
 void TestClampWarningQuotesTheProtocolLimit() {
     std::printf("[strings] the too-many-displays warning quotes the real limit...\n");
     Check(Contains(ui::ShareClampWarning(), std::to_string(kMaxSources)),
@@ -150,5 +162,6 @@ void RunStringsTests() {
     TestPingLabelQuotesTheMeasurement();
     TestTheAboutLineNamesTheBuild();
     TestScanStatusCountsWhatWasChecked();
+    TestRecheckNotesQuoteTheRealInterval();
     TestClampWarningQuotesTheProtocolLimit();
 }

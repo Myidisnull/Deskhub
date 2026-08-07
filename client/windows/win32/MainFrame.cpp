@@ -4,6 +4,7 @@
 #include <wx/hyperlink.h>
 #include <wx/init.h>
 #include <wx/listctrl.h>
+#include <wx/scrolwin.h>
 #include <wx/simplebook.h>
 #include <wx/spinctrl.h>
 
@@ -25,6 +26,7 @@
 #include "SourcePickerDialog.h"
 #include "Viewer.h"
 #include "deskhub/media/QualityPreset.h"
+#include "deskhub/media/SourceLabel.h"
 #include "deskhub/session/ShareFlow.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
@@ -68,6 +70,72 @@ const wxColour kHeadingText(17, 24, 39);
 const wxColour kMutedText(107, 114, 128);
 const wxColour kOnline(0, 145, 60);
 const wxColour kOffline(200, 40, 40);
+const wxColour kWarning(202, 108, 8);
+const wxColour kRowLine(229, 231, 235);
+const wxColour kViewerRowBg(249, 250, 251);
+const wxColour kBannerIdleBg(243, 244, 246);
+const wxColour kBannerLiveBg(232, 250, 239);
+const wxColour kBannerBusyBg(235, 243, 255);
+
+enum class HostShareState { kIdle,
+    kStarting,
+    kSharing };
+
+struct HostStateStyle {
+    const char* label;
+    const char* action;
+    wxColour tint;
+    wxColour background;
+};
+
+struct HostColumn {
+    const char* title;
+    int width;
+    long align;
+    bool mono;
+};
+
+constexpr int kHostColumnCount = 8;
+constexpr int kHostActionWidth = 104;
+constexpr int kHostRowHeight = 32;
+constexpr int kHostRowBarWidth = 3;
+constexpr int kHostCellGap = 8;
+
+const HostColumn kHostColumns[kHostColumnCount] = {{"Source", 168, wxALIGN_LEFT, false},
+    {"Size", 88, wxALIGN_LEFT, false}, {"Viewers", 58, wxALIGN_RIGHT, true},
+    {"Client", 132, wxALIGN_LEFT, false}, {"Capture", 60, wxALIGN_RIGHT, true},
+    {"Send", 52, wxALIGN_RIGHT, true}, {"Mbps", 56, wxALIGN_RIGHT, true},
+    {"RTT", 54, wxALIGN_RIGHT, true}};
+
+struct HostRowView {
+    wxPanel* panel = nullptr;
+    wxWindow* bar = nullptr;
+    wxStaticText* cells[kHostColumnCount] = {};
+};
+
+wxFont MonoFont(const wxWindow* window) {
+    wxFont font = window->GetFont();
+    font.SetFamily(wxFONTFAMILY_TELETYPE);
+    font.SetFaceName("Consolas");
+    return font;
+}
+
+void PaintButton(wxButton* button, const wxColour& background) {
+    button->SetBackgroundColour(background);
+    button->SetForegroundColour(*wxWHITE);
+    button->SetFont(button->GetFont().Bold());
+}
+
+HostStateStyle StyleFor(HostShareState state) {
+    switch (state) {
+        case HostShareState::kSharing:
+            return {ui::kShareStateOn, ui::kStopSharing, kOnline, kBannerLiveBg};
+        case HostShareState::kStarting:
+            return {ui::kStartingShare, ui::kStartSharing, kAccent, kBannerBusyBg};
+        case HostShareState::kIdle: break;
+    }
+    return {ui::kShareStateOff, ui::kStartSharing, kMutedText, kBannerIdleBg};
+}
 
 wxString ToWx(const std::string& s) {
     return wxString::FromUTF8(s.c_str(), s.size());
@@ -91,6 +159,23 @@ std::string FormatLastConnected(int64_t unixTime) {
     return std::string(buf);
 }
 
+struct ProbeResult {
+    bool online = false;
+    uint32_t rttMs = 0;
+};
+
+bool HostKeyOf(const std::string& addr, uint64_t& key) {
+    NetAddr parsed{};
+    if (!ParseNetAddr(addr, parsed)) return false;
+    key = parsed.Pack();
+    return true;
+}
+
+bool SameHost(const std::string& addr, uint64_t key) {
+    uint64_t other = 0;
+    return HostKeyOf(addr, other) && other == key;
+}
+
 std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& devices) {
     std::vector<std::string> out;
     out.reserve(devices.size());
@@ -109,6 +194,20 @@ wxStaticText* MakeHint(wxWindow* parent, const wxString& text) {
     auto* hint = new wxStaticText(parent, wxID_ANY, text);
     hint->SetForegroundColour(kMutedText);
     return hint;
+}
+
+wxSizer* MakeHeadingRow(wxWindow* parent, const char* heading, const wxString& action,
+    std::function<void()> onClick) {
+    auto* row = new wxBoxSizer(wxHORIZONTAL);
+    row->Add(MakeHeading(parent, heading), wxSizerFlags().CentreVertical());
+    row->AddStretchSpacer(1);
+
+    auto* button = new wxButton(parent, wxID_ANY, action);
+    button->SetMinSize(parent->FromDIP(wxSize(110, 30)));
+    button->Bind(wxEVT_BUTTON,
+        [onClick = std::move(onClick)](wxCommandEvent&) { onClick(); });
+    row->Add(button, wxSizerFlags().CentreVertical());
+    return row;
 }
 
 wxStaticText* MakeSection(wxWindow* parent, const char* text) {
@@ -201,6 +300,10 @@ private:
     void SelectPage(int page);
     void RefreshRecentList();
     void ApplyStatusToRow(long row, const std::string& addr);
+    void ApplyScanPingToRow(long row, const std::string& addr);
+    void ApplyProbeToRows(const std::string& addr);
+    void RecordProbe(const std::string& addr, bool online, uint32_t rttMs);
+    const ProbeResult* ProbeFor(const std::string& addr) const;
     void StartPoller();
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
 
@@ -212,17 +315,23 @@ private:
     void OnHostTimer(wxTimerEvent& event);
     void RefreshDisplayChoices();
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
-    void SetHostCell(long row, int col, const wxString& text);
-    long SelectedHostRow() const;
+    wxWindow* BuildHostTable(wxWindow* parent);
+    wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
+    void RebuildHostTable();
+    void ShowHostTable(bool sharing);
     void RelayoutHostPage();
-    void UpdateHostButtons();
-    void OnStopSelectedDisplay();
-    void OnKickSelectedViewer();
-    std::string IdleHostStatus() const;
+    void StopDisplay(uint8_t sourceId);
+    void KickViewer(uint8_t sourceId, const std::string& viewerAddr);
+    void ApplyHostState(HostShareState state, const wxString& detail);
+    void ShowIdleHostState();
+    std::string HostPortDetail() const;
 
     void StartConnect(const std::string& addr);
+    void SetClientStatus(const wxString& text, const wxColour& colour);
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartScan();
+    void RescanNow();
+    void RefreshDeviceStatus();
     void OnScanTimer(wxTimerEvent& event);
     void OnScanHit(const deskhubp::ScanHit& hit);
     void OnScanProgress(const deskhubp::ScanProgress& progress);
@@ -243,16 +352,21 @@ private:
     NavItem* pageButtons_[kPageCount] = {};
     wxTextCtrl* addrCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
+    wxStaticText* clientStatus_ = nullptr;
     wxListCtrl* scanList_ = nullptr;
     wxStaticText* scanStatus_ = nullptr;
     wxCheckBox* controlCtrl_ = nullptr;
     wxListCtrl* list_ = nullptr;
     wxStaticText* listHint_ = nullptr;
+    wxPanel* hostBanner_ = nullptr;
+    wxWindow* hostBannerBar_ = nullptr;
+    wxStaticText* hostStateLabel_ = nullptr;
     wxStaticText* hostStatusLabel_ = nullptr;
     wxStaticText* hostHint_ = nullptr;
-    wxListCtrl* hostList_ = nullptr;
-    wxButton* stopDisplayBtn_ = nullptr;
-    wxButton* kickViewerBtn_ = nullptr;
+    wxListCtrl* hostPicker_ = nullptr;
+    wxWindow* hostTableHolder_ = nullptr;
+    wxScrolledWindow* hostTable_ = nullptr;
+    std::vector<HostRowView> hostRowViews_;
     wxButton* shareBtn_ = nullptr;
     wxTextCtrl* clientPasscodeCtrl_ = nullptr;
     wxSpinCtrl* fpsCtrl_ = nullptr;
@@ -268,7 +382,7 @@ private:
     std::vector<ui::RecentDevice> recent_;
     std::vector<deskhubp::ScanHit> scanned_;
     std::vector<std::string> scannedThisRound_;
-    std::map<std::string, deskhubp::DeviceStatus> statusByAddr_;
+    std::map<uint64_t, ProbeResult> probes_;
     deskhubp::ConnectDriver connectDriver_;
     deskhubp::DeviceStatusPoller poller_;
     deskhubp::LanScanner scanner_;
@@ -298,8 +412,8 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     SetIcon(wxICON(deskhub_app_icon));
 
     SetSizer(root);
-    SetMinClientSize(FromDIP(wxSize(720, 620)));
-    SetClientSize(FromDIP(wxSize(860, 700)));
+    SetMinClientSize(FromDIP(wxSize(1000, 640)));
+    SetClientSize(FromDIP(wxSize(1140, 780)));
     Centre();
 
     hostTimer_.SetOwner(this, kHostTimerId);
@@ -383,49 +497,44 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
         sizer->Add(grid, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
     }
 
-    hostStatusLabel_ = new wxStaticText(panel, wxID_ANY, ToWx(IdleHostStatus()));
-    hostStatusLabel_->SetFont(hostStatusLabel_->GetFont().Bold());
-    hostStatusLabel_->SetForegroundColour(kMutedText);
-    sizer->Add(hostStatusLabel_, pad);
+    hostBanner_ = new wxPanel(panel);
+    auto* bannerRow = new wxBoxSizer(wxHORIZONTAL);
+    hostBannerBar_ = new wxWindow(hostBanner_, wxID_ANY, wxDefaultPosition,
+        FromDIP(wxSize(4, -1)));
+    bannerRow->Add(hostBannerBar_, wxSizerFlags().Expand());
 
-    hostList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-        wxLC_REPORT | wxLC_SINGLE_SEL);
-    hostList_->InsertColumn(0, "Source", wxLIST_FORMAT_LEFT, FromDIP(140));
-    hostList_->InsertColumn(1, "Size", wxLIST_FORMAT_LEFT, FromDIP(80));
-    hostList_->InsertColumn(2, "Viewers", wxLIST_FORMAT_RIGHT, FromDIP(58));
-    hostList_->InsertColumn(3, "Client", wxLIST_FORMAT_LEFT, FromDIP(120));
-    hostList_->InsertColumn(4, "Capture", wxLIST_FORMAT_RIGHT, FromDIP(58));
-    hostList_->InsertColumn(5, "Send", wxLIST_FORMAT_RIGHT, FromDIP(50));
-    hostList_->InsertColumn(6, "Mbps", wxLIST_FORMAT_RIGHT, FromDIP(55));
-    hostList_->InsertColumn(7, "RTT", wxLIST_FORMAT_RIGHT, FromDIP(55));
-    hostList_->Bind(wxEVT_LIST_ITEM_SELECTED,
-        [this](wxListEvent&) { UpdateHostButtons(); });
-    hostList_->Bind(wxEVT_LIST_ITEM_DESELECTED,
-        [this](wxListEvent&) { UpdateHostButtons(); });
-    sizer->Add(hostList_, wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
+    auto* bannerText = new wxBoxSizer(wxVERTICAL);
+    hostStateLabel_ = new wxStaticText(hostBanner_, wxID_ANY, wxString());
+    hostStateLabel_->SetFont(hostStateLabel_->GetFont().Bold().Scaled(1.1f));
+    bannerText->Add(hostStateLabel_, wxSizerFlags().Border(wxBOTTOM, FromDIP(4)));
+    hostStatusLabel_ = new wxStaticText(hostBanner_, wxID_ANY, wxString());
+    hostStatusLabel_->SetForegroundColour(kMutedText);
+    bannerText->Add(hostStatusLabel_);
+    bannerRow->Add(bannerText, wxSizerFlags(1).Expand().Border(wxALL, FromDIP(10)));
+
+    hostBanner_->SetSizer(bannerRow);
+    sizer->Add(hostBanner_, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+
+    hostPicker_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+        wxLC_REPORT | wxLC_NO_HEADER | wxLC_SINGLE_SEL);
+    hostPicker_->InsertColumn(0, "Source", wxLIST_FORMAT_LEFT, FromDIP(560));
+    sizer->Add(hostPicker_,
+        wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
+
+    hostTableHolder_ = BuildHostTable(panel);
+    sizer->Add(hostTableHolder_,
+        wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
 
     hostHint_ = MakeHint(panel, ToWx(ui::kPickDisplaysHint));
     sizer->Add(hostHint_, pad);
 
-    auto* manageRow = new wxBoxSizer(wxHORIZONTAL);
-    stopDisplayBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kStopSelectedDisplay));
-    stopDisplayBtn_->SetMinSize(FromDIP(wxSize(170, 32)));
-    stopDisplayBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OnStopSelectedDisplay(); });
-    manageRow->Add(stopDisplayBtn_);
-    kickViewerBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kDisconnectSelectedViewer));
-    kickViewerBtn_->SetMinSize(FromDIP(wxSize(210, 32)));
-    kickViewerBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OnKickSelectedViewer(); });
-    manageRow->Add(kickViewerBtn_, wxSizerFlags().Border(wxLEFT, FromDIP(10)));
-    sizer->Add(manageRow, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
-    stopDisplayBtn_->Hide();
-    kickViewerBtn_->Hide();
-
-    shareBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kShareButton));
-    shareBtn_->SetMinSize(FromDIP(wxSize(-1, 40)));
+    shareBtn_ = new wxButton(panel, wxID_ANY, wxString());
+    shareBtn_->SetMinSize(FromDIP(wxSize(-1, 46)));
     shareBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OnShare(); });
     sizer->Add(shareBtn_, wxSizerFlags().Expand().Border(wxALL, FromDIP(14)));
 
     panel->SetSizer(sizer);
+    ShowIdleHostState();
     RefreshDisplayChoices();
     return panel;
 }
@@ -470,9 +579,14 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     sizer->Add(grid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     connectBtn_ = new wxButton(panel, wxID_ANY, "Connect");
-    connectBtn_->SetMinSize(FromDIP(wxSize(140, 32)));
+    connectBtn_->SetMinSize(FromDIP(wxSize(160, 38)));
+    PaintButton(connectBtn_, kAccent);
     connectBtn_->Bind(wxEVT_BUTTON, connectNow);
     sizer->Add(connectBtn_, wxSizerFlags().Centre().Border(wxTOP, FromDIP(14)));
+
+    clientStatus_ = new wxStaticText(panel, wxID_ANY, wxString());
+    clientStatus_->SetForegroundColour(kMutedText);
+    sizer->Add(clientStatus_, wxSizerFlags().Centre().Border(wxTOP, FromDIP(8)));
 
     controlCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kRequestControlLabel));
     controlCtrl_->SetValue(settings_.clientControl);
@@ -482,7 +596,9 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     });
     sizer->Add(controlCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(20)));
 
-    sizer->Add(MakeHeading(panel, ui::kLanDevicesHeading), pad);
+    sizer->Add(MakeHeadingRow(panel, ui::kLanDevicesHeading, ToWx(ui::kRefreshNow),
+                   [this] { RescanNow(); }),
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     scanList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
         wxLC_REPORT | wxLC_SINGLE_SEL);
@@ -497,7 +613,9 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     scanStatus_ = MakeHint(panel, ToWx(ui::kLanDevicesEmpty));
     sizer->Add(scanStatus_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
-    sizer->Add(MakeHeading(panel, ui::kRecentDevicesHeading), pad);
+    sizer->Add(MakeHeadingRow(panel, ui::kRecentDevicesHeading, ToWx(ui::kRefreshNow),
+                   [this] { RefreshDeviceStatus(); }),
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     list_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
         wxLC_REPORT | wxLC_SINGLE_SEL);
@@ -602,13 +720,131 @@ void MainFrame::SelectPage(int page) {
 void MainFrame::RefreshDisplayChoices() {
     availableDisplays_ = deskhubp::ListDisplays();
     hostRows_.clear();
-    hostList_->DeleteAllItems();
-    hostList_->EnableCheckBoxes(true);
+    RebuildHostTable();
+    hostPicker_->DeleteAllItems();
+    hostPicker_->EnableCheckBoxes(true);
     for (size_t i = 0; i < availableDisplays_.size(); ++i) {
-        const long row = hostList_->InsertItem(long(i), ToWx(availableDisplays_[i].name));
-        hostList_->CheckItem(row, true);
+        const AgentSource& source = availableDisplays_[i];
+        const long row = hostPicker_->InsertItem(long(i),
+            ToWx(deskhub::media::SourcePickerLabel(source.name, uint8_t(i), source.width,
+                source.height)));
+        hostPicker_->CheckItem(row, true);
     }
-    UpdateHostButtons();
+    ShowHostTable(false);
+}
+
+wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
+    auto* card = new wxPanel(parent);
+    card->SetBackgroundColour(kRowLine);
+    auto* cardSizer = new wxBoxSizer(wxVERTICAL);
+
+    auto* holder = new wxPanel(card);
+    holder->SetBackgroundColour(*wxWHITE);
+    auto* sizer = new wxBoxSizer(wxVERTICAL);
+
+    auto* header = new wxPanel(holder);
+    header->SetBackgroundColour(kBannerIdleBg);
+    header->SetMinSize(FromDIP(wxSize(-1, 30)));
+    auto* headerRow = new wxBoxSizer(wxHORIZONTAL);
+    headerRow->AddSpacer(FromDIP(kHostRowBarWidth + kHostCellGap));
+    for (const HostColumn& column : kHostColumns) {
+        auto* title = new wxStaticText(header, wxID_ANY, ToWx(column.title).Upper(),
+            wxDefaultPosition, FromDIP(wxSize(column.width, -1)), column.align);
+        title->SetForegroundColour(kMutedText);
+        title->SetFont(title->GetFont().Bold().Scaled(0.85f));
+        headerRow->Add(title, wxSizerFlags().CentreVertical().Border(wxRIGHT,
+                                  FromDIP(kHostCellGap)));
+    }
+    headerRow->AddSpacer(FromDIP(kHostActionWidth));
+    header->SetSizer(headerRow);
+    sizer->Add(header, wxSizerFlags().Expand());
+
+    auto* headerLine = new wxWindow(holder, wxID_ANY, wxDefaultPosition, FromDIP(wxSize(-1, 1)));
+    headerLine->SetBackgroundColour(kRowLine);
+    sizer->Add(headerLine, wxSizerFlags().Expand());
+
+    hostTable_ = new wxScrolledWindow(holder);
+    hostTable_->SetBackgroundColour(*wxWHITE);
+    hostTable_->SetScrollRate(FromDIP(8), FromDIP(8));
+    hostTable_->SetSizer(new wxBoxSizer(wxVERTICAL));
+    sizer->Add(hostTable_, wxSizerFlags(1).Expand());
+
+    holder->SetSizer(sizer);
+    cardSizer->Add(holder, wxSizerFlags(1).Expand().Border(wxALL, FromDIP(1)));
+    card->SetSizer(cardSizer);
+    return card;
+}
+
+wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
+    const bool viewer = ref.viewer;
+    auto* button = new wxButton(parent, wxID_ANY,
+        ToWx(viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
+    button->SetMinSize(FromDIP(wxSize(kHostActionWidth, 26)));
+    PaintButton(button, viewer ? kWarning : kOffline);
+
+    const uint8_t sourceId = ref.sourceId;
+    const std::string addr = ref.viewerAddr;
+    button->Bind(wxEVT_BUTTON, [this, viewer, sourceId, addr](wxCommandEvent&) {
+        if (viewer) {
+            KickViewer(sourceId, addr);
+        } else {
+            StopDisplay(sourceId);
+        }
+    });
+    return button;
+}
+
+void MainFrame::RebuildHostTable() {
+    hostRowViews_.clear();
+    wxSizer* rows = hostTable_->GetSizer();
+    rows->Clear(true);
+
+    for (const ui::HostRow& ref : hostRows_) {
+        if (!ref.viewer && !hostRowViews_.empty()) {
+            auto* line = new wxWindow(hostTable_, wxID_ANY, wxDefaultPosition,
+                FromDIP(wxSize(-1, 1)));
+            line->SetBackgroundColour(kRowLine);
+            rows->Add(line, wxSizerFlags().Expand().Border(wxTOP | wxBOTTOM, FromDIP(4)));
+        }
+
+        HostRowView view;
+        view.panel = new wxPanel(hostTable_);
+        view.panel->SetBackgroundColour(ref.viewer ? kViewerRowBg : *wxWHITE);
+        view.panel->SetMinSize(FromDIP(wxSize(-1, kHostRowHeight)));
+
+        auto* row = new wxBoxSizer(wxHORIZONTAL);
+        view.bar = new wxWindow(view.panel, wxID_ANY, wxDefaultPosition,
+            FromDIP(wxSize(kHostRowBarWidth, -1)));
+        row->Add(view.bar, wxSizerFlags().Expand());
+        row->AddSpacer(FromDIP(kHostCellGap));
+
+        for (int c = 0; c < kHostColumnCount; ++c) {
+            const HostColumn& column = kHostColumns[c];
+            view.cells[c] = new wxStaticText(view.panel, wxID_ANY, wxString(), wxDefaultPosition,
+                FromDIP(wxSize(column.width, -1)), column.align);
+            if (column.mono) view.cells[c]->SetFont(MonoFont(view.cells[c]));
+            if (c == 0 && !ref.viewer)
+                view.cells[c]->SetFont(view.cells[c]->GetFont().Bold());
+            row->Add(view.cells[c], wxSizerFlags().CentreVertical().Border(wxRIGHT,
+                                        FromDIP(kHostCellGap)));
+        }
+        row->Add(MakeRowAction(view.panel, ref), wxSizerFlags().CentreVertical());
+        row->AddSpacer(FromDIP(kHostCellGap));
+        view.panel->SetSizer(row);
+
+        rows->Add(view.panel, wxSizerFlags().Expand());
+        hostRowViews_.push_back(view);
+    }
+
+    hostTable_->FitInside();
+    hostTable_->Layout();
+}
+
+void MainFrame::ShowHostTable(bool sharing) {
+    hostPicker_->Show(!sharing);
+    hostTableHolder_->Show(sharing);
+    hostHint_->Show(!sharing);
+    RelayoutHostPage();
 }
 
 void MainFrame::RefreshRecentList() {
@@ -619,22 +855,52 @@ void MainFrame::RefreshRecentList() {
         list_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastConnectedUnix)));
         ApplyStatusToRow(row, device.addr);
     }
-    listHint_->SetLabel(
-        ToWx(recent_.empty() ? ui::kRecentDevicesEmpty : ui::kRecentDevicesHint));
+    listHint_->SetLabel(ToWx(recent_.empty()
+                                 ? std::string(ui::kRecentDevicesEmpty)
+                                 : std::string(ui::kRecentDevicesHint) + " " +
+                                       ui::StatusRecheckNote(deskhubp::kDeviceStatusRoundSecs)));
+}
+
+const ProbeResult* MainFrame::ProbeFor(const std::string& addr) const {
+    uint64_t key = 0;
+    if (!HostKeyOf(addr, key)) return nullptr;
+    const auto it = probes_.find(key);
+    return it == probes_.end() ? nullptr : &it->second;
+}
+
+void MainFrame::RecordProbe(const std::string& addr, bool online, uint32_t rttMs) {
+    uint64_t key = 0;
+    if (!HostKeyOf(addr, key)) return;
+    probes_[key] = ProbeResult{online, rttMs};
 }
 
 void MainFrame::ApplyStatusToRow(long row, const std::string& addr) {
-    const auto it = statusByAddr_.find(addr);
-    if (it == statusByAddr_.end()) {
+    const ProbeResult* probe = ProbeFor(addr);
+    if (!probe) {
         list_->SetItem(row, 1, ToWx(ui::kStatusChecking));
         list_->SetItem(row, 2, "-");
-        list_->SetItemTextColour(row, wxColour(120, 120, 120));
+        list_->SetItemTextColour(row, kMutedText);
         return;
     }
-    const bool online = it->second.online;
-    list_->SetItem(row, 1, ToWx(online ? ui::kStatusOnline : ui::kStatusOffline));
-    list_->SetItem(row, 2, online ? ToWx(ui::PingMs(it->second.rttMs)) : wxString("-"));
-    list_->SetItemTextColour(row, online ? kOnline : kOffline);
+    list_->SetItem(row, 1, ToWx(probe->online ? ui::kStatusOnline : ui::kStatusOffline));
+    list_->SetItem(row, 2, probe->online ? ToWx(ui::PingMs(probe->rttMs)) : wxString("-"));
+    list_->SetItemTextColour(row, probe->online ? kOnline : kOffline);
+}
+
+void MainFrame::ApplyScanPingToRow(long row, const std::string& addr) {
+    const ProbeResult* probe = ProbeFor(addr);
+    const bool online = !probe || probe->online;
+    scanList_->SetItem(row, 1, online && probe ? ToWx(ui::PingMs(probe->rttMs)) : wxString("-"));
+    scanList_->SetItemTextColour(row, online ? kOnline : kOffline);
+}
+
+void MainFrame::ApplyProbeToRows(const std::string& addr) {
+    uint64_t key = 0;
+    if (!HostKeyOf(addr, key)) return;
+    for (size_t i = 0; i < recent_.size(); ++i)
+        if (SameHost(recent_[i].addr, key)) ApplyStatusToRow(long(i), recent_[i].addr);
+    for (size_t i = 0; i < scanned_.size(); ++i)
+        if (SameHost(scanned_[i].addr, key)) ApplyScanPingToRow(long(i), scanned_[i].addr);
 }
 
 void MainFrame::StartPoller() {
@@ -645,13 +911,33 @@ void MainFrame::StartPoller() {
 }
 
 void MainFrame::OnDeviceStatus(const deskhubp::DeviceStatus& status) {
-    statusByAddr_[status.addr] = status;
-    for (size_t i = 0; i < recent_.size(); ++i)
-        if (recent_[i].addr == status.addr) ApplyStatusToRow(long(i), status.addr);
+    RecordProbe(status.addr, status.online, status.rttMs);
+    ApplyProbeToRows(status.addr);
 }
 
-std::string MainFrame::IdleHostStatus() const {
-    return std::string(ui::kNotSharing) + " " + ui::UdpPortLine(uint16_t(settings_.port)) + ".";
+std::string MainFrame::HostPortDetail() const {
+    return ui::UdpPortLine(uint16_t(settings_.port)) + ".";
+}
+
+void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
+    const HostStateStyle style = StyleFor(state);
+
+    hostStateLabel_->SetLabel(ToWx(style.label));
+    hostStateLabel_->SetForegroundColour(style.tint);
+    hostStateLabel_->SetBackgroundColour(style.background);
+    hostStatusLabel_->SetLabel(detail);
+    hostStatusLabel_->SetBackgroundColour(style.background);
+    hostBannerBar_->SetBackgroundColour(style.tint);
+    hostBanner_->SetBackgroundColour(style.background);
+    hostBanner_->Refresh();
+
+    shareBtn_->SetLabel(ToWx(style.action));
+    PaintButton(shareBtn_, state == HostShareState::kSharing ? kOffline : kAccent);
+    shareBtn_->Refresh();
+}
+
+void MainFrame::ShowIdleHostState() {
+    ApplyHostState(HostShareState::kIdle, ToWx(HostPortDetail()));
 }
 
 void MainFrame::OnShare() {
@@ -670,8 +956,8 @@ void MainFrame::OnShare() {
 
     std::vector<AgentSource> chosen;
     for (size_t i = 0; i < availableDisplays_.size(); ++i) {
-        if (long(i) >= hostList_->GetItemCount()) break;
-        if (hostList_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
+        if (long(i) >= hostPicker_->GetItemCount()) break;
+        if (hostPicker_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
     }
     if (chosen.empty()) {
         wxMessageBox(ToWx(ui::kNoDisplayTicked), "Deskhub", wxOK | wxICON_WARNING, this);
@@ -699,12 +985,10 @@ void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
     const AgentOptions& options) {
     hostStarting_ = true;
     shareBtn_->Disable();
-    hostStatusLabel_->SetLabel(ToWx(ui::kStartingShare));
-    hostList_->EnableCheckBoxes(false);
-    hostList_->DeleteAllItems();
+    ApplyHostState(HostShareState::kStarting, ToWx(HostPortDetail()));
     hostRows_.clear();
-    hostHint_->Hide();
-    RelayoutHostPage();
+    RebuildHostTable();
+    ShowHostTable(true);
 
     agentDriver_.Join();
     agentDriver_.StartAsync(
@@ -727,28 +1011,20 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     shareBtn_->Enable();
 
     if (!started) {
-        hostStatusLabel_->SetLabel(ToWx(IdleHostStatus()));
-        hostStatusLabel_->SetForegroundColour(kMutedText);
-        hostHint_->Show();
+        ShowIdleHostState();
         RefreshDisplayChoices();
-        RelayoutHostPage();
         wxMessageBox(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), "Deskhub",
             wxOK | wxICON_ERROR, this);
         return;
     }
 
     hosting_ = true;
-    shareBtn_->SetLabel(ToWx(ui::kStopSharing));
     std::string status = ui::SharingStatusLine(port);
     if (!passcode.empty()) status += " " + ui::PasscodeNote(passcode);
     if (!allowInput) status += std::string(" ") + ui::kViewOnlyNote;
-    hostStatusLabel_->SetLabel(ToWx(status));
-    hostStatusLabel_->SetForegroundColour(kOnline);
-    stopDisplayBtn_->Show();
-    kickViewerBtn_->Show();
-    UpdateHostButtons();
+    ApplyHostState(HostShareState::kSharing, ToWx(status));
+    ShowHostTable(true);
     hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
-    RelayoutHostPage();
 }
 
 void MainFrame::StopHosting() {
@@ -756,14 +1032,8 @@ void MainFrame::StopHosting() {
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
-    shareBtn_->SetLabel(ToWx(ui::kShareButton));
-    hostStatusLabel_->SetLabel(ToWx(IdleHostStatus()));
-    hostStatusLabel_->SetForegroundColour(kMutedText);
-    stopDisplayBtn_->Hide();
-    kickViewerBtn_->Hide();
-    hostHint_->Show();
+    ShowIdleHostState();
     RefreshDisplayChoices();
-    RelayoutHostPage();
 }
 
 void MainFrame::OnHostTimer(wxTimerEvent&) {
@@ -783,71 +1053,57 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
 
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
-        hostList_->DeleteAllItems();
-        for (size_t i = 0; i < hostRows_.size(); ++i)
-            hostList_->InsertItem(long(i), wxString());
-        UpdateHostButtons();
+        RebuildHostTable();
+        RelayoutHostPage();
     }
 
-    for (size_t i = 0; i < hostRows_.size(); ++i) {
+    for (size_t i = 0; i < hostRows_.size() && i < hostRowViews_.size(); ++i) {
         const ui::HostRow& ref = hostRows_[i];
-        const long row = long(i);
         const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
         if (!s) continue;
 
         const ui::HostRowCells cells = ui::HostRowText(ref, *s);
-        SetHostCell(row, 0, ToWx(cells.source));
-        SetHostCell(row, 1, ToWx(cells.size));
-        SetHostCell(row, 2, ToWx(cells.viewers));
-        SetHostCell(row, 3, ToWx(cells.client));
-        SetHostCell(row, 4, ToWx(cells.capture));
-        SetHostCell(row, 5, ToWx(cells.send));
-        SetHostCell(row, 6, ToWx(cells.mbps));
-        SetHostCell(row, 7, ToWx(cells.rtt));
-        hostList_->SetItemTextColour(row,
-            cells.online ? kOnline : wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+        const wxString texts[kHostColumnCount] = {ToWx(cells.source), ToWx(cells.size),
+            ToWx(cells.viewers), ToWx(cells.client), ToWx(cells.capture), ToWx(cells.send),
+            ToWx(cells.mbps), ToWx(cells.rtt)};
+        const HostRowView& view = hostRowViews_[i];
+        const wxColour colour = cells.online ? kHeadingText : kMutedText;
+        view.bar->SetBackgroundColour(cells.online ? kOnline : kRowLine);
+        view.bar->Refresh();
+
+        for (int c = 0; c < kHostColumnCount; ++c) {
+            wxStaticText* cell = view.cells[c];
+            if (cell->GetLabel() != texts[c]) cell->SetLabel(texts[c]);
+            cell->SetForegroundColour(colour);
+        }
     }
 }
 
-void MainFrame::SetHostCell(long row, int col, const wxString& text) {
-    if (hostList_->GetItemText(row, col) != text) hostList_->SetItem(row, col, text);
-}
-
-long MainFrame::SelectedHostRow() const {
-    return hostList_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
-}
-
 void MainFrame::RelayoutHostPage() {
-    hostList_->GetParent()->Layout();
+    hostPicker_->GetParent()->Layout();
 }
 
-void MainFrame::UpdateHostButtons() {
-    if (!stopDisplayBtn_ || !kickViewerBtn_) return;
-    const long row = SelectedHostRow();
-    const bool valid = hosting_ && row >= 0 && size_t(row) < hostRows_.size();
-    stopDisplayBtn_->Enable(valid && !hostRows_[size_t(row)].viewer);
-    kickViewerBtn_->Enable(valid && hostRows_[size_t(row)].viewer);
+void MainFrame::StopDisplay(uint8_t sourceId) {
+    if (!hosting_) return;
+    agentLoop_.StopSource(sourceId);
 }
 
-void MainFrame::OnStopSelectedDisplay() {
-    const long row = SelectedHostRow();
-    if (!hosting_ || row < 0 || size_t(row) >= hostRows_.size()) return;
-    const ui::HostRow& ref = hostRows_[size_t(row)];
-    if (ref.viewer) return;
-    agentLoop_.StopSource(ref.sourceId);
-}
-
-void MainFrame::OnKickSelectedViewer() {
-    const long row = SelectedHostRow();
-    if (!hosting_ || row < 0 || size_t(row) >= hostRows_.size()) return;
-    const ui::HostRow& ref = hostRows_[size_t(row)];
-    if (!ref.viewer) return;
+void MainFrame::KickViewer(uint8_t sourceId, const std::string& viewerAddr) {
+    if (!hosting_) return;
     NetAddr addr{};
-    if (!ParseNetAddr(ref.viewerAddr, addr)) return;
-    agentLoop_.KickViewer(ref.sourceId, addr.Pack());
+    if (!ParseNetAddr(viewerAddr, addr)) return;
+    agentLoop_.KickViewer(sourceId, addr.Pack());
+}
+
+void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
+    clientStatus_->SetLabel(text);
+    clientStatus_->SetForegroundColour(colour);
+    clientStatus_->Wrap(FromDIP(620));
+    clientStatus_->GetParent()->Layout();
 }
 
 void MainFrame::StartConnect(const std::string& rawAddr) {
+    SetClientStatus(wxString(), kMutedText);
     const std::string addr = ui::TrimAscii(rawAddr);
     if (addr.empty()) {
         wxMessageBox("Enter the host machine's IP address first (e.g., 192.168.1.10).",
@@ -883,7 +1139,9 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         [this, addr, passcode](const deskhubp::ConnectOutcome& outcome) {
             OnSourcesReady(addr, passcode, outcome);
         });
-    if (started) connectBtn_->Disable();
+    if (!started) return;
+    connectBtn_->Disable();
+    SetClientStatus(ToWx(ui::kQueryingSources), kMutedText);
 }
 
 void MainFrame::StartScan() {
@@ -902,20 +1160,38 @@ void MainFrame::StartScan() {
     if (!started) scanTimer_.StartOnce(kRescanDelayMs);
 }
 
+void MainFrame::RescanNow() {
+    scanTimer_.Stop();
+    scanStatus_->SetLabel(ToWx(ui::kLanDevicesEmpty));
+    StartScan();
+}
+
+void MainFrame::RefreshDeviceStatus() {
+    for (const ui::RecentDevice& device : recent_) {
+        uint64_t key = 0;
+        if (HostKeyOf(device.addr, key)) probes_.erase(key);
+    }
+    RefreshRecentList();
+    poller_.RefreshNow();
+}
+
 void MainFrame::OnScanTimer(wxTimerEvent&) {
     StartScan();
 }
 
 void MainFrame::OnScanHit(const deskhubp::ScanHit& hit) {
     scannedThisRound_.push_back(hit.addr);
-    for (deskhubp::ScanHit& known : scanned_) {
-        if (known.addr != hit.addr) continue;
-        known.rttMs = hit.rttMs;
+    RecordProbe(hit.addr, true, hit.rttMs);
+
+    const auto known = std::find_if(scanned_.begin(), scanned_.end(),
+        [&hit](const deskhubp::ScanHit& seen) { return seen.addr == hit.addr; });
+    if (known == scanned_.end()) {
+        scanned_.push_back(hit);
         RefreshScanList();
-        return;
+    } else {
+        known->rttMs = hit.rttMs;
     }
-    scanned_.push_back(hit);
-    RefreshScanList();
+    ApplyProbeToRows(hit.addr);
 }
 
 void MainFrame::OnScanProgress(const deskhubp::ScanProgress& progress) {
@@ -931,7 +1207,8 @@ void MainFrame::OnScanFinished(const deskhubp::ScanProgress& progress) {
     scanned_.erase(std::remove_if(scanned_.begin(), scanned_.end(), gone), scanned_.end());
     RefreshScanList();
 
-    const char* const note = scanned_.empty() ? ui::kScanRescanNote : ui::kLanDevicesHint;
+    std::string note = ui::ScanRecheckNote(uint32_t(kRescanDelayMs / 1000));
+    if (!scanned_.empty()) note = std::string(ui::kLanDevicesHint) + " " + note;
     scanStatus_->SetLabel(
         progress.total == 0
             ? ToWx(ui::kScanNoLocalNetwork)
@@ -943,8 +1220,7 @@ void MainFrame::RefreshScanList() {
     scanList_->DeleteAllItems();
     for (size_t i = 0; i < scanned_.size(); ++i) {
         const long row = scanList_->InsertItem(long(i), ToWx(scanned_[i].addr));
-        scanList_->SetItem(row, 1, ToWx(ui::PingMs(scanned_[i].rttMs)));
-        scanList_->SetItemTextColour(row, kOnline);
+        ApplyScanPingToRow(row, scanned_[i].addr);
     }
 }
 
@@ -986,12 +1262,17 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     const deskhubp::ConnectOutcome& outcome) {
     connectBtn_->Enable();
 
-    if (outcome.ok) {
-        ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
-        SaveRecentDevices();
-        poller_.SetAddresses(AddressesOf(recent_));
-        RefreshRecentList();
+    if (!outcome.ok) {
+        SetClientStatus(ToWx(ui::CouldNotConnectTo(addr) + " " + ui::kViewerOpenFailed), kOffline);
+        DeselectAllRows();
+        return;
     }
+
+    SetClientStatus(wxString(), kMutedText);
+    ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
+    SaveRecentDevices();
+    poller_.SetAddresses(AddressesOf(recent_));
+    RefreshRecentList();
 
     std::vector<deskhub::SourceInfo> picked;
     if (outcome.hasSources()) {
@@ -1035,7 +1316,7 @@ void MainFrame::SaveSettings() {
         settings_.maxDim = deskhub::media::QualityPresetMaxDim(size_t(quality),
             settings_.maxDim);
     deskhubp::SaveUiSettings(settings_);
-    if (!hosting_ && !hostStarting_) hostStatusLabel_->SetLabel(ToWx(IdleHostStatus()));
+    if (!hosting_ && !hostStarting_) ShowIdleHostState();
 }
 
 void MainFrame::SaveRecentDevices() {

@@ -11,10 +11,7 @@ struct HostPage: View {
 
             HostAddressList(addresses: agent.addresses)
 
-            Text(agent.statusLine)
-                .fontWeight(.bold)
-                .foregroundStyle(agent.isSharing ? DeskhubPalette.online : DeskhubPalette.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            HostStatusBanner(state: shareState, detail: agent.statusLine)
 
             if agent.isSharing {
                 HostSourceTable(rows: agent.rows, selection: $agent.selectedRow)
@@ -40,19 +37,87 @@ struct HostPage: View {
             Button {
                 onShare()
             } label: {
-                if agent.isStarting {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity)
-                } else {
-                    Text(DeskhubClient.string(
-                        agent.isSharing ? DHStrStopSharing : DHStrShareButton
-                    ))
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 8) {
+                    if agent.isStarting {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(shareState.action)
+                        .font(.system(size: 15, weight: .semibold))
                 }
+                .frame(maxWidth: .infinity, minHeight: 26)
             }
-            .frame(height: 40)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(agent.isSharing ? DeskhubPalette.offline : DeskhubPalette.accent)
             .disabled(agent.isStarting)
         }
         .task { await agent.refreshShareSources() }
+    }
+
+    private var shareState: HostShareState {
+        if agent.isStarting { return .starting }
+        return agent.isSharing ? .sharing : .idle
+    }
+}
+
+enum HostShareState {
+    case idle
+    case starting
+    case sharing
+
+    var label: String {
+        switch self {
+        case .idle: DeskhubClient.string(DHStrShareStateOff)
+        case .starting: DeskhubClient.string(DHStrStartingShare)
+        case .sharing: DeskhubClient.string(DHStrShareStateOn)
+        }
+    }
+
+    var action: String {
+        switch self {
+        case .idle, .starting: DeskhubClient.string(DHStrStartSharing)
+        case .sharing: DeskhubClient.string(DHStrStopSharing)
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .idle: DeskhubPalette.muted
+        case .starting: DeskhubPalette.accent
+        case .sharing: DeskhubPalette.online
+        }
+    }
+}
+
+struct HostStatusBanner: View {
+    let state: HostShareState
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(state.tint)
+                .frame(width: 10, height: 10)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(state.label)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(state.tint)
+                Text(detail)
+                    .foregroundStyle(DeskhubPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10).fill(state.tint.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10).stroke(state.tint.opacity(0.35), lineWidth: 1)
+        )
     }
 }
 

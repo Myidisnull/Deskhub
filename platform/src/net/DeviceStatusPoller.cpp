@@ -10,7 +10,7 @@ namespace deskhubp {
 
 namespace {
 constexpr uint32_t kProbeTimeoutMs = 900;
-constexpr auto kRoundGap = std::chrono::seconds(30);
+constexpr auto kRoundGap = std::chrono::seconds(kDeviceStatusRoundSecs);
 }
 
 DeviceStatusPoller::~DeviceStatusPoller() {
@@ -32,6 +32,12 @@ void DeviceStatusPoller::SetAddresses(std::vector<std::string> addrs) {
     std::lock_guard lock(mutex_);
     if (addrs == addrs_) return;
     addrs_ = std::move(addrs);
+    dirty_ = true;
+    wake_.notify_all();
+}
+
+void DeviceStatusPoller::RefreshNow() {
+    std::lock_guard lock(mutex_);
     dirty_ = true;
     wake_.notify_all();
 }

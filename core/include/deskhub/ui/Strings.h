@@ -56,6 +56,9 @@ inline constexpr const char* kStatusOffline = "Offline";
 inline constexpr const char* kStatusChecking = "Checking...";
 inline constexpr const char* kNotSharing = "Not sharing.";
 inline constexpr const char* kStartingShare = "Starting share...";
+inline constexpr const char* kShareStateOn = "Sharing";
+inline constexpr const char* kShareStateOff = "Not sharing";
+inline constexpr const char* kStartSharing = "Start sharing";
 inline constexpr const char* kAllowControlLabel =
     "Viewers can control this machine (mouse and keyboard)";
 inline constexpr const char* kRequestControlLabel =
@@ -67,6 +70,8 @@ inline constexpr const char* kPickDisplaysPortalHint =
 inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
 inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
 inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";
+inline constexpr const char* kStopDisplayAction = "Stop";
+inline constexpr const char* kDisconnectViewerAction = "Disconnect";
 inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
 inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
@@ -75,6 +80,7 @@ inline constexpr const char* kLanDevicesHeading = "Devices on this network";
 inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
 inline constexpr const char* kLanDevicesHint = "Click a device to connect to it.";
 inline constexpr const char* kScanRescanNote = "Checking again shortly.";
+inline constexpr const char* kRefreshNow = "Refresh now";
 inline constexpr const char* kScanNoLocalNetwork =
     "This machine has no network address to scan from.";
 inline constexpr const char* kConnectPromptTitle = "Connect to this device";
@@ -176,6 +182,14 @@ inline std::string CouldNotConnectTo(std::string_view address) {
 inline std::string ScanningStatus(size_t probed, size_t total, uint16_t port) {
     return "Looking for hosts on " + UdpPortLine(port) + " - " + std::to_string(probed) + " of " +
            std::to_string(total) + " addresses checked" + "\xE2\x80\xA6";
+}
+
+inline std::string ScanRecheckNote(uint32_t seconds) {
+    return "Checking again in " + std::to_string(seconds) + "s.";
+}
+
+inline std::string StatusRecheckNote(uint32_t seconds) {
+    return "Status and ping recheck every " + std::to_string(seconds) + "s.";
 }
 
 inline std::string ScanFinishedStatus(size_t found, size_t total) {

@@ -9,6 +9,8 @@
 
 namespace deskhubp {
 
+inline constexpr uint32_t kDeviceStatusRoundSecs = 30;
+
 struct DeviceStatus {
     std::string addr;
     bool online = false;
@@ -26,6 +28,7 @@ public:
 
     void Start(StatusHandler onStatus);
     void SetAddresses(std::vector<std::string> addrs);
+    void RefreshNow();
     void Stop();
 
 private:

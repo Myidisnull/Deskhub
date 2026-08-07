@@ -89,6 +89,10 @@ const char* dh_string(DHStringId id) {
         case DHStrNoDisplayTicked: return deskhub::ui::kNoDisplayTicked;
         case DHStrStopSelectedDisplay: return deskhub::ui::kStopSelectedDisplay;
         case DHStrDisconnectSelectedViewer: return deskhub::ui::kDisconnectSelectedViewer;
+        case DHStrShareStateOn: return deskhub::ui::kShareStateOn;
+        case DHStrShareStateOff: return deskhub::ui::kShareStateOff;
+        case DHStrStartSharing: return deskhub::ui::kStartSharing;
+        case DHStrStartingShare: return deskhub::ui::kStartingShare;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();
