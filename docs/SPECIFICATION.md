@@ -1,0 +1,177 @@
+**English** · [Tiếng Việt](SPECIFICATION.vi.md)
+
+# Deskhub — Functional Specification
+
+This document describes **what** Deskhub does, as experienced by a person using it. It is
+a product specification, not a design document: it contains no implementation detail, no
+protocol description and no build instructions. Those live in
+[`README.md`](../README.md), [`SECURITY.md`](../SECURITY.md) and the source tree.
+
+- **Status:** describes the behaviour of the current code.
+- **Audience:** anyone who needs to know what the product is supposed to do — testers,
+  reviewers, contributors, store listings.
+
+---
+
+## 1. Product summary
+
+Deskhub lets one machine show its screen to other machines on the same network, and lets
+those machines drive its mouse and keyboard. It is a single application: the same app
+both shares a screen and views someone else's.
+
+There is no installer requirement, no account, no sign-in, no background service and no
+cloud component. Two machines find each other by IP address on a network both can reach.
+
+## 2. Vocabulary
+
+| Term | Meaning |
+| --- | --- |
+| **Host** | The machine whose screen is being shared. |
+| **Client** / **Viewer** | The machine watching a host, and optionally controlling it. |
+| **Source** | One shareable display on the host. A host may share several at once. |
+| **Session** | One viewer watching one source. Each source opens in its own window. |
+| **Passcode** | The 4-digit code a host requires before a viewer is admitted. |
+
+A single machine can be host and client at the same time.
+
+## 3. Roles by platform
+
+| Platform | Can host | Can view |
+| --- | :--: | :--: |
+| Windows | ✅ | ✅ |
+| macOS | ✅ | ✅ |
+| Linux | ✅ | ✅ |
+| Android | — | ✅ |
+| iOS | — | ✅ |
+
+Every platform offers the same client feature set unless stated otherwise in section 12.
+
+---
+
+## 4. Hosting — sharing this machine's screen
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| H-1 | Display picker | Before sharing, the user ticks which of this machine's displays to expose. At least one must be ticked. |
+| H-2 | Multi-display sharing | Several displays can be shared simultaneously; each becomes a separate source that viewers pick between. |
+| H-3 | Source limit | A maximum of **8** displays can be shared at once. If the machine has more, the user is warned that only the first 8 will be shared. |
+| H-4 | Start / stop sharing | One action starts sharing, one stops it. The current state is always shown (*Not sharing* / *Starting share…* / *Sharing*). |
+| H-5 | Stop one display | An individual shared display can be stopped without ending the whole share. |
+| H-6 | Connection details | While sharing, the app lists this machine's network addresses and the port viewers must use, so they can be read out or copied. |
+| H-7 | Live session table | For each shared display the host sees: display name, resolution, number of viewers, capture rate, send rate, bandwidth in use, and round-trip time. Each connected viewer appears as its own row under its display, identified by address. |
+| H-8 | Disconnect a viewer | The host can drop any individual viewer from the session table. |
+| H-9 | Viewer limit | At most **5** viewers may watch one host at a time. Further attempts are rejected as busy. |
+| H-10 | Failure reporting | If sharing cannot start, the reason is shown to the user rather than failing silently. |
+
+## 5. Connecting — viewing another machine
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| C-1 | Connect by address | The user types the host's IP address, optionally with a port (`192.168.1.10` or `192.168.1.10:47777`). Invalid input produces an explanatory hint, not a failure. |
+| C-2 | Passcode entry | The user enters the 4 digits shown on the host. A code that is not exactly 4 digits is rejected before connecting; if the address is a known one, its remembered code is used when the field is left empty. |
+| C-3 | Control opt-out | Before connecting, the viewer can untick *control the remote machine* to watch without sending any input. |
+| C-4 | Source picker | If the host is sharing more than one display, the viewer is asked which to view. Picking several opens several windows. If the host shares exactly one display, it opens immediately. |
+| C-5 | Clear failures | If the host cannot be reached, is not sharing, or refuses the passcode, the viewer is told which — with the address named in the message. |
+| C-6 | Session end notice | When a session ends, from either side, the viewer sees why. |
+
+## 6. Finding machines
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| D-1 | Network scan | The client scans the local network for machines that are currently sharing and lists them, with progress shown while scanning ("*n* of *m* addresses checked"). |
+| D-2 | Scan bounds | A scan covers at most **512** addresses on the local subnet. If the machine has no local network address, the user is told scanning is not possible. |
+| D-3 | Automatic re-scan | The scan repeats periodically, and can be re-run on demand via *Refresh now*. |
+| D-4 | Click to connect | Clicking a discovered device starts a connection to it. |
+| D-5 | Recent devices | Machines connected to before are kept in a *Recent devices* list — up to **10** — showing address, status, ping and when they were last connected. |
+| D-6 | Live status | Each recent device shows **Online**, **Offline** or **Checking…** with a round-trip time, refreshed automatically every **30 seconds** and on demand. |
+| D-7 | Remembered passcode | The passcode used for a device is remembered with it, so reconnecting does not require retyping it. It is stored obscured, which is convenience — not protection (see section 9). |
+| D-8 | Forget a device | A recent device can be removed from the list. |
+
+## 7. Viewing a session
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| V-1 | Fit to window | The remote screen is scaled to fit the window, preserving aspect ratio, with the window sized to the source on open. |
+| V-2 | Zoom and pan | The view can be zoomed up to **5×** and panned. Zoom level is displayed and can be reset in one action. |
+| V-3 | Session status | The window shows a live status line: frame rate, bandwidth, round-trip time and end-to-end latency. |
+| V-4 | Titled windows | Each viewer window is titled with the source it is showing plus its current status, so multiple sessions are distinguishable. |
+| V-5 | Disconnect | The viewer can end the session at any time. |
+
+## 8. Controlling the remote machine
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| I-1 | Mouse | Movement, left / right / middle / back / forward buttons, and the scroll wheel are sent to the host. |
+| I-2 | Keyboard | Key presses and releases are sent, including modifier combinations. |
+| I-3 | Pointer lock (desktop) | `F9` locks the mouse to the remote screen for games and other software that expects raw movement; `F9` or `Esc` releases it. The current state is shown in the window title. |
+| I-4 | Focus safety | Losing focus releases the pointer lock and any keys still held down, so no key can be left stuck on the host. |
+| I-5 | Touch trackpad (mobile) | On phones and tablets the video acts as a trackpad: drag moves the pointer, tap clicks, hold-and-drag drags, and a vertical two-finger drag scrolls. |
+| I-6 | Pointer / pan mode (mobile) | A toggle switches between moving the remote pointer and panning a zoomed view. |
+| I-7 | On-screen keyboard (mobile) | The device keyboard can be shown or hidden on demand and types into the remote machine. |
+| I-8 | Hotkey bar (mobile) | Shortcut buttons for keys a touch keyboard makes awkward: `Esc`, `Tab`, `Enter`, the four arrows, `Del`, `Ctrl+C`, `Ctrl+V`. |
+| I-9 | Host always wins | Input from the person physically at the host machine takes precedence over every remote viewer. |
+| I-10 | One driver at a time | Only one viewer controls the mouse and keyboard at a time. The earliest to have joined wins contention; other viewers' input is ignored until the current driver has been idle for **1 second**. |
+| I-11 | View-only enforcement | When the host has disabled control, or the viewer chose to watch only, no input reaches the host and the viewer window states that it is view-only. |
+
+## 9. Access control and safety
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| S-1 | No encryption | Deskhub does not encrypt anything. It is intended for trusted networks or a VPN. This is stated in the app and documented in [`SECURITY.md`](../SECURITY.md). |
+| S-2 | Mandatory passcode | Every host requires a 4-digit passcode. One is generated at random on first launch; the user can change it but cannot leave it blank or switch it off. |
+| S-3 | Passcode gates discovery | A host that requires a passcode will not even reveal what it is sharing without it. |
+| S-4 | Lockout on repeated failure | **3** wrong passcode attempts lock the host against further attempts for **30 seconds**. |
+| S-5 | Control switch | The host can share with *viewers can control this machine* turned off, making every session view-only regardless of what viewers request. |
+| S-6 | Consent to capture | On platforms that require it, the operating system's own permission prompts and screen-picker dialogs are used; Deskhub cannot capture without the user granting it. |
+| S-7 | Explicit sharing only | Nothing is shared until the user starts a share. Closing or stopping ends all sessions. |
+
+## 10. Settings
+
+Settings are per machine, persist across restarts, and apply the next time sharing
+starts.
+
+| ID | Setting | Range | Default |
+| --- | --- | --- | --- |
+| T-1 | Frame rate | 1 – 240 fps | 60 |
+| T-2 | Bitrate | 1 – 1000 Mbps | 20 |
+| T-3 | Quality | 720p · 1080p · 1440p · Native | 1080p |
+| T-4 | Network port | 1 – 65535 | 47777 |
+| T-5 | Passcode | exactly 4 digits | generated at random on first launch |
+| T-6 | Viewers can control this machine | on / off | on |
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| T-7 | Automatic quality | Stream quality adapts on its own to the available network capacity within the configured limits; no user action is required when conditions change. |
+| T-8 | Validation | Out-of-range or non-numeric values are rejected and the previous value kept, rather than applied. |
+
+## 11. Status and troubleshooting
+
+| ID | Feature | Description |
+| --- | --- | --- |
+| G-1 | Live host statistics | Per-display and per-viewer figures for capture rate, send rate, bandwidth and round-trip time. |
+| G-2 | Live client statistics | Per-session frame rate, bandwidth, round-trip time and end-to-end latency. |
+| G-3 | Session logs | Each run writes a log file to the user's Deskhub folder, for attaching to bug reports. |
+| G-4 | Version and project link | The app displays its version and links to the project page. |
+
+## 12. Platform-specific behaviour
+
+| ID | Platform | Behaviour |
+| --- | --- | --- |
+| P-1 | Windows | Three sections — **Host**, **Client**, **Settings**. The app asks for administrator rights once at start, which is what allows it to type into elevated windows. It adds its own firewall rule when sharing begins. |
+| P-2 | macOS | Shows a **Permissions** panel with the live grant state of *Screen Recording* (needed to share) and *Accessibility* (needed to accept remote input), a button to request each, and a shortcut into System Settings. Some keystrokes are silently blocked by macOS unless Accessibility is granted. |
+| P-3 | Linux | Displays are chosen in the desktop's own screen-sharing dialog after pressing Share, rather than in the app. Sharing additionally requires the system to permit input injection. |
+| P-4 | Android / iOS | View and control only — these devices cannot share their own screen. The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
+
+## 13. Explicitly out of scope
+
+Deskhub does **not** provide, and this specification does not cover:
+
+- Audio streaming.
+- File transfer, clipboard sync, or remote printing.
+- Any account, directory, presence or invitation system.
+- Relay, rendezvous or NAT-traversal service — reaching a host over the internet is the
+  user's responsibility (for example via a VPN).
+- Session recording.
+- Unattended access, wake-on-LAN, or remote power control.
+- Encryption, authentication of machine identity, or transport-level integrity.
+- Multi-user administration, roles, or audit trails.

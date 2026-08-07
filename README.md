@@ -1,10 +1,12 @@
+**English** · [Tiếng Việt](README.vi.md)
+
 # 🖥️ Deskhub
 
 > **Open-source. Native. Cross-platform. Remote desktop that feels local.**
 
-One **C++20 core** runs everywhere — Windows to iPhone to a Chrome tab — zero protocol
-rewrites. Fast and raw enough to **actually play games remotely**, which ordinary remote
-desktop tools can't pull off.
+One **C++20 core** runs everywhere — Windows to iPhone — zero protocol rewrites. Fast and
+raw enough to **actually play games remotely**, which ordinary remote desktop tools can't
+pull off.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
@@ -26,14 +28,13 @@ desktop tools can't pull off.
 | **Android** | — | ✅ | Video + input (trackpad, keyboard) — testing on Google Play |
 | **iOS** | — | ✅ | Video + input (trackpad, keyboard) — testing via TestFlight |
 | **Linux** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — Ubuntu, Debian, Mint, Fedora, openSUSE, Arch via deb / rpm / portable binary; verified between two machines over LAN |
-| **Web** | — | 📐 | Designed (QUIC/WebTransport + WASM), not yet implemented |
 
 ## 🔒 Before you share a screen
 
-> **⚠️ Deskhub encrypts nothing. A Windows host can ask viewers for a 4-digit passcode,
-> but that code travels in the clear like everything else, and it is off by default —
-> without one, anyone who can reach UDP 47777 on a sharing machine gets full mouse and
-> keyboard control of it.**
+> **⚠️ Deskhub encrypts nothing. Every host requires a 4-digit passcode — generated for
+> you on first launch — but that code travels in the clear like everything else, so
+> anyone who can capture a single packet on your network reads it and gets full mouse and
+> keyboard control of the sharing machine.**
 >
 > Run it on a **network you trust**, or over a **VPN** — install
 > [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z`
@@ -145,13 +146,13 @@ devices** with a live online/offline dot.
 
 Only one viewer drives the mouse and keyboard at a time: the earliest to have joined
 wins ties, and the others' input is dropped until it has been idle for a second. The
-person sitting at the host outranks all of them. On Windows the **Settings** tab
-adds two more controls — untick *Viewers can control this machine* to share **view-only**
-(the host drops every input packet it receives), and set a **4-digit passcode** that
-viewers must enter, with three wrong tries locking the host for 30 seconds. Both are off
-/ blank by default, and the passcode is not encryption — see
-[`SECURITY.md`](SECURITY.md). The mobile, macOS and Linux clients have no passcode field
-yet, so they cannot connect to a host that requires one.
+person sitting at the host outranks all of them. **Settings** on every desktop host holds
+two access controls: the **4-digit passcode** viewers must enter — generated on first
+launch, changeable at any time, and not something you can turn off, with three wrong
+tries locking the host for 30 seconds — and *Viewers can control this machine*, which you
+can untick to share **view-only** (the host drops every input packet it receives). All
+five clients can enter a passcode and remember it per device. The passcode is not
+encryption — see [`SECURITY.md`](SECURITY.md).
 
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:
@@ -161,12 +162,22 @@ Build from source: `make bootstrap` then `make build-<os>` — every target is d
 at the top of the [`Makefile`](Makefile). Bugs & feedback:
 [issues](https://github.com/manhpham90vn/Deskhub/issues) — include your device model.
 
+## 📚 Docs
+
+Every document below is published in English, with a Vietnamese translation beside it as
+`*.vi.md`. The English text is the authoritative one.
+
+- [Functional specification](docs/SPECIFICATION.md) — what Deskhub does, with no implementation detail ([Tiếng Việt](docs/SPECIFICATION.vi.md))
+- [`SECURITY.md`](SECURITY.md) — threat model and how to report a vulnerability ([Tiếng Việt](SECURITY.vi.md))
+- [`PRIVACY.md`](PRIVACY.md) — privacy policy ([Tiếng Việt](PRIVACY.vi.md))
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — third-party components ([Tiếng Việt](THIRD_PARTY_NOTICES.vi.md))
+
 ## ✨ Under the hood
 
 - **Zero-copy end to end** — capture straight into VRAM → NVENC → HW decode → render; the hot path never touches the CPU.
 - **Purpose-built UDP protocol** — infinite GOP + on-demand IDR, XOR FEC, adaptive bitrate.
 - **Real input** — relative mouse (Raw Input) + scancodes for DirectInput games; host's own mouse/keyboard always wins.
-- **Hybrid transport** — native = UDP; web = QUIC/WebTransport with the same core compiled to WASM.
+- **One shared core** — protocol, FEC, and bitrate control live in `core/`, compiled into every client.
 
 ## 📄 License
 

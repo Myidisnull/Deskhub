@@ -1,3 +1,5 @@
+**English** · [Tiếng Việt](THIRD_PARTY_NOTICES.vi.md)
+
 # Third-party notices
 
 Deskhub itself is distributed under the MIT License — see [`LICENSE`](LICENSE).

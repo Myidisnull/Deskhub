@@ -1,15 +1,22 @@
+**English** · [Tiếng Việt](PRIVACY.vi.md)
+
 # Deskhub Privacy Policy
 
-_Effective date: August 5, 2026 — Version 1.1_
+_Effective date: August 7, 2026 — Version 1.2_
+
+> A Vietnamese translation is available at [`PRIVACY.vi.md`](PRIVACY.vi.md). This English
+> version is the authoritative one.
 
 ## 1. Introduction
 
 This Privacy Policy describes how **Deskhub** ("the app", "we") handles
 information when you use the Deskhub mobile applications (iOS, Android) and the
-Deskhub host application for Windows (together, "the Software").
+Deskhub desktop applications for Windows, macOS and Linux (together, "the
+Software").
 
-Deskhub is a remote desktop application: it streams the screen of your Windows
-PC to your phone and lets you control the PC with touch and keyboard input.
+Deskhub is a remote desktop application: it streams the screen of one of your
+computers to another device of yours and lets you control that computer with
+mouse, keyboard and touch input.
 
 The Software is developed and published by an individual developer:
 
@@ -33,16 +40,16 @@ party.
 
 | Data | Purpose | Where it goes | Retention |
 |---|---|---|---|
-| Screen content of your PC (video frames) | Displaying your PC screen on your phone | Sent directly from your PC to your phone, encrypted in transit only by your own network/VPN layer | Never stored; exists only in memory during the session |
-| Mouse, keyboard, and touch input | Controlling your PC from your phone | Sent directly from your phone to your PC | Never stored; discarded after injection |
-| The PC address (IP/hostname) you type | Connecting to your PC | Stays on the device you typed it on | Kept locally until you change it |
-| On Windows: the last 10 addresses you connected to, the time of each, and the passcode you used for each | Filling in the *Recent devices* list so you can reconnect with one click | Written to `recent-devices.txt` in `%USERPROFILE%\.deskhub` on your own machine | Kept until you connect to 10 newer addresses, or you delete the file |
-| On Windows: your sharing preferences (frame rate, bitrate, resolution cap, port, whether viewers may control the machine, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder | Kept until you change them or delete the file |
-| Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your phone and your PC | Never stored; discarded when the session ends |
+| Screen content of the shared computer (video frames) | Displaying that screen on your other device | Sent directly between your two devices, encrypted in transit only by your own network/VPN layer | Never stored; exists only in memory during the session |
+| Mouse, keyboard, and touch input | Controlling the shared computer from your other device | Sent directly from the viewing device to the shared computer | Never stored; discarded after injection |
+| The address (IP/hostname) you type | Connecting to the other machine | Stays on the device you typed it on | Kept locally until you change it |
+| The last 10 addresses you connected to, the time of each, and the passcode you used for each | Filling in the *Recent devices* list so you can reconnect with one click | Written to `recent-devices.txt` in the app's own folder on your device — `%USERPROFILE%\.deskhub` on Windows, `~/.deskhub` on macOS and Linux, the app sandbox on iOS and Android | Kept until you connect to 10 newer addresses, or you delete the file |
+| On Windows, macOS and Linux: your sharing preferences (frame rate, bitrate, resolution cap, port, whether viewers may control the machine, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder | Kept until you change them or delete the file |
+| Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your two devices | Never stored; discarded when the session ends |
 
 ### 3.1 Peer-to-peer by design
 
-All communication happens **directly between your phone and your PC** over:
+All communication happens **directly between your own two devices** over:
 
 - your local network (Wi-Fi/LAN), or
 - a VPN that **you** operate or subscribe to (for example Tailscale), if you
@@ -67,9 +74,9 @@ pop-ups, and any window you open while sharing. (Sharing a single application
 window was removed on 2026-07-27; the Software now shares whole displays
 only.) When you allow remote control, the viewer's input is injected as if
 they were sitting at the PC and can reach **any application visible on the
-shared display** — it is no longer limited to one window. On Windows you can
-turn remote control off entirely in the Settings tab, which makes the share
-view-only: input that arrives is discarded instead of injected. Two safety
+shared display** — it is no longer limited to one window. On any host you can
+turn remote control off entirely in Settings, which makes the share view-only:
+input that arrives is discarded instead of injected. Two safety
 mechanisms remain active whenever control is allowed: if the person at the PC
 touches the real mouse or keyboard, remote input pauses ("host wins"), and any
 keys held by the remote side are automatically released when the connection
@@ -90,7 +97,7 @@ permission, it will be requested in-context and this policy will be updated.
 
 - **Analytics / telemetry:** none.
 - **Crash reporting:** none. Diagnostic logs (`[DIAG]`) exist only on your own
-  machine — in the app's console output and, on Windows, macOS and Ubuntu, in
+  machine — in the app's console output and, on Windows, macOS and Linux, in
   plain-text files under `~/.deskhub/` (`%USERPROFILE%\.deskhub` on Windows).
   They are never uploaded anywhere; they leave your device only if you copy and
   send them yourself, and you can delete that folder at any time.
@@ -112,11 +119,11 @@ permission, it will be requested in-context and this policy will be updated.
   When you use a VPN such as Tailscale, traffic between devices is end-to-end
   encrypted by that VPN (WireGuard).
 - On a plain local network, traffic is not additionally encrypted by Deskhub.
-  A Windows host can require a 4-digit passcode before accepting a connection,
-  but that code travels in the clear like the rest of the traffic, and no other
-  platform offers it; hosts without one accept whoever connects first. Use
-  Deskhub only on networks you trust, or through a VPN, and never expose it to
-  the Internet directly. The full threat model — what is protected, what is
+  Every host requires a 4-digit passcode before accepting a connection — one is
+  generated for you on first launch and you can change it — but that code
+  travels in the clear like the rest of the traffic, so it only stops someone
+  who cannot capture your packets. Use Deskhub only on networks you trust, or
+  through a VPN, and never expose it to the Internet directly. The full threat model — what is protected, what is
   not, and how to report a vulnerability — is in
   [`SECURITY.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
 - The passcodes saved in `recent-devices.txt` and `ui-settings.txt` are
@@ -129,11 +136,12 @@ permission, it will be requested in-context and this policy will be updated.
 ## 7. Data retention and deletion
 
 We retain nothing, so there is nothing for us to delete. All session data
-disappears when the session ends. The PC address saved in the app is removed
-by clearing the field or uninstalling the app. On Windows, the recent-device
-list and the saved settings — including any passcodes — are removed by deleting
-the `%USERPROFILE%\.deskhub` folder, which the app recreates empty on the next
-launch.
+disappears when the session ends. The address saved in the app is removed by
+clearing the field or uninstalling the app. The recent-device list and the
+saved settings — including any passcodes — are removed by deleting the app's
+folder (`%USERPROFILE%\.deskhub` on Windows, `~/.deskhub` on macOS and Linux),
+which the app recreates empty on the next launch; on iOS and Android,
+uninstalling the app removes them.
 
 ## 8. Your rights (GDPR, CCPA, and similar laws)
 
@@ -167,6 +175,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2 | 2026-08-07 | The passcode is now required on every host, generated on first launch instead of left blank, and every client can enter one. Sharing settings are now saved on macOS and Linux as well as Windows, and the recent-device list is saved on every platform, each inside the app's own local folder. No new data leaves your devices. |
 | 1.1 | 2026-08-05 | The Windows app now saves data between launches: a list of the last 10 addresses you connected to, your sharing settings, and the passcodes used with either. All of it stays in `%USERPROFILE%\.deskhub` on your own machine; none of it is transmitted anywhere. Documented view-only sharing and the 5-viewer limit. |
 | 1.0 | 2026-07-24 | First publication. |
 

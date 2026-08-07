@@ -102,11 +102,43 @@ those.
 - `PascalCase` functions and types, `camelCase` locals, trailing underscore on private
   members (`cur_`, `min_`).
 - Formatting is enforced by pinned tools — never hand-format; run `make format`.
-- All identifiers, log messages, and documentation are in **English**. The only
-  Vietnamese in the repo is the store listing under `fastlane/metadata/*/vi/`.
+- All identifiers, log messages, and code comments are in **English**. Documentation is
+  bilingual — see below.
 - New logic in `core/` needs a test in the matching `core/tests/` subdirectory.
+
+## Documentation
+
+Every prose document is published as an English/Vietnamese pair: `NAME.md` and
+`NAME.vi.md` beside it. **English is the authoritative version** — write the change there
+first, then mirror it into the `.vi.md`, in the same commit. A `.vi.md` that lags behind
+its English original is a bug.
+
+| English | Vietnamese | Covers |
+| --- | --- | --- |
+| `README.md` | `README.vi.md` | What it is, install, day-to-day use |
+| `docs/SPECIFICATION.md` | `docs/SPECIFICATION.vi.md` | Feature spec — behaviour only, no implementation detail |
+| `SECURITY.md` | `SECURITY.vi.md` | Threat model, hardening, vulnerability reports |
+| `PRIVACY.md` | `PRIVACY.vi.md` | Privacy policy — versioned, with a changelog table |
+| `THIRD_PARTY_NOTICES.md` | `THIRD_PARTY_NOTICES.vi.md` | Third-party components and licences |
+
+Rules for these files:
+
+- Every one starts with a language switcher line: the English file shows **English** in
+  bold followed by a link labelled *Tiếng Việt*, and the `.vi.md` shows the mirror of
+  that. Each `.vi.md` states that English governs.
+- Links inside a `.vi.md` point at the `.vi.md` counterpart wherever one exists.
+- Cross-language link integrity is not enforced by CI — check relative links resolve
+  before you finish.
+- `PRIVACY.md` is a published legal document: any behaviour change that touches what is
+  stored or transmitted needs a new version number, a new effective date, and a changelog
+  row — in both languages.
+- `CLAUDE.md` and store listings under `fastlane/metadata/*/vi/` are outside this scheme.
+
+When you change behaviour, check whether these documents still describe it. Passcode
+handling, what is persisted on disk, and per-platform capability tables go stale fastest.
 
 ## License
 
 MIT (`LICENSE`). The Linux app statically links LGPL-2.1 FFmpeg — if you change how
-FFmpeg is built or linked, update `THIRD_PARTY_NOTICES.md` accordingly.
+FFmpeg is built or linked, update `THIRD_PARTY_NOTICES.md` (and its `.vi.md`)
+accordingly.

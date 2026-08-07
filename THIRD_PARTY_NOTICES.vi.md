@@ -1,0 +1,93 @@
+[English](THIRD_PARTY_NOTICES.md) · **Tiếng Việt**
+
+# Thông báo về thành phần bên thứ ba
+
+Bản thân Deskhub được phát hành theo Giấy phép MIT — xem [`LICENSE`](LICENSE).
+
+Tệp này liệt kê các thành phần bên thứ ba mà Deskhub liên kết tới, cùng những nghĩa vụ đi
+kèm chúng. Không thành phần nào ở đây được cấp phép theo GPL, và không thành phần nào hạn
+chế việc phân phối lại Deskhub theo Giấy phép MIT.
+
+> Đây là bản dịch của [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Nếu hai bản có
+> khác biệt, **bản tiếng Anh là bản chuẩn**.
+
+## App Linux (`client/linux`)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [FFmpeg](https://ffmpeg.org) 8.0 — `libavcodec`, `libavutil` | LGPL-2.1-or-later | **tĩnh** |
+| [GTK](https://www.gtk.org) 3 | LGPL-2.1-or-later | động |
+| [PipeWire](https://pipewire.org) 0.3 | MIT | động |
+| [libva](https://github.com/intel/libva) / `libva-drm` | MIT | động |
+| [libdrm](https://gitlab.freedesktop.org/mesa/drm) | MIT | động |
+| [libepoxy](https://github.com/anholt/libepoxy) | MIT | động |
+| EGL ([libglvnd](https://gitlab.freedesktop.org/glvnd/libglvnd) / Mesa) | MIT | động |
+
+### FFmpeg (LGPL-2.1-or-later, liên kết tĩnh)
+
+App Linux là mục tiêu build duy nhất có đóng gói kèm FFmpeg. Nó được dựng từ mã nguồn
+FFmpeg 8.0 nguyên bản của thượng nguồn bằng
+[`scripts/build-ffmpeg.sh`](scripts/build-ffmpeg.sh), cấu hình **không** có
+`--enable-gpl` và **không** có `--enable-nonfree`, chỉ bật bộ giải mã H.264 nội tại và
+hwaccel VA-API. Do đó `libavcodec` và `libavutil` thu được nằm dưới GNU Lesser General
+Public License, phiên bản 2.1 hoặc mới hơn — toàn văn trong
+[`licenses/LGPL-2.1.txt`](licenses/LGPL-2.1.txt).
+
+Vì các thư viện này được liên kết tĩnh, LGPL-2.1 §6 yêu cầu người nhận phải có khả năng
+liên kết lại ứng dụng với một bản FFmpeg đã chỉnh sửa. Deskhub đáp ứng yêu cầu này bằng
+cách cung cấp mã nguồn đầy đủ: mã nguồn ứng dụng nằm trong kho này dưới Giấy phép MIT, và
+`scripts/build-ffmpeg.sh` tái tạo chính xác bản dựng FFmpeg đó. Bất kỳ ai cũng có thể
+thay bằng FFmpeg của riêng mình và dựng lại bằng `make`.
+
+FFmpeg không bị chỉnh sửa dưới bất kỳ hình thức nào. Mã nguồn thượng nguồn:
+<https://ffmpeg.org/download.html>.
+
+### GTK 3 (LGPL-2.1-or-later, liên kết động)
+
+Liên kết động tới các thư viện chia sẻ do bản phân phối cung cấp. Không có mã nguồn GTK
+nào được đóng gói kèm hay chỉnh sửa; người dùng có thể thay thế thư viện hệ thống tuỳ ý.
+
+## App Windows (`client/windows`)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [wxWidgets](https://www.wxwidgets.org) 3.3 | wxWindows Library Licence 3.1 | **tĩnh** |
+| [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) (header NVENC SDK 13.0) | MIT | chỉ header |
+| Media Foundation, Direct3D 11, DXGI | Microsoft Windows SDK | thành phần hệ điều hành |
+
+### wxWidgets (wxWindows Library Licence, liên kết tĩnh)
+
+App Windows dựng wxWidgets nguyên bản của thượng nguồn từ gói phát hành chính thức (được
+CMake tải về lúc configure, xem `client/windows/win32/CMakeLists.txt`) và liên kết tĩnh
+vào `Deskhub.exe`. wxWindows Library Licence là LGPL cộng thêm một ngoại lệ cho phép rõ
+ràng việc phân phối các bản nhị phân liên kết với thư viện — tĩnh hay động — theo điều
+khoản của chính bên phân phối, nên bản phân phối MIT một-file của Deskhub không bị ảnh
+hưởng. Toàn văn giấy phép: <https://www.wxwidgets.org/about/licence/>.
+
+`third_party/nvenc-13.0` là một git submodule chỉ chứa các header API của NVIDIA Video
+Codec SDK, được dự án FFmpeg phân phối lại dưới Giấy phép MIT. Bản thân phần hiện thực
+NVENC nằm trong driver NVIDIA của người dùng (`nvEncodeAPI64.dll`) và được nạp lúc chạy;
+nó không được đóng gói kèm.
+
+## App Apple (`client/macos`, `client/ios`)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| VideoToolbox, AVFoundation, ScreenCaptureKit, Metal, SwiftUI | Apple SDK | thành phần hệ điều hành |
+
+## App Android (`client/android`)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [AndroidX](https://developer.android.com/jetpack/androidx) — Core KTX, Activity, Compose UI, Material 3 | Apache-2.0 | động |
+| Thư viện chuẩn [Kotlin](https://kotlinlang.org) | Apache-2.0 | động |
+| MediaCodec, các API media của NDK | Android SDK / NDK | thành phần hệ điều hành |
+
+## Bằng sáng chế
+
+H.264/AVC được bảo hộ bởi các bằng sáng chế cấp phép qua
+[Via LA](https://www.via-la.com/). Quyền sáng chế tách biệt với các giấy phép bản quyền ở
+trên và không được cấp bởi Giấy phép MIT. Trên Windows, macOS, iOS và Android, việc mã
+hoá và giải mã do chính codec của hệ điều hành thực hiện. Trên Linux, chúng do driver
+VA-API của hãng GPU thực hiện. Deskhub không đóng gói kèm bất kỳ bản hiện thực codec nào
+của riêng mình.
