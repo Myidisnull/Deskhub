@@ -10,9 +10,9 @@ final class SessionModel {
     var sources: [Source] = []
     private(set) var stream: StreamModel?
 
-    func pick(_ row: DeviceListRow) {
-        connect.address = row.addr
-        if DeskhubClient.isValidPasscode(row.passcode) { connect.passcode = row.passcode }
+    func beginConnect(to address: String, passcode: String) {
+        connect.address = address
+        connect.passcode = passcode
         beginConnect()
     }
 

@@ -5,7 +5,10 @@ struct PasscodeField: View {
     var prompt = ""
     var width: CGFloat?
     var enabled = true
+    var focusOnAppear = false
     var onSubmit: () -> Void = {}
+
+    @FocusState private var focused: Bool
 
     var body: some View {
         #if os(iOS)
@@ -21,6 +24,8 @@ struct PasscodeField: View {
             .frame(width: width)
             .help(DeskhubClient.string(DHStrClientPasscodeHint))
             .disabled(!enabled)
+            .focused($focused)
+            .task { if focusOnAppear { focused = true } }
             .onSubmit(onSubmit)
             .onChange(of: passcode) { _, typed in
                 let accepted = DeskhubClient.passcodeInput(typed)

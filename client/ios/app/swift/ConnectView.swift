@@ -4,11 +4,13 @@ struct ConnectView: View {
     @Bindable var model: SessionModel
 
     @State private var control = dh_client_control()
+    @State private var prompting: DeviceListRow?
+    @State private var promptPasscode = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                heading(DeskhubClient.string(DHStrClientHeading))
+                deskhubHeading(DeskhubClient.string(DHStrClientHeading))
 
                 TextField(
                     DeskhubClient.string(DHStrClientIpPlaceholder), text: $model.connect.address
@@ -54,7 +56,7 @@ struct ConnectView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                heading(DeskhubClient.string(DHStrLanDevicesHeading))
+                deskhubHeading(DeskhubClient.string(DHStrLanDevicesHeading))
                 DeviceListView(
                     heading: "",
                     note: model.discovery.scanStatus,
@@ -62,10 +64,10 @@ struct ConnectView: View {
                         DeviceListRow($0, passcode: DeskhubDiscovery.passcode(for: $0.addr))
                     },
                     enabled: !model.connect.isConnecting,
-                    onPick: model.pick
+                    onPick: pick
                 )
 
-                heading(DeskhubClient.string(DHStrRecentDevicesHeading))
+                deskhubHeading(DeskhubClient.string(DHStrRecentDevicesHeading))
                 DeviceListView(
                     heading: "",
                     note: DeskhubClient.string(
@@ -74,12 +76,20 @@ struct ConnectView: View {
                     ),
                     rows: model.discovery.recent.map { DeviceListRow($0) },
                     enabled: !model.connect.isConnecting,
-                    onPick: model.pick
+                    onPick: pick
                 )
 
                 footer
             }
             .padding()
+        }
+        .sheet(item: $prompting) { row in
+            PasscodePromptSheet(
+                address: row.addr,
+                passcode: $promptPasscode,
+                onCancel: { prompting = nil },
+                onConnect: { confirmPrompt(row) }
+            )
         }
         .task { model.discovery.start() }
     }
@@ -97,9 +107,14 @@ struct ConnectView: View {
         .padding(.top, 8)
     }
 
-    private func heading(_ text: String) -> some View {
-        Text(text)
-            .font(.title3.bold())
-            .foregroundStyle(DeskhubPalette.heading)
+    private func pick(_ row: DeviceListRow) {
+        promptPasscode = DeskhubClient.isValidPasscode(row.passcode)
+            ? row.passcode : model.connect.passcode
+        prompting = row
+    }
+
+    private func confirmPrompt(_ row: DeviceListRow) {
+        prompting = nil
+        model.beginConnect(to: row.addr, passcode: promptPasscode)
     }
 }

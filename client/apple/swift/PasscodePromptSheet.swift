@@ -6,6 +6,8 @@ struct PasscodePromptSheet: View {
     let onCancel: () -> Void
     let onConnect: () -> Void
 
+    private var ready: Bool { DeskhubClient.isValidPasscode(passcode) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             deskhubHeading(DeskhubClient.string(DHStrConnectPromptTitle))
@@ -16,7 +18,9 @@ struct PasscodePromptSheet: View {
 
             HStack(spacing: 10) {
                 Text(DeskhubClient.string(DHStrClientPasscodePrompt))
-                PasscodeField(passcode: $passcode, width: 72, onSubmit: onConnect)
+                PasscodeField(
+                    passcode: $passcode, width: 72, focusOnAppear: true, onSubmit: submit
+                )
             }
 
             deskhubHint(DeskhubClient.string(DHStrClientPasscodeHint))
@@ -25,13 +29,22 @@ struct PasscodePromptSheet: View {
                 Spacer(minLength: 0)
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Connect", action: onConnect)
+                Button("Connect", action: submit)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!DeskhubClient.isValidPasscode(passcode))
+                    .disabled(!ready)
             }
             .padding(.top, 4)
         }
         .padding(20)
         .frame(minWidth: 340, alignment: .leading)
+        #if os(iOS)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .presentationDetents([.medium])
+        #endif
+    }
+
+    private func submit() {
+        guard ready else { return }
+        onConnect()
     }
 }
