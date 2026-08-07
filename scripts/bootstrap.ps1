@@ -137,13 +137,13 @@ if (-not $sdkmanager) {
     Write-Host "  NOTE: open Android Studio once (installs SDK + cmdline-tools), then re-run bootstrap."
 } else {
     Write-Host "[ok]      Android SDK ($sdkRoot)"
-    $missing = @('platform-tools', 'platforms\android-37', 'ndk\26.1.10909125', 'cmake\3.22.1') |
+    $missing = @('platform-tools', 'platforms\android-37.0', 'ndk\26.1.10909125', 'cmake\3.22.1') |
         Where-Object { -not (Test-Path (Join-Path $sdkRoot $_)) }
     if (-not $missing) {
-        Write-Host "[ok]      Android SDK packages (platform 37, NDK 26.1.10909125, cmake 3.22.1)"
+        Write-Host "[ok]      Android SDK packages (platform 37.0, NDK 26.1.10909125, cmake 3.22.1)"
     } else {
         Write-Host "[install] SDK packages ($($missing -join ', '))..."
-        & $sdkmanager.FullName --install 'platform-tools' 'platforms;android-37' 'ndk;26.1.10909125' 'cmake;3.22.1'
+        & $sdkmanager.FullName --install 'platform-tools' 'platforms;android-37.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
         if ($LASTEXITCODE -ne 0) { throw "sdkmanager failed (exit $LASTEXITCODE)" }
     }
 }

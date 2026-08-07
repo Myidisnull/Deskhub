@@ -86,13 +86,13 @@ install_android_packages() {
     done
     if [ -n "$SDKMANAGER" ]; then
         echo "[ok]      Android SDK ($SDK)"
-        if [ -d "$SDK/platform-tools" ] && [ -d "$SDK/platforms/android-37" ] &&
+        if [ -d "$SDK/platform-tools" ] && [ -d "$SDK/platforms/android-37.0" ] &&
            [ -d "$SDK/ndk/26.1.10909125" ] && [ -d "$SDK/cmake/3.22.1" ]; then
-            echo "[ok]      Android SDK packages (platform 37, NDK 26.1.10909125, cmake 3.22.1)"
+            echo "[ok]      Android SDK packages (platform 37.0, NDK 26.1.10909125, cmake 3.22.1)"
             return
         fi
-        echo "[install] SDK packages (platform 37, NDK 26.1.10909125, cmake 3.22.1)..."
-        "$SDKMANAGER" --install 'platform-tools' 'platforms;android-37' 'ndk;26.1.10909125' 'cmake;3.22.1'
+        echo "[install] SDK packages (platform 37.0, NDK 26.1.10909125, cmake 3.22.1)..."
+        "$SDKMANAGER" --install 'platform-tools' 'platforms;android-37.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
     else
         echo "[action]  Android cmdline-tools missing - install Android Studio or sdkmanager, set ANDROID_HOME, then re-run bootstrap."
     fi
