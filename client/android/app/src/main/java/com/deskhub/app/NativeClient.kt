@@ -52,6 +52,12 @@ object NativeClient {
     const val STR_RECENT_DEVICES_HEADING = 26
     const val STR_RECENT_DEVICES_HINT = 27
     const val STR_RECENT_DEVICES_EMPTY = 28
+    const val STR_SIDEBAR_CLIENT = 30
+    const val STR_SIDEBAR_SETTINGS = 31
+    const val STR_SETTINGS_HEADING = 34
+    const val STR_SETTINGS_HINT = 35
+    const val STR_UDP_PORT_LINE = 16
+    const val STR_REFRESH_NOW = 51
 
     private external fun nativeString(id: Int): String
 
@@ -138,7 +144,23 @@ object NativeClient {
 
     fun setClientControl(on: Boolean) = nativeSetClientControl(on)
 
+    private external fun nativeSettingsPort(): Int
+
+    private external fun nativeSetSettingsPort(port: Int)
+
+    fun settingsPort(): Int = nativeSettingsPort()
+
+    fun setSettingsPort(port: Int) = nativeSetSettingsPort(port)
+
     private external fun nativeScanStart(port: Int): Boolean
+
+    private external fun nativeScanRestart(port: Int): Boolean
+
+    private external fun nativeRescanSeconds(): Int
+
+    private external fun nativeStatusRefreshNow()
+
+    private external fun nativeRecentNote(): String
 
     private external fun nativeScanCancel()
 
@@ -160,6 +182,14 @@ object NativeClient {
     private external fun nativeWatchRecent()
 
     fun scanStart(port: Int): Boolean = nativeScanStart(port)
+
+    suspend fun scanRestart(port: Int): Boolean = withContext(Dispatchers.IO) { nativeScanRestart(port) }
+
+    fun rescanSeconds(): Int = nativeRescanSeconds()
+
+    suspend fun statusRefreshNow() = withContext(Dispatchers.IO) { nativeStatusRefreshNow() }
+
+    fun recentNote(): String = nativeRecentNote()
 
     fun scanCancel() = nativeScanCancel()
 

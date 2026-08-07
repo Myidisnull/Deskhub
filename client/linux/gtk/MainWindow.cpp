@@ -35,10 +35,13 @@ constexpr int kNavH = 42;
 constexpr int kListH = 130;
 constexpr int kPad = 16;
 
-constexpr guint kRescanDelayMs = 45000;
+constexpr guint kRescanDelayMs = deskhubp::kLanRescanSecs * 1000;
+
+constexpr int kHostActionWidth = 104;
 
 constexpr const char* kOnlineColour = "#00913c";
 constexpr const char* kOfflineColour = "#c82828";
+constexpr const char* kWarningColour = "#ca6c08";
 constexpr const char* kUnknownColour = "#787878";
 constexpr const char* kRowTextColour = "#111827";
 
@@ -58,8 +61,16 @@ const char* const kStyleSheet =
     ".deskhub-hint { color: #6b7280; }"
     ".deskhub-footnote { color: #94a3b8; }"
     ".deskhub-link { color: #d1d5db; }"
-    ".deskhub-status { font-weight: bold; color: #6b7280; }"
-    ".deskhub-status-online { font-weight: bold; color: #00913c; }";
+    ".deskhub-banner { padding: 10px; border-left: 4px solid #6b7280;"
+    " background-color: #f3f4f6; }"
+    ".deskhub-banner-busy { border-left-color: #2563eb; background-color: #ebf3ff; }"
+    ".deskhub-banner-live { border-left-color: #00913c; background-color: #e8faef; }"
+    ".deskhub-banner-state { font-weight: bold; font-size: 1.1em; color: #6b7280; }"
+    ".deskhub-banner-state-busy { color: #2563eb; }"
+    ".deskhub-banner-state-live { color: #00913c; }"
+    ".deskhub-share { font-weight: bold; color: #ffffff; background-image: none;"
+    " background-color: #2563eb; }"
+    ".deskhub-share-stop { background-color: #c82828; }";
 
 void AddClass(GtkWidget* widget, const char* name) {
     gtk_style_context_add_class(gtk_widget_get_style_context(widget), name);
@@ -95,6 +106,17 @@ GtkWidget* Heading(const char* text) {
 
 GtkWidget* Section(const char* text) {
     return StyledLabel(text, "deskhub-section");
+}
+
+GtkWidget* HeadingRow(const char* heading, GCallback onRefresh, gpointer user) {
+    GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_pack_start(GTK_BOX(row), Heading(heading), FALSE, FALSE, 0);
+
+    GtkWidget* refresh = gtk_button_new_with_label(ui::kRefreshNow);
+    gtk_widget_set_size_request(refresh, 110, 30);
+    g_signal_connect(refresh, "clicked", onRefresh, user);
+    gtk_box_pack_end(GTK_BOX(row), refresh, FALSE, FALSE, 0);
+    return row;
 }
 
 GtkWidget* Hint(const std::string& text) {
@@ -160,6 +182,13 @@ std::string FormatLastConnected(int64_t unixTime) {
     char buf[32];
     if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &parts) == 0) return {};
     return std::string(buf);
+}
+
+bool HostKeyOf(const std::string& addr, uint64_t& key) {
+    NetAddr parsed{};
+    if (!ParseNetAddr(addr, parsed)) return false;
+    key = parsed.Pack();
+    return true;
 }
 
 std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& devices) {
@@ -289,8 +318,6 @@ void MainWindow::Build(GtkApplication* app) {
     SelectPage(kPageClient);
 
     gtk_widget_show_all(window_);
-    gtk_widget_hide(stopDisplayButton_);
-    gtk_widget_hide(kickViewerButton_);
 }
 
 GtkWidget* MainWindow::BuildSidebar() {
@@ -372,13 +399,18 @@ GtkWidget* MainWindow::BuildHostPage() {
         gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
     }
 
-    hostStatusLabel_ = StyledLabel(IdleHostStatus(), "deskhub-status");
+    hostBanner_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    AddClass(hostBanner_, "deskhub-banner");
+    hostStateLabel_ = StyledLabel(std::string(), "deskhub-banner-state");
+    gtk_box_pack_start(GTK_BOX(hostBanner_), hostStateLabel_, FALSE, FALSE, 0);
+    hostStatusLabel_ = StyledLabel(std::string(), "deskhub-hint");
     gtk_label_set_line_wrap(GTK_LABEL(hostStatusLabel_), TRUE);
-    gtk_box_pack_start(GTK_BOX(box), hostStatusLabel_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hostBanner_), hostStatusLabel_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), hostBanner_, FALSE, FALSE, 0);
 
-    hostStore_ = gtk_list_store_new(9, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
+    hostStore_ = gtk_list_store_new(11, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
         G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
-        G_TYPE_STRING);
+        G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     hostView_ = gtk_tree_view_new_with_model(GTK_TREE_MODEL(hostStore_));
     g_object_unref(hostStore_);
     AddColumn(hostView_, "Source", 0, 8, 140, 0.f);
@@ -389,30 +421,22 @@ GtkWidget* MainWindow::BuildHostPage() {
     AddColumn(hostView_, "Send", 5, 8, 50, 1.f);
     AddColumn(hostView_, "Mbps", 6, 8, 55, 1.f);
     AddColumn(hostView_, "RTT", 7, 8, 55, 1.f);
-    g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(hostView_)), "changed",
-        G_CALLBACK(OnHostSelectionChanged), this);
+    AddColumn(hostView_, "", 9, 10, kHostActionWidth, 0.5f);
+    hostActionColumn_ = gtk_tree_view_get_column(GTK_TREE_VIEW(hostView_), 8);
+    gtk_widget_add_events(hostView_, GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(hostView_, "button-press-event", G_CALLBACK(OnHostRowPressed), this);
     gtk_box_pack_start(GTK_BOX(box), ListFrame(hostView_, kListH + 40), TRUE, TRUE, 0);
 
     hostHintLabel_ = Hint(ui::kPickDisplaysPortalHint);
     gtk_box_pack_start(GTK_BOX(box), hostHintLabel_, FALSE, FALSE, 0);
 
-    GtkWidget* manageRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    stopDisplayButton_ = gtk_button_new_with_label(ui::kStopSelectedDisplay);
-    gtk_widget_set_size_request(stopDisplayButton_, 170, 32);
-    g_signal_connect(stopDisplayButton_, "clicked", G_CALLBACK(OnStopDisplayClicked), this);
-    gtk_box_pack_start(GTK_BOX(manageRow), stopDisplayButton_, FALSE, FALSE, 0);
-
-    kickViewerButton_ = gtk_button_new_with_label(ui::kDisconnectSelectedViewer);
-    gtk_widget_set_size_request(kickViewerButton_, 210, 32);
-    g_signal_connect(kickViewerButton_, "clicked", G_CALLBACK(OnKickViewerClicked), this);
-    gtk_box_pack_start(GTK_BOX(manageRow), kickViewerButton_, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), manageRow, FALSE, FALSE, 0);
-
-    shareButton_ = gtk_button_new_with_label(ui::kShareButton);
-    gtk_widget_set_size_request(shareButton_, -1, 40);
+    shareButton_ = gtk_button_new_with_label(ui::kStartSharing);
+    AddClass(shareButton_, "deskhub-share");
+    gtk_widget_set_size_request(shareButton_, -1, 46);
     g_signal_connect(shareButton_, "clicked", G_CALLBACK(OnShareClicked), this);
     gtk_box_pack_start(GTK_BOX(box), shareButton_, FALSE, FALSE, 0);
 
+    ShowIdleHostState();
     return WrapPage(box);
 }
 
@@ -451,7 +475,8 @@ GtkWidget* MainWindow::BuildClientPage() {
     g_signal_connect(controlCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     gtk_box_pack_start(GTK_BOX(box), controlCheck_, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Heading(ui::kLanDevicesHeading), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box),
+        HeadingRow(ui::kLanDevicesHeading, G_CALLBACK(OnRescanClicked), this), FALSE, FALSE, 0);
 
     scanStore_ = gtk_list_store_new(3, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     GtkWidget* scanView = gtk_tree_view_new_with_model(GTK_TREE_MODEL(scanStore_));
@@ -464,7 +489,9 @@ GtkWidget* MainWindow::BuildClientPage() {
     scanStatusLabel_ = Hint(ui::kLanDevicesEmpty);
     gtk_box_pack_start(GTK_BOX(box), scanStatusLabel_, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Heading(ui::kRecentDevicesHeading), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box),
+        HeadingRow(ui::kRecentDevicesHeading, G_CALLBACK(OnRefreshStatusClicked), this), FALSE,
+        FALSE, 0);
 
     recentStore_ = gtk_list_store_new(5, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
         G_TYPE_STRING, G_TYPE_STRING);
@@ -562,19 +589,41 @@ void MainWindow::OnNavClicked(GtkButton* b, gpointer user) {
     self->SelectPage(GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "deskhub-page")));
 }
 
-std::string MainWindow::IdleHostStatus() const {
-    return std::string(ui::kNotSharing) + " " + ui::UdpPortLine(Port()) + ".";
+std::string MainWindow::HostPortDetail() const {
+    return ui::UdpPortLine(Port()) + ".";
 }
 
-void MainWindow::SetHostStatus(const std::string& text, bool online) {
-    gtk_label_set_text(GTK_LABEL(hostStatusLabel_), text.c_str());
-    if (online) {
-        RemoveClass(hostStatusLabel_, "deskhub-status");
-        AddClass(hostStatusLabel_, "deskhub-status-online");
-        return;
+void MainWindow::ApplyHostState(HostShareState state, const std::string& detail) {
+    const bool sharing = state == HostShareState::kSharing;
+    const bool starting = state == HostShareState::kStarting;
+
+    gtk_label_set_text(GTK_LABEL(hostStateLabel_),
+        sharing ? ui::kShareStateOn : (starting ? ui::kStartingShare : ui::kShareStateOff));
+    gtk_label_set_text(GTK_LABEL(hostStatusLabel_), detail.c_str());
+
+    RemoveClass(hostBanner_, "deskhub-banner-busy");
+    RemoveClass(hostBanner_, "deskhub-banner-live");
+    RemoveClass(hostStateLabel_, "deskhub-banner-state-busy");
+    RemoveClass(hostStateLabel_, "deskhub-banner-state-live");
+    if (sharing) {
+        AddClass(hostBanner_, "deskhub-banner-live");
+        AddClass(hostStateLabel_, "deskhub-banner-state-live");
+    } else if (starting) {
+        AddClass(hostBanner_, "deskhub-banner-busy");
+        AddClass(hostStateLabel_, "deskhub-banner-state-busy");
     }
-    RemoveClass(hostStatusLabel_, "deskhub-status-online");
-    AddClass(hostStatusLabel_, "deskhub-status");
+
+    gtk_button_set_label(GTK_BUTTON(shareButton_),
+        sharing ? ui::kStopSharing : ui::kStartSharing);
+    if (sharing) {
+        AddClass(shareButton_, "deskhub-share-stop");
+    } else {
+        RemoveClass(shareButton_, "deskhub-share-stop");
+    }
+}
+
+void MainWindow::ShowIdleHostState() {
+    ApplyHostState(HostShareState::kIdle, HostPortDetail());
 }
 
 void MainWindow::SaveSettings() {
@@ -592,7 +641,7 @@ void MainWindow::SaveSettings() {
     if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
 
     deskhubp::SaveUiSettings(settings_);
-    if (!hosting_ && !hostStarting_) SetHostStatus(IdleHostStatus(), false);
+    if (!hosting_ && !hostStarting_) ShowIdleHostState();
 }
 
 void MainWindow::SaveRecentDevices() {
@@ -615,9 +664,27 @@ void MainWindow::StartScan() {
     if (!started) ScheduleRescan();
 }
 
+void MainWindow::RescanNow() {
+    if (rescanTimerId_) {
+        g_source_remove(rescanTimerId_);
+        rescanTimerId_ = 0;
+    }
+    gtk_label_set_text(GTK_LABEL(scanStatusLabel_), ui::kLanDevicesEmpty);
+    scanner_.Cancel();
+    StartScan();
+}
+
 void MainWindow::ScheduleRescan() {
     if (rescanTimerId_) g_source_remove(rescanTimerId_);
     rescanTimerId_ = g_timeout_add(kRescanDelayMs, OnRescanTimer, this);
+}
+
+void MainWindow::OnRescanClicked(GtkButton*, gpointer user) {
+    static_cast<MainWindow*>(user)->RescanNow();
+}
+
+void MainWindow::OnRefreshStatusClicked(GtkButton*, gpointer user) {
+    static_cast<MainWindow*>(user)->RefreshDeviceStatus();
 }
 
 gboolean MainWindow::OnRescanTimer(gpointer user) {
@@ -629,14 +696,17 @@ gboolean MainWindow::OnRescanTimer(gpointer user) {
 
 void MainWindow::OnScanHit(const deskhubp::ScanHit& hit) {
     scannedThisRound_.push_back(hit.addr);
+    RecordProbe(hit.addr, true, hit.rttMs);
     for (deskhubp::ScanHit& known : scanned_) {
         if (known.addr != hit.addr) continue;
         known.rttMs = hit.rttMs;
         RefreshScanList();
+        RefreshRecentList();
         return;
     }
     scanned_.push_back(hit);
     RefreshScanList();
+    RefreshRecentList();
 }
 
 void MainWindow::OnScanProgress(const deskhubp::ScanProgress& progress) {
@@ -652,11 +722,8 @@ void MainWindow::OnScanFinished(const deskhubp::ScanProgress& progress) {
     scanned_.erase(std::remove_if(scanned_.begin(), scanned_.end(), gone), scanned_.end());
     RefreshScanList();
 
-    const char* const note = scanned_.empty() ? ui::kScanRescanNote : ui::kLanDevicesHint;
     const std::string text =
-        progress.total == 0
-            ? std::string(ui::kScanNoLocalNetwork)
-            : ui::ScanFinishedStatus(scanned_.size(), progress.total) + " " + note;
+        ui::LanDevicesNote(scanned_.size(), progress.total, deskhubp::kLanRescanSecs);
     gtk_label_set_text(GTK_LABEL(scanStatusLabel_), text.c_str());
     ScheduleRescan();
 }
@@ -664,10 +731,14 @@ void MainWindow::OnScanFinished(const deskhubp::ScanProgress& progress) {
 void MainWindow::RefreshScanList() {
     gtk_list_store_clear(scanStore_);
     for (const deskhubp::ScanHit& hit : scanned_) {
+        const deskhubp::DeviceStatus* probe = ProbeFor(hit.addr);
+        const bool online = !probe || probe->online;
+
         GtkTreeIter it;
         gtk_list_store_append(scanStore_, &it);
-        gtk_list_store_set(scanStore_, &it, 0, hit.addr.c_str(), 1, ui::PingMs(hit.rttMs).c_str(),
-            2, kOnlineColour, -1);
+        gtk_list_store_set(scanStore_, &it, 0, hit.addr.c_str(), 1,
+            online && probe ? ui::PingMs(probe->rttMs).c_str() : "-", 2,
+            online ? kOnlineColour : kOfflineColour, -1);
     }
 }
 
@@ -679,21 +750,34 @@ void MainWindow::StartPoller() {
 }
 
 void MainWindow::OnDeviceStatus(const deskhubp::DeviceStatus& status) {
-    statusByAddr_[status.addr] = status;
+    RecordProbe(status.addr, status.online, status.rttMs);
     RefreshRecentList();
+    RefreshScanList();
+}
+
+void MainWindow::RecordProbe(const std::string& addr, bool online, uint32_t rttMs) {
+    uint64_t key = 0;
+    if (!HostKeyOf(addr, key)) return;
+    probes_[key] = deskhubp::DeviceStatus{addr, online, rttMs};
+}
+
+const deskhubp::DeviceStatus* MainWindow::ProbeFor(const std::string& addr) const {
+    uint64_t key = 0;
+    if (!HostKeyOf(addr, key)) return nullptr;
+    const auto found = probes_.find(key);
+    return found == probes_.end() ? nullptr : &found->second;
 }
 
 void MainWindow::RefreshRecentList() {
     gtk_list_store_clear(recentStore_);
     for (const ui::RecentDevice& device : recent_) {
-        const auto found = statusByAddr_.find(device.addr);
-        const bool known = found != statusByAddr_.end();
-        const bool online = known && found->second.online;
+        const deskhubp::DeviceStatus* probe = ProbeFor(device.addr);
+        const bool online = probe && probe->online;
 
-        const char* status = !known ? ui::kStatusChecking
+        const char* status = !probe ? ui::kStatusChecking
                                     : (online ? ui::kStatusOnline : ui::kStatusOffline);
-        const std::string ping = online ? ui::PingMs(found->second.rttMs) : std::string("-");
-        const char* colour = !known ? kUnknownColour : (online ? kOnlineColour : kOfflineColour);
+        const std::string ping = online ? ui::PingMs(probe->rttMs) : std::string("-");
+        const char* colour = !probe ? kUnknownColour : (online ? kOnlineColour : kOfflineColour);
 
         GtkTreeIter it;
         gtk_list_store_append(recentStore_, &it);
@@ -701,7 +785,16 @@ void MainWindow::RefreshRecentList() {
             3, FormatLastConnected(device.lastConnectedUnix).c_str(), 4, colour, -1);
     }
     gtk_label_set_text(GTK_LABEL(recentHintLabel_),
-        recent_.empty() ? ui::kRecentDevicesEmpty : ui::kRecentDevicesHint);
+        ui::RecentDevicesNote(recent_.size(), deskhubp::kDeviceStatusRoundSecs).c_str());
+}
+
+void MainWindow::RefreshDeviceStatus() {
+    for (const ui::RecentDevice& device : recent_) {
+        uint64_t key = 0;
+        if (HostKeyOf(device.addr, key)) probes_.erase(key);
+    }
+    RefreshRecentList();
+    poller_.RefreshNow();
 }
 
 void MainWindow::OnScanRowActivated(GtkTreeView*, GtkTreePath* path, GtkTreeViewColumn*,
@@ -862,7 +955,7 @@ void MainWindow::OnShare() {
 
     hostStarting_ = true;
     gtk_widget_set_sensitive(shareButton_, FALSE);
-    SetHostStatus("Waiting for the screen-sharing dialog\xE2\x80\xA6", false);
+    ApplyHostState(HostShareState::kStarting, "Waiting for the screen-sharing dialog\xE2\x80\xA6");
 
     std::thread([this, options, alive = alive_] {
         std::vector<AgentSource> sources = deskhubp::ListDisplays();
@@ -874,7 +967,7 @@ void MainWindow::OnShare() {
             gtk_widget_set_sensitive(shareButton_, TRUE);
 
             if (sources.empty()) {
-                SetHostStatus(IdleHostStatus(), false);
+                ShowIdleHostState();
                 if (!err.empty() && err != "cancelled by the user")
                     ShowError(GTK_WINDOW(window_), "Screen capture is not available", err);
                 return;
@@ -893,7 +986,7 @@ void MainWindow::StartHosting(const std::vector<AgentSource>& sources,
     const AgentOptions& options) {
     hostStarting_ = true;
     gtk_widget_set_sensitive(shareButton_, FALSE);
-    SetHostStatus(ui::kStartingShare, false);
+    ApplyHostState(HostShareState::kStarting, HostPortDetail());
     gtk_list_store_clear(hostStore_);
     hostRows_.clear();
     gtk_widget_hide(hostHintLabel_);
@@ -913,7 +1006,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     gtk_widget_set_sensitive(shareButton_, TRUE);
 
     if (!started) {
-        SetHostStatus(IdleHostStatus(), false);
+        ShowIdleHostState();
         gtk_widget_show(hostHintLabel_);
         ShowError(GTK_WINDOW(window_), "Deskhub",
             std::string(ui::kShareStartFailed) + ".\n\n" + error);
@@ -921,16 +1014,12 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     }
 
     hosting_ = true;
-    gtk_button_set_label(GTK_BUTTON(shareButton_), ui::kStopSharing);
 
     std::string status = ui::SharingStatusLine(options.port);
     if (!options.passcode.empty()) status += " " + ui::PasscodeNote(options.passcode);
     if (!options.allowInput) status += std::string(" ") + ui::kViewOnlyNote;
-    SetHostStatus(status, true);
+    ApplyHostState(HostShareState::kSharing, status);
 
-    gtk_widget_show(stopDisplayButton_);
-    gtk_widget_show(kickViewerButton_);
-    UpdateHostButtons();
     if (hostTimerId_) g_source_remove(hostTimerId_);
     hostTimerId_ = g_timeout_add(deskhubp::kAgentStatusPollMs, OnHostTimer, this);
 }
@@ -943,10 +1032,7 @@ void MainWindow::StopHosting() {
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
-    gtk_button_set_label(GTK_BUTTON(shareButton_), ui::kShareButton);
-    SetHostStatus(IdleHostStatus(), false);
-    gtk_widget_hide(stopDisplayButton_);
-    gtk_widget_hide(kickViewerButton_);
+    ShowIdleHostState();
     gtk_widget_show(hostHintLabel_);
     gtk_list_store_clear(hostStore_);
     hostRows_.clear();
@@ -976,25 +1062,14 @@ void MainWindow::FillHostRow(
     gtk_list_store_set(hostStore_, it, 0, cells.source.c_str(), 1, cells.size.c_str(), 2,
         cells.viewers.c_str(), 3, cells.client.c_str(), 4, cells.capture.c_str(), 5,
         cells.send.c_str(), 6, cells.mbps.c_str(), 7, cells.rtt.c_str(), 8,
-        cells.online ? kOnlineColour : kRowTextColour, -1);
-}
-
-void MainWindow::SelectHostRow(const ui::HostRow& row) {
-    for (size_t i = 0; i < hostRows_.size(); ++i) {
-        if (!(hostRows_[i] == row)) continue;
-        GtkTreePath* path = gtk_tree_path_new_from_indices(gint(i), -1);
-        gtk_tree_selection_select_path(
-            gtk_tree_view_get_selection(GTK_TREE_VIEW(hostView_)), path);
-        gtk_tree_path_free(path);
-        return;
-    }
+        cells.online ? kOnlineColour : kRowTextColour, 9,
+        ref.viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction, 10,
+        ref.viewer ? kWarningColour : kOfflineColour, -1);
 }
 
 void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
     std::vector<ui::HostRow> refs = ui::BuildHostRows(rows);
 
-    ui::HostRow selected;
-    const bool hadSelection = SelectedHostRow(selected);
     const bool reuseRows = refs == hostRows_;
     hostRows_ = std::move(refs);
     if (!reuseRows) gtk_list_store_clear(hostStore_);
@@ -1011,50 +1086,36 @@ void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
         if (source) FillHostRow(&it, hostRows_[i], *source);
         if (reuseRows) haveIter = gtk_tree_model_iter_next(GTK_TREE_MODEL(hostStore_), &it);
     }
-
-    if (!reuseRows && hadSelection) SelectHostRow(selected);
-    UpdateHostButtons();
 }
 
-bool MainWindow::SelectedHostRow(ui::HostRow& out) const {
-    GtkTreeSelection* selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(hostView_));
-    GtkTreeModel* model = nullptr;
-    GtkTreeIter it;
-    if (!gtk_tree_selection_get_selected(selection, &model, &it)) return false;
-
-    GtkTreePath* path = gtk_tree_model_get_path(model, &it);
-    const gint* idx = gtk_tree_path_get_indices(path);
-    const bool ok = idx && idx[0] >= 0 && size_t(idx[0]) < hostRows_.size();
-    if (ok) out = hostRows_[size_t(idx[0])];
-    gtk_tree_path_free(path);
-    return ok;
-}
-
-void MainWindow::UpdateHostButtons() {
-    ui::HostRow row;
-    const bool selected = hosting_ && SelectedHostRow(row);
-    gtk_widget_set_sensitive(stopDisplayButton_, selected && !row.viewer);
-    gtk_widget_set_sensitive(kickViewerButton_, selected && row.viewer);
-}
-
-void MainWindow::OnHostSelectionChanged(GtkTreeSelection*, gpointer user) {
-    static_cast<MainWindow*>(user)->UpdateHostButtons();
-}
-
-void MainWindow::OnStopDisplayClicked(GtkButton*, gpointer user) {
-    auto* self = static_cast<MainWindow*>(user);
-    ui::HostRow row;
-    if (!self->SelectedHostRow(row) || row.viewer) return;
-    self->agentLoop_.StopSource(row.sourceId);
-}
-
-void MainWindow::OnKickViewerClicked(GtkButton*, gpointer user) {
-    auto* self = static_cast<MainWindow*>(user);
-    ui::HostRow row;
-    if (!self->SelectedHostRow(row) || !row.viewer) return;
+void MainWindow::RunRowAction(const ui::HostRow& row) {
+    if (!hosting_) return;
+    if (!row.viewer) {
+        agentLoop_.StopSource(row.sourceId);
+        return;
+    }
     NetAddr addr{};
     if (!ParseNetAddr(row.viewerAddr, addr)) return;
-    self->agentLoop_.KickViewer(row.sourceId, addr.Pack());
+    agentLoop_.KickViewer(row.sourceId, addr.Pack());
+}
+
+gboolean MainWindow::OnHostRowPressed(GtkWidget* view, GdkEventButton* event, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (event->type != GDK_BUTTON_PRESS || event->button != 1) return FALSE;
+    if (event->window != gtk_tree_view_get_bin_window(GTK_TREE_VIEW(view))) return FALSE;
+
+    GtkTreePath* path = nullptr;
+    GtkTreeViewColumn* column = nullptr;
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(view), gint(event->x), gint(event->y), &path,
+            &column, nullptr, nullptr))
+        return FALSE;
+
+    const gint* idx = gtk_tree_path_get_indices(path);
+    const bool onAction = column == self->hostActionColumn_;
+    const bool valid = idx && idx[0] >= 0 && size_t(idx[0]) < self->hostRows_.size();
+    if (onAction && valid) self->RunRowAction(self->hostRows_[size_t(idx[0])]);
+    gtk_tree_path_free(path);
+    return onAction ? TRUE : FALSE;
 }
 
 void MainWindow::OnDestroy(GtkWidget*, gpointer user) {

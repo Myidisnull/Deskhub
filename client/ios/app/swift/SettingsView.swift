@@ -1,0 +1,53 @@
+import SwiftUI
+
+struct SettingsView: View {
+    private static let portSettle = Duration.milliseconds(600)
+
+    @Bindable var settings: SettingsModel
+    let onPortChange: (UInt16) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                deskhubHeading(DeskhubClient.string(DHStrSettingsHeading))
+                deskhubHint(DeskhubClient.string(DHStrSettingsHint))
+
+                deskhubSection("Connection")
+                HStack(spacing: 12) {
+                    Text("UDP port")
+                    Spacer(minLength: 0)
+                    TextField("", value: $settings.port, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 110)
+                }
+                deskhubHint(DeskhubClient.string(DHStrUdpPortLine))
+
+                ProjectFooter()
+            }
+            .padding()
+        }
+        .task(id: settings.port) {
+            try? await Task.sleep(for: SettingsView.portSettle)
+            guard !Task.isCancelled else { return }
+            settings.save()
+            onPortChange(settings.acceptedPort)
+        }
+    }
+}
+
+struct ProjectFooter: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
+                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
+            }
+
+            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
+                .font(.caption)
+                .foregroundStyle(DeskhubPalette.muted)
+        }
+        .padding(.top, 8)
+    }
+}

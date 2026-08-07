@@ -51,7 +51,7 @@ constexpr const char* kRecentDevicesFile = "recent-devices.txt";
 
 constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
-constexpr int kRescanDelayMs = 45'000;
+constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
 
 enum Page { kPageHost = 0,
     kPageClient = 1,
@@ -855,10 +855,8 @@ void MainFrame::RefreshRecentList() {
         list_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastConnectedUnix)));
         ApplyStatusToRow(row, device.addr);
     }
-    listHint_->SetLabel(ToWx(recent_.empty()
-                                 ? std::string(ui::kRecentDevicesEmpty)
-                                 : std::string(ui::kRecentDevicesHint) + " " +
-                                       ui::StatusRecheckNote(deskhubp::kDeviceStatusRoundSecs)));
+    listHint_->SetLabel(
+        ToWx(ui::RecentDevicesNote(recent_.size(), deskhubp::kDeviceStatusRoundSecs)));
 }
 
 const ProbeResult* MainFrame::ProbeFor(const std::string& addr) const {
@@ -1207,12 +1205,8 @@ void MainFrame::OnScanFinished(const deskhubp::ScanProgress& progress) {
     scanned_.erase(std::remove_if(scanned_.begin(), scanned_.end(), gone), scanned_.end());
     RefreshScanList();
 
-    std::string note = ui::ScanRecheckNote(uint32_t(kRescanDelayMs / 1000));
-    if (!scanned_.empty()) note = std::string(ui::kLanDevicesHint) + " " + note;
     scanStatus_->SetLabel(
-        progress.total == 0
-            ? ToWx(ui::kScanNoLocalNetwork)
-            : ToWx(ui::ScanFinishedStatus(scanned_.size(), progress.total) + " " + note));
+        ToWx(ui::LanDevicesNote(scanned_.size(), progress.total, deskhubp::kLanRescanSecs)));
     scanTimer_.StartOnce(kRescanDelayMs);
 }
 

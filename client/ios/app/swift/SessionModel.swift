@@ -5,6 +5,7 @@ import Observation
 final class SessionModel {
     var connect = ConnectModel()
     var discovery = DiscoveryModel()
+    var settings = SettingsModel()
 
     var screen: ClientRoute = .connect
     var sources: [Source] = []

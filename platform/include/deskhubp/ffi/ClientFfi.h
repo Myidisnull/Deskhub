@@ -122,6 +122,12 @@ typedef enum {
     DHStrShareStateOff = 48,
     DHStrStartSharing = 49,
     DHStrStartingShare = 50,
+    DHStrRefreshNow = 51,
+    DHStrStopDisplayAction = 52,
+    DHStrDisconnectViewerAction = 53,
+    DHStrLanDevicesHint = 54,
+    DHStrNotSharing = 55,
+    DHStrLanDevicesEmpty = 56,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

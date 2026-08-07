@@ -10,7 +10,7 @@ công cụ remote desktop thông thường không làm nổi.
 
 | ⚡ Nhanh | 📦 Một file | 🎛️ Đơn giản |
 | ------ | ---------- | --------- |
-| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Ba mục trên Windows — **Host**, **Client**, **Settings**; hai nút ở mọi nền tảng khác. **Share** một màn hình hoặc **Connect** tới một IP, hết. |
+| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng ba mục trên mọi máy tính — **Host**, **Client**, **Settings**; điện thoại và máy tính bảng bỏ **Host** vì chỉ xem được. **Share** một màn hình hoặc **Connect** tới một IP, hết. |
 
 ## 💡 Để làm gì
 

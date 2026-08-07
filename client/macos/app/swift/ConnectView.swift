@@ -18,6 +18,8 @@ enum DeskhubPage: Int, CaseIterable, Identifiable {
 }
 
 struct MainMenuView: View {
+    private static let portSettle = Duration.milliseconds(600)
+
     @Binding var route: ClientRoute
     @Bindable var connect: ConnectModel
     @Bindable var agent: AgentModel
@@ -45,6 +47,11 @@ struct MainMenuView: View {
             agent.refreshPermissions()
             agent.loadAddresses()
             discovery.start()
+        }
+        .task(id: agent.port) {
+            try? await Task.sleep(for: MainMenuView.portSettle)
+            guard !Task.isCancelled, agent.port >= 1, agent.port <= 65535 else { return }
+            discovery.usePort(UInt16(agent.port))
         }
         .alert("Deskhub", isPresented: showingShareAlert) {
             if !agent.hasScreenRecording {
@@ -178,7 +185,9 @@ struct MainMenuView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            deskhubHeading(DeskhubClient.string(DHStrLanDevicesHeading))
+            deskhubHeadingRow(DeskhubClient.string(DHStrLanDevicesHeading)) {
+                discovery.rescanNow()
+            }
             DeviceTable(
                 rows: discovery.scanHits.map {
                     DeviceListRow($0, passcode: DeskhubDiscovery.passcode(for: $0.addr))
@@ -189,12 +198,12 @@ struct MainMenuView: View {
                 onPick: pick
             )
 
-            deskhubHeading(DeskhubClient.string(DHStrRecentDevicesHeading))
+            deskhubHeadingRow(DeskhubClient.string(DHStrRecentDevicesHeading)) {
+                discovery.refreshStatus()
+            }
             DeviceTable(
                 rows: discovery.recent.map { DeviceListRow($0) },
-                note: DeskhubClient.string(
-                    discovery.recent.isEmpty ? DHStrRecentDevicesEmpty : DHStrRecentDevicesHint
-                ),
+                note: discovery.recentNote,
                 withHistory: true,
                 enabled: !connect.isConnecting,
                 onPick: pick

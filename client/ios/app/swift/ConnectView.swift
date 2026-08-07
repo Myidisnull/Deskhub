@@ -3,7 +3,6 @@ import SwiftUI
 struct ConnectView: View {
     @Bindable var model: SessionModel
 
-    @State private var control = dh_client_control()
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""
 
@@ -47,8 +46,11 @@ struct ConnectView: View {
                     }
                 }
 
-                Toggle(DeskhubClient.string(DHStrRequestControlLabel), isOn: $control)
-                    .onChange(of: control) { _, on in dh_set_client_control(on) }
+                Toggle(
+                    DeskhubClient.string(DHStrRequestControlLabel),
+                    isOn: $model.settings.clientControl
+                )
+                .onChange(of: model.settings.clientControl) { _, _ in model.settings.save() }
 
                 if !model.connect.connectError.isEmpty {
                     Text(model.connect.connectError)
@@ -56,7 +58,9 @@ struct ConnectView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                deskhubHeading(DeskhubClient.string(DHStrLanDevicesHeading))
+                deskhubHeadingRow(DeskhubClient.string(DHStrLanDevicesHeading)) {
+                    model.discovery.rescanNow()
+                }
                 DeviceListView(
                     heading: "",
                     note: model.discovery.scanStatus,
@@ -67,19 +71,16 @@ struct ConnectView: View {
                     onPick: pick
                 )
 
-                deskhubHeading(DeskhubClient.string(DHStrRecentDevicesHeading))
+                deskhubHeadingRow(DeskhubClient.string(DHStrRecentDevicesHeading)) {
+                    model.discovery.refreshStatus()
+                }
                 DeviceListView(
                     heading: "",
-                    note: DeskhubClient.string(
-                        model.discovery.recent.isEmpty
-                            ? DHStrRecentDevicesEmpty : DHStrRecentDevicesHint
-                    ),
+                    note: model.discovery.recentNote,
                     rows: model.discovery.recent.map { DeviceListRow($0) },
                     enabled: !model.connect.isConnecting,
                     onPick: pick
                 )
-
-                footer
             }
             .padding()
         }
@@ -92,19 +93,6 @@ struct ConnectView: View {
             )
         }
         .task { model.discovery.start() }
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
-                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
-            }
-
-            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
-                .font(.caption)
-                .foregroundStyle(DeskhubPalette.muted)
-        }
-        .padding(.top, 8)
     }
 
     private func pick(_ row: DeviceListRow) {

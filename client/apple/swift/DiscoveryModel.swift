@@ -20,12 +20,31 @@ struct RecentDevice: Identifiable, Sendable, Hashable {
 nonisolated enum DeskhubDiscovery {
     static var defaultPort: UInt16 { dh_default_port() }
 
+    static var rescanSeconds: Int { Int(dh_scan_rescan_secs()) }
+
+    static var configuredPort: UInt16 {
+        let stored = dh_settings_load().port
+        return stored >= 1 && stored <= 65535 ? UInt16(stored) : defaultPort
+    }
+
     static func startScan(port: UInt16) {
         _ = dh_scan_start(port)
     }
 
+    static func restartScan(port: UInt16) {
+        _ = dh_scan_restart(port)
+    }
+
     static func cancelScan() {
         dh_scan_cancel()
+    }
+
+    static func refreshStatus() {
+        dh_status_refresh_now()
+    }
+
+    static func recentNote() -> String {
+        DeskhubClient.buffered(256) { dh_recent_note($0, $1) }
     }
 
     static var isScanning: Bool { dh_scan_state().running }
@@ -85,30 +104,47 @@ nonisolated enum DeskhubDiscovery {
 @MainActor @Observable
 final class DiscoveryModel {
     private static let pollInterval = Duration.seconds(1)
-    private static let rescanTicks = 45
+    private static let rescanTicks = DeskhubDiscovery.rescanSeconds
 
     var scanHits: [ScanHit] = []
     var recent: [RecentDevice] = []
     var scanStatus = ""
+    var recentNote = DeskhubDiscovery.recentNote()
 
     private var pump: Task<Void, Never>?
-    private let port = DeskhubDiscovery.defaultPort
+    private var port = DeskhubDiscovery.configuredPort
+
+    func usePort(_ value: UInt16) {
+        guard value != port else { return }
+        port = value
+        rescanNow()
+    }
+
+    func rescanNow() {
+        scanStatus = DeskhubClient.string(DHStrLanDevicesEmpty)
+        Task.detached { [port] in DeskhubDiscovery.restartScan(port: port) }
+    }
+
+    func refreshStatus() {
+        Task.detached { DeskhubDiscovery.refreshStatus() }
+    }
 
     func start() {
         guard pump == nil else { return }
-        pump = Task { [port] in
-            await Task.detached {
+        pump = Task {
+            await Task.detached { [port] in
                 DeskhubDiscovery.watchRecent()
                 DeskhubDiscovery.startScan(port: port)
             }.value
 
             var idleTicks = 0
             while !Task.isCancelled {
-                let snapshot = await Task.detached {
+                let snapshot = await Task.detached { [port] in
                     (
                         hits: DeskhubDiscovery.scanHits(),
                         recent: DeskhubDiscovery.recentDevices(),
                         status: DeskhubDiscovery.scanStatus(port: port),
+                        note: DeskhubDiscovery.recentNote(),
                         scanning: DeskhubDiscovery.isScanning
                     )
                 }.value
@@ -116,6 +152,7 @@ final class DiscoveryModel {
                 scanHits = snapshot.hits
                 recent = snapshot.recent
                 scanStatus = snapshot.status
+                recentNote = snapshot.note
 
                 if snapshot.scanning {
                     idleTicks = 0
@@ -123,7 +160,9 @@ final class DiscoveryModel {
                     idleTicks += 1
                     if idleTicks >= DiscoveryModel.rescanTicks {
                         idleTicks = 0
-                        await Task.detached { DeskhubDiscovery.startScan(port: port) }.value
+                        await Task.detached { [port] in
+                            DeskhubDiscovery.startScan(port: port)
+                        }.value
                     }
                 }
 
@@ -141,6 +180,10 @@ final class DiscoveryModel {
     func remember(address: String, passcode: String) async {
         await Task.detached { DeskhubDiscovery.remember(address: address, passcode: passcode) }
             .value
-        recent = await Task.detached { DeskhubDiscovery.recentDevices() }.value
+        let snapshot = await Task.detached {
+            (rows: DeskhubDiscovery.recentDevices(), note: DeskhubDiscovery.recentNote())
+        }.value
+        recent = snapshot.rows
+        recentNote = snapshot.note
     }
 }

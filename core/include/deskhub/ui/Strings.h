@@ -197,6 +197,18 @@ inline std::string ScanFinishedStatus(size_t found, size_t total) {
            std::to_string(total) + " addresses.";
 }
 
+inline std::string LanDevicesNote(size_t found, size_t total, uint32_t rescanSecs) {
+    if (total == 0) return kScanNoLocalNetwork;
+    std::string note = ScanRecheckNote(rescanSecs);
+    if (found > 0) note = std::string(kLanDevicesHint) + " " + note;
+    return ScanFinishedStatus(found, total) + " " + note;
+}
+
+inline std::string RecentDevicesNote(size_t deviceCount, uint32_t recheckSecs) {
+    if (deviceCount == 0) return kRecentDevicesEmpty;
+    return std::string(kRecentDevicesHint) + " " + StatusRecheckNote(recheckSecs);
+}
+
 inline std::string InvalidAddressHint() {
     const std::string port = std::to_string(kDeskhubPort);
     return "Enter the host's IP address, with an optional port (e.g., 192.168.1.10 or "

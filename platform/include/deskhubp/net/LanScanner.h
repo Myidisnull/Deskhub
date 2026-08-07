@@ -9,6 +9,8 @@
 
 namespace deskhubp {
 
+inline constexpr uint32_t kLanRescanSecs = 45;
+
 struct ScanHit {
     std::string addr;
     uint32_t rttMs = 0;

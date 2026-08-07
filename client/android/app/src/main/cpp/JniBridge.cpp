@@ -220,6 +220,30 @@ Java_com_deskhub_app_NativeClient_nativeScanStart(JNIEnv*, jobject, jint port) {
     return dh_scan_start(uint16_t(port)) ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeScanRestart(JNIEnv*, jobject, jint port) {
+    return dh_scan_restart(uint16_t(port)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeRescanSeconds(JNIEnv*, jobject) {
+    return jint(dh_scan_rescan_secs());
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeSettingsPort(JNIEnv*, jobject) {
+    const DHUiSettings stored = dh_settings_load();
+    const bool usable = stored.port >= 1 && stored.port <= 65535;
+    return jint(usable ? stored.port : dh_default_port());
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetSettingsPort(JNIEnv*, jobject, jint port) {
+    const DHUiSettings stored = dh_settings_load();
+    dh_settings_save(stored.fps, stored.bitrateMbps, stored.maxDim, uint32_t(port),
+        stored.allowInput, stored.clientControl, stored.passcode);
+}
+
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeScanCancel(JNIEnv*, jobject) {
     dh_scan_cancel();
@@ -317,6 +341,18 @@ Java_com_deskhub_app_NativeClient_nativeRecentTouch(JNIEnv* env, jobject, jstrin
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeWatchRecent(JNIEnv*, jobject) {
     dh_status_watch_recent();
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeStatusRefreshNow(JNIEnv*, jobject) {
+    dh_status_refresh_now();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentNote(JNIEnv* env, jobject) {
+    char buf[256];
+    dh_recent_note(buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
 }
 
 JNIEXPORT jstring JNICALL

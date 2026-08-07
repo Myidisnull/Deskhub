@@ -50,6 +50,10 @@ Một máy có thể vừa là host vừa là client cùng lúc.
 
 Mọi nền tảng đều có cùng bộ tính năng phía client, trừ những khác biệt nêu ở mục 12.
 
+Ứng dụng được chia thành các mục cùng tên trên mọi nền tảng: **Host**, **Client** và
+**Settings** trên những nền tảng chia sẻ được, còn **Client** và **Settings** trên những
+nền tảng chỉ xem được.
+
 ---
 
 ## 4. Host — chia sẻ màn hình máy này
@@ -132,7 +136,8 @@ Mọi nền tảng đều có cùng bộ tính năng phía client, trừ những
 ## 10. Cài đặt
 
 Cài đặt thuộc về từng máy, được lưu lại qua các lần khởi động, và có hiệu lực từ lần bắt
-đầu chia sẻ kế tiếp.
+đầu chia sẻ kế tiếp. Những nền tảng không chia sẻ được chỉ hiện các cài đặt ảnh hưởng tới
+việc xem — trên thực tế là cổng mạng (T-4), cũng chính là cổng mà việc quét mạng gõ vào.
 
 | ID | Cài đặt | Khoảng giá trị | Mặc định |
 | --- | --- | --- | --- |
@@ -161,10 +166,10 @@ Cài đặt thuộc về từng máy, được lưu lại qua các lần khởi 
 
 | ID | Nền tảng | Hành vi |
 | --- | --- | --- |
-| P-1 | Windows | Ba mục — **Host**, **Client**, **Settings**. Ứng dụng xin quyền quản trị một lần lúc khởi động, đây là điều kiện để gõ được vào các cửa sổ chạy với quyền cao. Khi bắt đầu chia sẻ, ứng dụng tự thêm luật tường lửa của mình. |
+| P-1 | Windows | Ứng dụng xin quyền quản trị một lần lúc khởi động, đây là điều kiện để gõ được vào các cửa sổ chạy với quyền cao. Khi bắt đầu chia sẻ, ứng dụng tự thêm luật tường lửa của mình. |
 | P-2 | macOS | Hiển thị mục **Permissions** với trạng thái cấp quyền theo thời gian thực của *Screen Recording* (cần để chia sẻ) và *Accessibility* (cần để nhận thao tác từ xa), nút xin từng quyền, và lối tắt mở System Settings. Một số phím bị macOS chặn âm thầm nếu chưa cấp Accessibility. |
 | P-3 | Linux | Màn hình được chọn trong hộp thoại chia sẻ màn hình của chính môi trường desktop sau khi bấm Share, chứ không chọn trong ứng dụng. Việc chia sẻ còn cần hệ thống cho phép mô phỏng thao tác nhập liệu. |
-| P-4 | Android / iOS | Chỉ xem và điều khiển — các thiết bị này không chia sẻ được màn hình của chính nó. Giao diện phiên ưu tiên cảm ứng: cử chỉ trackpad, nút phóng to, thanh phím tắt, bàn phím ảo, nút đổi màn hình và **End**. |
+| P-4 | Android / iOS | Chỉ xem và điều khiển — các thiết bị này không chia sẻ được màn hình của chính nó, nên chỉ hiện **Client** và **Settings**, không có **Host**. Giao diện phiên ưu tiên cảm ứng: cử chỉ trackpad, nút phóng to, thanh phím tắt, bàn phím ảo, nút đổi màn hình và **End**. |
 
 ## 13. Nằm ngoài phạm vi
 

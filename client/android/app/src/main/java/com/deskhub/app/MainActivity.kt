@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
@@ -104,7 +106,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val POLL_INTERVAL_MS = 1000L
-private const val RESCAN_TICKS = 45
+private const val PORT_SETTLE_MS = 600L
 
 private val HeadingColor = Color(0xFF111827)
 private val MutedColor = Color(0xFF6B7280)
@@ -119,6 +121,28 @@ private fun Heading(text: String) {
         fontWeight = FontWeight.Bold,
         color = HeadingColor,
     )
+}
+
+@Composable
+private fun HeadingRow(
+    text: String,
+    onRefresh: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Heading(text)
+        TextButton(onClick = onRefresh) {
+            Text(NativeClient.string(NativeClient.STR_REFRESH_NOW))
+        }
+    }
+}
+
+private enum class Section {
+    CLIENT,
+    SETTINGS,
 }
 
 private sealed interface Step {
@@ -148,9 +172,12 @@ private fun MainScreen(
     var scanHits by remember { mutableStateOf(emptyList<NativeClient.ScanHit>()) }
     var recentDevices by remember { mutableStateOf(emptyList<NativeClient.RecentDevice>()) }
     var scanStatus by remember { mutableStateOf("") }
+    var recentNote by remember { mutableStateOf("") }
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
+    var section by remember { mutableStateOf(Section.CLIENT) }
+    var port by remember { mutableStateOf(NativeClient.settingsPort()) }
     val scope = rememberCoroutineScope()
-    val port = remember { NativeClient.defaultPort() }
+    val rescanTicks = remember { NativeClient.rescanSeconds() }
 
     BackHandler(enabled = step != Step.Address) { step = Step.Address }
 
@@ -158,19 +185,20 @@ private fun MainScreen(
         onDispose { NativeClient.scanCancel() }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(port) {
         NativeClient.watchRecent()
-        NativeClient.scanStart(port)
+        NativeClient.scanRestart(port)
         var idleTicks = 0
         while (true) {
             scanHits = NativeClient.scanHits()
             recentDevices = NativeClient.recentDevices()
             scanStatus = NativeClient.scanStatusText(port)
+            recentNote = NativeClient.recentNote()
             if (NativeClient.scanRunning()) {
                 idleTicks = 0
             } else {
                 idleTicks++
-                if (idleTicks >= RESCAN_TICKS) {
+                if (idleTicks >= rescanTicks) {
                     idleTicks = 0
                     NativeClient.scanStart(port)
                 }
@@ -219,34 +247,29 @@ private fun MainScreen(
     }
 
     when (val s = step) {
-        is Step.Address ->
-            AddressScreen(
+        is Step.Address, is Step.Querying ->
+            HomeScreen(
+                section = section,
+                onSectionChange = { section = it },
                 address = address,
                 onAddressChange = { address = it },
                 passcode = passcode,
                 onPasscodeChange = { passcode = it },
-                busy = false,
+                busy = step is Step.Querying,
                 error = connectError,
                 onConnect = connect,
                 scanHits = scanHits,
                 recentDevices = recentDevices,
                 scanStatus = scanStatus,
+                recentNote = recentNote,
                 onPickDevice = pickDevice,
-            )
-
-        is Step.Querying ->
-            AddressScreen(
-                address = address,
-                onAddressChange = {},
-                passcode = passcode,
-                onPasscodeChange = {},
-                busy = true,
-                error = "",
-                onConnect = {},
-                scanHits = scanHits,
-                recentDevices = recentDevices,
-                scanStatus = scanStatus,
-                onPickDevice = { _, _ -> },
+                onRescan = { scope.launch { NativeClient.scanRestart(port) } },
+                onRefreshStatus = { scope.launch { NativeClient.statusRefreshNow() } },
+                port = port,
+                onPortChange = { chosen ->
+                    NativeClient.setSettingsPort(chosen)
+                    port = chosen
+                },
             )
 
         is Step.Picking ->
@@ -323,6 +346,110 @@ private fun PasscodeDialog(
 }
 
 @Composable
+private fun HomeScreen(
+    section: Section,
+    onSectionChange: (Section) -> Unit,
+    address: String,
+    onAddressChange: (String) -> Unit,
+    passcode: String,
+    onPasscodeChange: (String) -> Unit,
+    busy: Boolean,
+    error: String,
+    onConnect: (String) -> Unit,
+    scanHits: List<NativeClient.ScanHit>,
+    recentDevices: List<NativeClient.RecentDevice>,
+    scanStatus: String,
+    recentNote: String,
+    onPickDevice: (String, String) -> Unit,
+    onRescan: () -> Unit,
+    onRefreshStatus: () -> Unit,
+    port: Int,
+    onPortChange: (Int) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = section.ordinal) {
+            Tab(
+                selected = section == Section.CLIENT,
+                onClick = { onSectionChange(Section.CLIENT) },
+                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_CLIENT)) },
+            )
+            Tab(
+                selected = section == Section.SETTINGS,
+                onClick = { onSectionChange(Section.SETTINGS) },
+                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_SETTINGS)) },
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            when (section) {
+                Section.CLIENT ->
+                    AddressScreen(
+                        address = address,
+                        onAddressChange = onAddressChange,
+                        passcode = passcode,
+                        onPasscodeChange = onPasscodeChange,
+                        busy = busy,
+                        error = error,
+                        onConnect = onConnect,
+                        scanHits = scanHits,
+                        recentDevices = recentDevices,
+                        scanStatus = scanStatus,
+                        recentNote = recentNote,
+                        onPickDevice = onPickDevice,
+                        onRescan = onRescan,
+                        onRefreshStatus = onRefreshStatus,
+                    )
+
+                Section.SETTINGS -> SettingsScreen(port = port, onPortChange = onPortChange)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    port: Int,
+    onPortChange: (Int) -> Unit,
+) {
+    var typed by remember(port) { mutableStateOf(port.toString()) }
+
+    LaunchedEffect(typed) {
+        val chosen = typed.toIntOrNull()
+        if (chosen == null || chosen !in 1..65535 || chosen == port) return@LaunchedEffect
+        delay(PORT_SETTLE_MS)
+        onPortChange(chosen)
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Heading(NativeClient.string(NativeClient.STR_SETTINGS_HEADING))
+        Text(
+            NativeClient.string(NativeClient.STR_SETTINGS_HINT),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MutedColor,
+        )
+
+        OutlinedTextField(
+            value = typed,
+            onValueChange = { entered -> typed = entered.filter { it.isDigit() }.take(5) },
+            label = { Text("UDP port") },
+            supportingText = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LINE)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+
+        ProjectFooter()
+    }
+}
+
+@Composable
 private fun AddressScreen(
     address: String,
     onAddressChange: (String) -> Unit,
@@ -334,7 +461,10 @@ private fun AddressScreen(
     scanHits: List<NativeClient.ScanHit>,
     recentDevices: List<NativeClient.RecentDevice>,
     scanStatus: String,
+    recentNote: String,
     onPickDevice: (String, String) -> Unit,
+    onRescan: () -> Unit,
+    onRefreshStatus: () -> Unit,
 ) {
     val trimmed = address.trim()
     val ready = trimmed.isNotEmpty() && NativeClient.isValidPasscode(passcode.trim()) && !busy
@@ -417,24 +547,19 @@ private fun AddressScreen(
             note = scanStatus,
             rows = scanHits.map { DeviceRow(it.addr, it.ping, "", null) },
             enabled = !busy,
+            onRefresh = onRescan,
             onPick = { addr -> onPickDevice(addr, NativeClient.recentPasscode(addr)) },
         )
 
         DeviceSection(
             heading = NativeClient.string(NativeClient.STR_RECENT_DEVICES_HEADING),
-            note =
-                NativeClient.string(
-                    if (recentDevices.isEmpty()) {
-                        NativeClient.STR_RECENT_DEVICES_EMPTY
-                    } else {
-                        NativeClient.STR_RECENT_DEVICES_HINT
-                    },
-                ),
+            note = recentNote,
             rows =
                 recentDevices.map {
                     DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
                 },
             enabled = !busy,
+            onRefresh = onRefreshStatus,
             onPick = { addr ->
                 val known = recentDevices.firstOrNull { it.addr == addr }?.passcode
                 onPickDevice(addr, known ?: NativeClient.recentPasscode(addr))
@@ -444,8 +569,6 @@ private fun AddressScreen(
         if (error.isNotEmpty()) {
             Text(error, color = MaterialTheme.colorScheme.error)
         }
-
-        ProjectFooter()
     }
 }
 
@@ -485,10 +608,11 @@ private fun DeviceSection(
     note: String,
     rows: List<DeviceRow>,
     enabled: Boolean,
+    onRefresh: () -> Unit,
     onPick: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Heading(heading)
+        HeadingRow(heading, onRefresh)
 
         for (row in rows) {
             val tint =

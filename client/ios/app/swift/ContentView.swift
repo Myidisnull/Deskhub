@@ -7,7 +7,7 @@ struct ContentView: View {
         Group {
             switch model.screen {
             case .connect:
-                ConnectView(model: model)
+                HomeView(model: model)
             case let .sourcePicker(sources):
                 SourcePickerView(model: model, sources: sources)
             case .stream:

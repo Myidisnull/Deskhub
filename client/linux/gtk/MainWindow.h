@@ -2,6 +2,7 @@
 #include <gtk/gtk.h>
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -28,6 +29,10 @@ private:
         kPageSettings = 2,
         kPageCount = 3 };
 
+    enum class HostShareState { kIdle,
+        kStarting,
+        kSharing };
+
     MainWindow() = default;
     ~MainWindow() = default;
     MainWindow(const MainWindow&) = delete;
@@ -45,6 +50,7 @@ private:
     void SaveRecentDevices();
 
     void StartScan();
+    void RescanNow();
     void ScheduleRescan();
     void OnScanHit(const deskhubp::ScanHit& hit);
     void OnScanProgress(const deskhubp::ScanProgress& progress);
@@ -53,7 +59,10 @@ private:
 
     void StartPoller();
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
+    void RecordProbe(const std::string& addr, bool online, uint32_t rttMs);
+    const deskhubp::DeviceStatus* ProbeFor(const std::string& addr) const;
     void RefreshRecentList();
+    void RefreshDeviceStatus();
 
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartConnect(const std::string& addr, const std::string& passcode);
@@ -68,11 +77,10 @@ private:
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     void FillHostRow(GtkTreeIter* it, const deskhub::ui::HostRow& ref,
         const AgentSourceStatus& status);
-    void SelectHostRow(const deskhub::ui::HostRow& row);
-    void UpdateHostButtons();
-    bool SelectedHostRow(deskhub::ui::HostRow& out) const;
-    std::string IdleHostStatus() const;
-    void SetHostStatus(const std::string& text, bool online);
+    void RunRowAction(const deskhub::ui::HostRow& row);
+    std::string HostPortDetail() const;
+    void ApplyHostState(HostShareState state, const std::string& detail);
+    void ShowIdleHostState();
 
     void HideForSession();
     void ShowAfterSession();
@@ -83,13 +91,13 @@ private:
 
     static void OnNavClicked(GtkButton* b, gpointer user);
     static void OnShareClicked(GtkButton* b, gpointer user);
-    static void OnStopDisplayClicked(GtkButton* b, gpointer user);
-    static void OnKickViewerClicked(GtkButton* b, gpointer user);
+    static gboolean OnHostRowPressed(GtkWidget* view, GdkEventButton* event, gpointer user);
     static void OnConnectClicked(GtkButton* b, gpointer user);
     static void OnAddressActivate(GtkEntry* e, gpointer user);
     static void OnCopyClicked(GtkButton* b, gpointer user);
     static void OnSettingChanged(GtkWidget* w, gpointer user);
-    static void OnHostSelectionChanged(GtkTreeSelection* selection, gpointer user);
+    static void OnRescanClicked(GtkButton* b, gpointer user);
+    static void OnRefreshStatusClicked(GtkButton* b, gpointer user);
     static void OnScanRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
         gpointer user);
     static void OnRecentRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
@@ -102,12 +110,13 @@ private:
     GtkWidget* stack_ = nullptr;
     GtkWidget* navButtons_[kPageCount] = {};
 
+    GtkWidget* hostBanner_ = nullptr;
+    GtkWidget* hostStateLabel_ = nullptr;
     GtkWidget* hostStatusLabel_ = nullptr;
     GtkWidget* hostHintLabel_ = nullptr;
     GtkWidget* hostView_ = nullptr;
+    GtkTreeViewColumn* hostActionColumn_ = nullptr;
     GtkListStore* hostStore_ = nullptr;
-    GtkWidget* stopDisplayButton_ = nullptr;
-    GtkWidget* kickViewerButton_ = nullptr;
     GtkWidget* shareButton_ = nullptr;
 
     GtkWidget* addressEntry_ = nullptr;
@@ -130,7 +139,7 @@ private:
     std::vector<deskhub::ui::RecentDevice> recent_;
     std::vector<deskhubp::ScanHit> scanned_;
     std::vector<std::string> scannedThisRound_;
-    std::map<std::string, deskhubp::DeviceStatus> statusByAddr_;
+    std::map<uint64_t, deskhubp::DeviceStatus> probes_;
     std::vector<deskhub::ui::HostRow> hostRows_;
 
     deskhubp::LanScanner scanner_;

@@ -143,6 +143,28 @@ void TestRecheckNotesQuoteTheRealInterval() {
         "no vague wording survives where a number is available");
 }
 
+void TestDeviceListNotesReadTheSameOnEveryClient() {
+    std::printf("[strings] the two device lists explain themselves the same way everywhere...\n");
+    Check(ui::LanDevicesNote(0, 0, 45) == ui::kScanNoLocalNetwork,
+        "a machine with no local network says so instead of reporting 0 of 0");
+
+    const std::string empty = ui::LanDevicesNote(0, 253, 45);
+    Check(Contains(empty, "0 devices") && Contains(empty, "45"),
+        "an empty sweep still says how much was checked and when it retries");
+    Check(!Contains(empty, ui::kLanDevicesHint),
+        "there is nothing to click, so no click hint is offered");
+
+    const std::string found = ui::LanDevicesNote(2, 253, 45);
+    Check(Contains(found, ui::kLanDevicesHint) && Contains(found, "45"),
+        "once devices are listed the user is told to click one, and when the list refreshes");
+
+    Check(ui::RecentDevicesNote(0, 30) == ui::kRecentDevicesEmpty,
+        "an empty history explains what will fill it");
+    const std::string recent = ui::RecentDevicesNote(3, 30);
+    Check(Contains(recent, ui::kRecentDevicesHint) && Contains(recent, "30"),
+        "a populated history says it is clickable and how often status is rechecked");
+}
+
 void TestClampWarningQuotesTheProtocolLimit() {
     std::printf("[strings] the too-many-displays warning quotes the real limit...\n");
     Check(Contains(ui::ShareClampWarning(), std::to_string(kMaxSources)),
@@ -163,5 +185,6 @@ void RunStringsTests() {
     TestTheAboutLineNamesTheBuild();
     TestScanStatusCountsWhatWasChecked();
     TestRecheckNotesQuoteTheRealInterval();
+    TestDeviceListNotesReadTheSameOnEveryClient();
     TestClampWarningQuotesTheProtocolLimit();
 }

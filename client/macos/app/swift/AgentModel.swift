@@ -31,7 +31,6 @@ final class AgentModel {
     var startError = ""
     var clampWarning = ""
     var rows: [HostRow] = []
-    var selectedRow: HostRow.ID?
     var shareSources: [ShareSource] = []
     var tickedSources: Set<UInt32> = []
 
@@ -101,28 +100,13 @@ final class AgentModel {
         shareSources.filter { tickedSources.contains($0.id) }
     }
 
-    var selectedHostRow: HostRow? {
-        rows.first { $0.id == selectedRow }
-    }
-
-    var canStopDisplay: Bool {
-        guard isSharing, let row = selectedHostRow else { return false }
-        return !row.viewer
-    }
-
-    var canKickViewer: Bool {
-        guard isSharing, let row = selectedHostRow else { return false }
-        return row.viewer
-    }
-
-    func stopSelectedDisplay() {
-        guard let row = selectedHostRow, !row.viewer else { return }
-        DeskhubAgent.stopSource(row.sourceId)
-    }
-
-    func kickSelectedViewer() {
-        guard let row = selectedHostRow, row.viewer else { return }
-        DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
+    func runRowAction(_ row: HostRow) {
+        guard isSharing else { return }
+        if row.viewer {
+            DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
+        } else {
+            DeskhubAgent.stopSource(row.sourceId)
+        }
     }
 
     func startSharing() async -> Bool {
@@ -180,7 +164,6 @@ final class AgentModel {
         DeskhubAgent.stop()
         isSharing = false
         rows = []
-        selectedRow = nil
         Task { await refreshShareSources() }
     }
 
@@ -199,7 +182,6 @@ final class AgentModel {
 
     private func poll() {
         rows = DeskhubAgent.hostRows()
-        if rows.first(where: { $0.id == selectedRow }) == nil { selectedRow = nil }
         if !DeskhubAgent.isRunning {
             stopSharing()
         }

@@ -91,7 +91,7 @@ void TestViewerRowOnlyNamesTheClient() {
     Check(cells.source == ui::kViewerRowLabel, "the first column marks it as a viewer");
     Check(cells.client == "192.168.1.7:47777", "the client column holds the viewer address");
     Check(cells.size.empty() && cells.viewers.empty() && cells.capture.empty() &&
-            cells.send.empty() && cells.mbps.empty() && cells.rtt.empty(),
+              cells.send.empty() && cells.mbps.empty() && cells.rtt.empty(),
         "the display's own numbers are not repeated on the viewer row");
     Check(cells.online, "a connected viewer reads as online");
 }

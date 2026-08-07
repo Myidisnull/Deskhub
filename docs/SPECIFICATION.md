@@ -46,6 +46,10 @@ A single machine can be host and client at the same time.
 
 Every platform offers the same client feature set unless stated otherwise in section 12.
 
+The app is organised into the same named sections everywhere: **Host**, **Client** and
+**Settings** on the platforms that can host, and **Client** and **Settings** on those
+that can only view.
+
 ---
 
 ## 4. Hosting — sharing this machine's screen
@@ -128,7 +132,9 @@ Every platform offers the same client feature set unless stated otherwise in sec
 ## 10. Settings
 
 Settings are per machine, persist across restarts, and apply the next time sharing
-starts.
+starts. Platforms that cannot host show only the settings that affect viewing — in
+practice the network port (T-4), which also decides which port the network scan knocks
+on.
 
 | ID | Setting | Range | Default |
 | --- | --- | --- | --- |
@@ -157,10 +163,10 @@ starts.
 
 | ID | Platform | Behaviour |
 | --- | --- | --- |
-| P-1 | Windows | Three sections — **Host**, **Client**, **Settings**. The app asks for administrator rights once at start, which is what allows it to type into elevated windows. It adds its own firewall rule when sharing begins. |
+| P-1 | Windows | The app asks for administrator rights once at start, which is what allows it to type into elevated windows. It adds its own firewall rule when sharing begins. |
 | P-2 | macOS | Shows a **Permissions** panel with the live grant state of *Screen Recording* (needed to share) and *Accessibility* (needed to accept remote input), a button to request each, and a shortcut into System Settings. Some keystrokes are silently blocked by macOS unless Accessibility is granted. |
 | P-3 | Linux | Displays are chosen in the desktop's own screen-sharing dialog after pressing Share, rather than in the app. Sharing additionally requires the system to permit input injection. |
-| P-4 | Android / iOS | View and control only — these devices cannot share their own screen. The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
+| P-4 | Android / iOS | View and control only — these devices cannot share their own screen, so they show **Client** and **Settings** but no **Host**. The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
 
 ## 13. Explicitly out of scope
 

@@ -16,3 +16,11 @@ func deskhubSection(_ text: String) -> some View {
 func deskhubHint(_ text: String) -> some View {
     Text(text).foregroundStyle(DeskhubPalette.muted)
 }
+
+func deskhubHeadingRow(_ text: String, onRefresh: @escaping () -> Void) -> some View {
+    HStack(spacing: 8) {
+        deskhubHeading(text)
+        Spacer(minLength: 0)
+        Button(DeskhubClient.string(DHStrRefreshNow), action: onRefresh)
+    }
+}

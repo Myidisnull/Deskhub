@@ -10,7 +10,7 @@ pull off.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
-| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | Three tabs on Windows — **Host**, **Client**, **Settings**; two buttons everywhere else. **Share** a display or **Connect** to an IP, and that's it. |
+| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | The same three sections on every desktop — **Host**, **Client**, **Settings**; phones and tablets drop **Host**, since they can only watch. **Share** a display or **Connect** to an IP, and that's it. |
 
 ## 💡 Why
 

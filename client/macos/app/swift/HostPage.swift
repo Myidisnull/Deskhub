@@ -14,20 +14,8 @@ struct HostPage: View {
             HostStatusBanner(state: shareState, detail: agent.statusLine)
 
             if agent.isSharing {
-                HostSourceTable(rows: agent.rows, selection: $agent.selectedRow)
+                HostSourceTable(rows: agent.rows) { agent.runRowAction($0) }
                     .frame(minHeight: 170)
-
-                HStack(spacing: 10) {
-                    Button(DeskhubClient.string(DHStrStopSelectedDisplay)) {
-                        agent.stopSelectedDisplay()
-                    }
-                    .disabled(!agent.canStopDisplay)
-
-                    Button(DeskhubClient.string(DHStrDisconnectSelectedViewer)) {
-                        agent.kickSelectedViewer()
-                    }
-                    .disabled(!agent.canKickViewer)
-                }
             } else {
                 SharePickerTable(sources: agent.shareSources, ticked: $agent.tickedSources)
                     .frame(minHeight: 170)
@@ -123,10 +111,10 @@ struct HostStatusBanner: View {
 
 struct HostSourceTable: View {
     let rows: [HostRow]
-    @Binding var selection: HostRow.ID?
+    let onAction: (HostRow) -> Void
 
     var body: some View {
-        Table(rows, selection: $selection) {
+        Table(rows) {
             TableColumn("Source") { cell($0, $0.source) }.width(140)
             TableColumn("Size") { cell($0, $0.size) }.width(80)
             TableColumn("Viewers") { cell($0, $0.viewers) }.width(58)
@@ -135,11 +123,25 @@ struct HostSourceTable: View {
             TableColumn("Send") { cell($0, $0.send) }.width(50)
             TableColumn("Mbps") { cell($0, $0.mbps) }.width(55)
             TableColumn("RTT") { cell($0, $0.rtt) }.width(55)
+            TableColumn("") { action($0) }.width(104)
         }
     }
 
     private func cell(_ row: HostRow, _ text: String) -> some View {
         Text(text).foregroundStyle(row.online ? DeskhubPalette.online : DeskhubPalette.heading)
+    }
+
+    private func action(_ row: HostRow) -> some View {
+        Button(
+            DeskhubClient.string(
+                row.viewer ? DHStrDisconnectViewerAction : DHStrStopDisplayAction
+            )
+        ) {
+            onAction(row)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .tint(row.viewer ? DeskhubPalette.warning : DeskhubPalette.offline)
     }
 }
 

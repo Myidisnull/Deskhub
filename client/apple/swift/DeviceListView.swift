@@ -48,6 +48,10 @@ enum DeskhubPalette {
         light: PaletteRgb(red: 0.784, green: 0.157, blue: 0.157),
         dark: PaletteRgb(red: 0.973, green: 0.443, blue: 0.443)
     )
+    static let warning = adaptiveColor(
+        light: PaletteRgb(red: 0.792, green: 0.424, blue: 0.031),
+        dark: PaletteRgb(red: 0.984, green: 0.749, blue: 0.141)
+    )
 }
 
 enum DeviceRowStyle {

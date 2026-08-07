@@ -1,6 +1,8 @@
 #include "deskhubp/ffi/DiscoveryFfi.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <ctime>
 #include <cstring>
 #include <functional>
@@ -8,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "deskhub/protocol/Wire.h"
@@ -26,8 +29,11 @@ namespace {
 namespace ui = deskhub::ui;
 
 constexpr const char* kRecentDevicesFile = "recent-devices.txt";
+constexpr auto kScanSettleStep = std::chrono::milliseconds(20);
 
 std::mutex g_mutex;
+std::atomic<bool> g_restartPending{false};
+std::atomic<uint32_t> g_scanEpoch{0};
 
 deskhubp::LanScanner& Scanner() {
     static deskhubp::LanScanner scanner;
@@ -176,10 +182,36 @@ bool dh_scan_start(uint16_t port) {
     return started;
 }
 
+bool dh_scan_restart(uint16_t port) {
+    dh_scan_cancel();
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_hits.clear();
+        g_hitsThisRound.clear();
+        g_progress = deskhubp::ScanProgress{};
+        g_scanFinished = false;
+    }
+
+    if (!Scanner().Busy()) return dh_scan_start(port);
+    if (g_restartPending.exchange(true)) return false;
+
+    std::thread([port, epoch = g_scanEpoch.load()] {
+        while (Scanner().Busy()) std::this_thread::sleep_for(kScanSettleStep);
+        g_restartPending.store(false);
+        if (g_scanEpoch.load() == epoch) dh_scan_start(port);
+    }).detach();
+    return true;
+}
+
 void dh_scan_cancel(void) {
     Scanner().Cancel();
+    g_scanEpoch.fetch_add(1);
     std::lock_guard<std::mutex> lk(g_mutex);
     g_scanning = false;
+}
+
+uint32_t dh_scan_rescan_secs(void) {
+    return deskhubp::kLanRescanSecs;
 }
 
 DHScanState dh_scan_state(void) {
@@ -240,6 +272,14 @@ void dh_status_stop(void) {
     g_poller.Stop();
     std::lock_guard<std::mutex> lk(g_mutex);
     g_pollerStarted = false;
+}
+
+void dh_status_refresh_now(void) {
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        g_status.clear();
+    }
+    g_poller.RefreshNow();
 }
 
 DHUiSettings dh_settings_load(void) {
@@ -351,11 +391,13 @@ int dh_scan_status_text(uint16_t port, char* out, int capacity) {
         return FillText(out, capacity, busy);
     }
     if (!g_scanFinished) return FillText(out, capacity, ui::kLanDevicesEmpty);
-    if (g_progress.total == 0) return FillText(out, capacity, ui::kScanNoLocalNetwork);
+    return FillText(out, capacity,
+        ui::LanDevicesNote(g_hits.size(), g_progress.total, deskhubp::kLanRescanSecs));
+}
 
-    const char* const note = g_hits.empty() ? ui::kScanRescanNote : ui::kLanDevicesHint;
-    const std::string done =
-        ui::ScanFinishedStatus(g_hits.size(), g_progress.total) + " " + note;
-    return FillText(out, capacity, done);
+int dh_recent_note(char* out, int capacity) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return FillText(out, capacity,
+        ui::RecentDevicesNote(Recent().size(), deskhubp::kDeviceStatusRoundSecs));
 }
 }
