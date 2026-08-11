@@ -15,7 +15,7 @@
 [![Platforms](https://img.shields.io/badge/ch%E1%BA%A1y%20tr%C3%AAn-Windows%20·%20macOS%20·%20Linux%20·%20Android%20·%20iOS-2563eb)](#-nền-tảng)
 
 [![build](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml)
-[![tests](https://github.com/manhpham90vn/Deskhub/actions/workflows/tests.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/tests.yml)
+[![tests](https://img.shields.io/github/actions/workflow/status/manhpham90vn/Deskhub/build.yml?branch=main&label=tests)](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml)
 [![lint](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml)
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
 [![fuzz-nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml)
