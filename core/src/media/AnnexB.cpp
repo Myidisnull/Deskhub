@@ -66,7 +66,7 @@ std::vector<uint8_t> AvccToAnnexB(std::span<const uint8_t> avcc, size_t lengthSi
         size_t len = 0;
         for (size_t i = 0; i < lengthSize; ++i) len = (len << 8) | avcc[at + i];
         at += lengthSize;
-        if (!len || at + len > avcc.size()) break;
+        if (!len || len > avcc.size() - at) break;
         out.push_back(0);
         out.push_back(0);
         out.push_back(0);

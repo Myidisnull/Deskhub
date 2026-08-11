@@ -81,6 +81,11 @@ void TestAvccRoundTrip() {
     Check(safe.empty(), "a truncated buffer converts to nothing, not garbage");
 
     Check(AvccToAnnexB(avcc, 0).empty(), "a zero length size is rejected");
+
+    const std::vector<uint8_t> huge{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00,
+        0x00, 0x05, 0x05, 0x05};
+    Check(AvccToAnnexB(huge, 8).empty(),
+        "a length so large that offset + length overflows is refused, not inserted");
 }
 
 }
