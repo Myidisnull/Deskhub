@@ -17,7 +17,8 @@ func deskhubHint(_ text: String) -> some View {
     Text(text).foregroundStyle(DeskhubPalette.muted)
 }
 
-func deskhubHeadingRow(_ text: String, onRefresh: @escaping () -> Void) -> some View {
+@MainActor
+func deskhubHeadingRow(_ text: String, onRefresh: @MainActor @escaping () -> Void) -> some View {
     HStack(spacing: 8) {
         deskhubHeading(text)
         Spacer(minLength: 0)
