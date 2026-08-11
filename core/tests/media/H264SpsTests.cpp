@@ -234,6 +234,11 @@ void TestJunkIsRejected() {
     allOnes[0] = kSpsHeaderByte;
     AnnexBSpsWithZeroReorder(allOnes);
     Check(true, "a garbage payload returns without reading out of bounds");
+
+    const std::vector<uint8_t> hugeScalingDelta{0x27, 0x7A, 0xD2, 0xD2, 0xD2, 0xD2, 0xD2, 0xD2,
+        0x2E, 0x7A, 0xD2, 0xD0, 0xD0, 0xF2, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFE, 0x2C, 0xFB};
+    AnnexBSpsWithZeroReorder(hugeScalingDelta);
+    Check(true, "a scaling-list delta near INT32_MAX is stepped over without overflowing");
 }
 
 void TestEmulationPreventionIsApplied() {

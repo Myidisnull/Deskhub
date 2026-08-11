@@ -102,7 +102,10 @@ private:
 void SkipScalingList(BitReader& r, uint32_t entries) {
     int32_t last = 8, next = 8;
     for (uint32_t i = 0; i < entries; ++i) {
-        if (next) next = (last + r.SE() + 256) % 256;
+        if (next) {
+            const int64_t delta = r.SE();
+            next = int32_t(((int64_t(last) + delta) % 256 + 256) % 256);
+        }
         last = next ? next : last;
     }
 }
