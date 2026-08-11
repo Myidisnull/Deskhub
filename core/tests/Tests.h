@@ -46,3 +46,4 @@ void RunHostRowsTests();
 void RunRecentDevicesTests();
 void RunUiSettingsTests();
 void RunSecretTextTests();
+void RunFuzzTests();

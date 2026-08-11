@@ -71,8 +71,8 @@ that can only view.
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| C-1 | Connect by address | The user types the host's IP address, optionally with a port (`192.168.1.10` or `192.168.1.10:47777`). Invalid input produces an explanatory hint, not a failure. |
-| C-2 | Passcode entry | The user enters the 4 digits shown on the host. A code that is not exactly 4 digits is rejected before connecting; if the address is a known one, its remembered code is used when the field is left empty. |
+| C-1 | Connect by address | The user types the host's IP address in one field and the UDP port in another, prefilled with the default `47777`. Pasting `192.168.1.10:47777` into the address field still works — its explicit port wins over the port field. Invalid input produces an explanatory hint, not a failure. |
+| C-2 | Passcode entry | The user enters the 4 digits shown on the host. A code that is not exactly 4 digits is rejected before connecting; if the address is a known one, its remembered code is used when the field is left empty. The prompt that opens from the device lists also shows the device's UDP port, prefilled and editable. |
 | C-3 | Control opt-out | Before connecting, the viewer can untick *control the remote machine* to watch without sending any input. |
 | C-4 | Source picker | If the host is sharing more than one display, the viewer is asked which to view. Picking several opens several windows. If the host shares exactly one display, it opens immediately. |
 | C-5 | Clear failures | If the host cannot be reached, is not sharing, or refuses the passcode, the viewer is told which — with the address named in the message. |

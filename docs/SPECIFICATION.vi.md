@@ -75,8 +75,8 @@ nền tảng chỉ xem được.
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
-| C-1 | Kết nối theo địa chỉ | Người dùng nhập địa chỉ IP của host, kèm cổng nếu cần (`192.168.1.10` hoặc `192.168.1.10:47777`). Nhập sai định dạng sẽ hiện gợi ý giải thích chứ không báo lỗi cụt. |
-| C-2 | Nhập passcode | Người dùng nhập 4 chữ số hiển thị trên host. Mã không đúng 4 chữ số bị chặn ngay trước khi kết nối; nếu địa chỉ là máy đã từng kết nối, mã đã nhớ sẽ được dùng khi ô nhập để trống. |
+| C-1 | Kết nối theo địa chỉ | Người dùng nhập địa chỉ IP của host vào một ô và cổng UDP vào ô riêng, được điền sẵn giá trị mặc định `47777`. Dán `192.168.1.10:47777` vào ô địa chỉ vẫn hoạt động — cổng ghi rõ trong địa chỉ được ưu tiên hơn ô cổng. Nhập sai định dạng sẽ hiện gợi ý giải thích chứ không báo lỗi cụt. |
+| C-2 | Nhập passcode | Người dùng nhập 4 chữ số hiển thị trên host. Mã không đúng 4 chữ số bị chặn ngay trước khi kết nối; nếu địa chỉ là máy đã từng kết nối, mã đã nhớ sẽ được dùng khi ô nhập để trống. Hộp thoại mở ra từ danh sách thiết bị cũng hiển thị cổng UDP của thiết bị, được điền sẵn và sửa được. |
 | C-3 | Tuỳ chọn chỉ xem | Trước khi kết nối, viewer có thể bỏ tích *điều khiển máy từ xa* để chỉ xem mà không gửi bất kỳ thao tác nào. |
 | C-4 | Chọn nguồn | Nếu host chia sẻ nhiều hơn một màn hình, viewer được hỏi muốn xem màn hình nào. Chọn nhiều thì mở nhiều cửa sổ. Nếu host chỉ chia sẻ một màn hình, cửa sổ mở ngay. |
 | C-5 | Lỗi rõ ràng | Nếu không tới được host, host không chia sẻ, hoặc passcode sai, viewer được cho biết chính xác là trường hợp nào — kèm địa chỉ trong thông báo. |

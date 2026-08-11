@@ -21,9 +21,9 @@ final class SessionModel {
         guard !connect.isConnecting else { return }
         Task {
             let found = await connect.listSources()
-            guard !connect.address.isEmpty, connect.connectError.isEmpty else { return }
+            guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
             await discovery.remember(
-                address: connect.address, passcode: connect.acceptedPasscode
+                address: connect.acceptedAddress, passcode: connect.acceptedPasscode
             )
             sources = found
             let decision = DeskhubClient.connectDecision(found)
@@ -37,7 +37,7 @@ final class SessionModel {
 
     func startStream(sourceId: UInt8) {
         connect.connectError = ""
-        let address = connect.address
+        let address = connect.acceptedAddress
         let model = StreamModel(
             address: address, passcode: connect.acceptedPasscode, sourceId: sourceId,
             sourceName: sourceName(of: sourceId)

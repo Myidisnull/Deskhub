@@ -273,6 +273,34 @@ Java_com_deskhub_app_NativeClient_nativeVersionLine(JNIEnv* env, jobject) {
     return env->NewStringUTF(buf);
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeUdpPortLine(JNIEnv* env, jobject, jint port) {
+    char buf[64];
+    dh_udp_port_line(uint32_t(port), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeComposeAddress(JNIEnv* env, jobject, jstring hostStr,
+    jstring portStr) {
+    char buf[128];
+    dh_compose_address(FromJString(env, hostStr).c_str(), FromJString(env, portStr).c_str(), buf,
+        int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeAddressHost(JNIEnv* env, jobject, jstring addrStr) {
+    char buf[128];
+    dh_address_host(FromJString(env, addrStr).c_str(), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeAddressPort(JNIEnv* env, jobject, jstring addrStr) {
+    return jint(dh_address_port(FromJString(env, addrStr).c_str()));
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_deskhub_app_NativeClient_nativeScanHits(JNIEnv* env, jobject) {
     jclass cls = env->FindClass(kScanHitClass);

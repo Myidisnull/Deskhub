@@ -147,6 +147,9 @@ int main() {
     std::printf("--- ui: passcodes stored on disk ---\n");
     RunSecretTextTests();
 
+    std::printf("--- fuzz: deterministic structured fuzzing over every parser ---\n");
+    RunFuzzTests();
+
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");
         return 0;

@@ -28,8 +28,8 @@ inline constexpr size_t kMaxInputEvents =
     (kMaxDatagram - kCommonHeaderSize - kInputHeaderSize) / kInputEventSize;
 
 inline constexpr size_t kNackHeaderSize = 5;
-inline constexpr size_t kMaxNackIndices =
-    (kMaxDatagram - kCommonHeaderSize - kNackHeaderSize) / 2;
+inline constexpr size_t kMaxNackIndices = 255;
+static_assert(kCommonHeaderSize + kNackHeaderSize + 2 * kMaxNackIndices <= kMaxDatagram);
 
 enum class Chan : uint8_t { Control = 0,
     Video = 1,

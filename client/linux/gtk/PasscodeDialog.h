@@ -3,4 +3,4 @@
 
 #include <string>
 
-bool ShowPasscodeDialog(GtkWindow* parent, const std::string& addr, std::string& passcode);
+bool ShowPasscodeDialog(GtkWindow* parent, std::string& addr, std::string& passcode);

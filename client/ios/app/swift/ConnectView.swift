@@ -5,22 +5,34 @@ struct ConnectView: View {
 
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""
+    @State private var promptPort = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 deskhubHeading(DeskhubClient.string(DHStrClientHeading))
 
-                TextField(
-                    DeskhubClient.string(DHStrClientIpPlaceholder), text: $model.connect.address
-                )
-                .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.numbersAndPunctuation)
-                .submitLabel(.go)
-                .onSubmit(model.beginConnect)
-                .disabled(model.connect.isConnecting)
+                HStack(spacing: 12) {
+                    TextField(
+                        DeskhubClient.string(DHStrClientIpPlaceholder),
+                        text: $model.connect.address
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.numbersAndPunctuation)
+                    .submitLabel(.go)
+                    .onSubmit(model.beginConnect)
+                    .disabled(model.connect.isConnecting)
+
+                    TextField(
+                        DeskhubClient.string(DHStrUdpPortLabel), text: $model.connect.port
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.numberPad)
+                    .frame(width: 90)
+                    .disabled(model.connect.isConnecting)
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     PasscodeField(
@@ -91,6 +103,7 @@ struct ConnectView: View {
         .sheet(item: $prompting) { row in
             PasscodePromptSheet(
                 address: row.addr,
+                port: $promptPort,
                 passcode: $promptPasscode,
                 onCancel: { prompting = nil },
                 onConnect: { confirmPrompt(row) }
@@ -102,11 +115,15 @@ struct ConnectView: View {
     private func pick(_ row: DeviceListRow) {
         promptPasscode = DeskhubClient.isValidPasscode(row.passcode)
             ? row.passcode : model.connect.passcode
+        promptPort = DeskhubClient.addressPortText(row.addr)
         prompting = row
     }
 
     private func confirmPrompt(_ row: DeviceListRow) {
         prompting = nil
-        model.beginConnect(to: row.addr, passcode: promptPasscode)
+        let addr = DeskhubClient.composeAddress(
+            DeskhubClient.addressHost(row.addr), portText: promptPort
+        )
+        model.beginConnect(to: addr, passcode: promptPasscode)
     }
 }

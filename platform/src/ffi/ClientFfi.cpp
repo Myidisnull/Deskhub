@@ -79,6 +79,9 @@ const char* dh_string(DHStringId id) {
         case DHStrClientHeading: return deskhub::ui::kClientHeading;
         case DHStrSettingsHeading: return deskhub::ui::kSettingsHeading;
         case DHStrSettingsHint: return deskhub::ui::kSettingsHint;
+        case DHStrClientSettingsHeading: return deskhub::ui::kClientSettingsHeading;
+        case DHStrClientSettingsHint: return deskhub::ui::kClientSettingsHint;
+        case DHStrUdpPortLabel: return deskhub::ui::kUdpPortLabel;
         case DHStrProjectUrl: return deskhub::ui::kProjectUrl;
         case DHStrProjectLinkLabel: return deskhub::ui::kProjectLinkLabel;
         case DHStrAllowControlLabel: return deskhub::ui::kAllowControlLabel;
@@ -135,6 +138,29 @@ int dh_could_not_connect(const char* address, char* out, int capacity) {
     deskhubp::CopyToBuf(out, size_t(capacity),
         deskhub::ui::CouldNotConnectTo(address ? address : ""));
     return int(std::strlen(out));
+}
+
+int dh_udp_port_line(uint32_t port, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::UdpPortLine(uint16_t(port)));
+    return int(std::strlen(out));
+}
+
+int dh_compose_address(const char* host, const char* portText, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    const uint16_t port = deskhub::ui::PortOrDefault(portText ? portText : "");
+    deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::AddressWithPort(host ? host : "", port));
+    return int(std::strlen(out));
+}
+
+int dh_address_host(const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::AddressHost(address ? address : ""));
+    return int(std::strlen(out));
+}
+
+uint32_t dh_address_port(const char* address) {
+    return deskhub::ui::AddressPort(address ? address : "");
 }
 
 int dh_host_title(const char* address, uint32_t width, uint32_t height, char* out, int capacity) {

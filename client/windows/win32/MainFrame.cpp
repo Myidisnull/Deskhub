@@ -360,6 +360,7 @@ private:
     wxSimplebook* book_ = nullptr;
     NavItem* pageButtons_[kPageCount] = {};
     wxTextCtrl* addrCtrl_ = nullptr;
+    wxTextCtrl* connectPortCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
     wxStaticText* clientStatus_ = nullptr;
     wxListCtrl* scanList_ = nullptr;
@@ -565,7 +566,9 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     sizer->Add(MakeHeading(panel, ui::kClientHeading), pad);
 
     auto connectNow = [this](wxCommandEvent&) {
-        StartConnect(std::string(addrCtrl_->GetValue().utf8_str()));
+        const uint16_t port =
+            ui::PortOrDefault(std::string(connectPortCtrl_->GetValue().utf8_str()));
+        StartConnect(ui::AddressWithPort(std::string(addrCtrl_->GetValue().utf8_str()), port));
     };
 
     auto* grid = new wxFlexGridSizer(2, FromDIP(wxSize(12, 12)));
@@ -577,6 +580,14 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     addrCtrl_->SetHint(ToWx(ui::kClientIpPlaceholder));
     addrCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(addrCtrl_, wxSizerFlags().CentreVertical());
+
+    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kUdpPortLabel)),
+        wxSizerFlags().CentreVertical());
+    connectPortCtrl_ = new wxTextCtrl(panel, wxID_ANY,
+        ToWx(std::to_string(deskhub::kDeskhubPort)), wxDefaultPosition,
+        FromDIP(wxSize(80, -1)), wxTE_PROCESS_ENTER);
+    connectPortCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
+    grid->Add(connectPortCtrl_, wxSizerFlags().CentreVertical());
 
     grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kClientPasscodePrompt)),
         wxSizerFlags().CentreVertical());
@@ -1256,10 +1267,14 @@ void MainFrame::ConnectRow(long row, bool scanned) {
 }
 
 void MainFrame::ConnectWithPrompt(const std::string& addr, std::string passcode) {
-    if (!ShowPasscodePrompt(this, addr, passcode)) return;
-    addrCtrl_->ChangeValue(ToWx(addr));
+    std::string target = addr;
+    if (!ShowPasscodePrompt(this, target, passcode)) return;
+    const uint16_t port = ui::AddressPort(target);
+    addrCtrl_->ChangeValue(ToWx(ui::AddressHost(target)));
+    connectPortCtrl_->ChangeValue(
+        ToWx(std::to_string(port != 0 ? port : deskhub::kDeskhubPort)));
     clientPasscodeCtrl_->ChangeValue(ToWx(ui::TrimAscii(passcode)));
-    StartConnect(addr);
+    StartConnect(target);
 }
 
 void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passcode,

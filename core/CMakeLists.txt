@@ -134,6 +134,8 @@ if(DESKHUB_CORE_TESTS)
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp
         tests/ui/UiSettingsTests.cpp
+
+        tests/fuzz/FuzzTests.cpp
     )
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)
@@ -141,4 +143,24 @@ if(DESKHUB_CORE_TESTS)
 
     include(CTest)
     add_test(NAME core_tests COMMAND core_tests)
+endif()
+
+option(DESKHUB_FUZZ "Build libFuzzer fuzz targets (clang only)" OFF)
+
+if(DESKHUB_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "DESKHUB_FUZZ requires clang (libFuzzer)")
+    endif()
+    function(deskhub_fuzz_target name source)
+        add_executable(${name} ${source})
+        target_link_libraries(${name} PRIVATE core)
+        target_compile_options(${name} PRIVATE -fsanitize=fuzzer)
+        target_link_options(${name} PRIVATE -fsanitize=fuzzer)
+        deskhub_target_warnings(${name})
+    endfunction()
+    deskhub_fuzz_target(fuzz_wire fuzz/FuzzWire.cpp)
+    deskhub_fuzz_target(fuzz_annexb fuzz/FuzzAnnexB.cpp)
+    deskhub_fuzz_target(fuzz_h264sps fuzz/FuzzH264Sps.cpp)
+    deskhub_fuzz_target(fuzz_reassembler fuzz/FuzzReassembler.cpp)
+    deskhub_fuzz_target(fuzz_uitext fuzz/FuzzUiText.cpp)
 endif()

@@ -3,4 +3,4 @@
 
 class wxWindow;
 
-bool ShowPasscodePrompt(wxWindow* parent, const std::string& addr, std::string& passcode);
+bool ShowPasscodePrompt(wxWindow* parent, std::string& addr, std::string& passcode);

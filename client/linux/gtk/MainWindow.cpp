@@ -474,12 +474,20 @@ GtkWidget* MainWindow::BuildClientPage() {
     g_signal_connect(addressEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
     gtk_grid_attach(GTK_GRID(grid), addressEntry_, 1, 0, 1, 1);
 
-    gtk_grid_attach(GTK_GRID(grid), Label(ui::kClientPasscodePrompt), 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), Label(ui::kUdpPortLabel), 0, 1, 1, 1);
+    portEntry_ = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(portEntry_), std::to_string(deskhub::kDeskhubPort).c_str());
+    gtk_entry_set_width_chars(GTK_ENTRY(portEntry_), 6);
+    gtk_widget_set_halign(portEntry_, GTK_ALIGN_START);
+    g_signal_connect(portEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
+    gtk_grid_attach(GTK_GRID(grid), portEntry_, 1, 1, 1, 1);
+
+    gtk_grid_attach(GTK_GRID(grid), Label(ui::kClientPasscodePrompt), 0, 2, 1, 1);
     passcodeEntry_ = PasscodeEntry(std::string());
     gtk_widget_set_tooltip_text(passcodeEntry_, ui::kClientPasscodeHint);
     gtk_widget_set_halign(passcodeEntry_, GTK_ALIGN_START);
     g_signal_connect(passcodeEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
-    gtk_grid_attach(GTK_GRID(grid), passcodeEntry_, 1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), passcodeEntry_, 1, 2, 1, 1);
     gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
 
     connectButton_ = gtk_button_new_with_label("Connect");
@@ -834,7 +842,8 @@ void MainWindow::OnRecentRowActivated(GtkTreeView*, GtkTreePath* path, GtkTreeVi
 }
 
 void MainWindow::ConnectWithPrompt(const std::string& addr, std::string passcode) {
-    if (!ShowPasscodeDialog(GTK_WINDOW(window_), addr, passcode)) return;
+    std::string target = addr;
+    if (!ShowPasscodeDialog(GTK_WINDOW(window_), target, passcode)) return;
 
     const std::string code = ui::TrimAscii(passcode);
     if (!deskhub::IsValidPasscode(code)) {
@@ -842,9 +851,12 @@ void MainWindow::ConnectWithPrompt(const std::string& addr, std::string passcode
         return;
     }
 
-    gtk_entry_set_text(GTK_ENTRY(addressEntry_), addr.c_str());
+    const uint16_t port = ui::AddressPort(target);
+    gtk_entry_set_text(GTK_ENTRY(addressEntry_), ui::AddressHost(target).c_str());
+    gtk_entry_set_text(GTK_ENTRY(portEntry_),
+        std::to_string(port != 0 ? port : deskhub::kDeskhubPort).c_str());
     gtk_entry_set_text(GTK_ENTRY(passcodeEntry_), code.c_str());
-    StartConnect(addr, code);
+    StartConnect(target, code);
 }
 
 bool MainWindow::ReadPasscode(GtkWidget* entry, std::string& out) {
@@ -883,7 +895,9 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
     std::string passcode;
     if (!self->ReadPasscode(self->passcodeEntry_, passcode)) return;
 
-    self->StartConnect(text, passcode);
+    const uint16_t port =
+        ui::PortOrDefault(gtk_entry_get_text(GTK_ENTRY(self->portEntry_)));
+    self->StartConnect(ui::AddressWithPort(text, port), passcode);
 }
 
 void MainWindow::StartConnect(const std::string& addr, const std::string& passcode) {

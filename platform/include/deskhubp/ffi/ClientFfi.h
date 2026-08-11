@@ -128,6 +128,9 @@ typedef enum {
     DHStrLanDevicesHint = 54,
     DHStrNotSharing = 55,
     DHStrLanDevicesEmpty = 56,
+    DHStrClientSettingsHeading = 57,
+    DHStrClientSettingsHint = 58,
+    DHStrUdpPortLabel = 59,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -157,6 +160,14 @@ bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_so
 int dh_connecting_to(const char* address, char* out, int capacity);
 
 int dh_could_not_connect(const char* address, char* out, int capacity);
+
+int dh_udp_port_line(uint32_t port, char* out, int capacity);
+
+int dh_compose_address(const char* host, const char* portText, char* out, int capacity);
+
+int dh_address_host(const char* address, char* out, int capacity);
+
+uint32_t dh_address_port(const char* address);
 
 int dh_host_title(const char* address, uint32_t width, uint32_t height, char* out, int capacity);
 

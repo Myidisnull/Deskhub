@@ -54,16 +54,38 @@ object NativeClient {
     const val STR_RECENT_DEVICES_EMPTY = 28
     const val STR_SIDEBAR_CLIENT = 30
     const val STR_SIDEBAR_SETTINGS = 31
-    const val STR_SETTINGS_HEADING = 34
-    const val STR_SETTINGS_HINT = 35
-    const val STR_UDP_PORT_LINE = 16
+    const val STR_CLIENT_SETTINGS_HEADING = 57
+    const val STR_CLIENT_SETTINGS_HINT = 58
     const val STR_REFRESH_NOW = 51
+    const val STR_UDP_PORT_LABEL = 59
 
     private external fun nativeString(id: Int): String
 
     private external fun nativeVersionLine(): String
 
     fun versionLine(): String = nativeVersionLine()
+
+    private external fun nativeUdpPortLine(port: Int): String
+
+    fun udpPortLine(port: Int): String = nativeUdpPortLine(port)
+
+    private external fun nativeComposeAddress(
+        host: String,
+        portText: String,
+    ): String
+
+    fun composeAddress(
+        host: String,
+        portText: String,
+    ): String = nativeComposeAddress(host, portText)
+
+    private external fun nativeAddressHost(addr: String): String
+
+    fun addressHost(addr: String): String = nativeAddressHost(addr)
+
+    private external fun nativeAddressPort(addr: String): Int
+
+    fun addressPort(addr: String): Int = nativeAddressPort(addr)
 
     private external fun nativeSetDataDir(dir: String)
 

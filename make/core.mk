@@ -41,8 +41,11 @@ test-integration:
 
 test-all: test test-platform test-integration
 
+FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_uitext
+FUZZ_SECONDS ?= 30
+
 ifeq ($(OS),Windows_NT)
-test-asan test-tsan:
+test-asan test-tsan fuzz:
 	@echo make $@: needs clang or gcc on Linux/macOS, not MSVC && exit /b 1
 else
 test-asan:
@@ -52,6 +55,13 @@ test-asan:
 test-tsan:
 	@cmake --preset tsan >$(NULDEV) && cmake --build --preset tsan --target core_tests platform_tests integration_tests
 	@ctest --test-dir out/build/tsan --output-on-failure
+
+fuzz:
+	@cmake --preset fuzz >$(NULDEV) && cmake --build --preset fuzz --target $(FUZZ_TARGETS)
+	@for t in $(FUZZ_TARGETS); do \
+		mkdir -p out/fuzz/corpus/$$t; \
+		out/build/fuzz/core/$$t -max_total_time=$(FUZZ_SECONDS) -max_len=2048 out/fuzz/corpus/$$t || exit 1; \
+	done
 endif
 
 test-ctest:
@@ -78,4 +88,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage
+.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz

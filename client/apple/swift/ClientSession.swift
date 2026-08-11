@@ -90,6 +90,20 @@ nonisolated enum DeskhubClient {
         return addr
     }
 
+    static func composeAddress(_ host: String, portText: String) -> String {
+        buffered(128) { dh_compose_address(host, portText, $0, $1) }
+    }
+
+    static func addressHost(_ address: String) -> String {
+        buffered(128) { dh_address_host(address, $0, $1) }
+    }
+
+    static func addressPortText(_ address: String) -> String {
+        let explicit = dh_address_port(address)
+        let port = explicit != 0 ? UInt16(explicit) : DeskhubDiscovery.defaultPort
+        return String(port)
+    }
+
     static func connectDecision(_ sources: [Source]) -> (showPicker: Bool, sourceId: UInt8) {
         let infos = sources.map { source -> DHSourceInfo in
             var info = DHSourceInfo()

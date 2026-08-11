@@ -22,7 +22,8 @@ void TestEveryLabelSaysSomething() {
         ui::kStopSharing, ui::kShareStartFailed, ui::kQueryingSources, ui::kViewerOpenFailed,
         ui::kConnectionEndedTitle, ui::kDisconnected, ui::kSessionEnded, ui::kSidebarHost,
         ui::kSidebarClient, ui::kSidebarSettings, ui::kHostHeading, ui::kClientHeading,
-        ui::kSettingsHeading, ui::kSettingsHint, ui::kRecentDevicesHeading,
+        ui::kSettingsHeading, ui::kSettingsHint, ui::kClientSettingsHeading,
+        ui::kClientSettingsHint, ui::kRecentDevicesHeading,
         ui::kRecentDevicesHint, ui::kRecentDevicesEmpty, ui::kStatusOnline, ui::kStatusOffline,
         ui::kStatusChecking, ui::kNotSharing, ui::kStartingShare, ui::kShareStateOn,
         ui::kShareStateOff, ui::kStartSharing, ui::kPickDisplaysHint,
@@ -30,7 +31,7 @@ void TestEveryLabelSaysSomething() {
         ui::kStopDisplayAction, ui::kDisconnectViewerAction,
         ui::kAllowControlLabel, ui::kViewOnlyNote, ui::kRequestControlLabel,
         ui::kPasscodeLabel, ui::kClientPasscodePrompt, ui::kClientPasscodeHint,
-        ui::kClientIpPlaceholder, ui::kPasscodeInvalid, ui::kLanDevicesHeading,
+        ui::kClientIpPlaceholder, ui::kUdpPortLabel, ui::kPasscodeInvalid, ui::kLanDevicesHeading,
         ui::kLanDevicesEmpty, ui::kLanDevicesHint, ui::kLanDevicesNoneSharing,
         ui::kScanRescanNote, ui::kScanNoLocalNetwork,
         ui::kConnectPromptTitle, ui::kAppVersion, ui::kProjectUrl, ui::kProjectLinkLabel,
@@ -90,6 +91,38 @@ void TestSplitHostPortHandlesEveryShape() {
     for (const char* s : bad) {
         Check(!ui::SplitHostPort(s, host, port), "malformed input is refused outright");
     }
+}
+
+void TestThePortFieldFallsBackToTheDefault() {
+    std::printf("[strings] the port field accepts a real port and falls back otherwise...\n");
+    Check(ui::PortOrDefault("50123") == 50123, "a plain port parses");
+    Check(ui::PortOrDefault(" 50123 ") == 50123, "surrounding whitespace is forgiven");
+    Check(ui::PortOrDefault("1") == 1 && ui::PortOrDefault("65535") == 65535,
+        "both ends of the range are allowed");
+    const char* bad[] = {"", "0", "65536", "999999", "47a77", "-1", " "};
+    for (const char* s : bad) {
+        Check(ui::PortOrDefault(s) == kDeskhubPort, "junk falls back to the default port");
+    }
+}
+
+void TestTheAddressAndPortFieldsComposeOneAddress() {
+    std::printf("[strings] a bare host gains the field's port, an explicit one keeps its own...\n");
+    Check(ui::AddressWithPort("192.168.1.10", 50123) == "192.168.1.10:50123",
+        "the port field is appended to a bare host");
+    Check(ui::AddressWithPort(" 192.168.1.10 ", 50123) == "192.168.1.10:50123",
+        "the host is trimmed before composing");
+    Check(ui::AddressWithPort("192.168.1.10:5000", 50123) == "192.168.1.10:5000",
+        "a pasted host:port keeps its explicit port");
+    Check(ui::AddressWithPort("", 50123).empty(), "an empty host stays empty for the caller");
+
+    Check(ui::AddressHost("192.168.1.10:5000") == "192.168.1.10" &&
+              ui::AddressPort("192.168.1.10:5000") == 5000,
+        "a stored address splits back into the two fields");
+    Check(ui::AddressHost("192.168.1.10") == "192.168.1.10" &&
+              ui::AddressPort("192.168.1.10") == 0,
+        "a bare host reports no port so the caller can show the default");
+    Check(ui::AddressHost("host:bad") == "host:bad" && ui::AddressPort("host:bad") == 0,
+        "a malformed address is left whole for the error path to quote");
 }
 
 void TestTrimStripsOnlyTheEdges() {
@@ -184,6 +217,8 @@ void RunStringsTests() {
     TestHostTitleOnlyShowsAKnownSize();
     TestThePortIsNeverHardcodedTwice();
     TestSplitHostPortHandlesEveryShape();
+    TestThePortFieldFallsBackToTheDefault();
+    TestTheAddressAndPortFieldsComposeOneAddress();
     TestTrimStripsOnlyTheEdges();
     TestParsePositiveUintIsStrict();
     TestPingLabelQuotesTheMeasurement();

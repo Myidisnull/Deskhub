@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -114,9 +115,13 @@ private val OnlineColor = Color(0xFF00913C)
 private val OfflineColor = Color(0xFFC82828)
 
 @Composable
-private fun Heading(text: String) {
+private fun Heading(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text,
+        modifier = modifier,
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.Bold,
         color = HeadingColor,
@@ -131,9 +136,9 @@ private fun HeadingRow(
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Heading(text)
+        Heading(text, modifier = Modifier.weight(1f))
         TextButton(onClick = onRefresh) {
             Text(NativeClient.string(NativeClient.STR_REFRESH_NOW))
         }
@@ -165,7 +170,8 @@ private fun MainScreen(
     onOpenStream: (String, String, Int, List<NativeClient.Source>) -> Unit,
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
-    var address by remember { mutableStateOf(initialAddress) }
+    var address by remember { mutableStateOf(NativeClient.addressHost(initialAddress)) }
+    var connectPort by remember { mutableStateOf(portFieldText(initialAddress)) }
     var passcode by remember { mutableStateOf(initialPasscode) }
     var connectError by remember { mutableStateOf("") }
     var querySeq by remember { mutableStateOf(0L) }
@@ -253,6 +259,8 @@ private fun MainScreen(
                 onSectionChange = { section = it },
                 address = address,
                 onAddressChange = { address = it },
+                connectPort = connectPort,
+                onConnectPortChange = { connectPort = it },
                 passcode = passcode,
                 onPasscodeChange = { passcode = it },
                 busy = step is Step.Querying,
@@ -288,11 +296,12 @@ private fun MainScreen(
             addr = pick.addr,
             initial = pick.passcode,
             onDismiss = { pendingPick = null },
-            onConfirm = { code ->
+            onConfirm = { chosenAddr, code ->
                 pendingPick = null
-                address = pick.addr
+                address = NativeClient.addressHost(chosenAddr)
+                connectPort = portFieldText(chosenAddr)
                 passcode = code
-                connect(pick.addr)
+                connect(chosenAddr)
             },
         )
     }
@@ -303,23 +312,42 @@ private data class PendingPick(
     val passcode: String,
 )
 
+private fun portFieldText(addr: String): String {
+    val explicit = NativeClient.addressPort(addr)
+    val port = if (explicit != 0) explicit else NativeClient.defaultPort()
+    return port.toString()
+}
+
 @Composable
 private fun PasscodeDialog(
     addr: String,
     initial: String,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onConfirm: (String, String) -> Unit,
 ) {
+    val host = NativeClient.addressHost(addr)
     var typed by remember(addr, initial) { mutableStateOf(initial) }
+    var typedPort by remember(addr) { mutableStateOf(portFieldText(addr)) }
     val ready = NativeClient.isValidPasscode(typed.trim())
-    val confirm = { if (ready) onConfirm(typed.trim()) }
+    val confirm = {
+        if (ready) onConfirm(NativeClient.composeAddress(host, typedPort), typed.trim())
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(NativeClient.string(NativeClient.STR_CONNECT_PROMPT_TITLE)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(addr, style = MaterialTheme.typography.titleMedium)
+                Text(host, style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = typedPort,
+                    onValueChange = { entered ->
+                        typedPort = entered.filter { it.isDigit() }.take(5)
+                    },
+                    label = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LABEL)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
                 OutlinedTextField(
                     value = typed,
                     onValueChange = { entered ->
@@ -351,6 +379,8 @@ private fun HomeScreen(
     onSectionChange: (Section) -> Unit,
     address: String,
     onAddressChange: (String) -> Unit,
+    connectPort: String,
+    onConnectPortChange: (String) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
     busy: Boolean,
@@ -386,6 +416,8 @@ private fun HomeScreen(
                     AddressScreen(
                         address = address,
                         onAddressChange = onAddressChange,
+                        connectPort = connectPort,
+                        onConnectPortChange = onConnectPortChange,
                         passcode = passcode,
                         onPasscodeChange = onPasscodeChange,
                         busy = busy,
@@ -428,9 +460,9 @@ private fun SettingsScreen(
                 .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Heading(NativeClient.string(NativeClient.STR_SETTINGS_HEADING))
+        Heading(NativeClient.string(NativeClient.STR_CLIENT_SETTINGS_HEADING))
         Text(
-            NativeClient.string(NativeClient.STR_SETTINGS_HINT),
+            NativeClient.string(NativeClient.STR_CLIENT_SETTINGS_HINT),
             style = MaterialTheme.typography.bodyMedium,
             color = MutedColor,
         )
@@ -438,8 +470,8 @@ private fun SettingsScreen(
         OutlinedTextField(
             value = typed,
             onValueChange = { entered -> typed = entered.filter { it.isDigit() }.take(5) },
-            label = { Text("UDP port") },
-            supportingText = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LINE)) },
+            label = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LABEL)) },
+            supportingText = { Text(NativeClient.udpPortLine(port)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -453,6 +485,8 @@ private fun SettingsScreen(
 private fun AddressScreen(
     address: String,
     onAddressChange: (String) -> Unit,
+    connectPort: String,
+    onConnectPortChange: (String) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
     busy: Boolean,
@@ -468,7 +502,7 @@ private fun AddressScreen(
 ) {
     val trimmed = address.trim()
     val ready = trimmed.isNotEmpty() && NativeClient.isValidPasscode(passcode.trim()) && !busy
-    val go = { if (ready) onConnect(trimmed) }
+    val go = { if (ready) onConnect(NativeClient.composeAddress(trimmed, connectPort)) }
 
     Column(
         modifier =
@@ -480,16 +514,38 @@ private fun AddressScreen(
     ) {
         Heading(NativeClient.string(NativeClient.STR_CLIENT_HEADING))
 
-        OutlinedTextField(
-            value = address,
-            onValueChange = onAddressChange,
-            label = { Text(NativeClient.string(NativeClient.STR_CLIENT_IP_PROMPT)) },
-            singleLine = true,
-            enabled = !busy,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { go() }),
-        )
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedTextField(
+                value = address,
+                onValueChange = onAddressChange,
+                label = { Text(NativeClient.string(NativeClient.STR_CLIENT_IP_PROMPT)) },
+                singleLine = true,
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { go() }),
+            )
+
+            OutlinedTextField(
+                value = connectPort,
+                onValueChange = { typed ->
+                    onConnectPortChange(typed.filter { it.isDigit() }.take(5))
+                },
+                label = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LABEL)) },
+                singleLine = true,
+                enabled = !busy,
+                modifier = Modifier.width(110.dp),
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Go,
+                    ),
+                keyboardActions = KeyboardActions(onGo = { go() }),
+            )
+        }
 
         OutlinedTextField(
             value = passcode,

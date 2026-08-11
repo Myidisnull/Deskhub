@@ -9,8 +9,8 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                deskhubHeading(DeskhubClient.string(DHStrSettingsHeading))
-                deskhubHint(DeskhubClient.string(DHStrSettingsHint))
+                deskhubHeading(DeskhubClient.string(DHStrClientSettingsHeading))
+                deskhubHint(DeskhubClient.string(DHStrClientSettingsHint))
 
                 deskhubSection("Connection")
                 HStack(spacing: 12) {
@@ -22,7 +22,11 @@ struct SettingsView: View {
                         .multilineTextAlignment(.trailing)
                         .frame(width: 110)
                 }
-                deskhubHint(DeskhubClient.string(DHStrUdpPortLine))
+                deskhubHint(
+                    DeskhubClient.buffered(64) {
+                        dh_udp_port_line(UInt32(settings.acceptedPort), $0, $1)
+                    }
+                )
 
                 ProjectFooter()
             }

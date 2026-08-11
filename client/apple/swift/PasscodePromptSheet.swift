@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PasscodePromptSheet: View {
     let address: String
+    @Binding var port: String
     @Binding var passcode: String
     let onCancel: () -> Void
     let onConnect: () -> Void
@@ -12,9 +13,19 @@ struct PasscodePromptSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             deskhubHeading(DeskhubClient.string(DHStrConnectPromptTitle))
 
-            Text(address)
+            Text(DeskhubClient.addressHost(address))
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(DeskhubPalette.heading)
+
+            HStack(spacing: 10) {
+                Text(DeskhubClient.string(DHStrUdpPortLabel))
+                TextField("", text: $port)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 72)
+                #if os(iOS)
+                    .keyboardType(.numberPad)
+                #endif
+            }
 
             HStack(spacing: 10) {
                 Text(DeskhubClient.string(DHStrClientPasscodePrompt))

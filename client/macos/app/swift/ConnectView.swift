@@ -30,6 +30,7 @@ struct MainMenuView: View {
     @State private var accessibilityWarning = false
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""
+    @State private var promptPort = ""
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -64,6 +65,7 @@ struct MainMenuView: View {
         .sheet(item: $prompting) { row in
             PasscodePromptSheet(
                 address: row.addr,
+                port: $promptPort,
                 passcode: $promptPasscode,
                 onCancel: { prompting = nil },
                 onConnect: { confirmPrompt(row) }
@@ -149,6 +151,14 @@ struct MainMenuView: View {
                     .frame(width: 260)
                     .onSubmit(beginConnect)
                     .disabled(connect.isConnecting)
+                }
+                GridRow {
+                    Text(DeskhubClient.string(DHStrUdpPortLabel))
+                    TextField("", text: $connect.port)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .onSubmit(beginConnect)
+                        .disabled(connect.isConnecting)
                 }
                 GridRow {
                     Text(DeskhubClient.string(DHStrClientPasscodePrompt))
@@ -248,12 +258,14 @@ struct MainMenuView: View {
     private func pick(_ row: DeviceListRow) {
         promptPasscode = DeskhubClient.isValidPasscode(row.passcode)
             ? row.passcode : connect.passcode
+        promptPort = DeskhubClient.addressPortText(row.addr)
         prompting = row
     }
 
     private func confirmPrompt(_ row: DeviceListRow) {
         prompting = nil
-        connect.address = row.addr
+        connect.address = DeskhubClient.addressHost(row.addr)
+        connect.port = promptPort
         connect.passcode = promptPasscode
         beginConnect()
     }
@@ -262,14 +274,14 @@ struct MainMenuView: View {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
         Task {
             let sources = await connect.listSources()
-            guard connect.connectError.isEmpty else { return }
+            guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
             await discovery.remember(
-                address: connect.address, passcode: connect.acceptedPasscode
+                address: connect.acceptedAddress, passcode: connect.acceptedPasscode
             )
             if DeskhubClient.connectDecision(sources).showPicker {
                 route = .sourcePicker(sources)
             } else {
-                openViewers(sources, address: connect.address,
+                openViewers(sources, address: connect.acceptedAddress,
                             passcode: connect.acceptedPasscode,
                             openWindow: openWindow, dismissWindow: dismissWindow)
             }

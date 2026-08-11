@@ -11,19 +11,23 @@ final class ConnectModel {
         return UserDefaults.standard.string(forKey: lastAddressKey) ?? ""
     }
 
-    var address: String = ConnectModel.lastAddress
+    var address: String = DeskhubClient.addressHost(ConnectModel.lastAddress)
+    var port: String = DeskhubClient.addressPortText(ConnectModel.lastAddress)
     var passcode: String = DeskhubDiscovery.passcode(for: ConnectModel.lastAddress)
     var isConnecting = false
     var connectError = ""
+    private(set) var acceptedAddress = ""
 
     var acceptedPasscode: String {
         DeskhubClient.isValidPasscode(passcode) ? passcode : ""
     }
 
     func acceptAddress() -> String? {
+        acceptedAddress = ""
         guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        guard let accepted = DeskhubClient.normalizedAddress(address) else {
-            connectError = "Invalid address: \"\(address)\". "
+        let composed = DeskhubClient.composeAddress(address, portText: port)
+        guard let accepted = DeskhubClient.normalizedAddress(composed) else {
+            connectError = "Invalid address: \"\(composed)\". "
                 + DeskhubClient.string(DHStrInvalidAddressHint)
             return nil
         }
@@ -31,7 +35,9 @@ final class ConnectModel {
             connectError = DeskhubClient.string(DHStrPasscodeInvalid)
             return nil
         }
-        address = accepted
+        address = DeskhubClient.addressHost(accepted)
+        port = DeskhubClient.addressPortText(accepted)
+        acceptedAddress = accepted
         connectError = ""
         UserDefaults.standard.set(accepted, forKey: ConnectModel.lastAddressKey)
         return accepted

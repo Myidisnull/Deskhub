@@ -128,6 +128,7 @@ private:
     GtkWidget* shareButton_ = nullptr;
 
     GtkWidget* addressEntry_ = nullptr;
+    GtkWidget* portEntry_ = nullptr;
     GtkWidget* passcodeEntry_ = nullptr;
     GtkWidget* connectButton_ = nullptr;
     GtkWidget* controlCheck_ = nullptr;

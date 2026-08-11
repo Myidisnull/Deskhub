@@ -48,6 +48,10 @@ inline constexpr const char* kHostHeading = "Share this machine's screen";
 inline constexpr const char* kClientHeading = "Connect to another machine";
 inline constexpr const char* kSettingsHeading = "Share settings";
 inline constexpr const char* kSettingsHint = "These apply the next time you start sharing.";
+inline constexpr const char* kClientSettingsHeading = "Connection settings";
+inline constexpr const char* kClientSettingsHint =
+    "The device scan looks for sharing machines on this UDP port. Match it to the port in the "
+    "host's Share settings.";
 inline constexpr const char* kRecentDevicesHeading = "Recent devices";
 inline constexpr const char* kRecentDevicesHint = "Click a device to connect to it again.";
 inline constexpr const char* kRecentDevicesEmpty = "Devices you connect to will appear here.";
@@ -76,6 +80,7 @@ inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
 inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
+inline constexpr const char* kUdpPortLabel = "UDP port";
 inline constexpr const char* kLanDevicesHeading = "Machines sharing on this network";
 inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
 inline constexpr const char* kLanDevicesHint = "Click a device to connect to it.";
@@ -209,6 +214,39 @@ inline std::string LanDevicesNote(size_t found, size_t total, uint32_t rescanSec
 inline std::string RecentDevicesNote(size_t deviceCount, uint32_t recheckSecs) {
     if (deviceCount == 0) return kRecentDevicesEmpty;
     return std::string(kRecentDevicesHint) + " " + StatusRecheckNote(recheckSecs);
+}
+
+inline uint16_t PortOrDefault(std::string_view typed) {
+    const std::string trimmed = TrimAscii(typed);
+    if (trimmed.empty() || trimmed.size() > 5) return kDeskhubPort;
+    uint32_t value = 0;
+    for (char c : trimmed) {
+        if (c < '0' || c > '9') return kDeskhubPort;
+        value = value * 10 + uint32_t(c - '0');
+    }
+    if (value < 1 || value > 65535) return kDeskhubPort;
+    return uint16_t(value);
+}
+
+inline std::string AddressWithPort(std::string_view typed, uint16_t port) {
+    const std::string trimmed = TrimAscii(typed);
+    if (trimmed.empty() || trimmed.find(':') != std::string::npos) return trimmed;
+    return trimmed + ":" + std::to_string(port);
+}
+
+inline std::string AddressHost(std::string_view address) {
+    const std::string trimmed = TrimAscii(address);
+    std::string host;
+    uint16_t port = 0;
+    if (SplitHostPort(trimmed, host, port)) return host;
+    return trimmed;
+}
+
+inline uint16_t AddressPort(std::string_view address) {
+    std::string host;
+    uint16_t port = 0;
+    SplitHostPort(TrimAscii(address), host, port);
+    return port;
 }
 
 inline std::string InvalidAddressHint() {

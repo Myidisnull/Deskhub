@@ -61,6 +61,18 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate",
         "DESKHUB_LINUX_APP": "OFF"
       }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "libFuzzer + ASan + UBSan (clang)",
+      "inherits": "x64-debug",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_FLAGS": "-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "DESKHUB_FUZZ": "ON",
+        "DESKHUB_LINUX_APP": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -70,6 +82,7 @@
     { "name": "arm64-release", "configurePreset": "arm64-release" },
     { "name": "asan", "configurePreset": "asan" },
     { "name": "tsan", "configurePreset": "tsan" },
-    { "name": "coverage", "configurePreset": "coverage" }
+    { "name": "coverage", "configurePreset": "coverage" },
+    { "name": "fuzz", "configurePreset": "fuzz" }
   ]
 }
