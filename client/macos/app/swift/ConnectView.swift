@@ -32,7 +32,6 @@ struct MainMenuView: View {
     @State private var promptPasscode = ""
     @State private var promptPort = ""
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         HStack(spacing: 0) {
@@ -282,8 +281,7 @@ struct MainMenuView: View {
                 route = .sourcePicker(sources)
             } else {
                 openViewers(sources, address: connect.acceptedAddress,
-                            passcode: connect.acceptedPasscode,
-                            openWindow: openWindow, dismissWindow: dismissWindow)
+                            passcode: connect.acceptedPasscode, openWindow: openWindow)
             }
         }
     }
@@ -291,7 +289,7 @@ struct MainMenuView: View {
 
 @MainActor
 func openViewers(_ picked: [Source], address: String, passcode: String,
-                 openWindow: OpenWindowAction, dismissWindow: DismissWindowAction)
+                 openWindow: OpenWindowAction)
 {
     if picked.isEmpty {
         openWindow(value: ViewerRequest(
@@ -304,5 +302,4 @@ func openViewers(_ picked: [Source], address: String, passcode: String,
             ))
         }
     }
-    dismissWindow(id: "main")
 }

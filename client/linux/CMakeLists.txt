@@ -10,9 +10,6 @@ pkg_check_modules(DESKHUB_DEPS IMPORTED_TARGET
     libva-drm
     libpipewire-0.3
 )
-# DESKHUB_REQUIRE_LINUX_APP turns the "quietly skip the app" path into a hard
-# error. CI sets it so a missing dependency cannot produce a green build that
-# shipped no binary.
 option(DESKHUB_REQUIRE_LINUX_APP "Fail instead of skipping when the app cannot be built" OFF)
 if(DESKHUB_REQUIRE_LINUX_APP)
     set(deskhub_skip_level FATAL_ERROR)

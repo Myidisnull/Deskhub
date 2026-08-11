@@ -7,7 +7,6 @@ struct SourcePickerView: View {
 
     @State private var picked: Set<UInt8> = []
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -55,6 +54,6 @@ struct SourcePickerView: View {
         guard !chosen.isEmpty else { return }
         route = .connect
         openViewers(chosen, address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
-                    openWindow: openWindow, dismissWindow: dismissWindow)
+                    openWindow: openWindow)
     }
 }

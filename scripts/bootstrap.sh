@@ -118,6 +118,13 @@ Darwin)
             brew install "$pkg"
         fi
     done
+    if [ -x "$(brew --prefix llvm)/bin/clang++" ]; then
+        echo "[ok]      llvm ($(brew --prefix llvm))"
+    else
+        echo "[install] llvm (Apple clang ships no libFuzzer runtime - 'make fuzz' needs this)..."
+        brew install llvm
+    fi
+
     if have java; then
         echo "[ok]      java ($(command -v java))"
     else

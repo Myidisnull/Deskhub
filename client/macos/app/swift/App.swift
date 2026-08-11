@@ -7,7 +7,7 @@ struct DeskhubApp: App {
             ContentView()
         }
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 860, height: 700)
+        .defaultSize(width: 1040, height: 700)
 
         WindowGroup(id: "viewer", for: ViewerRequest.self) { $request in
             if let request {

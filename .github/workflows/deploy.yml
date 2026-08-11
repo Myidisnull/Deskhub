@@ -1,8 +1,5 @@
 name: deploy
 
-# The tag pipeline. Every publishing job sits behind the same test workflow the
-# pull requests run, so a red test suite means nothing reaches TestFlight, Play
-# or the GitHub release page.
 on:
   push:
     tags: ['v*']
@@ -17,8 +14,6 @@ on:
 permissions:
   contents: read
 
-# The store pipeline must be reproducible: every job installs this exact
-# fastlane instead of whatever the runner image happens to ship.
 env:
   FASTLANE_VERSION: 2.237.0
 

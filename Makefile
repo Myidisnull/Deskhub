@@ -50,6 +50,13 @@
 # Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
 #   make setup-linux-permissions    udev rule + add the user to the `input` group
 #
+# macOS, when a locally built app and a downloaded/CI build fight over the same
+# bundle id and the Screen Recording / Accessibility grants stop working:
+#   make reset-macos-permissions    drop every TCC grant for com.deskhub.macos and
+#                                   list the app copies with how each one is signed.
+#                                   ARGS="--purge" also deletes out/build/macos +
+#                                   out/dist/macos so only one copy is left
+#
 #   make test              build core_tests and run it (offline, no client/GPU needed)
 #   make test-platform     build platform_tests and run it (local only: loopback sockets)
 #   make test-integration  host + viewer over loopback, fake codecs + golden wire bytes
@@ -63,7 +70,10 @@
 #                          core/fuzz/regressions/<target> (inputs from fixed crashes, so
 #                          they cannot come back), then fuzzes seeded by the committed
 #                          corpus in core/fuzz/seeds/<target> and guided by the protocol
-#                          tokens in core/fuzz/dict/<target>.dict
+#                          tokens in core/fuzz/dict/<target>.dict. On macOS the libFuzzer
+#                          runtime comes from Homebrew LLVM (Apple clang ships none) —
+#                          `make bootstrap` installs it, the rest still builds with the
+#                          Xcode toolchain
 #   make fuzz-coverage     measure which core lines the fuzz corpus + seeds actually reach
 #                          (clang + llvm-cov, Linux/macOS) — finds the fuzzers' blind spots
 #   make coverage          measure core coverage (clang + llvm-cov — Windows/macOS/Ubuntu)
@@ -78,10 +88,6 @@
 #
 #   make clean
 
-# Must come BEFORE every include: GNU make's default goal is the FIRST target it sees,
-# so putting this later would let `debug` from core.mk take the slot and turn a bare
-# `make` back into an implicit build. A bare `make` prints the target list instead —
-# no platform is privileged, each one is named explicitly.
 all: help
 
 include make/toolchain.mk
@@ -96,7 +102,6 @@ include make/codestyle.mk
 help:
 	@$(HELPCAT)
 
-# Install every dev dependency (idempotent — already present means skipped).
 bootstrap:
 	@$(BOOTSTRAP)
 

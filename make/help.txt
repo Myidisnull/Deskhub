@@ -38,6 +38,8 @@ Deskhub - no platform is built by default, name the one you want:
   Setup:
     make bootstrap                  install every dev dependency for this OS
     make setup-linux-permissions    Ubuntu host role: udev rule + 'input' group
+    make reset-macos-permissions    macOS: clear the TCC grants when the local build and
+                                    a downloaded build conflict (ARGS="--purge")
     make ffmpeg-min                 Ubuntu: build the static minimal FFmpeg (auto-run by build-linux)
     make clean                      remove out/
 

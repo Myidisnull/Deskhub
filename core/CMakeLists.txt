@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
 
-# The one place the version lives. Every client prints DESKHUB_VERSION, and the
-# fastlane lanes read the same file for the store listings.
 file(READ ${CMAKE_CURRENT_LIST_DIR}/../VERSION DESKHUB_VERSION_TEXT)
 string(STRIP "${DESKHUB_VERSION_TEXT}" DESKHUB_VERSION_TEXT)
 project(DeskhubCore LANGUAGES CXX VERSION ${DESKHUB_VERSION_TEXT})
@@ -151,11 +149,26 @@ if(DESKHUB_FUZZ)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "DESKHUB_FUZZ requires clang (libFuzzer)")
     endif()
+
+    set(DESKHUB_FUZZER_LINK -fsanitize=fuzzer)
+    if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        file(GLOB DESKHUB_FUZZER_RUNTIMES
+            /opt/homebrew/opt/llvm/lib/clang/*/lib/darwin/libclang_rt.fuzzer_osx.a
+            /usr/local/opt/llvm/lib/clang/*/lib/darwin/libclang_rt.fuzzer_osx.a)
+        list(SORT DESKHUB_FUZZER_RUNTIMES COMPARE NATURAL)
+        list(POP_BACK DESKHUB_FUZZER_RUNTIMES DESKHUB_FUZZER_LINK)
+        if(NOT DESKHUB_FUZZER_LINK)
+            message(FATAL_ERROR
+                "libFuzzer runtime not found - Apple clang does not ship one.\n"
+                "  Install Homebrew LLVM: brew install llvm   (or: make bootstrap)")
+        endif()
+    endif()
+
     function(deskhub_fuzz_target name source)
         add_executable(${name} ${source})
         target_link_libraries(${name} PRIVATE core)
         target_compile_options(${name} PRIVATE -fsanitize=fuzzer)
-        target_link_options(${name} PRIVATE -fsanitize=fuzzer)
+        target_link_options(${name} PRIVATE ${DESKHUB_FUZZER_LINK})
         deskhub_target_warnings(${name})
     endfunction()
     deskhub_fuzz_target(fuzz_wire fuzz/FuzzWire.cpp)

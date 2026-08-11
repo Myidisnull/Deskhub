@@ -76,9 +76,6 @@ rpmbuild -bb "$TOP/SPECS/deskhub.spec" \
 mv "$TOP/RPMS/$ARCH/deskhub-${VERSION}-1.${ARCH}.rpm" "$RPM"
 rm -rf "$PKGROOT" "$TOP"
 
-# The automatic ELF dependency generator is what makes dnf/zypper pull GTK3
-# and friends; if it silently produced nothing the rpm would install on a
-# machine that cannot run it.
 rpm -qp --requires "$RPM" | grep -q '^libgtk-3\.so\.0' || {
     echo "build-rpm.sh: $RPM is missing its automatic library requires." >&2
     exit 1

@@ -82,9 +82,6 @@ target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)
 target_link_libraries(platform PUBLIC core)
 
-# The Objective-C++ sources are written for ARC (__bridge_retained / __bridge_transfer),
-# and the Xcode app targets already build their own .mm files with CLANG_ENABLE_OBJC_ARC.
-# Without this, those casts silently do nothing here and objects come back dangling.
 if(APPLE)
     target_compile_options(platform PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 

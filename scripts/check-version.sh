@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# The store builds take their marketing version from VERSION, while the GitHub
-# release is named after the tag. This makes a mismatch a build failure instead
-# of shipping "v2.1.0" with 2.0.4 printed inside the app.
-#
-#   scripts/check-version.sh [ref]      ref defaults to $GITHUB_REF
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

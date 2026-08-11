@@ -1,15 +1,3 @@
-# Deliberately narrow: only checks that point at defects, never at style.
-# Formatting is clang-format's job and naming is settled in CLAUDE.md, so the
-# readability-* and modernize-* families stay off except where they catch a real
-# mistake. Disabled on purpose:
-#   bugprone-easily-swappable-parameters  fires on every (width, height) pair
-#   bugprone-narrowing-conversions        the wire format narrows on purpose
-#   misc-include-cleaner                  wants an include line per symbol used
-#   misc-const-correctness                pure style, hundreds of hits
-#   performance-enum-size                 the ClientFfi enums are the C ABI the
-#                                         Kotlin and Swift bindings compile
-#                                         against - their width is not ours to
-#                                         shrink
 Checks: >
   -*,
   bugprone-*,

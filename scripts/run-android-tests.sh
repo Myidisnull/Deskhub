@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Push the three cross-compiled test binaries onto a booted emulator and run
-# them. This lives in a script rather than inline in tests.yml because the
-# emulator action feeds its `script:` input to the shell one line at a time,
-# which breaks any multi-line construct such as a for loop.
-#
-# Usage: scripts/run-android-tests.sh <abi>
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

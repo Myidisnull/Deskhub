@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Gate on the numbers `make coverage` just produced. CI runs this straight after
-# the report so a pull request cannot quietly drop core coverage; run it the same
-# way locally to see the bar a change has to clear.
-#
-#   make coverage && scripts/check-coverage.sh [min-line-%] [min-branch-%]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

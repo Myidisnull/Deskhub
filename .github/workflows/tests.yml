@@ -1,8 +1,5 @@
 name: tests
 
-# Reusable: build.yml calls this on every push/PR, deploy.yml calls it before it
-# is allowed to ship anything. Nothing reaches a store or a GitHub release
-# without this workflow going green first.
 on:
   workflow_call:
 
@@ -27,8 +24,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      # submodules: the Windows configure needs the nvenc headers even though
-      # this job only builds the test binaries.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
@@ -97,13 +92,6 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1
 
   fuzz:
-    # Coverage-guided libFuzzer over the parsers and session state machines
-    # (make fuzz): 6 targets x
-    # FUZZ_SECONDS each, built with ASan + UBSan. Every run starts from the
-    # committed seed corpus under core/fuzz/seeds (the nightly run keeps it
-    # up to date), so even 30 seconds digs deep instead of rediscovering the
-    # same shallow inputs from scratch. A crash fails the job and the
-    # reproducer is uploaded so the input can be replayed locally.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -133,8 +121,6 @@ jobs:
 
   android-tests:
     name: android · ${{ matrix.abi }}
-    # Google ships no aarch64-Linux emulator, so arm64-v8a is cross-compiled for
-    # the compile coverage and never booted. x86_64 is the ABI that actually runs.
     strategy:
       fail-fast: false
       matrix:
@@ -181,8 +167,6 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # The action feeds `script` to the shell one line at a time, so the loop
-      # has to live in a file rather than inline here.
       - name: Run them on an emulator
         if: matrix.emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -224,8 +208,6 @@ jobs:
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid"
 
-      # CMake wraps every executable in an .app bundle when it targets iOS, so
-      # the binary to spawn sits inside the bundle, not at the target path.
       - name: Run them on the simulator
         run: |
           for t in core/core_tests platform/platform_tests tests/integration/integration_tests; do

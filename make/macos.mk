@@ -62,9 +62,12 @@ dist-macos:
 verify-macos:
 	xcrun stapler validate $(MACOS_APP)
 	spctl -a -vvv -t install $(MACOS_APP)
+
+reset-macos-permissions:
+	@scripts/reset-macos-permissions.sh $(ARGS)
 else
-build-macos release-macos run-macos dist-macos verify-macos:
+build-macos release-macos run-macos dist-macos verify-macos reset-macos-permissions:
 	@echo "make $@: needs macOS + Xcode"; exit 1
 endif
 
-.PHONY: build-macos release-macos run-macos dist-macos verify-macos
+.PHONY: build-macos release-macos run-macos dist-macos verify-macos reset-macos-permissions

@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Static analysis over core/src and platform/src, with the check list in
-# .clang-tidy. Only the translation units of the OS this runs on are analysed -
-# the compile database decides, so the Windows-only and Apple-only sources are
-# covered by nothing here and stay the compiler's job.
-#
-#   scripts/clang-tidy.sh [build-dir]     build-dir defaults to out/build/x64-debug
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

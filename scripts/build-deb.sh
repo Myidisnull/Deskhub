@@ -18,8 +18,6 @@ DEB="$DIST/deskhub_${VERSION}_${ARCH}.deb"
 rm -rf "$STAGE" "$DEB"
 scripts/stage-linux-pkgroot.sh "$STAGE"
 
-# dpkg-shlibdeps computes the exact runtime Depends from the binary's NEEDED
-# entries; it insists on a debian/control stub existing next to the binary.
 mkdir -p "$STAGE/debian"
 touch "$STAGE/debian/control"
 DEPENDS="$(cd "$STAGE" && dpkg-shlibdeps -O usr/bin/deskhub | sed 's/^shlibs:Depends=//')"

@@ -32,9 +32,6 @@ set_target_properties(deskhub_app PROPERTIES OUTPUT_NAME "Deskhub")
 deskhub_target_warnings(deskhub_app)
 if(MSVC)
     target_compile_options(deskhub_app PRIVATE /sdl)
-    # The app captures the screen and injects input into elevated windows, so it
-    # asks for administrator rights once at launch instead of relaunching itself
-    # elevated when sharing starts.
     set_property(TARGET deskhub_app APPEND_STRING PROPERTY LINK_FLAGS
         " /MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
 endif()

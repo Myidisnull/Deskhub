@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Stages the distro-neutral payload both linux packages share (deb + rpm):
-# binary, desktop entry, icons, udev rule, modules-load entry, license docs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -34,9 +32,6 @@ Terminal=false
 Categories=Network;RemoteAccess;
 EOF
 
-# 60- sorts before systemd's 73-seat-late.rules, which is what turns the
-# uaccess tag into an ACL for the user at the active seat (no group, no
-# re-login). GROUP="input" stays as the fallback for headless sessions.
 mkdir -p "$DEST/usr/lib/udev/rules.d"
 cat > "$DEST/usr/lib/udev/rules.d/60-deskhub-uinput.rules" <<'EOF'
 KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", TAG+="uaccess", OPTIONS+="static_node=uinput"

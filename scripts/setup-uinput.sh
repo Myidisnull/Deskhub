@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Grants write access to /dev/uinput so Deskhub can inject mouse/keyboard.
-# The deb/rpm packages do this on install; this script is for the portable
-# binary and for source checkouts ('make setup-linux-permissions' calls it).
-# Portable-binary users run it without a checkout:
-#   curl -fsSL https://raw.githubusercontent.com/manhpham90vn/Deskhub/main/scripts/setup-uinput.sh | sudo bash
-# Keep the rule line identical to the one scripts/stage-linux-pkgroot.sh
-# puts into the packages.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then

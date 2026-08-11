@@ -1,14 +1,5 @@
 name: fuzz-nightly
 
-# Long-run fuzzing on a schedule: the same six libFuzzer targets the per-push
-# smoke covers for 30 seconds each get 15 minutes each here, digging for the
-# deep, stateful bugs a short run cannot reach. 03:00 UTC is 10:00 in Hanoi.
-# The fuzzer's accumulated knowledge lives in the repo itself: every run seeds
-# from the committed corpus under core/fuzz/seeds, and whatever new coverage a
-# night discovers is merge-minimized back into it and pushed as a commit, so
-# progress survives forever instead of expiring with a CI cache. A crash fails
-# the run, uploads the reproducer, and files (or bumps) a fuzz-crash issue so
-# the failure is seen even though nobody is watching a scheduled run.
 on:
   schedule:
     - cron: '0 3 * * *'
@@ -36,13 +27,6 @@ jobs:
           FUZZ_SECONDS: 900
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
 
-      # This step must run even when a crash failed the job: a night's corpus
-      # progress is exactly what we do not want to lose. -merge=1 folds only
-      # the inputs that add coverage into the committed seeds (file names are
-      # content hashes, so unchanged knowledge produces no diff), and merge is
-      # crash-resistant - it re-spawns its worker past a crashing input. Most
-      # nights find nothing new and skip the commit. Pushes made with the
-      # workflow token do not trigger other workflows, so this cannot loop.
       - name: Fold new coverage back into the committed seed corpus
         if: always()
         run: |
@@ -74,9 +58,6 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      # One open fuzz-crash issue at a time: a crash that stays unfixed fails
-      # every night, and a new issue per night would be noise. If one is open
-      # already, just note the new run on it.
       - name: File (or bump) the crash issue
         if: failure()
         env:

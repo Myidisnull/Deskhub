@@ -1,8 +1,5 @@
 name: build
 
-# Continuous integration for main and pull requests. Tags do not land here:
-# the whole tag pipeline (tests -> clients -> GitHub release -> stores) lives in
-# deploy.yml so that nothing can be published without the tests it depends on.
 on:
   push:
     branches: [main]

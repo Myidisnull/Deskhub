@@ -136,7 +136,5 @@ jobs:
       - name: Lint the workflows
         run: /tmp/actionlint -color
 
-      # Severity warning and up: the info-level hits are all deliberate word
-      # splitting of argument lists that would break if quoted.
       - name: Lint the shell scripts
         run: shellcheck --severity=warning scripts/*.sh

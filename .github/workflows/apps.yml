@@ -1,9 +1,5 @@
 name: apps
 
-# Reusable client builds. build.yml runs the whole set on every push/PR;
-# deploy.yml calls it with for_release=true, where only the two binaries that
-# get attached to a GitHub release are built here — the macOS/iOS/Android
-# artifacts come from the signed fastlane jobs instead.
 on:
   workflow_call:
     inputs:
@@ -62,8 +58,6 @@ jobs:
   linux:
     strategy:
       fail-fast: false
-      # On a release run only the ubuntu-22.04 row matters (its binary is the one
-      # attached to the GitHub release); the newer-Ubuntu compile check adds nothing.
       matrix:
         include: ${{ inputs.for_release
           && fromJSON('[{"os":"ubuntu-22.04","release":true}]')

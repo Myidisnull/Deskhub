@@ -114,15 +114,15 @@ struct HostSourceTable: View {
 
     var body: some View {
         Table(rows) {
-            TableColumn("Source") { cell($0, $0.source) }.width(140)
-            TableColumn("Size") { cell($0, $0.size) }.width(80)
-            TableColumn("Viewers") { cell($0, $0.viewers) }.width(58)
-            TableColumn("Client") { cell($0, $0.client) }.width(120)
-            TableColumn("Capture") { cell($0, $0.capture) }.width(58)
-            TableColumn("Send") { cell($0, $0.send) }.width(50)
-            TableColumn("Mbps") { cell($0, $0.mbps) }.width(55)
-            TableColumn("RTT") { cell($0, $0.rtt) }.width(55)
-            TableColumn("") { action($0) }.width(104)
+            TableColumn("Source") { cell($0, $0.source) }.width(min: 96, ideal: 120)
+            TableColumn("Size") { cell($0, $0.size) }.width(min: 60, ideal: 70)
+            TableColumn("Viewers") { cell($0, $0.viewers) }.width(min: 44, ideal: 50)
+            TableColumn("Client") { cell($0, $0.client) }.width(min: 80, ideal: 100)
+            TableColumn("Capture") { cell($0, $0.capture) }.width(min: 46, ideal: 50)
+            TableColumn("Send") { cell($0, $0.send) }.width(min: 42, ideal: 44)
+            TableColumn("Mbps") { cell($0, $0.mbps) }.width(min: 44, ideal: 48)
+            TableColumn("RTT") { cell($0, $0.rtt) }.width(min: 42, ideal: 48)
+            TableColumn("") { action($0) }.width(92)
         }
     }
 
