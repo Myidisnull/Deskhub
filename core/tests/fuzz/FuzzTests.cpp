@@ -604,7 +604,8 @@ void TestReassemblerChaosFuzz() {
         }
         ok = ok && ra.stats().framesCompleted == completed;
         ok = ok && ra.stats().framesCompleted + ra.stats().framesDropped +
-                       ra.stats().framesSkipped <= frames.size() + tainted.size();
+                           ra.stats().framesSkipped <=
+                       frames.size() + tainted.size();
         Check(ok, "chaos round: completed frames intact, stats consistent");
     }
 }

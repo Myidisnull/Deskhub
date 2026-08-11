@@ -229,13 +229,13 @@ inline uint16_t PortOrDefault(std::string_view typed) {
 }
 
 inline std::string AddressWithPort(std::string_view typed, uint16_t port) {
-    const std::string trimmed = TrimAscii(typed);
+    std::string trimmed = TrimAscii(typed);
     if (trimmed.empty() || trimmed.find(':') != std::string::npos) return trimmed;
     return trimmed + ":" + std::to_string(port);
 }
 
 inline std::string AddressHost(std::string_view address) {
-    const std::string trimmed = TrimAscii(address);
+    std::string trimmed = TrimAscii(address);
     std::string host;
     uint16_t port = 0;
     if (SplitHostPort(trimmed, host, port)) return host;
