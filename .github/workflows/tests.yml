@@ -99,7 +99,10 @@ jobs:
   fuzz:
     # Coverage-guided libFuzzer over the parsers and session state machines
     # (make fuzz): 6 targets x
-    # FUZZ_SECONDS each, built with ASan + UBSan. A crash fails the job and the
+    # FUZZ_SECONDS each, built with ASan + UBSan. Every run starts from the
+    # committed seed corpus under core/fuzz/seeds (the nightly run keeps it
+    # up to date), so even 30 seconds digs deep instead of rediscovering the
+    # same shallow inputs from scratch. A crash fails the job and the
     # reproducer is uploaded so the input can be replayed locally.
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -108,18 +111,6 @@ jobs:
 
       - name: Install clang + ninja
         run: sudo apt-get update -qq && sudo apt-get install -y clang ninja-build
-
-      # The corpus is what the fuzzer has learned so far. Restoring the newest
-      # one and saving a fresh copy every run (run_id keys never collide, so the
-      # save never skips) means each 30-second CI run digs deeper instead of
-      # rediscovering the same shallow inputs from scratch.
-      - name: Restore the accumulated fuzz corpus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: out/fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
-          restore-keys: |
-            fuzz-corpus-
 
       - name: Build + run the libFuzzer targets (make fuzz)
         run: make fuzz

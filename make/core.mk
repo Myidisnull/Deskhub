@@ -43,9 +43,12 @@ test-all: test test-platform test-integration
 
 FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext
 FUZZ_SECONDS ?= 30
+FUZZ_COV_BIN := out/build/fuzz-coverage/core/$(firstword $(FUZZ_TARGETS))
+FUZZ_COV_OBJS := $(FUZZ_COV_BIN) $(foreach t,$(wordlist 2,$(words $(FUZZ_TARGETS)),$(FUZZ_TARGETS)),-object out/build/fuzz-coverage/core/$(t))
+FUZZ_COV_DATA := out/build/fuzz-coverage/fuzz.profdata
 
 ifeq ($(OS),Windows_NT)
-test-asan test-tsan fuzz:
+test-asan test-tsan fuzz fuzz-coverage:
 	@echo make $@: needs clang or gcc on Linux/macOS, not MSVC && exit /b 1
 else
 test-asan:
@@ -60,8 +63,24 @@ fuzz:
 	@cmake --preset fuzz >$(NULDEV) && cmake --build --preset fuzz --target $(FUZZ_TARGETS)
 	@for t in $(FUZZ_TARGETS); do \
 		mkdir -p out/fuzz/corpus/$$t; \
-		out/build/fuzz/core/$$t -max_total_time=$(FUZZ_SECONDS) -max_len=2048 out/fuzz/corpus/$$t || exit 1; \
+		out/build/fuzz/core/$$t -runs=0 core/fuzz/regressions/$$t || exit 1; \
+		out/build/fuzz/core/$$t -max_total_time=$(FUZZ_SECONDS) -max_len=2048 \
+			-dict=core/fuzz/dict/$$t.dict \
+			out/fuzz/corpus/$$t core/fuzz/seeds/$$t || exit 1; \
 	done
+
+fuzz-coverage:
+	@cmake --preset fuzz-coverage >$(NULDEV) && cmake --build --preset fuzz-coverage --target $(FUZZ_TARGETS)
+	@for t in $(FUZZ_TARGETS); do \
+		mkdir -p out/fuzz/corpus/$$t; \
+		LLVM_PROFILE_FILE=out/build/fuzz-coverage/$$t.profraw \
+			out/build/fuzz-coverage/core/$$t -runs=0 \
+			out/fuzz/corpus/$$t core/fuzz/seeds/$$t core/fuzz/regressions/$$t || exit 1; \
+	done
+	@$(LLVM) llvm-profdata merge -sparse out/build/fuzz-coverage/*.profraw -o $(FUZZ_COV_DATA)
+	@$(LLVM) llvm-cov show $(FUZZ_COV_OBJS) -instr-profile=$(FUZZ_COV_DATA) -format=html -output-dir=out/fuzz-coverage $(COV_SRC)
+	@$(LLVM) llvm-cov report $(FUZZ_COV_OBJS) -instr-profile=$(FUZZ_COV_DATA) $(COV_SRC)
+	@echo "Report: out/fuzz-coverage/index.html"
 endif
 
 test-ctest:
@@ -88,4 +107,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz
+.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage

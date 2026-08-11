@@ -59,7 +59,13 @@
 #   make test-tsan         all three suites under ThreadSanitizer (clang/gcc only, not MSVC)
 #   make fuzz              libFuzzer + ASan over the wire/media/ui parsers and the session
 #                          state machines (clang only, Linux/macOS; FUZZ_SECONDS=N per
-#                          target, corpus in out/fuzz/corpus)
+#                          target, corpus in out/fuzz/corpus). Each target first replays
+#                          core/fuzz/regressions/<target> (inputs from fixed crashes, so
+#                          they cannot come back), then fuzzes seeded by the committed
+#                          corpus in core/fuzz/seeds/<target> and guided by the protocol
+#                          tokens in core/fuzz/dict/<target>.dict
+#   make fuzz-coverage     measure which core lines the fuzz corpus + seeds actually reach
+#                          (clang + llvm-cov, Linux/macOS) — finds the fuzzers' blind spots
 #   make coverage          measure core coverage (clang + llvm-cov — Windows/macOS/Ubuntu)
 #
 # Format/lint — all three languages, or one at a time:

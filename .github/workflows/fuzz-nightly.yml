@@ -3,10 +3,12 @@ name: fuzz-nightly
 # Long-run fuzzing on a schedule: the same six libFuzzer targets the per-push
 # smoke covers for 30 seconds each get 15 minutes each here, digging for the
 # deep, stateful bugs a short run cannot reach. 03:00 UTC is 10:00 in Hanoi.
-# The corpus cache is shared with tests.yml, so the nightly digging and the
-# per-push smoke keep feeding each other. A crash fails the run, uploads the
-# reproducer, and files (or bumps) a fuzz-crash issue so the failure is seen
-# even though nobody is watching a scheduled run.
+# The fuzzer's accumulated knowledge lives in the repo itself: every run seeds
+# from the committed corpus under core/fuzz/seeds, and whatever new coverage a
+# night discovers is merge-minimized back into it and pushed as a commit, so
+# progress survives forever instead of expiring with a CI cache. A crash fails
+# the run, uploads the reproducer, and files (or bumps) a fuzz-crash issue so
+# the failure is seen even though nobody is watching a scheduled run.
 on:
   schedule:
     - cron: '0 3 * * *'
@@ -20,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
-      contents: read
+      contents: write
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,29 +30,37 @@ jobs:
       - name: Install clang + ninja
         run: sudo apt-get update -qq && sudo apt-get install -y clang ninja-build
 
-      - name: Restore the accumulated fuzz corpus
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: out/fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
-          restore-keys: |
-            fuzz-corpus-
-
       - name: Fuzz every target for 15 minutes (make fuzz)
         run: make fuzz
         env:
           FUZZ_SECONDS: 900
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
 
-      # Split restore/save instead of the plain cache action: the save step
-      # must run even when a crash failed the job, because a night's corpus
-      # progress is exactly what we do not want to lose.
-      - name: Save the corpus
+      # This step must run even when a crash failed the job: a night's corpus
+      # progress is exactly what we do not want to lose. -merge=1 folds only
+      # the inputs that add coverage into the committed seeds (file names are
+      # content hashes, so unchanged knowledge produces no diff), and merge is
+      # crash-resistant - it re-spawns its worker past a crashing input. Most
+      # nights find nothing new and skip the commit. Pushes made with the
+      # workflow token do not trigger other workflows, so this cannot loop.
+      - name: Fold new coverage back into the committed seed corpus
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: out/fuzz/corpus
-          key: fuzz-corpus-${{ github.run_id }}
+        run: |
+          for t in fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext; do
+            [ -x "out/build/fuzz/core/$t" ] || continue
+            [ -d "out/fuzz/corpus/$t" ] || continue
+            "out/build/fuzz/core/$t" -merge=1 "core/fuzz/seeds/$t" "out/fuzz/corpus/$t"
+          done
+          git add core/fuzz/seeds
+          if git diff --cached --quiet; then
+            echo "No new coverage tonight - nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: fold new fuzz coverage into the seed corpus"
+          git pull --rebase origin main
+          git push origin HEAD:main
 
       - name: Upload crash reproducers
         if: failure()
