@@ -97,7 +97,8 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1
 
   fuzz:
-    # Coverage-guided libFuzzer over the parsers (make fuzz): 5 targets x
+    # Coverage-guided libFuzzer over the parsers and session state machines
+    # (make fuzz): 6 targets x
     # FUZZ_SECONDS each, built with ASan + UBSan. A crash fails the job and the
     # reproducer is uploaded so the input can be replayed locally.
     runs-on: ubuntu-latest

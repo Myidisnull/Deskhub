@@ -41,7 +41,7 @@ test-integration:
 
 test-all: test test-platform test-integration
 
-FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_uitext
+FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext
 FUZZ_SECONDS ?= 30
 
 ifeq ($(OS),Windows_NT)

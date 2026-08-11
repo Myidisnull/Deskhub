@@ -57,8 +57,9 @@
 #   make test-ctest        run through CTest (--output-on-failure) — matches how CI runs it
 #   make test-asan         all three suites under ASan + UBSan (clang/gcc only, not MSVC)
 #   make test-tsan         all three suites under ThreadSanitizer (clang/gcc only, not MSVC)
-#   make fuzz              libFuzzer + ASan over the wire/media/ui parsers (clang only,
-#                          Linux/macOS; FUZZ_SECONDS=N per target, corpus in out/fuzz/corpus)
+#   make fuzz              libFuzzer + ASan over the wire/media/ui parsers and the session
+#                          state machines (clang only, Linux/macOS; FUZZ_SECONDS=N per
+#                          target, corpus in out/fuzz/corpus)
 #   make coverage          measure core coverage (clang + llvm-cov — Windows/macOS/Ubuntu)
 #
 # Format/lint — all three languages, or one at a time:

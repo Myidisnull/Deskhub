@@ -4,6 +4,9 @@
 #include "deskhub/media/AnnexB.h"
 #include "deskhub/media/BitWriter.h"
 #include "deskhub/media/H264Sps.h"
+#include "deskhub/session/Beacon.h"
+#include "deskhub/session/ClientSession.h"
+#include "deskhub/session/HostSession.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/SecretText.h"
 #include "deskhub/ui/UiSettings.h"
@@ -703,6 +706,71 @@ void TestRecentDevicesFuzz() {
     Check(ok, "fuzzed device lists keep their invariants and round-trip");
 }
 
+bool ValidOutbound(std::span<const uint8_t> d) {
+    return !d.empty() && d.size() <= kMaxDatagram && ParseCommonHeader(d).has_value();
+}
+
+Datagram BuildKnownHello(uint32_t clientId) {
+    uint8_t buf[kMaxDatagram];
+    const Hello m{clientId, 1, 1920, 1080, 30, 0, 0, kTestPasscode};
+    return Taken(buf, BuildHello(buf, m));
+}
+
+void TestSessionChaosFuzz() {
+    std::printf("[fuzz] 6 rounds of datagram chaos through host + client + beacon...\n");
+    for (int round = 0; round < 6; ++round) {
+        bool outboundOk = true;
+        const auto witness = [&](std::span<const uint8_t> d) {
+            outboundOk = outboundOk && ValidOutbound(d);
+        };
+
+        HostCallbacks hostCb;
+        hostCb.send = witness;
+        hostCb.sendTo = [&](uint64_t, std::span<const uint8_t> d) { witness(d); };
+        hostCb.randomBytes = TestRandomBytes;
+        HostSession host(std::move(hostCb), StreamParams{1280, 720, 30, 8'000'000});
+        host.SetPasscode(kTestPasscode);
+
+        ClientCallbacks clientCb;
+        clientCb.send = witness;
+        ClientSession client(std::move(clientCb));
+        client.Start(Hello{1, 1, 1920, 1080, 30, 0, 0, kTestPasscode}, 1);
+
+        Beacon beacon;
+        const SourceInfo sources[2] = {
+            {0, 1280, 720, "Display 1"}, {1, 1920, 1080, "Display 2"}};
+        beacon.SetSources(sources);
+        beacon.SetPasscode(kTestPasscode);
+
+        uint8_t reply[kMaxDatagram];
+        uint64_t now = 1'000'000;
+        bool ok = true;
+        for (int i = 0; i < 250; ++i) {
+            Datagram d;
+            if (i % 40 == 0)
+                d = BuildKnownHello(100 + uint32_t(i));
+            else if (Rnd() % 4 == 0)
+                d = RandomJunk(kMaxDatagram);
+            else
+                d = Mutate(BuildRandomValidDatagram());
+            const uint64_t from = kTestViewer + (Rnd() % 7);
+            host.HandlePacket(d, now, from);
+            client.HandlePacket(d, now);
+            const size_t n = beacon.Reply(reply, d);
+            ok = ok && n <= sizeof(reply);
+            ok = ok && (n == 0 || ValidOutbound(std::span<const uint8_t>(reply, n)));
+            now += (Rnd() % 50 == 0) ? kSessionTimeoutUs + 1 : 20'000;
+            host.Tick(now);
+            client.Tick(now);
+            ok = ok && host.viewerCount() <= kMaxViewersPerHost;
+            ok = ok && uint8_t(host.state()) <= uint8_t(HostSession::State::Streaming);
+            ok = ok && uint8_t(client.state()) <= uint8_t(ClientSession::State::Dead);
+        }
+        Check(ok && outboundOk,
+            "session chaos: replies well-formed, viewer table bounded, states sane");
+    }
+}
+
 void TestSecretTextFuzz() {
     std::printf("[fuzz] secrets round-trip, junk is decoded safely...\n");
     bool ok = true;
@@ -736,6 +804,7 @@ void RunFuzzTests() {
     TestSpsMutationFuzz();
     TestSpsStreamFuzz();
     TestReassemblerChaosFuzz();
+    TestSessionChaosFuzz();
     TestUiSettingsFuzz();
     TestRecentDevicesFuzz();
     TestSecretTextFuzz();

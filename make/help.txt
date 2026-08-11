@@ -21,7 +21,7 @@ Deskhub - no platform is built by default, name the one you want:
     make test-ctest        the same tests through CTest, as CI runs them
     make test-asan         all three suites under ASan + UBSan (Linux/macOS)
     make test-tsan         all three suites under ThreadSanitizer (Linux/macOS)
-    make fuzz              libFuzzer + ASan over the parsers (clang, Linux/macOS, FUZZ_SECONDS=N)
+    make fuzz              libFuzzer + ASan over the parsers + sessions (clang, Linux/macOS, FUZZ_SECONDS=N)
     make coverage          core coverage report via clang + llvm-cov
 
   Style - C++ + Kotlin + Swift, or one at a time:

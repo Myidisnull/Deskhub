@@ -6,6 +6,7 @@
 
 #include "deskhub/input/VirtualKeys.h"
 #include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
 
 #include <cstdio>
@@ -568,6 +569,57 @@ void TestAHostWithoutAPasscodeServesNobody() {
     agent.Stop();
 }
 
+void TestJunkDatagramsDoNotDisturbTheStream() {
+    std::printf("[e2e] junk sprayed at the host's port does not disturb the stream...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+        Check(false, "the host could not start");
+        return;
+    }
+
+    Viewer viewer;
+    viewer.SetSurface(kDummySurface);
+    Check(viewer.Start(ViewerConfig(port, 0)), "the viewer opened its socket");
+    Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
+        "the session reached Streaming");
+    Check(WaitFor([&] { return fake::Decoded().frameCount() >= 2; }, kStreamTimeoutMs),
+        "frames were flowing before the noise started");
+
+    UdpSocket attacker;
+    Check(attacker.Open(0), "the attacker opened its own socket");
+    const NetAddr hostAddr = HostAddr(port);
+    uint32_t seed = 0x1234567u;
+    const auto rnd = [&seed] {
+        seed = seed * 1664525u + 1013904223u;
+        return seed;
+    };
+    uint8_t pkt[deskhub::kMaxDatagram];
+    for (int i = 0; i < 400; ++i) {
+        const size_t len = 1 + rnd() % sizeof(pkt);
+        for (size_t k = 0; k < len; ++k) pkt[k] = uint8_t(rnd());
+        attacker.SendTo(hostAddr, pkt, len);
+    }
+    for (int i = 0; i < 50; ++i) {
+        const size_t byeLen = deskhub::BuildBye(pkt, rnd());
+        attacker.SendTo(hostAddr, pkt, byeLen);
+        const uint16_t indices[2] = {uint16_t(rnd()), uint16_t(rnd())};
+        const size_t nackLen = deskhub::BuildNack(pkt, rnd(), rnd(), indices);
+        attacker.SendTo(hostAddr, pkt, nackLen);
+    }
+
+    const size_t before = fake::Decoded().frameCount();
+    Check(WaitFor([&] { return fake::Decoded().frameCount() >= before + 3; }, kStreamTimeoutMs),
+        "the viewer keeps decoding fresh frames through the noise");
+    Check(Streaming(viewer), "the session is still Streaming");
+    Check(agent.running(), "the host is still running");
+
+    viewer.Stop();
+    agent.Stop();
+}
+
 }
 
 void RunSessionFlowTests() {
@@ -583,4 +635,5 @@ void RunSessionFlowTests() {
     TestTwoViewersShareOneSourceAndOneEncoder();
     TestSourceDiscoveryBeforeAnySession();
     TestTheHostSurvivesAViewerThatVanishes();
+    TestJunkDatagramsDoNotDisturbTheStream();
 }
