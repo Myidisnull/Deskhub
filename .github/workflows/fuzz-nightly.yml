@@ -1,0 +1,98 @@
+name: fuzz-nightly
+
+# Long-run fuzzing on a schedule: the same six libFuzzer targets the per-push
+# smoke covers for 30 seconds each get 15 minutes each here, digging for the
+# deep, stateful bugs a short run cannot reach. 03:00 UTC is 10:00 in Hanoi.
+# The corpus cache is shared with tests.yml, so the nightly digging and the
+# per-push smoke keep feeding each other. A crash fails the run, uploads the
+# reproducer, and files (or bumps) a fuzz-crash issue so the failure is seen
+# even though nobody is watching a scheduled run.
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install clang + ninja
+        run: sudo apt-get update -qq && sudo apt-get install -y clang ninja-build
+
+      - name: Restore the accumulated fuzz corpus
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: out/fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-
+
+      - name: Fuzz every target for 15 minutes (make fuzz)
+        run: make fuzz
+        env:
+          FUZZ_SECONDS: 900
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+      # Split restore/save instead of the plain cache action: the save step
+      # must run even when a crash failed the job, because a night's corpus
+      # progress is exactly what we do not want to lose.
+      - name: Save the corpus
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: out/fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-fuzz-crashes
+          path: |
+            crash-*
+            oom-*
+            timeout-*
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # One open fuzz-crash issue at a time: a crash that stays unfixed fails
+      # every night, and a new issue per night would be noise. If one is open
+      # already, just note the new run on it.
+      - name: File (or bump) the crash issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create fuzz-crash --color B60205 \
+            --description "Crash found by the nightly fuzz run" --force
+          existing=$(gh issue list --label fuzz-crash --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" \
+              --body "The nightly fuzz run crashed again: $RUN_URL"
+            exit 0
+          fi
+          {
+            echo "A libFuzzer target crashed during the scheduled fuzz run."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "The step log names the target that crashed. To reproduce,"
+            echo "download the nightly-fuzz-crashes artifact from that run,"
+            echo "build the fuzz targets locally (make fuzz FUZZ_SECONDS=1),"
+            echo "then replay the input:"
+            echo
+            echo '    out/build/fuzz/core/<target> <crash-file>'
+          } > /tmp/fuzz-issue-body.md
+          gh issue create --title "Nightly fuzz run found a crash" \
+            --label fuzz-crash --body-file /tmp/fuzz-issue-body.md
