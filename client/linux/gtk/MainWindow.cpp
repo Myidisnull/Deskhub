@@ -66,14 +66,19 @@ const char* const kStyleSheet =
     ".deskhub-nav { background-image: none; background-color: transparent; border: none;"
     " box-shadow: none; color: #d1d5db; font-size: 1.1em; padding: 0 16px; border-radius: 8px; }"
     ".deskhub-nav:hover { background-color: #374151; }"
+    ".deskhub-nav:active { background-color: #374151; }"
     ".deskhub-nav-selected { background-color: #2563eb; color: #ffffff; font-weight: bold; }"
     ".deskhub-nav-selected:hover { background-color: #2563eb; }"
+    ".deskhub-nav-selected:active { background-color: #2563eb; }"
     ".deskhub-page { background-color: #ffffff; }"
+    ".deskhub-page-body { padding: 16px; }"
     ".deskhub-heading { font-weight: bold; font-size: 1.35em; color: #111827; }"
     ".deskhub-section { font-weight: bold; font-size: 1.1em; color: #111827; }"
     ".deskhub-hint { color: #6b7280; }"
     ".deskhub-footnote { color: #94a3b8; }"
-    ".deskhub-link { color: #d1d5db; }"
+    ".deskhub-link { color: #d1d5db; background-color: transparent; border: none; }"
+    ".deskhub-link:hover { background-color: transparent; }"
+    ".deskhub-link:active { background-color: transparent; }"
     ".deskhub-banner { padding: 10px; border-left: 4px solid #6b7280;"
     " background-color: #f3f4f6; }"
     ".deskhub-banner-busy { border-left-color: #2563eb; background-color: #ebf3ff; }"
@@ -82,15 +87,61 @@ const char* const kStyleSheet =
     ".deskhub-banner-state-busy { color: #2563eb; }"
     ".deskhub-banner-state-live { color: #00913c; }"
     ".deskhub-primary { font-weight: bold; color: #ffffff; background-image: none;"
-    " background-color: #2563eb; }"
+    " background-color: #2563eb; border: none; }"
+    ".deskhub-primary:hover { background-color: #2563eb; }"
+    ".deskhub-primary:active { background-color: #1d4ed8; }"
+    ".deskhub-primary:disabled { background-color: #93c5fd; color: #ffffff; }"
     ".deskhub-primary-stop { background-color: #c82828; }"
+    ".deskhub-primary-stop:hover { background-color: #c82828; }"
+    ".deskhub-primary-stop:active { background-color: #a51f1f; }"
     ".deskhub-row-action { color: #ffffff; background-image: none; border: none;"
     " padding: 2px 10px; border-radius: 4px; }"
     ".deskhub-row-action-stop { background-color: #c82828; }"
+    ".deskhub-row-action-stop:hover { background-color: #c82828; }"
+    ".deskhub-row-action-stop:active { background-color: #a51f1f; }"
     ".deskhub-row-action-kick { background-color: #ca6c08; }"
+    ".deskhub-row-action-kick:hover { background-color: #ca6c08; }"
+    ".deskhub-row-action-kick:active { background-color: #a85a06; }"
     ".deskhub-row-header { color: #6b7280; font-weight: bold; font-size: 0.85em; }"
     ".deskhub-row-cell { color: #111827; }"
-    ".deskhub-row-cell-online { color: #00913c; }";
+    ".deskhub-row-cell-online { color: #00913c; }"
+    "window { background-color: #ffffff; color: #111827; }"
+    "viewport { background-color: #ffffff; }"
+    "entry { background-color: #ffffff; color: #111827; caret-color: #111827;"
+    " background-image: none; border: 1px solid #d1d5db; border-radius: 6px;"
+    " padding: 4px 8px; }"
+    "entry:focus { border-color: #2563eb; }"
+    "entry selection { background-color: #2563eb; color: #ffffff; }"
+    "spinbutton { background-color: #ffffff; color: #111827; background-image: none;"
+    " border: 1px solid #d1d5db; border-radius: 6px; }"
+    "spinbutton entry { border: none; }"
+    "spinbutton button { background-color: #f3f4f6; color: #111827; background-image: none;"
+    " border: none; }"
+    "button { background-color: #f9fafb; color: #111827; background-image: none;"
+    " border: 1px solid #d1d5db; border-radius: 6px; box-shadow: none; text-shadow: none; }"
+    "button:hover { background-color: #f3f4f6; }"
+    "button:active { background-color: #e5e7eb; }"
+    "button:disabled { color: #9ca3af; }"
+    "button.combo { background-color: #ffffff; }"
+    "button.titlebutton { background-color: transparent; border: none; }"
+    "button.titlebutton:hover { background-color: transparent; }"
+    "menu { background-color: #ffffff; }"
+    "menuitem { color: #111827; }"
+    "menuitem:hover { background-color: #2563eb; color: #ffffff; }"
+    "check { background-color: #ffffff; background-image: none; border: 1px solid #9ca3af; }"
+    "check:checked { background-color: #2563eb; border-color: #2563eb; color: #ffffff;"
+    " background-image: none; }"
+    "treeview.view { background-color: #ffffff; color: #111827; }"
+    "treeview.view:selected { background-color: #2563eb; color: #ffffff; }"
+    "treeview header button { background-color: #f9fafb; color: #6b7280; border: none;"
+    " border-radius: 0; }"
+    "scrolledwindow { border-color: #d1d5db; }"
+    "scrollbar { background-color: #f3f4f6; border: none; margin: 0; }"
+    "scrollbar contents, scrollbar trough { background-color: #f3f4f6; border: none;"
+    " margin: 0; }"
+    "scrollbar slider { background-color: #9ca3af; border: none; border-radius: 8px;"
+    " min-width: 8px; min-height: 8px; }"
+    "scrollbar slider:hover { background-color: #6b7280; }";
 
 void AddClass(GtkWidget* widget, const char* name) {
     gtk_style_context_add_class(gtk_widget_get_style_context(widget), name);
@@ -166,9 +217,10 @@ GtkWidget* WrapPage(GtkWidget* content) {
     GtkWidget* scroll = gtk_scrolled_window_new(nullptr, nullptr);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER,
         GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(scroll), FALSE);
     AddClass(scroll, "deskhub-page");
     AddClass(content, "deskhub-page");
-    gtk_container_set_border_width(GTK_CONTAINER(content), kPad);
+    AddClass(content, "deskhub-page-body");
     gtk_container_add(GTK_CONTAINER(scroll), content);
     return scroll;
 }
@@ -198,6 +250,7 @@ GtkWidget* ListFrame(GtkWidget* view, int height) {
     GtkWidget* scroll = gtk_scrolled_window_new(nullptr, nullptr);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC,
         GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(scroll), FALSE);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_IN);
     gtk_widget_set_size_request(scroll, -1, height);
     gtk_container_add(GTK_CONTAINER(scroll), view);

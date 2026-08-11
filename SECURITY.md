@@ -2,7 +2,7 @@
 
 # Deskhub Security Policy
 
-_Last updated: August 7, 2026_
+_Last updated: August 11, 2026_
 
 ## ⚠️ Read this first
 
@@ -41,7 +41,7 @@ machine to the Internet.
 | A stranger who cannot sniff your traffic | Every host requires a passcode: a wrong code is rejected, and every third wrong code locks the host for 30 seconds. That caps guessing at 3 tries per half-minute, so walking all 10 000 combinations would take about a day of uninterrupted attempts. A discovery probe without the right code gets an empty list back instead of your display names. |
 | Viewers fighting each other for the mouse | Up to 5 viewers may watch one host, but only one drives input: the earliest to have joined wins, and a later viewer's input is dropped until the earlier one has been idle for a second. A 6th viewer is rejected as `Busy`. |
 | A viewer you only want to show the screen to | View-only sharing, available on every host, drops input packets at the host before anything is injected — it is not enforced by asking the client to behave. |
-| Malformed packets | Every field is bounds-checked before it is read. The parsers are covered by unit tests and run under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer in CI. |
+| Malformed packets | Every field is bounds-checked before it is read. The parsers are covered by unit tests, run under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer in CI, and fuzzed nightly with libFuzzer — six targets covering the wire format, H.264 parsing, packet reassembly, session state machines and UI text. Crashes found by fuzzing are kept in-repo as regression tests, and new coverage is folded back into the seed corpus. |
 
 ### What Deskhub does **not** protect against
 

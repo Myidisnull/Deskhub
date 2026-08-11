@@ -1,16 +1,62 @@
 [English](README.md) · **Tiếng Việt**
 
+<div align="center">
+
 # 🖥️ Deskhub
 
-> **Mã nguồn mở. Native. Đa nền tảng. Remote desktop mượt như ngồi tại máy.**
+### Máy của bạn, trên mọi màn hình bạn có.
+
+**Mã nguồn mở. Native. Đa nền tảng. Remote desktop mượt như ngồi tại máy — nhanh và thô
+đủ để chơi game từ xa thật sự, điều mà các công cụ remote desktop thông thường không làm nổi.**
+
+[![Release](https://img.shields.io/github/v/release/manhpham90vn/Deskhub?label=release&color=2563eb)](https://github.com/manhpham90vn/Deskhub/releases)
+[![License: MIT](https://img.shields.io/github/license/manhpham90vn/Deskhub?color=2563eb)](LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-2563eb)](CMakeLists.txt)
+[![Platforms](https://img.shields.io/badge/ch%E1%BA%A1y%20tr%C3%AAn-Windows%20·%20macOS%20·%20Linux%20·%20Android%20·%20iOS-2563eb)](#-nền-tảng)
+
+[![build](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml)
+[![tests](https://github.com/manhpham90vn/Deskhub/actions/workflows/tests.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/tests.yml)
+[![lint](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml)
+[![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
+[![fuzz-nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml)
+
+<img src="docs/imgs/macos_2.png" alt="Deskhub trên macOS đang chia sẻ màn hình: tốc độ thu và gửi theo thời gian thực, một người xem đang kết nối, round-trip 0 ms" width="850">
+
+<sub>Một host macOS đang chia sẻ — tốc độ thu/gửi và băng thông theo thời gian thực cho từng
+màn hình, mỗi người xem một dòng riêng, <b>Stop</b> và <b>Disconnect</b> chỉ một cú bấm.
+Đúng vậy, RTT ghi <b>0 ms</b>.</sub>
+
+</div>
 
 Một **lõi C++20** duy nhất chạy trên mọi nền tảng — từ Windows tới iPhone — không phải
-viết lại giao thức lần nào. Nhanh và thô đủ để **chơi game từ xa thật sự**, điều mà các
-công cụ remote desktop thông thường không làm nổi.
+viết lại giao thức lần nào. Chia sẻ một màn hình, gõ IP ở máy kia, và bạn đang điều khiển
+nó.
 
 | ⚡ Nhanh | 📦 Một file | 🎛️ Đơn giản |
 | ------ | ---------- | --------- |
 | **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng ba mục trên mọi máy tính — **Host**, **Client**, **Settings**; điện thoại và máy tính bảng bỏ **Host** vì chỉ xem được. **Share** một màn hình hoặc **Connect** tới một IP, hết. |
+
+## 👀 Nhìn qua một chút
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/imgs/macos_3.png" alt="Trang Client của Deskhub trên macOS: kết nối bằng IP, ô nhập mã, quét mạng và danh sách thiết bị gần đây kèm trạng thái online">
+      <br><sub><b>Client</b> — gõ một IP, hoặc chỉ cần bấm vào máy mà trình quét mạng tìm thấy. Các thiết bị từng kết nối quay lại kèm trạng thái online/offline và ping theo thời gian thực.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/imgs/macos_4.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng, mã 4 chữ số, công tắc chỉ xem và trạng thái quyền hệ thống">
+      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã 4 chữ số bắt buộc, công tắc chỉ-xem, và (trên macOS) trạng thái cấp quyền theo thời gian thực.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/imgs/ios_1.png" alt="Client iOS của Deskhub: kết nối tới máy khác bằng IP và mã, quét mạng, thiết bị gần đây" width="270">
+  &nbsp;&nbsp;
+  <img src="docs/imgs/ios_2.png" alt="Cài đặt kết nối trên iOS của Deskhub: cổng UDP dùng cho quét thiết bị" width="270">
+</p>
+<p align="center"><sub>Vẫn app đó trên iPhone — quét mạng, chạm vào một máy, nhập mã 4 chữ số, và desktop của bạn chỉ cách một cái trackpad.</sub></p>
 
 ## 💡 Để làm gì
 
@@ -141,7 +187,9 @@ trên máy bạn:
 3. Cài đặt (chờ Play đồng bộ vài phút): [play.google.com/store/apps/details?id=com.manhpham.deskhub](https://play.google.com/store/apps/details?id=com.manhpham.deskhub)
    — rồi vui lòng **giữ máy cài ít nhất 14 ngày** (yêu cầu của Google để lên bản công khai).
 
-**Cách dùng:** trên desktop, **Host** chọn (các) màn hình để chia sẻ; **Client** nhập IP
+## 🕹️ Cách dùng
+
+Trên desktop, **Host** chọn (các) màn hình để chia sẻ; **Client** nhập IP
 của máy kia (cổng UDP 47777 nếu bạn không đổi). Tối đa **5 người xem** cùng lúc một host,
 và những máy bạn từng kết nối sẽ quay lại ở mục **Recent devices** kèm chấm trạng thái
 online/offline theo thời gian thực.
@@ -180,6 +228,7 @@ với đuôi `*.vi.md`. Bản tiếng Anh là bản chuẩn.
 - **Giao thức UDP viết riêng** — GOP vô hạn + IDR theo yêu cầu, FEC kiểu XOR, bitrate tự điều chỉnh.
 - **Điều khiển thật** — chuột tương đối (Raw Input) + scancode cho game DirectInput; chuột/bàn phím của chính máy host luôn được ưu tiên.
 - **Một lõi dùng chung** — giao thức, FEC và điều tiết bitrate nằm trong `core/`, được biên dịch vào mọi client.
+- **Bị hành hạ có chủ đích** — phần lõi có unit test chạy offline, chạy dưới ASan, UBSan và TSan trong CI, và sáu fuzz target libFuzzer quần thảo định dạng gói tin, phân tích H.264, ráp gói và máy trạng thái phiên mỗi đêm; mọi crash tìm được đều trở thành regression test.
 
 ## 📄 Giấy phép
 

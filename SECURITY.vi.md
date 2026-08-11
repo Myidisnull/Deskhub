@@ -2,7 +2,7 @@
 
 # Chính sách bảo mật của Deskhub
 
-_Cập nhật lần cuối: 7 tháng 8, 2026_
+_Cập nhật lần cuối: 11 tháng 8, 2026_
 
 > Đây là bản dịch của [`SECURITY.md`](SECURITY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản chuẩn**.
@@ -44,7 +44,7 @@ máy của mình cho Internet.
 | Người lạ không nghe lén được lưu lượng của bạn | Mọi host đều yêu cầu passcode: mã sai bị từ chối, và cứ mỗi ba lần sai thì host khoá 30 giây. Điều đó giới hạn việc dò ở mức 3 lần thử mỗi nửa phút, nên đi hết 10 000 tổ hợp sẽ mất khoảng một ngày thử liên tục không nghỉ. Gói dò tìm không có mã đúng chỉ nhận về danh sách rỗng thay vì tên các màn hình của bạn. |
 | Những người xem tranh chuột với nhau | Tối đa 5 người xem một host, nhưng chỉ một người điều khiển: ai vào trước thì thắng, và thao tác của người vào sau bị bỏ qua cho tới khi người vào trước ngừng thao tác một giây. Người thứ 6 bị từ chối với lý do `Busy`. |
 | Người xem mà bạn chỉ muốn cho xem màn hình | Chế độ chia sẻ chỉ xem, có trên mọi host, bỏ các gói điều khiển ngay tại host trước khi bất cứ thứ gì được đưa vào máy — nó không dựa vào việc yêu cầu client tự giác. |
-| Gói tin dị dạng | Mọi trường đều được kiểm tra biên trước khi đọc. Các bộ phân tích gói được phủ bởi unit test và chạy dưới AddressSanitizer, UndefinedBehaviorSanitizer và ThreadSanitizer trong CI. |
+| Gói tin dị dạng | Mọi trường đều được kiểm tra biên trước khi đọc. Các bộ phân tích gói được phủ bởi unit test, chạy dưới AddressSanitizer, UndefinedBehaviorSanitizer và ThreadSanitizer trong CI, và được fuzz mỗi đêm bằng libFuzzer — sáu target bao phủ định dạng gói tin, phân tích H.264, ráp gói, máy trạng thái phiên và văn bản UI. Crash do fuzz tìm ra được giữ lại trong repo làm regression test, và độ phủ mới được gộp ngược vào bộ seed corpus. |
 
 ### Deskhub **không** bảo vệ được những gì
 

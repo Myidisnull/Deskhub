@@ -1,16 +1,60 @@
 **English** · [Tiếng Việt](README.vi.md)
 
+<div align="center">
+
 # 🖥️ Deskhub
 
-> **Open-source. Native. Cross-platform. Remote desktop that feels local.**
+### Your machine, on every screen you own.
 
-One **C++20 core** runs everywhere — Windows to iPhone — zero protocol rewrites. Fast and
-raw enough to **actually play games remotely**, which ordinary remote desktop tools can't
-pull off.
+**Open-source. Native. Cross-platform. Remote desktop that feels local — fast and raw
+enough to actually play games remotely, which ordinary remote desktop tools can't pull off.**
+
+[![Release](https://img.shields.io/github/v/release/manhpham90vn/Deskhub?label=release&color=2563eb)](https://github.com/manhpham90vn/Deskhub/releases)
+[![License: MIT](https://img.shields.io/github/license/manhpham90vn/Deskhub?color=2563eb)](LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-2563eb)](CMakeLists.txt)
+[![Platforms](https://img.shields.io/badge/runs%20on-Windows%20·%20macOS%20·%20Linux%20·%20Android%20·%20iOS-2563eb)](#-platforms)
+
+[![build](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml)
+[![tests](https://github.com/manhpham90vn/Deskhub/actions/workflows/tests.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/tests.yml)
+[![lint](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml)
+[![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
+[![fuzz-nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml)
+
+<img src="docs/imgs/macos_2.png" alt="Deskhub on macOS sharing a display: live capture and send rates, one connected viewer, 0 ms round-trip time" width="850">
+
+<sub>A macOS host mid-share — live capture/send rates and bandwidth per display, every viewer
+on its own row, one-click <b>Stop</b> and <b>Disconnect</b>. Yes, that RTT says <b>0 ms</b>.</sub>
+
+</div>
+
+One **C++20 core** runs everywhere — Windows to iPhone — zero protocol rewrites. Share a
+display, type an IP on the other machine, and you're driving it.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
 | **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | The same three sections on every desktop — **Host**, **Client**, **Settings**; phones and tablets drop **Host**, since they can only watch. **Share** a display or **Connect** to an IP, and that's it. |
+
+## 👀 A quick look
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/imgs/macos_3.png" alt="Deskhub Client page on macOS: connect by IP, passcode field, network scan and recent devices with live online status">
+      <br><sub><b>Client</b> — type an IP, or just click a machine the network scan found. Recent devices come back with a live online/offline status and ping.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/imgs/macos_4.png" alt="Deskhub Settings page on macOS: fps, bitrate, quality, port, passcode, view-only switch and live permission state">
+      <br><sub><b>Settings</b> — fps, bitrate, quality cap, port, the mandatory 4-digit passcode, the view-only switch, and (on macOS) the live permission state.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/imgs/ios_1.png" alt="Deskhub iOS client: connect to another machine by IP and passcode, network scan, recent devices" width="270">
+  &nbsp;&nbsp;
+  <img src="docs/imgs/ios_2.png" alt="Deskhub iOS connection settings: UDP port used by the device scan" width="270">
+</p>
+<p align="center"><sub>The same app on an iPhone — scan the network, tap a machine, enter the 4-digit code, and your desktop is a trackpad away.</sub></p>
 
 ## 💡 Why
 
@@ -139,7 +183,9 @@ or join the Play beta — three steps, **same Google account** as your phone's P
 3. Install (give Play a few minutes to sync): [play.google.com/store/apps/details?id=com.manhpham.deskhub](https://play.google.com/store/apps/details?id=com.manhpham.deskhub)
    — then please keep it installed **14+ days** (Google's requirement to go public).
 
-**Using it:** on desktop, **Host** picks the display(s) to expose; **Client** takes the
+## 🕹️ Using it
+
+On desktop, **Host** picks the display(s) to expose; **Client** takes the
 other machine's IP (UDP 47777 unless you change the port). Up to **5 viewers** can watch
 one host at a time, and machines you have connected to before come back under **Recent
 devices** with a live online/offline dot.
@@ -178,6 +224,7 @@ Every document below is published in English, with a Vietnamese translation besi
 - **Purpose-built UDP protocol** — infinite GOP + on-demand IDR, XOR FEC, adaptive bitrate.
 - **Real input** — relative mouse (Raw Input) + scancodes for DirectInput games; host's own mouse/keyboard always wins.
 - **One shared core** — protocol, FEC, and bitrate control live in `core/`, compiled into every client.
+- **Beaten up on purpose** — the core is unit-tested offline, runs under ASan, UBSan and TSan in CI, and six libFuzzer targets hammer the wire format, H.264 parsing, reassembly and session state machines every night; every crash found becomes a regression test.
 
 ## 📄 License
 
