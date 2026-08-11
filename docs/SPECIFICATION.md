@@ -82,7 +82,7 @@ that can only view.
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| D-1 | Network scan | The client scans the local network for machines that are currently sharing and lists them, with progress shown while scanning ("*n* of *m* addresses checked"). |
+| D-1 | Network scan | The client scans the local network for machines that are currently sharing and lists them, with progress shown while scanning ("*n* of *m* addresses checked"). When the scan finds nothing, the user is told why a machine may be absent: it appears only while it is sharing, and phones and tablets never appear at all. |
 | D-2 | Scan bounds | A scan covers at most **512** addresses on the local subnet. If the machine has no local network address, the user is told scanning is not possible. |
 | D-3 | Automatic re-scan | The scan repeats periodically, and can be re-run on demand via *Refresh now*. |
 | D-4 | Click to connect | Clicking a discovered device starts a connection to it. |

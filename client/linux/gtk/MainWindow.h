@@ -33,6 +33,13 @@ private:
         kStarting,
         kSharing };
 
+    static constexpr int kHostColumnCount = 8;
+
+    struct HostRowWidgets {
+        GtkWidget* cells[kHostColumnCount] = {};
+        GtkWidget* action = nullptr;
+    };
+
     MainWindow() = default;
     ~MainWindow() = default;
     MainWindow(const MainWindow&) = delete;
@@ -75,14 +82,16 @@ private:
     void OnHostStarted(bool started, const std::string& error, const AgentOptions& options);
     void StopHosting();
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
-    void FillHostRow(GtkTreeIter* it, const deskhub::ui::HostRow& ref,
+    void ClearHostRows();
+    void RebuildHostRowWidgets();
+    HostRowWidgets MakeHostRowWidgets(const deskhub::ui::HostRow& ref, size_t index);
+    void FillHostRow(const HostRowWidgets& widgets, const deskhub::ui::HostRow& ref,
         const AgentSourceStatus& status);
     void RunRowAction(const deskhub::ui::HostRow& row);
     std::string HostPortDetail() const;
     void ApplyHostState(HostShareState state, const std::string& detail);
     void ShowIdleHostState();
 
-    void HideForSession();
     void ShowAfterSession();
     void SetBusy(bool busy, const char* what);
 
@@ -91,7 +100,7 @@ private:
 
     static void OnNavClicked(GtkButton* b, gpointer user);
     static void OnShareClicked(GtkButton* b, gpointer user);
-    static gboolean OnHostRowPressed(GtkWidget* view, GdkEventButton* event, gpointer user);
+    static void OnHostRowActionClicked(GtkButton* b, gpointer user);
     static void OnConnectClicked(GtkButton* b, gpointer user);
     static void OnAddressActivate(GtkEntry* e, gpointer user);
     static void OnCopyClicked(GtkButton* b, gpointer user);
@@ -114,9 +123,8 @@ private:
     GtkWidget* hostStateLabel_ = nullptr;
     GtkWidget* hostStatusLabel_ = nullptr;
     GtkWidget* hostHintLabel_ = nullptr;
-    GtkWidget* hostView_ = nullptr;
-    GtkTreeViewColumn* hostActionColumn_ = nullptr;
-    GtkListStore* hostStore_ = nullptr;
+    GtkWidget* hostGrid_ = nullptr;
+    std::vector<HostRowWidgets> hostRowWidgets_;
     GtkWidget* shareButton_ = nullptr;
 
     GtkWidget* addressEntry_ = nullptr;

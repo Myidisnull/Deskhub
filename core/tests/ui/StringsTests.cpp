@@ -31,7 +31,8 @@ void TestEveryLabelSaysSomething() {
         ui::kAllowControlLabel, ui::kViewOnlyNote, ui::kRequestControlLabel,
         ui::kPasscodeLabel, ui::kClientPasscodePrompt, ui::kClientPasscodeHint,
         ui::kClientIpPlaceholder, ui::kPasscodeInvalid, ui::kLanDevicesHeading,
-        ui::kLanDevicesEmpty, ui::kLanDevicesHint, ui::kScanRescanNote, ui::kScanNoLocalNetwork,
+        ui::kLanDevicesEmpty, ui::kLanDevicesHint, ui::kLanDevicesNoneSharing,
+        ui::kScanRescanNote, ui::kScanNoLocalNetwork,
         ui::kConnectPromptTitle, ui::kAppVersion, ui::kProjectUrl, ui::kProjectLinkLabel,
         ui::kRefreshNow};
     for (const char* s : labels) Check(s && *s, "every shared UI string is non-empty");
@@ -153,10 +154,14 @@ void TestDeviceListNotesReadTheSameOnEveryClient() {
         "an empty sweep still says how much was checked and when it retries");
     Check(!Contains(empty, ui::kLanDevicesHint),
         "there is nothing to click, so no click hint is offered");
+    Check(Contains(empty, ui::kLanDevicesNoneSharing),
+        "an empty sweep says why a machine would be missing, not just that none was found");
 
     const std::string found = ui::LanDevicesNote(2, 253, 45);
     Check(Contains(found, ui::kLanDevicesHint) && Contains(found, "45"),
         "once devices are listed the user is told to click one, and when the list refreshes");
+    Check(!Contains(found, ui::kLanDevicesNoneSharing),
+        "the missing-machine explanation is dropped once the list has something in it");
 
     Check(ui::RecentDevicesNote(0, 30) == ui::kRecentDevicesEmpty,
         "an empty history explains what will fill it");

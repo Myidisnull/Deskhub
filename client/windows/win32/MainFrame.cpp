@@ -52,6 +52,8 @@ constexpr const char* kRecentDevicesFile = "recent-devices.txt";
 constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
 constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
+constexpr int kHintWrapDip = 620;
+constexpr int kPrimaryButtonH = 46;
 
 enum Page { kPageHost = 0,
     kPageClient = 1,
@@ -193,7 +195,14 @@ wxStaticText* MakeHeading(wxWindow* parent, const char* text) {
 wxStaticText* MakeHint(wxWindow* parent, const wxString& text) {
     auto* hint = new wxStaticText(parent, wxID_ANY, text);
     hint->SetForegroundColour(kMutedText);
+    hint->Wrap(parent->FromDIP(kHintWrapDip));
     return hint;
+}
+
+void SetHintLabel(wxStaticText* hint, const wxString& text) {
+    hint->SetLabel(text);
+    hint->Wrap(hint->FromDIP(kHintWrapDip));
+    hint->GetParent()->Layout();
 }
 
 wxSizer* MakeHeadingRow(wxWindow* parent, const char* heading, const wxString& action,
@@ -529,7 +538,7 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
     sizer->Add(hostHint_, pad);
 
     shareBtn_ = new wxButton(panel, wxID_ANY, wxString());
-    shareBtn_->SetMinSize(FromDIP(wxSize(-1, 46)));
+    shareBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
     shareBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OnShare(); });
     sizer->Add(shareBtn_, wxSizerFlags().Expand().Border(wxALL, FromDIP(14)));
 
@@ -579,10 +588,11 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     sizer->Add(grid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     connectBtn_ = new wxButton(panel, wxID_ANY, "Connect");
-    connectBtn_->SetMinSize(FromDIP(wxSize(160, 38)));
+    connectBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
     PaintButton(connectBtn_, kAccent);
     connectBtn_->Bind(wxEVT_BUTTON, connectNow);
-    sizer->Add(connectBtn_, wxSizerFlags().Centre().Border(wxTOP, FromDIP(14)));
+    sizer->Add(connectBtn_,
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     clientStatus_ = new wxStaticText(panel, wxID_ANY, wxString());
     clientStatus_->SetForegroundColour(kMutedText);
@@ -855,7 +865,7 @@ void MainFrame::RefreshRecentList() {
         list_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastConnectedUnix)));
         ApplyStatusToRow(row, device.addr);
     }
-    listHint_->SetLabel(
+    SetHintLabel(listHint_,
         ToWx(ui::RecentDevicesNote(recent_.size(), deskhubp::kDeviceStatusRoundSecs)));
 }
 
@@ -1096,7 +1106,7 @@ void MainFrame::KickViewer(uint8_t sourceId, const std::string& viewerAddr) {
 void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
     clientStatus_->SetLabel(text);
     clientStatus_->SetForegroundColour(colour);
-    clientStatus_->Wrap(FromDIP(620));
+    clientStatus_->Wrap(FromDIP(kHintWrapDip));
     clientStatus_->GetParent()->Layout();
 }
 
@@ -1160,7 +1170,7 @@ void MainFrame::StartScan() {
 
 void MainFrame::RescanNow() {
     scanTimer_.Stop();
-    scanStatus_->SetLabel(ToWx(ui::kLanDevicesEmpty));
+    SetHintLabel(scanStatus_, ToWx(ui::kLanDevicesEmpty));
     StartScan();
 }
 
@@ -1193,7 +1203,7 @@ void MainFrame::OnScanHit(const deskhubp::ScanHit& hit) {
 }
 
 void MainFrame::OnScanProgress(const deskhubp::ScanProgress& progress) {
-    scanStatus_->SetLabel(
+    SetHintLabel(scanStatus_,
         ToWx(ui::ScanningStatus(progress.probed, progress.total, uint16_t(settings_.port))));
 }
 
@@ -1205,7 +1215,7 @@ void MainFrame::OnScanFinished(const deskhubp::ScanProgress& progress) {
     scanned_.erase(std::remove_if(scanned_.begin(), scanned_.end(), gone), scanned_.end());
     RefreshScanList();
 
-    scanStatus_->SetLabel(
+    SetHintLabel(scanStatus_,
         ToWx(ui::LanDevicesNote(scanned_.size(), progress.total, deskhubp::kLanRescanSecs)));
     scanTimer_.StartOnce(kRescanDelayMs);
 }

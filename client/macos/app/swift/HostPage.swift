@@ -30,9 +30,8 @@ struct HostPage: View {
                         ProgressView().controlSize(.small)
                     }
                     Text(shareState.action)
-                        .font(.system(size: 15, weight: .semibold))
                 }
-                .frame(maxWidth: .infinity, minHeight: 26)
+                .deskhubPrimaryLabel()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)

@@ -25,3 +25,12 @@ func deskhubHeadingRow(_ text: String, onRefresh: @MainActor @escaping () -> Voi
         Button(DeskhubClient.string(DHStrRefreshNow), action: onRefresh)
     }
 }
+
+let deskhubPrimaryButtonHeight: CGFloat = 26
+
+extension View {
+    func deskhubPrimaryLabel() -> some View {
+        font(.system(size: 15, weight: .semibold))
+            .frame(maxWidth: .infinity, minHeight: deskhubPrimaryButtonHeight)
+    }
+}

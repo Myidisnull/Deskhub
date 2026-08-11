@@ -163,11 +163,13 @@ struct MainMenuView: View {
 
             deskhubHint(DeskhubClient.string(DHStrClientPasscodeHint))
 
-            Button("Connect", action: beginConnect)
-                .buttonStyle(.borderedProminent)
-                .frame(width: 140)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .disabled(connect.address.isEmpty || connect.isConnecting)
+            Button(action: beginConnect) {
+                Text("Connect").deskhubPrimaryLabel()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(DeskhubPalette.accent)
+            .disabled(connect.address.isEmpty || connect.isConnecting)
 
             Toggle(DeskhubClient.string(DHStrRequestControlLabel), isOn: $agent.clientControl)
                 .onChange(of: agent.clientControl) { _, _ in agent.save() }

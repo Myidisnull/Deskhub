@@ -34,12 +34,16 @@ struct ConnectView: View {
                         .foregroundStyle(DeskhubPalette.muted)
                 }
 
-                HStack(spacing: 12) {
-                    Button("Connect", action: model.beginConnect)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
+                Button(action: model.beginConnect) {
+                    Text("Connect").deskhubPrimaryLabel()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(DeskhubPalette.accent)
+                .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
 
-                    if model.connect.isConnecting {
+                if model.connect.isConnecting {
+                    HStack(spacing: 12) {
                         ProgressView()
                         Text(DeskhubClient.string(DHStrQueryingSources))
                             .foregroundStyle(DeskhubPalette.muted)

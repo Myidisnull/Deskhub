@@ -509,17 +509,18 @@ private fun AddressScreen(
             keyboardActions = KeyboardActions(onGo = { go() }),
         )
 
-        Row(
+        Button(
+            onClick = go,
+            enabled = ready,
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                onClick = go,
-                enabled = ready,
-            ) { Text("Connect") }
+        ) { Text("Connect") }
 
-            if (busy) {
+        if (busy) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text(NativeClient.string(NativeClient.STR_QUERYING_SOURCES))
             }

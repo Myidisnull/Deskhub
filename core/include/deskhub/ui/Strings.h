@@ -76,9 +76,12 @@ inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
 inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
-inline constexpr const char* kLanDevicesHeading = "Devices on this network";
+inline constexpr const char* kLanDevicesHeading = "Machines sharing on this network";
 inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
 inline constexpr const char* kLanDevicesHint = "Click a device to connect to it.";
+inline constexpr const char* kLanDevicesNoneSharing =
+    "A machine appears here only while it is sharing \xE2\x80\x94 phones and tablets can view "
+    "but never share.";
 inline constexpr const char* kScanRescanNote = "Checking again shortly.";
 inline constexpr const char* kRefreshNow = "Refresh now";
 inline constexpr const char* kScanNoLocalNetwork =
@@ -199,9 +202,8 @@ inline std::string ScanFinishedStatus(size_t found, size_t total) {
 
 inline std::string LanDevicesNote(size_t found, size_t total, uint32_t rescanSecs) {
     if (total == 0) return kScanNoLocalNetwork;
-    std::string note = ScanRecheckNote(rescanSecs);
-    if (found > 0) note = std::string(kLanDevicesHint) + " " + note;
-    return ScanFinishedStatus(found, total) + " " + note;
+    const char* detail = found > 0 ? kLanDevicesHint : kLanDevicesNoneSharing;
+    return ScanFinishedStatus(found, total) + " " + detail + " " + ScanRecheckNote(rescanSecs);
 }
 
 inline std::string RecentDevicesNote(size_t deviceCount, uint32_t recheckSecs) {
