@@ -38,7 +38,7 @@ machine to the Internet.
 | Data reaching the developer | Nothing does. There are no servers, no accounts, no telemetry, no third-party SDKs. See [`PRIVACY.md`](PRIVACY.md). |
 | A remote viewer fighting you for the machine | "Host wins": the moment you touch the real mouse or keyboard, remote input is paused (Windows, macOS and Linux hosts alike). |
 | Keys left stuck down | Any key the remote side is holding is released automatically when the session ends or the viewer switches away. |
-| A stranger who cannot sniff your traffic | Every host requires a passcode: a wrong code is rejected, and every third wrong code locks the host for 30 seconds. That caps guessing at 3 tries per half-minute, so walking all 10 000 combinations would take about a day of uninterrupted attempts. A discovery probe without the right code gets an empty list back instead of your display names. |
+| A stranger who cannot sniff your traffic | Every host requires a passcode, and every third wrong connection attempt locks the host for 30 seconds. That throttle covers connections only: the discovery beacon answers probes at full speed, and a probe carrying the right code gets the real display list where a wrong one gets an empty list — an oracle that confirms a guessed code, so all 10 000 combinations can be walked in seconds. The passcode keeps out the casual, not anyone running a scanner (see the beacon bullet below). |
 | Viewers fighting each other for the mouse | Up to 5 viewers may watch one host, but only one drives input: the earliest to have joined wins, and a later viewer's input is dropped until the earlier one has been idle for a second. A 6th viewer is rejected as `Busy`. |
 | A viewer you only want to show the screen to | View-only sharing, available on every host, drops input packets at the host before anything is injected — it is not enforced by asking the client to behave. Android and iOS hosts are view-only unconditionally. |
 | A phone left sharing by accident | The operating system, not Deskhub, is the backstop: Android keeps a permanent notification up and re-asks for recording consent on every single share, and iOS keeps its broadcast indicator visible. Either can stop the share without opening the app. |
@@ -72,7 +72,10 @@ any of it:
   gets a reply from any source address; so does a `PING`. The passcode only empties the
   reply — a probe without the right code is told "nothing shared" instead of your display
   names and resolutions. Either way the packet still comes back, so the machine is still
-  discoverable by scanning, and the port is still usable as a small UDP reflector.
+  discoverable by scanning, and the port is still usable as a small UDP reflector. The
+  beacon is also not rate limited, and a non-empty reply confirms a correct code, so it
+  doubles as an oracle for brute-forcing the passcode — the 30-second connection lockout
+  does not apply here.
 - **A viewer slot frees itself after 5 seconds of silence.** If your viewer drops off,
   its slot reopens and the next `Hello` to arrive takes it — whoever sent it, subject
   only to the passcode.

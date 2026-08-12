@@ -20,7 +20,7 @@
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
 [![fuzz-nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml)
 
-<img src="docs/imgs/macos_2.png" alt="Deskhub trên macOS đang chia sẻ màn hình: tốc độ thu và gửi theo thời gian thực, một người xem đang kết nối, round-trip 0 ms" width="850">
+<img src="docs/imgs/macos_1.png" alt="Deskhub trên macOS đang chia sẻ màn hình: tốc độ thu và gửi theo thời gian thực, một người xem đang kết nối, round-trip 0 ms" width="850">
 
 <sub>Một host macOS đang chia sẻ — tốc độ thu/gửi và băng thông theo thời gian thực cho từng
 màn hình, mỗi người xem một dòng riêng, <b>Stop</b> và <b>Disconnect</b> chỉ một cú bấm.
@@ -41,11 +41,11 @@ nó.
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/imgs/macos_3.png" alt="Trang Client của Deskhub trên macOS: kết nối bằng IP, ô nhập mã, quét mạng và danh sách thiết bị gần đây kèm trạng thái online">
+      <img src="docs/imgs/macos_2.png" alt="Trang Client của Deskhub trên macOS: kết nối bằng IP, ô nhập mã, quét mạng và danh sách thiết bị gần đây kèm trạng thái online">
       <br><sub><b>Client</b> — gõ một IP, hoặc chỉ cần bấm vào máy mà trình quét mạng tìm thấy. Các thiết bị từng kết nối quay lại kèm trạng thái online/offline và ping theo thời gian thực.</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/imgs/macos_4.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng, mã 4 chữ số, công tắc chỉ xem và trạng thái quyền hệ thống">
+      <img src="docs/imgs/macos_3.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng, mã 4 chữ số, công tắc chỉ xem và trạng thái quyền hệ thống">
       <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã 4 chữ số bắt buộc, công tắc chỉ-xem, và (trên macOS) trạng thái cấp quyền theo thời gian thực.</sub>
     </td>
   </tr>
@@ -54,9 +54,16 @@ nó.
 <p align="center">
   <img src="docs/imgs/ios_1.png" alt="Client iOS của Deskhub: kết nối tới máy khác bằng IP và mã, quét mạng, thiết bị gần đây" width="270">
   &nbsp;&nbsp;
-  <img src="docs/imgs/ios_2.png" alt="Cài đặt kết nối trên iOS của Deskhub: cổng UDP dùng cho quét thiết bị" width="270">
+  <img src="docs/imgs/ios_2.png" alt="Trang Host trên iOS của Deskhub: mã 4 chữ số, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="270">
 </p>
-<p align="center"><sub>Vẫn app đó trên iPhone — quét mạng, chạm vào một máy, nhập mã 4 chữ số, và desktop của bạn chỉ cách một cái trackpad.</sub></p>
+<p align="center"><sub>Vẫn app đó trên iPhone — quét mạng, chạm vào một máy, nhập mã 4 chữ số… hoặc chuyển sang tab Host để chia sẻ chính màn hình điện thoại.</sub></p>
+
+<p align="center">
+  <img src="docs/imgs/android_1.png" alt="Client Android của Deskhub: kết nối tới máy khác bằng IP và mã, quét mạng, thiết bị gần đây" width="270">
+  &nbsp;&nbsp;
+  <img src="docs/imgs/android_2.png" alt="Trang Host trên Android của Deskhub: mã 4 chữ số, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="270">
+</p>
+<p align="center"><sub>Và trên Android — vẫn hai trang Client và Host; chia sẻ màn hình ở chế độ chỉ xem, từ Android 10 trở lên.</sub></p>
 
 ## 💡 Để làm gì
 
@@ -234,4 +241,4 @@ với đuôi `*.vi.md`. Bản tiếng Anh là bản chuẩn.
 
 MIT — xem [`LICENSE`](LICENSE). Các thành phần bên thứ ba và thông báo giấy phép của
 chúng (bao gồm bản FFmpeg LGPL được liên kết tĩnh trong app Linux) được liệt kê trong
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+[`THIRD_PARTY_NOTICES.vi.md`](THIRD_PARTY_NOTICES.vi.md).

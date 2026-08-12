@@ -20,7 +20,7 @@ enough to actually play games remotely, which ordinary remote desktop tools can'
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
 [![fuzz-nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml)
 
-<img src="docs/imgs/macos_2.png" alt="Deskhub on macOS sharing a display: live capture and send rates, one connected viewer, 0 ms round-trip time" width="850">
+<img src="docs/imgs/macos_1.png" alt="Deskhub on macOS sharing a display: live capture and send rates, one connected viewer, 0 ms round-trip time" width="850">
 
 <sub>A macOS host mid-share — live capture/send rates and bandwidth per display, every viewer
 on its own row, one-click <b>Stop</b> and <b>Disconnect</b>. Yes, that RTT says <b>0 ms</b>.</sub>
@@ -39,11 +39,11 @@ display, type an IP on the other machine, and you're driving it.
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/imgs/macos_3.png" alt="Deskhub Client page on macOS: connect by IP, passcode field, network scan and recent devices with live online status">
+      <img src="docs/imgs/macos_2.png" alt="Deskhub Client page on macOS: connect by IP, passcode field, network scan and recent devices with live online status">
       <br><sub><b>Client</b> — type an IP, or just click a machine the network scan found. Recent devices come back with a live online/offline status and ping.</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/imgs/macos_4.png" alt="Deskhub Settings page on macOS: fps, bitrate, quality, port, passcode, view-only switch and live permission state">
+      <img src="docs/imgs/macos_3.png" alt="Deskhub Settings page on macOS: fps, bitrate, quality, port, passcode, view-only switch and live permission state">
       <br><sub><b>Settings</b> — fps, bitrate, quality cap, port, the mandatory 4-digit passcode, the view-only switch, and (on macOS) the live permission state.</sub>
     </td>
   </tr>
@@ -52,9 +52,16 @@ display, type an IP on the other machine, and you're driving it.
 <p align="center">
   <img src="docs/imgs/ios_1.png" alt="Deskhub iOS client: connect to another machine by IP and passcode, network scan, recent devices" width="270">
   &nbsp;&nbsp;
-  <img src="docs/imgs/ios_2.png" alt="Deskhub iOS connection settings: UDP port used by the device scan" width="270">
+  <img src="docs/imgs/ios_2.png" alt="Deskhub iOS host page: 4-digit passcode, Start sharing button and the IP addresses others use to connect" width="270">
 </p>
-<p align="center"><sub>The same app on an iPhone — scan the network, tap a machine, enter the 4-digit code, and your desktop is a trackpad away.</sub></p>
+<p align="center"><sub>The same app on an iPhone — scan the network, tap a machine, enter the 4-digit code… or flip to the Host tab and share the phone's own screen.</sub></p>
+
+<p align="center">
+  <img src="docs/imgs/android_1.png" alt="Deskhub Android client: connect to another machine by IP and passcode, network scan, recent devices" width="270">
+  &nbsp;&nbsp;
+  <img src="docs/imgs/android_2.png" alt="Deskhub Android host page: 4-digit passcode, Start sharing button and the IP addresses others use to connect" width="270">
+</p>
+<p align="center"><sub>And on Android — the same Client and Host pages; hosting is a view-only screen share on Android 10+.</sub></p>
 
 ## 💡 Why
 

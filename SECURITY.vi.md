@@ -41,7 +41,7 @@ máy của mình cho Internet.
 | Dữ liệu tới tay nhà phát triển | Không có gì cả. Không máy chủ, không tài khoản, không telemetry, không SDK bên thứ ba. Xem [`PRIVACY.vi.md`](PRIVACY.vi.md). |
 | Người xem từ xa tranh máy với bạn | "Host thắng": ngay khi bạn chạm vào chuột hoặc bàn phím thật, thao tác từ xa tạm dừng (đúng như vậy trên cả host Windows, macOS và Linux). |
 | Phím bị kẹt ở trạng thái nhấn | Mọi phím mà phía từ xa đang giữ đều được nhả tự động khi phiên kết thúc hoặc người xem chuyển đi chỗ khác. |
-| Người lạ không nghe lén được lưu lượng của bạn | Mọi host đều yêu cầu passcode: mã sai bị từ chối, và cứ mỗi ba lần sai thì host khoá 30 giây. Điều đó giới hạn việc dò ở mức 3 lần thử mỗi nửa phút, nên đi hết 10 000 tổ hợp sẽ mất khoảng một ngày thử liên tục không nghỉ. Gói dò tìm không có mã đúng chỉ nhận về danh sách rỗng thay vì tên các màn hình của bạn. |
+| Người lạ không nghe lén được lưu lượng của bạn | Mọi host đều yêu cầu passcode, và cứ mỗi ba lần kết nối sai mã thì host khoá 30 giây. Nhưng cái phanh đó chỉ áp cho kết nối: beacon dò tìm trả lời mọi gói dò với tốc độ tối đa, và gói dò mang mã đúng nhận về danh sách màn hình thật trong khi mã sai chỉ nhận danh sách rỗng — một oracle xác nhận mã đoán, nên đi hết 10 000 tổ hợp theo đường đó chỉ mất vài giây. Passcode chặn được người tò mò, không chặn được kẻ chạy máy quét (xem mục beacon bên dưới). |
 | Những người xem tranh chuột với nhau | Tối đa 5 người xem một host, nhưng chỉ một người điều khiển: ai vào trước thì thắng, và thao tác của người vào sau bị bỏ qua cho tới khi người vào trước ngừng thao tác một giây. Người thứ 6 bị từ chối với lý do `Busy`. |
 | Người xem mà bạn chỉ muốn cho xem màn hình | Chế độ chia sẻ chỉ xem, có trên mọi host, bỏ các gói điều khiển ngay tại host trước khi bất cứ thứ gì được đưa vào máy — nó không dựa vào việc yêu cầu client tự giác. Host Android và iOS luôn ở chế độ chỉ xem, không tắt được. |
 | Điện thoại bị bỏ quên trong lúc đang chia sẻ | Chốt chặn là hệ điều hành chứ không phải Deskhub: Android giữ một thông báo thường trực và hỏi lại quyền quay màn hình ở từng lần chia sẻ, còn iOS luôn hiện chỉ báo broadcast. Cả hai đều dừng được phiên chia sẻ mà không cần mở app. |
@@ -75,7 +75,9 @@ tại — và passcode không giải quyết được điều nào cả:
   phản hồi từ bất kỳ địa chỉ nguồn nào; `PING` cũng vậy. Passcode chỉ làm rỗng phần trả
   lời — gói dò không có mã đúng được báo "không chia sẻ gì" thay vì nhận tên và độ phân
   giải các màn hình của bạn. Dù thế nào gói tin vẫn quay về, nên máy vẫn bị phát hiện
-  được bằng cách quét, và cổng vẫn dùng được như một bộ phản xạ UDP nhỏ.
+  được bằng cách quét, và cổng vẫn dùng được như một bộ phản xạ UDP nhỏ. Beacon cũng
+  không bị giới hạn tần suất, và phản hồi không rỗng xác nhận mã đúng, nên nó kiêm luôn
+  vai trò oracle để dò passcode — khoá 30 giây của đường kết nối không áp dụng ở đây.
 - **Một chỗ người xem tự giải phóng sau 5 giây im lặng.** Nếu người xem của bạn rớt mạng,
   chỗ đó mở lại và gói `Hello` tới tiếp theo sẽ chiếm — bất kể ai gửi, chỉ phải qua cửa
   passcode.
