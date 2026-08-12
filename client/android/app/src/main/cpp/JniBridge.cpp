@@ -136,6 +136,22 @@ Java_com_deskhub_app_NativeClient_nativeConnectingTo(JNIEnv* env, jobject, jstri
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeSourceQueryFailed(JNIEnv* env, jobject, jstring addrStr) {
+    const std::string addr = FromJString(env, addrStr);
+    char buf[320];
+    dh_source_query_failed(addr.c_str(), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeSourceQueryEmpty(JNIEnv* env, jobject, jstring addrStr) {
+    const std::string addr = FromJString(env, addrStr);
+    char buf[320];
+    dh_source_query_empty(addr.c_str(), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeHostTitle(JNIEnv* env, jobject, jstring addrStr,
     jint width, jint height) {
     const std::string addr = FromJString(env, addrStr);

@@ -188,6 +188,17 @@ inline std::string CouldNotConnectTo(std::string_view address) {
     return "Could not connect to " + std::string(address) + ".";
 }
 
+inline std::string SourceQueryFailed(std::string_view address) {
+    return "No reply from " + std::string(address) +
+           " - check that the other machine is sharing and that the passcode matches.";
+}
+
+inline std::string SourceQueryEmpty(std::string_view address) {
+    return std::string(address) +
+           " replied without any sources - check the 4-digit passcode on the host, and that it "
+           "is still sharing.";
+}
+
 inline std::string ScanningStatus(size_t probed, size_t total, uint16_t port) {
     return "Looking for hosts on " + UdpPortLine(port) + " - " + std::to_string(probed) + " of " +
            std::to_string(total) + " addresses checked" + "\xE2\x80\xA6";

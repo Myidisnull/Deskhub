@@ -142,6 +142,20 @@ int dh_could_not_connect(const char* address, char* out, int capacity) {
     return int(std::strlen(out));
 }
 
+int dh_source_query_failed(const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ui::SourceQueryFailed(address ? address : ""));
+    return int(std::strlen(out));
+}
+
+int dh_source_query_empty(const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ui::SourceQueryEmpty(address ? address : ""));
+    return int(std::strlen(out));
+}
+
 int dh_udp_port_line(uint32_t port, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::UdpPortLine(uint16_t(port)));

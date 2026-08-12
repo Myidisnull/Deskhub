@@ -16,15 +16,7 @@ namespace deskhubp {
 struct ConnectOutcome {
     bool ok = false;
     std::vector<deskhub::SourceInfo> sources;
-
-    bool hasSources() const {
-        return ok && !sources.empty();
-    }
 };
-
-inline std::vector<deskhub::SourceInfo> DefaultViewTargets() {
-    return {deskhub::SourceInfo{}};
-}
 
 class ConnectDriver {
 public:

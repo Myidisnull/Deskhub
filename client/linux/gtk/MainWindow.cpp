@@ -973,22 +973,25 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
     const deskhubp::ConnectOutcome& outcome) {
     SetBusy(false, nullptr);
 
-    if (outcome.ok) {
-        ui::TouchRecentDevice(recent_, addr, int64_t(std::time(nullptr)), passcode);
-        SaveRecentDevices();
-        poller_.SetAddresses(AddressesOf(recent_));
-        RefreshRecentList();
+    if (!outcome.ok) {
+        ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::SourceQueryFailed(addr));
+        return;
     }
+    if (outcome.sources.empty()) {
+        ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::SourceQueryEmpty(addr));
+        return;
+    }
+
+    ui::TouchRecentDevice(recent_, addr, int64_t(std::time(nullptr)), passcode);
+    SaveRecentDevices();
+    poller_.SetAddresses(AddressesOf(recent_));
+    RefreshRecentList();
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) return;
 
     std::vector<deskhub::SourceInfo> picked;
-    if (outcome.hasSources()) {
-        if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) return;
-    } else {
-        picked = deskhubp::DefaultViewTargets();
-    }
+    if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) return;
 
     int opened = 0;
     for (const auto& s : picked) {

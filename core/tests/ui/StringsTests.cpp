@@ -49,6 +49,22 @@ void TestConnectingMentionsTheAddress() {
         "an empty address still produces a sentence, not a crash");
 }
 
+void TestQueryFailureExplainsWhatToCheck() {
+    std::printf("[strings] the failed pre-connect check names the host and both causes...\n");
+    const std::string msg = ui::SourceQueryFailed("192.168.1.10:47777");
+    Check(Contains(msg, "192.168.1.10:47777"), "the user can see which machine stayed silent");
+    Check(Contains(msg, "sharing"), "a host that is not sharing is the most likely cause");
+    Check(Contains(msg, "passcode"), "a wrong passcode fails the exact same way");
+    Check(Contains(ui::SourceQueryFailed(""), "No reply"),
+        "an empty address still produces a sentence, not a crash");
+
+    const std::string empty = ui::SourceQueryEmpty("192.168.1.10:47777");
+    Check(Contains(empty, "192.168.1.10:47777"), "the user can see which machine held back");
+    Check(Contains(empty, "passcode"),
+        "a host that answers with nothing is guarding against a wrong passcode");
+    Check(Contains(empty, "sharing"), "or it simply stopped sharing in the meantime");
+}
+
 void TestHostTitleOnlyShowsAKnownSize() {
     std::printf("[strings] the host title shows a size only once one is known...\n");
     Check(ui::HostTitle("192.168.1.10", 0, 0) == "192.168.1.10",
@@ -214,6 +230,7 @@ void TestClampWarningQuotesTheProtocolLimit() {
 void RunStringsTests() {
     TestEveryLabelSaysSomething();
     TestConnectingMentionsTheAddress();
+    TestQueryFailureExplainsWhatToCheck();
     TestHostTitleOnlyShowsAKnownSize();
     TestThePortIsNeverHardcodedTwice();
     TestSplitHostPortHandlesEveryShape();

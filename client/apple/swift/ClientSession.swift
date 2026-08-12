@@ -36,6 +36,14 @@ nonisolated enum DeskhubClient {
         buffered(320) { dh_could_not_connect(address, $0, $1) }
     }
 
+    static func sourceQueryFailed(_ address: String) -> String {
+        buffered(320) { dh_source_query_failed(address, $0, $1) }
+    }
+
+    static func sourceQueryEmpty(_ address: String) -> String {
+        buffered(320) { dh_source_query_empty(address, $0, $1) }
+    }
+
     static func hostTitle(_ address: String, width: UInt32, height: UInt32) -> String {
         buffered(320) { dh_host_title(address, width, height, $0, $1) }
     }
@@ -129,20 +137,21 @@ nonisolated enum DeskhubClient {
         String(typed.filter(\.isASCII).filter(\.isNumber).prefix(passcodeDigits))
     }
 
-    static func listSources(address: String, passcode: String) -> [Source] {
-        ffiList(
-            16, DHSourceInfo(),
-            { dh_list_sources(address, $0, $1, passcode) },
-            { info in
-                Source(
-                    id: info.sourceId,
-                    name: cString(info.name),
-                    displayName: cString(info.displayName),
-                    sizeLabel: cString(info.sizeLabel),
-                    pickerLabel: cString(info.pickerLabel)
-                )
-            }
-        )
+    static func listSources(address: String, passcode: String) -> [Source]? {
+        var buf = [DHSourceInfo](repeating: DHSourceInfo(), count: Int(dh_max_sources()))
+        let count = buf.withUnsafeMutableBufferPointer { ptr in
+            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode)
+        }
+        guard count >= 0 else { return nil }
+        return buf.prefix(Int(count)).map { info in
+            Source(
+                id: info.sourceId,
+                name: cString(info.name),
+                displayName: cString(info.displayName),
+                sizeLabel: cString(info.sizeLabel),
+                pickerLabel: cString(info.pickerLabel)
+            )
+        }
     }
 }
 

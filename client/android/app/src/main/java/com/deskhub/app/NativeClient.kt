@@ -115,6 +115,10 @@ object NativeClient {
 
     private external fun nativeConnectingTo(addr: String): String
 
+    private external fun nativeSourceQueryFailed(addr: String): String
+
+    private external fun nativeSourceQueryEmpty(addr: String): String
+
     private external fun nativeHostTitle(
         addr: String,
         width: Int,
@@ -132,6 +136,10 @@ object NativeClient {
     fun couldNotConnect(addr: String): String = nativeCouldNotConnect(addr)
 
     fun connectingTo(addr: String): String = nativeConnectingTo(addr)
+
+    fun sourceQueryFailed(addr: String): String = nativeSourceQueryFailed(addr)
+
+    fun sourceQueryEmpty(addr: String): String = nativeSourceQueryEmpty(addr)
 
     fun hostTitle(
         addr: String,

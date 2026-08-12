@@ -162,6 +162,10 @@ int dh_connecting_to(const char* address, char* out, int capacity);
 
 int dh_could_not_connect(const char* address, char* out, int capacity);
 
+int dh_source_query_failed(const char* address, char* out, int capacity);
+
+int dh_source_query_empty(const char* address, char* out, int capacity);
+
 int dh_udp_port_line(uint32_t port, char* out, int capacity);
 
 int dh_compose_address(const char* host, const char* portText, char* out, int capacity);

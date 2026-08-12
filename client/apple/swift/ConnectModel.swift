@@ -48,8 +48,17 @@ final class ConnectModel {
         let code = acceptedPasscode
         isConnecting = true
         defer { isConnecting = false }
-        return await Task.detached {
+        let found = await Task.detached {
             DeskhubClient.listSources(address: accepted, passcode: code)
         }.value
+        guard let found else {
+            connectError = DeskhubClient.sourceQueryFailed(accepted)
+            return []
+        }
+        guard !found.isEmpty else {
+            connectError = DeskhubClient.sourceQueryEmpty(accepted)
+            return []
+        }
+        return found
     }
 }

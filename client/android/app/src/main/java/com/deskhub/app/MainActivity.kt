@@ -274,20 +274,29 @@ private fun MainScreen(
         step = mine
         scope.launch {
             val queried = NativeClient.listSources(addr, code)
-            if (queried != null) {
-                onRemember(addr, code)
-                NativeClient.recentTouch(addr, code)
-                NativeClient.watchRecent()
-                recentDevices = NativeClient.recentDevices()
+            if (queried.isNullOrEmpty()) {
+                if (step == mine) {
+                    step = Step.Address
+                    connectError =
+                        if (queried == null) {
+                            NativeClient.sourceQueryFailed(addr)
+                        } else {
+                            NativeClient.sourceQueryEmpty(addr)
+                        }
+                }
+                return@launch
             }
-            val sources = queried.orEmpty()
+            onRemember(addr, code)
+            NativeClient.recentTouch(addr, code)
+            NativeClient.watchRecent()
+            recentDevices = NativeClient.recentDevices()
             if (step == mine) {
-                val decision = NativeClient.connectDecision(sources)
+                val decision = NativeClient.connectDecision(queried)
                 if (decision >= 0) {
                     step = Step.Address
-                    onOpenStream(addr, code, decision, sources)
+                    onOpenStream(addr, code, decision, queried)
                 } else {
-                    step = Step.Picking(sources)
+                    step = Step.Picking(queried)
                 }
             }
         }

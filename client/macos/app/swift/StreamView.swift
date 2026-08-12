@@ -23,7 +23,7 @@ struct ViewerWindow: View {
     }
 
     var body: some View {
-        StreamView(model: model) { dismiss() }
+        StreamView(model: model) { closeWindow() }
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .frame(minWidth: 640, idealWidth: 1024, maxWidth: .infinity,
@@ -38,10 +38,14 @@ struct ViewerWindow: View {
                 if dh_viewer_closed() { openWindow(id: "main") }
             }
             .alert("Deskhub", isPresented: failedShown) {
-                Button("OK") { dismiss() }
+                Button("OK") { closeWindow() }
             } message: {
                 Text(DeskhubClient.string(DHStrViewerOpenFailed))
             }
+    }
+
+    private func closeWindow() {
+        DispatchQueue.main.async { dismiss() }
     }
 
     private var title: String {
@@ -53,7 +57,15 @@ struct ViewerWindow: View {
     }
 
     private var failedShown: Binding<Bool> {
-        Binding(get: { model.failedToStart }, set: { _ in })
+        Binding(
+            get: { model.failedToStart },
+            set: { shown in
+                if !shown {
+                    model.failedToStart = false
+                    model.endReason = ""
+                }
+            }
+        )
     }
 }
 
@@ -84,6 +96,13 @@ struct StreamView: View {
     }
 
     private var endedAlertShown: Binding<Bool> {
-        Binding(get: { !model.endReason.isEmpty && !model.failedToStart }, set: { _ in })
+        Binding(
+            get: { !model.endReason.isEmpty && !model.failedToStart },
+            set: { shown in
+                if !shown {
+                    model.endReason = ""
+                }
+            }
+        )
     }
 }

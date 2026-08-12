@@ -1282,7 +1282,12 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     connectBtn_->Enable();
 
     if (!outcome.ok) {
-        SetClientStatus(ToWx(ui::CouldNotConnectTo(addr) + " " + ui::kViewerOpenFailed), kOffline);
+        SetClientStatus(ToWx(ui::SourceQueryFailed(addr)), kOffline);
+        DeselectAllRows();
+        return;
+    }
+    if (outcome.sources.empty()) {
+        SetClientStatus(ToWx(ui::SourceQueryEmpty(addr)), kOffline);
         DeselectAllRows();
         return;
     }
@@ -1294,13 +1299,9 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     RefreshRecentList();
 
     std::vector<deskhub::SourceInfo> picked;
-    if (outcome.hasSources()) {
-        if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
-            DeselectAllRows();
-            return;
-        }
-    } else {
-        picked = deskhubp::DefaultViewTargets();
+    if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
+        DeselectAllRows();
+        return;
     }
 
     OpenViewerSession(addr, passcode, std::move(picked));
