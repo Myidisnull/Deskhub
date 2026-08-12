@@ -6,10 +6,12 @@ struct BroadcastStatus: Equatable, Sendable {
     private static let fileName = "broadcast-status.txt"
     private static let sharingKey = "sharing"
     private static let viewersKey = "viewers"
+    private static let memoryKey = "memory_mb"
     private static let errorKey = "error"
 
     var sharing = false
     var viewers = 0
+    var memoryMB = 0
     var error = ""
 
     static var containerURL: URL? {
@@ -35,6 +37,7 @@ struct BroadcastStatus: Equatable, Sendable {
         let text = """
         \(BroadcastStatus.sharingKey)=\(sharing ? 1 : 0)
         \(BroadcastStatus.viewersKey)=\(viewers)
+        \(BroadcastStatus.memoryKey)=\(memoryMB)
         \(BroadcastStatus.errorKey)=\(error)
         """
         try? text.write(to: url, atomically: true, encoding: .utf8)
@@ -53,6 +56,7 @@ struct BroadcastStatus: Equatable, Sendable {
             switch String(parts[0]) {
             case sharingKey: status.sharing = value == "1"
             case viewersKey: status.viewers = Int(value) ?? 0
+            case memoryKey: status.memoryMB = Int(value) ?? 0
             case errorKey: status.error = value
             default: continue
             }

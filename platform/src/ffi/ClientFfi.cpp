@@ -103,6 +103,7 @@ const char* dh_string(DHStringId id) {
         case DHStrLanDevicesHint: return deskhub::ui::kLanDevicesHint;
         case DHStrNotSharing: return deskhub::ui::kNotSharing;
         case DHStrLanDevicesEmpty: return deskhub::ui::kLanDevicesEmpty;
+        case DHStrBroadcastMemoryLabel: return deskhub::ui::kBroadcastMemoryLabel;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();

@@ -2,7 +2,7 @@
 
 # Chính sách quyền riêng tư của Deskhub
 
-_Ngày hiệu lực: 12 tháng 8, 2026 — Phiên bản 1.3_
+_Ngày hiệu lực: 12 tháng 8, 2026 — Phiên bản 1.4_
 
 > Đây là bản dịch của [`PRIVACY.md`](PRIVACY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản có giá trị pháp lý**.
@@ -44,7 +44,7 @@ ba.
 | Địa chỉ (IP/hostname) bạn nhập | Kết nối tới máy kia | Nằm lại trên chính thiết bị bạn đã nhập | Giữ cục bộ cho tới khi bạn thay đổi |
 | 10 địa chỉ gần nhất bạn đã kết nối, thời điểm của từng lần, và mã passcode bạn dùng cho từng địa chỉ | Điền vào danh sách *Recent devices* để bạn kết nối lại bằng một cú bấm | Ghi vào `recent-devices.txt` trong thư mục riêng của app trên thiết bị bạn — `%USERPROFILE%\.deskhub` trên Windows, `~/.deskhub` trên macOS và Linux, vùng sandbox của app trên iOS và Android | Giữ cho tới khi bạn kết nối tới 10 địa chỉ mới hơn, hoặc bạn xoá tệp đó |
 | Tuỳ chọn chia sẻ của bạn (tốc độ khung hình, bitrate, giới hạn độ phân giải, cổng, có cho người xem điều khiển máy hay không, và mã passcode bạn yêu cầu người xem nhập) | Khôi phục cài đặt cho lần mở app kế tiếp | Ghi vào `ui-settings.txt` trong cùng thư mục. Trên iOS tệp này nằm trong app group container mà app và broadcast extension dùng chung, để cả hai phần thống nhất passcode và cổng | Giữ cho tới khi bạn thay đổi hoặc xoá tệp |
-| Việc có đang phát hay không, số người xem đang kết nối, và nội dung lỗi khởi động gần nhất (chỉ trên iOS) | Để màn hình chia sẻ của app báo được trạng thái của broadcast extension, thứ mà iOS chạy như một tiến trình riêng | Ghi vào `broadcast-status.txt` trong cùng app group container đó | Xoá đi khi buổi phát kết thúc |
+| Việc có đang phát hay không, số người xem đang kết nối, mức bộ nhớ tính bằng megabyte mà chính broadcast extension đang dùng, và nội dung lỗi khởi động gần nhất (chỉ trên iOS) | Để màn hình chia sẻ của app báo được trạng thái của broadcast extension, thứ mà iOS chạy như một tiến trình riêng và sẽ chấm dứt nếu nó dùng quá nhiều bộ nhớ | Ghi vào `broadcast-status.txt` trong cùng app group container đó | Xoá đi khi buổi phát kết thúc |
 | Thống kê kết nối (bitrate, tỉ lệ mất gói, độ trễ) | Điều chỉnh chất lượng luồng; hiển thị trên thanh trạng thái | Chỉ trao đổi giữa hai thiết bị của bạn | Không bao giờ lưu; bỏ đi khi phiên kết thúc |
 
 ### 3.1 Ngang hàng theo thiết kế
@@ -187,6 +187,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Phiên bản | Ngày | Thay đổi |
 |---|---|---|
+| 1.4 | 2026-08-12 | Tệp trạng thái trên iOS mà broadcast extension chia sẻ với app nay ghi thêm mức bộ nhớ tính bằng megabyte mà chính extension đang dùng, để màn hình chia sẻ hiển thị được con số đó. Giá trị này chỉ mô tả tiến trình broadcast của Deskhub, nằm nguyên trong app group container trên thiết bị của bạn, và bị xoá cùng phần còn lại của tệp trạng thái khi buổi phát kết thúc. |
 | 1.3 | 2026-08-12 | Thiết bị Android và iOS nay chia sẻ được màn hình của chính nó ở chế độ chỉ xem, nên màn hình điện thoại hay máy tính bảng có thể phát sang một thiết bị khác của bạn. Thay đổi này thêm các quyền thu màn hình mà mỗi hệ điều hành yêu cầu (kèm foreground service và thông báo của nó trên Android) và, trên iOS, một app group container dùng chung giữa app và broadcast extension cho passcode và cổng, kèm một tệp trạng thái ngắn hạn mà extension ghi vào đó để app biết buổi phát có đang chạy hay không. Hình ảnh vẫn chỉ đi giữa các thiết bị của bạn và không bao giờ được lưu lại. |
 | 1.2 | 2026-08-07 | Passcode nay là bắt buộc trên mọi host, được sinh ra ở lần chạy đầu thay vì để trống, và mọi client đều nhập được. Cài đặt chia sẻ nay được lưu trên macOS và Linux chứ không chỉ Windows, còn danh sách thiết bị gần đây được lưu trên mọi nền tảng, đều nằm trong thư mục cục bộ của chính app. Không có dữ liệu mới nào rời khỏi thiết bị của bạn. |
 | 1.1 | 2026-08-05 | App Windows nay lưu dữ liệu giữa các lần chạy: danh sách 10 địa chỉ gần nhất bạn đã kết nối, cài đặt chia sẻ của bạn, và các passcode dùng với chúng. Tất cả nằm trong `%USERPROFILE%\.deskhub` trên chính máy bạn; không có gì được truyền đi đâu cả. Ghi nhận thêm chế độ chia sẻ chỉ xem và giới hạn 5 người xem. |

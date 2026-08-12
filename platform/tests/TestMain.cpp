@@ -36,6 +36,9 @@ int main() {
     std::printf("--- system: OS randomness ---\n");
     RunRandomTests();
 
+    std::printf("--- system: process memory footprint ---\n");
+    RunMemoryFootprintTests();
+
     std::printf("--- diag: log file naming + timestamps ---\n");
     RunLogFileTests();
 

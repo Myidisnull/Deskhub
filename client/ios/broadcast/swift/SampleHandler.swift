@@ -27,12 +27,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return
         }
 
-        let stamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let micros = CMTimeGetSeconds(stamp) * 1_000_000
-        dhb_push_frame(
-            Unmanaged.passUnretained(pixelBuffer).toOpaque(),
-            UInt64(max(0, micros))
-        )
+        dhb_push_frame(Unmanaged.passUnretained(pixelBuffer).toOpaque())
         publishStatus()
     }
 
@@ -43,7 +38,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
         let failure = startFailure()
         BroadcastStatus(
-            sharing: dhb_sharing(), viewers: Int(dhb_viewer_count()), error: failure
+            sharing: dhb_sharing(),
+            viewers: Int(dhb_viewer_count()),
+            memoryMB: Int(dhb_memory_footprint_mb()),
+            error: failure
         ).save()
 
         guard !failure.isEmpty else { return }

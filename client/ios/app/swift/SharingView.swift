@@ -35,6 +35,12 @@ struct SharingView: View {
                 )
 
                 deskhubHint(model.statusLine)
+                if model.status.sharing, model.status.memoryMB > 0 {
+                    deskhubHint(
+                        "\(DeskhubClient.string(DHStrBroadcastMemoryLabel)): "
+                            + "\(model.status.memoryMB) MB"
+                    )
+                }
                 if !model.status.error.isEmpty {
                     Text(model.status.error).foregroundStyle(DeskhubPalette.offline)
                 }

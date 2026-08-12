@@ -5,6 +5,7 @@ void RunSourceQueryTests();
 void RunClientIdTests();
 void RunClockTests();
 void RunRandomTests();
+void RunMemoryFootprintTests();
 void RunLogFileTests();
 void RunFfiTextTests();
 void RunLocalInputGateTests();

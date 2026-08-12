@@ -11,12 +11,18 @@ if(WIN32)
         src/input/LocalInputWin.cpp
         src/input/NativeKeyMapWin.cpp
         src/media/DisplayEnumWin.cpp
+        src/system/MemoryFootprintWin.cpp
     )
 else()
     set(deskhub_platform_os
         src/net/UdpSocketPosix.cpp
         src/net/NetInfoPosix.cpp
     )
+    if(APPLE)
+        list(APPEND deskhub_platform_os src/system/MemoryFootprintApple.cpp)
+    else()
+        list(APPEND deskhub_platform_os src/system/MemoryFootprintPosix.cpp)
+    endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND deskhub_platform_os src/input/LocalInputLinux.cpp)
     elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
@@ -111,7 +117,7 @@ endif()
 
 deskhub_target_warnings(platform)
 if(WIN32)
-    target_link_libraries(platform PUBLIC ws2_32)
+    target_link_libraries(platform PUBLIC ws2_32 psapi)
     target_compile_options(platform PRIVATE /sdl)
 endif()
 
@@ -146,6 +152,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/system/AppDataFileTests.cpp
         tests/session/HostCallbackTests.cpp
         tests/system/ClockTests.cpp
+        tests/system/MemoryFootprintTests.cpp
         tests/system/RandomTests.cpp
     )
     target_link_libraries(platform_tests PRIVATE platform)

@@ -17,6 +17,8 @@
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/system/MemoryFootprint.h"
 
 namespace {
 
@@ -78,7 +80,7 @@ void dhb_use_app_group(const char* containerPath) {
     deskhubp::SetAppDataDir(containerPath ? std::string(containerPath) : std::string());
 }
 
-void dhb_push_frame(void* pixelBuffer, uint64_t timestampUs) {
+void dhb_push_frame(void* pixelBuffer) {
     if (!pixelBuffer) return;
     auto pb = static_cast<CVPixelBufferRef>(pixelBuffer);
     const uint32_t width = uint32_t(CVPixelBufferGetWidth(pb));
@@ -94,7 +96,7 @@ void dhb_push_frame(void* pixelBuffer, uint64_t timestampUs) {
     frame.handle = pixelBuffer;
     frame.meta.width = width;
     frame.meta.height = height;
-    frame.meta.timestampUs = timestampUs;
+    frame.meta.timestampUs = NowUs();
     ScreenCapture::DeliverFrame(frame);
 }
 
@@ -122,6 +124,16 @@ int dhb_viewer_count(void) {
     for (int i = 0; i < count; ++i)
         if (rows[size_t(i)].viewer) ++viewers;
     return viewers;
+}
+
+int dhb_memory_footprint_mb(void) {
+    const int mb = deskhubp::MemoryFootprintMb();
+    static int lastLoggedMb = -1;
+    if (mb > 0 && mb != lastLoggedMb) {
+        LOGI("[Broadcast] Memory footprint %d MB.", mb);
+        lastLoggedMb = mb;
+    }
+    return mb;
 }
 
 int dhb_last_error(char* out, int capacity) {

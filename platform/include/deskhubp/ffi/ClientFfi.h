@@ -131,6 +131,7 @@ typedef enum {
     DHStrClientSettingsHeading = 57,
     DHStrClientSettingsHint = 58,
     DHStrUdpPortLabel = 59,
+    DHStrBroadcastMemoryLabel = 60,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
