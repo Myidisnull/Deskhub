@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-void dhb_use_app_group(const char* containerPath);
+void dhb_start_broadcast(const char* containerPath, const char* screenName);
 
 void dhb_push_frame(void* pixelBuffer);
 

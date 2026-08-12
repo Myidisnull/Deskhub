@@ -7,6 +7,7 @@ namespace {
 
 std::mutex g_activeMutex;
 ScreenCapture* g_active = nullptr;
+bool g_broadcastFinished = false;
 
 }
 
@@ -16,10 +17,10 @@ ScreenCapture::~ScreenCapture() {
 
 bool ScreenCapture::Start(const deskhub::media::CaptureOptions&, FrameHandler onFrame) {
     onFrame_ = std::move(onFrame);
-    finished_.store(false, std::memory_order_release);
     running_.store(true, std::memory_order_release);
 
     std::lock_guard<std::mutex> lk(g_activeMutex);
+    finished_.store(g_broadcastFinished, std::memory_order_release);
     g_active = this;
     return true;
 }
@@ -42,7 +43,13 @@ void ScreenCapture::DeliverFrame(const Frame& frame) {
     g_active->onFrame_(frame);
 }
 
+void ScreenCapture::BeginBroadcast() {
+    std::lock_guard<std::mutex> lk(g_activeMutex);
+    g_broadcastFinished = false;
+}
+
 void ScreenCapture::ReportBroadcastFinished() {
     std::lock_guard<std::mutex> lk(g_activeMutex);
+    g_broadcastFinished = true;
     if (g_active) g_active->finished_.store(true, std::memory_order_release);
 }

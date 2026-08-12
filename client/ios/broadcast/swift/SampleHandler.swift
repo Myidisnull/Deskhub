@@ -1,19 +1,22 @@
 import ReplayKit
+import UIKit
 
-final class SampleHandler: RPBroadcastSampleHandler {
-    private static let statusInterval: TimeInterval = 1
+final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
+    private static let statusInterval = DispatchTimeInterval.seconds(1)
     private static let errorDomain = "com.ios.deskhub.broadcast"
+    private static let errorBufferBytes = 320
 
-    private var lastStatusAt = Date.distantPast
+    private let statusQueue = DispatchQueue(label: "com.ios.deskhub.broadcast.status")
+    private var statusTimer: DispatchSourceTimer?
 
     override func broadcastStarted(withSetupInfo _: [String: NSObject]?) {
-        if let path = BroadcastStatus.containerURL?.path {
-            dhb_use_app_group(path)
-        }
+        dhb_start_broadcast(BroadcastStatus.containerURL?.path, UIDevice.current.model)
         BroadcastStatus().save()
+        startPublishingStatus()
     }
 
     override func broadcastFinished() {
+        statusTimer?.cancel()
         dhb_finish_broadcast()
         BroadcastStatus.clear()
     }
@@ -28,14 +31,17 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
 
         dhb_push_frame(Unmanaged.passUnretained(pixelBuffer).toOpaque())
-        publishStatus()
+    }
+
+    private func startPublishingStatus() {
+        let timer = DispatchSource.makeTimerSource(queue: statusQueue)
+        timer.schedule(deadline: .now(), repeating: SampleHandler.statusInterval)
+        timer.setEventHandler { [weak self] in self?.publishStatus() }
+        statusTimer = timer
+        timer.resume()
     }
 
     private func publishStatus() {
-        let now = Date()
-        guard now.timeIntervalSince(lastStatusAt) >= SampleHandler.statusInterval else { return }
-        lastStatusAt = now
-
         let failure = startFailure()
         BroadcastStatus(
             sharing: dhb_sharing(),
@@ -45,6 +51,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         ).save()
 
         guard !failure.isEmpty else { return }
+        statusTimer?.cancel()
+        dhb_finish_broadcast()
         finishBroadcastWithError(
             NSError(
                 domain: SampleHandler.errorDomain,
@@ -55,7 +63,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     private func startFailure() -> String {
-        var buffer = [CChar](repeating: 0, count: 320)
+        var buffer = [CChar](repeating: 0, count: SampleHandler.errorBufferBytes)
         let written = Int(dhb_last_error(&buffer, Int32(buffer.count)))
         guard written > 0 else { return "" }
         let bytes = buffer.prefix(written).map { UInt8(bitPattern: $0) }

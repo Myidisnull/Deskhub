@@ -117,16 +117,16 @@ void dha_kick_viewer(uint8_t source_id, const char* viewer_addr) {
 }
 
 bool dha_running(void) {
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    return g_agent && g_agent->running();
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    return lk.owns_lock() && g_agent && g_agent->running();
 }
 
 int dha_host_rows(DHHostRow* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     std::vector<AgentSourceStatus> sources;
     {
-        std::lock_guard<std::mutex> lk(g_agentMutex);
-        if (!g_agent) return 0;
+        std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+        if (!lk.owns_lock() || !g_agent) return 0;
         sources = g_agent->Status();
     }
 
@@ -156,8 +156,9 @@ int dha_host_rows(DHHostRow* out, int capacity) {
 }
 
 const char* dha_last_error(void) {
-    std::lock_guard<std::mutex> lk(g_agentMutex);
-    if (g_agent) deskhubp::CopyToBuf(g_errorBuf, sizeof(g_errorBuf), g_agent->LastError());
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    if (lk.owns_lock() && g_agent)
+        deskhubp::CopyToBuf(g_errorBuf, sizeof(g_errorBuf), g_agent->LastError());
     return g_errorBuf;
 }
 

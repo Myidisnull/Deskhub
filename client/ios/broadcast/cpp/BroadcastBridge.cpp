@@ -23,23 +23,27 @@
 namespace {
 
 constexpr int kMaxViewerRows = 16;
+constexpr const char* kFallbackScreenName = "Deskhub";
 
 enum class StartState { Idle,
     Starting,
     Sharing,
-    Failed };
+    Failed,
+    Finished };
 
 std::mutex g_startMutex;
 StartState g_startState = StartState::Idle;
 std::string g_startError;
+std::string g_screenName = kFallbackScreenName;
 std::thread g_startThread;
 
-std::string DeviceScreenName() {
-    return "iPhone screen";
+std::string ScreenName() {
+    std::lock_guard<std::mutex> lk(g_startMutex);
+    return g_screenName;
 }
 
 std::string StartSharing(uint32_t width, uint32_t height) {
-    deskhubp::SetLocalDisplay(width, height, DeviceScreenName());
+    deskhubp::SetLocalDisplay(width, height, ScreenName());
 
     DHShareSource source{};
     if (dha_list_share_sources(&source, 1) != 1)
@@ -48,8 +52,9 @@ std::string StartSharing(uint32_t width, uint32_t height) {
     const DHUiSettings settings = dh_settings_load();
     const DHShareDefaults defaults = dha_default_options();
     const bool ok = dha_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
-        settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps, settings.maxDim,
-        uint16_t(settings.port), false, settings.passcode);
+        settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps,
+        settings.maxDim ? settings.maxDim : defaults.maxDim, uint16_t(settings.port), false,
+        settings.passcode);
     if (ok) return std::string();
 
     const char* reason = dha_last_error();
@@ -64,6 +69,7 @@ void SpawnStart(uint32_t width, uint32_t height) {
         if (!failure.empty())
             LOGE("[Broadcast] Could not start sharing: %s", failure.c_str());
         std::lock_guard<std::mutex> lk(g_startMutex);
+        if (g_startState == StartState::Finished) return;
         g_startState = failure.empty() ? StartState::Sharing : StartState::Failed;
         g_startError = std::move(failure);
     });
@@ -71,13 +77,21 @@ void SpawnStart(uint32_t width, uint32_t height) {
 
 std::thread TakeStartThread() {
     std::lock_guard<std::mutex> lk(g_startMutex);
+    g_startState = StartState::Finished;
     return std::move(g_startThread);
 }
 
 }
 
-void dhb_use_app_group(const char* containerPath) {
+void dhb_start_broadcast(const char* containerPath, const char* screenName) {
     deskhubp::SetAppDataDir(containerPath ? std::string(containerPath) : std::string());
+    ScreenCapture::BeginBroadcast();
+
+    std::lock_guard<std::mutex> lk(g_startMutex);
+    g_screenName = screenName && *screenName ? std::string(screenName)
+                                             : std::string(kFallbackScreenName);
+    g_startState = StartState::Idle;
+    g_startError.clear();
 }
 
 void dhb_push_frame(void* pixelBuffer) {
@@ -107,10 +121,6 @@ void dhb_finish_broadcast(void) {
     if (pendingStart.joinable()) pendingStart.join();
 
     dha_stop();
-
-    std::lock_guard<std::mutex> lk(g_startMutex);
-    g_startState = StartState::Idle;
-    g_startError.clear();
 }
 
 bool dhb_sharing(void) {

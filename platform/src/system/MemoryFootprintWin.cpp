@@ -11,6 +11,11 @@
 #include <psapi.h>
 
 namespace deskhubp {
+namespace {
+
+constexpr SIZE_T kBytesPerMb = SIZE_T{1024} * 1024;
+
+}
 
 int MemoryFootprintMb() {
     PROCESS_MEMORY_COUNTERS_EX pmc{};
@@ -18,7 +23,7 @@ int MemoryFootprintMb() {
     if (!GetProcessMemoryInfo(GetCurrentProcess(),
             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc)))
         return -1;
-    return int(pmc.PrivateUsage / (1024 * 1024));
+    return int(pmc.PrivateUsage / kBytesPerMb);
 }
 
 }

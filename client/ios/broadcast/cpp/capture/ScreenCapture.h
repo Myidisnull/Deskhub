@@ -23,6 +23,8 @@ public:
 
     static void DeliverFrame(const Frame& frame);
 
+    static void BeginBroadcast();
+
     static void ReportBroadcastFinished();
 
 private:
