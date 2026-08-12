@@ -32,7 +32,7 @@ display, type an IP on the other machine, and you're driving it.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
-| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | The same three sections on every desktop — **Host**, **Client**, **Settings**; phones and tablets drop **Host**, since they can only watch. **Share** a display or **Connect** to an IP, and that's it. |
+| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | The same three sections everywhere — **Host**, **Client**, **Settings**. **Share** a display or **Connect** to an IP, and that's it. Phones host too, view-only, since no mobile OS lets an app inject input. |
 
 ## 👀 A quick look
 
@@ -69,8 +69,8 @@ display, type an IP on the other machine, and you're driving it.
 | -------- | :--: | :----: | ------ |
 | **Windows** | ✅ | ✅ | Reference implementation — daily use over LAN + Tailscale (Internet/NAT) |
 | **macOS** | ✅ | ✅ | Both roles working (ScreenCaptureKit + VideoToolbox + CGEvent) |
-| **Android** | — | ✅ | Video + input (trackpad, keyboard) — testing on Google Play |
-| **iOS** | — | ✅ | Video + input (trackpad, keyboard) — testing via TestFlight |
+| **Android** | ✅ | ✅ | Client: video + input (trackpad, keyboard). Host: view-only screen share (MediaProjection + MediaCodec), Android 10+ — testing on Google Play |
+| **iOS** | ✅ | ✅ | Client: video + input (trackpad, keyboard). Host: view-only screen share via a Broadcast Upload Extension (ReplayKit + VideoToolbox) — testing via TestFlight |
 | **Linux** | ✅ | ✅ | Both roles working (PipeWire + VA-API + uinput + GTK3) — Ubuntu, Debian, Mint, Fedora, openSUSE, Arch via deb / rpm / portable binary; verified between two machines over LAN |
 
 ## 🔒 Before you share a screen

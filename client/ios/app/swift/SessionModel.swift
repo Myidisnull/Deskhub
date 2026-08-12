@@ -6,6 +6,7 @@ final class SessionModel {
     var connect = ConnectModel()
     var discovery = DiscoveryModel()
     var settings = SettingsModel()
+    var sharing = SharingModel()
 
     var screen: ClientRoute = .connect
     var sources: [Source] = []

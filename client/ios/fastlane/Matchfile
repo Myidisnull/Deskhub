@@ -2,3 +2,6 @@ git_url(ENV["MATCH_GIT_URL"] || "git@github.com:manhpham90vn/Deskhub_certificate
 storage_mode("git")
 git_branch("main")
 type("appstore")
+# The broadcast upload extension ships inside the app and is a separate bundle id,
+# so it needs its own App ID and provisioning profile from the same certificate.
+app_identifier(["com.ios.deskhub", "com.ios.deskhub.broadcast"])

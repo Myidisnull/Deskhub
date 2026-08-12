@@ -20,6 +20,7 @@
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/net/DeviceStatusPoller.h"
 #include "deskhubp/net/LanScanner.h"
+#include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/UiSettingsStore.h"
@@ -369,6 +370,17 @@ void dh_set_client_control(bool on) {
 
 int dh_version_line(char* out, int capacity) {
     return FillText(out, capacity, ui::VersionLine());
+}
+
+const char* dh_local_addresses(void) {
+    static char buf[1024];
+    std::string joined;
+    for (const auto& a : ListLocalIPv4()) {
+        if (!joined.empty()) joined += '\n';
+        joined += a.ip + '\t' + a.name;
+    }
+    deskhubp::CopyToBuf(buf, sizeof(buf), joined);
+    return buf;
 }
 
 int dh_idle_host_status(uint16_t port, char* out, int capacity) {

@@ -34,7 +34,7 @@ nó.
 
 | ⚡ Nhanh | 📦 Một file | 🎛️ Đơn giản |
 | ------ | ---------- | --------- |
-| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng ba mục trên mọi máy tính — **Host**, **Client**, **Settings**; điện thoại và máy tính bảng bỏ **Host** vì chỉ xem được. **Share** một màn hình hoặc **Connect** tới một IP, hết. |
+| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng ba mục trên mọi thiết bị — **Host**, **Client**, **Settings**. **Share** một màn hình hoặc **Connect** tới một IP, hết. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
 
 ## 👀 Nhìn qua một chút
 
@@ -71,8 +71,8 @@ nó.
 | -------- | :--: | :----: | ------ |
 | **Windows** | ✅ | ✅ | Bản tham chiếu — dùng hằng ngày qua LAN + Tailscale (Internet/NAT) |
 | **macOS** | ✅ | ✅ | Cả hai vai trò đã chạy (ScreenCaptureKit + VideoToolbox + CGEvent) |
-| **Android** | — | ✅ | Video + điều khiển (trackpad, bàn phím) — đang thử nghiệm trên Google Play |
-| **iOS** | — | ✅ | Video + điều khiển (trackpad, bàn phím) — đang thử nghiệm qua TestFlight |
+| **Android** | ✅ | ✅ | Client: video + điều khiển (trackpad, bàn phím). Host: chia sẻ màn hình chỉ xem (MediaProjection + MediaCodec), Android 10 trở lên — đang thử nghiệm trên Google Play |
+| **iOS** | ✅ | ✅ | Client: video + điều khiển (trackpad, bàn phím). Host: chia sẻ màn hình chỉ xem qua Broadcast Upload Extension (ReplayKit + VideoToolbox) — đang thử nghiệm qua TestFlight |
 | **Linux** | ✅ | ✅ | Cả hai vai trò đã chạy (PipeWire + VA-API + uinput + GTK3) — Ubuntu, Debian, Mint, Fedora, openSUSE, Arch qua deb / rpm / binary chạy thẳng; đã kiểm chứng giữa hai máy qua LAN |
 
 ## 🔒 Đọc trước khi chia sẻ màn hình

@@ -32,5 +32,22 @@ if [ -z "$FILES" ]; then
     exit 1
 fi
 
-echo "[clang-tidy] $(echo "$FILES" | grep -c .) files ($(command -v "$CLANG_TIDY"))"
-echo "$FILES" | xargs "$CLANG_TIDY" -p "$BUILD_DIR" --quiet
+TIDY_ARGS=(-p "$BUILD_DIR" --quiet)
+SYSROOT_NOTE=""
+
+# CMake leaves -isysroot out of the compile database on macOS, and a clang-tidy that did
+# not ship with Xcode has no default SDK, so every standard header and framework goes
+# missing and the broken AST produces nonsense diagnostics. CI runs on Linux, which needs
+# none of this.
+if [ "$(uname -s)" = "Darwin" ]; then
+    SDK=$(xcrun --show-sdk-path 2>/dev/null || true)
+    if [ -n "$SDK" ]; then
+        TIDY_ARGS+=(--extra-arg=-isysroot "--extra-arg=$SDK")
+        SYSROOT_NOTE=" [sysroot $SDK]"
+    else
+        echo "clang-tidy.sh: xcrun found no SDK - results on macOS will be unreliable." >&2
+    fi
+fi
+
+echo "[clang-tidy] $(echo "$FILES" | grep -c .) files ($(command -v "$CLANG_TIDY"))$SYSROOT_NOTE"
+echo "$FILES" | xargs "$CLANG_TIDY" "${TIDY_ARGS[@]}"

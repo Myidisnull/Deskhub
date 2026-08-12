@@ -70,6 +70,7 @@ bool dh_client_control(void);
 void dh_set_client_control(bool on);
 
 int dh_version_line(char* out, int capacity);
+const char* dh_local_addresses(void);
 int dh_idle_host_status(uint16_t port, char* out, int capacity);
 int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, char* out,
     int capacity);

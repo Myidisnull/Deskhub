@@ -40,7 +40,8 @@ machine to the Internet.
 | Keys left stuck down | Any key the remote side is holding is released automatically when the session ends or the viewer switches away. |
 | A stranger who cannot sniff your traffic | Every host requires a passcode: a wrong code is rejected, and every third wrong code locks the host for 30 seconds. That caps guessing at 3 tries per half-minute, so walking all 10 000 combinations would take about a day of uninterrupted attempts. A discovery probe without the right code gets an empty list back instead of your display names. |
 | Viewers fighting each other for the mouse | Up to 5 viewers may watch one host, but only one drives input: the earliest to have joined wins, and a later viewer's input is dropped until the earlier one has been idle for a second. A 6th viewer is rejected as `Busy`. |
-| A viewer you only want to show the screen to | View-only sharing, available on every host, drops input packets at the host before anything is injected — it is not enforced by asking the client to behave. |
+| A viewer you only want to show the screen to | View-only sharing, available on every host, drops input packets at the host before anything is injected — it is not enforced by asking the client to behave. Android and iOS hosts are view-only unconditionally. |
+| A phone left sharing by accident | The operating system, not Deskhub, is the backstop: Android keeps a permanent notification up and re-asks for recording consent on every single share, and iOS keeps its broadcast indicator visible. Either can stop the share without opening the app. |
 | Malformed packets | Every field is bounds-checked before it is read. The parsers are covered by unit tests, run under AddressSanitizer, UndefinedBehaviorSanitizer and ThreadSanitizer in CI, and fuzzed nightly with libFuzzer — six targets covering the wire format, H.264 parsing, packet reassembly, session state machines and UI text. Crashes found by fuzzing are kept in-repo as regression tests, and new coverage is folded back into the seed corpus. |
 
 ### What Deskhub does **not** protect against
@@ -76,7 +77,12 @@ any of it:
   its slot reopens and the next `Hello` to arrive takes it — whoever sent it, subject
   only to the passcode.
 - **Sharing exposes the entire display.** Not one window: every notification, popup and
-  window on that monitor. See [`PRIVACY.md` §3.3](PRIVACY.md).
+  window on that monitor. See [`PRIVACY.md` §3.4](PRIVACY.md).
+- **A phone or tablet host exposes the whole phone.** Android and iOS can host too, and
+  what they stream is the entire screen — banking apps, one-time codes, messages, every
+  password you type while sharing. The same plaintext UDP carries it, so anyone who can
+  sniff the network sees all of it. Mobile hosts are always view-only, which removes the
+  remote-control risk but none of the exposure risk.
 
 ## Where it is safe to run
 
@@ -150,7 +156,9 @@ addresses, not screen content or keystrokes.
 The desktop apps keep two more files in that folder: `ui-settings.txt` (fps, bitrate,
 resolution cap, port, the view-only switch, and your host passcode) and
 `recent-devices.txt` (the last 10 addresses you connected to, when, and the passcode you
-used for each). The mobile apps keep the same two files inside their own sandbox. Stored
+used for each). The mobile apps keep the same two files inside their own sandbox — on iOS
+in the app group container, so the broadcast extension reads the same host passcode the
+app shows you. Stored
 passcodes are obfuscated with a fixed XOR key, which keeps them off the screen and out of
 a casual `type` of the file — **it is not encryption**, and anyone with the source and
 the file recovers them in seconds. Treat that folder as readable by anything running as

@@ -11,9 +11,14 @@ add_subdirectory(${DESKHUB_ROOT}/platform ${CMAKE_CURRENT_BINARY_DIR}/platform)
 
 add_library(deskhub SHARED
     JniBridge.cpp
+    JniEnv.cpp
+    HostBridge.cpp
+    AgentLoop.cpp
     ClientSessionAndroid.cpp
 
+    capture/ScreenCapture.cpp
     decode/MediaCodecDecoder.cpp
+    encode/MediaCodecEncoder.cpp
 )
 
 target_include_directories(deskhub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -2,7 +2,7 @@
 
 # Chính sách quyền riêng tư của Deskhub
 
-_Ngày hiệu lực: 7 tháng 8, 2026 — Phiên bản 1.2_
+_Ngày hiệu lực: 12 tháng 8, 2026 — Phiên bản 1.3_
 
 > Đây là bản dịch của [`PRIVACY.md`](PRIVACY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản có giá trị pháp lý**.
@@ -43,7 +43,7 @@ ba.
 | Thao tác chuột, bàn phím và chạm | Điều khiển máy đang chia sẻ từ thiết bị còn lại | Gửi trực tiếp từ thiết bị đang xem tới máy đang chia sẻ | Không bao giờ lưu; bỏ đi ngay sau khi được đưa vào máy |
 | Địa chỉ (IP/hostname) bạn nhập | Kết nối tới máy kia | Nằm lại trên chính thiết bị bạn đã nhập | Giữ cục bộ cho tới khi bạn thay đổi |
 | 10 địa chỉ gần nhất bạn đã kết nối, thời điểm của từng lần, và mã passcode bạn dùng cho từng địa chỉ | Điền vào danh sách *Recent devices* để bạn kết nối lại bằng một cú bấm | Ghi vào `recent-devices.txt` trong thư mục riêng của app trên thiết bị bạn — `%USERPROFILE%\.deskhub` trên Windows, `~/.deskhub` trên macOS và Linux, vùng sandbox của app trên iOS và Android | Giữ cho tới khi bạn kết nối tới 10 địa chỉ mới hơn, hoặc bạn xoá tệp đó |
-| Trên Windows, macOS và Linux: tuỳ chọn chia sẻ của bạn (tốc độ khung hình, bitrate, giới hạn độ phân giải, cổng, có cho người xem điều khiển máy hay không, và mã passcode bạn yêu cầu người xem nhập) | Khôi phục cài đặt cho lần mở app kế tiếp | Ghi vào `ui-settings.txt` trong cùng thư mục | Giữ cho tới khi bạn thay đổi hoặc xoá tệp |
+| Tuỳ chọn chia sẻ của bạn (tốc độ khung hình, bitrate, giới hạn độ phân giải, cổng, có cho người xem điều khiển máy hay không, và mã passcode bạn yêu cầu người xem nhập) | Khôi phục cài đặt cho lần mở app kế tiếp | Ghi vào `ui-settings.txt` trong cùng thư mục. Trên iOS tệp này nằm trong app group container mà app và broadcast extension dùng chung, để cả hai phần thống nhất passcode và cổng | Giữ cho tới khi bạn thay đổi hoặc xoá tệp |
 | Thống kê kết nối (bitrate, tỉ lệ mất gói, độ trễ) | Điều chỉnh chất lượng luồng; hiển thị trên thanh trạng thái | Chỉ trao đổi giữa hai thiết bị của bạn | Không bao giờ lưu; bỏ đi khi phiên kết thúc |
 
 ### 3.1 Ngang hàng theo thiết kế
@@ -64,7 +64,19 @@ Phần mềm không truy cập hay xử lý: tên, địa chỉ email, số đi�
 micro, camera, mã định danh quảng cáo, hay bất kỳ mã định danh thiết bị nào vượt quá mức
 hệ điều hành cần để chạy ứng dụng.
 
-### 3.3 Phạm vi của việc chia sẻ màn hình và điều khiển từ xa
+### 3.3 Chia sẻ màn hình điện thoại hoặc máy tính bảng
+
+Thiết bị Android và iOS vừa xem được máy khác, vừa chia sẻ được màn hình của chính nó.
+Luồng này là **chỉ xem**: các gói chuột và bàn phím gửi tới đều bị bỏ đi, vì không hệ điều
+hành nào trong hai hệ này cho một ứng dụng thường điều khiển máy. Thứ được thu là **toàn
+bộ màn hình**, gồm cả những gì hiện lên trong lúc chia sẻ — thông báo, ứng dụng khác, ứng
+dụng ngân hàng, mật khẩu bạn gõ. Trên Android, hệ thống hiện hộp thoại xin quyền quay màn
+hình cho từng lần chia sẻ và một thông báo thường trực trong suốt thời gian chạy; trên
+iOS, chỉ báo broadcast của hệ thống luôn hiển thị. Cả hai đều là tín hiệu của chính hệ điều
+hành, và đều dùng để dừng chia sẻ bất cứ lúc nào. Giống như trên máy tính, hình ảnh đi
+thẳng tới thiết bị kia của bạn, không bao giờ được lưu lại hay gửi cho chúng tôi.
+
+### 3.4 Phạm vi của việc chia sẻ màn hình và điều khiển từ xa
 
 Chia sẻ sẽ truyền **toàn bộ màn hình được chọn**: mọi thứ xuất hiện trên màn hình đó đều
 hiện ra với người xem đang kết nối, bao gồm thông báo, cửa sổ bật lên, và bất kỳ cửa sổ
@@ -85,7 +97,11 @@ Tối đa năm người xem có thể cùng xem một PC, nhưng tại mỗi th�
 | Nền tảng | Quyền | Lý do |
 |---|---|---|
 | iOS | Local Network | iOS bắt buộc phải có để gửi/nhận dữ liệu tới PC của bạn trong cùng mạng. Chỉ dùng cho phiên truyền hình ảnh. |
+| iOS | Quay màn hình (broadcast) | Chỉ khi bạn bắt đầu chia sẻ màn hình của thiết bị này, từ bộ chọn broadcast của hệ thống. iOS hỏi mỗi lần và hiện chỉ báo đang quay suốt thời gian đó. |
 | Android | `INTERNET`, trạng thái mạng | Cần để mở kết nối UDP tới PC của bạn. Chỉ dùng cho phiên truyền hình ảnh. |
+| Android | Đồng ý thu màn hình (`MediaProjection`) | Chỉ khi bạn bắt đầu chia sẻ màn hình của thiết bị này. Android hỏi mỗi lần; câu trả lời không thể ghi nhớ. |
+| Android | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Giữ cho phiên chia sẻ tiếp tục chạy khi app xuống nền hoặc màn hình tắt. Android bắt buộc phải có để thu màn hình. |
+| Android | `POST_NOTIFICATIONS` | Hiện thông báo thường trực mà Android bắt buộc phải có khi đang chia sẻ màn hình. Không gửi thông báo nào khác. |
 
 Ứng dụng không yêu cầu quyền nào khác. Nếu một phiên bản sau này cần thêm quyền mới,
 quyền đó sẽ được xin đúng ngữ cảnh và chính sách này sẽ được cập nhật.
@@ -170,6 +186,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Phiên bản | Ngày | Thay đổi |
 |---|---|---|
+| 1.3 | 2026-08-12 | Thiết bị Android và iOS nay chia sẻ được màn hình của chính nó ở chế độ chỉ xem, nên màn hình điện thoại hay máy tính bảng có thể phát sang một thiết bị khác của bạn. Thay đổi này thêm các quyền thu màn hình mà mỗi hệ điều hành yêu cầu (kèm foreground service và thông báo của nó trên Android) và, trên iOS, một app group container dùng chung giữa app và broadcast extension cho passcode và cổng. Hình ảnh vẫn chỉ đi giữa các thiết bị của bạn và không bao giờ được lưu lại. |
 | 1.2 | 2026-08-07 | Passcode nay là bắt buộc trên mọi host, được sinh ra ở lần chạy đầu thay vì để trống, và mọi client đều nhập được. Cài đặt chia sẻ nay được lưu trên macOS và Linux chứ không chỉ Windows, còn danh sách thiết bị gần đây được lưu trên mọi nền tảng, đều nằm trong thư mục cục bộ của chính app. Không có dữ liệu mới nào rời khỏi thiết bị của bạn. |
 | 1.1 | 2026-08-05 | App Windows nay lưu dữ liệu giữa các lần chạy: danh sách 10 địa chỉ gần nhất bạn đã kết nối, cài đặt chia sẻ của bạn, và các passcode dùng với chúng. Tất cả nằm trong `%USERPROFILE%\.deskhub` trên chính máy bạn; không có gì được truyền đi đâu cả. Ghi nhận thêm chế độ chia sẻ chỉ xem và giới hạn 5 người xem. |
 | 1.0 | 2026-07-24 | Công bố lần đầu. |

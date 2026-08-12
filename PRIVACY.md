@@ -2,7 +2,7 @@
 
 # Deskhub Privacy Policy
 
-_Effective date: August 7, 2026 — Version 1.2_
+_Effective date: August 12, 2026 — Version 1.3_
 
 > A Vietnamese translation is available at [`PRIVACY.vi.md`](PRIVACY.vi.md). This English
 > version is the authoritative one.
@@ -44,7 +44,7 @@ party.
 | Mouse, keyboard, and touch input | Controlling the shared computer from your other device | Sent directly from the viewing device to the shared computer | Never stored; discarded after injection |
 | The address (IP/hostname) you type | Connecting to the other machine | Stays on the device you typed it on | Kept locally until you change it |
 | The last 10 addresses you connected to, the time of each, and the passcode you used for each | Filling in the *Recent devices* list so you can reconnect with one click | Written to `recent-devices.txt` in the app's own folder on your device — `%USERPROFILE%\.deskhub` on Windows, `~/.deskhub` on macOS and Linux, the app sandbox on iOS and Android | Kept until you connect to 10 newer addresses, or you delete the file |
-| On Windows, macOS and Linux: your sharing preferences (frame rate, bitrate, resolution cap, port, whether viewers may control the machine, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder | Kept until you change them or delete the file |
+| Your sharing preferences (frame rate, bitrate, resolution cap, port, whether viewers may control the machine, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder. On iOS the file lives in the app group container shared by the app and its broadcast extension, so both halves agree on your passcode and port | Kept until you change them or delete the file |
 | Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your two devices | Never stored; discarded when the session ends |
 
 ### 3.1 Peer-to-peer by design
@@ -66,7 +66,20 @@ PC screen you choose to stream), microphone, camera, advertising identifiers,
 or any device identifiers beyond what the operating system needs to run the
 app.
 
-### 3.3 Scope of screen sharing and remote control
+### 3.3 Sharing a phone or tablet screen
+
+Android and iOS devices can share their own screen as well as view another
+machine's. The stream is **view-only**: incoming mouse and keyboard packets are
+discarded, because neither operating system lets an ordinary app drive the
+device. What is captured is the **whole screen**, including anything that
+appears while sharing — notifications, other apps, banking apps, passwords you
+type. On Android the system shows its own recording-consent dialog for every
+share and a permanent notification while it runs; on iOS the system broadcast
+indicator stays visible. Both are the operating system's own signals, and
+either can be used to stop sharing at any time. As on desktop, the video goes
+directly to your other device and is never stored or sent to us.
+
+### 3.4 Scope of screen sharing and remote control
 
 Sharing streams the **entire selected display**: everything that appears on
 that monitor is visible to the connected viewer, including notifications,
@@ -88,7 +101,11 @@ but only one of them drives the mouse and keyboard at any moment.
 | Platform | Permission | Why |
 |---|---|---|
 | iOS | Local Network | Required by iOS to send/receive traffic to your PC on the same network. Used only for the streaming session. |
+| iOS | Screen recording (broadcast) | Only when you start sharing this device's screen, from the system broadcast picker. iOS asks every time and shows a recording indicator throughout. |
 | Android | `INTERNET`, network state | Required to open the UDP connection to your PC. Used only for the streaming session. |
+| Android | Screen capture consent (`MediaProjection`) | Only when you start sharing this device's screen. Android asks every time; the answer cannot be remembered. |
+| Android | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Keeps the share running while the app is in the background or the screen is off. Required by Android for screen capture. |
+| Android | `POST_NOTIFICATIONS` | Shows the ongoing notification Android requires while a screen share is running. No other notifications are sent. |
 
 The apps request no other permissions. If a future version needs a new
 permission, it will be requested in-context and this policy will be updated.
@@ -175,6 +192,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3 | 2026-08-12 | Android and iOS devices can now share their own screen, view-only, so a phone or tablet screen can be streamed to another device you own. This adds the screen-capture permissions each OS requires (plus a foreground service and its notification on Android) and, on iOS, an app group container shared between the app and its broadcast extension for your passcode and port. The video still travels only between your own devices and is never stored. |
 | 1.2 | 2026-08-07 | The passcode is now required on every host, generated on first launch instead of left blank, and every client can enter one. Sharing settings are now saved on macOS and Linux as well as Windows, and the recent-device list is saved on every platform, each inside the app's own local folder. No new data leaves your devices. |
 | 1.1 | 2026-08-05 | The Windows app now saves data between launches: a list of the last 10 addresses you connected to, your sharing settings, and the passcodes used with either. All of it stays in `%USERPROFILE%\.deskhub` on your own machine; none of it is transmitted anywhere. Documented view-only sharing and the 5-viewer limit. |
 | 1.0 | 2026-07-24 | First publication. |

@@ -80,7 +80,7 @@ if ($Only -in @('all', 'swift')) {
     if (-not $swiftlint) {
         Write-Host "[swiftlint] skipped (swiftlint not found)"
     } else {
-        $slDirs = @('client/apple/swift', 'client/ios/app/swift', 'client/macos/app/swift')
+        $slDirs = @('client/apple/swift', 'client/ios/app/swift', 'client/ios/broadcast/swift', 'client/ios/shared', 'client/macos/app/swift')
         Write-Host "[swiftlint] $($slDirs -join ' ') ($swiftlint)"
         if (-not $Check) { & $swiftlint lint --fix --quiet @slDirs | Out-Null }
         & $swiftlint lint --strict --quiet @slDirs

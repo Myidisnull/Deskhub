@@ -121,17 +121,6 @@ nonisolated enum DeskhubAgent {
 
     static var lastError: String { String(cString: dha_last_error()) }
 
-    static func localAddresses() -> [LocalAddress] {
-        String(cString: dha_local_addresses())
-            .split(separator: "\n")
-            .compactMap { line in
-                let parts = line.split(separator: "\t", maxSplits: 1)
-                guard let ip = parts.first else { return nil }
-                let name = parts.count > 1 ? String(parts[1]) : ""
-                return LocalAddress(ip: String(ip), name: name)
-            }
-    }
-
     private static func toRaw(_ source: ShareSource) -> DHShareSource {
         var raw = DHShareSource()
         raw.id = source.rawId

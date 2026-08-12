@@ -41,14 +41,15 @@ A single machine can be host and client at the same time.
 | Windows | ✅ | ✅ |
 | macOS | ✅ | ✅ |
 | Linux | ✅ | ✅ |
-| Android | — | ✅ |
-| iOS | — | ✅ |
+| Android | ✅ view-only | ✅ |
+| iOS | ✅ view-only | ✅ |
 
 Every platform offers the same client feature set unless stated otherwise in section 12.
+Phones and tablets host in **view-only** mode: they stream their screen but never accept
+remote input, because no mobile OS lets an ordinary app drive the device.
 
 The app is organised into the same named sections everywhere: **Host**, **Client** and
-**Settings** on the platforms that can host, and **Client** and **Settings** on those
-that can only view.
+**Settings**.
 
 ---
 
@@ -82,7 +83,7 @@ that can only view.
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| D-1 | Network scan | The client scans the local network for machines that are currently sharing and lists them, with progress shown while scanning ("*n* of *m* addresses checked"). When the scan finds nothing, the user is told why a machine may be absent: it appears only while it is sharing, and phones and tablets never appear at all. |
+| D-1 | Network scan | The client scans the local network for machines that are currently sharing and lists them, with progress shown while scanning ("*n* of *m* addresses checked"). When the scan finds nothing, the user is told why a machine may be absent: it appears only while it is sharing. |
 | D-2 | Scan bounds | A scan covers at most **512** addresses on the local subnet. If the machine has no local network address, the user is told scanning is not possible. |
 | D-3 | Automatic re-scan | The scan repeats periodically, and can be re-run on demand via *Refresh now*. |
 | D-4 | Click to connect | Clicking a discovered device starts a connection to it. |
@@ -166,7 +167,9 @@ on.
 | P-1 | Windows | The app asks for administrator rights once at start, which is what allows it to type into elevated windows. It adds its own firewall rule when sharing begins. |
 | P-2 | macOS | Shows a **Permissions** panel with the live grant state of *Screen Recording* (needed to share) and *Accessibility* (needed to accept remote input), a button to request each, and a shortcut into System Settings. Some keystrokes are silently blocked by macOS unless Accessibility is granted. |
 | P-3 | Linux | Displays are chosen in the desktop's own screen-sharing dialog after pressing Share, rather than in the app. Sharing additionally requires the system to permit input injection. |
-| P-4 | Android / iOS | View and control only — these devices cannot share their own screen, so they show **Client** and **Settings** but no **Host**. The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
+| P-4 | Android / iOS | Hosting is **view-only**: the device streams its screen and silently drops every control packet, because neither OS lets an app inject input system-wide. The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
+| P-5 | Android | Sharing needs the system screen-recording consent dialog, which is granted per share and cannot be remembered. While sharing, an ongoing notification is shown and the stream survives the app going to the background or the screen turning off. Stopping the share from the system notification ends the session. |
+| P-6 | iOS | Sharing is started from the system broadcast picker rather than an in-app button, and runs in a separate broadcast process so it continues after the app is closed. A system event that ends the broadcast — an incoming call, for instance — ends the session. |
 
 ## 13. Explicitly out of scope
 

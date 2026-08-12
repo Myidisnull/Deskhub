@@ -11,14 +11,47 @@
 		BBBF000100000002006CCD14 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000002006CCD14 /* CoreMedia.framework */; };
 		BBBF000100000003006CCD14 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000003006CCD14 /* AVFoundation.framework */; };
 		BBBF000100000004006CCD14 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000004006CCD14 /* CoreVideo.framework */; };
+		BBBF000100000005006CCD14 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000005006CCD14 /* ReplayKit.framework */; };
+		BBEX000100000010006CCD14 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000005006CCD14 /* ReplayKit.framework */; };
+		BBEX000100000011006CCD14 /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000001006CCD14 /* VideoToolbox.framework */; };
+		BBEX000100000012006CCD14 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000002006CCD14 /* CoreMedia.framework */; };
+		BBEX000100000013006CCD14 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000003006CCD14 /* AVFoundation.framework */; };
+		BBEX000100000014006CCD14 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000004006CCD14 /* CoreVideo.framework */; };
+		BBEX00010000000D006CCD14 /* broadcast.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BBEX000100000002006CCD14 /* broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BBEX00010000000F006CCD14 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BB1620B33011D2F4006CCD14 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BBEX000100000001006CCD14;
+			remoteInfo = broadcast;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BBEX00010000000C006CCD14 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BBEX00010000000D006CCD14 /* broadcast.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		BB1620BB3011D2F4006CCD14 /* app.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = app.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBEX000100000002006CCD14 /* broadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = broadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBFR000100000001006CCD14 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
 		BBFR000100000002006CCD14 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
 		BBFR000100000003006CCD14 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		BBFR000100000004006CCD14 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		BBFR000100000005006CCD14 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,7 +66,31 @@
 			path = ../apple/swift;
 			sourceTree = "<group>";
 		};
+		BBEX00010000000A006CCD14 /* broadcast */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BBEX000100000015006CCD14 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
+			path = broadcast;
+			sourceTree = "<group>";
+		};
+		BBEX00010000000B006CCD14 /* ios-shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = "ios-shared";
+			path = shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BBEX000100000015006CCD14 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BBEX000100000001006CCD14 /* broadcast */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		BB1620B83011D2F4006CCD14 /* Frameworks */ = {
@@ -44,6 +101,19 @@
 				BBBF000100000002006CCD14 /* CoreMedia.framework in Frameworks */,
 				BBBF000100000003006CCD14 /* AVFoundation.framework in Frameworks */,
 				BBBF000100000004006CCD14 /* CoreVideo.framework in Frameworks */,
+				BBBF000100000005006CCD14 /* ReplayKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBEX000100000004006CCD14 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BBEX000100000010006CCD14 /* ReplayKit.framework in Frameworks */,
+				BBEX000100000011006CCD14 /* VideoToolbox.framework in Frameworks */,
+				BBEX000100000012006CCD14 /* CoreMedia.framework in Frameworks */,
+				BBEX000100000013006CCD14 /* AVFoundation.framework in Frameworks */,
+				BBEX000100000014006CCD14 /* CoreVideo.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -54,6 +124,8 @@
 			isa = PBXGroup;
 			children = (
 				BB1620BD3011D2F4006CCD14 /* app */,
+				BBEX00010000000A006CCD14 /* broadcast */,
+				BBEX00010000000B006CCD14 /* ios-shared */,
 				BBSG000100000001006CCD14 /* shared */,
 				BBGR000100000001006CCD14 /* Frameworks */,
 				BB1620BC3011D2F4006CCD14 /* Products */,
@@ -64,6 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				BB1620BB3011D2F4006CCD14 /* app.app */,
+				BBEX000100000002006CCD14 /* broadcast.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -75,6 +148,7 @@
 				BBFR000100000002006CCD14 /* CoreMedia.framework */,
 				BBFR000100000003006CCD14 /* AVFoundation.framework */,
 				BBFR000100000004006CCD14 /* CoreVideo.framework */,
+				BBFR000100000005006CCD14 /* ReplayKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -90,13 +164,16 @@
 				BB1620B73011D2F4006CCD14 /* Sources */,
 				BB1620B83011D2F4006CCD14 /* Frameworks */,
 				BB1620B93011D2F4006CCD14 /* Resources */,
+				BBEX00010000000C006CCD14 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				BBEX00010000000E006CCD14 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				BB1620BD3011D2F4006CCD14 /* app */,
+				BBEX00010000000B006CCD14 /* ios-shared */,
 				BBSG000100000001006CCD14 /* shared */,
 			);
 			name = app;
@@ -105,6 +182,30 @@
 			productName = app;
 			productReference = BB1620BB3011D2F4006CCD14 /* app.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BBEX000100000001006CCD14 /* broadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BBEX000100000007006CCD14 /* Build configuration list for PBXNativeTarget "broadcast" */;
+			buildPhases = (
+				BBEX000100000006006CCD14 /* Build libcore.a (CMake) */,
+				BBEX000100000003006CCD14 /* Sources */,
+				BBEX000100000004006CCD14 /* Frameworks */,
+				BBEX000100000005006CCD14 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BBEX00010000000A006CCD14 /* broadcast */,
+				BBEX00010000000B006CCD14 /* ios-shared */,
+			);
+			name = broadcast;
+			packageProductDependencies = (
+			);
+			productName = broadcast;
+			productReference = BBEX000100000002006CCD14 /* broadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -117,6 +218,9 @@
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					BB1620BA3011D2F4006CCD14 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					BBEX000100000001006CCD14 = {
 						CreatedOnToolsVersion = 26.6;
 					};
 				};
@@ -136,12 +240,20 @@
 			projectRoot = "";
 			targets = (
 				BB1620BA3011D2F4006CCD14 /* app */,
+				BBEX000100000001006CCD14 /* broadcast */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		BB1620B93011D2F4006CCD14 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBEX000100000005006CCD14 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -170,6 +282,25 @@
 			shellPath = /bin/bash;
 			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/ios-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../..\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$IPHONEOS_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" --target platform -j \"$(sysctl -n hw.ncpu)\"\n";
 		};
+		BBEX000100000006006CCD14 /* Build libcore.a (CMake) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build libcore.a (CMake)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/ios-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../..\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$IPHONEOS_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" --target platform -j \"$(sysctl -n hw.ncpu)\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -180,7 +311,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BBEX000100000003006CCD14 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BBEX00010000000E006CCD14 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BBEX000100000001006CCD14 /* broadcast */;
+			targetProxy = BBEX00010000000F006CCD14 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		BB1620C43011D2F5006CCD14 /* Debug */ = {
@@ -315,6 +461,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "app/Deskhub.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -364,6 +511,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "app/Deskhub.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -408,6 +556,94 @@
 			};
 			name = Release;
 		};
+		BBEX000100000008006CCD14 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "broadcast/Deskhub-Broadcast.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UPJRMYQ38F;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../core/include",
+					"$(SRCROOT)/../../platform/include",
+					"$(SRCROOT)/broadcast/cpp",
+				);
+				INFOPLIST_FILE = "broadcast/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Deskhub Screen Sharing";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
+					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-lplatform",
+					"-lcore",
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.deskhub.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "broadcast/cpp/Broadcast-Bridging-Header.h";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BBEX000100000009006CCD14 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "broadcast/Deskhub-Broadcast.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UPJRMYQ38F;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../core/include",
+					"$(SRCROOT)/../../platform/include",
+					"$(SRCROOT)/broadcast/cpp",
+				);
+				INFOPLIST_FILE = "broadcast/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Deskhub Screen Sharing";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
+					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-lplatform",
+					"-lcore",
+					"-lc++",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ios.deskhub.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "broadcast/cpp/Broadcast-Bridging-Header.h";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -425,6 +661,15 @@
 			buildConfigurations = (
 				BB1620C73011D2F5006CCD14 /* Debug */,
 				BB1620C83011D2F5006CCD14 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BBEX000100000007006CCD14 /* Build configuration list for PBXNativeTarget "broadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBEX000100000008006CCD14 /* Debug */,
+				BBEX000100000009006CCD14 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
