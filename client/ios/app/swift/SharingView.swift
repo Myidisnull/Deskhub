@@ -27,18 +27,12 @@ struct SharingView: View {
                 )
                 .onChange(of: model.passcode) { _, _ in model.savePasscode() }
 
-                HStack(spacing: 12) {
-                    BroadcastPicker(extensionBundleId: SharingModel.extensionBundleId)
-                        .frame(
-                            width: BroadcastPicker.preferredSize.width,
-                            height: BroadcastPicker.preferredSize.height
-                        )
-                    deskhubHint(
-                        DeskhubClient.string(
-                            model.status.sharing ? DHStrStopSharing : DHStrStartSharing
-                        )
+                BroadcastPickerButton(
+                    extensionBundleId: SharingModel.extensionBundleId,
+                    title: DeskhubClient.string(
+                        model.status.sharing ? DHStrStopSharing : DHStrStartSharing
                     )
-                }
+                )
 
                 deskhubHint(model.statusLine)
                 if !model.status.error.isEmpty {

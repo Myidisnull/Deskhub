@@ -16,7 +16,7 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     Text("UDP port")
                     Spacer(minLength: 0)
-                    TextField("", value: $settings.port, format: .number)
+                    TextField("", value: $settings.port, format: .number.grouping(.never))
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)

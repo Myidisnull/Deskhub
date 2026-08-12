@@ -12,12 +12,12 @@
 		BBBF000100000003006CCD14 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000003006CCD14 /* AVFoundation.framework */; };
 		BBBF000100000004006CCD14 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000004006CCD14 /* CoreVideo.framework */; };
 		BBBF000100000005006CCD14 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000005006CCD14 /* ReplayKit.framework */; };
+		BBEX00010000000D006CCD14 /* broadcast.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BBEX000100000002006CCD14 /* broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BBEX000100000010006CCD14 /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000005006CCD14 /* ReplayKit.framework */; };
 		BBEX000100000011006CCD14 /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000001006CCD14 /* VideoToolbox.framework */; };
 		BBEX000100000012006CCD14 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000002006CCD14 /* CoreMedia.framework */; };
 		BBEX000100000013006CCD14 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000003006CCD14 /* AVFoundation.framework */; };
 		BBEX000100000014006CCD14 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000004006CCD14 /* CoreVideo.framework */; };
-		BBEX00010000000D006CCD14 /* broadcast.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BBEX000100000002006CCD14 /* broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,22 +54,26 @@
 		BBFR000100000005006CCD14 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BBEX000100000015006CCD14 /* Exceptions for "broadcast" folder in "broadcast" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BBEX000100000001006CCD14 /* broadcast */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		BB1620BD3011D2F4006CCD14 /* app */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = app;
 			sourceTree = "<group>";
 		};
-		BBSG000100000001006CCD14 /* shared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			name = shared;
-			path = ../apple/swift;
-			sourceTree = "<group>";
-		};
 		BBEX00010000000A006CCD14 /* broadcast */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				BBEX000100000015006CCD14 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				BBEX000100000015006CCD14 /* Exceptions for "broadcast" folder in "broadcast" target */,
 			);
 			path = broadcast;
 			sourceTree = "<group>";
@@ -80,17 +84,13 @@
 			path = shared;
 			sourceTree = "<group>";
 		};
-/* End PBXFileSystemSynchronizedRootGroup section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		BBEX000100000015006CCD14 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = BBEX000100000001006CCD14 /* broadcast */;
+		BBSG000100000001006CCD14 /* shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = shared;
+			path = ../apple/swift;
+			sourceTree = "<group>";
 		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		BB1620B83011D2F4006CCD14 /* Frameworks */ = {
@@ -263,7 +263,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		BBSH000100000001006CCD14 /* Build libcore.a (CMake) */ = {
+		BBEX000100000006006CCD14 /* Build libcore.a (CMake) */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -282,7 +282,7 @@
 			shellPath = /bin/bash;
 			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nBUILD_DIR=\"$SRCROOT/../../out/build/ios-core/$PLATFORM_NAME-$CONFIGURATION\"\ncmake -S \"$SRCROOT/../..\" -B \"$BUILD_DIR\" -G \"Unix Makefiles\" \\\n    -DCMAKE_BUILD_TYPE=\"$CONFIGURATION\" \\\n    -DCMAKE_SYSTEM_NAME=iOS \\\n    -DCMAKE_OSX_SYSROOT=\"$SDKROOT\" \\\n    -DCMAKE_OSX_ARCHITECTURES=\"$(echo \"$ARCHS\" | tr ' ' ';')\" \\\n    -DCMAKE_OSX_DEPLOYMENT_TARGET=\"$IPHONEOS_DEPLOYMENT_TARGET\" \\\n    -DDESKHUB_CORE_TESTS=OFF\ncmake --build \"$BUILD_DIR\" --target platform -j \"$(sysctl -n hw.ncpu)\"\n";
 		};
-		BBEX000100000006006CCD14 /* Build libcore.a (CMake) */ = {
+		BBSH000100000001006CCD14 /* Build libcore.a (CMake) */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -461,7 +461,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "app/Deskhub.entitlements";
+				CODE_SIGN_ENTITLEMENTS = app/Deskhub.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -511,7 +511,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "app/Deskhub.entitlements";
+				CODE_SIGN_ENTITLEMENTS = app/Deskhub.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -570,7 +570,7 @@
 					"$(SRCROOT)/../../platform/include",
 					"$(SRCROOT)/broadcast/cpp",
 				);
-				INFOPLIST_FILE = "broadcast/Info.plist";
+				INFOPLIST_FILE = broadcast/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Deskhub Screen Sharing";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -614,7 +614,7 @@
 					"$(SRCROOT)/../../platform/include",
 					"$(SRCROOT)/broadcast/cpp",
 				);
-				INFOPLIST_FILE = "broadcast/Info.plist";
+				INFOPLIST_FILE = broadcast/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Deskhub Screen Sharing";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (

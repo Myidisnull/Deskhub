@@ -5,6 +5,8 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include "capture/ScreenCapture.h"
@@ -20,30 +22,54 @@ namespace {
 
 constexpr int kMaxViewerRows = 16;
 
+enum class StartState { Idle,
+    Starting,
+    Sharing,
+    Failed };
+
 std::mutex g_startMutex;
-bool g_started = false;
+StartState g_startState = StartState::Idle;
 std::string g_startError;
+std::thread g_startThread;
 
 std::string DeviceScreenName() {
     return "iPhone screen";
 }
 
-bool StartSharing(uint32_t width, uint32_t height) {
+std::string StartSharing(uint32_t width, uint32_t height) {
     deskhubp::SetLocalDisplay(width, height, DeviceScreenName());
 
     DHShareSource source{};
-    if (dha_list_share_sources(&source, 1) != 1) {
-        g_startError = "The broadcast reported no screen size.";
-        return false;
-    }
+    if (dha_list_share_sources(&source, 1) != 1)
+        return "The broadcast reported no screen size.";
 
     const DHUiSettings settings = dh_settings_load();
     const DHShareDefaults defaults = dha_default_options();
     const bool ok = dha_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
         settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps, settings.maxDim,
         uint16_t(settings.port), false, settings.passcode);
-    if (!ok) g_startError = dha_last_error();
-    return ok;
+    if (ok) return std::string();
+
+    const char* reason = dha_last_error();
+    return reason && *reason ? std::string(reason) : std::string("Sharing could not start.");
+}
+
+void SpawnStart(uint32_t width, uint32_t height) {
+    g_startState = StartState::Starting;
+    g_startError.clear();
+    g_startThread = std::thread([width, height] {
+        std::string failure = StartSharing(width, height);
+        if (!failure.empty())
+            LOGE("[Broadcast] Could not start sharing: %s", failure.c_str());
+        std::lock_guard<std::mutex> lk(g_startMutex);
+        g_startState = failure.empty() ? StartState::Sharing : StartState::Failed;
+        g_startError = std::move(failure);
+    });
+}
+
+std::thread TakeStartThread() {
+    std::lock_guard<std::mutex> lk(g_startMutex);
+    return std::move(g_startThread);
 }
 
 }
@@ -61,14 +87,7 @@ void dhb_push_frame(void* pixelBuffer, uint64_t timestampUs) {
 
     {
         std::lock_guard<std::mutex> lk(g_startMutex);
-        if (!g_started) {
-            if (!StartSharing(width, height)) {
-                LOGE("[Broadcast] Could not start sharing: %s", g_startError.c_str());
-                return;
-            }
-            g_started = true;
-            g_startError.clear();
-        }
+        if (g_startState == StartState::Idle) SpawnStart(width, height);
     }
 
     ScreenCapture::Frame frame;
@@ -81,9 +100,15 @@ void dhb_push_frame(void* pixelBuffer, uint64_t timestampUs) {
 
 void dhb_finish_broadcast(void) {
     ScreenCapture::ReportBroadcastFinished();
+
+    std::thread pendingStart = TakeStartThread();
+    if (pendingStart.joinable()) pendingStart.join();
+
     dha_stop();
+
     std::lock_guard<std::mutex> lk(g_startMutex);
-    g_started = false;
+    g_startState = StartState::Idle;
+    g_startError.clear();
 }
 
 bool dhb_sharing(void) {

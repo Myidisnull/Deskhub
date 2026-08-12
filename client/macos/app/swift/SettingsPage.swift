@@ -36,7 +36,7 @@ struct SettingsPage: View {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text("UDP port")
-                    TextField("", value: $agent.port, format: .number)
+                    TextField("", value: $agent.port, format: .number.grouping(.never))
                         .textFieldStyle(.roundedBorder).frame(width: 90)
                 }
             }
