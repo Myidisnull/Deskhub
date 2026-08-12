@@ -10,6 +10,14 @@ struct HomeView: View {
                     Label(DeskhubClient.string(DHStrSidebarClient), systemImage: "display")
                 }
 
+            SharingView(model: model.sharing)
+                .tabItem {
+                    Label(
+                        DeskhubClient.string(DHStrSidebarHost),
+                        systemImage: "rectangle.on.rectangle"
+                    )
+                }
+
             SettingsView(settings: model.settings) { port in
                 model.discovery.usePort(port)
             }

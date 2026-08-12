@@ -45,14 +45,16 @@ Một máy có thể vừa là host vừa là client cùng lúc.
 | Windows | ✅ | ✅ |
 | macOS | ✅ | ✅ |
 | Linux | ✅ | ✅ |
-| Android | — | ✅ |
-| iOS | — | ✅ |
+| Android | ✅ chỉ xem | ✅ |
+| iOS | ✅ chỉ xem | ✅ |
 
 Mọi nền tảng đều có cùng bộ tính năng phía client, trừ những khác biệt nêu ở mục 12.
+Điện thoại và máy tính bảng chia sẻ ở chế độ **chỉ xem**: chúng phát màn hình nhưng không
+bao giờ nhận điều khiển từ xa, vì không hệ điều hành di động nào cho một ứng dụng thường
+điều khiển máy.
 
 Ứng dụng được chia thành các mục cùng tên trên mọi nền tảng: **Host**, **Client** và
-**Settings** trên những nền tảng chia sẻ được, còn **Client** và **Settings** trên những
-nền tảng chỉ xem được.
+**Settings**.
 
 ---
 
@@ -86,7 +88,7 @@ nền tảng chỉ xem được.
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
-| D-1 | Quét mạng | Client quét mạng nội bộ để tìm các máy đang chia sẻ và liệt kê chúng, có hiển thị tiến độ trong lúc quét ("đã kiểm tra *n* trên *m* địa chỉ"). Khi quét xong mà không tìm thấy gì, người dùng được giải thích vì sao một máy có thể vắng mặt: máy chỉ xuất hiện khi đang chia sẻ, còn điện thoại và máy tính bảng thì không bao giờ xuất hiện. |
+| D-1 | Quét mạng | Client quét mạng nội bộ để tìm các máy đang chia sẻ và liệt kê chúng, có hiển thị tiến độ trong lúc quét ("đã kiểm tra *n* trên *m* địa chỉ"). Khi quét xong mà không tìm thấy gì, người dùng được giải thích vì sao một máy có thể vắng mặt: máy chỉ xuất hiện khi đang chia sẻ. |
 | D-2 | Phạm vi quét | Mỗi lần quét kiểm tra tối đa **512** địa chỉ trong mạng nội bộ. Nếu máy không có địa chỉ mạng nội bộ, người dùng được báo là không quét được. |
 | D-3 | Tự quét lại | Việc quét lặp lại định kỳ, và có thể chạy lại ngay bằng *Refresh now*. |
 | D-4 | Bấm để kết nối | Bấm vào một thiết bị tìm được sẽ bắt đầu kết nối tới thiết bị đó. |
@@ -136,8 +138,9 @@ nền tảng chỉ xem được.
 ## 10. Cài đặt
 
 Cài đặt thuộc về từng máy, được lưu lại qua các lần khởi động, và có hiệu lực từ lần bắt
-đầu chia sẻ kế tiếp. Những nền tảng không chia sẻ được chỉ hiện các cài đặt ảnh hưởng tới
-việc xem — trên thực tế là cổng mạng (T-4), cũng chính là cổng mà việc quét mạng gõ vào.
+đầu chia sẻ kế tiếp. Điện thoại và máy tính bảng chỉ hiện cổng mạng (T-4) — cũng chính là
+cổng mà việc quét mạng gõ vào — cùng mã passcode (T-5) trên màn hình chia sẻ; mọi thứ còn
+lại chúng dùng giá trị mặc định dựng sẵn.
 
 | ID | Cài đặt | Khoảng giá trị | Mặc định |
 | --- | --- | --- | --- |
@@ -159,7 +162,7 @@ việc xem — trên thực tế là cổng mạng (T-4), cũng chính là cổn
 | --- | --- | --- |
 | G-1 | Thống kê phía host | Số liệu theo từng màn hình và từng viewer: tốc độ thu hình, tốc độ gửi, băng thông và độ trễ khứ hồi. |
 | G-2 | Thống kê phía client | Theo từng phiên: tốc độ khung hình, băng thông, độ trễ khứ hồi và độ trễ đầu-cuối. |
-| G-3 | Nhật ký phiên | Mỗi lần chạy ghi một tệp log vào thư mục Deskhub của người dùng, để đính kèm khi báo lỗi. |
+| G-3 | Nhật ký phiên | Trên Windows, macOS và Linux, mỗi lần chạy ghi một tệp log vào thư mục Deskhub của người dùng, để đính kèm khi báo lỗi. Android và iOS thay vào đó ghi chẩn đoán vào luồng log của chính hệ điều hành và không để lại tệp nào. |
 | G-4 | Phiên bản và liên kết dự án | Ứng dụng hiển thị phiên bản của nó và liên kết tới trang dự án. |
 
 ## 12. Khác biệt theo nền tảng
@@ -169,7 +172,9 @@ việc xem — trên thực tế là cổng mạng (T-4), cũng chính là cổn
 | P-1 | Windows | Ứng dụng xin quyền quản trị một lần lúc khởi động, đây là điều kiện để gõ được vào các cửa sổ chạy với quyền cao. Khi bắt đầu chia sẻ, ứng dụng tự thêm luật tường lửa của mình. |
 | P-2 | macOS | Hiển thị mục **Permissions** với trạng thái cấp quyền theo thời gian thực của *Screen Recording* (cần để chia sẻ) và *Accessibility* (cần để nhận thao tác từ xa), nút xin từng quyền, và lối tắt mở System Settings. Một số phím bị macOS chặn âm thầm nếu chưa cấp Accessibility. |
 | P-3 | Linux | Màn hình được chọn trong hộp thoại chia sẻ màn hình của chính môi trường desktop sau khi bấm Share, chứ không chọn trong ứng dụng. Việc chia sẻ còn cần hệ thống cho phép mô phỏng thao tác nhập liệu. |
-| P-4 | Android / iOS | Chỉ xem và điều khiển — các thiết bị này không chia sẻ được màn hình của chính nó, nên chỉ hiện **Client** và **Settings**, không có **Host**. Giao diện phiên ưu tiên cảm ứng: cử chỉ trackpad, nút phóng to, thanh phím tắt, bàn phím ảo, nút đổi màn hình và **End**. |
+| P-4 | Android / iOS | Chia sẻ ở chế độ **chỉ xem**: thiết bị phát màn hình và lặng lẽ bỏ qua mọi gói điều khiển, vì cả hai hệ điều hành đều không cho ứng dụng bơm thao tác vào toàn hệ thống. Toàn bộ màn hình được chia sẻ như một nguồn duy nhất, nên bộ chọn màn hình, chia sẻ nhiều màn hình và dừng từng màn hình (H-1, H-2, H-3, H-5) không áp dụng. Giao diện phiên ưu tiên cảm ứng: cử chỉ trackpad, nút phóng to, thanh phím tắt, bàn phím ảo, nút đổi màn hình và **End**. |
+| P-5 | Android | Muốn chia sẻ phải qua hộp thoại xin quyền quay màn hình của hệ thống, cấp cho từng lần và không nhớ được. Trong lúc chia sẻ luôn có một thông báo thường trực, và luồng vẫn chạy khi ứng dụng xuống nền hoặc màn hình tắt. Tắt chia sẻ từ thông báo hệ thống sẽ kết thúc phiên. |
+| P-6 | iOS | Chia sẻ được khởi động từ nút **Start sharing** trong ứng dụng, nút này mở bảng broadcast của hệ thống vì iOS bắt buộc phải qua bảng đó để xác nhận mọi lần phát, và chạy trong một tiến trình broadcast riêng nên vẫn tiếp tục sau khi đóng ứng dụng. Màn hình chia sẻ chỉ báo số người xem đang kết nối, không có bảng chi tiết từng người như H-7, và không thể ngắt riêng từng người xem (H-8). Một sự kiện hệ thống làm dừng broadcast — ví dụ cuộc gọi đến — sẽ kết thúc phiên. |
 
 ## 13. Nằm ngoài phạm vi
 

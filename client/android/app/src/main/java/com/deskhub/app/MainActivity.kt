@@ -1,12 +1,17 @@
 package com.deskhub.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,9 +59,28 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private var pendingShare: HostService.ShareRequest? = null
+
+    private val projectionConsent =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val consent = result.data
+            val request = pendingShare
+            pendingShare = null
+            if (result.resultCode != RESULT_OK || consent == null || request == null) {
+                NativeHost.reportFailure("")
+                return@registerForActivityResult
+            }
+            HostService.start(this, result.resultCode, consent, request)
+        }
+
+    private val notificationConsent =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
+        NativeHost.publishScreenSize(this)
+        askForNotifications()
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
         prefs.edit().remove("passcode").apply()
         val lastAddress = prefs.getString("addr", "").orEmpty()
@@ -81,11 +105,30 @@ class MainActivity : ComponentActivity() {
                                 prefs.edit().putString("addr", addr).apply()
                             },
                             onOpenStream = ::openStream,
+                            onStartSharing = ::requestSharing,
+                            onStopSharing = { HostService.stop(this@MainActivity) },
                         )
                     }
                 }
             }
         }
+    }
+
+    private fun askForNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        notificationConsent.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun requestSharing(request: HostService.ShareRequest) {
+        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
+        pendingShare = request
+        NativeHost.awaitStart()
+        projectionConsent.launch(manager.createScreenCaptureIntent())
     }
 
     private fun openStream(
@@ -147,6 +190,7 @@ private fun HeadingRow(
 
 private enum class Section {
     CLIENT,
+    HOST,
     SETTINGS,
 }
 
@@ -168,6 +212,8 @@ private fun MainScreen(
     initialPasscode: String,
     onRemember: (String, String) -> Unit,
     onOpenStream: (String, String, Int, List<NativeClient.Source>) -> Unit,
+    onStartSharing: (HostService.ShareRequest) -> Unit,
+    onStopSharing: () -> Unit,
 ) {
     var step by remember { mutableStateOf<Step>(Step.Address) }
     var address by remember { mutableStateOf(NativeClient.addressHost(initialAddress)) }
@@ -278,6 +324,8 @@ private fun MainScreen(
                     NativeClient.setSettingsPort(chosen)
                     port = chosen
                 },
+                onStartSharing = onStartSharing,
+                onStopSharing = onStopSharing,
             )
 
         is Step.Picking ->
@@ -395,6 +443,8 @@ private fun HomeScreen(
     onRefreshStatus: () -> Unit,
     port: Int,
     onPortChange: (Int) -> Unit,
+    onStartSharing: (HostService.ShareRequest) -> Unit,
+    onStopSharing: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = section.ordinal) {
@@ -402,6 +452,11 @@ private fun HomeScreen(
                 selected = section == Section.CLIENT,
                 onClick = { onSectionChange(Section.CLIENT) },
                 text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_CLIENT)) },
+            )
+            Tab(
+                selected = section == Section.HOST,
+                onClick = { onSectionChange(Section.HOST) },
+                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_HOST)) },
             )
             Tab(
                 selected = section == Section.SETTINGS,
@@ -432,7 +487,204 @@ private fun HomeScreen(
                         onRefreshStatus = onRefreshStatus,
                     )
 
+                Section.HOST ->
+                    HostScreen(
+                        port = port,
+                        onStartSharing = onStartSharing,
+                        onStopSharing = onStopSharing,
+                    )
+
                 Section.SETTINGS -> SettingsScreen(port = port, onPortChange = onPortChange)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HostScreen(
+    port: Int,
+    onStartSharing: (HostService.ShareRequest) -> Unit,
+    onStopSharing: () -> Unit,
+) {
+    var passcode by remember { mutableStateOf(NativeHost.passcode()) }
+    var state by remember { mutableStateOf(NativeHost.shareState) }
+    var error by remember { mutableStateOf(NativeHost.shareError) }
+    var rows by remember { mutableStateOf(emptyList<NativeHost.HostRow>()) }
+    var addresses by remember { mutableStateOf(NativeHost.localAddresses()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            state = NativeHost.shareState
+            error = NativeHost.shareError
+            rows = if (state == NativeHost.ShareState.SHARING) NativeHost.hostRows() else emptyList()
+            addresses = NativeHost.localAddresses()
+            if (state == NativeHost.ShareState.SHARING && !NativeHost.isRunning()) onStopSharing()
+            delay(POLL_INTERVAL_MS)
+        }
+    }
+
+    val sharing = state == NativeHost.ShareState.SHARING
+    val starting = state == NativeHost.ShareState.STARTING
+    val ready = NativeClient.isValidPasscode(passcode.trim())
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Heading(NativeClient.string(NativeClient.STR_HOST_HEADING))
+
+        if (!NativeHost.isSupported) {
+            Text(
+                NativeClient.string(NativeClient.STR_SHARE_START_FAILED),
+                color = MaterialTheme.colorScheme.error,
+            )
+            return@Column
+        }
+
+        Text(
+            NativeClient.string(
+                if (sharing) NativeClient.STR_SHARE_STATE_ON else NativeClient.STR_SHARE_STATE_OFF,
+            ),
+            style = MaterialTheme.typography.titleMedium,
+            color = if (sharing) OnlineColor else MutedColor,
+        )
+
+        OutlinedTextField(
+            value = passcode,
+            onValueChange = { typed ->
+                passcode = typed.filter { it.isDigit() }.take(NativeClient.passcodeDigits())
+            },
+            label = { Text(NativeClient.string(NativeClient.STR_PASSCODE_LABEL)) },
+            singleLine = true,
+            enabled = !sharing && !starting,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        )
+
+        Button(
+            onClick = {
+                if (sharing) {
+                    onStopSharing()
+                    return@Button
+                }
+                val trimmed = passcode.trim()
+                NativeHost.savePasscode(trimmed)
+                val defaults = NativeHost.shareDefaults()
+                onStartSharing(
+                    HostService.ShareRequest(
+                        fps = defaults.fps,
+                        bitrateMbps = defaults.bitrateMbps,
+                        maxDim = defaults.maxDim,
+                        port = port,
+                        passcode = trimmed,
+                    ),
+                )
+            },
+            enabled = sharing || (ready && !starting),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                NativeClient.string(
+                    when {
+                        sharing -> NativeClient.STR_STOP_SHARING
+                        starting -> NativeClient.STR_STARTING_SHARE
+                        else -> NativeClient.STR_START_SHARING
+                    },
+                ),
+            )
+        }
+
+        Text(
+            if (sharing) {
+                NativeHost.sharingStatus(port, passcode.trim())
+            } else {
+                NativeHost.idleStatus(port)
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MutedColor,
+        )
+
+        if (!ready) {
+            Text(
+                NativeClient.string(NativeClient.STR_PASSCODE_INVALID),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        if (error.isNotEmpty()) {
+            Text(error, color = MaterialTheme.colorScheme.error)
+        }
+
+        Heading(NativeClient.string(NativeClient.STR_HOST_IP_INTRO))
+        if (addresses.isEmpty()) {
+            Text(
+                NativeClient.string(NativeClient.STR_NO_NETWORK_ADDRESS),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedColor,
+            )
+        } else {
+            for (address in addresses) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(address.name, modifier = Modifier.weight(1f), color = MutedColor)
+                    Text(address.ip, fontWeight = FontWeight.Bold, color = HeadingColor)
+                }
+            }
+        }
+
+        Text(
+            NativeClient.string(NativeClient.STR_SHARING_CONNECT_HINT),
+            style = MaterialTheme.typography.bodySmall,
+            color = MutedColor,
+        )
+
+        HostRowList(rows = rows, sharing = sharing)
+    }
+}
+
+@Composable
+private fun HostRowList(
+    rows: List<NativeHost.HostRow>,
+    sharing: Boolean,
+) {
+    if (!sharing || rows.isEmpty()) {
+        Text(
+            NativeClient.string(
+                if (sharing) NativeClient.STR_NOTHING_SHARED else NativeClient.STR_NOT_SHARING,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MutedColor,
+        )
+        return
+    }
+
+    for (row in rows) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    if (row.viewer) row.client else row.source,
+                    color = if (row.online) OnlineColor else HeadingColor,
+                )
+                Text(
+                    if (row.viewer) "${row.rtt}  ${row.mbps}" else "${row.size}  ${row.viewers}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedColor,
+                )
+            }
+            if (row.viewer) {
+                TextButton(onClick = { NativeHost.kickViewer(row.sourceId, row.viewerAddr) }) {
+                    Text(NativeClient.string(NativeClient.STR_DISCONNECT_VIEWER_ACTION))
+                }
             }
         }
     }

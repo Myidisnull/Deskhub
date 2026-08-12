@@ -8,6 +8,7 @@
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/HostRows.h"
+#include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/NetInfo.h"
@@ -20,7 +21,6 @@ namespace {
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
 
-char g_addrBuf[1024];
 char g_errorBuf[512];
 
 AgentSource ToAgentSource(const DHShareSource& s) {
@@ -162,11 +162,5 @@ const char* dha_last_error(void) {
 }
 
 const char* dha_local_addresses(void) {
-    std::string joined;
-    for (const auto& a : ListLocalIPv4()) {
-        if (!joined.empty()) joined += '\n';
-        joined += a.ip + '\t' + a.name;
-    }
-    deskhubp::CopyToBuf(g_addrBuf, sizeof(g_addrBuf), joined);
-    return g_addrBuf;
+    return dh_local_addresses();
 }

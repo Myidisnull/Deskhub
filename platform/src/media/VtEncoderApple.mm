@@ -2,7 +2,7 @@
 #import <CoreVideo/CoreVideo.h>
 #import <VideoToolbox/VideoToolbox.h>
 
-#include "encode/VtEncoder.h"
+#include "deskhubp/media/VtEncoder.h"
 
 #include <cstring>
 #include <span>
@@ -123,9 +123,13 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
     }
     cfg_ = cfg;
 
-    NSDictionary* spec = @{
-        (__bridge NSString*)kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder : @YES,
-    };
+    NSDictionary* spec = nil;
+    if (@available(iOS 17.4, *)) {
+        spec = @{
+            (__bridge NSString*)
+                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder : @YES,
+        };
+    }
     NSDictionary* srcAttrs = @{
         (__bridge NSString*)kCVPixelBufferPixelFormatTypeKey :
             @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
@@ -143,15 +147,17 @@ bool VtEncoder::Init(const EncoderConfig& cfg) {
     }
     session_ = session;
 
-    {
+    if (@available(iOS 17.4, *)) {
         CFBooleanRef hw = nullptr;
         if (VTSessionCopyProperty(session,
                 kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder,
-                kCFAllocatorDefault, &hw) == noErr &&
+                kCFAllocatorDefault, static_cast<void*>(&hw)) == noErr &&
             hw) {
             hardware_ = CFBooleanGetValue(hw);
             CFRelease(hw);
         }
+    } else {
+        hardware_ = true;
     }
 
     auto setNum = [session](CFStringRef key, int64_t v) {

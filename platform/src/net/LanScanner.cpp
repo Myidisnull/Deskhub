@@ -84,8 +84,8 @@ bool LanScanner::Start(uint16_t port, UiPost postToUi, HitHandler onHit,
             for (size_t i = 0; i < rtts.size(); ++i) {
                 if (!rtts[i]) continue;
                 ++progress.found;
-                const ScanHit hit{deskhub::ScanAddressText(batch[i].ip, port), *rtts[i]};
-                post([onHit, hit] { onHit(hit); });
+                ScanHit hit{deskhub::ScanAddressText(batch[i].ip, port), *rtts[i]};
+                post([onHit, hit = std::move(hit)] { onHit(hit); });
             }
 
             progress.probed = end;

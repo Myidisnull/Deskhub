@@ -12,8 +12,8 @@
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
+#include "deskhubp/media/VtEncoder.h"
 #include "deskhubp/system/Clock.h"
-#include "encode/VtEncoder.h"
 #include "input/InputInjector.h"
 
 #include "deskhub/control/StreamSize.h"
@@ -28,7 +28,7 @@ struct SourcePipeline : MacSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
         : MacSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{true, false}) {}
 
-    ~SourcePipeline() {
+    ~SourcePipeline() override {
         ReleaseCached();
     }
 

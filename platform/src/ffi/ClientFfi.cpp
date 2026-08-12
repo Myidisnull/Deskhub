@@ -13,6 +13,7 @@
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/input/NativeKeyMap.h"
 #include "deskhubp/net/SourceQuery.h"
@@ -357,6 +358,10 @@ int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, 
     const deskhub::PointerLockState s(state.locked);
     deskhubp::CopyToBuf(out, size_t(capacity), s.SubtitleFor(statusLine ? statusLine : ""));
     return int(std::strlen(out));
+}
+
+void dh_set_data_dir(const char* dir) {
+    deskhubp::SetAppDataDir(dir ? std::string(dir) : std::string());
 }
 
 void dh_viewer_opened() {

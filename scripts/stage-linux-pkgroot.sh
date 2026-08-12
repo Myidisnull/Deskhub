@@ -15,9 +15,11 @@ rm -rf "$DEST"
 install -Dm755 "$BIN" "$DEST/usr/bin/deskhub"
 strip "$DEST/usr/bin/deskhub"
 
-install -Dm644 client/macos/app/Assets.xcassets/AppIcon.appiconset/icon_256.png \
+# Rounded, transparent variants of the macOS master - regenerate with scripts/make-icons.py.
+# The macOS assets themselves are full-bleed squares because macOS masks them itself.
+install -Dm644 client/linux/icons/deskhub-256.png \
     "$DEST/usr/share/icons/hicolor/256x256/apps/deskhub.png"
-install -Dm644 client/macos/app/Assets.xcassets/AppIcon.appiconset/icon_512.png \
+install -Dm644 client/linux/icons/deskhub-512.png \
     "$DEST/usr/share/icons/hicolor/512x512/apps/deskhub.png"
 
 mkdir -p "$DEST/usr/share/applications"

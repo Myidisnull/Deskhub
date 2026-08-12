@@ -43,7 +43,8 @@ máy của mình cho Internet.
 | Phím bị kẹt ở trạng thái nhấn | Mọi phím mà phía từ xa đang giữ đều được nhả tự động khi phiên kết thúc hoặc người xem chuyển đi chỗ khác. |
 | Người lạ không nghe lén được lưu lượng của bạn | Mọi host đều yêu cầu passcode: mã sai bị từ chối, và cứ mỗi ba lần sai thì host khoá 30 giây. Điều đó giới hạn việc dò ở mức 3 lần thử mỗi nửa phút, nên đi hết 10 000 tổ hợp sẽ mất khoảng một ngày thử liên tục không nghỉ. Gói dò tìm không có mã đúng chỉ nhận về danh sách rỗng thay vì tên các màn hình của bạn. |
 | Những người xem tranh chuột với nhau | Tối đa 5 người xem một host, nhưng chỉ một người điều khiển: ai vào trước thì thắng, và thao tác của người vào sau bị bỏ qua cho tới khi người vào trước ngừng thao tác một giây. Người thứ 6 bị từ chối với lý do `Busy`. |
-| Người xem mà bạn chỉ muốn cho xem màn hình | Chế độ chia sẻ chỉ xem, có trên mọi host, bỏ các gói điều khiển ngay tại host trước khi bất cứ thứ gì được đưa vào máy — nó không dựa vào việc yêu cầu client tự giác. |
+| Người xem mà bạn chỉ muốn cho xem màn hình | Chế độ chia sẻ chỉ xem, có trên mọi host, bỏ các gói điều khiển ngay tại host trước khi bất cứ thứ gì được đưa vào máy — nó không dựa vào việc yêu cầu client tự giác. Host Android và iOS luôn ở chế độ chỉ xem, không tắt được. |
+| Điện thoại bị bỏ quên trong lúc đang chia sẻ | Chốt chặn là hệ điều hành chứ không phải Deskhub: Android giữ một thông báo thường trực và hỏi lại quyền quay màn hình ở từng lần chia sẻ, còn iOS luôn hiện chỉ báo broadcast. Cả hai đều dừng được phiên chia sẻ mà không cần mở app. |
 | Gói tin dị dạng | Mọi trường đều được kiểm tra biên trước khi đọc. Các bộ phân tích gói được phủ bởi unit test, chạy dưới AddressSanitizer, UndefinedBehaviorSanitizer và ThreadSanitizer trong CI, và được fuzz mỗi đêm bằng libFuzzer — sáu target bao phủ định dạng gói tin, phân tích H.264, ráp gói, máy trạng thái phiên và văn bản UI. Crash do fuzz tìm ra được giữ lại trong repo làm regression test, và độ phủ mới được gộp ngược vào bộ seed corpus. |
 
 ### Deskhub **không** bảo vệ được những gì
@@ -79,7 +80,12 @@ tại — và passcode không giải quyết được điều nào cả:
   chỗ đó mở lại và gói `Hello` tới tiếp theo sẽ chiếm — bất kể ai gửi, chỉ phải qua cửa
   passcode.
 - **Chia sẻ là phơi nguyên màn hình.** Không phải một cửa sổ: mọi thông báo, cửa sổ bật
-  lên và cửa sổ trên màn hình đó. Xem [`PRIVACY.vi.md` §3.3](PRIVACY.vi.md).
+  lên và cửa sổ trên màn hình đó. Xem [`PRIVACY.vi.md` §3.4](PRIVACY.vi.md).
+- **Điện thoại hay máy tính bảng làm host là phơi nguyên cái máy.** Android và iOS nay
+  cũng chia sẻ được, và thứ chúng phát là toàn bộ màn hình — ứng dụng ngân hàng, mã một
+  lần, tin nhắn, mọi mật khẩu bạn gõ trong lúc chia sẻ. Vẫn là UDP không mã hoá chở đi,
+  nên ai bắt được gói trong mạng là thấy hết. Host di động luôn ở chế độ chỉ xem, điều đó
+  loại bỏ rủi ro bị điều khiển từ xa nhưng không loại bỏ chút nào rủi ro lộ nội dung.
 
 ## Chạy ở đâu thì an toàn
 
@@ -155,7 +161,9 @@ kết nối và địa chỉ của máy đối diện, không chứa nội dung 
 Các app desktop giữ thêm hai tệp trong thư mục đó: `ui-settings.txt` (fps, bitrate, giới
 hạn độ phân giải, cổng, công tắc chỉ xem, và passcode host của bạn) và
 `recent-devices.txt` (10 địa chỉ gần nhất bạn đã kết nối, thời điểm, và passcode bạn dùng
-cho từng địa chỉ). Các app di động giữ đúng hai tệp đó bên trong vùng sandbox của chúng.
+cho từng địa chỉ). Các app di động giữ đúng hai tệp đó bên trong vùng sandbox của chúng —
+trên iOS là trong app group container, để broadcast extension đọc đúng passcode host mà
+app đang hiển thị cho bạn.
 Passcode được lưu bằng cách che đi với một khoá XOR cố định, đủ để nó không hiện lên màn
 hình và không lộ ra khi mở tệp xem qua — **đó không phải mã hoá**, và ai có mã nguồn cùng
 tệp đó khôi phục lại chúng trong vài giây. Hãy coi thư mục đó là đọc được bởi mọi thứ

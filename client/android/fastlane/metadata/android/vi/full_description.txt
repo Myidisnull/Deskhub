@@ -6,6 +6,7 @@ Deskhub stream màn hình PC Windows sang điện thoại và cho bạn điều 
 • Gõ bàn phím đầy đủ, kèm thanh phím tắt Esc, Tab, Enter, mũi tên, Del, Ctrl+C/Ctrl+V
 • Đồng bộ clipboard giữa điện thoại và PC
 • Bitrate thích ứng + sửa lỗi FEC giữ hình mượt khi Wi-Fi chập chờn
+• Chia sẻ ngược màn hình điện thoại ở chế độ chỉ xem, để máy tính xem được (Android 10 trở lên)
 
 <b>Cách dùng</b>
 Cài Deskhub host (miễn phí) lên PC Windows — tải từ trang dự án — rồi mở app, nhập địa chỉ PC và bấm Connect. Chạy ngay trong mạng LAN; muốn dùng qua Internet thì bật Tailscale trên cả hai máy và kết nối bằng IP Tailscale.

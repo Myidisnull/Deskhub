@@ -208,6 +208,8 @@ DHPointerLockEffect dh_pointer_focus_lost(DHPointerLock* state);
 
 int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, int capacity);
 
+void dh_set_data_dir(const char* dir);
+
 void dh_viewer_opened(void);
 
 bool dh_viewer_closed(void);

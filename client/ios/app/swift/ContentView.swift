@@ -6,7 +6,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             switch model.screen {
-            case .connect:
+            case .connect, .sharing:
                 HomeView(model: model)
             case let .sourcePicker(sources):
                 SourcePickerView(model: model, sources: sources)
@@ -14,8 +14,6 @@ struct ContentView: View {
                 if let stream = model.stream {
                     StreamView(session: model, model: stream)
                 }
-            case .sharing:
-                EmptyView()
             }
         }
         .preferredColorScheme(.dark)

@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "ClientSessionAndroid.h"
+#include "HostBridge.h"
+#include "JniEnv.h"
 
 #include "deskhub/input/Hotkeys.h"
 #include "deskhub/media/ViewFit.h"
@@ -26,7 +28,6 @@ namespace {
 DHSession* g_session = nullptr;
 ANativeWindow* g_window = nullptr;
 
-JavaVM* g_vm = nullptr;
 jclass g_nativeClientClass = nullptr;
 jmethodID g_onSessionStatus = nullptr;
 jmethodID g_onSessionSize = nullptr;
@@ -35,19 +36,10 @@ std::atomic<DHSession*> g_callbackSession{nullptr};
 
 template <class Call>
 void CallIntoJava(Call&& call) {
-    JavaVM* vm = g_vm;
-    if (!vm || !g_nativeClientClass) return;
-    JNIEnv* env = nullptr;
-    const jint state = vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    const bool needsAttach = state == JNI_EDETACHED;
-    if (needsAttach) {
-        if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
-    } else if (state != JNI_OK) {
-        return;
-    }
-    call(env);
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    if (needsAttach) vm->DetachCurrentThread();
+    if (!g_nativeClientClass) return;
+    deskhubj::AttachedEnv attached;
+    if (!attached) return;
+    call(attached.env());
 }
 
 void NotifySessionStatus(const char* statusUtf8, void*) {
@@ -75,13 +67,7 @@ void NotifySessionClosed(const char* reasonUtf8, void*) {
     });
 }
 
-std::string FromJString(JNIEnv* env, jstring s) {
-    if (!s) return {};
-    const char* c = env->GetStringUTFChars(s, nullptr);
-    std::string out = c ? c : "";
-    if (c) env->ReleaseStringUTFChars(s, c);
-    return out;
-}
+using deskhubj::FromJString;
 
 constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
 constexpr const char* kScanHitClass = "com/deskhub/app/NativeClient$ScanHit";
@@ -118,7 +104,8 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     g_onSessionEnded =
         env->GetStaticMethodID(g_nativeClientClass, "onSessionEnded", "(Ljava/lang/String;)V");
     if (!g_onSessionStatus || !g_onSessionSize || !g_onSessionEnded) return JNI_ERR;
-    g_vm = vm;
+    deskhubj::RememberJavaVm(vm);
+    if (!RegisterHostBridge(env)) return JNI_ERR;
     return JNI_VERSION_1_6;
 }
 

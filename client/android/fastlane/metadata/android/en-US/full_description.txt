@@ -6,6 +6,7 @@ Deskhub streams your Windows PC screen to your phone and lets you control it wit
 • Full keyboard input, plus a hotkey bar for Esc, Tab, Enter, arrows, Del, Ctrl+C/Ctrl+V
 • Clipboard sync between phone and PC
 • Adaptive bitrate and forward error correction keep the stream smooth on shaky Wi-Fi
+• Share this phone's screen the other way round, view-only, so a desktop can watch it (Android 10 and later)
 
 <b>How it works</b>
 Install the free Deskhub host on your Windows PC (download from the project page), open the app, enter your PC address and connect. Works on your local network out of the box; for remote access over the Internet, pair it with Tailscale and connect via your Tailscale IP.

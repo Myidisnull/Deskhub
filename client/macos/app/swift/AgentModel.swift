@@ -1,12 +1,6 @@
 import Foundation
 import Observation
 
-struct LocalAddress: Identifiable, Hashable {
-    let ip: String
-    let name: String
-    var id: String { ip + name }
-}
-
 @MainActor @Observable
 final class AgentModel {
     private static let stored = dh_settings_load()
@@ -86,7 +80,7 @@ final class AgentModel {
     }
 
     func loadAddresses() {
-        addresses = DeskhubAgent.localAddresses()
+        addresses = LocalAddress.all()
     }
 
     func refreshShareSources() async {

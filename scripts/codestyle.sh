@@ -86,7 +86,7 @@ if [ "$ONLY" = all ] || [ "$ONLY" = swift ]; then
     if [ -z "$SWIFTLINT" ]; then
         echo "[swiftlint] skipped (swiftlint not found)"
     else
-        SL_DIRS="client/apple/swift client/ios/app/swift client/macos/app/swift"
+        SL_DIRS="client/apple/swift client/ios/app/swift client/ios/broadcast/swift client/ios/shared client/macos/app/swift"
         echo "[swiftlint] $SL_DIRS ($SWIFTLINT)"
         if [ "$CHECK" = 0 ]; then "$SWIFTLINT" lint --fix --quiet $SL_DIRS >/dev/null || true; fi
         if "$SWIFTLINT" lint --strict --quiet $SL_DIRS; then

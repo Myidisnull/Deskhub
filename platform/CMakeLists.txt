@@ -38,11 +38,17 @@ else()
     endif()
 
     if(APPLE)
-        list(APPEND deskhub_platform_os src/media/VtDecoderApple.mm src/ffi/ClientSessionApple.mm)
+        list(APPEND deskhub_platform_os
+            src/media/VtDecoderApple.mm
+            src/media/VtEncoderApple.mm
+            src/ffi/ClientSessionApple.mm
+        )
     endif()
 
     if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         list(APPEND deskhub_platform_os src/media/DisplayEnumMac.mm)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+        list(APPEND deskhub_platform_os src/media/DisplayEnumMobile.cpp)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(PkgConfig)
         if(PkgConfig_FOUND)

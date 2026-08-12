@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = (project.findProperty("applicationId") as String?) ?: "com.manhpham.deskhub"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = (project.findProperty("versionName") as String?) ?: "0.1-dev"
