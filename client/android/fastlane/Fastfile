@@ -55,7 +55,7 @@ platform :android do
     )
   end
 
-  desc "Push the store listing (fastlane/metadata/android) to Google Play"
+  desc "Push the store listing (fastlane/metadata/android, images and screenshots included) to Google Play"
   lane :metadata do
     upload_to_play_store(
       package_name: PACKAGE_NAME,
@@ -65,7 +65,8 @@ platform :android do
       skip_upload_apk: true,
       skip_upload_changelogs: true,
       skip_upload_images: false,
-      skip_upload_screenshots: true
+      skip_upload_screenshots: false,
+      sync_image_upload: true
     )
   end
 end
