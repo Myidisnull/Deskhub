@@ -670,7 +670,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_box_pack_start(GTK_BOX(box), Heading(ui::kSettingsHeading), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), Hint(ui::kSettingsHint), FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Section("Video"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionVideo), FALSE, FALSE, 0);
     GtkWidget* videoGrid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(videoGrid), 10);
     gtk_grid_set_column_spacing(GTK_GRID(videoGrid), 14);
@@ -692,7 +692,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_grid_attach(GTK_GRID(videoGrid), qualityCombo_, 1, 2, 1, 1);
     gtk_box_pack_start(GTK_BOX(box), videoGrid, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Section("Connection"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionConnection), FALSE, FALSE, 0);
     GtkWidget* netGrid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(netGrid), 10);
     gtk_grid_set_column_spacing(GTK_GRID(netGrid), 14);
@@ -701,7 +701,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_grid_attach(GTK_GRID(netGrid), portSpin_, 1, 0, 1, 1);
     gtk_box_pack_start(GTK_BOX(box), netGrid, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Section("Security"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionSecurity), FALSE, FALSE, 0);
     GtkWidget* securityGrid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(securityGrid), 10);
     gtk_grid_set_column_spacing(GTK_GRID(securityGrid), 14);
@@ -710,16 +710,16 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_widget_set_halign(hostPasscodeEntry_, GTK_ALIGN_START);
     gtk_grid_attach(GTK_GRID(securityGrid), hostPasscodeEntry_, 1, 0, 1, 1);
     gtk_box_pack_start(GTK_BOX(box), securityGrid, FALSE, FALSE, 0);
-
-    gtk_box_pack_start(GTK_BOX(box), Section("Permissions"), FALSE, FALSE, 0);
     allowInputCheck_ = gtk_check_button_new_with_label(ui::kAllowControlLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(allowInputCheck_), settings_.allowInput);
     gtk_box_pack_start(GTK_BOX(box), allowInputCheck_, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionSession), FALSE, FALSE, 0);
     clipboardCheck_ = gtk_check_button_new_with_label(ui::kClipboardSyncLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(clipboardCheck_), settings_.clipboardSync);
     gtk_box_pack_start(GTK_BOX(box), clipboardCheck_, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Section("Startup"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionLaunch), FALSE, FALSE, 0);
     autostartCheck_ = gtk_check_button_new_with_label(ui::kAutostartLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autostartCheck_),
         deskhubp::AutostartEnabled());

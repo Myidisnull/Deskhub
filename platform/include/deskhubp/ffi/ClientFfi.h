@@ -142,6 +142,11 @@ typedef enum {
     DHStrTrayHideWindow = 68,
     DHStrTrayQuit = 69,
     DHStrBindNotConnectedNote = 70,
+    DHStrSettingsSectionVideo = 71,
+    DHStrSettingsSectionConnection = 72,
+    DHStrSettingsSectionSecurity = 73,
+    DHStrSettingsSectionSession = 74,
+    DHStrSettingsSectionLaunch = 75,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

@@ -38,7 +38,9 @@ void TestEveryLabelSaysSomething() {
         ui::kRefreshNow, ui::kBindInterfaceLabel, ui::kBindAllInterfaces,
         ui::kBindNotConnectedNote, ui::kAutostartLabel,
         ui::kAutoShareLabel, ui::kClipboardSyncLabel, ui::kCloseToTrayLabel,
-        ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit};
+        ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit,
+        ui::kSettingsSectionVideo, ui::kSettingsSectionConnection, ui::kSettingsSectionSecurity,
+        ui::kSettingsSectionSession, ui::kSettingsSectionLaunch};
     for (const char* s : labels) Check(s && *s, "every shared UI string is non-empty");
     Check(Contains(ui::PasscodeNote("0417"), "0417"),
         "the sharing status quotes the passcode viewers must enter");

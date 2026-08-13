@@ -306,12 +306,15 @@ class MainFrame;
 
 class DeskhubTrayIcon final : public wxTaskBarIcon {
 public:
-    explicit DeskhubTrayIcon(MainFrame& frame) : frame_(frame) {}
+    explicit DeskhubTrayIcon(MainFrame& frame) : frame_(frame) {
+        Bind(wxEVT_TASKBAR_LEFT_DOWN, &DeskhubTrayIcon::OnLeftDown, this);
+    }
 
 protected:
     wxMenu* CreatePopupMenu() override;
 
 private:
+    void OnLeftDown(wxTaskBarIconEvent& event);
     MainFrame& frame_;
 };
 
@@ -504,12 +507,17 @@ void MainFrame::ApplyTrayMode() {
 }
 
 void MainFrame::ToggleWindowFromTray() {
-    if (IsShown()) {
-        Hide();
+    if (!IsShown()) {
+        Show(true);
+        Raise();
         return;
     }
-    Show(true);
-    Raise();
+    if (IsIconized()) {
+        Iconize(false);
+        Raise();
+        return;
+    }
+    Hide();
 }
 
 void MainFrame::QuitFromTray() {
@@ -806,7 +814,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(MakeHint(panel, ToWx(ui::kSettingsHint)), pad);
 
     sizer->AddSpacer(FromDIP(8));
-    sizer->Add(MakeSection(panel, "Video"), pad);
+    sizer->Add(MakeSection(panel, ui::kSettingsSectionVideo), pad);
     auto* videoGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
 
     videoGrid->Add(new wxStaticText(panel, wxID_ANY, "FPS"), wxSizerFlags().CentreVertical());
@@ -831,7 +839,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(videoGrid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     sizer->AddSpacer(FromDIP(12));
-    sizer->Add(MakeSection(panel, "Connection"), pad);
+    sizer->Add(MakeSection(panel, ui::kSettingsSectionConnection), pad);
     auto* netGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
 
     netGrid->Add(new wxStaticText(panel, wxID_ANY, "UDP port"),
@@ -843,7 +851,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(netGrid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     sizer->AddSpacer(FromDIP(12));
-    sizer->Add(MakeSection(panel, "Security"), pad);
+    sizer->Add(MakeSection(panel, ui::kSettingsSectionSecurity), pad);
     auto* securityGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
     securityGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kPasscodeLabel)),
         wxSizerFlags().CentreVertical());
@@ -851,18 +859,18 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     passcodeCtrl_->SetValue(ToWx(settings_.passcode));
     securityGrid->Add(passcodeCtrl_);
     sizer->Add(securityGrid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
-
-    sizer->AddSpacer(FromDIP(12));
-    sizer->Add(MakeSection(panel, "Permissions"), pad);
     allowInputCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAllowControlLabel));
     allowInputCtrl_->SetValue(settings_.allowInput);
     sizer->Add(allowInputCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+
+    sizer->AddSpacer(FromDIP(12));
+    sizer->Add(MakeSection(panel, ui::kSettingsSectionSession), pad);
     clipboardCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kClipboardSyncLabel));
     clipboardCtrl_->SetValue(settings_.clipboardSync);
     sizer->Add(clipboardCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     sizer->AddSpacer(FromDIP(12));
-    sizer->Add(MakeSection(panel, "Startup"), pad);
+    sizer->Add(MakeSection(panel, ui::kSettingsSectionLaunch), pad);
     autostartCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAutostartLabel));
     autostartCtrl_->SetValue(deskhubp::AutostartEnabled());
     sizer->Add(autostartCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1597,6 +1605,10 @@ wxMenu* DeskhubTrayIcon::CreatePopupMenu() {
     menu->Bind(
         wxEVT_MENU, [this](wxCommandEvent&) { frame_.QuitFromTray(); }, quitId);
     return menu;
+}
+
+void DeskhubTrayIcon::OnLeftDown(wxTaskBarIconEvent&) {
+    frame_.ToggleWindowFromTray();
 }
 
 class DeskhubApp final : public wxApp {

@@ -8,7 +8,7 @@ struct SettingsPage: View {
             deskhubHeading(DeskhubClient.string(DHStrSettingsHeading))
             deskhubHint(DeskhubClient.string(DHStrSettingsHint))
 
-            deskhubSection("Video")
+            deskhubSection(DeskhubClient.string(DHStrSettingsSectionVideo))
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text("FPS")
@@ -32,7 +32,7 @@ struct SettingsPage: View {
                 }
             }
 
-            deskhubSection("Connection")
+            deskhubSection(DeskhubClient.string(DHStrSettingsSectionConnection))
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text("UDP port")
@@ -41,20 +41,23 @@ struct SettingsPage: View {
                 }
             }
 
-            deskhubSection("Security")
+            deskhubSection(DeskhubClient.string(DHStrSettingsSectionSecurity))
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text(DeskhubClient.string(DHStrPasscodeLabel))
                     PasscodeField(passcode: $agent.passcode, width: 64)
                 }
             }
+            Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $agent.allowInput)
+                .toggleStyle(.checkbox)
 
+            deskhubSection(DeskhubClient.string(DHStrSettingsSectionSession))
             Toggle(DeskhubClient.string(DHStrClipboardSyncLabel), isOn: $agent.clipboardSync)
                 .toggleStyle(.checkbox)
 
             PermissionsSection(agent: agent)
 
-            deskhubSection("Startup")
+            deskhubSection(DeskhubClient.string(DHStrSettingsSectionLaunch))
             Toggle(DeskhubClient.string(DHStrAutostartLabel), isOn: $agent.autostart)
                 .toggleStyle(.checkbox)
             Toggle(DeskhubClient.string(DHStrAutoShareLabel), isOn: $agent.autoShare)

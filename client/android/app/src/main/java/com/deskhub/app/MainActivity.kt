@@ -179,6 +179,16 @@ private fun Heading(
 }
 
 @Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = HeadingColor,
+    )
+}
+
+@Composable
 private fun HeadingRow(
     text: String,
     onRefresh: () -> Unit,
@@ -815,6 +825,7 @@ private fun SettingsScreen(
             color = MutedColor,
         )
 
+        SectionLabel(NativeClient.string(NativeClient.STR_SECTION_CONNECTION))
         OutlinedTextField(
             value = typed,
             onValueChange = { entered -> typed = entered.filter { it.isDigit() }.take(5) },
@@ -825,6 +836,7 @@ private fun SettingsScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
 
+        SectionLabel(NativeClient.string(NativeClient.STR_SECTION_SESSION))
         var clipboardSync by remember { mutableStateOf(NativeClient.clipboardSync()) }
         Row(
             modifier = Modifier.fillMaxWidth(),

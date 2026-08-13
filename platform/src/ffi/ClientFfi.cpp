@@ -114,6 +114,11 @@ const char* dh_string(DHStringId id) {
         case DHStrTrayHideWindow: return deskhub::ui::kTrayHideWindow;
         case DHStrTrayQuit: return deskhub::ui::kTrayQuit;
         case DHStrBindNotConnectedNote: return deskhub::ui::kBindNotConnectedNote;
+        case DHStrSettingsSectionVideo: return deskhub::ui::kSettingsSectionVideo;
+        case DHStrSettingsSectionConnection: return deskhub::ui::kSettingsSectionConnection;
+        case DHStrSettingsSectionSecurity: return deskhub::ui::kSettingsSectionSecurity;
+        case DHStrSettingsSectionSession: return deskhub::ui::kSettingsSectionSession;
+        case DHStrSettingsSectionLaunch: return deskhub::ui::kSettingsSectionLaunch;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();

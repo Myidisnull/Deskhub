@@ -12,8 +12,6 @@ struct PermissionsSection: View {
                 .padding(.top, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $agent.allowInput)
-
             PermissionRow(
                 title: "Screen Recording",
                 granted: agent.hasScreenRecording,

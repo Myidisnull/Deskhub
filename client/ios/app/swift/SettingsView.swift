@@ -12,7 +12,7 @@ struct SettingsView: View {
                 deskhubHeading(DeskhubClient.string(DHStrClientSettingsHeading))
                 deskhubHint(DeskhubClient.string(DHStrClientSettingsHint))
 
-                deskhubSection("Connection")
+                deskhubSection(DeskhubClient.string(DHStrSettingsSectionConnection))
                 HStack(spacing: 12) {
                     Text("UDP port")
                     Spacer(minLength: 0)
@@ -28,7 +28,7 @@ struct SettingsView: View {
                     }
                 )
 
-                deskhubSection("Session")
+                deskhubSection(DeskhubClient.string(DHStrSettingsSectionSession))
                 Toggle(isOn: $settings.clipboardSync) {
                     Text(DeskhubClient.string(DHStrClipboardSyncLabel))
                 }

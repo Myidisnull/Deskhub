@@ -78,6 +78,8 @@ object NativeClient {
     const val STR_BIND_ALL_INTERFACES = 62
     const val STR_CLIPBOARD_SYNC_LABEL = 65
     const val STR_BIND_NOT_CONNECTED = 70
+    const val STR_SECTION_CONNECTION = 72
+    const val STR_SECTION_SESSION = 74
 
     private external fun nativeString(id: Int): String
 
