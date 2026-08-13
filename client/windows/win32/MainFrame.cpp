@@ -514,7 +514,7 @@ void MainFrame::ToggleWindowFromTray() {
 
 void MainFrame::QuitFromTray() {
     quitting_ = true;
-    Close(true);
+    CallAfter([this] { Close(true); });
 }
 
 wxWindow* MainFrame::BuildSidebar() {
