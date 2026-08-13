@@ -26,9 +26,11 @@ struct DeskhubApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1024, height: 634)
 
-        MenuBarExtra("Deskhub", systemImage: "rectangle.on.rectangle",
-                     isInserted: Bindable(agent).startHidden)
-        {
+        MenuBarExtra(
+            "Deskhub",
+            systemImage: "rectangle.on.rectangle",
+            isInserted: Bindable(agent).startHidden
+        ) {
             TrayMenu(agent: agent)
         }
     }
