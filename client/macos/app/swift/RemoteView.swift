@@ -6,8 +6,13 @@ final class RemoteVideoView: NSView {
     weak var model: StreamModel?
 
     var videoSize: CGSize = .zero {
-        didSet { needsLayout = true }
+        didSet {
+            needsLayout = true
+            refitWindow()
+        }
     }
+
+    private var fittedSize: CGSize = .zero
 
     private var pointer = DHPointerLock(locked: false)
     var mouseLocked: Bool { pointer.locked }
@@ -55,6 +60,31 @@ final class RemoteVideoView: NSView {
         )
         addTrackingArea(area)
         trackingArea = area
+    }
+
+    private func refitWindow() {
+        guard let window, let screen = window.screen ?? NSScreen.main else { return }
+        let newW = UInt32(max(0, videoSize.width))
+        let newH = UInt32(max(0, videoSize.height))
+        guard dh_should_refit_viewer(
+            UInt32(max(0, fittedSize.width)), UInt32(max(0, fittedSize.height)), newW, newH
+        ) else { return }
+        fittedSize = videoSize
+        var fitW: UInt32 = 0
+        var fitH: UInt32 = 0
+        dh_fit_viewer_window(
+            newW, newH,
+            UInt32(max(0, screen.visibleFrame.width)),
+            UInt32(max(0, screen.visibleFrame.height)),
+            &fitW, &fitH
+        )
+        guard fitW > 0, fitH > 0 else { return }
+        window.setContentSize(NSSize(width: Double(fitW), height: Double(fitH)))
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refitWindow()
     }
 
     private var videoRect: CGRect {

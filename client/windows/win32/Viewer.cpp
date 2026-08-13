@@ -70,7 +70,7 @@ struct ViewerFrame {
     ViewerInput input;
     std::string baseTitle;
     std::wstring shownTitle;
-    bool sizedToVideo = false;
+    uint32_t fittedW = 0, fittedH = 0;
 
     std::mutex mu;
     std::string statsLine;
@@ -119,8 +119,9 @@ struct ViewerFrame {
             w = videoW;
             h = videoH;
         }
-        if (!w || !h || sizedToVideo) return;
-        sizedToVideo = true;
+        if (!deskhub::ShouldRefitViewer(fittedW, fittedH, w, h)) return;
+        fittedW = w;
+        fittedH = h;
         RECT wa{};
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
         RECT wr{0, 0, LONG(w), LONG(h)};

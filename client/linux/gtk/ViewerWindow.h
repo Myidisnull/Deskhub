@@ -63,7 +63,8 @@ private:
     std::string baseTitle_;
     std::string statusLine_;
     std::string shownTitle_;
-    bool sizedToVideo_ = false;
+    uint32_t fittedW_ = 0;
+    uint32_t fittedH_ = 0;
     bool ended_ = false;
     std::function<void()> onClosed_;
 

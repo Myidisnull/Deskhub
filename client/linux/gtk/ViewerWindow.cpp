@@ -247,10 +247,11 @@ void ViewerWindow::UpdateTitle() {
 }
 
 void ViewerWindow::SizeToVideo() {
-    if (sizedToVideo_) return;
     const int vw = int(loop_.videoWidth()), vh = int(loop_.videoHeight());
     if (vw <= 0 || vh <= 0) return;
-    sizedToVideo_ = true;
+    if (!deskhub::ShouldRefitViewer(fittedW_, fittedH_, uint32_t(vw), uint32_t(vh))) return;
+    fittedW_ = uint32_t(vw);
+    fittedH_ = uint32_t(vh);
 
     const GdkRectangle wa = WorkArea(window_);
     const deskhub::ViewSize fitted = deskhub::ScaleToFit(uint32_t(vw), uint32_t(vh),

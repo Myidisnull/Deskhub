@@ -102,7 +102,7 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
-| V-1 | Vừa khung | Màn hình từ xa được co giãn vừa cửa sổ, giữ nguyên tỉ lệ; cửa sổ mở ra với kích thước theo nguồn. |
+| V-1 | Vừa khung | Màn hình từ xa được co giãn vừa cửa sổ, giữ nguyên tỉ lệ; cửa sổ mở ra với kích thước theo nguồn. Trên desktop, khi hình dạng luồng thực sự thay đổi giữa phiên — host điện thoại/máy tính bảng xoay màn hình, hoặc chuyển sang màn hình có tỉ lệ khác — cửa sổ tự chỉnh lại theo hình dạng mới; thay đổi chất lượng cùng tỉ lệ thì không đụng tới cửa sổ. |
 | V-2 | Phóng to và kéo | Có thể phóng to tới **5×** và kéo để di chuyển vùng nhìn. Mức phóng được hiển thị và đặt lại được bằng một thao tác. |
 | V-3 | Trạng thái phiên | Cửa sổ hiển thị dòng trạng thái trực tiếp: tốc độ khung hình, băng thông, độ trễ khứ hồi và độ trễ đầu-cuối. |
 | V-4 | Cửa sổ có tiêu đề | Mỗi cửa sổ xem có tiêu đề gồm tên nguồn đang xem và trạng thái hiện tại, để phân biệt được khi mở nhiều phiên. |

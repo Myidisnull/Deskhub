@@ -43,6 +43,19 @@ struct ViewSize {
     }
 };
 
+inline constexpr double kViewerRefitAspectTolerance = 0.02;
+
+constexpr bool ShouldRefitViewer(uint32_t fittedW, uint32_t fittedH, uint32_t newW,
+    uint32_t newH) {
+    if (!newW || !newH) return false;
+    if (!fittedW || !fittedH) return true;
+    const double fittedAspect = double(fittedW) / double(fittedH);
+    const double newAspect = double(newW) / double(newH);
+    const double ratio =
+        newAspect > fittedAspect ? newAspect / fittedAspect : fittedAspect / newAspect;
+    return ratio > 1.0 + kViewerRefitAspectTolerance;
+}
+
 ViewSize ScaleToFit(uint32_t width, uint32_t height, uint32_t maxWidth, uint32_t maxHeight);
 
 ViewRect FitVideoRect(double viewportW, double viewportH, double aspect,

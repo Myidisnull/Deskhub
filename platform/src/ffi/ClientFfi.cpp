@@ -211,6 +211,22 @@ bool dh_is_zoomed(double zoom) {
     return deskhub::IsZoomed(zoom);
 }
 
+bool dh_should_refit_viewer(uint32_t fitted_w, uint32_t fitted_h, uint32_t new_w,
+    uint32_t new_h) {
+    return deskhub::ShouldRefitViewer(fitted_w, fitted_h, new_w, new_h);
+}
+
+void dh_fit_viewer_window(uint32_t video_w, uint32_t video_h, uint32_t work_w, uint32_t work_h,
+    uint32_t* out_w, uint32_t* out_h) {
+    if (!out_w || !out_h) return;
+    const uint32_t margin = uint32_t(deskhub::kViewerMarginPx);
+    const uint32_t avail_w = work_w > margin ? work_w - margin : work_w;
+    const uint32_t avail_h = work_h > margin ? work_h - margin : work_h;
+    const deskhub::ViewSize fitted = deskhub::ScaleToFit(video_w, video_h, avail_w, avail_h);
+    *out_w = fitted.width;
+    *out_h = fitted.height;
+}
+
 int dh_viewer_base_title(const char* sourceName, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     deskhubp::CopyToBuf(out, size_t(capacity),

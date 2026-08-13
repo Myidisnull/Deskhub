@@ -195,6 +195,12 @@ int dh_zoom_label(double zoom, char* out, int capacity);
 
 bool dh_is_zoomed(double zoom);
 
+bool dh_should_refit_viewer(uint32_t fitted_w, uint32_t fitted_h, uint32_t new_w,
+    uint32_t new_h);
+
+void dh_fit_viewer_window(uint32_t video_w, uint32_t video_h, uint32_t work_w, uint32_t work_h,
+    uint32_t* out_w, uint32_t* out_h);
+
 int dh_viewer_base_title(const char* sourceName, char* out, int capacity);
 
 int dh_hotkeys(DHHotkey* out, int capacity);

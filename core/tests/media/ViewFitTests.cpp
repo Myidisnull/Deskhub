@@ -171,6 +171,21 @@ void TestScaleToFitNeverUpscales() {
     Check(tiny.width >= 1 && tiny.height >= 1, "extreme aspect never collapses to zero");
 }
 
+void TestRefitFollowsRotation() {
+    std::printf("[viewfit] the viewer window refits when the stream flips orientation...\n");
+    Check(ShouldRefitViewer(0, 0, 1080, 2400), "the first size always fits the window");
+    Check(ShouldRefitViewer(1080, 2400, 2400, 1080),
+        "a rotated stream asks for a refit");
+    Check(ShouldRefitViewer(2400, 1080, 1080, 2400), "and so does rotating back");
+    Check(!ShouldRefitViewer(1080, 2400, 540, 1200),
+        "a quality step at the same aspect leaves the window alone");
+    Check(!ShouldRefitViewer(1920, 1080, 1918, 1080),
+        "encoder rounding jitter is not a reason to move the window");
+    Check(ShouldRefitViewer(1920, 1080, 1920, 1200),
+        "switching to a genuinely different display shape refits");
+    Check(!ShouldRefitViewer(1920, 1080, 0, 1080), "a degenerate size never refits");
+}
+
 }
 
 namespace {
@@ -196,4 +211,5 @@ void RunViewFitTests() {
     TestNormalizePointerRejectsOutsideTheVideo();
     TestPointerRoundTripAcrossTheWholeVideo();
     TestScaleToFitNeverUpscales();
+    TestRefitFollowsRotation();
 }

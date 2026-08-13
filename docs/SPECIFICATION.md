@@ -97,7 +97,7 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| V-1 | Fit to window | The remote screen is scaled to fit the window, preserving aspect ratio, with the window sized to the source on open. |
+| V-1 | Fit to window | The remote screen is scaled to fit the window, preserving aspect ratio, with the window sized to the source on open. On desktop, when the stream's shape genuinely changes mid-session — a phone or tablet host rotating, or a switch to a differently shaped display — the window re-fits itself to the new shape; quality changes at the same shape leave the window alone. |
 | V-2 | Zoom and pan | The view can be zoomed up to **5×** and panned. Zoom level is displayed and can be reset in one action. |
 | V-3 | Session status | The window shows a live status line: frame rate, bandwidth, round-trip time and end-to-end latency. |
 | V-4 | Titled windows | Each viewer window is titled with the source it is showing plus its current status, so multiple sessions are distinguishable. |
