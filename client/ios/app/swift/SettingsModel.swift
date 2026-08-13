@@ -5,11 +5,13 @@ import Observation
 final class SettingsModel {
     var port: Int
     var clientControl: Bool
+    var clipboardSync: Bool
 
     init() {
         let stored = dh_settings_load()
         port = Int(stored.port)
         clientControl = stored.clientControl
+        clipboardSync = dh_clipboard_sync()
     }
 
     var acceptedPort: UInt16 {
@@ -22,5 +24,6 @@ final class SettingsModel {
             stored.fps, stored.bitrateMbps, stored.maxDim, UInt32(acceptedPort),
             stored.allowInput, clientControl, nil
         )
+        dh_set_clipboard_sync(clipboardSync)
     }
 }

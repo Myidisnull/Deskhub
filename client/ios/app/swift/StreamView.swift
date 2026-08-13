@@ -61,6 +61,25 @@ struct StreamView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             model.refresh()
         }
+        .task {
+            guard dh_clipboard_sync() else { return }
+            var lastChange = UIPasteboard.general.changeCount
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard streaming, scenePhase == .active else { continue }
+                let board = UIPasteboard.general
+                if let remote = model.takeClipboard() {
+                    board.string = remote
+                    lastChange = board.changeCount
+                    continue
+                }
+                guard board.changeCount != lastChange else { continue }
+                lastChange = board.changeCount
+                if board.hasStrings, let text = board.string, !text.isEmpty {
+                    model.offerClipboard(text)
+                }
+            }
+        }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             keyboardOn = false

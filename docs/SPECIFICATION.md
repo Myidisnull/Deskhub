@@ -135,8 +135,9 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 
 Settings are per machine, persist across restarts, and apply the next time sharing
 starts. Phones and tablets expose only the network port (T-4) — which also decides which
-port the network scan knocks on — plus the passcode (T-5) on their sharing screen; they
-host with the built-in defaults for everything else.
+port the network scan knocks on — and clipboard sync (T-17), plus the passcode (T-5) and
+the network to share on (T-9) on their sharing screen; they host with the built-in
+defaults for everything else.
 
 | ID | Setting | Range | Default |
 | --- | --- | --- | --- |
@@ -156,11 +157,11 @@ host with the built-in defaults for everything else.
 | --- | --- | --- |
 | T-7 | Automatic quality | Stream quality adapts on its own to the available network capacity within the configured limits; no user action is required when conditions change. |
 | T-8 | Validation | Out-of-range or non-numeric values are rejected and the previous value kept, rather than applied. |
-| T-10 | Network fallback | Desktop only. When a specific network is chosen (T-9), the host is reachable only through that address. If that address no longer exists when sharing starts, the host shares on all networks instead and says so in the sharing status. A saved address that is currently unavailable is still listed, marked *not connected*. |
+| T-10 | Network fallback | When a specific network is chosen (T-9), the host is reachable only through that address. If that address no longer exists when sharing starts, the host shares on all networks instead and says so in the sharing status. A saved address that is currently unavailable is still listed, marked *not connected*. |
 | T-12 | Auto-share on launch | Desktop only. With T-11 on, opening the app goes straight to the Host page and starts sharing with the saved settings, exactly as if the user had pressed Share. The platform rules still apply: Linux first shows the desktop's screen-sharing dialog (P-3), and macOS still requires its permissions (P-2). |
 | T-14 | Launch at login | Desktop only. With T-13 on: Linux writes an autostart entry into `~/.config/autostart`; Windows registers a scheduled task named *Deskhub* that starts the app elevated at logon, so no UAC prompt appears; macOS registers a Login Item the user can also see in System Settings. Turning it off removes that artifact again. The checkbox always shows what the operating system reports, not merely what was last saved. |
 | T-16 | Background mode | Desktop only. With T-15 on, a tray / menu-bar icon appears with *Show/Hide window*, *Start/Stop sharing* and *Quit*; closing the window hides the app instead of quitting it, and sharing continues in the background. The window always appears on launch and hides only when the user closes it, so T-13 + T-11 + T-15 together start sharing at login with the window shown until it is closed. On macOS the Dock icon disappears while the window is hidden. On Linux the tray needs a StatusNotifier host (standard on KDE; GNOME needs the AppIndicator extension) — without one, closing the window still quits, so the app can never become unreachable. |
-| T-18 | Clipboard sync | Desktop only. With T-17 on, plain text copied on any machine in the session appears on the others within a couple of seconds, in both directions; the host relays a viewer's copy to the other viewers. Text is capped at 32 KiB (longer copies are cut at a whole character); images, files and formatting are never transferred. The host's toggle governs the session: with it off, the host ignores and never sends clipboard data. Each machine also needs its own toggle on to read or write its local clipboard. |
+| T-18 | Clipboard sync | With T-17 on, plain text copied on any machine in the session appears on the others within a couple of seconds, in both directions; the host relays a viewer's copy to the other viewers. Text is capped at 32 KiB (longer copies are cut at a whole character); images, files and formatting are never transferred. The host's toggle governs the session: with it off, the host ignores and never sends clipboard data. Each machine also needs its own toggle on to read or write its local clipboard. On Android and iOS the operating system constrains this: an Android device picks up its own copies only while Deskhub is the app in the foreground, though incoming text is applied at any time; an iOS viewer may show the system paste prompt when Deskhub reads a fresh copy; and an iOS device that is hosting does not take part at all, because its broadcast runs in a separate process without clipboard access. |
 
 ## 11. Status and troubleshooting
 

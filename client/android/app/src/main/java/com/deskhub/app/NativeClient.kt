@@ -74,6 +74,10 @@ object NativeClient {
     const val STR_CLIENT_SETTINGS_HINT = 58
     const val STR_REFRESH_NOW = 51
     const val STR_UDP_PORT_LABEL = 59
+    const val STR_BIND_INTERFACE_LABEL = 61
+    const val STR_BIND_ALL_INTERFACES = 62
+    const val STR_CLIPBOARD_SYNC_LABEL = 65
+    const val STR_BIND_NOT_CONNECTED = 70
 
     private external fun nativeString(id: Int): String
 
@@ -189,6 +193,22 @@ object NativeClient {
     fun clientControl(): Boolean = nativeClientControl()
 
     fun setClientControl(on: Boolean) = nativeSetClientControl(on)
+
+    private external fun nativeClipboardSync(): Boolean
+
+    private external fun nativeSetClipboardSync(on: Boolean)
+
+    fun clipboardSync(): Boolean = nativeClipboardSync()
+
+    fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
+
+    private external fun nativeClipOffer(text: String)
+
+    private external fun nativeClipTake(): String
+
+    fun clipOffer(text: String) = nativeClipOffer(text)
+
+    fun clipTake(): String = nativeClipTake()
 
     private external fun nativeDeviceName(): String
 

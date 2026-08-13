@@ -84,6 +84,22 @@ object NativeHost {
 
     private external fun nativeShareDefaults(): IntArray
 
+    private external fun nativeClipOffer(text: String)
+
+    private external fun nativeClipTake(): String
+
+    fun clipOffer(text: String) = nativeClipOffer(text)
+
+    fun clipTake(): String = nativeClipTake()
+
+    private external fun nativeBindIp(): String
+
+    private external fun nativeSetBindIp(ip: String)
+
+    fun bindIp(): String = nativeBindIp()
+
+    fun setBindIp(ip: String) = nativeSetBindIp(ip)
+
     data class HostRow(
         val viewer: Boolean,
         val sourceId: Int,

@@ -19,6 +19,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -27,6 +29,7 @@ class HostService : Service() {
     private var projection: MediaProjection? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob())
+    private var clipboardJob: Job? = null
 
     private val projectionCallback =
         object : MediaProjection.Callback() {
@@ -73,6 +76,17 @@ class HostService : Service() {
         scope.launch {
             val ok = NativeHost.start(options)
             if (!ok) mainHandler.post { failWith(NativeHost.lastError()) }
+        }
+        clipboardJob?.cancel()
+        if (NativeClient.clipboardSync()) {
+            clipboardJob =
+                scope.launch(Dispatchers.Main) {
+                    ClipboardPump.run(
+                        applicationContext,
+                        take = { NativeHost.clipTake() },
+                        offer = { NativeHost.clipOffer(it) },
+                    )
+                }
         }
         return START_NOT_STICKY
     }

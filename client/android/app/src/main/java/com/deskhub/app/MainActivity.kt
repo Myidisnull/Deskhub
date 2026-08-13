@@ -1,6 +1,8 @@
 package com.deskhub.app
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -8,12 +10,14 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +34,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -50,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -382,6 +389,18 @@ private fun portFieldText(addr: String): String {
     return port.toString()
 }
 
+private fun copyToClipboard(
+    context: Context,
+    text: String,
+) {
+    val clipboard =
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText("Deskhub", text))
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @Composable
 private fun PasscodeDialog(
     addr: String,
@@ -585,6 +604,58 @@ private fun HostScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
         )
 
+        var bindIp by remember { mutableStateOf(NativeHost.bindIp()) }
+        var bindMenuOpen by remember { mutableStateOf(false) }
+        val bindStale = bindIp.isNotEmpty() && addresses.none { it.ip == bindIp }
+        val bindLabel =
+            when {
+                bindIp.isEmpty() -> NativeClient.string(NativeClient.STR_BIND_ALL_INTERFACES)
+                bindStale ->
+                    "$bindIp (${NativeClient.string(NativeClient.STR_BIND_NOT_CONNECTED)})"
+                else -> bindIp
+            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                NativeClient.string(NativeClient.STR_BIND_INTERFACE_LABEL),
+                modifier = Modifier.weight(1f),
+            )
+            Box {
+                TextButton(
+                    onClick = { bindMenuOpen = true },
+                    enabled = !sharing && !starting,
+                ) { Text(bindLabel) }
+                DropdownMenu(
+                    expanded = bindMenuOpen,
+                    onDismissRequest = { bindMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(NativeClient.string(NativeClient.STR_BIND_ALL_INTERFACES))
+                        },
+                        onClick = {
+                            bindIp = ""
+                            NativeHost.setBindIp("")
+                            bindMenuOpen = false
+                        },
+                    )
+                    addresses.forEach { address ->
+                        DropdownMenuItem(
+                            text = { Text("${address.ip}  (${address.name})") },
+                            onClick = {
+                                bindIp = address.ip
+                                NativeHost.setBindIp(address.ip)
+                                bindMenuOpen = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         Button(
             onClick = {
                 if (sharing) {
@@ -647,13 +718,18 @@ private fun HostScreen(
                 color = MutedColor,
             )
         } else {
-            for (address in addresses) {
+            val context = LocalContext.current
+            for (address in addresses.filter { bindIp.isEmpty() || it.ip == bindIp }) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(address.name, modifier = Modifier.weight(1f), color = MutedColor)
                     Text(address.ip, fontWeight = FontWeight.Bold, color = HeadingColor)
+                    TextButton(onClick = { copyToClipboard(context, address.ip) }) {
+                        Text("Copy")
+                    }
                 }
             }
         }
@@ -748,6 +824,22 @@ private fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
+
+        var clipboardSync by remember { mutableStateOf(NativeClient.clipboardSync()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = clipboardSync,
+                onCheckedChange = {
+                    clipboardSync = it
+                    NativeClient.setClipboardSync(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL))
+        }
 
         ProjectFooter()
     }

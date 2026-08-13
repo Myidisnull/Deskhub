@@ -73,6 +73,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -243,6 +244,16 @@ private fun StreamScreen(
     }
 
     val streaming = sessionPhase == NativeClient.PHASE_STREAMING
+
+    val appContext = LocalContext.current.applicationContext
+    LaunchedEffect(sessionKey, streaming) {
+        if (!streaming || !NativeClient.clipboardSync()) return@LaunchedEffect
+        ClipboardPump.run(
+            appContext,
+            take = { NativeClient.clipTake() },
+            offer = { NativeClient.clipOffer(it) },
+        )
+    }
 
     var keyboardOn by remember { mutableStateOf(false) }
     var keyView by remember { mutableStateOf<KeyInputView?>(null) }

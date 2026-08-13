@@ -10,6 +10,7 @@ final class SharingModel {
     var passcode: String
     var status = BroadcastStatus()
     var addresses: [LocalAddress] = []
+    var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
 
     private var lastValidPasscode: String
 
@@ -31,6 +32,10 @@ final class SharingModel {
         return DeskhubClient.buffered(320) {
             dh_sharing_status(port, acceptedPasscode, false, $0, $1)
         }
+    }
+
+    func saveBindIp() {
+        dh_set_bind_ip(bindIp)
     }
 
     func savePasscode() {

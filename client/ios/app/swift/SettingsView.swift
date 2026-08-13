@@ -28,6 +28,14 @@ struct SettingsView: View {
                     }
                 )
 
+                deskhubSection("Session")
+                Toggle(isOn: $settings.clipboardSync) {
+                    Text(DeskhubClient.string(DHStrClipboardSyncLabel))
+                }
+                .onChange(of: settings.clipboardSync) { _, _ in
+                    settings.save()
+                }
+
                 ProjectFooter()
             }
             .padding()

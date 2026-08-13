@@ -8,6 +8,7 @@
 #include "JniEnv.h"
 #include "capture/ScreenCapture.h"
 
+#include "deskhub/protocol/Wire.h"
 #include "deskhubp/ffi/AgentSession.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/media/DisplayEnum.h"
@@ -198,6 +199,28 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSavePasscode(JNIEnv
     const std::string code = deskhubj::FromJString(env, passcode);
     dh_settings_save(settings.fps, settings.bitrateMbps, settings.maxDim, settings.port,
         settings.allowInput, settings.clientControl, code.c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeBindIp(JNIEnv* env, jobject) {
+    char buf[64];
+    dh_bind_ip(buf, int(sizeof(buf)));
+    return NewString(env, buf);
+}
+
+JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSetBindIp(JNIEnv* env, jobject,
+    jstring ip) {
+    dh_set_bind_ip(deskhubj::FromJString(env, ip).c_str());
+}
+
+JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeClipOffer(JNIEnv* env, jobject,
+    jstring text) {
+    dha_clip_offer(deskhubj::FromJString(env, text).c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeClipTake(JNIEnv* env, jobject) {
+    char buf[deskhub::kMaxClipboardTextBytes + 1];
+    dha_clip_take(buf, int(sizeof(buf)));
+    return NewString(env, buf);
 }
 
 JNIEXPORT jintArray JNICALL Java_com_deskhub_app_NativeHost_nativeShareDefaults(JNIEnv* env,

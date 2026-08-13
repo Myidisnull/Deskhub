@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 struct SharingView: View {
     @Bindable var model: SharingModel
+    @State private var copiedIp: String?
 
     var body: some View {
         ScrollView {
@@ -27,6 +29,23 @@ struct SharingView: View {
                 )
                 .onChange(of: model.passcode) { _, _ in model.savePasscode() }
 
+                HStack(spacing: 12) {
+                    Text(DeskhubClient.string(DHStrBindInterfaceLabel))
+                    Spacer(minLength: 0)
+                    Picker("", selection: $model.bindIp) {
+                        Text(DeskhubClient.string(DHStrBindAllInterfaces)).tag("")
+                        ForEach(model.addresses) { address in
+                            Text("\(address.ip)  (\(address.name))").tag(address.ip)
+                        }
+                        if staleBindIp {
+                            Text(staleBindLabel).tag(model.bindIp)
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(model.status.sharing)
+                }
+                .onChange(of: model.bindIp) { _, _ in model.saveBindIp() }
+
                 BroadcastPickerButton(
                     extensionBundleId: SharingModel.extensionBundleId,
                     title: DeskhubClient.string(
@@ -49,11 +68,22 @@ struct SharingView: View {
                 if model.addresses.isEmpty {
                     deskhubHint(DeskhubClient.string(DHStrNoNetworkAddress))
                 } else {
-                    ForEach(model.addresses) { address in
+                    ForEach(shownAddresses) { address in
                         HStack(spacing: 12) {
                             Text(address.name).foregroundStyle(DeskhubPalette.muted)
                             Spacer(minLength: 0)
                             Text(address.ip).fontWeight(.bold).textSelection(.enabled)
+                            Button {
+                                UIPasteboard.general.string = address.ip
+                                copiedIp = address.ip
+                            } label: {
+                                Image(
+                                    systemName: copiedIp == address.ip
+                                        ? "checkmark" : "doc.on.doc"
+                                )
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Copy address")
                         }
                     }
                 }
@@ -64,6 +94,23 @@ struct SharingView: View {
             .padding()
         }
         .task { await model.poll() }
+        .task(id: copiedIp) {
+            guard copiedIp != nil else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedIp = nil
+        }
+    }
+
+    private var shownAddresses: [LocalAddress] {
+        model.addresses.filter { model.bindIp.isEmpty || $0.ip == model.bindIp }
+    }
+
+    private var staleBindIp: Bool {
+        !model.bindIp.isEmpty && !model.addresses.contains { $0.ip == model.bindIp }
+    }
+
+    private var staleBindLabel: String {
+        "\(model.bindIp)  (\(DeskhubClient.string(DHStrBindNotConnectedNote)))"
     }
 
     private var viewerLine: String {

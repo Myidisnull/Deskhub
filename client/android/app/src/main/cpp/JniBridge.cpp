@@ -218,6 +218,28 @@ Java_com_deskhub_app_NativeClient_nativeSetClientControl(JNIEnv*, jobject, jbool
     dh_set_client_control(on == JNI_TRUE);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeClipboardSync(JNIEnv*, jobject) {
+    return dh_clipboard_sync() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jboolean on) {
+    dh_set_clipboard_sync(on == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeClipOffer(JNIEnv* env, jobject, jstring textStr) {
+    dh_session_clip_offer(g_session, FromJString(env, textStr).c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeClipTake(JNIEnv* env, jobject) {
+    char buf[deskhub::kMaxClipboardTextBytes + 1];
+    dh_session_clip_take(g_session, buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeDeviceName(JNIEnv* env, jobject) {
     char buf[128];

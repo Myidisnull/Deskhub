@@ -222,9 +222,10 @@ icon with Show/Hide, Start/Stop sharing and Quit, and turns the window's close b
 into "hide" — the window still opens visible on every launch: combine the three and the
 machine starts sharing at login on its own, hiding into the tray once you close the
 window.
-*Sync clipboard text* makes plain text copied on one machine pastable on the others
-(both directions, text only, 32 KiB cap) — it rides the same unencrypted channel as the
-video, so leave it off on networks you do not trust.
+*Sync clipboard text* makes plain text copied on one device pastable on the others
+(both directions, text only, 32 KiB cap, on all five clients — a phone or tablet reads
+its own clipboard only while Deskhub is in the foreground) — it rides the same
+unencrypted channel as the video, so leave it off on networks you do not trust.
 
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:

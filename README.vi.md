@@ -225,9 +225,10 @@ giúp bạn khi mở app. *Keep running in the background* thêm biểu tượng
 với Hiện/Ẩn, Bắt đầu/Dừng chia sẻ và Thoát, đồng thời biến nút đóng cửa sổ thành "ẩn"
 — cửa sổ vẫn luôn hiện ra mỗi lần mở app: kết hợp cả ba thì máy tự chia sẻ ngay khi
 đăng nhập, và ẩn vào khay khi bạn đóng cửa sổ. *Sync clipboard
-text* cho phép văn bản thuần copy trên một máy dán được trên các máy còn lại (hai chiều,
-chỉ văn bản, giới hạn 32 KiB) — nó đi trên cùng kênh không mã hoá với video, nên hãy tắt
-trên mạng bạn không tin tưởng.
+text* cho phép văn bản thuần copy trên một thiết bị dán được trên các thiết bị còn lại
+(hai chiều, chỉ văn bản, giới hạn 32 KiB, trên cả năm client — điện thoại hay máy tính
+bảng chỉ đọc được clipboard của chính nó khi Deskhub đang ở nền trước) — nó đi trên cùng
+kênh không mã hoá với video, nên hãy tắt trên mạng bạn không tin tưởng.
 
 Qua Internet: chạy [Tailscale](https://tailscale.com) trên cả hai máy và dùng địa chỉ
 100.x.y.z — đừng bao giờ port-forward. Trên di động, khung hình chính là trackpad: kéo =
