@@ -192,6 +192,25 @@ void TestAdmitCapturedFrame() {
     Check(!st.paused.load(), "and clears the pause");
 }
 
+void TestAdmitRotatedFrame() {
+    std::printf("[size] a rotated source retargets before it is clamped...\n");
+    SourcePipelineState st(20'000'000, 1'000'000);
+
+    const FrameAdmission portrait = AdmitCapturedFrame(st, 1170, 2532, 1920);
+    Check(!portrait.drop && portrait.rebuildEncoder, "the portrait stream starts");
+    Check(st.srcH.load() > st.srcW.load(), "and encodes taller than wide");
+    st.sizeChanged.store(false);
+
+    const FrameAdmission landscape = AdmitCapturedFrame(st, 2532, 1170, 1920);
+    Check(landscape.rebuildEncoder && !landscape.drop, "rotating rebuilds the encoder");
+    Check(st.srcW.load() > st.srcH.load(), "the encode turns wider than tall");
+    const double sourceAspect = 2532.0 / 1170.0;
+    const double encodeAspect = double(st.srcW.load()) / double(st.srcH.load());
+    Check(encodeAspect > sourceAspect * 0.98 && encodeAspect < sourceAspect * 1.02,
+        "the encode keeps the rotated aspect instead of clamping to the old target");
+    Check(st.sizeChanged.load(), "and the offer is marked stale for the viewers");
+}
+
 void TestMakeEncoderConfig() {
     std::printf("[size] the encoder config is derived from the pipeline state...\n");
     SourcePipelineState st(20'000'000, 1'000'000);
@@ -248,6 +267,7 @@ void RunStreamSizeTests() {
     TestTargetStreamSize();
     TestRetargetStream();
     TestAdmitCapturedFrame();
+    TestAdmitRotatedFrame();
     TestMakeEncoderConfig();
     TestClampEncodeSize();
 }

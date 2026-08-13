@@ -58,8 +58,11 @@ FrameAdmission AdmitCapturedFrame(SourcePipelineState& st, uint32_t nativeW, uin
         return out;
     }
 
+    const uint32_t prevNativeW = st.nativeW.load(std::memory_order_relaxed);
+    const uint32_t prevNativeH = st.nativeH.load(std::memory_order_relaxed);
     st.nativeW.store(nativeW, std::memory_order_relaxed);
     st.nativeH.store(nativeH, std::memory_order_relaxed);
+    if (prevNativeW != nativeW || prevNativeH != nativeH) RetargetStream(st, maxDim);
 
     const EncodeSize target = ClampEncodeSize(nativeW, nativeH,
         st.wantW.load(std::memory_order_relaxed), st.wantH.load(std::memory_order_relaxed),
