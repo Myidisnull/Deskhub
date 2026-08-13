@@ -31,7 +31,19 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
             return
         }
 
-        dhb_push_frame(Unmanaged.passUnretained(pixelBuffer).toOpaque())
+        dhb_push_frame(
+            Unmanaged.passUnretained(pixelBuffer).toOpaque(),
+            sampleOrientation(sampleBuffer)
+        )
+    }
+
+    private func sampleOrientation(_ sampleBuffer: CMSampleBuffer) -> UInt32 {
+        let value = CMGetAttachment(
+            sampleBuffer,
+            key: RPVideoSampleOrientationKey as CFString,
+            attachmentModeOut: nil
+        )
+        return (value as? NSNumber)?.uint32Value ?? 1
     }
 
     private func startPublishingStatus() {

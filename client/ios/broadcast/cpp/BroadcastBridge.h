@@ -9,7 +9,7 @@ extern "C" {
 
 void dhb_start_broadcast(const char* containerPath, const char* screenName);
 
-void dhb_push_frame(void* pixelBuffer);
+void dhb_push_frame(void* pixelBuffer, uint32_t cgOrientation);
 
 void dhb_finish_broadcast(void);
 

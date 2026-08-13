@@ -1,6 +1,8 @@
 #include "BroadcastBridge.h"
 
+#include <Accelerate/Accelerate.h>
 #include <CoreVideo/CVPixelBuffer.h>
+#include <CoreVideo/CVPixelBufferPool.h>
 
 #include <cstring>
 #include <mutex>
@@ -81,6 +83,135 @@ std::thread TakeStartThread() {
     return std::move(g_startThread);
 }
 
+constexpr uint32_t kCgOrientationDown = 3;
+constexpr uint32_t kCgOrientationRight = 6;
+constexpr uint32_t kCgOrientationLeft = 8;
+constexpr Pixel_16U kNeutralChromaPair = 0x8080;
+
+CVPixelBufferPoolRef g_rotatePool = nullptr;
+OSType g_rotatePoolFormat = 0;
+size_t g_rotatePoolW = 0;
+size_t g_rotatePoolH = 0;
+bool g_rotateWarned = false;
+
+uint8_t RotationFor(uint32_t cgOrientation) {
+    switch (cgOrientation) {
+        case kCgOrientationDown: return kRotate180DegreesClockwise;
+        case kCgOrientationLeft: return kRotate90DegreesClockwise;
+        case kCgOrientationRight: return kRotate270DegreesClockwise;
+        default: return kRotate0DegreesClockwise;
+    }
+}
+
+void ReleaseRotatePool() {
+    if (!g_rotatePool) return;
+    CVPixelBufferPoolRelease(g_rotatePool);
+    g_rotatePool = nullptr;
+    g_rotatePoolFormat = 0;
+    g_rotatePoolW = 0;
+    g_rotatePoolH = 0;
+}
+
+bool EnsureRotatePool(OSType format, size_t width, size_t height) {
+    if (g_rotatePool && g_rotatePoolFormat == format && g_rotatePoolW == width &&
+        g_rotatePoolH == height)
+        return true;
+    ReleaseRotatePool();
+
+    const int32_t fmt = int32_t(format);
+    const int32_t w = int32_t(width);
+    const int32_t h = int32_t(height);
+    CFNumberRef fmtRef = CFNumberCreate(nullptr, kCFNumberSInt32Type, &fmt);
+    CFNumberRef wRef = CFNumberCreate(nullptr, kCFNumberSInt32Type, &w);
+    CFNumberRef hRef = CFNumberCreate(nullptr, kCFNumberSInt32Type, &h);
+    CFDictionaryRef surface = CFDictionaryCreate(nullptr, nullptr, nullptr, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const void* keys[] = {kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
+        kCVPixelBufferHeightKey, kCVPixelBufferIOSurfacePropertiesKey};
+    const void* values[] = {fmtRef, wRef, hRef, surface};
+    CFDictionaryRef attrs = CFDictionaryCreate(nullptr, keys, values, 4,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const CVReturn made = CVPixelBufferPoolCreate(nullptr, nullptr, attrs, &g_rotatePool);
+    CFRelease(attrs);
+    CFRelease(surface);
+    CFRelease(hRef);
+    CFRelease(wRef);
+    CFRelease(fmtRef);
+    if (made != kCVReturnSuccess) {
+        g_rotatePool = nullptr;
+        return false;
+    }
+    g_rotatePoolFormat = format;
+    g_rotatePoolW = width;
+    g_rotatePoolH = height;
+    return true;
+}
+
+CVPixelBufferRef RotatedCopy(CVPixelBufferRef src, uint32_t cgOrientation) {
+    const uint8_t rotation = RotationFor(cgOrientation);
+    if (rotation == kRotate0DegreesClockwise) return nullptr;
+
+    const OSType format = CVPixelBufferGetPixelFormatType(src);
+    const bool bgra = format == kCVPixelFormatType_32BGRA;
+    const bool biplanar = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
+                          format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+    if (!bgra && !biplanar) {
+        if (!g_rotateWarned) {
+            g_rotateWarned = true;
+            LOGW(
+                "[Broadcast] Pixel format 0x%08X has no rotation path - rotated frames "
+                "stay sideways.",
+                unsigned(format));
+        }
+        return nullptr;
+    }
+
+    const size_t srcW = CVPixelBufferGetWidth(src);
+    const size_t srcH = CVPixelBufferGetHeight(src);
+    const bool quarterTurn =
+        rotation == kRotate90DegreesClockwise || rotation == kRotate270DegreesClockwise;
+    const size_t dstW = quarterTurn ? srcH : srcW;
+    const size_t dstH = quarterTurn ? srcW : srcH;
+    if (!dstW || !dstH || !EnsureRotatePool(format, dstW, dstH)) return nullptr;
+
+    CVPixelBufferRef dst = nullptr;
+    if (CVPixelBufferPoolCreatePixelBuffer(nullptr, g_rotatePool, &dst) != kCVReturnSuccess ||
+        !dst)
+        return nullptr;
+
+    CVPixelBufferLockBaseAddress(src, kCVPixelBufferLock_ReadOnly);
+    CVPixelBufferLockBaseAddress(dst, 0);
+    bool ok = false;
+    if (bgra) {
+        const vImage_Buffer in{CVPixelBufferGetBaseAddress(src), srcH, srcW,
+            CVPixelBufferGetBytesPerRow(src)};
+        const vImage_Buffer out{CVPixelBufferGetBaseAddress(dst), dstH, dstW,
+            CVPixelBufferGetBytesPerRow(dst)};
+        const uint8_t opaqueBlack[4] = {0, 0, 0, 255};
+        ok = vImageRotate90_ARGB8888(&in, &out, rotation, opaqueBlack, kvImageNoFlags) ==
+             kvImageNoError;
+    } else {
+        const vImage_Buffer inY{CVPixelBufferGetBaseAddressOfPlane(src, 0), srcH, srcW,
+            CVPixelBufferGetBytesPerRowOfPlane(src, 0)};
+        const vImage_Buffer outY{CVPixelBufferGetBaseAddressOfPlane(dst, 0), dstH, dstW,
+            CVPixelBufferGetBytesPerRowOfPlane(dst, 0)};
+        const vImage_Buffer inC{CVPixelBufferGetBaseAddressOfPlane(src, 1), srcH / 2, srcW / 2,
+            CVPixelBufferGetBytesPerRowOfPlane(src, 1)};
+        const vImage_Buffer outC{CVPixelBufferGetBaseAddressOfPlane(dst, 1), dstH / 2, dstW / 2,
+            CVPixelBufferGetBytesPerRowOfPlane(dst, 1)};
+        ok = vImageRotate90_Planar8(&inY, &outY, rotation, 0, kvImageNoFlags) == kvImageNoError &&
+             vImageRotate90_Planar16U(&inC, &outC, rotation, kNeutralChromaPair, kvImageNoFlags) ==
+                 kvImageNoError;
+    }
+    CVPixelBufferUnlockBaseAddress(dst, 0);
+    CVPixelBufferUnlockBaseAddress(src, kCVPixelBufferLock_ReadOnly);
+    if (!ok) {
+        CVPixelBufferRelease(dst);
+        return nullptr;
+    }
+    return dst;
+}
+
 }
 
 void dhb_start_broadcast(const char* containerPath, const char* screenName) {
@@ -94,12 +225,18 @@ void dhb_start_broadcast(const char* containerPath, const char* screenName) {
     g_startError.clear();
 }
 
-void dhb_push_frame(void* pixelBuffer) {
+void dhb_push_frame(void* pixelBuffer, uint32_t cgOrientation) {
     if (!pixelBuffer) return;
     auto pb = static_cast<CVPixelBufferRef>(pixelBuffer);
-    const uint32_t width = uint32_t(CVPixelBufferGetWidth(pb));
-    const uint32_t height = uint32_t(CVPixelBufferGetHeight(pb));
-    if (!width || !height) return;
+
+    CVPixelBufferRef rotated = RotatedCopy(pb, cgOrientation);
+    CVPixelBufferRef out = rotated ? rotated : pb;
+    const uint32_t width = uint32_t(CVPixelBufferGetWidth(out));
+    const uint32_t height = uint32_t(CVPixelBufferGetHeight(out));
+    if (!width || !height) {
+        if (rotated) CVPixelBufferRelease(rotated);
+        return;
+    }
 
     {
         std::lock_guard<std::mutex> lk(g_startMutex);
@@ -107,11 +244,12 @@ void dhb_push_frame(void* pixelBuffer) {
     }
 
     ScreenCapture::Frame frame;
-    frame.handle = pixelBuffer;
+    frame.handle = out;
     frame.meta.width = width;
     frame.meta.height = height;
     frame.meta.timestampUs = NowUs();
     ScreenCapture::DeliverFrame(frame);
+    if (rotated) CVPixelBufferRelease(rotated);
 }
 
 void dhb_finish_broadcast(void) {
@@ -121,6 +259,7 @@ void dhb_finish_broadcast(void) {
     if (pendingStart.joinable()) pendingStart.join();
 
     dha_stop();
+    ReleaseRotatePool();
 }
 
 bool dhb_sharing(void) {

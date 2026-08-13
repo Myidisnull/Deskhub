@@ -18,6 +18,7 @@
 		BBEX000100000012006CCD14 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000002006CCD14 /* CoreMedia.framework */; };
 		BBEX000100000013006CCD14 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000003006CCD14 /* AVFoundation.framework */; };
 		BBEX000100000014006CCD14 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000004006CCD14 /* CoreVideo.framework */; };
+		BBEX000100000016006CCD14 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFR000100000006006CCD14 /* Accelerate.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +53,7 @@
 		BBFR000100000003006CCD14 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		BBFR000100000004006CCD14 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
 		BBFR000100000005006CCD14 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
+		BBFR000100000006006CCD14 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -114,6 +116,7 @@
 				BBEX000100000012006CCD14 /* CoreMedia.framework in Frameworks */,
 				BBEX000100000013006CCD14 /* AVFoundation.framework in Frameworks */,
 				BBEX000100000014006CCD14 /* CoreVideo.framework in Frameworks */,
+				BBEX000100000016006CCD14 /* Accelerate.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -149,6 +152,7 @@
 				BBFR000100000003006CCD14 /* AVFoundation.framework */,
 				BBFR000100000004006CCD14 /* CoreVideo.framework */,
 				BBFR000100000005006CCD14 /* ReplayKit.framework */,
+				BBFR000100000006006CCD14 /* Accelerate.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
