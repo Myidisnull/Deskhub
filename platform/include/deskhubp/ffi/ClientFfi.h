@@ -132,6 +132,16 @@ typedef enum {
     DHStrClientSettingsHint = 58,
     DHStrUdpPortLabel = 59,
     DHStrBroadcastMemoryLabel = 60,
+    DHStrBindInterfaceLabel = 61,
+    DHStrBindAllInterfaces = 62,
+    DHStrAutostartLabel = 63,
+    DHStrAutoShareLabel = 64,
+    DHStrClipboardSyncLabel = 65,
+    DHStrCloseToTrayLabel = 66,
+    DHStrTrayShowWindow = 67,
+    DHStrTrayHideWindow = 68,
+    DHStrTrayQuit = 69,
+    DHStrBindNotConnectedNote = 70,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

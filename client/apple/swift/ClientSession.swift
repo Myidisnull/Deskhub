@@ -272,4 +272,14 @@ final class ClientSession: @unchecked Sendable {
     func phase() -> Phase {
         Phase(rawValue: Int(dh_session_phase(handle).rawValue)) ?? .idle
     }
+
+    func offerClipboard(_ text: String) {
+        guard !text.isEmpty else { return }
+        dh_session_clip_offer(handle, text)
+    }
+
+    func takeClipboard() -> String? {
+        let text = DeskhubClient.buffered(33000) { dh_session_clip_take(handle, $0, $1) }
+        return text.isEmpty ? nil : text
+    }
 }

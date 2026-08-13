@@ -21,8 +21,45 @@ void TestRoundTrip() {
     s.clientControl = false;
     s.passcode = "0417";
     s.deviceName = "Anh's laptop";
+    s.bindIp = "192.168.1.10";
+    s.autostart = true;
+    s.autoShare = true;
+    s.clipboardSync = true;
+    s.startHidden = true;
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
+}
+
+void TestBindIpPersistence() {
+    std::printf("[settings] the bind address persists only when it is a real IPv4...\n");
+    Check(ui::ParseUiSettings("").bindIp.empty(), "all interfaces by default");
+    Check(ui::ParseUiSettings("bind_ip=192.168.1.10").bindIp == "192.168.1.10",
+        "a real address is kept");
+    Check(ui::ParseUiSettings("bind_ip=").bindIp.empty(), "an empty value means all interfaces");
+    Check(ui::ParseUiSettings("bind_ip=not-an-ip").bindIp.empty(), "junk is dropped");
+    Check(ui::ParseUiSettings("bind_ip=192.168.1.999").bindIp.empty(),
+        "an out-of-range octet is dropped");
+
+    ui::UiSettings s;
+    s.bindIp = "garbage";
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)).bindIp.empty(),
+        "an invalid in-memory address is not written out");
+}
+
+void TestBehaviorTogglesPersist() {
+    std::printf("[settings] the launch and clipboard toggles default off and round-trip...\n");
+    const ui::UiSettings defaults;
+    Check(!defaults.autostart && !defaults.autoShare && !defaults.clipboardSync &&
+              !defaults.startHidden,
+        "every new toggle defaults off");
+    Check(ui::ParseUiSettings("autostart=1").autostart, "autostart round-trips on");
+    Check(!ui::ParseUiSettings("autostart=0").autostart, "and off");
+    Check(ui::ParseUiSettings("auto_share=1").autoShare, "auto-share round-trips on");
+    Check(ui::ParseUiSettings("clipboard_sync=1").clipboardSync,
+        "clipboard sync round-trips on");
+    Check(ui::ParseUiSettings("start_hidden=1").startHidden, "start hidden round-trips on");
+    Check(!ui::ParseUiSettings("autostart=x").autostart,
+        "junk in a toggle falls back to off");
 }
 
 void TestDeviceNamePersistence() {
@@ -129,6 +166,8 @@ void TestBoundsAreEnforced() {
 
 void RunUiSettingsTests() {
     TestRoundTrip();
+    TestBindIpPersistence();
+    TestBehaviorTogglesPersist();
     TestDeviceNamePersistence();
     TestPasscodePersistence();
     TestDefaultsMatchShareDefaults();

@@ -39,10 +39,18 @@ target_link_libraries(ffmpeg_min INTERFACE
     ${FFMPEG_MIN_DIR}/lib/libavutil.a
 )
 
+pkg_check_modules(DESKHUB_TRAY IMPORTED_TARGET ayatana-appindicator3-0.1)
+if(NOT DESKHUB_TRAY_FOUND)
+    message(STATUS
+        "Deskhub: the Ubuntu app builds without a tray icon — "
+        "libayatana-appindicator3-dev is missing. Run 'make bootstrap'.")
+endif()
+
 add_executable(deskhub_app
     gtk/main.cpp
     gtk/MainWindow.cpp
     gtk/PasscodeDialog.cpp
+    gtk/TrayIcon.cpp
     gtk/ViewerWindow.cpp
 
     cpp/AgentLoop.cpp
@@ -67,5 +75,9 @@ target_include_directories(deskhub_app PRIVATE
 )
 
 target_link_libraries(deskhub_app PRIVATE core platform PkgConfig::DESKHUB_DEPS ffmpeg_min)
+if(DESKHUB_TRAY_FOUND)
+    target_compile_definitions(deskhub_app PRIVATE DESKHUB_HAVE_APPINDICATOR)
+    target_link_libraries(deskhub_app PRIVATE PkgConfig::DESKHUB_TRAY)
+endif()
 target_compile_features(deskhub_app PRIVATE cxx_std_20)
 deskhub_target_warnings(deskhub_app)

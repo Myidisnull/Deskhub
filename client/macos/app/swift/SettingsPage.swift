@@ -49,7 +49,18 @@ struct SettingsPage: View {
                 }
             }
 
+            Toggle(DeskhubClient.string(DHStrClipboardSyncLabel), isOn: $agent.clipboardSync)
+                .toggleStyle(.checkbox)
+
             PermissionsSection(agent: agent)
+
+            deskhubSection("Startup")
+            Toggle(DeskhubClient.string(DHStrAutostartLabel), isOn: $agent.autostart)
+                .toggleStyle(.checkbox)
+            Toggle(DeskhubClient.string(DHStrAutoShareLabel), isOn: $agent.autoShare)
+                .toggleStyle(.checkbox)
+            Toggle(DeskhubClient.string(DHStrCloseToTrayLabel), isOn: $agent.startHidden)
+                .toggleStyle(.checkbox)
         }
         .onChange(of: agent.fps) { _, _ in agent.save() }
         .onChange(of: agent.bitrateMbps) { _, _ in agent.save() }
@@ -57,5 +68,9 @@ struct SettingsPage: View {
         .onChange(of: agent.port) { _, _ in agent.save() }
         .onChange(of: agent.passcode) { _, _ in agent.save() }
         .onChange(of: agent.allowInput) { _, _ in agent.save() }
+        .onChange(of: agent.autoShare) { _, _ in agent.save() }
+        .onChange(of: agent.autostart) { _, _ in agent.applyAutostart() }
+        .onChange(of: agent.startHidden) { _, _ in agent.save() }
+        .onChange(of: agent.clipboardSync) { _, _ in agent.save() }
     }
 }

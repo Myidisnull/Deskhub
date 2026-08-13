@@ -118,10 +118,17 @@ tại — và passcode không giải quyết được điều nào cả:
   cùng phòng mà bạn không quản trị.
 - Phơi cổng qua giao diện công cộng của một máy ảo cloud hay một dịch vụ tunnel công khai.
 
-Socket lắng nghe trên mọi giao diện mạng (`INADDR_ANY`), nên nó tiếp cận được từ mọi mạng
-mà máy đang nối vào — kể cả mạng bạn quên là mình đang nối. Trên Windows, app chạy với
+Mặc định socket lắng nghe trên mọi giao diện mạng (`INADDR_ANY`), nên nó tiếp cận được
+từ mọi mạng mà máy đang nối vào — kể cả mạng bạn quên là mình đang nối. Cài đặt **Share
+on network** thu hẹp điều này: chọn một địa chỉ của máy thì host chỉ bind đúng giao diện
+đó, nên máy ở các mạng còn lại thậm chí không chạm được tới cổng. Hai lưu ý: nếu địa chỉ
+đã chọn không còn tồn tại lúc bạn bắt đầu chia sẻ (rút cáp, DHCP cấp địa chỉ mới),
+Deskhub quay về lắng nghe trên mọi giao diện và nói rõ điều đó trong dòng trạng thái
+chia sẻ — hãy kiểm tra banner nếu bạn dựa vào tính năng này; và bind một giao diện cũng
+chặn luôn viewer qua loopback (`127.0.0.1`) trên cùng máy. Trên Windows, app chạy với
 quyền cao ngay từ lúc khởi động (nó xin một lần, để gõ được vào các cửa sổ quyền cao) và
-tự mở luật tường lửa giúp bạn khi bạn chia sẻ; chính sự tiện lợi đó làm cho quy tắc phía
+tự mở luật tường lửa giúp bạn khi bạn chia sẻ — luật đó mở cho cả app trên mọi profile,
+nên bind hẹp lại không làm tường lửa hẹp theo; chính sự tiện lợi đó làm cho quy tắc phía
 trên trở nên quan trọng.
 
 ## Kẻ tấn công cùng mạng làm được gì
@@ -138,6 +145,10 @@ thể:
    mọi gói `Hello`, nên ai nghe lén được mạng chỉ việc đọc nó rồi kết nối.
 3. Dù kết nối được hay không, họ vẫn ghi lại phiên một cách thụ động và dựng lại màn hình
    cùng các phím bạn gõ ở chế độ ngoại tuyến.
+4. Nếu đồng bộ clipboard đang bật, đọc mọi đoạn văn bản bạn copy trong lúc chia sẻ —
+   văn bản clipboard đi trên cùng kênh UDP không mã hóa như mọi thứ khác. Mật khẩu copy
+   từ trình quản lý mật khẩu là nạn nhân kinh điển; hãy tắt công tắc này trên mạng bạn
+   không hoàn toàn tin tưởng.
 
 Hành vi "host thắng" chỉ hạn chế được phá phách khi bạn *đang ngồi tại* máy. Nó không có
 tác dụng gì khi bạn rời khỏi máy, mà đó mới là lúc quan trọng.

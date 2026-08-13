@@ -31,6 +31,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     InputEvent events[kMaxInputEvents];
     ParseInputEvents(pl, firstSeq, events);
 
+    ParseClipboardChunk(pl);
+
     if (h) {
         ParseVideoPacket(*h, pl);
         ParseFecPacket(*h, pl);

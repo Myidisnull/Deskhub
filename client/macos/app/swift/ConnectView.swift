@@ -47,6 +47,11 @@ struct MainMenuView: View {
             agent.refreshPermissions()
             agent.loadAddresses()
             discovery.start()
+            if agent.autoShare, !agent.didAutoShare, !agent.isSharing, !agent.isStarting {
+                agent.didAutoShare = true
+                page = .host
+                await share()
+            }
         }
         .task(id: agent.port) {
             try? await Task.sleep(for: MainMenuView.portSettle)

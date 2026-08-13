@@ -30,6 +30,9 @@ int main() {
     std::printf("--- session: client pump (ingest + keyframes + reporting) ---\n");
     RunClientPumpTests();
 
+    std::printf("--- session: clipboard sync (chunking, dedupe, echo suppression) ---\n");
+    RunClipboardSyncTests();
+
     std::printf("--- session: host feedback policy (bitrate, FEC, quality, NACK) ---\n");
     RunHostFeedbackTests();
 
@@ -132,6 +135,12 @@ int main() {
     std::printf("--- net: which addresses a LAN scan should try ---\n");
     RunLanScanTests();
 
+    std::printf("--- net: dotted-quad IPv4 parsing ---\n");
+    RunIpv4Tests();
+
+    std::printf("--- net: which address the host binds ---\n");
+    RunBindAddressTests();
+
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();
 
@@ -143,6 +152,9 @@ int main() {
 
     std::printf("--- ui: persisted share settings ---\n");
     RunUiSettingsTests();
+
+    std::printf("--- ui: launch-at-login artifacts ---\n");
+    RunAutostartConfigTests();
 
     std::printf("--- ui: passcodes stored on disk ---\n");
     RunSecretTextTests();

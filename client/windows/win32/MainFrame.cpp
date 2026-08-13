@@ -5,8 +5,10 @@
 #include <wx/init.h>
 #include <wx/listctrl.h>
 #include <wx/scrolwin.h>
+#include <wx/clipbrd.h>
 #include <wx/simplebook.h>
 #include <wx/spinctrl.h>
+#include <wx/taskbar.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -42,6 +44,7 @@
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -53,6 +56,7 @@ constexpr const char* kRecentDevicesFile = "recent-devices.txt";
 
 constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
+constexpr int kClipTimerId = 3;
 constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
 constexpr int kHintWrapDip = 620;
 constexpr int kPrimaryButtonH = 46;
@@ -298,11 +302,30 @@ private:
     bool hover_ = false;
 };
 
+class MainFrame;
+
+class DeskhubTrayIcon final : public wxTaskBarIcon {
+public:
+    explicit DeskhubTrayIcon(MainFrame& frame) : frame_(frame) {}
+
+protected:
+    wxMenu* CreatePopupMenu() override;
+
+private:
+    MainFrame& frame_;
+};
+
 class MainFrame final : public wxFrame {
 public:
     MainFrame();
 
 private:
+    friend class DeskhubTrayIcon;
+
+    void ApplyTrayMode();
+    void ToggleWindowFromTray();
+    void QuitFromTray();
+
     wxWindow* BuildSidebar();
     wxWindow* BuildHostPage(wxWindow* parent);
     wxWindow* BuildClientPage(wxWindow* parent);
@@ -325,6 +348,7 @@ private:
         bool allowInput, const std::string& passcode);
     void StopHosting();
     void OnHostTimer(wxTimerEvent& event);
+    void OnClipboardTimer(wxTimerEvent& event);
     void RefreshDisplayChoices();
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
@@ -357,6 +381,8 @@ private:
         std::vector<deskhub::SourceInfo> picked);
     void DeselectAllRows();
     void SaveSettings();
+    void PopulateBindChoice();
+    void RebuildHostAddressRows();
     void SaveRecentDevices();
     void OnClose(wxCloseEvent& event);
 
@@ -371,6 +397,7 @@ private:
     wxCheckBox* controlCtrl_ = nullptr;
     wxListCtrl* list_ = nullptr;
     wxStaticText* listHint_ = nullptr;
+    wxPanel* hostAddrPanel_ = nullptr;
     wxPanel* hostBanner_ = nullptr;
     wxWindow* hostBannerBar_ = nullptr;
     wxStaticText* hostStateLabel_ = nullptr;
@@ -389,6 +416,14 @@ private:
     wxChoice* qualityChoice_ = nullptr;
     wxCheckBox* allowInputCtrl_ = nullptr;
     wxTextCtrl* passcodeCtrl_ = nullptr;
+    wxChoice* bindChoice_ = nullptr;
+    wxCheckBox* autoShareCtrl_ = nullptr;
+    wxCheckBox* autostartCtrl_ = nullptr;
+    wxCheckBox* startHiddenCtrl_ = nullptr;
+    wxCheckBox* clipboardCtrl_ = nullptr;
+    DeskhubTrayIcon* trayIcon_ = nullptr;
+    bool quitting_ = false;
+    std::vector<std::string> bindChoices_;
 
     deskhub::ui::UiSettings settings_;
     std::vector<AgentSource> availableDisplays_;
@@ -404,6 +439,7 @@ private:
     deskhubp::AgentDriver agentDriver_;
     wxTimer hostTimer_;
     wxTimer scanTimer_;
+    wxTimer clipTimer_;
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool prompting_ = false;
@@ -432,14 +468,53 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
 
     hostTimer_.SetOwner(this, kHostTimerId);
     scanTimer_.SetOwner(this, kScanTimerId);
+    clipTimer_.SetOwner(this, kClipTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnHostTimer, this, kHostTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnScanTimer, this, kScanTimerId);
+    Bind(wxEVT_TIMER, &MainFrame::OnClipboardTimer, this, kClipTimerId);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
     RefreshRecentList();
     StartPoller();
     StartScan();
     SelectPage(kPageClient);
+    ApplyTrayMode();
+
+    if (settings_.autoShare) {
+        SelectPage(kPageHost);
+        CallAfter([this] { OnShare(); });
+    }
+}
+
+void MainFrame::ApplyTrayMode() {
+    if (settings_.startHidden && !trayIcon_) {
+        trayIcon_ = new DeskhubTrayIcon(*this);
+        if (!trayIcon_->SetIcon(wxICON(deskhub_app_icon), "Deskhub")) {
+            delete trayIcon_;
+            trayIcon_ = nullptr;
+        }
+        return;
+    }
+    if (!settings_.startHidden && trayIcon_) {
+        trayIcon_->RemoveIcon();
+        delete trayIcon_;
+        trayIcon_ = nullptr;
+        if (!IsShown()) Show(true);
+    }
+}
+
+void MainFrame::ToggleWindowFromTray() {
+    if (IsShown()) {
+        Hide();
+        return;
+    }
+    Show(true);
+    Raise();
+}
+
+void MainFrame::QuitFromTray() {
+    quitting_ = true;
+    Close(true);
 }
 
 wxWindow* MainFrame::BuildSidebar() {
@@ -488,28 +563,22 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
     sizer->Add(MakeHeading(panel, ui::kHostHeading), pad);
     sizer->Add(MakeHint(panel, ToWx(ui::kHostIpIntro)), pad);
 
-    const auto addrs = ListLocalIPv4();
-    if (addrs.empty()) {
-        sizer->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kNoNetworkAddress)), pad);
-    } else {
-        auto* grid = new wxFlexGridSizer(3, FromDIP(wxSize(14, 10)));
-        grid->AddGrowableCol(1, 1);
-        for (const auto& a : addrs) {
-            grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(a.name)),
-                wxSizerFlags().CentreVertical());
-            auto* ipText = new wxStaticText(panel, wxID_ANY, ToWx(a.ip));
-            ipText->SetFont(ipText->GetFont().Bold());
-            grid->Add(ipText, wxSizerFlags().CentreVertical());
-            auto* copy = new wxButton(panel, wxID_ANY, "Copy");
-            copy->SetMinSize(FromDIP(wxSize(84, 32)));
-            const wxString ip = ToWx(a.ip);
-            copy->Bind(wxEVT_BUTTON, [this, ip](wxCommandEvent&) {
-                CopyTextToClipboard(HWND(GetHandle()), ip);
-            });
-            grid->Add(copy);
-        }
-        sizer->Add(grid, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
-    }
+    auto* netRow = new wxBoxSizer(wxHORIZONTAL);
+    netRow->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kBindInterfaceLabel)),
+        wxSizerFlags().CentreVertical());
+    bindChoice_ = new wxChoice(panel, wxID_ANY);
+    PopulateBindChoice();
+    bindChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+        SaveSettings();
+        RebuildHostAddressRows();
+    });
+    netRow->Add(bindChoice_, wxSizerFlags().CentreVertical().Border(wxLEFT, FromDIP(14)));
+    sizer->Add(netRow, pad);
+
+    hostAddrPanel_ = new wxPanel(panel);
+    sizer->Add(hostAddrPanel_,
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
+    RebuildHostAddressRows();
 
     hostBanner_ = new wxPanel(panel);
     auto* bannerRow = new wxBoxSizer(wxHORIZONTAL);
@@ -551,6 +620,60 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
     ShowIdleHostState();
     RefreshDisplayChoices();
     return panel;
+}
+
+void MainFrame::PopulateBindChoice() {
+    bindChoice_->Clear();
+    bindChoices_.clear();
+    bindChoices_.push_back("");
+    bindChoice_->Append(ToWx(ui::kBindAllInterfaces));
+    int active = 0;
+    for (const AdapterAddr& adapter : ListLocalIPv4()) {
+        bindChoice_->Append(ToWx(adapter.ip + "  (" + adapter.name + ")"));
+        bindChoices_.push_back(adapter.ip);
+        if (adapter.ip == settings_.bindIp) active = int(bindChoices_.size() - 1);
+    }
+    if (!settings_.bindIp.empty() && active == 0) {
+        bindChoice_->Append(
+            ToWx(settings_.bindIp + "  (" + ui::kBindNotConnectedNote + ")"));
+        bindChoices_.push_back(settings_.bindIp);
+        active = int(bindChoices_.size() - 1);
+    }
+    bindChoice_->SetSelection(active);
+}
+
+void MainFrame::RebuildHostAddressRows() {
+    hostAddrPanel_->DestroyChildren();
+    auto* holder = new wxBoxSizer(wxVERTICAL);
+    std::vector<AdapterAddr> shown;
+    for (const auto& a : ListLocalIPv4())
+        if (settings_.bindIp.empty() || a.ip == settings_.bindIp) shown.push_back(a);
+    if (shown.empty()) {
+        const std::string text = settings_.bindIp.empty()
+                                     ? std::string(ui::kNoNetworkAddress)
+                                     : settings_.bindIp + "  (" + ui::kBindNotConnectedNote + ")";
+        holder->Add(new wxStaticText(hostAddrPanel_, wxID_ANY, ToWx(text)));
+    } else {
+        auto* grid = new wxFlexGridSizer(3, FromDIP(wxSize(14, 10)));
+        grid->AddGrowableCol(1, 1);
+        for (const auto& a : shown) {
+            grid->Add(new wxStaticText(hostAddrPanel_, wxID_ANY, ToWx(a.name)),
+                wxSizerFlags().CentreVertical());
+            auto* ipText = new wxStaticText(hostAddrPanel_, wxID_ANY, ToWx(a.ip));
+            ipText->SetFont(ipText->GetFont().Bold());
+            grid->Add(ipText, wxSizerFlags().CentreVertical());
+            auto* copy = new wxButton(hostAddrPanel_, wxID_ANY, "Copy");
+            copy->SetMinSize(FromDIP(wxSize(84, 32)));
+            const wxString ip = ToWx(a.ip);
+            copy->Bind(wxEVT_BUTTON, [this, ip](wxCommandEvent&) {
+                CopyTextToClipboard(HWND(GetHandle()), ip);
+            });
+            grid->Add(copy);
+        }
+        holder->Add(grid, wxSizerFlags(1).Expand());
+    }
+    hostAddrPanel_->SetSizer(holder);
+    hostAddrPanel_->GetParent()->Layout();
 }
 
 wxTextCtrl* MainFrame::MakePasscodeCtrl(wxWindow* parent) {
@@ -734,6 +857,21 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     allowInputCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAllowControlLabel));
     allowInputCtrl_->SetValue(settings_.allowInput);
     sizer->Add(allowInputCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    clipboardCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kClipboardSyncLabel));
+    clipboardCtrl_->SetValue(settings_.clipboardSync);
+    sizer->Add(clipboardCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+
+    sizer->AddSpacer(FromDIP(12));
+    sizer->Add(MakeSection(panel, "Startup"), pad);
+    autostartCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAutostartLabel));
+    autostartCtrl_->SetValue(deskhubp::AutostartEnabled());
+    sizer->Add(autostartCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    autoShareCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAutoShareLabel));
+    autoShareCtrl_->SetValue(settings_.autoShare);
+    sizer->Add(autoShareCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    startHiddenCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kCloseToTrayLabel));
+    startHiddenCtrl_->SetValue(settings_.startHidden);
+    sizer->Add(startHiddenCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     fpsCtrl_->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) { SaveSettings(); });
     fpsCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
@@ -743,6 +881,10 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     portCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
     qualityChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    autoShareCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    autostartCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    startHiddenCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     passcodeCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
 
     panel->SetSizer(sizer);
@@ -970,6 +1112,8 @@ void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
     shareBtn_->SetLabel(ToWx(style.action));
     PaintButton(shareBtn_, state == HostShareState::kSharing ? kOffline : kAccent);
     shareBtn_->Refresh();
+
+    bindChoice_->Enable(state == HostShareState::kIdle);
 }
 
 void MainFrame::ShowIdleHostState() {
@@ -1013,6 +1157,8 @@ void MainFrame::OnShare() {
     options.port = uint16_t(settings_.port);
     options.allowInput = settings_.allowInput;
     options.passcode = settings_.passcode;
+    options.bindIp = settings_.bindIp;
+    options.clipboardSync = settings_.clipboardSync;
 
     StartHosting(sources, options);
 }
@@ -1058,13 +1204,36 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     std::string status = ui::SharingStatusLine(port);
     if (!passcode.empty()) status += " " + ui::PasscodeNote(passcode);
     if (!allowInput) status += std::string(" ") + ui::kViewOnlyNote;
+    const std::string bindWarning = agentLoop_.BindWarning();
+    if (!bindWarning.empty()) status += " " + bindWarning;
     ApplyHostState(HostShareState::kSharing, ToWx(status));
     ShowHostTable(true);
     hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
+    if (settings_.clipboardSync) clipTimer_.Start(1000);
+}
+
+void MainFrame::OnClipboardTimer(wxTimerEvent&) {
+    if (!hosting_) return;
+    if (const auto remote = agentLoop_.TakeRemoteClipboard()) {
+        if (wxTheClipboard->Open()) {
+            wxTheClipboard->SetData(new wxTextDataObject(wxString::FromUTF8(*remote)));
+            wxTheClipboard->Close();
+        }
+        return;
+    }
+    if (!wxTheClipboard->Open()) return;
+    if (wxTheClipboard->IsSupported(wxDF_UNICODETEXT)) {
+        wxTextDataObject data;
+        wxTheClipboard->GetData(data);
+        const std::string text(data.GetText().utf8_str());
+        if (!text.empty()) agentLoop_.OfferLocalClipboard(text);
+    }
+    wxTheClipboard->Close();
 }
 
 void MainFrame::StopHosting() {
     hostTimer_.Stop();
+    clipTimer_.Stop();
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
@@ -1360,12 +1529,25 @@ void MainFrame::SaveSettings() {
     settings_.port = uint32_t(portCtrl_->GetValue());
     settings_.allowInput = allowInputCtrl_->GetValue();
     settings_.clientControl = controlCtrl_->GetValue();
+    settings_.clipboardSync = clipboardCtrl_->GetValue();
     const std::string passcode(passcodeCtrl_->GetValue().utf8_str());
     if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
     const int quality = qualityChoice_->GetSelection();
     if (quality != wxNOT_FOUND)
         settings_.maxDim = deskhub::media::QualityPresetMaxDim(size_t(quality),
             settings_.maxDim);
+    const int bindSel = bindChoice_->GetSelection();
+    if (bindSel != wxNOT_FOUND && size_t(bindSel) < bindChoices_.size())
+        settings_.bindIp = bindChoices_[size_t(bindSel)];
+    settings_.autoShare = autoShareCtrl_->GetValue();
+    settings_.startHidden = startHiddenCtrl_->GetValue();
+    ApplyTrayMode();
+    const bool autostart = autostartCtrl_->GetValue();
+    if (autostart != settings_.autostart) {
+        deskhubp::SetAutostartEnabled(autostart);
+        settings_.autostart = deskhubp::AutostartEnabled();
+        autostartCtrl_->SetValue(settings_.autostart);
+    }
     deskhubp::SaveUiSettings(settings_);
     if (!hosting_ && !hostStarting_) ShowIdleHostState();
 }
@@ -1375,8 +1557,19 @@ void MainFrame::SaveRecentDevices() {
 }
 
 void MainFrame::OnClose(wxCloseEvent& event) {
+    if (!quitting_ && settings_.startHidden && trayIcon_ && event.CanVeto()) {
+        event.Veto();
+        Hide();
+        return;
+    }
+    if (trayIcon_) {
+        trayIcon_->RemoveIcon();
+        delete trayIcon_;
+        trayIcon_ = nullptr;
+    }
     *alive_ = false;
     hostTimer_.Stop();
+    clipTimer_.Stop();
     scanTimer_.Stop();
     scanner_.Cancel();
     agentLoop_.Stop();
@@ -1385,11 +1578,33 @@ void MainFrame::OnClose(wxCloseEvent& event) {
     event.Skip();
 }
 
+wxMenu* DeskhubTrayIcon::CreatePopupMenu() {
+    auto* menu = new wxMenu();
+    const int toggleWindowId =
+        menu->Append(wxID_ANY,
+                ToWx(frame_.IsShown() ? ui::kTrayHideWindow : ui::kTrayShowWindow))
+            ->GetId();
+    const int toggleShareId =
+        menu->Append(wxID_ANY, ToWx(frame_.hosting_ ? ui::kStopSharing : ui::kStartSharing))
+            ->GetId();
+    menu->AppendSeparator();
+    const int quitId = menu->Append(wxID_ANY, ToWx(ui::kTrayQuit))->GetId();
+
+    menu->Bind(
+        wxEVT_MENU, [this](wxCommandEvent&) { frame_.ToggleWindowFromTray(); }, toggleWindowId);
+    menu->Bind(
+        wxEVT_MENU, [this](wxCommandEvent&) { frame_.OnShare(); }, toggleShareId);
+    menu->Bind(
+        wxEVT_MENU, [this](wxCommandEvent&) { frame_.QuitFromTray(); }, quitId);
+    return menu;
+}
+
 class DeskhubApp final : public wxApp {
 public:
     bool OnInit() override {
         SetAppName("Deskhub");
-        (new MainFrame())->Show(true);
+        auto* frame = new MainFrame();
+        frame->Show();
         return true;
     }
 

@@ -3,6 +3,8 @@
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/ffi/FfiText.h"
 
+#include <cstring>
+
 #define DESKHUB_DEFINE_CLIENT_SESSION_FORWARDERS(engineOf)                                 \
     void dh_session_key(DHSession* s, int32_t vk, int32_t scan, bool down) {               \
         if (s) engineOf(s).QueueKey(vk, scan, down);                                       \
@@ -79,4 +81,18 @@
                                                                                            \
     uint32_t dh_session_video_height(DHSession* s) {                                       \
         return s ? engineOf(s).videoHeight() : 0;                                          \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_clip_offer(DHSession* s, const char* text) {                           \
+        if (s && text && *text) engineOf(s).OfferLocalClipboard(text);                     \
+    }                                                                                      \
+                                                                                           \
+    int dh_session_clip_take(DHSession* s, char* out, int capacity) {                      \
+        if (!out || capacity <= 0) return 0;                                               \
+        out[0] = '\0';                                                                     \
+        if (!s) return 0;                                                                  \
+        const auto text = engineOf(s).TakeRemoteClipboard();                               \
+        if (!text) return 0;                                                               \
+        deskhubp::CopyToBuf(out, size_t(capacity), *text);                                 \
+        return int(std::strlen(out));                                                      \
     }

@@ -9,7 +9,26 @@ struct HostPage: View {
             deskhubHeading(DeskhubClient.string(DHStrHostHeading))
             deskhubHint(DeskhubClient.string(DHStrHostIpIntro))
 
-            HostAddressList(addresses: agent.addresses)
+            HStack(spacing: 14) {
+                Text(DeskhubClient.string(DHStrBindInterfaceLabel))
+                Picker("", selection: $agent.bindIp) {
+                    Text(DeskhubClient.string(DHStrBindAllInterfaces)).tag("")
+                    ForEach(agent.addresses) { address in
+                        Text("\(address.ip)  (\(address.name))").tag(address.ip)
+                    }
+                    if staleBindIp {
+                        Text(staleBindLabel).tag(agent.bindIp)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 260)
+                .disabled(agent.isSharing || agent.isStarting)
+            }
+
+            HostAddressList(
+                addresses: shownAddresses,
+                staleIp: staleBindIp ? agent.bindIp : nil
+            )
 
             HostStatusBanner(state: shareState, detail: agent.statusLine)
 
@@ -39,11 +58,25 @@ struct HostPage: View {
             .disabled(agent.isStarting)
         }
         .task { await agent.refreshShareSources() }
+        .onAppear { agent.loadAddresses() }
+        .onChange(of: agent.bindIp) { _, _ in agent.save() }
     }
 
     private var shareState: HostShareState {
         if agent.isStarting { return .starting }
         return agent.isSharing ? .sharing : .idle
+    }
+
+    private var shownAddresses: [LocalAddress] {
+        agent.addresses.filter { agent.bindIp.isEmpty || $0.ip == agent.bindIp }
+    }
+
+    private var staleBindIp: Bool {
+        !agent.bindIp.isEmpty && !agent.addresses.contains { $0.ip == agent.bindIp }
+    }
+
+    private var staleBindLabel: String {
+        "\(agent.bindIp)  (\(DeskhubClient.string(DHStrBindNotConnectedNote)))"
     }
 }
 

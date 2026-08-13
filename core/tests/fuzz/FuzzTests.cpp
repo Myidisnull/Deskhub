@@ -53,6 +53,11 @@ bool ExerciseWireParsers(std::span<const uint8_t> d) {
     InputEvent events[kMaxInputEvents];
     ok = ok && ParseInputEvents(pl, firstSeq, events) <= kMaxInputEvents;
 
+    if (const auto clip = ParseClipboardChunk(pl)) {
+        ok = ok && clip->chunkCount > 0 && clip->chunkIndex < clip->chunkCount;
+        ok = ok && clip->payload.size() <= kMaxClipboardChunkPayload;
+    }
+
     ParsePingPong(pl);
     ParseFeedback(pl);
     ParseReconfig(pl);

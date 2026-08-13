@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "TrayIcon.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
@@ -55,6 +56,8 @@ private:
     void LoadSettings();
     void SaveSettings();
     void SaveRecentDevices();
+    void PopulateBindCombo();
+    void RebuildHostAddressRows();
 
     void StartScan();
     void RescanNow();
@@ -95,6 +98,10 @@ private:
     void ShowAfterSession();
     void SetBusy(bool busy, const char* what);
 
+    void ApplyTrayMode();
+    void ToggleWindowFromTray();
+    void ShowMainWindow();
+
     uint16_t Port() const;
     void PostToUi(std::function<void()> fn);
 
@@ -105,6 +112,7 @@ private:
     static void OnAddressActivate(GtkEntry* e, gpointer user);
     static void OnCopyClicked(GtkButton* b, gpointer user);
     static void OnSettingChanged(GtkWidget* w, gpointer user);
+    static void OnBindChanged(GtkWidget* w, gpointer user);
     static void OnRescanClicked(GtkButton* b, gpointer user);
     static void OnRefreshStatusClicked(GtkButton* b, gpointer user);
     static void OnScanRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
@@ -113,12 +121,14 @@ private:
         gpointer user);
     static gboolean OnRescanTimer(gpointer user);
     static gboolean OnHostTimer(gpointer user);
+    static gboolean OnDeleteEvent(GtkWidget* w, GdkEvent* e, gpointer user);
     static void OnDestroy(GtkWidget* w, gpointer user);
 
     GtkWidget* window_ = nullptr;
     GtkWidget* stack_ = nullptr;
     GtkWidget* navButtons_[kPageCount] = {};
 
+    GtkWidget* hostAddrBox_ = nullptr;
     GtkWidget* hostBanner_ = nullptr;
     GtkWidget* hostStateLabel_ = nullptr;
     GtkWidget* hostStatusLabel_ = nullptr;
@@ -144,6 +154,16 @@ private:
     GtkWidget* qualityCombo_ = nullptr;
     GtkWidget* hostPasscodeEntry_ = nullptr;
     GtkWidget* allowInputCheck_ = nullptr;
+    GtkWidget* bindCombo_ = nullptr;
+    GtkWidget* autoShareCheck_ = nullptr;
+    GtkWidget* autostartCheck_ = nullptr;
+    GtkWidget* startHiddenCheck_ = nullptr;
+    GtkWidget* clipboardCheck_ = nullptr;
+    TrayIcon tray_;
+    guint clipTimerId_ = 0;
+
+    static gboolean OnClipboardTimer(gpointer user);
+    std::vector<std::string> bindChoices_;
 
     deskhub::ui::UiSettings settings_;
     std::vector<deskhub::ui::RecentDevice> recent_;

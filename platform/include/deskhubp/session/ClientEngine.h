@@ -20,6 +20,7 @@
 #include <deque>
 #include <mutex>
 #include <functional>
+#include <optional>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -176,6 +177,19 @@ public:
     }
     void ReleaseAllInput() {
         input_.ReleaseAll(NowUs());
+    }
+
+    void OfferLocalClipboard(std::string text) {
+        std::lock_guard<std::mutex> lk(clipMutex_);
+        pendingLocalClip_ = std::move(text);
+    }
+
+    std::optional<std::string> TakeRemoteClipboard() {
+        std::lock_guard<std::mutex> lk(clipMutex_);
+        if (remoteClips_.empty()) return std::nullopt;
+        std::string text = std::move(remoteClips_.front());
+        remoteClips_.pop_front();
+        return text;
     }
 
     void ReportPresented(uint64_t ptsUs, uint64_t shownUs) {
@@ -339,6 +353,11 @@ private:
             }
             decCv_.notify_one();
         };
+        cb.onClipboardText = [this](std::string_view text) {
+            std::lock_guard<std::mutex> lk(clipMutex_);
+            remoteClips_.emplace_back(text);
+            while (remoteClips_.size() > 4) remoteClips_.pop_front();
+        };
         cb.onParams = [this](const deskhub::NegotiatedParams& np, bool reconfigured) {
             negW_.store(np.width);
             negH_.store(np.height);
@@ -407,6 +426,12 @@ private:
             input_.Drain(now, batch);
             for (const auto& e : batch) p.QueueInput(e);
             if (cfg_.alwaysFocused || input_.wantsFocus()) p.SetFocused(true);
+            std::optional<std::string> clip;
+            {
+                std::lock_guard<std::mutex> lk(clipMutex_);
+                clip.swap(pendingLocalClip_);
+            }
+            if (clip) p.QueueClipboard(*clip);
         };
         hooks.onPhase = [this](bool streaming) {
             phase_.store(streaming ? ClientPhase::Streaming : ClientPhase::Connecting,
@@ -473,6 +498,10 @@ private:
     std::atomic<bool> displayCongested_{false};
     std::atomic<bool> queueOverflow_{false};
     std::atomic<uint32_t> stRendered_{0};
+
+    std::mutex clipMutex_;
+    std::optional<std::string> pendingLocalClip_;
+    std::deque<std::string> remoteClips_;
 
     deskhub::ClientInputQueue input_;
     deskhub::diag::ClientDiag diag_;

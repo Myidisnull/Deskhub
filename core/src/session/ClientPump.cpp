@@ -34,6 +34,9 @@ ClientCallbacks ClientPump::MakeSessionCallbacks() {
     sc.onRtt = [this](uint32_t rttUs) {
         diag_.minRttUs.Add(rttUs);
     };
+    sc.onClipboardText = [this](std::string_view text) {
+        if (cb_.onClipboardText) cb_.onClipboardText(text);
+    };
     sc.onDisconnect = [this](const char* reason) {
         std::snprintf(line_, sizeof(line_), "[Client] Disconnected: %s",
             reason ? reason : "disconnected");

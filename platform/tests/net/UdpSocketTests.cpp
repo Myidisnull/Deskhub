@@ -108,6 +108,44 @@ void TestALoopbackDatagramArrivesIntact() {
         "and its port is the sender's, which is what the host replies to");
 }
 
+void TestABoundAddressStillReceives() {
+    std::printf("[udp] a socket bound to one address still receives on it...\n");
+    UdpSocket receiver;
+    uint16_t port = 0;
+    for (uint16_t candidate = kFirstTestPort; candidate <= kLastTestPort; ++candidate)
+        if (receiver.Open(candidate, "127.0.0.1")) {
+            port = candidate;
+            break;
+        }
+    if (!port) {
+        std::printf("  skipped: no free port in %u..%u\n", unsigned(kFirstTestPort),
+            unsigned(kLastTestPort));
+        return;
+    }
+    receiver.SetRecvTimeout(200);
+
+    UdpSocket sender;
+    Check(sender.Open(0), "the sender takes an ephemeral port");
+    const uint8_t byte = 42;
+    Check(sender.SendTo(NetAddr{kLoopbackIp, port}, &byte, 1),
+        "a datagram aimed at the bound address is sent");
+
+    uint8_t buf[8];
+    NetAddr from{};
+    int n = 0;
+    for (int attempt = 0; attempt < 20 && n == 0; ++attempt)
+        n = receiver.RecvFrom(buf, sizeof(buf), from);
+    if (n <= 0) {
+        std::printf("  skipped: loopback UDP is not available here (n=%d)\n", n);
+        return;
+    }
+    Check(n == 1 && buf[0] == 42, "and arrives intact on the bound socket");
+
+    UdpSocket bad;
+    Check(!bad.Open(0, "not-an-ip"), "a malformed bind address fails instead of binding all");
+    Check(!bad.IsOpen(), "and leaves the socket closed");
+}
+
 void TestATimedOutReceiveIsNotAnError() {
     std::printf("[udp] an idle second is not mistaken for a dead socket...\n");
     UdpSocket sock;
@@ -147,6 +185,7 @@ void RunUdpSocketTests() {
     TestOpenAndClose();
     TestASecondHostOnTheSamePortIsToldWhy();
     TestALoopbackDatagramArrivesIntact();
+    TestABoundAddressStillReceives();
     TestATimedOutReceiveIsNotAnError();
     TestLocalAddressesLookLikeAddresses();
 }

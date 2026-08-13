@@ -33,6 +33,7 @@ struct ClientPumpConfig {
 struct ClientPumpCallbacks {
     std::function<void(std::span<const uint8_t>)> send;
     std::function<void(Reassembler::Frame&&)> onFrame;
+    std::function<void(std::string_view text)> onClipboardText;
     std::function<void(const NegotiatedParams&, bool reconfigured)> onParams;
     std::function<void(const char* reason)> onEnded;
     std::function<uint32_t()> takeRenderedCount;
@@ -58,6 +59,9 @@ public:
 
     void QueueInput(const InputEvent& e) {
         session_.QueueInput(e);
+    }
+    void QueueClipboard(std::string_view text) {
+        session_.QueueClipboard(text);
     }
     void SetFocused(bool on) {
         session_.SetFocused(on);

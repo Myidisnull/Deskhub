@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/input/InputReceiver.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/ClipboardSync.h"
 
 #include <atomic>
 #include <cstddef>
@@ -42,6 +43,7 @@ struct ViewerSlot {
     std::string name{};
     Feedback feedback{};
     InputReceiver input;
+    ClipboardSync clip;
 };
 
 struct ViewerInfo {

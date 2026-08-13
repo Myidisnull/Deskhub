@@ -91,7 +91,12 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     st.diag.LatchIdr(frame.size(), uint32_t(pkts), burstMs);
 }
 
-void LogListeningAddresses(uint16_t port) {
+void LogListeningAddresses(uint16_t port, const std::string& boundIp) {
+    if (!boundIp.empty()) {
+        LOGI("[Agent] Listening on %s, UDP port %u. On the other machine, enter that address.",
+            boundIp.c_str(), unsigned(port));
+        return;
+    }
     LOGI("[Agent] Listening on UDP port %u. On the other machine, enter one of:",
         unsigned(port));
     for (const AdapterAddr& a : ListLocalIPv4())

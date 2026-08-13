@@ -15,9 +15,11 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <thread>
@@ -82,6 +84,10 @@ public:
 
     std::vector<deskhub::media::AgentSourceStatus> Status();
     std::string LastError();
+    std::string BindWarning();
+
+    void OfferLocalClipboard(std::string text);
+    std::optional<std::string> TakeRemoteClipboard();
 
     deskhub::media::PacketHandler MakePacketSink(HostSource& st) {
         return [this, p = &st](const uint8_t* data, size_t size, uint64_t tsUs, bool keyframe) {
@@ -110,6 +116,7 @@ private:
     std::vector<HostSource*> AllSources();
     void RecvLoop();
     void DrainControlRequests();
+    void DrainLocalClipboard();
     HostSource* FindLiveSource(uint8_t sourceId);
 
     deskhub::media::AgentOptions opt_;
@@ -132,8 +139,13 @@ private:
     std::vector<uint8_t> pendingSourceStops_;
     std::vector<std::pair<uint8_t, uint64_t>> pendingViewerKicks_;
 
+    std::mutex clipMutex_;
+    std::optional<std::string> pendingLocalClip_;
+    std::deque<std::string> remoteClips_;
+
     std::mutex errMutex_;
     std::string lastError_;
+    std::string bindWarning_;
 
     LocalInputMonitor localInputMon_;
     deskhub::Beacon beacon_;

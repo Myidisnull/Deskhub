@@ -2,6 +2,7 @@
 
 #include <optional>
 
+#include "deskhub/net/Ipv4.h"
 #include "deskhub/ui/SecretText.h"
 #include "deskhub/ui/Strings.h"
 
@@ -30,6 +31,10 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
         out.deviceName = TruncateDeviceName(value);
         return;
     }
+    if (key == "bind_ip") {
+        if (value.empty() || ParseIPv4(value)) out.bindIp = value;
+        return;
+    }
 
     const std::optional<uint32_t> v = ParseUint(value);
     if (!v) return;
@@ -40,6 +45,10 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "port" && *v >= 1 && *v <= kMaxSettingsPort) out.port = *v;
     if (key == "allow_input") out.allowInput = *v != 0;
     if (key == "client_control") out.clientControl = *v != 0;
+    if (key == "autostart") out.autostart = *v != 0;
+    if (key == "auto_share") out.autoShare = *v != 0;
+    if (key == "clipboard_sync") out.clipboardSync = *v != 0;
+    if (key == "start_hidden") out.startHidden = *v != 0;
 }
 
 }
@@ -89,6 +98,13 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     if (IsValidPasscode(settings.passcode)) out += EncodeSecret(settings.passcode);
     out += '\n';
     out += "name=" + TruncateDeviceName(settings.deviceName) + '\n';
+    out += "bind_ip=";
+    if (ParseIPv4(settings.bindIp)) out += settings.bindIp;
+    out += '\n';
+    out += std::string("autostart=") + (settings.autostart ? "1" : "0") + '\n';
+    out += std::string("auto_share=") + (settings.autoShare ? "1" : "0") + '\n';
+    out += std::string("clipboard_sync=") + (settings.clipboardSync ? "1" : "0") + '\n';
+    out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
     return out;
 }
 

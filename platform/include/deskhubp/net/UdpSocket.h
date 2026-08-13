@@ -30,7 +30,7 @@ public:
     UdpSocket(const UdpSocket&) = delete;
     UdpSocket& operator=(const UdpSocket&) = delete;
 
-    bool Open(uint16_t localPort);
+    bool Open(uint16_t localPort, const std::string& bindIp = {});
 
     bool SetRecvTimeout(uint32_t ms);
 

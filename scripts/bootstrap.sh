@@ -144,10 +144,11 @@ Linux)
     sudo apt-get update -qq
     sudo apt-get install -y build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config rpm
 
-    echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, GTK3, nasm)..."
+    echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, GTK3, tray, nasm)..."
     sudo apt-get install -y \
         libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
         libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev \
+        libayatana-appindicator3-dev \
         nasm
 
     echo "[install] VA-API drivers + GNOME portal (KDE/wlroots users: install the matching xdg-desktop-portal backend)..."

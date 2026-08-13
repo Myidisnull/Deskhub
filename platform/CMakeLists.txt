@@ -13,6 +13,7 @@ if(WIN32)
         src/media/DisplayEnumWin.cpp
         src/system/MemoryFootprintWin.cpp
         src/system/DeviceNameWin.cpp
+        src/system/AutostartWin.cpp
     )
 else()
     set(deskhub_platform_os
@@ -31,6 +32,14 @@ else()
         list(APPEND deskhub_platform_os src/input/LocalInputMac.mm)
     else()
         list(APPEND deskhub_platform_os src/input/LocalInputNone.cpp)
+    endif()
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND deskhub_platform_os src/system/AutostartLinux.cpp)
+    elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        list(APPEND deskhub_platform_os src/system/AutostartMac.mm)
+    else()
+        list(APPEND deskhub_platform_os src/system/AutostartNone.cpp)
     endif()
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -113,6 +122,7 @@ if(APPLE)
         target_link_libraries(platform PUBLIC
             "-framework AppKit"
             "-framework ScreenCaptureKit"
+            "-framework ServiceManagement"
         )
     endif()
 endif()

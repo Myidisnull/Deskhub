@@ -16,6 +16,11 @@ struct UiSettings {
     bool clientControl = true;
     std::string passcode{};
     std::string deviceName{};
+    std::string bindIp{};
+    bool autostart = false;
+    bool autoShare = false;
+    bool clipboardSync = false;
+    bool startHidden = false;
 
     bool operator==(const UiSettings&) const = default;
 };

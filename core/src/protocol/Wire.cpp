@@ -251,6 +251,24 @@ size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t fir
     return total;
 }
 
+size_t BuildClipboardChunk(std::span<uint8_t> out, uint32_t sessionId,
+    const ClipboardChunkView& chunk) {
+    if (chunk.chunkCount == 0 || chunk.chunkIndex >= chunk.chunkCount) return 0;
+    if (chunk.chunkCount > kMaxClipboardChunks) return 0;
+    if (chunk.payload.size() > kMaxClipboardChunkPayload) return 0;
+    const size_t payloadSize = kClipboardHeaderSize + chunk.payload.size();
+    const size_t total = WriteCommon(out, MsgType::Clipboard, 0, Chan::Control, sessionId,
+        payloadSize);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, chunk.revision);
+    PutU16(p + 4, chunk.chunkIndex);
+    PutU16(p + 6, chunk.chunkCount);
+    if (!chunk.payload.empty())
+        std::memcpy(p + kClipboardHeaderSize, chunk.payload.data(), chunk.payload.size());
+    return total;
+}
+
 std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram) {
     if (datagram.size() < kCommonHeaderSize) return std::nullopt;
     if (datagram[0] != kProtocolVersion) return std::nullopt;
@@ -453,6 +471,26 @@ size_t ParseInputEvents(std::span<const uint8_t> payload, uint32_t& firstSeq,
         e += kInputEventSize;
     }
     return count;
+}
+
+std::optional<ClipboardChunkView> ParseClipboardChunk(std::span<const uint8_t> payload) {
+    if (payload.size() < kClipboardHeaderSize) return std::nullopt;
+    ClipboardChunkView v;
+    const uint8_t* p = payload.data();
+    v.revision = GetU32(p);
+    v.chunkIndex = GetU16(p + 4);
+    v.chunkCount = GetU16(p + 6);
+    if (v.chunkCount == 0 || v.chunkCount > kMaxClipboardChunks) return std::nullopt;
+    if (v.chunkIndex >= v.chunkCount) return std::nullopt;
+    v.payload = payload.subspan(kClipboardHeaderSize);
+    if (v.payload.size() > kMaxClipboardChunkPayload) return std::nullopt;
+    return v;
+}
+
+std::string TruncateClipboardText(std::string_view text) {
+    std::string out(text);
+    out.resize(Utf8TruncLen(out, kMaxClipboardTextBytes));
+    return out;
 }
 
 }

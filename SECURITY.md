@@ -114,11 +114,19 @@ any of it:
   machines you do not administer.
 - Exposing the port through a cloud VM's public interface or a public tunnel service.
 
-The socket binds to all interfaces (`INADDR_ANY`), so it is reachable on every network
-the machine is attached to — including one you forgot it was joined to. On Windows the
-app runs elevated from the moment it starts (it asks once, so that it can inject input
-into elevated windows) and opens the firewall rule for you when you share; that
-convenience is also what makes the rule above matter.
+By default the socket binds to all interfaces (`INADDR_ANY`), so it is reachable on
+every network the machine is attached to — including one you forgot it was joined to.
+The **Share on network** setting narrows this: pick one of the machine's addresses and
+the host binds only that interface, so machines on the other networks cannot even
+reach the port. Two caveats: if the chosen address no longer exists when you start
+sharing (cable unplugged, DHCP gave you a new address), Deskhub falls back to all
+interfaces and says so in the sharing status — check the banner if you rely on this;
+and binding one interface also stops loopback (`127.0.0.1`) viewers on the same
+machine. On Windows the app runs elevated from the moment it starts (it asks once, so
+that it can inject input into elevated windows) and opens the firewall rule for you
+when you share — the rule covers the whole app on every profile, so a narrowed bind
+does not narrow the firewall; that convenience is also what makes the rule above
+matter.
 
 ## What an attacker on the same network can do
 
@@ -135,6 +143,10 @@ running, they can:
    reads it and connects.
 3. Whether or not they can connect, passively record the session and reconstruct your
    screen and your keystrokes offline.
+4. If clipboard sync is enabled, read every piece of text you copy while sharing —
+   clipboard text rides the same unencrypted UDP channel as everything else. Passwords
+   copied from a password manager are the classic casualty; leave the toggle off on
+   networks you do not fully trust.
 
 The "host wins" behaviour limits mischief while you are *sitting at* the machine. It
 does nothing while you are away from it, which is when it matters.

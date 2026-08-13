@@ -109,6 +109,10 @@ deskhub::HostCallbacks MakeHostCallbacks(deskhub::SourcePipelineState& st,
         if (shared->applyInput) shared->applyInput(e);
     };
 
+    cb.onClipboardText = [shared](std::string_view text) {
+        if (shared->applyClipboard) shared->applyClipboard(text);
+    };
+
     cb.onFocus = [shared](bool focused) {
         if (!focused && shared->releaseInput) shared->releaseInput();
     };
@@ -215,6 +219,11 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
             }
 
             st->session->Tick(now);
+
+            st->clipOut.SetSessionId(st->session->sessionId());
+            st->clipOut.Flush(now, [&sock, st](std::span<const uint8_t> d) {
+                SendToViewers(*st, sock, d);
+            });
 
             if (const char* idrLine = st->diag.FormatIdr(line, sizeof(line), st->name.c_str()))
                 LOGI("%s", idrLine);

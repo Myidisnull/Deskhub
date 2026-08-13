@@ -34,7 +34,7 @@ UdpSocket::~UdpSocket() {
     Close();
 }
 
-bool UdpSocket::Open(uint16_t localPort) {
+bool UdpSocket::Open(uint16_t localPort, const std::string& bindIp) {
     lastBindAddrInUse_ = false;
 
     const int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -50,9 +50,15 @@ bool UdpSocket::Open(uint16_t localPort) {
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = htonl(INADDR_ANY);
     local.sin_port = htons(localPort);
+    if (!bindIp.empty() && inet_pton(AF_INET, bindIp.c_str(), &local.sin_addr) != 1) {
+        LOGE("[UDP] bad bind address %s", bindIp.c_str());
+        close(s);
+        return false;
+    }
     if (bind(s, (sockaddr*)&local, sizeof(local)) != 0) {
         lastBindAddrInUse_ = (errno == EADDRINUSE);
-        LOGE("[UDP] bind(:%u) failed: %d", localPort, errno);
+        LOGE("[UDP] bind(%s:%u) failed: %d", bindIp.empty() ? "*" : bindIp.c_str(), localPort,
+            errno);
         close(s);
         return false;
     }

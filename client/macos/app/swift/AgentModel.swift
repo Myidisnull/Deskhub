@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -37,15 +38,30 @@ final class AgentModel {
     }
 
     var clientControl = AgentModel.stored.clientControl
+    var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
+    var autoShare = dh_auto_share()
+    var autostart = dh_autostart_enabled()
+    var startHidden = dh_start_hidden()
+    var clipboardSync = dh_clipboard_sync()
+    var didAutoShare = false
+    private var lastPasteboardChange = NSPasteboard.general.changeCount
+
+    func applyAutostart() {
+        dh_set_autostart(autostart)
+        autostart = dh_autostart_enabled()
+    }
 
     var statusLine: String {
         let portNum = UInt16(max(1, min(65535, port)))
         guard isSharing else {
             return DeskhubClient.buffered(128) { dh_idle_host_status(portNum, $0, $1) }
         }
-        return DeskhubClient.buffered(320) {
+        var line = DeskhubClient.buffered(320) {
             dh_sharing_status(portNum, acceptedPasscode, allowInput, $0, $1)
         }
+        let bindWarning = DeskhubClient.buffered(256) { dha_bind_warning($0, $1) }
+        if !bindWarning.isEmpty { line += " " + bindWarning }
+        return line
     }
 
     func save() {
@@ -58,6 +74,10 @@ final class AgentModel {
             clientControl,
             acceptedPasscode
         )
+        dh_set_bind_ip(bindIp)
+        dh_set_auto_share(autoShare)
+        dh_set_start_hidden(startHidden)
+        dh_set_clipboard_sync(clipboardSync)
     }
 
     private var pollTimer: Timer?
@@ -178,6 +198,24 @@ final class AgentModel {
         rows = DeskhubAgent.hostRows()
         if !DeskhubAgent.isRunning {
             stopSharing()
+            return
+        }
+        if clipboardSync { pumpClipboard() }
+    }
+
+    private func pumpClipboard() {
+        let board = NSPasteboard.general
+        let remote = DeskhubClient.buffered(33000) { dha_clip_take($0, $1) }
+        if !remote.isEmpty {
+            board.clearContents()
+            board.setString(remote, forType: .string)
+            lastPasteboardChange = board.changeCount
+            return
+        }
+        guard board.changeCount != lastPasteboardChange else { return }
+        lastPasteboardChange = board.changeCount
+        if let text = board.string(forType: .string), !text.isEmpty {
+            dha_clip_offer(text)
         }
     }
 }

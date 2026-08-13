@@ -63,6 +63,11 @@ const char* dha_last_error(void);
 
 const char* dha_local_addresses(void);
 
+int dha_bind_warning(char* out, int capacity);
+
+void dha_clip_offer(const char* text);
+int dha_clip_take(char* out, int capacity);
+
 #ifdef __cplusplus
 }
 #endif

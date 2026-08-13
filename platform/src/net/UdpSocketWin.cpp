@@ -36,7 +36,7 @@ UdpSocket::~UdpSocket() {
     Close();
 }
 
-bool UdpSocket::Open(uint16_t localPort) {
+bool UdpSocket::Open(uint16_t localPort, const std::string& bindIp) {
     lastBindAddrInUse_ = false;
     WSADATA wsa{};
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
@@ -62,6 +62,11 @@ bool UdpSocket::Open(uint16_t localPort) {
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = htonl(INADDR_ANY);
     local.sin_port = htons(localPort);
+    if (!bindIp.empty() && InetPtonA(AF_INET, bindIp.c_str(), &local.sin_addr) != 1) {
+        LOGE("[UDP] bad bind address %s", bindIp.c_str());
+        closesocket(s);
+        return false;
+    }
     if (bind(s, (sockaddr*)&local, sizeof(local)) == SOCKET_ERROR) {
         const int err = WSAGetLastError();
         lastBindAddrInUse_ = (err == WSAEADDRINUSE);

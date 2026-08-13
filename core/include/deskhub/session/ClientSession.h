@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/input/InputSender.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/ClipboardSync.h"
 
 #include <cstdint>
 #include <functional>
@@ -31,6 +32,7 @@ struct ClientCallbacks {
     std::function<void(const NegotiatedParams&)> onReconfig;
     std::function<void(uint32_t rttUs)> onRtt;
     std::function<void(const char* reason)> onDisconnect;
+    std::function<void(std::string_view text)> onClipboardText;
 };
 
 class ClientSession {
@@ -56,6 +58,8 @@ public:
     void Tick(uint64_t nowUs);
 
     void QueueInput(const InputEvent& e);
+
+    void QueueClipboard(std::string_view text);
 
     void SetFocused(bool on);
 
@@ -94,6 +98,7 @@ private:
 
     ClientCallbacks cb_;
     InputSender input_;
+    ClipboardSync clip_;
     State state_ = State::Idle;
     uint32_t sessionId_ = 0;
     Hello hello_{};

@@ -47,6 +47,9 @@ void dh_session_mouse_wheel(DHSession* s, int32_t delta);
 
 void dh_session_mouse_wheel_notches(DHSession* s, int32_t notches);
 
+void dh_session_clip_offer(DHSession* s, const char* text);
+int dh_session_clip_take(DHSession* s, char* out, int capacity);
+
 typedef struct {
     DHPhase phase;
     uint32_t videoWidth;

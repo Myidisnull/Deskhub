@@ -67,7 +67,7 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 | H-3 | Giới hạn nguồn | Tối đa **8** màn hình được chia sẻ cùng lúc. Nếu máy có nhiều hơn, người dùng được cảnh báo rằng chỉ 8 màn hình đầu được chia sẻ. |
 | H-4 | Bật / tắt chia sẻ | Một thao tác để bắt đầu, một thao tác để dừng. Trạng thái hiện tại luôn được hiển thị (*Không chia sẻ* / *Đang bắt đầu…* / *Đang chia sẻ*). |
 | H-5 | Dừng một màn hình | Có thể dừng riêng một màn hình đang chia sẻ mà không kết thúc toàn bộ phiên chia sẻ. |
-| H-6 | Thông tin kết nối | Khi đang chia sẻ, ứng dụng liệt kê các địa chỉ mạng của máy và cổng mà viewer cần dùng, để đọc hoặc sao chép cho người khác. |
+| H-6 | Thông tin kết nối | Khi đang chia sẻ, ứng dụng liệt kê các địa chỉ mạng của máy và cổng mà viewer cần dùng, để đọc hoặc sao chép cho người khác. Trên desktop, mục *Chia sẻ trên mạng* (T-9) nằm ngay trên màn host cạnh danh sách này, và danh sách chỉ hiện địa chỉ của mạng đang được chọn — chọn *Mọi mạng* thì hiện tất cả. Khi đang chia sẻ (hoặc đang khởi động chia sẻ), mục chọn này bị khoá; dừng chia sẻ để đổi. |
 | H-7 | Bảng phiên trực tiếp | Với mỗi màn hình đang chia sẻ, host thấy: tên màn hình, độ phân giải, số viewer, tốc độ thu hình, tốc độ gửi, băng thông đang dùng và độ trễ khứ hồi. Mỗi viewer đang kết nối hiện thành một dòng riêng dưới màn hình tương ứng, nhận diện bằng tên hiển thị kèm địa chỉ — dạng "Tên (ip:port)" — nếu viewer đã đặt tên (C-7), hoặc chỉ bằng địa chỉ nếu chưa. |
 | H-8 | Ngắt một viewer | Host có thể ngắt bất kỳ viewer nào từ bảng phiên. |
 | H-9 | Giới hạn viewer | Tối đa **5** viewer xem một host cùng lúc. Các kết nối thêm bị từ chối với lý do máy đang bận. |
@@ -151,11 +151,21 @@ lại chúng dùng giá trị mặc định dựng sẵn.
 | T-4 | Cổng mạng | 1 – 65535 | 47777 |
 | T-5 | Passcode | đúng 4 chữ số | sinh ngẫu nhiên ở lần chạy đầu |
 | T-6 | Viewer được điều khiển máy này | bật / tắt | bật |
+| T-9 | Chia sẻ trên mạng | Mọi mạng · một trong các địa chỉ của máy | Mọi mạng |
+| T-11 | Bắt đầu chia sẻ khi mở app | bật / tắt | tắt |
+| T-13 | Khởi động Deskhub khi đăng nhập | bật / tắt | tắt |
+| T-15 | Tiếp tục chạy trong nền | bật / tắt | tắt |
+| T-17 | Đồng bộ văn bản clipboard | bật / tắt | tắt |
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
 | T-7 | Chất lượng tự động | Chất lượng luồng tự điều chỉnh theo băng thông khả dụng, trong giới hạn đã cấu hình; người dùng không phải làm gì khi điều kiện mạng thay đổi. |
 | T-8 | Kiểm tra giá trị | Giá trị ngoài khoảng hoặc không phải số bị từ chối và giữ nguyên giá trị cũ, thay vì được áp dụng. |
+| T-10 | Quay về mọi mạng | Chỉ desktop. Khi đã chọn một mạng cụ thể (T-9), host chỉ tiếp cận được qua địa chỉ đó. Nếu địa chỉ đó không còn tồn tại lúc bắt đầu chia sẻ, host chia sẻ trên mọi mạng và nói rõ điều đó trong dòng trạng thái chia sẻ. Địa chỉ đã lưu nhưng hiện không khả dụng vẫn được liệt kê, đánh dấu *not connected*. |
+| T-12 | Tự chia sẻ khi mở app | Chỉ desktop. Khi bật T-11, mở app sẽ vào thẳng trang Host và bắt đầu chia sẻ với cài đặt đã lưu, đúng như khi người dùng bấm Share. Các quy tắc nền tảng vẫn áp dụng: Linux hiện hộp thoại chia sẻ màn hình của desktop trước (P-3), macOS vẫn yêu cầu các quyền của nó (P-2). |
+| T-14 | Khởi động cùng hệ điều hành | Chỉ desktop. Khi bật T-13: Linux ghi một mục autostart vào `~/.config/autostart`; Windows đăng ký một scheduled task tên *Deskhub* khởi động app với quyền cao lúc đăng nhập, nên không hiện hộp thoại UAC; macOS đăng ký một Login Item mà người dùng cũng thấy được trong System Settings. Tắt đi sẽ gỡ bỏ đúng thứ đã tạo. Ô chọn luôn hiển thị trạng thái mà hệ điều hành báo, không chỉ là giá trị đã lưu lần cuối. |
+| T-16 | Chế độ chạy nền | Chỉ desktop. Khi bật T-15, một biểu tượng khay / thanh menu xuất hiện với *Hiện/Ẩn cửa sổ*, *Bắt đầu/Dừng chia sẻ* và *Thoát*; đóng cửa sổ sẽ ẩn app thay vì thoát, và việc chia sẻ tiếp tục trong nền. Cửa sổ luôn hiện ra lúc khởi động và chỉ ẩn khi người dùng đóng nó, nên T-13 + T-11 + T-15 kết hợp sẽ tự chia sẻ ngay khi đăng nhập với cửa sổ hiện cho tới khi được đóng. Trên macOS biểu tượng Dock biến mất khi cửa sổ đang ẩn. Trên Linux khay cần một StatusNotifier host (mặc định có trên KDE; GNOME cần extension AppIndicator) — nếu không có, đóng cửa sổ vẫn thoát app, để app không bao giờ trở nên không với tới được. |
+| T-18 | Đồng bộ clipboard | Chỉ desktop. Khi bật T-17, văn bản thuần copy trên một máy trong phiên sẽ xuất hiện trên các máy còn lại trong vòng vài giây, theo cả hai chiều; host chuyển tiếp bản copy của một viewer tới các viewer khác. Văn bản giới hạn 32 KiB (bản dài hơn bị cắt tại ranh giới ký tự); ảnh, file và định dạng không bao giờ được truyền. Công tắc của host quyết định cả phiên: tắt thì host bỏ qua và không bao giờ gửi dữ liệu clipboard. Mỗi máy cũng cần bật công tắc của chính nó để đọc/ghi clipboard cục bộ. |
 
 ## 11. Trạng thái và chẩn đoán
 
@@ -182,7 +192,8 @@ lại chúng dùng giá trị mặc định dựng sẵn.
 Deskhub **không** cung cấp, và đặc tả này không bao gồm:
 
 - Truyền âm thanh.
-- Truyền tệp, đồng bộ clipboard, hay in từ xa.
+- Truyền tệp hay in từ xa.
+- Đồng bộ clipboard ngoài văn bản thuần (ảnh, tệp, văn bản có định dạng).
 - Bất kỳ hệ thống tài khoản, danh bạ, hiện diện hay lời mời nào.
 - Dịch vụ trung chuyển, điểm hẹn hay xuyên NAT — việc tiếp cận host qua internet là trách
   nhiệm của người dùng (ví dụ bằng VPN).

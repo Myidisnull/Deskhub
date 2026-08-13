@@ -2,6 +2,7 @@
 #include "deskhub/control/BitrateController.h"
 #include "deskhub/control/QualityLadder.h"
 #include "deskhub/diag/AgentDiag.h"
+#include "deskhub/session/ClipboardSync.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/transport/Pacer.h"
 #include "deskhub/transport/Packetizer.h"
@@ -33,6 +34,7 @@ struct SourcePipelineState {
     StreamParams offer;
     Packetizer packetizer;
     Pacer pacer;
+    ClipboardSync clipOut;
 
     RetransmitCache retxCache;
     std::mutex retxMutex;

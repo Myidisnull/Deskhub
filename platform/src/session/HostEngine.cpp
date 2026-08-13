@@ -1,8 +1,11 @@
 #include "deskhubp/session/HostEngine.h"
 
+#include "deskhub/net/BindAddress.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/net/NetInfo.h"
 
 #include <cstdio>
 #include <span>
@@ -37,6 +40,11 @@ std::vector<deskhub::media::AgentSourceStatus> HostEngine::Status() {
 std::string HostEngine::LastError() {
     std::lock_guard<std::mutex> lk(errMutex_);
     return lastError_;
+}
+
+std::string HostEngine::BindWarning() {
+    std::lock_guard<std::mutex> lk(errMutex_);
+    return bindWarning_;
 }
 
 bool HostEngine::Fail(std::string message) {
@@ -95,6 +103,11 @@ void HostEngine::AttachSession(HostSource& st) {
         sp->applyInput(*p, e);
     };
     hooks.releaseInput = [p, sp] { sp->releaseInput(*p); };
+    hooks.applyClipboard = [this](std::string_view text) {
+        std::lock_guard<std::mutex> lk(clipMutex_);
+        remoteClips_.emplace_back(text);
+        while (remoteClips_.size() > 4) remoteClips_.pop_front();
+    };
     hooks.setEncoderBitrate = [p, sp](uint32_t bitrateBps) {
         return sp->setEncoderBitrate(*p, bitrateBps);
     };
@@ -107,6 +120,7 @@ void HostEngine::AttachSession(HostSource& st) {
 
     st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
     st.session->SetPasscode(opt_.passcode);
+    st.session->SetClipboardEnabled(opt_.clipboardSync);
     st.netReady.store(true, std::memory_order_release);
 }
 
@@ -147,7 +161,17 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 
     startBitrateBps_ = opt_.bitrateMbps * 1'000'000u;
 
-    if (!sock_.Open(opt_.port))
+    std::vector<std::string> localIps;
+    for (const AdapterAddr& a : ListLocalIPv4()) localIps.push_back(a.ip);
+    const deskhub::BindChoice chosen = deskhub::SelectBindAddress(opt_.bindIp, localIps);
+    {
+        std::lock_guard<std::mutex> lk(errMutex_);
+        bindWarning_ = chosen.fellBack ? deskhub::ui::BindFallbackWarning(opt_.bindIp) : "";
+    }
+    if (chosen.fellBack)
+        LOGW("[Agent] %s", deskhub::ui::BindFallbackWarning(opt_.bindIp).c_str());
+
+    if (!sock_.Open(opt_.port, chosen.ip))
         return Fail(policy_.portError ? policy_.portError(sock_)
                                       : DefaultPortError(sock_, opt_.port));
     sock_.SetRecvTimeout(100);
@@ -160,7 +184,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         }
     }
 
-    LogListeningAddresses(opt_.port);
+    LogListeningAddresses(opt_.port, chosen.ip);
 
     for (const deskhub::media::ShareSource& s : sources) {
         std::unique_ptr<HostSource> p = policy_.source.create(s, nextSourceId_++);
@@ -230,6 +254,33 @@ HostSource* HostEngine::FindLiveSource(uint8_t sourceId) {
     return nullptr;
 }
 
+void HostEngine::OfferLocalClipboard(std::string text) {
+    if (!opt_.clipboardSync || !running()) return;
+    std::lock_guard<std::mutex> lk(clipMutex_);
+    pendingLocalClip_ = std::move(text);
+}
+
+std::optional<std::string> HostEngine::TakeRemoteClipboard() {
+    std::lock_guard<std::mutex> lk(clipMutex_);
+    if (remoteClips_.empty()) return std::nullopt;
+    std::string text = std::move(remoteClips_.front());
+    remoteClips_.pop_front();
+    return text;
+}
+
+void HostEngine::DrainLocalClipboard() {
+    std::optional<std::string> text;
+    {
+        std::lock_guard<std::mutex> lk(clipMutex_);
+        text.swap(pendingLocalClip_);
+    }
+    if (!text) return;
+    for (HostSource* st : live_) {
+        if (st->failed.load() || !st->session) continue;
+        st->clipOut.OfferLocal(*text);
+    }
+}
+
 void HostEngine::DrainControlRequests() {
     std::vector<uint8_t> stops;
     std::vector<std::pair<uint8_t, uint64_t>> kicks;
@@ -264,7 +315,10 @@ void HostEngine::RecvLoop() {
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
-    loop.onTick = [this] { DrainControlRequests(); };
+    loop.onTick = [this] {
+        DrainControlRequests();
+        DrainLocalClipboard();
+    };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;

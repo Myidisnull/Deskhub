@@ -4,6 +4,7 @@
 
 #include <windows.h>
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <mutex>
 
@@ -13,6 +14,7 @@
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/system/UiSettingsStore.h"
 #include "AppIcon.h"
 #include "ViewerInput.h"
 #include "WinControls.h"
@@ -27,6 +29,37 @@ constexpr UINT WM_APP_STATS = WM_APP + 1;
 constexpr UINT WM_APP_SIZE = WM_APP + 2;
 constexpr UINT WM_APP_CLOSED = WM_APP + 3;
 constexpr UINT kTimerHint = 1;
+constexpr UINT kTimerClipboard = 2;
+
+std::string ReadClipboardText(HWND owner) {
+    if (!OpenClipboard(owner)) return {};
+    std::string out;
+    if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
+        if (const wchar_t* w = static_cast<const wchar_t*>(GlobalLock(h))) {
+            out = ToUtf8(w);
+            GlobalUnlock(h);
+        }
+    }
+    CloseClipboard();
+    return out;
+}
+
+void WriteClipboardText(HWND owner, const std::string& utf8) {
+    const std::wstring wide = FromUtf8(utf8);
+    if (!OpenClipboard(owner)) return;
+    EmptyClipboard();
+    const size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
+    if (HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+        if (void* dst = GlobalLock(mem)) {
+            std::memcpy(dst, wide.c_str(), bytes);
+            GlobalUnlock(mem);
+            if (!SetClipboardData(CF_UNICODETEXT, mem)) GlobalFree(mem);
+        } else {
+            GlobalFree(mem);
+        }
+    }
+    CloseClipboard();
+}
 
 struct ViewerFrame {
     HWND hwnd = nullptr;
@@ -116,6 +149,15 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_TIMER:
             if (f && wp == kTimerHint) f->UpdateTitle();
+            if (f && wp == kTimerClipboard && f->session) {
+                char remote[deskhub::kMaxClipboardTextBytes + 1];
+                if (dh_session_clip_take(f->session, remote, sizeof(remote)) > 0) {
+                    WriteClipboardText(h, remote);
+                } else {
+                    const std::string local = ReadClipboardText(h);
+                    if (!local.empty()) dh_session_clip_offer(f->session, local.c_str());
+                }
+            }
             return 0;
         case WM_APP_STATS:
             if (f) f->UpdateTitle();
@@ -231,6 +273,8 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
     openCount.Opened();
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
+    if (deskhubp::LoadUiSettings().clipboardSync)
+        SetTimer(f->hwnd, kTimerClipboard, 1000, nullptr);
     f->UpdateTitle();
     f->Relayout();
     ShowWindow(f->hwnd, SW_SHOW);

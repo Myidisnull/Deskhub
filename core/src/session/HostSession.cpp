@@ -126,6 +126,16 @@ bool HostSession::HandleFromViewer(const CommonHeader& header, std::span<const u
             if (fid && cb_.onInvalidateRef) cb_.onInvalidateRef(*fid);
             return true;
         }
+        case MsgType::Clipboard: {
+            if (!streaming || !clipboardEnabled_) return false;
+            const auto chunk = ParseClipboardChunk(payload);
+            if (!chunk) return false;
+            if (viewer.clip.Accept(*chunk)) {
+                const auto text = viewer.clip.TakeCompleted();
+                if (text && cb_.onClipboardText) cb_.onClipboardText(*text);
+            }
+            return true;
+        }
         default:
             return false;
     }

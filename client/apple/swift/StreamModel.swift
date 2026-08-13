@@ -107,6 +107,14 @@ final class StreamModel {
         session?.mouseWheelNotches(notches)
     }
 
+    func offerClipboard(_ text: String) {
+        session?.offerClipboard(text)
+    }
+
+    func takeClipboard() -> String? {
+        session?.takeClipboard()
+    }
+
     var aspectRatio: Double {
         guard videoWidth > 0, videoHeight > 0 else { return 16.0 / 9.0 }
         return Double(videoWidth) / Double(videoHeight)

@@ -40,6 +40,7 @@ struct HostCallbacks {
     std::function<void(bool focused)> onFocus;
     std::function<void(uint32_t frameId, std::span<const uint16_t> indices)> onNack;
     std::function<void(uint32_t frameId)> onInvalidateRef;
+    std::function<void(std::string_view text)> onClipboardText;
     std::function<bool(std::span<uint8_t>)> randomBytes;
 };
 
@@ -60,6 +61,10 @@ public:
 
     void SetPasscode(std::string passcode) {
         passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
+    }
+
+    void SetClipboardEnabled(bool on) {
+        clipboardEnabled_ = on;
     }
 
     bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs, uint64_t fromPacked);
@@ -117,6 +122,7 @@ private:
     std::atomic<uint64_t> inputDenied_{0};
     uint64_t controllingAddr_ = 0;
     std::string passcode_;
+    bool clipboardEnabled_ = false;
     uint32_t wrongPasscodes_ = 0;
     uint64_t passcodeLockUntilUs_ = 0;
     uint8_t buf_[kMaxDatagram] = {};

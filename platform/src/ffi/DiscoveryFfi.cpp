@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "deskhub/net/Ipv4.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/Strings.h"
@@ -23,6 +24,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -375,6 +377,57 @@ int dh_device_name(char* out, int capacity) {
 void dh_set_device_name(const char* name) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
     out.deviceName = ui::TruncateDeviceName(name ? name : "");
+    deskhubp::SaveUiSettings(out);
+}
+
+int dh_bind_ip(char* out, int capacity) {
+    return FillText(out, capacity, deskhubp::LoadUiSettings().bindIp);
+}
+
+void dh_set_bind_ip(const char* ip) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    const std::string requested = ip ? ip : "";
+    out.bindIp = deskhub::ParseIPv4(requested) ? requested : "";
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_autostart_enabled(void) {
+    return deskhubp::AutostartEnabled();
+}
+
+void dh_set_autostart(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.autostart = deskhubp::SetAutostartEnabled(on) ? on : deskhubp::AutostartEnabled();
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_auto_share(void) {
+    return deskhubp::LoadUiSettings().autoShare;
+}
+
+void dh_set_auto_share(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.autoShare = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_clipboard_sync(void) {
+    return deskhubp::LoadUiSettings().clipboardSync;
+}
+
+void dh_set_clipboard_sync(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.clipboardSync = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_start_hidden(void) {
+    return deskhubp::LoadUiSettings().startHidden;
+}
+
+void dh_set_start_hidden(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.startHidden = on;
     deskhubp::SaveUiSettings(out);
 }
 

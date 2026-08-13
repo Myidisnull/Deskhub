@@ -1,7 +1,9 @@
 #include "deskhubp/ffi/AgentSession.h"
 
+#include <cstring>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -79,6 +81,11 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     opt.allowInput = allow_input;
     opt.passcode = passcode && deskhub::IsValidPasscode(passcode) ? std::string(passcode)
                                                                   : deskhubp::HostPasscode();
+    {
+        const deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
+        opt.bindIp = stored.bindIp;
+        opt.clipboardSync = stored.clipboardSync;
+    }
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
@@ -164,4 +171,30 @@ const char* dha_last_error(void) {
 
 const char* dha_local_addresses(void) {
     return dh_local_addresses();
+}
+
+void dha_clip_offer(const char* text) {
+    if (!text || !*text) return;
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_agent) g_agent->OfferLocalClipboard(text);
+}
+
+int dha_clip_take(char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    out[0] = '\0';
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    if (!lk.owns_lock() || !g_agent) return 0;
+    const std::optional<std::string> text = g_agent->TakeRemoteClipboard();
+    if (!text) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity), *text);
+    return int(std::strlen(out));
+}
+
+int dha_bind_warning(char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    out[0] = '\0';
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    if (lk.owns_lock() && g_agent)
+        deskhubp::CopyToBuf(out, size_t(capacity), g_agent->BindWarning());
+    return int(std::strlen(out));
 }

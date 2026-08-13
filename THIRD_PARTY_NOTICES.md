@@ -19,6 +19,7 @@ redistribution of Deskhub under the MIT License.
 | [libdrm](https://gitlab.freedesktop.org/mesa/drm) | MIT | dynamic |
 | [libepoxy](https://github.com/anholt/libepoxy) | MIT | dynamic |
 | EGL ([libglvnd](https://gitlab.freedesktop.org/glvnd/libglvnd) / Mesa) | MIT | dynamic |
+| [libayatana-appindicator](https://github.com/AyatanaIndicators/libayatana-appindicator) 3 | LGPL-3.0 / GPL-3.0 | dynamic, optional (tray icon) |
 
 ### FFmpeg (LGPL-2.1-or-later, statically linked)
 

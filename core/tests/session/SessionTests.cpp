@@ -357,6 +357,9 @@ struct Rig {
     HostSession host;
     ClientSession cli;
 
+    std::vector<std::string> hostClipboard;
+    std::vector<std::string> cliClipboard;
+
     Rig() : host(HostCb(), StreamParams{1920, 1080, 60, 20'000'000}), cli(CliCb()) {
         host.SetPasscode(kTestPasscode);
     }
@@ -369,6 +372,7 @@ struct Rig {
         cb.onDisconnect = [this] { hostDisconnected = true; };
         cb.onInput = [this](const InputEvent& e) { hostInput.push_back(e); };
         cb.onNack = [this](uint32_t, std::span<const uint16_t>) { ++nackCalls; };
+        cb.onClipboardText = [this](std::string_view t) { hostClipboard.emplace_back(t); };
         return cb;
     }
     ClientCallbacks CliCb() {
@@ -377,6 +381,7 @@ struct Rig {
         cb.onReady = [this](const NegotiatedParams&) { ++readyCalls; };
         cb.onRtt = [this](uint32_t r) { lastRtt = r; };
         cb.onDisconnect = [this](const char* r) { cliDead = r; };
+        cb.onClipboardText = [this](std::string_view t) { cliClipboard.emplace_back(t); };
         return cb;
     }
     void Pump() {
@@ -733,6 +738,54 @@ void TestSessionsSurviveGarbage() {
         "client unaffected by garbage datagrams");
 }
 
+void TestClipboardThroughSession() {
+    std::printf("[session] clipboard flows only when the host enables it...\n");
+    {
+        Rig r;
+        r.host.SetClipboardEnabled(true);
+        r.Handshake();
+        r.w.toHost.clear();
+
+        r.cli.QueueClipboard("shared text");
+        r.now += 20'000;
+        r.cli.Tick(r.now);
+        Check(CountType(r.w.toHost, MsgType::Clipboard) > 0, "the viewer sends its clipboard");
+        r.Pump();
+        Check(r.hostClipboard.size() == 1 && r.hostClipboard[0] == "shared text",
+            "the host applies it exactly once");
+
+        for (uint32_t i = 0; i < 1 + kClipboardResendCount; ++i) {
+            r.now += kClipboardResendIntervalUs;
+            r.cli.Tick(r.now);
+        }
+        r.Pump();
+        Check(r.hostClipboard.size() == 1, "the redundant resends never re-apply");
+
+        uint8_t buf[kMaxDatagram];
+        const std::string down = "from the host";
+        ClipboardChunkView chunk;
+        chunk.revision = 1;
+        chunk.chunkIndex = 0;
+        chunk.chunkCount = 1;
+        chunk.payload = std::span<const uint8_t>(
+            reinterpret_cast<const uint8_t*>(down.data()), down.size());
+        const size_t n = BuildClipboardChunk(buf, r.host.sessionId(), chunk);
+        Check(r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+            "a clipboard datagram from the host is valid");
+        Check(r.cliClipboard.size() == 1 && r.cliClipboard[0] == down,
+            "and the viewer applies it");
+    }
+    {
+        Rig r;
+        r.Handshake();
+        r.cli.QueueClipboard("blocked");
+        r.now += 20'000;
+        r.cli.Tick(r.now);
+        r.Pump();
+        Check(r.hostClipboard.empty(), "with the toggle off, the host drops clipboard packets");
+    }
+}
+
 void TestInputAlwaysFlows() {
     std::printf("[session] input is always shared, no opt-in needed...\n");
     {
@@ -773,6 +826,7 @@ void RunSessionTests() {
     TestRejectCodecMismatch();
     TestPasscodeGate();
     TestInputThroughSession();
+    TestClipboardThroughSession();
     TestStraySessionIdIgnored();
     TestFocusRepeatsAndKeyframeCancel();
     TestInputAlwaysFlows();

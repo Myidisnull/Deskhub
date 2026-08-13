@@ -4,7 +4,6 @@ Deskhub streams your Windows PC screen to your phone and lets you control it wit
 • Live H.264 video stream with hardware decoding
 • Virtual trackpad: move the mouse by dragging anywhere, tap to click, two-finger tap for right click, hold and drag to select
 • Full keyboard input, plus a hotkey bar for Esc, Tab, Enter, arrows, Del, Ctrl+C/Ctrl+V
-• Clipboard sync between phone and PC
 • Adaptive bitrate and forward error correction keep the stream smooth on shaky Wi-Fi
 • Share this phone's screen the other way round, view-only, so a desktop can watch it (Android 10 and later)
 

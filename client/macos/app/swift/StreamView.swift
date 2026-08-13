@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import SwiftUI
 
@@ -31,6 +32,25 @@ struct ViewerWindow: View {
             .task {
                 dh_viewer_opened()
                 await model.start()
+            }
+            .task {
+                guard dh_clipboard_sync() else { return }
+                var lastChange = NSPasteboard.general.changeCount
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    let board = NSPasteboard.general
+                    if let remote = model.takeClipboard() {
+                        board.clearContents()
+                        board.setString(remote, forType: .string)
+                        lastChange = board.changeCount
+                        continue
+                    }
+                    guard board.changeCount != lastChange else { continue }
+                    lastChange = board.changeCount
+                    if let text = board.string(forType: .string), !text.isEmpty {
+                        model.offerClipboard(text)
+                    }
+                }
             }
             .onDisappear {
                 model.setLayer(nil)

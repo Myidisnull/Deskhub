@@ -22,6 +22,7 @@ chế việc phân phối lại Deskhub theo Giấy phép MIT.
 | [libdrm](https://gitlab.freedesktop.org/mesa/drm) | MIT | động |
 | [libepoxy](https://github.com/anholt/libepoxy) | MIT | động |
 | EGL ([libglvnd](https://gitlab.freedesktop.org/glvnd/libglvnd) / Mesa) | MIT | động |
+| [libayatana-appindicator](https://github.com/AyatanaIndicators/libayatana-appindicator) 3 | LGPL-3.0 / GPL-3.0 | động, tùy chọn (biểu tượng khay) |
 
 ### FFmpeg (LGPL-2.1-or-later, liên kết tĩnh)
 

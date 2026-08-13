@@ -72,6 +72,21 @@ void dh_set_client_control(bool on);
 int dh_device_name(char* out, int capacity);
 void dh_set_device_name(const char* name);
 
+int dh_bind_ip(char* out, int capacity);
+void dh_set_bind_ip(const char* ip);
+
+bool dh_autostart_enabled(void);
+void dh_set_autostart(bool on);
+
+bool dh_auto_share(void);
+void dh_set_auto_share(bool on);
+
+bool dh_clipboard_sync(void);
+void dh_set_clipboard_sync(bool on);
+
+bool dh_start_hidden(void);
+void dh_set_start_hidden(bool on);
+
 int dh_version_line(char* out, int capacity);
 const char* dh_local_addresses(void);
 int dh_idle_host_status(uint16_t port, char* out, int capacity);

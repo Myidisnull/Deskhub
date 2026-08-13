@@ -31,6 +31,13 @@ inline constexpr size_t kNackHeaderSize = 5;
 inline constexpr size_t kMaxNackIndices = 255;
 static_assert(kCommonHeaderSize + kNackHeaderSize + 2 * kMaxNackIndices <= kMaxDatagram);
 
+inline constexpr size_t kClipboardHeaderSize = 8;
+inline constexpr size_t kMaxClipboardChunkPayload =
+    kMaxDatagram - kCommonHeaderSize - kClipboardHeaderSize;
+inline constexpr size_t kMaxClipboardTextBytes = 32768;
+inline constexpr size_t kMaxClipboardChunks =
+    (kMaxClipboardTextBytes + kMaxClipboardChunkPayload - 1) / kMaxClipboardChunkPayload;
+
 enum class Chan : uint8_t { Control = 0,
     Video = 1,
     Input = 2,
@@ -54,6 +61,7 @@ enum class MsgType : uint8_t {
     SetFocus = 0x35,
     Nack = 0x36,
     InvalidateRef = 0x37,
+    Clipboard = 0x40,
 };
 
 inline constexpr uint8_t kVideoFlagIdr = 1u << 0;
@@ -209,6 +217,13 @@ struct FecPacketView {
     std::span<const uint8_t> parity;
 };
 
+struct ClipboardChunkView {
+    uint32_t revision = 0;
+    uint16_t chunkIndex = 0;
+    uint16_t chunkCount = 0;
+    std::span<const uint8_t> payload{};
+};
+
 size_t BuildHello(std::span<uint8_t> out, const Hello& m);
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m);
 size_t BuildStart(std::span<uint8_t> out, uint32_t sessionId);
@@ -230,6 +245,8 @@ size_t BuildFecPacket(std::span<uint8_t> out, uint32_t sessionId, const FecHeade
     bool idr, std::span<const uint8_t> parity);
 size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t firstSeq,
     std::span<const InputEvent> events);
+size_t BuildClipboardChunk(std::span<uint8_t> out, uint32_t sessionId,
+    const ClipboardChunkView& chunk);
 
 std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram);
 std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram);
@@ -251,5 +268,7 @@ std::optional<FecPacketView> ParseFecPacket(const CommonHeader& h,
     std::span<const uint8_t> payload);
 size_t ParseInputEvents(std::span<const uint8_t> payload, uint32_t& firstSeq,
     std::span<InputEvent> out);
+std::optional<ClipboardChunkView> ParseClipboardChunk(std::span<const uint8_t> payload);
+std::string TruncateClipboardText(std::string_view text);
 
 }

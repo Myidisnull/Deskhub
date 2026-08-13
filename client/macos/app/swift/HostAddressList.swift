@@ -3,10 +3,16 @@ import SwiftUI
 
 struct HostAddressList: View {
     let addresses: [LocalAddress]
+    var staleIp: String?
 
     var body: some View {
         if addresses.isEmpty {
-            Text(DeskhubClient.string(DHStrNoNetworkAddress)).foregroundStyle(.secondary)
+            if let staleIp {
+                Text("\(staleIp)  (\(DeskhubClient.string(DHStrBindNotConnectedNote)))")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(DeskhubClient.string(DHStrNoNetworkAddress)).foregroundStyle(.secondary)
+            }
         } else {
             ForEach(addresses) { addr in
                 HStack(spacing: 14) {

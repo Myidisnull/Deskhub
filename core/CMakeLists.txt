@@ -24,6 +24,7 @@ add_library(core STATIC
     src/session/ClientPump.cpp
     src/session/HostFeedback.cpp
     src/session/HostRouter.cpp
+    src/session/ClipboardSync.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
@@ -49,11 +50,14 @@ add_library(core STATIC
     src/session/Beacon.cpp
 
     src/net/LanScan.cpp
+    src/net/Ipv4.cpp
+    src/net/BindAddress.cpp
 
     src/ui/HostRows.cpp
     src/ui/RecentDevices.cpp
     src/ui/SecretText.cpp
     src/ui/UiSettings.cpp
+    src/ui/AutostartConfig.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -86,6 +90,7 @@ if(DESKHUB_CORE_TESTS)
 
         tests/session/SessionTests.cpp
         tests/session/ClientPumpTests.cpp
+        tests/session/ClipboardSyncTests.cpp
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
         tests/session/HostViewersTests.cpp
@@ -126,12 +131,15 @@ if(DESKHUB_CORE_TESTS)
         tests/session/BeaconTests.cpp
 
         tests/net/LanScanTests.cpp
+        tests/net/Ipv4Tests.cpp
+        tests/net/BindAddressTests.cpp
 
         tests/ui/StringsTests.cpp
         tests/ui/HostRowsTests.cpp
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp
         tests/ui/UiSettingsTests.cpp
+        tests/ui/AutostartConfigTests.cpp
 
         tests/fuzz/FuzzTests.cpp
     )

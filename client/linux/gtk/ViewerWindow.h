@@ -53,6 +53,10 @@ private:
     GtkWidget* window_ = nullptr;
     GtkWidget* glArea_ = nullptr;
     guint tickId_ = 0;
+    guint clipTimerId_ = 0;
+    bool clipboardSync_ = false;
+
+    static gboolean OnClipboardTimer(gpointer user);
 
     std::shared_ptr<ViewerWindow*> alive_;
 

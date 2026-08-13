@@ -192,7 +192,11 @@ or join the Play beta — three steps, **same Google account** as your phone's P
 
 ## 🕹️ Using it
 
-On desktop, **Host** picks the display(s) to expose; **Client** takes the
+On desktop, **Host** picks the display(s) to expose, and its *Share on network* choice
+pins the host to one of the machine's addresses so it is unreachable from every other
+network it happens to be on — the address list beneath it shows only the chosen network,
+and if that address disappears, sharing falls back to all networks and says so in the
+status line. **Client** takes the
 other machine's IP (UDP 47777 unless you change the port). Up to **5 viewers** can watch
 one host at a time, and machines you have connected to before come back under **Recent
 devices** with a live online/offline dot. The **Your name** field on the Client page
@@ -208,6 +212,19 @@ tries locking the host for 30 seconds — and *Viewers can control this machine*
 can untick to share **view-only** (the host drops every input packet it receives). All
 five clients can enter a passcode and remember it per device. The passcode is not
 encryption — see [`SECURITY.md`](SECURITY.md).
+
+**Settings** also holds the desktop quality-of-life toggles. *Start Deskhub when you
+log in* registers the platform's own
+launch-at-login mechanism — an autostart entry on Linux, a scheduled task on Windows (so
+no UAC prompt at logon), a Login Item on macOS — and *Start sharing when Deskhub opens*
+presses Share for you on launch. *Keep running in the background* adds a tray / menu-bar
+icon with Show/Hide, Start/Stop sharing and Quit, and turns the window's close button
+into "hide" — the window still opens visible on every launch: combine the three and the
+machine starts sharing at login on its own, hiding into the tray once you close the
+window.
+*Sync clipboard text* makes plain text copied on one machine pastable on the others
+(both directions, text only, 32 KiB cap) — it rides the same unencrypted channel as the
+video, so leave it off on networks you do not trust.
 
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:

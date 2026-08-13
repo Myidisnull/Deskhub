@@ -1,7 +1,9 @@
 #pragma once
 #include "deskhubp/session/HostEngine.h"
 
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using AgentSource = deskhub::media::ShareSource;
@@ -38,6 +40,18 @@ public:
 
     std::string LastError() {
         return engine_.LastError();
+    }
+
+    std::string BindWarning() {
+        return engine_.BindWarning();
+    }
+
+    void OfferLocalClipboard(std::string text) {
+        engine_.OfferLocalClipboard(std::move(text));
+    }
+
+    std::optional<std::string> TakeRemoteClipboard() {
+        return engine_.TakeRemoteClipboard();
     }
 
 private:

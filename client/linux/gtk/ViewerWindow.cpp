@@ -154,9 +154,28 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
 
     tickId_ = gtk_widget_add_tick_callback(glArea_, OnTick, this, nullptr);
 
+    clipboardSync_ = deskhubp::LoadUiSettings().clipboardSync;
+    if (clipboardSync_) clipTimerId_ = g_timeout_add(1000, OnClipboardTimer, this);
+
     UpdateTitle();
     gtk_widget_show_all(window_);
     return true;
+}
+
+gboolean ViewerWindow::OnClipboardTimer(gpointer user) {
+    auto* self = static_cast<ViewerWindow*>(user);
+    if (self->ended_) return G_SOURCE_CONTINUE;
+
+    GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (const auto remote = self->loop_.TakeRemoteClipboard()) {
+        gtk_clipboard_set_text(board, remote->c_str(), int(remote->size()));
+        return G_SOURCE_CONTINUE;
+    }
+    if (gchar* text = gtk_clipboard_wait_for_text(board)) {
+        self->loop_.OfferLocalClipboard(text);
+        g_free(text);
+    }
+    return G_SOURCE_CONTINUE;
 }
 
 void ViewerWindow::VideoRect(int& x, int& y, int& w, int& h) const {
@@ -372,6 +391,10 @@ gboolean ViewerWindow::OnFocusOut(GtkWidget*, GdkEventFocus*, gpointer user) {
 void ViewerWindow::OnDestroy(GtkWidget*, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     self->tickId_ = 0;
+    if (self->clipTimerId_) {
+        g_source_remove(self->clipTimerId_);
+        self->clipTimerId_ = 0;
+    }
     self->window_ = nullptr;
     auto done = std::move(self->onClosed_);
     delete self;

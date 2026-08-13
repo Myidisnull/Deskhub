@@ -239,6 +239,49 @@ void TestInvalidateRefWire() {
     Check(BuildInvalidateRef(tiny, 1, 2) == 0, "INVALIDATE_REF into too-small buffer -> 0");
 }
 
+void TestClipboardWire() {
+    std::printf("[wire] CLIPBOARD chunk round-trip + bounds...\n");
+    uint8_t buf[kMaxDatagram];
+    const std::string text = "clipboard payload";
+    ClipboardChunkView chunk;
+    chunk.revision = 0xAABBCCDD;
+    chunk.chunkIndex = 1;
+    chunk.chunkCount = 3;
+    chunk.payload = std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(text.data()), text.size());
+
+    const size_t n = BuildClipboardChunk(buf, 0xCAFE0002, chunk);
+    Check(n == kCommonHeaderSize + kClipboardHeaderSize + text.size(), "expected size");
+    const auto h = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(h && h->type == MsgType::Clipboard && h->chan == Chan::Control,
+        "CLIPBOARD header on the control channel");
+    const auto v = ParseClipboardChunk(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(v && v->revision == chunk.revision && v->chunkIndex == 1 && v->chunkCount == 3,
+        "CLIPBOARD fields round-trip");
+    Check(v->payload.size() == text.size() &&
+              std::memcmp(v->payload.data(), text.data(), text.size()) == 0,
+        "CLIPBOARD payload intact");
+
+    ClipboardChunkView bad = chunk;
+    bad.chunkIndex = 3;
+    Check(BuildClipboardChunk(buf, 1, bad) == 0, "index past count is refused");
+    bad = chunk;
+    bad.chunkCount = 0;
+    Check(BuildClipboardChunk(buf, 1, bad) == 0, "zero chunk count is refused");
+    bad = chunk;
+    bad.chunkCount = uint16_t(kMaxClipboardChunks + 1);
+    Check(BuildClipboardChunk(buf, 1, bad) == 0, "too many chunks are refused");
+
+    Check(!ParseClipboardChunk(std::span<const uint8_t>(buf, 4)).has_value(),
+        "short CLIPBOARD -> nullopt");
+    uint8_t raw[kClipboardHeaderSize] = {};
+    Check(!ParseClipboardChunk(raw).has_value(), "zero chunk count fails to parse");
+
+    std::string over(kMaxClipboardTextBytes + 10, 'x');
+    Check(TruncateClipboardText(over).size() == kMaxClipboardTextBytes,
+        "oversize text is bounded");
+}
+
 void TestWireCoverage() {
     std::printf("[wire] remaining build/parse paths + control round-trips...\n");
     uint8_t buf[kMaxDatagram];
@@ -486,6 +529,7 @@ void RunWireTests() {
     TestOversizedPacketsRejected();
     TestNackWire();
     TestInvalidateRefWire();
+    TestClipboardWire();
     TestWireCoverage();
     TestFecWireErrors();
     TestSourceListTruncation();

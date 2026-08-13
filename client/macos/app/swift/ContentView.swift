@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    var agent: AgentModel
     @State private var route: ClientRoute = .connect
     @State private var connect = ConnectModel()
-    @State private var agent = AgentModel()
 
     var body: some View {
         Group {

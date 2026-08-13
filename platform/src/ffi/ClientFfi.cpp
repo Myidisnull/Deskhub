@@ -104,6 +104,16 @@ const char* dh_string(DHStringId id) {
         case DHStrNotSharing: return deskhub::ui::kNotSharing;
         case DHStrLanDevicesEmpty: return deskhub::ui::kLanDevicesEmpty;
         case DHStrBroadcastMemoryLabel: return deskhub::ui::kBroadcastMemoryLabel;
+        case DHStrBindInterfaceLabel: return deskhub::ui::kBindInterfaceLabel;
+        case DHStrBindAllInterfaces: return deskhub::ui::kBindAllInterfaces;
+        case DHStrAutostartLabel: return deskhub::ui::kAutostartLabel;
+        case DHStrAutoShareLabel: return deskhub::ui::kAutoShareLabel;
+        case DHStrClipboardSyncLabel: return deskhub::ui::kClipboardSyncLabel;
+        case DHStrCloseToTrayLabel: return deskhub::ui::kCloseToTrayLabel;
+        case DHStrTrayShowWindow: return deskhub::ui::kTrayShowWindow;
+        case DHStrTrayHideWindow: return deskhub::ui::kTrayHideWindow;
+        case DHStrTrayQuit: return deskhub::ui::kTrayQuit;
+        case DHStrBindNotConnectedNote: return deskhub::ui::kBindNotConnectedNote;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();

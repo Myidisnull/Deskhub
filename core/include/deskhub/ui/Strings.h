@@ -83,6 +83,18 @@ inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off th
 inline constexpr const char* kDeviceNameLabel = "Your name";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
 inline constexpr const char* kUdpPortLabel = "UDP port";
+inline constexpr const char* kBindInterfaceLabel = "Share on network";
+inline constexpr const char* kBindAllInterfaces = "All networks";
+inline constexpr const char* kBindNotConnectedNote = "not connected";
+inline constexpr const char* kAutostartLabel = "Start Deskhub when you log in";
+inline constexpr const char* kAutoShareLabel = "Start sharing when Deskhub opens";
+inline constexpr const char* kClipboardSyncLabel =
+    "Sync clipboard text with connected devices";
+inline constexpr const char* kCloseToTrayLabel =
+    "Keep running in the background (tray icon) when the window is closed";
+inline constexpr const char* kTrayShowWindow = "Show Deskhub";
+inline constexpr const char* kTrayHideWindow = "Hide window";
+inline constexpr const char* kTrayQuit = "Quit Deskhub";
 inline constexpr const char* kLanDevicesHeading = "Machines sharing on this network";
 inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
 inline constexpr const char* kLanDevicesHint = "Click a device to connect to it.";
@@ -119,6 +131,11 @@ inline std::string ShareClampWarning() {
     const std::string cap = std::to_string(kMaxSources);
     return "This machine has more than " + cap + " displays. Only the first " + cap +
            " will be shared.";
+}
+
+inline std::string BindFallbackWarning(std::string_view requested) {
+    return "Network " + std::string(requested) +
+           " was not found - sharing on all networks instead.";
 }
 
 inline std::string ConnectingTo(std::string_view address) {

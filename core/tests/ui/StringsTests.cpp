@@ -35,10 +35,21 @@ void TestEveryLabelSaysSomething() {
         ui::kLanDevicesEmpty, ui::kLanDevicesHint, ui::kLanDevicesNoneSharing,
         ui::kScanRescanNote, ui::kScanNoLocalNetwork,
         ui::kConnectPromptTitle, ui::kAppVersion, ui::kProjectUrl, ui::kProjectLinkLabel,
-        ui::kRefreshNow};
+        ui::kRefreshNow, ui::kBindInterfaceLabel, ui::kBindAllInterfaces,
+        ui::kBindNotConnectedNote, ui::kAutostartLabel,
+        ui::kAutoShareLabel, ui::kClipboardSyncLabel, ui::kCloseToTrayLabel,
+        ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit};
     for (const char* s : labels) Check(s && *s, "every shared UI string is non-empty");
     Check(Contains(ui::PasscodeNote("0417"), "0417"),
         "the sharing status quotes the passcode viewers must enter");
+}
+
+void TestBindFallbackNamesTheMissingNetwork() {
+    std::printf("[strings] the bind fallback warning names the address that vanished...\n");
+    Check(Contains(ui::BindFallbackWarning("192.168.1.10"), "192.168.1.10"),
+        "the user can see which network was not found");
+    Check(Contains(ui::BindFallbackWarning("192.168.1.10"), "all networks"),
+        "and learns that sharing fell back to every network");
 }
 
 void TestConnectingMentionsTheAddress() {
@@ -244,4 +255,5 @@ void RunStringsTests() {
     TestRecheckNotesQuoteTheRealInterval();
     TestDeviceListNotesReadTheSameOnEveryClient();
     TestClampWarningQuotesTheProtocolLimit();
+    TestBindFallbackNamesTheMissingNetwork();
 }

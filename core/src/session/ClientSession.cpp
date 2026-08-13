@@ -83,6 +83,18 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             if (h->sessionId != sessionId_ || sessionId_ == 0) return false;
             Die("host ended the session (BYE)");
             return false;
+        case MsgType::Clipboard: {
+            if (h->sessionId != sessionId_ || sessionId_ == 0) return false;
+            if (state_ != State::Starting && state_ != State::Streaming) return false;
+            const auto chunk = ParseClipboardChunk(payload);
+            if (!chunk) return false;
+            lastRecvUs_ = nowUs;
+            if (clip_.Accept(*chunk)) {
+                const auto text = clip_.TakeCompleted();
+                if (text && cb_.onClipboardText) cb_.onClipboardText(*text);
+            }
+            return true;
+        }
         default:
             return false;
     }
@@ -97,6 +109,12 @@ void ClientSession::QueueInput(const InputEvent& e) {
     if (state_ != State::Streaming) return;
     input_.SetSessionId(sessionId_);
     input_.Queue(e);
+}
+
+void ClientSession::QueueClipboard(std::string_view text) {
+    if (state_ != State::Streaming) return;
+    clip_.SetSessionId(sessionId_);
+    clip_.OfferLocal(text);
 }
 
 void ClientSession::SetFocused(bool on) {
@@ -152,7 +170,10 @@ void ClientSession::Tick(uint64_t nowUs) {
         if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
     }
 
-    if (state_ == State::Streaming && cb_.send) input_.Flush(nowUs, cb_.send);
+    if (state_ == State::Streaming && cb_.send) {
+        input_.Flush(nowUs, cb_.send);
+        clip_.Flush(nowUs, cb_.send);
+    }
 
     if (keyframeWanted_ && state_ == State::Streaming &&
         nowUs - lastKeyframeReqUs_ >= kKeyframeRetryUs) {

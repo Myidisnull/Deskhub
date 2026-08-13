@@ -13,6 +13,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -381,6 +382,7 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_window_set_title(GTK_WINDOW(window_), ui::kAppTitle);
     gtk_window_set_default_size(GTK_WINDOW(window_), kWindowW, kWindowH);
     gtk_window_set_position(GTK_WINDOW(window_), GTK_WIN_POS_CENTER);
+    g_signal_connect(window_, "delete-event", G_CALLBACK(OnDeleteEvent), this);
     g_signal_connect(window_, "destroy", G_CALLBACK(OnDestroy), this);
 
     GtkWidget* root = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -400,8 +402,19 @@ void MainWindow::Build(GtkApplication* app) {
     StartPoller();
     StartScan();
 
+    ApplyTrayMode();
     gtk_widget_show_all(window_);
     SelectPage(kPageClient);
+
+    if (settings_.autoShare) {
+        SelectPage(kPageHost);
+        g_idle_add(
+            [](gpointer user) -> gboolean {
+                static_cast<MainWindow*>(user)->OnShare();
+                return G_SOURCE_REMOVE;
+            },
+            this);
+    }
 }
 
 GtkWidget* MainWindow::BuildSidebar() {
@@ -456,32 +469,17 @@ GtkWidget* MainWindow::BuildHostPage() {
     gtk_box_pack_start(GTK_BOX(box), Heading(ui::kHostHeading), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), Hint(ui::kHostIpIntro), FALSE, FALSE, 0);
 
-    const auto addrs = ListLocalIPv4();
-    if (addrs.empty()) {
-        gtk_box_pack_start(GTK_BOX(box), Label(ui::kNoNetworkAddress), FALSE, FALSE, 0);
-    } else {
-        GtkWidget* grid = gtk_grid_new();
-        gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
-        gtk_grid_set_column_spacing(GTK_GRID(grid), 14);
-        int row = 0;
-        for (const auto& a : addrs) {
-            gtk_grid_attach(GTK_GRID(grid), Label(a.name), 0, row, 1, 1);
+    GtkWidget* netRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
+    gtk_box_pack_start(GTK_BOX(netRow), Label(ui::kBindInterfaceLabel), FALSE, FALSE, 0);
+    bindCombo_ = gtk_combo_box_text_new();
+    PopulateBindCombo();
+    g_signal_connect(bindCombo_, "changed", G_CALLBACK(OnBindChanged), this);
+    gtk_box_pack_start(GTK_BOX(netRow), bindCombo_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), netRow, FALSE, FALSE, 0);
 
-            GtkWidget* ip = Label(a.ip);
-            AddClass(ip, "deskhub-section");
-            gtk_label_set_selectable(GTK_LABEL(ip), TRUE);
-            gtk_widget_set_hexpand(ip, TRUE);
-            gtk_grid_attach(GTK_GRID(grid), ip, 1, row, 1, 1);
-
-            GtkWidget* copy = gtk_button_new_with_label("Copy");
-            gtk_widget_set_size_request(copy, 84, 32);
-            g_object_set_data_full(G_OBJECT(copy), "deskhub-ip", g_strdup(a.ip.c_str()), g_free);
-            g_signal_connect(copy, "clicked", G_CALLBACK(OnCopyClicked), this);
-            gtk_grid_attach(GTK_GRID(grid), copy, 2, row, 1, 1);
-            ++row;
-        }
-        gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
-    }
+    hostAddrBox_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_box_pack_start(GTK_BOX(box), hostAddrBox_, FALSE, FALSE, 0);
+    RebuildHostAddressRows();
 
     hostBanner_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     AddClass(hostBanner_, "deskhub-banner");
@@ -510,6 +508,73 @@ GtkWidget* MainWindow::BuildHostPage() {
 
     ShowIdleHostState();
     return WrapPage(box);
+}
+
+void MainWindow::PopulateBindCombo() {
+    gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(bindCombo_));
+    bindChoices_.clear();
+    bindChoices_.push_back("");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(bindCombo_), ui::kBindAllInterfaces);
+    gint active = 0;
+    for (const AdapterAddr& adapter : ListLocalIPv4()) {
+        const std::string label = adapter.ip + "  (" + adapter.name + ")";
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(bindCombo_), label.c_str());
+        bindChoices_.push_back(adapter.ip);
+        if (adapter.ip == settings_.bindIp) active = gint(bindChoices_.size() - 1);
+    }
+    if (!settings_.bindIp.empty() && active == 0) {
+        const std::string label =
+            settings_.bindIp + "  (" + ui::kBindNotConnectedNote + ")";
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(bindCombo_), label.c_str());
+        bindChoices_.push_back(settings_.bindIp);
+        active = gint(bindChoices_.size() - 1);
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(bindCombo_), active);
+}
+
+void MainWindow::RebuildHostAddressRows() {
+    gtk_container_foreach(GTK_CONTAINER(hostAddrBox_), [](GtkWidget* child, gpointer) { gtk_widget_destroy(child); }, nullptr);
+
+    std::vector<AdapterAddr> shown;
+    for (const auto& a : ListLocalIPv4())
+        if (settings_.bindIp.empty() || a.ip == settings_.bindIp) shown.push_back(a);
+
+    if (shown.empty()) {
+        const std::string text = settings_.bindIp.empty()
+                                     ? std::string(ui::kNoNetworkAddress)
+                                     : settings_.bindIp + "  (" + ui::kBindNotConnectedNote + ")";
+        gtk_box_pack_start(GTK_BOX(hostAddrBox_), Label(text), FALSE, FALSE, 0);
+    } else {
+        GtkWidget* grid = gtk_grid_new();
+        gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
+        gtk_grid_set_column_spacing(GTK_GRID(grid), 14);
+        int row = 0;
+        for (const auto& a : shown) {
+            gtk_grid_attach(GTK_GRID(grid), Label(a.name), 0, row, 1, 1);
+
+            GtkWidget* ip = Label(a.ip);
+            AddClass(ip, "deskhub-section");
+            gtk_label_set_selectable(GTK_LABEL(ip), TRUE);
+            gtk_widget_set_hexpand(ip, TRUE);
+            gtk_grid_attach(GTK_GRID(grid), ip, 1, row, 1, 1);
+
+            GtkWidget* copy = gtk_button_new_with_label("Copy");
+            gtk_widget_set_size_request(copy, 84, 32);
+            g_object_set_data_full(G_OBJECT(copy), "deskhub-ip", g_strdup(a.ip.c_str()), g_free);
+            g_signal_connect(copy, "clicked", G_CALLBACK(OnCopyClicked), this);
+            gtk_grid_attach(GTK_GRID(grid), copy, 2, row, 1, 1);
+            ++row;
+        }
+        gtk_box_pack_start(GTK_BOX(hostAddrBox_), grid, FALSE, FALSE, 0);
+    }
+    gtk_widget_show_all(hostAddrBox_);
+}
+
+void MainWindow::OnBindChanged(GtkWidget*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->loadingSettings_) return;
+    self->SaveSettings();
+    self->RebuildHostAddressRows();
 }
 
 GtkWidget* MainWindow::BuildClientPage() {
@@ -650,6 +715,21 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     allowInputCheck_ = gtk_check_button_new_with_label(ui::kAllowControlLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(allowInputCheck_), settings_.allowInput);
     gtk_box_pack_start(GTK_BOX(box), allowInputCheck_, FALSE, FALSE, 0);
+    clipboardCheck_ = gtk_check_button_new_with_label(ui::kClipboardSyncLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(clipboardCheck_), settings_.clipboardSync);
+    gtk_box_pack_start(GTK_BOX(box), clipboardCheck_, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(box), Section("Startup"), FALSE, FALSE, 0);
+    autostartCheck_ = gtk_check_button_new_with_label(ui::kAutostartLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autostartCheck_),
+        deskhubp::AutostartEnabled());
+    gtk_box_pack_start(GTK_BOX(box), autostartCheck_, FALSE, FALSE, 0);
+    autoShareCheck_ = gtk_check_button_new_with_label(ui::kAutoShareLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autoShareCheck_), settings_.autoShare);
+    gtk_box_pack_start(GTK_BOX(box), autoShareCheck_, FALSE, FALSE, 0);
+    startHiddenCheck_ = gtk_check_button_new_with_label(ui::kCloseToTrayLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(startHiddenCheck_), settings_.startHidden);
+    gtk_box_pack_start(GTK_BOX(box), startHiddenCheck_, FALSE, FALSE, 0);
 
     g_signal_connect(fpsSpin_, "value-changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(bitrateSpin_, "value-changed", G_CALLBACK(OnSettingChanged), this);
@@ -657,6 +737,10 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(qualityCombo_, "changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(hostPasscodeEntry_, "changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(allowInputCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(autostartCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(autoShareCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(startHiddenCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
 
     return WrapPage(box);
 }
@@ -709,6 +793,8 @@ void MainWindow::ApplyHostState(HostShareState state, const std::string& detail)
     } else {
         RemoveClass(shareButton_, "deskhub-primary-stop");
     }
+
+    gtk_widget_set_sensitive(bindCombo_, state == HostShareState::kIdle);
 }
 
 void MainWindow::ShowIdleHostState() {
@@ -725,6 +811,18 @@ void MainWindow::SaveSettings() {
         settings_.maxDim = deskhub::media::QualityPresetMaxDim(size_t(quality), settings_.maxDim);
     settings_.allowInput = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowInputCheck_));
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
+    settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
+    const gint bindSel = gtk_combo_box_get_active(GTK_COMBO_BOX(bindCombo_));
+    if (bindSel >= 0 && size_t(bindSel) < bindChoices_.size())
+        settings_.bindIp = bindChoices_[size_t(bindSel)];
+    settings_.autoShare = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(autoShareCheck_));
+    const bool autostart = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(autostartCheck_));
+    if (autostart != settings_.autostart) {
+        deskhubp::SetAutostartEnabled(autostart);
+        settings_.autostart = deskhubp::AutostartEnabled();
+    }
+    settings_.startHidden = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(startHiddenCheck_));
+    ApplyTrayMode();
 
     const std::string passcode = ui::TrimAscii(gtk_entry_get_text(GTK_ENTRY(hostPasscodeEntry_)));
     if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
@@ -735,6 +833,41 @@ void MainWindow::SaveSettings() {
 
 void MainWindow::SaveRecentDevices() {
     deskhubp::WriteAppDataFile(kRecentDevicesFile, ui::SerializeRecentDevices(recent_));
+}
+
+void MainWindow::ApplyTrayMode() {
+    if (settings_.startHidden && !tray_.Attached()) {
+        TrayIcon::Actions actions;
+        actions.onToggleWindow = [this] { ToggleWindowFromTray(); };
+        actions.onToggleShare = [this] { OnShare(); };
+        actions.onQuit = [this] { gtk_widget_destroy(window_); };
+        if (tray_.Attach(actions)) {
+            tray_.SetSharing(hosting_);
+            tray_.SetWindowVisible(gtk_widget_get_visible(window_));
+        }
+        return;
+    }
+    if (!settings_.startHidden && tray_.Attached()) {
+        tray_.Detach();
+        ShowMainWindow();
+    }
+}
+
+void MainWindow::ToggleWindowFromTray() {
+    if (gtk_widget_get_visible(window_)) {
+        gtk_widget_hide(window_);
+        tray_.SetWindowVisible(false);
+        return;
+    }
+    ShowMainWindow();
+}
+
+void MainWindow::ShowMainWindow() {
+    gtk_widget_show_all(window_);
+    gtk_window_present(GTK_WINDOW(window_));
+    tray_.SetWindowVisible(true);
+    if (!hosting_ && !hostStarting_) gtk_widget_show(hostHintLabel_);
+    if (hosting_) gtk_widget_hide(hostHintLabel_);
 }
 
 void MainWindow::OnSettingChanged(GtkWidget*, gpointer user) {
@@ -1052,6 +1185,8 @@ void MainWindow::OnShare() {
     options.port = Port();
     options.allowInput = settings_.allowInput;
     options.passcode = settings_.passcode;
+    options.bindIp = settings_.bindIp;
+    options.clipboardSync = settings_.clipboardSync;
 
     hostStarting_ = true;
     gtk_widget_set_sensitive(shareButton_, FALSE);
@@ -1117,10 +1252,17 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     std::string status = ui::SharingStatusLine(options.port);
     if (!options.passcode.empty()) status += " " + ui::PasscodeNote(options.passcode);
     if (!options.allowInput) status += std::string(" ") + ui::kViewOnlyNote;
+    const std::string bindWarning = agentLoop_.BindWarning();
+    if (!bindWarning.empty()) status += " " + bindWarning;
     ApplyHostState(HostShareState::kSharing, status);
+    tray_.SetSharing(true);
 
     if (hostTimerId_) g_source_remove(hostTimerId_);
     hostTimerId_ = g_timeout_add(deskhubp::kAgentStatusPollMs, OnHostTimer, this);
+
+    if (clipTimerId_) g_source_remove(clipTimerId_);
+    clipTimerId_ = 0;
+    if (options.clipboardSync) clipTimerId_ = g_timeout_add(1000, OnClipboardTimer, this);
 }
 
 void MainWindow::StopHosting() {
@@ -1128,12 +1270,33 @@ void MainWindow::StopHosting() {
         g_source_remove(hostTimerId_);
         hostTimerId_ = 0;
     }
+    if (clipTimerId_) {
+        g_source_remove(clipTimerId_);
+        clipTimerId_ = 0;
+    }
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
+    tray_.SetSharing(false);
     ShowIdleHostState();
-    gtk_widget_show(hostHintLabel_);
+    if (gtk_widget_get_visible(window_)) gtk_widget_show(hostHintLabel_);
     ClearHostRows();
+}
+
+gboolean MainWindow::OnClipboardTimer(gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (!self->hosting_) return G_SOURCE_CONTINUE;
+
+    GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (const auto remote = self->agentLoop_.TakeRemoteClipboard()) {
+        gtk_clipboard_set_text(board, remote->c_str(), int(remote->size()));
+        return G_SOURCE_CONTINUE;
+    }
+    if (gchar* text = gtk_clipboard_wait_for_text(board)) {
+        self->agentLoop_.OfferLocalClipboard(text);
+        g_free(text);
+    }
+    return G_SOURCE_CONTINUE;
 }
 
 gboolean MainWindow::OnHostTimer(gpointer user) {
@@ -1253,9 +1416,20 @@ void MainWindow::OnHostRowActionClicked(GtkButton* b, gpointer user) {
     self->RunRowAction(self->hostRows_[size_t(index)]);
 }
 
+gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->settings_.startHidden && self->tray_.Attached()) {
+        gtk_widget_hide(self->window_);
+        self->tray_.SetWindowVisible(false);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 void MainWindow::OnDestroy(GtkWidget*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
     self->alive_->store(false);
+    self->tray_.Detach();
     if (self->rescanTimerId_) g_source_remove(self->rescanTimerId_);
     if (self->hostTimerId_) g_source_remove(self->hostTimerId_);
     self->scanner_.Cancel();

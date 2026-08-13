@@ -196,7 +196,11 @@ trên máy bạn:
 
 ## 🕹️ Cách dùng
 
-Trên desktop, **Host** chọn (các) màn hình để chia sẻ; **Client** nhập IP
+Trên desktop, **Host** chọn (các) màn hình để chia sẻ, và mục *Share on network* ngay
+trên trang đó ghim host vào một địa chỉ của máy để nó không thể bị chạm tới từ mọi mạng
+khác mà máy đang nối vào — danh sách địa chỉ bên dưới chỉ hiện mạng đang được chọn, và
+nếu địa chỉ đó biến mất, việc chia sẻ quay về mọi mạng và nói rõ trong dòng trạng thái.
+**Client** nhập IP
 của máy kia (cổng UDP 47777 nếu bạn không đổi). Tối đa **5 người xem** cùng lúc một host,
 và những máy bạn từng kết nối sẽ quay lại ở mục **Recent devices** kèm chấm trạng thái
 online/offline theo thời gian thực. Ô **Your name** trên trang Client dùng để đặt tên
@@ -212,6 +216,18 @@ tắt đi được, sai ba lần thì host khoá 30 giây — và *Viewers can c
 tích để chia sẻ ở chế độ **chỉ xem** (host bỏ qua mọi gói điều khiển nhận được). Cả năm
 client đều nhập được mã và nhớ mã theo từng thiết bị. Mã này không phải là mã hoá — xem
 [`SECURITY.vi.md`](SECURITY.vi.md).
+
+**Settings** cũng chứa các tuỳ chọn tiện dụng trên desktop.
+*Start Deskhub when you log in* đăng ký cơ chế khởi động cùng hệ điều hành của chính nền
+tảng đó — mục autostart trên Linux, scheduled task trên Windows (nên không hiện UAC lúc
+đăng nhập), Login Item trên macOS — còn *Start sharing when Deskhub opens* tự bấm Share
+giúp bạn khi mở app. *Keep running in the background* thêm biểu tượng khay / thanh menu
+với Hiện/Ẩn, Bắt đầu/Dừng chia sẻ và Thoát, đồng thời biến nút đóng cửa sổ thành "ẩn"
+— cửa sổ vẫn luôn hiện ra mỗi lần mở app: kết hợp cả ba thì máy tự chia sẻ ngay khi
+đăng nhập, và ẩn vào khay khi bạn đóng cửa sổ. *Sync clipboard
+text* cho phép văn bản thuần copy trên một máy dán được trên các máy còn lại (hai chiều,
+chỉ văn bản, giới hạn 32 KiB) — nó đi trên cùng kênh không mã hoá với video, nên hãy tắt
+trên mạng bạn không tin tưởng.
 
 Qua Internet: chạy [Tailscale](https://tailscale.com) trên cả hai máy và dùng địa chỉ
 100.x.y.z — đừng bao giờ port-forward. Trên di động, khung hình chính là trackpad: kéo =

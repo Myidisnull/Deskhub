@@ -23,7 +23,7 @@ std::string ViewerAddrList(const deskhub::SourcePipelineState& st);
 void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe);
 
-void LogListeningAddresses(uint16_t port);
+void LogListeningAddresses(uint16_t port, const std::string& boundIp = {});
 
 std::vector<deskhub::SourcePipelineState*> SelectLiveSources(
     std::span<deskhub::SourcePipelineState* const> pipes, const SourcePredicate& closed,
