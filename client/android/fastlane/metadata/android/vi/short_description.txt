@@ -1,1 +1,1 @@
-Stream và điều khiển PC Windows từ điện thoại, độ trễ thấp.
+Stream và điều khiển máy Windows, macOS, Linux từ điện thoại.

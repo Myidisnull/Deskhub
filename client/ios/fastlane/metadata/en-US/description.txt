@@ -1,15 +1,22 @@
-Deskhub streams your Windows PC screen to your phone and lets you control it with ultra-low latency — built for gaming, not just remote work.
+Deskhub streams the screen of your Windows, macOS or Linux computer to your iPhone or iPad and lets you control it with ultra-low latency — built for gaming, not just remote work.
 
 FEATURES
 • Live H.264 video stream with hardware decoding
-• Virtual trackpad: move the mouse by dragging anywhere, tap to click, two-finger tap for right click, hold and drag to select
+• Virtual trackpad: drag anywhere to move the mouse, tap to click, double-tap to right-click, hold and drag to select
+• Pinch to zoom into the remote screen; a two-finger drag scrolls, or pans once you are zoomed in
 • Full keyboard input, plus a hotkey bar for Esc, Tab, Enter, arrows, Del, Ctrl+C/Ctrl+V
+• Finds the computers that are sharing on your network, and remembers the ones you connect to
+• Choose which display to watch when the computer is sharing more than one
 • Adaptive bitrate and forward error correction keep the stream smooth on shaky Wi-Fi
-• Share this iPhone's screen the other way round, view-only, so a desktop can watch it
+• Optional clipboard sync: plain text copied on one device can be pasted on the other
+• Share this device's screen the other way round, view-only, so a computer can watch it
 
 HOW IT WORKS
-Install the free Deskhub host on your Windows PC (download from the project page), open the app, enter your PC address and connect. Works on your local network out of the box; for remote access over the Internet, pair it with Tailscale and connect via your Tailscale IP.
+Install the free Deskhub app on the computer you want to reach (download from the project page) and start sharing there. Open Deskhub on your device, tap that computer in the list or type its address, and enter the 4-digit passcode it displays. Works on your local network out of the box; for access over the Internet, pair it with Tailscale and connect via your Tailscale IP.
+
+GOOD TO KNOW
+Deskhub does not encrypt its traffic. Every host requires a 4-digit passcode, but the stream itself is plain UDP — use it on a network you trust, or through a VPN such as Tailscale. There are no accounts and no servers of ours: your device talks only to your own computer.
 
 REQUIREMENTS
-• Windows 10 1903 or later (x64) on the host PC
+• A computer running Windows 10 or later (x64), macOS 14 or later, or a current Linux desktop (glibc 2.35+), with the free Deskhub app
 • Both devices on the same network, or connected through Tailscale

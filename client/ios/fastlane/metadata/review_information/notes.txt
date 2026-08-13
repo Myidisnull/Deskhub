@@ -1,9 +1,10 @@
-Deskhub is a remote desktop client. It connects DIRECTLY (peer-to-peer over UDP) to a free companion host application running on the user's own Windows PC. There is NO login and NO account — the demo user/password fields do not apply.
+Deskhub is a remote desktop client. It connects DIRECTLY (peer-to-peer over UDP) to a free companion app running on the user's own computer — Windows, macOS or Linux. There is NO login and NO account — the demo user/password fields do not apply.
 
 HOW TO TEST:
-1. On a Windows 10/11 x64 PC connected to the same Wi-Fi/network as the iPhone, download the host app from https://github.com/manhpham90vn/Deskhub/releases (a single client.exe, no installation required).
-2. Run client.exe and accept the Windows Firewall prompt on first launch.
-3. In the iOS app, enter the PC's local IP address (shown by `ipconfig` on the PC) and tap Connect.
-4. The PC screen appears in the app: drag anywhere to move the mouse, tap to left-click, two-finger tap to right-click, hold then drag to select. Tap "Keys" to type with the keyboard; the bottom bar sends Esc/Tab/Enter/arrows/Del/Ctrl+C/Ctrl+V.
+1. On a Windows 10/11 x64 PC (or a Mac running macOS 14+) connected to the same Wi-Fi/network as the iPhone, download the free Deskhub app from https://github.com/manhpham90vn/Deskhub/releases — a single executable, no installation required.
+2. Run it. On Windows it asks for administrator once and adds its own firewall rule; on macOS, grant Screen Recording and Accessibility when prompted.
+3. Open the Host section, tick a display and press Share. The app then shows this machine's IP addresses and a 4-digit passcode — every host requires one, and it is generated automatically on first launch.
+4. In the iOS app, tap the computer in the discovered-device list (or type its IP address), enter that 4-digit passcode, and connect.
+5. The remote screen appears in the app: drag anywhere to move the mouse, tap to left-click, double-tap to right-click, hold then drag to select. Pinch to zoom, drag with two fingers to scroll. Tap "Keys" to type with the keyboard; the bottom bar sends Esc/Tab/Enter/arrows/Del/Ctrl+C/Ctrl+V.
 
-NOTE FOR REVIEW: by design there are no Deskhub servers — the app only talks to the reviewer's/user's own Windows PC (see privacy policy), so a Windows PC is required to see the streaming and control features. If no Windows PC is available during review, contact us at manhpv151090@gmail.com and we will provide a temporary demo host reachable over Tailscale, including step-by-step instructions.
+NOTE FOR REVIEW: by design there are no Deskhub servers — the app only talks to the reviewer's/user's own computer (see privacy policy), so a computer running the companion app is required to see the streaming and control features. If none is available during review, contact us at manhpv151090@gmail.com and we will provide a temporary demo host reachable over Tailscale, including step-by-step instructions.

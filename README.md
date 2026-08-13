@@ -229,7 +229,8 @@ unencrypted channel as the video, so leave it off on networks you do not trust.
 
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:
-drag = move, tap = click, hold-drag = drag, **Keys** = virtual keyboard.
+drag = move, tap = click, double-tap = right click, hold-drag = drag, **Keys** = virtual
+keyboard.
 
 Build from source: `make bootstrap` then `make build-<os>` — every target is documented
 at the top of the [`Makefile`](Makefile). Bugs & feedback:

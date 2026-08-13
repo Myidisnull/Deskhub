@@ -40,6 +40,7 @@ layer.
 core/       platform-agnostic logic, pure C++20, no OS headers, unit-tested
 platform/   thin OS abstractions with one shared API (depends on core)
 client/     per-OS apps: android, ios, linux, macos, windows (depend on platform + core)
+client/apple/  Swift shared by the macOS and iOS apps — not an app of its own
 ```
 
 Decision order when adding code:
@@ -59,6 +60,10 @@ Decision order when adding code:
 Never duplicate logic across `client/*`. If you find yourself writing the same thing for
 a second platform, stop and lift it into `core/` or `platform/`.
 
+Swift that both Apple apps need is the one exception to "lift it into a lower layer": it
+goes in `client/apple/swift/`, which both `client/macos` and `client/ios` reference as a
+folder in their Xcode projects. Check it before adding Swift to either app.
+
 Hard constraints:
 
 - `core/` must not include any OS or third-party header, and must not depend on
@@ -66,7 +71,8 @@ Hard constraints:
 - `platform/` may include OS headers, but its public headers must expose one identical
   API on every OS.
 - Use the shared helpers rather than raw OS calls: `LOGI`/`LOGW`/`LOGE` from
-  `deskhubp/Log.h`, plus `Clock.h`, `Random.h`, `UdpSocket.h`, `SourceQuery.h`.
+  `deskhubp/diag/Log.h`, plus `deskhubp/system/Clock.h`, `deskhubp/system/Random.h`,
+  `deskhubp/net/UdpSocket.h`, `deskhubp/net/SourceQuery.h`.
 
 ## Commands
 

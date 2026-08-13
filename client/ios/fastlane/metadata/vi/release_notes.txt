@@ -1,1 +1,5 @@
-Bản phát hành đầu tiên.
+• Chia sẻ màn hình thiết bị này sang máy tính, chế độ chỉ xem, ngay trong tab Host
+• Hình giờ xoay theo thiết bị khi bạn xoay máy
+• Đồng bộ clipboard tuỳ chọn: văn bản thuần copy ở máy này dán được ở máy kia
+• Chọn màn hình muốn xem của máy tính, và thấy những máy đang chia sẻ trong mạng
+• Sửa lỗi và cải thiện độ ổn định khi stream

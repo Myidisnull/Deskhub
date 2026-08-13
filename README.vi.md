@@ -232,7 +232,8 @@ kênh không mã hoá với video, nên hãy tắt trên mạng bạn không tin
 
 Qua Internet: chạy [Tailscale](https://tailscale.com) trên cả hai máy và dùng địa chỉ
 100.x.y.z — đừng bao giờ port-forward. Trên di động, khung hình chính là trackpad: kéo =
-di chuyển, chạm = bấm, giữ rồi kéo = rê, **Keys** = bàn phím ảo.
+di chuyển, chạm = bấm, chạm hai lần = chuột phải, giữ rồi kéo = rê, **Keys** = bàn phím
+ảo.
 
 Build từ mã nguồn: `make bootstrap` rồi `make build-<os>` — mọi target đều được mô tả ở
 đầu file [`Makefile`](Makefile). Báo lỗi & góp ý:

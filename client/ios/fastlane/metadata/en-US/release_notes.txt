@@ -1,1 +1,5 @@
-First release.
+• Share this device's screen to a computer, view-only, straight from the Host tab
+• The picture now follows the device when you rotate it
+• Optional clipboard sync: plain text copied on one device can be pasted on the other
+• Choose which of the computer's displays to watch, and see the ones sharing on your network
+• Stability and streaming fixes

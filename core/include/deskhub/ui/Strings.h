@@ -15,7 +15,7 @@ namespace deskhub::ui {
 inline constexpr const char* kAppVersion = DESKHUB_VERSION;
 inline constexpr const char* kProjectUrl = "https://github.com/manhpham90vn/Deskhub";
 inline constexpr const char* kProjectLinkLabel = "GitHub";
-inline constexpr const char* kAppTitle = "Deskhub - stream & remotely control an application";
+inline constexpr const char* kAppTitle = "Deskhub - stream & remotely control a machine";
 inline constexpr const char* kHostIpIntro =
     "Others connect to you using one of these IP addresses:";
 inline constexpr const char* kNoNetworkAddress = "(no network address found)";
@@ -104,8 +104,8 @@ inline constexpr const char* kLanDevicesHeading = "Machines sharing on this netw
 inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
 inline constexpr const char* kLanDevicesHint = "Click a device to connect to it.";
 inline constexpr const char* kLanDevicesNoneSharing =
-    "A machine appears here only while it is sharing \xE2\x80\x94 phones and tablets can view "
-    "but never share.";
+    "A machine appears here only while it is sharing \xE2\x80\x94 start the share on it, then "
+    "check again.";
 inline constexpr const char* kScanRescanNote = "Checking again shortly.";
 inline constexpr const char* kRefreshNow = "Refresh now";
 inline constexpr const char* kScanNoLocalNetwork =

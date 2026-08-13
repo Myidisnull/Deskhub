@@ -74,7 +74,8 @@ nó không được đóng gói kèm.
 
 | Thành phần | Giấy phép | Cách liên kết |
 | --- | --- | --- |
-| VideoToolbox, AVFoundation, ScreenCaptureKit, Metal, SwiftUI | Apple SDK | thành phần hệ điều hành |
+| SwiftUI, AppKit, ScreenCaptureKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, CoreGraphics, ApplicationServices, ServiceManagement | Apple SDK | thành phần hệ điều hành (macOS) |
+| SwiftUI, UIKit, ReplayKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, Accelerate (vImage) | Apple SDK | thành phần hệ điều hành (iOS) |
 
 ## App Android (`client/android`)
 
