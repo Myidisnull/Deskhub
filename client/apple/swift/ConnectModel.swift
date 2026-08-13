@@ -1,6 +1,12 @@
 import Foundation
 import Observation
 
+#if os(macOS)
+    import AppKit
+#else
+    import UIKit
+#endif
+
 @MainActor @Observable
 final class ConnectModel {
     private static let lastAddressKey = "lastAddress"
@@ -11,15 +17,35 @@ final class ConnectModel {
         return UserDefaults.standard.string(forKey: lastAddressKey) ?? ""
     }
 
+    private static var defaultDeviceName: String {
+        #if os(macOS)
+            Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        #else
+            UIDevice.current.name
+        #endif
+    }
+
+    private static var initialDeviceName: String {
+        let stored = DeskhubClient.buffered(96) { dh_device_name($0, $1) }
+        return stored.isEmpty ? ConnectModel.defaultDeviceName : stored
+    }
+
     var address: String = DeskhubClient.addressHost(ConnectModel.lastAddress)
     var port: String = DeskhubClient.addressPortText(ConnectModel.lastAddress)
     var passcode: String = DeskhubDiscovery.passcode(for: ConnectModel.lastAddress)
+    var deviceName: String = ConnectModel.initialDeviceName
     var isConnecting = false
     var connectError = ""
     private(set) var acceptedAddress = ""
 
     var acceptedPasscode: String {
         DeskhubClient.isValidPasscode(passcode) ? passcode : ""
+    }
+
+    func saveDeviceName() {
+        deviceName = deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if deviceName.isEmpty { deviceName = ConnectModel.defaultDeviceName }
+        dh_set_device_name(deviceName)
     }
 
     func acceptAddress() -> String? {

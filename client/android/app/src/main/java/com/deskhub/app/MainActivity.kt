@@ -219,6 +219,9 @@ private fun MainScreen(
     var address by remember { mutableStateOf(NativeClient.addressHost(initialAddress)) }
     var connectPort by remember { mutableStateOf(portFieldText(initialAddress)) }
     var passcode by remember { mutableStateOf(initialPasscode) }
+    var deviceName by remember {
+        mutableStateOf(NativeClient.deviceName().ifBlank { Build.MODEL.orEmpty() })
+    }
     var connectError by remember { mutableStateOf("") }
     var querySeq by remember { mutableStateOf(0L) }
     var scanHits by remember { mutableStateOf(emptyList<NativeClient.ScanHit>()) }
@@ -270,6 +273,8 @@ private fun MainScreen(
             return@connectLambda
         }
         connectError = ""
+        deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
+        NativeClient.setDeviceName(deviceName)
         val mine = Step.Querying(++querySeq)
         step = mine
         scope.launch {
@@ -318,6 +323,8 @@ private fun MainScreen(
                 onConnectPortChange = { connectPort = it },
                 passcode = passcode,
                 onPasscodeChange = { passcode = it },
+                deviceName = deviceName,
+                onDeviceNameChange = { deviceName = it },
                 busy = step is Step.Querying,
                 error = connectError,
                 onConnect = connect,
@@ -440,6 +447,8 @@ private fun HomeScreen(
     onConnectPortChange: (String) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
+    deviceName: String,
+    onDeviceNameChange: (String) -> Unit,
     busy: Boolean,
     error: String,
     onConnect: (String) -> Unit,
@@ -484,6 +493,8 @@ private fun HomeScreen(
                         onConnectPortChange = onConnectPortChange,
                         passcode = passcode,
                         onPasscodeChange = onPasscodeChange,
+                        deviceName = deviceName,
+                        onDeviceNameChange = onDeviceNameChange,
                         busy = busy,
                         error = error,
                         onConnect = onConnect,
@@ -750,6 +761,8 @@ private fun AddressScreen(
     onConnectPortChange: (String) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
+    deviceName: String,
+    onDeviceNameChange: (String) -> Unit,
     busy: Boolean,
     error: String,
     onConnect: (String) -> Unit,
@@ -823,6 +836,17 @@ private fun AddressScreen(
                     keyboardType = KeyboardType.NumberPassword,
                     imeAction = ImeAction.Go,
                 ),
+            keyboardActions = KeyboardActions(onGo = { go() }),
+        )
+
+        OutlinedTextField(
+            value = deviceName,
+            onValueChange = onDeviceNameChange,
+            label = { Text("Your name") },
+            singleLine = true,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(onGo = { go() }),
         )
 

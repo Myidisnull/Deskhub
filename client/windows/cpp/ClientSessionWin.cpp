@@ -21,6 +21,7 @@
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
 #include "deskhubp/system/Clock.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
 
@@ -79,6 +80,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     cfg.alwaysFocused = true;
     cfg.statusSeparator = kStatusSeparator;
     cfg.passcode = passcode ? passcode : "";
+    cfg.displayName = deskhubp::SessionDeviceName();
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t fps) {
         raw->negotiatedFps.store(fps ? fps : 60, std::memory_order_relaxed);
         raw->negotiated.store(true, std::memory_order_release);

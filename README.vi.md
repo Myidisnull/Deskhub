@@ -199,7 +199,9 @@ trên máy bạn:
 Trên desktop, **Host** chọn (các) màn hình để chia sẻ; **Client** nhập IP
 của máy kia (cổng UDP 47777 nếu bạn không đổi). Tối đa **5 người xem** cùng lúc một host,
 và những máy bạn từng kết nối sẽ quay lại ở mục **Recent devices** kèm chấm trạng thái
-online/offline theo thời gian thực.
+online/offline theo thời gian thực. Ô **Your name** trên trang Client dùng để đặt tên
+cho thiết bị này — mặc định là tên của chính thiết bị và có thể sửa — giúp host có
+nhiều người xem phân biệt được từng người.
 
 Tại một thời điểm chỉ một người xem điều khiển được chuột và bàn phím: ai vào trước thì
 thắng khi tranh chấp, thao tác của những người còn lại bị bỏ qua cho tới khi người đang

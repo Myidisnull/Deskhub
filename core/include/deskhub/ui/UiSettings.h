@@ -15,6 +15,7 @@ struct UiSettings {
     bool allowInput = true;
     bool clientControl = true;
     std::string passcode{};
+    std::string deviceName{};
 
     bool operator==(const UiSettings&) const = default;
 };
@@ -23,6 +24,8 @@ inline constexpr uint32_t kMaxSettingsFps = 240;
 inline constexpr uint32_t kMaxSettingsBitrateMbps = 1000;
 inline constexpr uint32_t kMaxSettingsDim = 16384;
 inline constexpr uint32_t kMaxSettingsPort = 65535;
+
+std::string TruncateDeviceName(std::string_view name);
 
 UiSettings ParseUiSettings(std::string_view text);
 std::string SerializeUiSettings(const UiSettings& settings);

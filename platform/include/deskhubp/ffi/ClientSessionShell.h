@@ -4,6 +4,7 @@
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 #include <atomic>
 #include <memory>
@@ -69,6 +70,7 @@ Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surf
     cfg.screenW = screenW;
     cfg.screenH = screenH;
     cfg.passcode = passcode ? passcode : "";
+    cfg.displayName = SessionDeviceName();
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t) {
         if (raw->callbacks.onSize) raw->callbacks.onSize(width, height, raw->callbacks.user);
     };

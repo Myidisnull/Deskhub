@@ -5,7 +5,10 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <span>
+#include <string>
+#include <string_view>
 
 namespace deskhub {
 
@@ -36,8 +39,14 @@ struct ViewerSlot {
     uint64_t joinOrder = 0;
     uint64_t lastRecvUs = 0;
     uint64_t lastInputUs = 0;
+    std::string name{};
     Feedback feedback{};
     InputReceiver input;
+};
+
+struct ViewerInfo {
+    uint64_t addrPacked = 0;
+    std::string name{};
 };
 
 inline bool IsDriving(const ViewerSlot& slot, uint64_t nowUs) {
@@ -54,8 +63,10 @@ public:
 
     ViewerSlot* Find(uint64_t addrPacked);
     ViewerSlot* FindByClient(uint32_t clientId);
-    ViewerSlot* Admit(uint32_t clientId, uint64_t addrPacked, uint64_t nowUs);
+    ViewerSlot* Admit(uint32_t clientId, uint64_t addrPacked, uint64_t nowUs,
+        std::string_view name = {});
     void Rebind(ViewerSlot& slot, uint64_t addrPacked);
+    void SetName(ViewerSlot& slot, std::string_view name);
     void Drop(ViewerSlot& slot);
     void Clear();
 
@@ -77,6 +88,7 @@ public:
         return publishedCount_.load(std::memory_order_acquire);
     }
     size_t SnapshotAddrs(std::span<uint64_t> out) const;
+    size_t SnapshotInfos(std::span<ViewerInfo> out) const;
 
     InputReceiver::Stats inputStats() const;
 
@@ -85,6 +97,8 @@ private:
 
     ViewerSlot slots_[kMaxViewersPerSource];
     std::atomic<uint64_t> published_[kMaxViewersPerSource] = {};
+    ViewerInfo publishedInfos_[kMaxViewersPerSource] = {};
+    mutable std::mutex publishMutex_;
     std::atomic<size_t> publishedCount_{0};
     ViewerBudget* budget_ = nullptr;
     size_t count_ = 0;

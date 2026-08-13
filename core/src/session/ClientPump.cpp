@@ -57,6 +57,7 @@ void ClientPump::Start(const ClientPumpConfig& cfg, uint64_t nowUs) {
     hello.features = 0;
     hello.sourceId = cfg.sourceId;
     hello.passcode = cfg.passcode;
+    hello.clientName = cfg.displayName;
     session_.Start(hello, nowUs);
 }
 

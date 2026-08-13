@@ -69,6 +69,9 @@ uint16_t dh_default_port(void);
 bool dh_client_control(void);
 void dh_set_client_control(bool on);
 
+int dh_device_name(char* out, int capacity);
+void dh_set_device_name(const char* name);
+
 int dh_version_line(char* out, int capacity);
 const char* dh_local_addresses(void);
 int dh_idle_host_status(uint16_t port, char* out, int capacity);

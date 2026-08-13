@@ -412,12 +412,13 @@ void TestStatusProjection() {
     StatusExtras idleExtras;
     idleExtras.viewerAddr = "192.168.1.7:47777";
     idleExtras.viewerAddrs = {"192.168.1.7:47777"};
+    idleExtras.viewerNames = {"Anh's laptop"};
     idleExtras.zeroCopy = false;
 
     const media::AgentSourceStatus idle = MakeSourceStatus(*p, idleExtras);
     Check(!idle.viewerConnected, "nobody is watching yet");
     Check(idle.viewerCount == 0, "and the viewer count says so");
-    Check(idle.viewerAddr.empty() && idle.viewerAddrs.empty(),
+    Check(idle.viewerAddr.empty() && idle.viewerAddrs.empty() && idle.viewerNames.empty(),
         "and the addresses are dropped, so a stale peer cannot show up in the UI");
     Check(idle.sourceId == 3 && idle.name == "Display 1", "identity is carried over");
     Check(idle.width == 1920 && idle.height == 1080, "so is the encoded size");
@@ -430,6 +431,7 @@ void TestStatusProjection() {
     StatusExtras liveExtras;
     liveExtras.viewerAddr = "192.168.1.7:47777";
     liveExtras.viewerAddrs = {"192.168.1.7:47777"};
+    liveExtras.viewerNames = {"Anh's laptop"};
     liveExtras.zeroCopy = true;
 
     const media::AgentSourceStatus live = MakeSourceStatus(*p, liveExtras);
@@ -438,6 +440,8 @@ void TestStatusProjection() {
     Check(live.viewerAddr == "192.168.1.7:47777", "and the formatted address comes through");
     Check(live.viewerAddrs.size() == 1 && live.viewerAddrs[0] == "192.168.1.7:47777",
         "so does the per-viewer address list");
+    Check(live.viewerNames.size() == 1 && live.viewerNames[0] == "Anh's laptop",
+        "and the per-viewer name list");
     Check(live.zeroCopy, "the zero-copy flag is passed through");
 
     const SourceInfo info = MakeSourceInfo(*p);

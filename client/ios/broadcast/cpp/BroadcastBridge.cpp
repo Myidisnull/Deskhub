@@ -136,6 +136,21 @@ int dhb_viewer_count(void) {
     return viewers;
 }
 
+int dhb_viewer_list(char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    std::vector<DHHostRow> rows(kMaxViewerRows);
+    const int count = dha_host_rows(rows.data(), kMaxViewerRows);
+    std::string names;
+    for (int i = 0; i < count; ++i) {
+        const DHHostRow& row = rows[size_t(i)];
+        if (!row.viewer) continue;
+        if (!names.empty()) names += ", ";
+        names += row.client;
+    }
+    deskhubp::CopyToBuf(out, size_t(capacity), names);
+    return int(std::strlen(out));
+}
+
 int dhb_memory_footprint_mb(void) {
     const int mb = deskhubp::MemoryFootprintMb();
     static int lastLoggedMb = -1;

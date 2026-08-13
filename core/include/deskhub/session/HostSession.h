@@ -30,7 +30,8 @@ struct HostCallbacks {
     std::function<void(const Hello&)> onHello;
     std::function<void()> onStart;
     std::function<void()> onKeyframeRequest;
-    std::function<void(uint64_t addrPacked, size_t viewerCount)> onViewerJoin;
+    std::function<void(uint64_t addrPacked, size_t viewerCount, std::string_view viewerName)>
+        onViewerJoin;
     std::function<void(uint64_t addrPacked, size_t viewerCount)> onViewerLeave;
     std::function<void(uint64_t addrPacked)> onControllerChange;
     std::function<void()> onDisconnect;
@@ -76,6 +77,9 @@ public:
     }
     size_t SnapshotViewerAddrs(std::span<uint64_t> out) const {
         return viewers_.SnapshotAddrs(out);
+    }
+    size_t SnapshotViewerInfos(std::span<ViewerInfo> out) const {
+        return viewers_.SnapshotInfos(out);
     }
     InputReceiver::Stats inputStats() const {
         return viewers_.inputStats();

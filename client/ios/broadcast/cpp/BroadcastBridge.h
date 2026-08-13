@@ -17,6 +17,8 @@ bool dhb_sharing(void);
 
 int dhb_viewer_count(void);
 
+int dhb_viewer_list(char* out, int capacity);
+
 int dhb_last_error(char* out, int capacity);
 
 int dhb_memory_footprint_mb(void);

@@ -2,7 +2,7 @@
 
 # Deskhub Security Policy
 
-_Last updated: August 11, 2026_
+_Last updated: August 13, 2026_
 
 ## ⚠️ Read this first
 
@@ -59,6 +59,14 @@ any of it:
   any kind in this codebase. Video frames, keystrokes and mouse movement all travel as
   plaintext UDP. Anyone who can capture your traffic can watch your screen and read
   everything you type.
+- **The device name travels in the clear too.** The *Your name* a viewer sends
+  rides in every `Hello` alongside the passcode, as plaintext, and is shown on the host's
+  screen and written into the host's logs. It defaults to the machine's own hostname or
+  device name — which on a personal machine often contains its owner's real name. Treat
+  it as public to the network: replace the default with a nickname that gives nothing
+  away — something you are happy for anyone on the LAN, and anyone looking at the host,
+  to read — and never put a password or anything sensitive in it. Clearing the field
+  does not stop a name being sent; it only restores the default.
 - **No integrity protection.** Packets are not signed or authenticated, so an attacker
   who can inject traffic can forge input events.
 - **No protection against session hijacking on a shared network.** A live session is
@@ -157,7 +165,8 @@ on Windows) on Windows, macOS and Linux. They contain connection statistics and 
 addresses, not screen content or keystrokes.
 
 The desktop apps keep two more files in that folder: `ui-settings.txt` (fps, bitrate,
-resolution cap, port, the view-only switch, and your host passcode) and
+resolution cap, port, the view-only switch, your host passcode, and the optional device
+name shown to hosts — stored as the plain text you typed) and
 `recent-devices.txt` (the last 10 addresses you connected to, when, and the passcode you
 used for each). The mobile apps keep the same two files inside their own sandbox — on iOS
 in the app group container, so the broadcast extension reads the same host passcode the

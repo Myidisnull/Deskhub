@@ -26,6 +26,10 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
         if (IsValidPasscode(decoded)) out.passcode = decoded;
         return;
     }
+    if (key == "name") {
+        out.deviceName = TruncateDeviceName(value);
+        return;
+    }
 
     const std::optional<uint32_t> v = ParseUint(value);
     if (!v) return;
@@ -38,6 +42,19 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "client_control") out.clientControl = *v != 0;
 }
 
+}
+
+std::string TruncateDeviceName(std::string_view name) {
+    std::string out;
+    out.reserve(name.size());
+    for (char c : name)
+        if (uint8_t(c) >= 0x20 && uint8_t(c) != 0x7F) out.push_back(c);
+    if (out.size() > kMaxClientNameBytes) {
+        size_t n = kMaxClientNameBytes;
+        while (n > 0 && (uint8_t(out[n]) & 0xC0) == 0x80) --n;
+        out.resize(n);
+    }
+    return out;
 }
 
 UiSettings ParseUiSettings(std::string_view text) {
@@ -71,6 +88,7 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += "passcode=";
     if (IsValidPasscode(settings.passcode)) out += EncodeSecret(settings.passcode);
     out += '\n';
+    out += "name=" + TruncateDeviceName(settings.deviceName) + '\n';
     return out;
 }
 

@@ -2,7 +2,7 @@
 
 # Chính sách bảo mật của Deskhub
 
-_Cập nhật lần cuối: 11 tháng 8, 2026_
+_Cập nhật lần cuối: 13 tháng 8, 2026_
 
 > Đây là bản dịch của [`SECURITY.md`](SECURITY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản chuẩn**.
@@ -62,6 +62,14 @@ tại — và passcode không giải quyết được điều nào cả:
   ứng dụng trong mã nguồn này. Khung hình, phím gõ và chuyển động chuột đều đi dưới dạng
   UDP thô. Ai bắt được lưu lượng của bạn đều xem được màn hình của bạn và đọc được mọi
   thứ bạn gõ.
+- **Tên thiết bị cũng đi ở dạng thô.** Tên trong ô *Your name* mà người xem gửi được chở
+  trong mọi gói `Hello` cùng với passcode, không mã hoá, và được hiển thị trên màn hình
+  của host cũng như ghi vào nhật ký của host. Mặc định nó là hostname hay tên thiết bị
+  của chính máy — thứ trên máy cá nhân thường chứa tên thật của chủ máy. Hãy coi nó là
+  công khai với cả mạng: thay tên mặc định bằng một biệt danh không để lộ điều gì — một
+  cái tên bạn không ngại bất kỳ ai trong mạng LAN, và bất kỳ ai nhìn vào host, đọc
+  được — và đừng bao giờ đặt mật khẩu hay thông tin nhạy cảm vào đó. Xoá trắng ô nhập
+  không ngăn được việc gửi tên; nó chỉ khôi phục lại tên mặc định.
 - **Không bảo vệ toàn vẹn.** Gói tin không được ký hay xác thực, nên kẻ tấn công chèn
   được lưu lượng thì giả mạo được sự kiện nhập liệu.
 - **Không chống được việc chiếm phiên trên mạng dùng chung.** Một phiên đang chạy chỉ
@@ -161,7 +169,8 @@ Nhật ký chẩn đoán được ghi ở dạng văn bản thuần dưới `~/.
 kết nối và địa chỉ của máy đối diện, không chứa nội dung màn hình hay phím gõ.
 
 Các app desktop giữ thêm hai tệp trong thư mục đó: `ui-settings.txt` (fps, bitrate, giới
-hạn độ phân giải, cổng, công tắc chỉ xem, và passcode host của bạn) và
+hạn độ phân giải, cổng, công tắc chỉ xem, passcode host của bạn, và tên thiết bị tuỳ chọn
+hiển thị cho host — lưu đúng như văn bản bạn đã gõ) và
 `recent-devices.txt` (10 địa chỉ gần nhất bạn đã kết nối, thời điểm, và passcode bạn dùng
 cho từng địa chỉ). Các app di động giữ đúng hai tệp đó bên trong vùng sandbox của chúng —
 trên iOS là trong app group container, để broadcast extension đọc đúng passcode host mà

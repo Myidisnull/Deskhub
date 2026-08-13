@@ -12,11 +12,13 @@ if(WIN32)
         src/input/NativeKeyMapWin.cpp
         src/media/DisplayEnumWin.cpp
         src/system/MemoryFootprintWin.cpp
+        src/system/DeviceNameWin.cpp
     )
 else()
     set(deskhub_platform_os
         src/net/UdpSocketPosix.cpp
         src/net/NetInfoPosix.cpp
+        src/system/DeviceNamePosix.cpp
     )
     if(APPLE)
         list(APPEND deskhub_platform_os src/system/MemoryFootprintApple.cpp)
@@ -152,6 +154,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/system/AppDataFileTests.cpp
         tests/session/HostCallbackTests.cpp
         tests/system/ClockTests.cpp
+        tests/system/DeviceNameTests.cpp
         tests/system/MemoryFootprintTests.cpp
         tests/system/RandomTests.cpp
     )

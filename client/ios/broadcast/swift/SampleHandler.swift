@@ -5,6 +5,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     private static let statusInterval = DispatchTimeInterval.seconds(1)
     private static let errorDomain = "com.ios.deskhub.broadcast"
     private static let errorBufferBytes = 320
+    private static let viewerNamesBufferBytes = 512
 
     private let statusQueue = DispatchQueue(label: "com.ios.deskhub.broadcast.status")
     private var statusTimer: DispatchSourceTimer?
@@ -46,6 +47,7 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
         BroadcastStatus(
             sharing: dhb_sharing(),
             viewers: Int(dhb_viewer_count()),
+            viewerNames: viewerNames(),
             memoryMB: Int(dhb_memory_footprint_mb()),
             error: failure
         ).save()
@@ -65,6 +67,14 @@ final class SampleHandler: RPBroadcastSampleHandler, @unchecked Sendable {
     private func startFailure() -> String {
         var buffer = [CChar](repeating: 0, count: SampleHandler.errorBufferBytes)
         let written = Int(dhb_last_error(&buffer, Int32(buffer.count)))
+        guard written > 0 else { return "" }
+        let bytes = buffer.prefix(written).map { UInt8(bitPattern: $0) }
+        return String(bytes: bytes, encoding: .utf8) ?? ""
+    }
+
+    private func viewerNames() -> String {
+        var buffer = [CChar](repeating: 0, count: SampleHandler.viewerNamesBufferBytes)
+        let written = Int(dhb_viewer_list(&buffer, Int32(buffer.count)))
         guard written > 0 else { return "" }
         let bytes = buffer.prefix(written).map { UInt8(bitPattern: $0) }
         return String(bytes: bytes, encoding: .utf8) ?? ""

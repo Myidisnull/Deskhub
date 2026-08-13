@@ -20,8 +20,37 @@ void TestRoundTrip() {
     s.allowInput = false;
     s.clientControl = false;
     s.passcode = "0417";
+    s.deviceName = "Anh's laptop";
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
+}
+
+void TestDeviceNamePersistence() {
+    std::printf("[settings] the device name persists, trimmed to its limits...\n");
+    Check(ui::ParseUiSettings("").deviceName.empty(), "no name by default");
+    Check(ui::ParseUiSettings("name=Ph\xC3\xB2ng kh\xC3\xA1"
+                              "ch")
+                  .deviceName ==
+              "Ph\xC3\xB2ng kh\xC3\xA1"
+              "ch",
+        "a hand-written UTF-8 name is kept");
+
+    std::string longName;
+    while (longName.size() < kMaxClientNameBytes + 20) longName += "\xE1\xBA\xA1";
+    const std::string parsed = ui::ParseUiSettings("name=" + longName).deviceName;
+    Check(parsed.size() <= kMaxClientNameBytes && parsed.size() % 3 == 0,
+        "an over-long name is cut on a UTF-8 boundary");
+
+    Check(ui::TruncateDeviceName("a\x01"
+                                 "b\x7f"
+                                 "c") == "abc",
+        "control characters never reach the file or the wire");
+    Check(ui::TruncateDeviceName("") == "", "an empty name stays empty");
+
+    ui::UiSettings s;
+    s.deviceName = "desk\x02top";
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)).deviceName == "desktop",
+        "a dirty in-memory name is cleaned on the way out");
 }
 
 void TestPasscodePersistence() {
@@ -100,6 +129,7 @@ void TestBoundsAreEnforced() {
 
 void RunUiSettingsTests() {
     TestRoundTrip();
+    TestDeviceNamePersistence();
     TestPasscodePersistence();
     TestDefaultsMatchShareDefaults();
     TestNativeQualityIsPreserved();

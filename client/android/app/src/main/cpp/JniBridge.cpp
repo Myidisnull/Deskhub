@@ -218,6 +218,18 @@ Java_com_deskhub_app_NativeClient_nativeSetClientControl(JNIEnv*, jobject, jbool
     dh_set_client_control(on == JNI_TRUE);
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeDeviceName(JNIEnv* env, jobject) {
+    char buf[128];
+    dh_device_name(buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetDeviceName(JNIEnv* env, jobject, jstring nameStr) {
+    dh_set_device_name(FromJString(env, nameStr).c_str());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeScanStart(JNIEnv*, jobject, jint port) {
     return dh_scan_start(uint16_t(port)) ? JNI_TRUE : JNI_FALSE;

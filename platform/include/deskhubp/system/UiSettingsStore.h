@@ -2,6 +2,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/UiSettings.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/Random.h"
 
 namespace deskhubp {
@@ -24,6 +25,11 @@ inline deskhub::ui::UiSettings LoadUiSettings() {
 
 inline std::string HostPasscode() {
     return LoadUiSettings().passcode;
+}
+
+inline std::string SessionDeviceName() {
+    const std::string name = LoadUiSettings().deviceName;
+    return name.empty() ? LocalDeviceName() : name;
 }
 
 }

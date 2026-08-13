@@ -203,7 +203,9 @@ void TestTheHostReportsWhoIsWatching() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    viewer.Start(ViewerConfig(port, 0));
+    deskhubp::ClientEngineConfig named = ViewerConfig(port, 0);
+    named.displayName = "Anh's laptop";
+    viewer.Start(named);
 
     Check(WaitFor(
               [&] {
@@ -212,6 +214,14 @@ void TestTheHostReportsWhoIsWatching() {
               },
               kConnectTimeoutMs),
         "once the viewer connects the host reports it as connected");
+
+    const auto watching = agent.Status();
+    Check(!watching.empty() && watching[0].viewerNames.size() == 1 &&
+              watching[0].viewerNames[0] == "Anh's laptop",
+        "and shows the name the viewer chose for itself");
+    Check(!watching.empty() && !watching[0].viewerAddr.empty() &&
+              watching[0].viewerAddr.find("Anh's laptop (") == 0,
+        "the status line leads with that name");
 
     viewer.Stop();
 

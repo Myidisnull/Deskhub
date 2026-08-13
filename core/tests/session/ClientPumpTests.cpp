@@ -111,8 +111,13 @@ void TestHandshakeAndParams() {
     host.SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
-    pump.Start(TestPumpCfg(0x11223344, 2560, 1440, 0, 60), now);
+    ClientPumpConfig cfg = TestPumpCfg(0x11223344, 2560, 1440, 0, 60);
+    cfg.displayName = "Anh's laptop";
+    pump.Start(cfg, now);
     Check(CountToHost(r.toHost, MsgType::Hello) == 1, "Start() puts a HELLO on the wire");
+    const auto sentHello = ParseHello(PayloadOf(r.toHost.front()));
+    Check(sentHello && sentHello->clientName == "Anh's laptop",
+        "and the HELLO carries the configured display name");
 
     Exchange(r, pump, host, now);
     Check(r.paramsCalls == 1 && r.reconfigCalls == 0, "onParams fires once, not as a reconfig");

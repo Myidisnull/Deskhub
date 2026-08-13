@@ -80,6 +80,7 @@ inline constexpr const char* kDisconnectViewerAction = "Disconnect";
 inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
 inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
+inline constexpr const char* kDeviceNameLabel = "Your name";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
 inline constexpr const char* kUdpPortLabel = "UDP port";
 inline constexpr const char* kLanDevicesHeading = "Machines sharing on this network";

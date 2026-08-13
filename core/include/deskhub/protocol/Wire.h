@@ -82,6 +82,8 @@ struct SourceInfo {
     std::string name{};
 };
 
+inline constexpr size_t kMaxClientNameBytes = 64;
+
 inline constexpr size_t kPasscodeDigits = 4;
 
 inline constexpr bool IsValidPasscode(std::string_view p) {
@@ -112,6 +114,7 @@ struct Hello {
     uint16_t features;
     uint8_t sourceId = 0;
     std::string passcode{};
+    std::string clientName{};
 };
 
 enum class RejectReason : uint8_t {

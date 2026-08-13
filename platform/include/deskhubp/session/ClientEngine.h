@@ -43,6 +43,7 @@ struct ClientEngineConfig {
     bool alwaysFocused = false;
     const char* statusSeparator = "  ";
     std::string passcode;
+    std::string displayName;
 
     std::function<void(uint32_t width, uint32_t height, uint8_t fps)> onParams;
     std::function<void(const char* status)> onStatus;
@@ -387,6 +388,7 @@ private:
         pcfg.logLossRuns = cfg_.logLossRuns;
         pcfg.statusSeparator = cfg_.statusSeparator;
         pcfg.passcode = cfg_.passcode;
+        pcfg.displayName = cfg_.displayName;
         pump.Start(pcfg, NowUs());
 
         std::vector<deskhub::InputEvent> batch;

@@ -40,6 +40,7 @@ bool HostSession::HandleHello(std::span<const uint8_t> payload, uint64_t nowUs,
 
     if (known) {
         viewers_.Rebind(*known, fromPacked);
+        viewers_.SetName(*known, m->clientName);
         known->lastRecvUs = nowUs;
         SendHelloAck(nowUs);
         return true;
@@ -48,14 +49,14 @@ bool HostSession::HandleHello(std::span<const uint8_t> payload, uint64_t nowUs,
     const bool firstViewer = viewers_.empty();
     if (firstViewer && !BeginSession()) return false;
 
-    if (!viewers_.Admit(m->clientId, fromPacked, nowUs)) {
+    if (!viewers_.Admit(m->clientId, fromPacked, nowUs, m->clientName)) {
         SendReject(RejectReason::Busy);
         return false;
     }
 
     RefreshState();
     if (firstViewer && cb_.onHello) cb_.onHello(*m);
-    if (cb_.onViewerJoin) cb_.onViewerJoin(fromPacked, viewers_.viewerCount());
+    if (cb_.onViewerJoin) cb_.onViewerJoin(fromPacked, viewers_.viewerCount(), m->clientName);
     SendHelloAck(nowUs);
     return true;
 }

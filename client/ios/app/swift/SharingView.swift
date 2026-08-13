@@ -71,6 +71,7 @@ struct SharingView: View {
         guard model.status.viewers > 0 else {
             return DeskhubClient.string(DHStrNothingShared)
         }
-        return "\(model.status.viewers)"
+        guard !model.status.viewerNames.isEmpty else { return "\(model.status.viewers)" }
+        return "\(model.status.viewers): \(model.status.viewerNames)"
     }
 }

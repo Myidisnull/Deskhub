@@ -184,6 +184,7 @@ media::AgentSourceStatus MakeSourceStatus(const SourcePipelineState& st,
     row.viewerConnected = row.viewerCount != 0;
     row.viewerAddr = row.viewerConnected ? extras.viewerAddr : std::string();
     row.viewerAddrs = row.viewerConnected ? extras.viewerAddrs : std::vector<std::string>();
+    row.viewerNames = row.viewerConnected ? extras.viewerNames : std::vector<std::string>();
     row.captureFps = st.statWindow.captureFps;
     row.sendFps = st.statWindow.sendFps;
     row.sendKbps = st.statWindow.sendKbps;

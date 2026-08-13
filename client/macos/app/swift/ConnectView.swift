@@ -168,6 +168,14 @@ struct MainMenuView: View {
                         onSubmit: beginConnect
                     )
                 }
+                GridRow {
+                    Text("Your name")
+                    TextField("", text: $connect.deviceName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 260)
+                        .onSubmit(beginConnect)
+                        .disabled(connect.isConnecting)
+                }
             }
 
             deskhubHint(DeskhubClient.string(DHStrClientPasscodeHint))
@@ -271,6 +279,7 @@ struct MainMenuView: View {
 
     private func beginConnect() {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
+        connect.saveDeviceName()
         Task {
             let sources = await connect.listSources()
             guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }

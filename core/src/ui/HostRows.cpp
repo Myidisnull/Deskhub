@@ -17,12 +17,20 @@ std::string Decimals(double value, int places) {
 
 }
 
+std::string ViewerLabel(const std::string& name, const std::string& addr) {
+    if (name.empty()) return addr;
+    return name + " (" + addr + ")";
+}
+
 std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources) {
     std::vector<HostRow> rows;
     for (const media::AgentSourceStatus& source : sources) {
-        rows.push_back(HostRow{false, source.sourceId, {}});
-        for (const std::string& addr : source.viewerAddrs)
-            rows.push_back(HostRow{true, source.sourceId, addr});
+        rows.push_back(HostRow{false, source.sourceId, {}, {}});
+        for (size_t i = 0; i < source.viewerAddrs.size(); ++i) {
+            const std::string name =
+                i < source.viewerNames.size() ? source.viewerNames[i] : std::string();
+            rows.push_back(HostRow{true, source.sourceId, source.viewerAddrs[i], name});
+        }
     }
     return rows;
 }
@@ -38,7 +46,7 @@ HostRowCells HostRowText(const HostRow& row, const media::AgentSourceStatus& sou
     HostRowCells cells;
     if (row.viewer) {
         cells.source = kViewerRowLabel;
-        cells.client = row.viewerAddr;
+        cells.client = ViewerLabel(row.viewerName, row.viewerAddr);
         cells.online = true;
         return cells;
     }

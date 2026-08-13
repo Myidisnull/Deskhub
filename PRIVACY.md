@@ -2,7 +2,7 @@
 
 # Deskhub Privacy Policy
 
-_Effective date: August 12, 2026 — Version 1.4_
+_Effective date: August 13, 2026 — Version 1.5_
 
 > A Vietnamese translation is available at [`PRIVACY.vi.md`](PRIVACY.vi.md). This English
 > version is the authoritative one.
@@ -46,6 +46,7 @@ party.
 | The last 10 addresses you connected to, the time of each, and the passcode you used for each | Filling in the *Recent devices* list so you can reconnect with one click | Written to `recent-devices.txt` in the app's own folder on your device — `%USERPROFILE%\.deskhub` on Windows, `~/.deskhub` on macOS and Linux, the app sandbox on iOS and Android | Kept until you connect to 10 newer addresses, or you delete the file |
 | Your sharing preferences (frame rate, bitrate, resolution cap, port, whether viewers may control the machine, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder. On iOS the file lives in the app group container shared by the app and its broadcast extension, so both halves agree on your passcode and port | Kept until you change them or delete the file |
 | Whether a broadcast is currently running, how many viewers are connected, the broadcast extension's own memory use in megabytes, and the text of the last start-up error (iOS only) | Letting the app's sharing screen report the state of the broadcast extension, which iOS runs as a separate process and terminates if it uses too much memory | Written to `broadcast-status.txt` in the same app group container | Deleted when the broadcast ends |
+| The device name in the *Your name* field — prefilled with this computer or device's own name (its hostname on Windows and Linux, its computer name on macOS, its device name on iOS, its model on Android) until you edit it | Shown on the host you connect to, next to this device's address, so the person sharing can tell viewers apart | Saved in `ui-settings.txt` in the same folder, and sent to the host when you connect — in the clear, like the rest of the traffic — so this default name is transmitted unless you replace it with a name of your choice; clearing the field only restores the default, which is then saved and sent. The host keeps it only in memory, only for the duration of the connection | Defaults to the computer or device's name; kept until you change it or delete the file. Clearing the field restores the default rather than removing the name |
 | Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your two devices | Never stored; discarded when the session ends |
 
 ### 3.1 Peer-to-peer by design
@@ -61,7 +62,8 @@ Software has no technical means to send data to the developer.
 
 ### 3.2 Data we do NOT process
 
-The Software does not access or process: your name, email address, phone
+The Software does not access or process: your name (beyond the device name
+described above, which defaults to your computer or device's own name), email address, phone
 number, contacts, location, photos, files (other than what is visible on the
 PC screen you choose to stream), microphone, camera, advertising identifiers,
 or any device identifiers beyond what the operating system needs to run the
@@ -140,7 +142,9 @@ permission, it will be requested in-context and this policy will be updated.
   Every host requires a 4-digit passcode before accepting a connection — one is
   generated for you on first launch and you can change it — but that code
   travels in the clear like the rest of the traffic, so it only stops someone
-  who cannot capture your packets. Use Deskhub only on networks you trust, or
+  who cannot capture your packets. The device name travels in the
+  clear the same way and is displayed on the host, so do not put anything
+  sensitive in it. Use Deskhub only on networks you trust, or
   through a VPN, and never expose it to the Internet directly. The full threat model — what is protected, what is
   not, and how to report a vulnerability — is in
   [`SECURITY.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
@@ -193,6 +197,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Version | Date | Change |
 |---|---|---|
+| 1.5 | 2026-08-13 | Each client can now set a device name (the *Your name* field on its connect page). The name is saved in the existing `ui-settings.txt` settings file on your own device and is sent to the host when you connect — unencrypted, like the rest of the traffic — so the host can label this viewer in its session list, status lines and logs. The host keeps the name only in memory, only while you are connected, and never stores it. The field is prefilled with your computer or device's own name, so that default is transmitted unless you replace it with a name of your choice. |
 | 1.4 | 2026-08-12 | The iOS status file the broadcast extension shares with the app now also records the extension's own memory use in megabytes, so the sharing screen can show it. The value describes only the Deskhub broadcast process, stays inside the app group container on your device, and is deleted with the rest of the status file when the broadcast ends. |
 | 1.3 | 2026-08-12 | Android and iOS devices can now share their own screen, view-only, so a phone or tablet screen can be streamed to another device you own. This adds the screen-capture permissions each OS requires (plus a foreground service and its notification on Android) and, on iOS, an app group container shared between the app and its broadcast extension for your passcode and port, plus a short-lived status file the extension writes there so the app can show whether the broadcast is running. The video still travels only between your own devices and is never stored. |
 | 1.2 | 2026-08-07 | The passcode is now required on every host, generated on first launch instead of left blank, and every client can enter one. Sharing settings are now saved on macOS and Linux as well as Windows, and the recent-device list is saved on every platform, each inside the app's own local folder. No new data leaves your devices. |

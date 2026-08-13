@@ -13,6 +13,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 #include "deskhub/media/QualityPreset.h"
@@ -541,6 +542,15 @@ GtkWidget* MainWindow::BuildClientPage() {
     gtk_widget_set_halign(passcodeEntry_, GTK_ALIGN_START);
     g_signal_connect(passcodeEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
     gtk_grid_attach(GTK_GRID(grid), passcodeEntry_, 1, 2, 1, 1);
+
+    gtk_grid_attach(GTK_GRID(grid), Label(ui::kDeviceNameLabel), 0, 3, 1, 1);
+    deviceNameEntry_ = gtk_entry_new();
+    const std::string initialName =
+        settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
+    gtk_entry_set_text(GTK_ENTRY(deviceNameEntry_), initialName.c_str());
+    gtk_entry_set_width_chars(GTK_ENTRY(deviceNameEntry_), 26);
+    g_signal_connect(deviceNameEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
+    gtk_grid_attach(GTK_GRID(grid), deviceNameEntry_, 1, 3, 1, 1);
     gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
 
     connectButton_ = gtk_button_new_with_label("Connect");
@@ -954,6 +964,14 @@ void MainWindow::OnConnectClicked(GtkButton*, gpointer user) {
 }
 
 void MainWindow::StartConnect(const std::string& addr, const std::string& passcode) {
+    std::string deviceName =
+        ui::TruncateDeviceName(gtk_entry_get_text(GTK_ENTRY(deviceNameEntry_)));
+    if (deviceName.empty()) deviceName = deskhubp::LocalDeviceName();
+    gtk_entry_set_text(GTK_ENTRY(deviceNameEntry_), deviceName.c_str());
+    if (deviceName != settings_.deviceName) {
+        settings_.deviceName = deviceName;
+        deskhubp::SaveUiSettings(settings_);
+    }
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) {
         ShowError(GTK_WINDOW(window_), ("Invalid address: \"" + addr + "\"").c_str(),

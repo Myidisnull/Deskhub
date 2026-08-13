@@ -7,6 +7,7 @@
 
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientFfi.h"
+#include "deskhubp/system/UiSettingsStore.h"
 #include "gtk/GtkUtil.h"
 
 #include "deskhub/input/PointerLockState.h"
@@ -124,6 +125,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     cfg.screenW = sw;
     cfg.screenH = sh;
     cfg.passcode = passcode;
+    cfg.displayName = deskhubp::SessionDeviceName();
     cfg.onStatus = [this](const char* status) {
         std::string line = status ? status : "";
         PostToMain([line = std::move(line)](ViewerWindow& v) {

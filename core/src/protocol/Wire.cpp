@@ -44,7 +44,8 @@ size_t BuildPingPongImpl(std::span<uint8_t> out, MsgType type, uint32_t sessionI
 }
 
 size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
-    constexpr size_t kPayload = 14 + kPasscodeDigits;
+    const size_t nameLen = Utf8TruncLen(m.clientName, kMaxClientNameBytes);
+    const size_t kPayload = 14 + kPasscodeDigits + 1 + nameLen;
     const size_t total = WriteCommon(out, MsgType::Hello, 0, Chan::Control, 0, kPayload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
@@ -58,6 +59,8 @@ size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
     const bool hasPasscode = IsValidPasscode(m.passcode);
     for (size_t i = 0; i < kPasscodeDigits; ++i)
         p[14 + i] = hasPasscode ? uint8_t(m.passcode[i]) : 0;
+    p[14 + kPasscodeDigits] = uint8_t(nameLen);
+    if (nameLen) std::memcpy(p + 14 + kPasscodeDigits + 1, m.clientName.data(), nameLen);
     return total;
 }
 
@@ -279,6 +282,18 @@ std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {
     if (payload.size() >= 14 + kPasscodeDigits) {
         const std::string_view code(reinterpret_cast<const char*>(p + 14), kPasscodeDigits);
         if (IsValidPasscode(code)) m.passcode = code;
+    }
+    constexpr size_t nameLenOff = 14 + kPasscodeDigits;
+    if (payload.size() > nameLenOff) {
+        size_t nameLen = p[nameLenOff];
+        if (nameLen > kMaxClientNameBytes) nameLen = 0;
+        if (nameLen && payload.size() >= nameLenOff + 1 + nameLen) {
+            m.clientName.reserve(nameLen);
+            for (size_t i = 0; i < nameLen; ++i) {
+                const uint8_t c = p[nameLenOff + 1 + i];
+                if (c >= 0x20 && c != 0x7F) m.clientName.push_back(char(c));
+            }
+        }
     }
     return m;
 }

@@ -190,6 +190,14 @@ object NativeClient {
 
     fun setClientControl(on: Boolean) = nativeSetClientControl(on)
 
+    private external fun nativeDeviceName(): String
+
+    private external fun nativeSetDeviceName(name: String)
+
+    fun deviceName(): String = nativeDeviceName()
+
+    fun setDeviceName(name: String) = nativeSetDeviceName(name)
+
     private external fun nativeSettingsPort(): Int
 
     private external fun nativeSetSettingsPort(port: Int)

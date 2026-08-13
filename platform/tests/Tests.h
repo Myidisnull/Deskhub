@@ -6,6 +6,7 @@ void RunClientIdTests();
 void RunClockTests();
 void RunRandomTests();
 void RunMemoryFootprintTests();
+void RunDeviceNameTests();
 void RunLogFileTests();
 void RunFfiTextTests();
 void RunLocalInputGateTests();

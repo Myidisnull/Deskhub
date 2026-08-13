@@ -13,9 +13,12 @@ struct HostRow {
     bool viewer = false;
     uint8_t sourceId = 0;
     std::string viewerAddr{};
+    std::string viewerName{};
 
     bool operator==(const HostRow&) const = default;
 };
+
+std::string ViewerLabel(const std::string& name, const std::string& addr);
 
 struct HostRowCells {
     std::string source{};

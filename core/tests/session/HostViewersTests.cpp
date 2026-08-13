@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <memory>
+#include <string>
 #include <vector>
 
 using namespace deskhub;
@@ -22,6 +23,7 @@ struct Recorder {
     std::vector<Datagram> sent;
     std::vector<InputEvent> input;
     std::vector<uint64_t> joined, left, controllers;
+    std::vector<std::string> joinedNames;
     int starts = 0, keyframes = 0, disconnects = 0;
     std::vector<Feedback> feedback;
 
@@ -34,14 +36,17 @@ struct Recorder {
         cb.onDisconnect = [this] { ++disconnects; };
         cb.onInput = [this](const InputEvent& e) { input.push_back(e); };
         cb.onFeedback = [this](const Feedback& f) { feedback.push_back(f); };
-        cb.onViewerJoin = [this](uint64_t addr, size_t) { joined.push_back(addr); };
+        cb.onViewerJoin = [this](uint64_t addr, size_t, std::string_view name) {
+            joined.push_back(addr);
+            joinedNames.emplace_back(name);
+        };
         cb.onViewerLeave = [this](uint64_t addr, size_t) { left.push_back(addr); };
         cb.onControllerChange = [this](uint64_t addr) { controllers.push_back(addr); };
         return cb;
     }
 };
 
-Datagram HelloFrom(uint32_t clientId) {
+Datagram HelloFrom(uint32_t clientId, std::string clientName = {}) {
     uint8_t buf[kMaxDatagram];
     Hello h{};
     h.passcode = kTestPasscode;
@@ -50,6 +55,7 @@ Datagram HelloFrom(uint32_t clientId) {
     h.maxWidth = 1920;
     h.maxHeight = 1080;
     h.desiredFps = 60;
+    h.clientName = std::move(clientName);
     const size_t n = BuildHello(buf, h);
     return Datagram(buf, buf + n);
 }
@@ -468,6 +474,45 @@ void TestNonsenseFromAViewerIsIgnored() {
         "none of it disturbed the viewer that is really there");
 }
 
+void TestViewerNamesReachTheHost() {
+    std::printf("[viewers] each viewer's display name is stored and published...\n");
+    Recorder rec;
+    auto s = MakeSession(rec);
+
+    s->HandlePacket(HelloFrom(1, "Anh's laptop"), kT0, kAlice);
+    s->HandlePacket(HelloFrom(2), kT0, kBob);
+    Check(rec.joinedNames.size() == 2 && rec.joinedNames[0] == "Anh's laptop" &&
+              rec.joinedNames[1].empty(),
+        "the join callback carries each viewer's name");
+
+    ViewerInfo infos[kMaxViewersPerSource];
+    size_t n = s->SnapshotViewerInfos(infos);
+    Check(n == 2, "the snapshot sees both viewers");
+    bool aliceNamed = false, bobUnnamed = false;
+    for (size_t i = 0; i < n; ++i) {
+        if (infos[i].addrPacked == kAlice) aliceNamed = infos[i].name == "Anh's laptop";
+        if (infos[i].addrPacked == kBob) bobUnnamed = infos[i].name.empty();
+    }
+    Check(aliceNamed, "the named viewer keeps its name");
+    Check(bobUnnamed, "an unnamed viewer publishes an empty name");
+
+    s->HandlePacket(HelloFrom(2, "Bob's phone"), kT0, kBob);
+    Check(s->viewerCount() == 2, "a re-HELLO with a name takes no extra slot");
+    n = s->SnapshotViewerInfos(infos);
+    bool bobNamed = false;
+    for (size_t i = 0; i < n; ++i)
+        if (infos[i].addrPacked == kBob) bobNamed = infos[i].name == "Bob's phone";
+    Check(bobNamed, "a re-HELLO updates the published name");
+
+    const uint64_t roamed = kAlice + 7;
+    s->HandlePacket(HelloFrom(1, "Anh's laptop"), kT0, roamed);
+    n = s->SnapshotViewerInfos(infos);
+    bool roamedNamed = false;
+    for (size_t i = 0; i < n; ++i)
+        if (infos[i].addrPacked == roamed) roamedNamed = infos[i].name == "Anh's laptop";
+    Check(roamedNamed, "the name follows a viewer whose address moves");
+}
+
 void TestAClientWithoutH264IsTurnedAway() {
     std::printf("[viewers] a viewer that cannot decode H.264 is told why...\n");
     Recorder rec;
@@ -511,5 +556,6 @@ void RunHostViewersTests() {
     TestViewerAddressCanMove();
     TestANewClientOnAnOldAddressTakesTheSlotOver();
     TestNonsenseFromAViewerIsIgnored();
+    TestViewerNamesReachTheHost();
     TestAClientWithoutH264IsTurnedAway();
 }

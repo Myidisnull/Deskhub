@@ -39,6 +39,9 @@ int main() {
     std::printf("--- system: process memory footprint ---\n");
     RunMemoryFootprintTests();
 
+    std::printf("--- system: default device name ---\n");
+    RunDeviceNameTests();
+
     std::printf("--- diag: log file naming + timestamps ---\n");
     RunLogFileTests();
 

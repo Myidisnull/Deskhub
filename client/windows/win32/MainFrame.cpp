@@ -32,6 +32,7 @@
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhub/ui/UiSettings.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/DeviceStatusPoller.h"
 #include "deskhubp/net/LanScanner.h"
@@ -41,6 +42,7 @@
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -246,6 +248,7 @@ class NavItem final : public wxWindow {
 public:
     NavItem(wxWindow* parent, const wxString& label, std::function<void()> onClick)
         : wxWindow(parent, wxID_ANY), label_(label), onClick_(std::move(onClick)) {
+        SetName("nav-" + label);
         SetBackgroundStyle(wxBG_STYLE_PAINT);
         SetMinSize(FromDIP(wxSize(160, 42)));
         SetCursor(wxCursor(wxCURSOR_HAND));
@@ -379,6 +382,7 @@ private:
     std::vector<HostRowView> hostRowViews_;
     wxButton* shareBtn_ = nullptr;
     wxTextCtrl* clientPasscodeCtrl_ = nullptr;
+    wxTextCtrl* deviceNameCtrl_ = nullptr;
     wxSpinCtrl* fpsCtrl_ = nullptr;
     wxSpinCtrl* bitrateCtrl_ = nullptr;
     wxSpinCtrl* portCtrl_ = nullptr;
@@ -577,6 +581,7 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
         wxSizerFlags().CentreVertical());
     addrCtrl_ = new wxTextCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition,
         FromDIP(wxSize(260, -1)), wxTE_PROCESS_ENTER);
+    addrCtrl_->SetName("address-field");
     addrCtrl_->SetHint(ToWx(ui::kClientIpPlaceholder));
     addrCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(addrCtrl_, wxSizerFlags().CentreVertical());
@@ -592,13 +597,25 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kClientPasscodePrompt)),
         wxSizerFlags().CentreVertical());
     clientPasscodeCtrl_ = MakePasscodeCtrl(panel);
+    clientPasscodeCtrl_->SetName("passcode-field");
     clientPasscodeCtrl_->SetToolTip(ToWx(ui::kClientPasscodeHint));
     clientPasscodeCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(clientPasscodeCtrl_, wxSizerFlags().CentreVertical());
 
+    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kDeviceNameLabel)),
+        wxSizerFlags().CentreVertical());
+    const std::string initialName =
+        settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
+    deviceNameCtrl_ = new wxTextCtrl(panel, wxID_ANY, ToWx(initialName), wxDefaultPosition,
+        FromDIP(wxSize(260, -1)), wxTE_PROCESS_ENTER);
+    deviceNameCtrl_->SetName("name-field");
+    deviceNameCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
+    grid->Add(deviceNameCtrl_, wxSizerFlags().CentreVertical());
+
     sizer->Add(grid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     connectBtn_ = new wxButton(panel, wxID_ANY, "Connect");
+    connectBtn_->SetName("connect-button");
     connectBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
     PaintButton(connectBtn_, kAccent);
     connectBtn_->Bind(wxEVT_BUTTON, connectNow);
@@ -1122,7 +1139,16 @@ void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
 }
 
 void MainFrame::StartConnect(const std::string& rawAddr) {
+    LOGI("[UI] Connect requested for \"%s\".", rawAddr.c_str());
     SetClientStatus(wxString(), kMutedText);
+    std::string deviceName =
+        ui::TruncateDeviceName(std::string(deviceNameCtrl_->GetValue().utf8_str()));
+    if (deviceName.empty()) deviceName = deskhubp::LocalDeviceName();
+    deviceNameCtrl_->ChangeValue(ToWx(deviceName));
+    if (deviceName != settings_.deviceName) {
+        settings_.deviceName = deviceName;
+        deskhubp::SaveUiSettings(settings_);
+    }
     const std::string addr = ui::TrimAscii(rawAddr);
     if (addr.empty()) {
         wxMessageBox("Enter the host machine's IP address first (e.g., 192.168.1.10).",
@@ -1158,7 +1184,10 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         [this, addr, passcode](const deskhubp::ConnectOutcome& outcome) {
             OnSourcesReady(addr, passcode, outcome);
         });
-    if (!started) return;
+    if (!started) {
+        SetClientStatus(ToWx(ui::kQueryingSources), kMutedText);
+        return;
+    }
     connectBtn_->Disable();
     SetClientStatus(ToWx(ui::kQueryingSources), kMutedText);
 }
@@ -1243,6 +1272,8 @@ void MainFrame::OnListClick(wxListCtrl* list, wxMouseEvent& event, bool scanned)
     event.Skip();
     int flags = 0;
     const long row = list->HitTest(event.GetPosition(), flags);
+    LOGI("[UI] %s list click: row %ld%s.", scanned ? "LAN" : "Recent", row,
+        prompting_ ? " (prompt already open)" : "");
 
     if (row == wxNOT_FOUND || prompting_) return;
 
@@ -1360,6 +1391,18 @@ public:
         SetAppName("Deskhub");
         (new MainFrame())->Show(true);
         return true;
+    }
+
+    int FilterEvent(wxEvent& event) override {
+        if (event.GetEventType() == wxEVT_LEFT_DOWN || event.GetEventType() == wxEVT_LEFT_UP) {
+            const auto* win = dynamic_cast<wxWindow*>(event.GetEventObject());
+            const wxString name = win ? win->GetName() : wxString("?");
+            const wxString label = win ? win->GetLabel().Left(24) : wxString();
+            LOGI("[UI] Mouse %s on \"%s\" (%s).",
+                event.GetEventType() == wxEVT_LEFT_DOWN ? "down" : "up",
+                std::string(name.utf8_str()).c_str(), std::string(label.utf8_str()).c_str());
+        }
+        return -1;
     }
 };
 

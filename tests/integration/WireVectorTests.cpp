@@ -41,6 +41,7 @@ Hello SampleHello() {
     h.features = 0x0001;
     h.sourceId = 2;
     h.passcode = "7391";
+    h.clientName = "Tablet 01";
     return h;
 }
 
@@ -100,7 +101,7 @@ std::vector<Vector> AllVectors() {
     v.push_back({"HELLO", [](std::span<uint8_t> out) {
                      return BuildHello(out, SampleHello());
                  },
-        "0101000000000000010203040001078004383c00010237333931"});
+        "0101000000000000010203040001078004383c00010237333931095461626c6574203031"});
 
     v.push_back({"HELLO_ACK", [](std::span<uint8_t> out) {
                      return BuildHelloAck(out, SampleAck());
@@ -249,7 +250,8 @@ void TestEveryVectorParsesBackToWhatWentIn() {
     Check(helloHeader && helloHeader->ver == kProtocolVersion, "and the protocol version");
     const auto hello = ParseHello(PayloadOf(std::span<const uint8_t>(buf, helloSize)));
     Check(hello && hello->clientId == 0x01020304 && hello->maxWidth == 1920 &&
-              hello->maxHeight == 1080 && hello->desiredFps == 60 && hello->sourceId == 2,
+              hello->maxHeight == 1080 && hello->desiredFps == 60 && hello->sourceId == 2 &&
+              hello->clientName == "Tablet 01",
         "every HELLO field survives the round trip");
 
     const size_t ackSize = BuildHelloAck(buf, SampleAck());

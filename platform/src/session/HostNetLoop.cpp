@@ -3,6 +3,7 @@
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/session/HostFeedback.h"
 #include "deskhub/session/HostRouter.h"
+#include "deskhub/ui/HostRows.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/session/HostAgent.h"
 #include "deskhubp/diag/LogFile.h"
@@ -112,9 +113,11 @@ deskhub::HostCallbacks MakeHostCallbacks(deskhub::SourcePipelineState& st,
         if (!focused && shared->releaseInput) shared->releaseInput();
     };
 
-    cb.onViewerJoin = [p](uint64_t addrPacked, size_t viewerCount) {
-        LOGI("[Agent][%s] Viewer %s joined (%zu connected).", p->name.c_str(),
-            NetAddr::Unpack(addrPacked).ToString().c_str(), viewerCount);
+    cb.onViewerJoin = [p](uint64_t addrPacked, size_t viewerCount, std::string_view viewerName) {
+        const std::string label = deskhub::ui::ViewerLabel(std::string(viewerName),
+            NetAddr::Unpack(addrPacked).ToString());
+        LOGI("[Agent][%s] Viewer %s joined (%zu connected).", p->name.c_str(), label.c_str(),
+            viewerCount);
     };
 
     cb.onViewerLeave = [p](uint64_t addrPacked, size_t viewerCount) {

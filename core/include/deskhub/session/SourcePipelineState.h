@@ -83,4 +83,8 @@ inline size_t SnapshotViewerAddrs(const SourcePipelineState& st, std::span<uint6
     return st.session ? st.session->SnapshotViewerAddrs(out) : 0;
 }
 
+inline size_t SnapshotViewerInfos(const SourcePipelineState& st, std::span<ViewerInfo> out) {
+    return st.session ? st.session->SnapshotViewerInfos(out) : 0;
+}
+
 }

@@ -368,6 +368,16 @@ void dh_set_client_control(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+int dh_device_name(char* out, int capacity) {
+    return FillText(out, capacity, deskhubp::LoadUiSettings().deviceName);
+}
+
+void dh_set_device_name(const char* name) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.deviceName = ui::TruncateDeviceName(name ? name : "");
+    deskhubp::SaveUiSettings(out);
+}
+
 int dh_version_line(char* out, int capacity) {
     return FillText(out, capacity, ui::VersionLine());
 }

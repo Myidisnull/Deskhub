@@ -77,6 +77,7 @@ NegotiationResult BeginNegotiation(SourcePipelineState& st, const Hello& hello, 
 struct StatusExtras {
     std::string viewerAddr;
     std::vector<std::string> viewerAddrs;
+    std::vector<std::string> viewerNames;
     bool zeroCopy = false;
 };
 

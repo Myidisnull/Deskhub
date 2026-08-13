@@ -20,6 +20,7 @@ final class SessionModel {
 
     func beginConnect() {
         guard !connect.isConnecting else { return }
+        connect.saveDeviceName()
         Task {
             let found = await connect.listSources()
             guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }

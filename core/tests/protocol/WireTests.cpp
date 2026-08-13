@@ -17,7 +17,7 @@ void TestWireRoundtrip() {
     Hello h{0xDEADBEEF, kCodecMaskH264, 2560, 1440, 120, 0x0001};
     h.passcode = "0417";
     size_t n = BuildHello(buf, h);
-    Check(n == kCommonHeaderSize + 14 + kPasscodeDigits, "HELLO size");
+    Check(n == kCommonHeaderSize + 14 + kPasscodeDigits + 1, "HELLO size");
     auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
     Check(ch && ch->type == MsgType::Hello && ch->sessionId == 0, "HELLO header");
     auto hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
@@ -26,6 +26,7 @@ void TestWireRoundtrip() {
               hp->desiredFps == h.desiredFps && hp->features == h.features,
         "HELLO payload");
     Check(hp && hp->passcode == "0417", "HELLO carries the passcode with leading zero");
+    Check(hp && hp->clientName.empty(), "HELLO without a name parses as empty");
 
     h.passcode.clear();
     n = BuildHello(buf, h);
@@ -36,6 +37,38 @@ void TestWireRoundtrip() {
     n = BuildHello(buf, h);
     hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(hp && hp->passcode.empty(), "an invalid passcode is never put on the wire");
+
+    h.passcode = "0417";
+    h.clientName =
+        "Ph\xC3\xB2ng kh\xC3\xA1"
+        "ch";
+    n = BuildHello(buf, h);
+    Check(n == kCommonHeaderSize + 14 + kPasscodeDigits + 1 + h.clientName.size(),
+        "HELLO size grows by the name bytes");
+    hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(hp && hp->clientName == h.clientName, "HELLO carries the UTF-8 client name");
+    Check(hp && hp->passcode == "0417", "the passcode still parses in front of the name");
+
+    hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, kCommonHeaderSize + 18)));
+    Check(hp && hp->clientName.empty() && hp->passcode == "0417",
+        "a legacy 18-byte HELLO parses with an empty name");
+
+    std::string longName;
+    while (longName.size() < kMaxClientNameBytes + 20) longName += "\xE1\xBA\xA1";
+    h.clientName = longName;
+    n = BuildHello(buf, h);
+    hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(hp && hp->clientName.size() <= kMaxClientNameBytes,
+        "a long name is truncated to the limit");
+    Check(hp && hp->clientName.size() % 3 == 0, "truncation lands on a UTF-8 boundary");
+    Check(hp && longName.compare(0, hp->clientName.size(), hp->clientName) == 0,
+        "the truncated name is a prefix");
+
+    h.clientName = "a\x01\x02\x7f b\ttab";
+    n = BuildHello(buf, h);
+    hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(hp && hp->clientName == "a btab", "control characters are stripped from the name");
+    h.clientName.clear();
 
     Check(IsValidPasscode("0000") && IsValidPasscode("9999"), "all-digit passcodes are valid");
     Check(!IsValidPasscode("123") && !IsValidPasscode("12345") && !IsValidPasscode("12a4"),

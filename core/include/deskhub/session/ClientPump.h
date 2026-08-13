@@ -27,6 +27,7 @@ struct ClientPumpConfig {
     bool logLossRuns = false;
     const char* statusSeparator = "  ";
     std::string passcode{};
+    std::string displayName{};
 };
 
 struct ClientPumpCallbacks {

@@ -2,7 +2,7 @@
 
 # Chính sách quyền riêng tư của Deskhub
 
-_Ngày hiệu lực: 12 tháng 8, 2026 — Phiên bản 1.4_
+_Ngày hiệu lực: 13 tháng 8, 2026 — Phiên bản 1.5_
 
 > Đây là bản dịch của [`PRIVACY.md`](PRIVACY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản có giá trị pháp lý**.
@@ -45,6 +45,7 @@ ba.
 | 10 địa chỉ gần nhất bạn đã kết nối, thời điểm của từng lần, và mã passcode bạn dùng cho từng địa chỉ | Điền vào danh sách *Recent devices* để bạn kết nối lại bằng một cú bấm | Ghi vào `recent-devices.txt` trong thư mục riêng của app trên thiết bị bạn — `%USERPROFILE%\.deskhub` trên Windows, `~/.deskhub` trên macOS và Linux, vùng sandbox của app trên iOS và Android | Giữ cho tới khi bạn kết nối tới 10 địa chỉ mới hơn, hoặc bạn xoá tệp đó |
 | Tuỳ chọn chia sẻ của bạn (tốc độ khung hình, bitrate, giới hạn độ phân giải, cổng, có cho người xem điều khiển máy hay không, và mã passcode bạn yêu cầu người xem nhập) | Khôi phục cài đặt cho lần mở app kế tiếp | Ghi vào `ui-settings.txt` trong cùng thư mục. Trên iOS tệp này nằm trong app group container mà app và broadcast extension dùng chung, để cả hai phần thống nhất passcode và cổng | Giữ cho tới khi bạn thay đổi hoặc xoá tệp |
 | Việc có đang phát hay không, số người xem đang kết nối, mức bộ nhớ tính bằng megabyte mà chính broadcast extension đang dùng, và nội dung lỗi khởi động gần nhất (chỉ trên iOS) | Để màn hình chia sẻ của app báo được trạng thái của broadcast extension, thứ mà iOS chạy như một tiến trình riêng và sẽ chấm dứt nếu nó dùng quá nhiều bộ nhớ | Ghi vào `broadcast-status.txt` trong cùng app group container đó | Xoá đi khi buổi phát kết thúc |
+| Tên thiết bị trong ô *Your name* — được điền sẵn tên của chính máy hoặc thiết bị này (hostname trên Windows và Linux, tên máy tính trên macOS, tên thiết bị trên iOS, model trên Android) cho tới khi bạn sửa nó | Hiển thị trên host mà bạn kết nối tới, bên cạnh địa chỉ của thiết bị này, để người đang chia sẻ phân biệt được các người xem | Lưu vào `ui-settings.txt` trong cùng thư mục, và gửi tới host khi bạn kết nối — ở dạng thô, như phần còn lại của lưu lượng — nên tên mặc định này được gửi đi trừ khi bạn thay nó bằng một tên do bạn tự chọn; xoá trắng ô chỉ khôi phục lại tên mặc định, và tên đó vẫn được lưu và gửi đi. Host chỉ giữ nó trong bộ nhớ, chỉ trong thời gian kết nối | Mặc định là tên của máy hoặc thiết bị; giữ cho tới khi bạn đổi nó hoặc xoá tệp. Xoá trắng ô chỉ khôi phục tên mặc định chứ không bỏ được tên |
 | Thống kê kết nối (bitrate, tỉ lệ mất gói, độ trễ) | Điều chỉnh chất lượng luồng; hiển thị trên thanh trạng thái | Chỉ trao đổi giữa hai thiết bị của bạn | Không bao giờ lưu; bỏ đi khi phiên kết thúc |
 
 ### 3.1 Ngang hàng theo thiết kế
@@ -60,7 +61,8 @@ khác. Phần mềm không có phương tiện kỹ thuật nào để gửi d�
 
 ### 3.2 Dữ liệu chúng tôi KHÔNG xử lý
 
-Phần mềm không truy cập hay xử lý: tên, địa chỉ email, số điện thoại, danh bạ, vị trí,
+Phần mềm không truy cập hay xử lý: tên của bạn (ngoài tên thiết bị đã mô tả ở trên,
+mặc định là tên của chính máy hoặc thiết bị bạn), địa chỉ email, số điện thoại, danh bạ, vị trí,
 ảnh, tệp (ngoài những gì hiển thị trên màn hình PC mà chính bạn chọn để truyền),
 micro, camera, mã định danh quảng cáo, hay bất kỳ mã định danh thiết bị nào vượt quá mức
 hệ điều hành cần để chạy ứng dụng.
@@ -135,7 +137,9 @@ quyền đó sẽ được xin đúng ngữ cảnh và chính sách này sẽ đ
 - Trên mạng nội bộ thông thường, Deskhub không mã hoá thêm cho lưu lượng. Mọi host đều
   yêu cầu mã 4 chữ số trước khi chấp nhận kết nối — mã được sinh tự động cho bạn ở lần
   chạy đầu tiên và bạn đổi được — nhưng mã đó đi ở dạng thô như phần còn lại của lưu
-  lượng, nên nó chỉ chặn được người không bắt được gói tin của bạn. Chỉ dùng Deskhub trên
+  lượng, nên nó chỉ chặn được người không bắt được gói tin của bạn. Tên thiết bị
+  cũng đi ở dạng thô như vậy và hiển thị trên host, nên đừng đặt vào đó bất kỳ thông tin
+  nhạy cảm nào. Chỉ dùng Deskhub trên
   các mạng bạn tin tưởng, hoặc qua VPN, và đừng bao giờ phơi nó trực tiếp ra Internet. Mô hình mối
   đe doạ đầy đủ — cái gì được bảo vệ, cái gì không, và cách báo lỗ hổng — nằm trong
   [`SECURITY.vi.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.vi.md).
@@ -187,6 +191,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Phiên bản | Ngày | Thay đổi |
 |---|---|---|
+| 1.5 | 2026-08-13 | Mỗi client nay có thể đặt một tên thiết bị (ô *Your name* trên trang kết nối). Tên được lưu trong tệp cài đặt `ui-settings.txt` sẵn có trên chính thiết bị của bạn và được gửi tới host khi bạn kết nối — không mã hoá, như phần còn lại của lưu lượng — để host gắn nhãn người xem này trong bảng phiên, dòng trạng thái và nhật ký của nó. Host chỉ giữ tên trong bộ nhớ, chỉ trong lúc bạn còn kết nối, và không bao giờ lưu lại. Ô này được điền sẵn tên của chính máy hoặc thiết bị bạn, nên tên mặc định đó được gửi đi trừ khi bạn thay nó bằng một tên do bạn tự chọn. |
 | 1.4 | 2026-08-12 | Tệp trạng thái trên iOS mà broadcast extension chia sẻ với app nay ghi thêm mức bộ nhớ tính bằng megabyte mà chính extension đang dùng, để màn hình chia sẻ hiển thị được con số đó. Giá trị này chỉ mô tả tiến trình broadcast của Deskhub, nằm nguyên trong app group container trên thiết bị của bạn, và bị xoá cùng phần còn lại của tệp trạng thái khi buổi phát kết thúc. |
 | 1.3 | 2026-08-12 | Thiết bị Android và iOS nay chia sẻ được màn hình của chính nó ở chế độ chỉ xem, nên màn hình điện thoại hay máy tính bảng có thể phát sang một thiết bị khác của bạn. Thay đổi này thêm các quyền thu màn hình mà mỗi hệ điều hành yêu cầu (kèm foreground service và thông báo của nó trên Android) và, trên iOS, một app group container dùng chung giữa app và broadcast extension cho passcode và cổng, kèm một tệp trạng thái ngắn hạn mà extension ghi vào đó để app biết buổi phát có đang chạy hay không. Hình ảnh vẫn chỉ đi giữa các thiết bị của bạn và không bao giờ được lưu lại. |
 | 1.2 | 2026-08-07 | Passcode nay là bắt buộc trên mọi host, được sinh ra ở lần chạy đầu thay vì để trống, và mọi client đều nhập được. Cài đặt chia sẻ nay được lưu trên macOS và Linux chứ không chỉ Windows, còn danh sách thiết bị gần đây được lưu trên mọi nền tảng, đều nằm trong thư mục cục bộ của chính app. Không có dữ liệu mới nào rời khỏi thiết bị của bạn. |

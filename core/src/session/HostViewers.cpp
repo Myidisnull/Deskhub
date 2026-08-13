@@ -33,7 +33,8 @@ ViewerSlot* ViewerTable::FindByClient(uint32_t clientId) {
     return nullptr;
 }
 
-ViewerSlot* ViewerTable::Admit(uint32_t clientId, uint64_t addrPacked, uint64_t nowUs) {
+ViewerSlot* ViewerTable::Admit(uint32_t clientId, uint64_t addrPacked, uint64_t nowUs,
+    std::string_view name) {
     if (!addrPacked) return nullptr;
     for (ViewerSlot& s : slots_) {
         if (s.active) continue;
@@ -44,6 +45,7 @@ ViewerSlot* ViewerTable::Admit(uint32_t clientId, uint64_t addrPacked, uint64_t 
         s.addrPacked = addrPacked;
         s.joinOrder = nextJoinOrder_++;
         s.lastRecvUs = nowUs;
+        s.name = std::string{name};
         ++count_;
         Publish();
         return &s;
@@ -54,6 +56,12 @@ ViewerSlot* ViewerTable::Admit(uint32_t clientId, uint64_t addrPacked, uint64_t 
 void ViewerTable::Rebind(ViewerSlot& slot, uint64_t addrPacked) {
     if (!slot.active || !addrPacked || slot.addrPacked == addrPacked) return;
     slot.addrPacked = addrPacked;
+    Publish();
+}
+
+void ViewerTable::SetName(ViewerSlot& slot, std::string_view name) {
+    if (!slot.active || slot.name == name) return;
+    slot.name = std::string{name};
     Publish();
 }
 
@@ -96,6 +104,16 @@ size_t ViewerTable::SnapshotAddrs(std::span<uint64_t> out) const {
     return n;
 }
 
+size_t ViewerTable::SnapshotInfos(std::span<ViewerInfo> out) const {
+    std::lock_guard<std::mutex> lk(publishMutex_);
+    size_t n = 0;
+    for (const ViewerInfo& v : publishedInfos_) {
+        if (n >= out.size()) break;
+        if (v.addrPacked) out[n++] = v;
+    }
+    return n;
+}
+
 InputReceiver::Stats ViewerTable::inputStats() const {
     InputReceiver::Stats total{};
     for (const ViewerSlot& s : slots_) {
@@ -110,13 +128,19 @@ InputReceiver::Stats ViewerTable::inputStats() const {
 }
 
 void ViewerTable::Publish() {
+    std::lock_guard<std::mutex> lk(publishMutex_);
     size_t n = 0;
     for (const ViewerSlot& s : slots_) {
         if (!s.active) continue;
-        published_[n++].store(s.addrPacked, std::memory_order_release);
+        publishedInfos_[n].addrPacked = s.addrPacked;
+        publishedInfos_[n].name = s.name;
+        published_[n].store(s.addrPacked, std::memory_order_release);
+        ++n;
     }
-    for (size_t i = n; i < kMaxViewersPerSource; ++i)
+    for (size_t i = n; i < kMaxViewersPerSource; ++i) {
+        publishedInfos_[i] = ViewerInfo{};
         published_[i].store(0, std::memory_order_release);
+    }
     publishedCount_.store(n, std::memory_order_release);
 }
 

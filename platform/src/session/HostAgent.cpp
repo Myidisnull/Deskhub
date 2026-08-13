@@ -3,6 +3,7 @@
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/ui/HostRows.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/system/Clock.h"
@@ -38,12 +39,13 @@ size_t SendToViewers(const deskhub::SourcePipelineState& st, UdpSocket& sock,
 }
 
 std::string ViewerAddrList(const deskhub::SourcePipelineState& st) {
-    uint64_t addrs[deskhub::kMaxViewersPerSource];
-    const size_t viewers = deskhub::SnapshotViewerAddrs(st, addrs);
+    deskhub::ViewerInfo infos[deskhub::kMaxViewersPerSource];
+    const size_t viewers = deskhub::SnapshotViewerInfos(st, infos);
     std::string joined;
     for (size_t i = 0; i < viewers; ++i) {
         if (!joined.empty()) joined += ", ";
-        joined += NetAddr::Unpack(addrs[i]).ToString();
+        joined += deskhub::ui::ViewerLabel(infos[i].name,
+            NetAddr::Unpack(infos[i].addrPacked).ToString());
     }
     return joined;
 }
@@ -144,10 +146,12 @@ std::vector<deskhub::media::AgentSourceStatus> PublishSourceStatus(
         deskhub::StatusExtras extras;
         extras.zeroCopy = hooks.zeroCopy && hooks.zeroCopy(*p);
         extras.viewerAddr = ViewerAddrList(*p);
-        uint64_t addrs[deskhub::kMaxViewersPerSource];
-        const size_t viewers = deskhub::SnapshotViewerAddrs(*p, addrs);
-        for (size_t i = 0; i < viewers; ++i)
-            extras.viewerAddrs.push_back(NetAddr::Unpack(addrs[i]).ToString());
+        deskhub::ViewerInfo viewerInfos[deskhub::kMaxViewersPerSource];
+        const size_t viewers = deskhub::SnapshotViewerInfos(*p, viewerInfos);
+        for (size_t i = 0; i < viewers; ++i) {
+            extras.viewerAddrs.push_back(NetAddr::Unpack(viewerInfos[i].addrPacked).ToString());
+            extras.viewerNames.push_back(viewerInfos[i].name);
+        }
 
         rows.push_back(deskhub::MakeSourceStatus(*p, extras));
         infos.push_back(deskhub::MakeSourceInfo(*p));

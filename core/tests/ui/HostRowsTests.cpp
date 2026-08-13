@@ -12,7 +12,8 @@ using namespace deskhub;
 
 namespace {
 
-media::AgentSourceStatus MakeSource(uint8_t id, std::vector<std::string> viewers) {
+media::AgentSourceStatus MakeSource(uint8_t id, std::vector<std::string> viewers,
+    std::vector<std::string> names = {}) {
     media::AgentSourceStatus s;
     s.sourceId = id;
     s.name = "Display " + std::to_string(id);
@@ -22,6 +23,7 @@ media::AgentSourceStatus MakeSource(uint8_t id, std::vector<std::string> viewers
     s.viewerConnected = !viewers.empty();
     s.viewerAddr = viewers.empty() ? std::string() : viewers.front();
     s.viewerAddrs = std::move(viewers);
+    s.viewerNames = std::move(names);
     s.captureFps = 59.6;
     s.sendFps = 58.4;
     s.sendKbps = 12345.0;
@@ -96,6 +98,40 @@ void TestViewerRowOnlyNamesTheClient() {
     Check(cells.online, "a connected viewer reads as online");
 }
 
+void TestViewerRowShowsTheClientName() {
+    std::printf("[hostrows] a named viewer shows its name in front of the address...\n");
+    const std::vector<media::AgentSourceStatus> sources{
+        MakeSource(1, {"192.168.1.7:47777", "192.168.1.9:47777"}, {"Anh's laptop", ""}),
+    };
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows(sources);
+
+    Check(rows.size() == 3, "one display and two viewers make three rows");
+    Check(rows[1].viewerName == "Anh's laptop", "the first viewer carries its name");
+    Check(rows[2].viewerName.empty(), "the second viewer has none");
+
+    const ui::HostRowCells named = ui::HostRowText(rows[1], sources[0]);
+    Check(named.client == "Anh's laptop (192.168.1.7:47777)",
+        "the client cell reads name then address");
+    const ui::HostRowCells unnamed = ui::HostRowText(rows[2], sources[0]);
+    Check(unnamed.client == "192.168.1.9:47777",
+        "an unnamed viewer falls back to the bare address");
+    Check(rows[1].viewerAddr == "192.168.1.7:47777",
+        "the row still keys on the address for kicks");
+
+    const std::vector<media::AgentSourceStatus> fewerNames{
+        MakeSource(1, {"192.168.1.7:47777", "192.168.1.9:47777"}, {"Anh's laptop"}),
+    };
+    const std::vector<ui::HostRow> partial = ui::BuildHostRows(fewerNames);
+    Check(partial.size() == 3 && partial[2].viewerName.empty(),
+        "a short name list never misaligns the rows");
+
+    const std::vector<media::AgentSourceStatus> renamed{
+        MakeSource(1, {"192.168.1.7:47777"}, {"Bob's phone"}),
+    };
+    Check(!(ui::BuildHostRows(sources) == ui::BuildHostRows(renamed)),
+        "a name change is a different row list");
+}
+
 void TestSourceLookupByIdIgnoresOrder() {
     std::printf("[hostrows] a row finds its display whatever order the host reports...\n");
     const std::vector<media::AgentSourceStatus> sources{MakeSource(5, {}), MakeSource(2, {})};
@@ -113,5 +149,6 @@ void RunHostRowsTests() {
     TestSourceCellsReadLikeTheTable();
     TestIdleSourceHasNoPing();
     TestViewerRowOnlyNamesTheClient();
+    TestViewerRowShowsTheClientName();
     TestSourceLookupByIdIgnoresOrder();
 }

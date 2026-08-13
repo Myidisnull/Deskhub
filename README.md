@@ -195,7 +195,9 @@ or join the Play beta — three steps, **same Google account** as your phone's P
 On desktop, **Host** picks the display(s) to expose; **Client** takes the
 other machine's IP (UDP 47777 unless you change the port). Up to **5 viewers** can watch
 one host at a time, and machines you have connected to before come back under **Recent
-devices** with a live online/offline dot.
+devices** with a live online/offline dot. The **Your name** field on the Client page
+names this device — it defaults to the device's own name and can be edited — so a host
+with several viewers can tell them apart.
 
 Only one viewer drives the mouse and keyboard at a time: the earliest to have joined
 wins ties, and the others' input is dropped until it has been idle for a second. The

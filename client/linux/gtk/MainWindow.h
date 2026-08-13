@@ -130,6 +130,7 @@ private:
     GtkWidget* addressEntry_ = nullptr;
     GtkWidget* portEntry_ = nullptr;
     GtkWidget* passcodeEntry_ = nullptr;
+    GtkWidget* deviceNameEntry_ = nullptr;
     GtkWidget* connectButton_ = nullptr;
     GtkWidget* controlCheck_ = nullptr;
     GtkWidget* scanStatusLabel_ = nullptr;

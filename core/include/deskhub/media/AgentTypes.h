@@ -29,6 +29,7 @@ struct AgentSourceStatus {
     uint32_t viewerCount = 0;
     std::string viewerAddr{};
     std::vector<std::string> viewerAddrs{};
+    std::vector<std::string> viewerNames{};
     double captureFps = 0, sendFps = 0, sendKbps = 0;
     uint32_t rttMs = 0;
     bool zeroCopy = false;

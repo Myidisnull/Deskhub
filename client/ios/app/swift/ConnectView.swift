@@ -46,6 +46,13 @@ struct ConnectView: View {
                         .foregroundStyle(DeskhubPalette.muted)
                 }
 
+                TextField("Your name", text: $model.connect.deviceName)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .onSubmit(model.beginConnect)
+                    .disabled(model.connect.isConnecting)
+
                 Button(action: model.beginConnect) {
                     Text("Connect").deskhubPrimaryLabel()
                 }
