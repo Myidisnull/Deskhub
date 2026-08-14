@@ -59,6 +59,30 @@ fetch_source() {
     echo "$QUICHE_COMMIT" >"$SRC/.commit"
 }
 
+is_msvc_target() {
+    case "$1" in
+        *-windows-msvc) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Git Bash ships a coreutils 'link.exe' in /usr/bin, and it comes before the MSVC
+# tools on PATH, so rustc picks it up as the linker and every build script fails
+# with "extra operand". cl.exe only ever comes from MSVC, so put its directory in
+# front and the right link.exe wins.
+prefer_msvc_tools() {
+    local cl
+    cl=$(command -v cl 2>/dev/null) || cl=""
+    [ -n "$cl" ] || {
+        echo "build-quiche.sh: MSVC 'cl.exe' is not on PATH." >&2
+        echo "                 Open 'x64 Native Tools Command Prompt for VS' (or run vcvars64.bat)," >&2
+        echo "                 then start bash from it and re-run this script." >&2
+        exit 1
+    }
+    PATH="$(dirname "$cl"):$PATH"
+    export PATH
+}
+
 is_android_target() {
     case "$1" in
         *-linux-android | *-linux-androideabi) return 0 ;;
@@ -98,6 +122,9 @@ build_target() {
     fi
 
     rustup target add "$target" >/dev/null 2>&1 || true
+    if is_msvc_target "$target"; then
+        prefer_msvc_tools
+    fi
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."
     if is_android_target "$target"; then

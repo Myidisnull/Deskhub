@@ -1,6 +1,8 @@
 #include <quiche.h>
 
+#ifndef _WIN32
 #include <arpa/inet.h>
+#endif
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -97,6 +99,14 @@ bool ReadStream(quiche_conn* conn, uint64_t expectId, std::string& out) {
 
 int main(int argc, char** argv) {
     const std::string certDir = argc > 1 ? argv[1] : ".";
+
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::printf("FAIL: WSAStartup\n");
+        return 1;
+    }
+#endif
 
     quiche_config* clientCfg = MakeConfig(false, certDir);
     quiche_config* serverCfg = MakeConfig(true, certDir);
