@@ -1,0 +1,37 @@
+{
+  "configurations": [
+    {
+      "name": "Deskhub Windows",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/core/include",
+        "${workspaceFolder}/platform/include",
+        "${workspaceFolder}/client",
+        "${workspaceFolder}/third_party",
+        "${workspaceFolder}/tests",
+        "${workspaceFolder}/core/tests"
+      ],
+      "defines": [
+        "_DEBUG",
+        "UNICODE",
+        "_UNICODE"
+      ],
+      "windowsSdkVersion": "10.0.26100.0",
+      "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++20",
+      "intelliSenseMode": "windows-msvc-x64",
+      "browse": {
+        "path": [
+          "${workspaceFolder}",
+          "${workspaceFolder}/core/include",
+          "${workspaceFolder}/platform/include",
+          "${workspaceFolder}/client",
+          "${workspaceFolder}/third_party"
+        ],
+        "limitSymbolsToIncludedHeaders": false
+      }
+    }
+  ],
+  "version": 4
+}
