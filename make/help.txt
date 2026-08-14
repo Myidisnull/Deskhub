@@ -12,6 +12,7 @@ Deskhub - no platform is built by default, name the one you want:
   Shared CMake tree - core + platform + the current OS client:
     make debug           configure + build the debug preset
     make release         configure + build the release preset
+    make brand           regenerate Brand.h + sync display names from brand/Brand.json
 
   Tests:
     make test              build core_tests and run it offline

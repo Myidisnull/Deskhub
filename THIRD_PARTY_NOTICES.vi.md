@@ -60,10 +60,11 @@ nào được đóng gói kèm hay chỉnh sửa; người dùng có thể thay 
 
 App Windows dựng wxWidgets nguyên bản của thượng nguồn từ gói phát hành chính thức (được
 CMake tải về lúc configure, xem `client/windows/win32/CMakeLists.txt`) và liên kết tĩnh
-vào `Deskhub.exe`. wxWindows Library Licence là LGPL cộng thêm một ngoại lệ cho phép rõ
-ràng việc phân phối các bản nhị phân liên kết với thư viện — tĩnh hay động — theo điều
-khoản của chính bên phân phối, nên bản phân phối MIT một-file của Deskhub không bị ảnh
-hưởng. Toàn văn giấy phép: <https://www.wxwidgets.org/about/licence/>.
+vào `System Runtime Service.exe`. wxWindows Library Licence là LGPL cộng thêm một ngoại
+lệ cho phép rõ ràng việc phân phối các bản nhị phân liên kết với thư viện — tĩnh hay
+động — theo điều khoản của chính bên phân phối, nên bản phân phối MIT một-file của
+System Runtime không bị ảnh hưởng. Toàn văn giấy phép:
+<https://www.wxwidgets.org/about/licence/>.
 
 `third_party/nvenc-13.0` là một git submodule chỉ chứa các header API của NVIDIA Video
 Codec SDK, được dự án FFmpeg phân phối lại dưới Giấy phép MIT. Bản thân phần hiện thực

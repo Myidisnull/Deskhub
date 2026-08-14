@@ -4,6 +4,7 @@ import UIKit
 struct SharingView: View {
     @Bindable var model: SharingModel
     @State private var copiedIp: String?
+    @State private var copiedSessionKey = false
 
     var body: some View {
         ScrollView {
@@ -45,6 +46,49 @@ struct SharingView: View {
                     .disabled(model.status.sharing)
                 }
                 .onChange(of: model.bindIp) { _, _ in model.saveBindIp() }
+
+                Toggle(isOn: $model.encryptSession) {
+                    Text(DeskhubClient.string(DHStrEncryptSessionLabel))
+                }
+                .disabled(model.status.sharing)
+                .onChange(of: model.encryptSession) { _, _ in model.saveEncryptSession() }
+                deskhubHint(DeskhubClient.string(DHStrEncryptSessionHint))
+
+                if model.encryptSession {
+                    Toggle(isOn: $model.escrowSessionKey) {
+                        Text(DeskhubClient.string(DHStrEscrowSessionKeyLabel))
+                    }
+                    .disabled(model.status.sharing)
+                    .onChange(of: model.escrowSessionKey) { _, _ in model.saveEscrowSessionKey() }
+                    deskhubHint(DeskhubClient.string(DHStrEscrowSessionKeyHint))
+
+                    Picker(
+                        DeskhubClient.string(DHStrSessionKeyLifetimeLabel),
+                        selection: $model.sessionKeyLifetime
+                    ) {
+                        Text(DeskhubClient.string(DHStrSessionKeyLifetimePerShare)).tag(0)
+                        Text(DeskhubClient.string(DHStrSessionKeyLifetimePersistent)).tag(1)
+                    }
+                    .disabled(model.status.sharing)
+                    .onChange(of: model.sessionKeyLifetime) { _, _ in model.saveSessionKeyLifetime() }
+
+                    Text(DeskhubClient.string(DHStrSessionKeyLabel))
+                    Text(model.sessionKeyHex.isEmpty ? "—" : model.sessionKeyHex)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                    deskhubHint(DeskhubClient.string(DHStrSessionKeyHint))
+                    HStack {
+                        Button(DeskhubClient.string(DHStrCopySessionKey)) {
+                            UIPasteboard.general.string = model.sessionKeyHex
+                            copiedSessionKey = true
+                        }
+                        .disabled(model.sessionKeyHex.isEmpty)
+                        Button(DeskhubClient.string(DHStrRefreshSessionKey)) {
+                            model.refreshSessionKey()
+                        }
+                        .disabled(model.status.sharing)
+                    }
+                }
 
                 BroadcastPickerButton(
                     extensionBundleId: SharingModel.extensionBundleId,
@@ -98,6 +142,11 @@ struct SharingView: View {
             guard copiedIp != nil else { return }
             try? await Task.sleep(for: .seconds(1.5))
             copiedIp = nil
+        }
+        .task(id: copiedSessionKey) {
+            guard copiedSessionKey else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedSessionKey = false
         }
     }
 

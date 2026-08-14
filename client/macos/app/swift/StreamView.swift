@@ -5,6 +5,7 @@ import SwiftUI
 struct ViewerRequest: Codable, Hashable {
     var address: String
     var passcode: String
+    var sessionKey: String = ""
     var sourceId: UInt8
     var name: String
 }
@@ -19,7 +20,8 @@ struct ViewerWindow: View {
             address: request.address,
             passcode: request.passcode,
             sourceId: request.sourceId,
-            sourceName: request.name
+            sourceName: request.name,
+            sessionKey: request.sessionKey
         ))
     }
 
@@ -57,7 +59,7 @@ struct ViewerWindow: View {
                 model.disconnect()
                 if dh_viewer_closed() { openWindow(id: "main") }
             }
-            .alert("Deskhub", isPresented: failedShown) {
+            .alert(DeskhubClient.string(DHStrAppTitle), isPresented: failedShown) {
                 Button("OK") { closeWindow() }
             } message: {
                 Text(DeskhubClient.string(DHStrViewerOpenFailed))
@@ -104,7 +106,7 @@ struct StreamView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .environment(\.colorScheme, .dark)
-        .alert("Deskhub", isPresented: endedAlertShown) {
+        .alert(DeskhubClient.string(DHStrAppTitle), isPresented: endedAlertShown) {
             Button("OK") { onEnd() }
         } message: {
             Text("\(DeskhubClient.string(DHStrConnectionEndedTitle)): \(model.endReason)")

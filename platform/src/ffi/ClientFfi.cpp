@@ -83,6 +83,37 @@ const char* dh_string(DHStringId id) {
         case DHStrClientSettingsHeading: return deskhub::ui::kClientSettingsHeading;
         case DHStrClientSettingsHint: return deskhub::ui::kClientSettingsHint;
         case DHStrUdpPortLabel: return deskhub::ui::kUdpPortLabel;
+        case DHStrRunInBackgroundLabel: return deskhub::ui::kRunInBackgroundLabel;
+        case DHStrBackgroundPromptTitle: return deskhub::ui::kBackgroundPromptTitle;
+        case DHStrBackgroundPromptMessage: return deskhub::ui::kBackgroundPromptMessage;
+        case DHStrBackgroundPromptYes: return deskhub::ui::kBackgroundPromptYes;
+        case DHStrBackgroundPromptNo: return deskhub::ui::kBackgroundPromptNo;
+        case DHStrBackgroundPromptConfirm: return deskhub::ui::kBackgroundPromptConfirm;
+        case DHStrBackgroundPromptClose: return deskhub::ui::kBackgroundPromptClose;
+        case DHStrTrayRestore: return deskhub::ui::kTrayRestore;
+        case DHStrTrayExit: return deskhub::ui::kTrayExit;
+        case DHStrAlreadyRunning: return deskhub::ui::kAlreadyRunning;
+        case DHStrBackgroundRunningHint: return deskhub::ui::kBackgroundRunningHint;
+        case DHStrQuitWhileBusyMessage: return deskhub::ui::kQuitWhileBusyMessage;
+        case DHStrQuitWhileBusyQuit: return deskhub::ui::kQuitWhileBusyQuit;
+        case DHStrQuitWhileBusyCancel: return deskhub::ui::kQuitWhileBusyCancel;
+        case DHStrHideTrayIconLabel: return deskhub::ui::kHideTrayIconLabel;
+        case DHStrLogMaxFileMbLabel: return deskhub::ui::kLogMaxFileMbLabel;
+        case DHStrLogCompressAfterDaysLabel: return deskhub::ui::kLogCompressAfterDaysLabel;
+        case DHStrLogDeleteAfterDaysLabel: return deskhub::ui::kLogDeleteAfterDaysLabel;
+        case DHStrLogDetailsLabel: return deskhub::ui::kLogDetailsLabel;
+        case DHStrLogRefresh: return deskhub::ui::kLogRefresh;
+        case DHStrLogOpenFolder: return deskhub::ui::kLogOpenFolder;
+        case DHStrLogEmpty: return deskhub::ui::kLogEmpty;
+        case DHStrLogDirLabel: return deskhub::ui::kLogDirLabel;
+        case DHStrLogDirHint: return deskhub::ui::kLogDirHint;
+        case DHStrLogDirInvalid: return deskhub::ui::kLogDirInvalid;
+        case DHStrLogDirBrowse: return deskhub::ui::kLogDirBrowse;
+        case DHStrShareOnLaunchLabel: return deskhub::ui::kShareOnLaunchLabel;
+        case DHStrLanguageLabel: return deskhub::ui::kLanguageLabel;
+        case DHStrLanguageSystem: return deskhub::ui::kLanguageSystem;
+        case DHStrSettingsSectionLanguage: return deskhub::ui::kSettingsSectionLanguage;
+        case DHStrLanguageRestartHint: return deskhub::ui::kLanguageRestartHint;
         case DHStrProjectUrl: return deskhub::ui::kProjectUrl;
         case DHStrProjectLinkLabel: return deskhub::ui::kProjectLinkLabel;
         case DHStrAllowControlLabel: return deskhub::ui::kAllowControlLabel;
@@ -109,6 +140,21 @@ const char* dh_string(DHStringId id) {
         case DHStrAutostartLabel: return deskhub::ui::kAutostartLabel;
         case DHStrAutoShareLabel: return deskhub::ui::kAutoShareLabel;
         case DHStrClipboardSyncLabel: return deskhub::ui::kClipboardSyncLabel;
+        case DHStrEncryptSessionLabel: return deskhub::ui::kEncryptSessionLabel;
+        case DHStrEncryptSessionHint: return deskhub::ui::kEncryptSessionHint;
+        case DHStrSessionKeyLabel: return deskhub::ui::kSessionKeyLabel;
+        case DHStrSessionKeyHint: return deskhub::ui::kSessionKeyHint;
+        case DHStrCopySessionKey: return deskhub::ui::kCopySessionKey;
+        case DHStrRefreshSessionKey: return deskhub::ui::kRefreshSessionKey;
+        case DHStrEscrowSessionKeyLabel: return deskhub::ui::kEscrowSessionKeyLabel;
+        case DHStrEscrowSessionKeyHint: return deskhub::ui::kEscrowSessionKeyHint;
+        case DHStrSessionKeyLifetimeLabel: return deskhub::ui::kSessionKeyLifetimeLabel;
+        case DHStrSessionKeyLifetimePerShare: return deskhub::ui::kSessionKeyLifetimePerShare;
+        case DHStrSessionKeyLifetimePersistent: return deskhub::ui::kSessionKeyLifetimePersistent;
+        case DHStrClientSessionKeyPrompt: return deskhub::ui::kClientSessionKeyPrompt;
+        case DHStrClientSessionKeyHint: return deskhub::ui::kClientSessionKeyHint;
+        case DHStrSessionKeyInvalid: return deskhub::ui::kSessionKeyInvalid;
+        case DHStrForgetDevice: return deskhub::ui::kForgetDevice;
         case DHStrCloseToTrayLabel: return deskhub::ui::kCloseToTrayLabel;
         case DHStrTrayShowWindow: return deskhub::ui::kTrayShowWindow;
         case DHStrTrayHideWindow: return deskhub::ui::kTrayHideWindow;
@@ -119,7 +165,6 @@ const char* dh_string(DHStringId id) {
         case DHStrSettingsSectionSecurity: return deskhub::ui::kSettingsSectionSecurity;
         case DHStrSettingsSectionSession: return deskhub::ui::kSettingsSectionSession;
         case DHStrSettingsSectionLaunch: return deskhub::ui::kSettingsSectionLaunch;
-        case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();
@@ -255,6 +300,8 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
         LOGE("[Bridge] Invalid address: %s", address);
         return DH_SOURCE_QUERY_FAILED;
     }
+
+    LOGI("[Connect] Query sources for \"%s\".", address);
 
     std::vector<deskhub::SourceInfo> sources;
     if (!QuerySources(server, sources, passcode ? passcode : ""))
@@ -417,5 +464,9 @@ void dh_viewer_opened() {
 
 bool dh_viewer_closed() {
     return OpenViewers().Closed();
+}
+
+bool dh_viewers_open() {
+    return !OpenViewers().none();
 }
 }

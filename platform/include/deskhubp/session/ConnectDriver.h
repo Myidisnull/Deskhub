@@ -28,10 +28,19 @@ public:
         if (pending_->exchange(true, std::memory_order_acq_rel)) return false;
         std::thread([pending = pending_, server, passcode = std::move(passcode),
                         postToUi = std::move(postToUi), onDone = std::move(onDone)] {
+            struct PendingGuard {
+                std::shared_ptr<std::atomic<bool>> flag;
+                ~PendingGuard() {
+                    flag->store(false, std::memory_order_release);
+                }
+            } guard{pending};
+
             auto outcome = std::make_shared<ConnectOutcome>();
             outcome->ok = QuerySources(server, outcome->sources, passcode);
-            pending->store(false, std::memory_order_release);
-            postToUi([outcome, onDone] { onDone(*outcome); });
+            if (postToUi)
+                postToUi([outcome, onDone = std::move(onDone)] {
+                    if (onDone) onDone(*outcome);
+                });
         }).detach();
         return true;
     }

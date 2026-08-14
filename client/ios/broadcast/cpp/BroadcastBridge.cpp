@@ -13,6 +13,7 @@
 
 #include "capture/ScreenCapture.h"
 
+#include "deskhub/ui/Brand.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/AgentSession.h"
@@ -25,7 +26,7 @@
 namespace {
 
 constexpr int kMaxViewerRows = 16;
-constexpr const char* kFallbackScreenName = "Deskhub";
+constexpr const char* kFallbackScreenName = deskhub::brand::kProductName;
 
 enum class StartState { Idle,
     Starting,

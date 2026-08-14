@@ -368,7 +368,7 @@ void VideoRenderer::ClearBlack() {
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
-bool VideoRenderer::Render(int viewW, int viewH) {
+bool VideoRenderer::Render(int viewW, int viewH, const deskhub::ViewTransform& transform) {
     if (!glReady_ || viewW <= 0 || viewH <= 0) return false;
 
     std::lock_guard<std::mutex> lk(mutex_);
@@ -385,7 +385,7 @@ bool VideoRenderer::Render(int viewW, int viewH) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     const deskhub::ViewRect rect = deskhub::FitVideoRect(double(viewW), double(viewH),
-        double(fw) / double(fh));
+        double(fw) / double(fh), transform);
     glViewport(int(rect.x), int(rect.y), int(rect.width), int(rect.height));
 
     glBindVertexArray(vao_);

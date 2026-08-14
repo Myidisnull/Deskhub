@@ -14,6 +14,7 @@
 #include <thread>
 #include <vector>
 
+#include "deskhub/ui/Brand.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/diag/Log.h"
 
@@ -21,12 +22,13 @@ namespace {
 
 constexpr uint64_t kRescanUs = 5'000'000;
 constexpr const char* kInputDir = "/dev/input";
-constexpr const char* kOwnDevicePrefix = "Deskhub";
 
 bool ShouldWatch(int fd) {
     char name[256] = {};
     if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) < 0) return false;
-    if (std::strncmp(name, kOwnDevicePrefix, std::strlen(kOwnDevicePrefix)) == 0) return false;
+    if (std::strncmp(name, deskhub::brand::kProductName, std::strlen(deskhub::brand::kProductName)) ==
+        0)
+        return false;
 
     unsigned long evBits = 0;
     if (ioctl(fd, EVIOCGBIT(0, sizeof(evBits)), &evBits) < 0) return false;
@@ -123,7 +125,8 @@ struct LocalInputMonitor::Impl {
     }
 };
 
-LocalInputMonitor::LocalInputMonitor() : impl_(std::make_unique<Impl>()) {}
+LocalInputMonitor::LocalInputMonitor()
+    : impl_(std::make_unique<Impl>()) {}
 
 LocalInputMonitor::~LocalInputMonitor() {
     Stop();

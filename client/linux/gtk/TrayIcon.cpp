@@ -7,7 +7,6 @@
 #include <libayatana-appindicator/app-indicator.h>
 
 #include "deskhub/ui/Strings.h"
-#include "deskhubp/diag/Log.h"
 
 namespace {
 
@@ -33,10 +32,7 @@ bool StatusNotifierWatcherPresent() {
 
 bool TrayIcon::Attach(const Actions& actions) {
     if (attached_) return true;
-    if (!StatusNotifierWatcherPresent()) {
-        LOGW("[Tray] No StatusNotifier host on this desktop — cannot show a tray icon.");
-        return false;
-    }
+    if (!StatusNotifierWatcherPresent()) return false;
 
     actions_ = actions;
 
@@ -101,9 +97,9 @@ void TrayIcon::SetWindowVisible(bool visible) {
 void TrayIcon::RefreshLabels() {
     if (!attached_) return;
     gtk_menu_item_set_label(GTK_MENU_ITEM(toggleWindowItem_),
-        windowVisible_ ? ui::kTrayHideWindow : ui::kTrayShowWindow);
+        windowVisible_ ? ui::kTrayHideWindow.get() : ui::kTrayShowWindow.get());
     gtk_menu_item_set_label(GTK_MENU_ITEM(toggleShareItem_),
-        sharing_ ? ui::kStopSharing : ui::kStartSharing);
+        sharing_ ? ui::kStopSharing.get() : ui::kStartSharing.get());
 }
 
 void TrayIcon::OnToggleWindowItem(void*, void* user) {

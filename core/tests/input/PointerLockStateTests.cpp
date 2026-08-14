@@ -3,6 +3,7 @@
 
 #include "deskhub/input/PointerLockState.h"
 #include "deskhub/input/Set1Scancodes.h"
+#include "deskhub/ui/Brand.h"
 
 #include <cstdio>
 
@@ -54,7 +55,8 @@ void TestHintAndTitleFollowTheState() {
     st.OnToggleLockKey();
     Check(st.HintText() == kViewerLockedHint, "a locked one advertises how to release");
 
-    const std::string title = st.TitleFor("Deskhub - viewing: Display 1", "12 fps");
+    const std::string title =
+        st.TitleFor(std::string(deskhub::brand::kProductName) + " - viewing: Display 1", "12 fps");
     Check(title.find("12 fps") != std::string::npos, "the status line is in the title");
     Check(title.find(kViewerLockedHint) != std::string::npos, "so is the lock hint");
 

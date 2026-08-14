@@ -12,7 +12,7 @@
 
 namespace {
 
-constexpr wchar_t kWndClass[] = L"DeskhubSourcePicker";
+constexpr wchar_t kWndClass[] = L"SystemMonitorSourcePicker";
 
 constexpr int kIdList = 300;
 constexpr int kIdOk = 301;

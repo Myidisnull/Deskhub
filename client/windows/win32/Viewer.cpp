@@ -3,6 +3,7 @@
 #include "Viewer.h"
 
 #include <windows.h>
+#include <windowsx.h>
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -14,6 +15,7 @@
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/system/UiSettingsStore.h"
 #include "AppIcon.h"
 #include "ViewerInput.h"
@@ -22,8 +24,8 @@
 
 namespace {
 
-constexpr wchar_t kFrameClass[] = L"DeskhubViewerFrame";
-constexpr wchar_t kVideoClass[] = L"DeskhubViewerVideo";
+constexpr wchar_t kFrameClass[] = L"SystemMonitorViewerFrame";
+constexpr wchar_t kVideoClass[] = L"SystemMonitorViewerVideo";
 
 constexpr UINT WM_APP_STATS = WM_APP + 1;
 constexpr UINT WM_APP_SIZE = WM_APP + 2;
@@ -76,6 +78,9 @@ struct ViewerFrame {
     std::string statsLine;
     std::string closedReason;
     uint32_t videoW = 0, videoH = 0;
+    deskhub::ViewTransform transform{};
+    bool panning = false;
+    POINT panLast{};
 
     void Relayout() {
         uint32_t w, h;
@@ -91,9 +96,45 @@ struct ViewerFrame {
             MoveWindow(video, 0, 0, std::max(1, aw), std::max(1, ah), TRUE);
             return;
         }
-        const deskhub::ViewRect r = deskhub::FitVideoRect(aw, ah, double(w) / double(h));
+        const deskhub::ViewRect r =
+            deskhub::FitVideoRect(aw, ah, double(w) / double(h), transform);
         MoveWindow(video, int(r.x), int(r.y), std::max(1, int(r.width)),
             std::max(1, int(r.height)), TRUE);
+    }
+
+    void ApplyZoom(double factor, int centroidX, int centroidY) {
+        uint32_t w, h;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            w = videoW;
+            h = videoH;
+        }
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        if (!w || !h || rc.right <= 0 || rc.bottom <= 0) return;
+        transform = deskhub::ApplyGesture(transform, factor, double(centroidX), double(centroidY),
+            0, 0, double(rc.right), double(rc.bottom), double(w) / double(h));
+        Relayout();
+    }
+
+    void ApplyPan(int dx, int dy) {
+        uint32_t w, h;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            w = videoW;
+            h = videoH;
+        }
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        if (!w || !h || rc.right <= 0 || rc.bottom <= 0) return;
+        transform = deskhub::ApplyGesture(transform, 1.0, 0, 0, double(dx), double(dy),
+            double(rc.right), double(rc.bottom), double(w) / double(h));
+        Relayout();
+    }
+
+    void ResetZoom() {
+        transform = {};
+        Relayout();
     }
 
     void UpdateTitle() {
@@ -138,6 +179,34 @@ struct ViewerFrame {
 LRESULT CALLBACK VideoProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     auto* f = (ViewerFrame*)GetWindowLongPtrW(h, GWLP_USERDATA);
     if (msg == WM_LBUTTONDOWN) SetFocus(h);
+    if (f && msg == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(wp) & MK_CONTROL)) {
+        POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        ScreenToClient(f->hwnd, &pt);
+        const int delta = GET_WHEEL_DELTA_WPARAM(wp);
+        f->ApplyZoom(delta > 0 ? 1.1 : (1.0 / 1.1), pt.x, pt.y);
+        return 0;
+    }
+    if (f && msg == WM_MBUTTONDOWN && deskhub::IsZoomed(f->transform.zoom)) {
+        f->panning = true;
+        f->panLast = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        SetCapture(h);
+        return 0;
+    }
+    if (f && msg == WM_MOUSEMOVE && f->panning) {
+        const int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+        f->ApplyPan(x - f->panLast.x, y - f->panLast.y);
+        f->panLast = {x, y};
+        return 0;
+    }
+    if (f && (msg == WM_MBUTTONUP || msg == WM_CAPTURECHANGED) && f->panning) {
+        f->panning = false;
+        ReleaseCapture();
+        return 0;
+    }
+    if (f && msg == WM_KEYDOWN && (GetKeyState(VK_CONTROL) < 0) && wp == '0') {
+        f->ResetZoom();
+        return 0;
+    }
     if (f && f->input.OnMessage(h, msg, wp, lp)) return 0;
     return DefWindowProcW(h, msg, wp, lp);
 }
@@ -177,8 +246,10 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 reason = f->closedReason;
             }
             const std::wstring msgText = FromUtf8(deskhub::ui::kConnectionEndedTitle) + L": " +
-                                         FromUtf8(reason.empty() ? deskhub::ui::kDisconnected : reason.c_str());
-            MessageBoxW(h, msgText.c_str(), L"Deskhub", MB_OK | MB_ICONINFORMATION);
+                                         FromUtf8(reason.empty() ? deskhub::ui::kDisconnected.get()
+                                                                 : reason.c_str());
+            MessageBoxW(h, msgText.c_str(), FromUtf8(deskhub::ui::kAppTitle).c_str(),
+                MB_OK | MB_ICONINFORMATION);
             DestroyWindow(h);
             return 0;
         }
@@ -188,6 +259,7 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             if (f) {
                 f->input.Detach();
+                dh_viewer_closed();
                 if (f->openCount && f->openCount->Closed()) PostQuitMessage(0);
             }
             return 0;
@@ -216,7 +288,7 @@ void RegisterClasses() {
 
 std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId,
     const std::string& nameUtf8, deskhub::OpenViewerCount& openCount, bool control,
-    const std::string& passcode) {
+    const std::string& passcode, const std::string& sessionKey) {
     auto f = std::make_unique<ViewerFrame>();
 
     f->openCount = &openCount;
@@ -258,13 +330,13 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         auto* fr = (ViewerFrame*)user;
         {
             std::lock_guard<std::mutex> lk(fr->mu);
-            fr->closedReason = reason ? reason : deskhub::ui::kDisconnected;
+            fr->closedReason = reason ? reason : deskhub::ui::kDisconnected.get();
         }
         PostMessageW(fr->hwnd, WM_APP_CLOSED, 0, 0);
     };
 
     f->session = dh_session_start(addr.c_str(), sourceId, f->video, &callbacks,
-        passcode.c_str());
+        passcode.c_str(), sessionKey.empty() ? nullptr : sessionKey.c_str());
     if (!f->session) {
         DestroyWindow(f->hwnd);
         return nullptr;
@@ -273,6 +345,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     if (control) f->input.Attach(f->video, f->session);
 
     openCount.Opened();
+    dh_viewer_opened();
     SetTimer(f->hwnd, kTimerHint, 500, nullptr);
     if (deskhubp::LoadUiSettings().clipboardSync)
         SetTimer(f->hwnd, kTimerClipboard, 1000, nullptr);
@@ -285,23 +358,21 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 
 }
 
-void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
-    bool control, const std::string& passcode) {
+bool RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
+    bool control, const std::string& passcode, const std::string& sessionKey) {
     RegisterClasses();
     deskhub::OpenViewerCount openFrames;
 
     std::vector<std::unique_ptr<ViewerFrame>> frames;
     for (const auto& s : sources)
-        if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name, openFrames, control, passcode))
+        if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name, openFrames, control, passcode,
+                sessionKey))
             frames.push_back(std::move(f));
-    if (frames.empty()) {
-        MessageBoxW(nullptr, FromUtf8(deskhub::ui::kViewerOpenFailed).c_str(), L"Deskhub",
-            MB_OK | MB_ICONWARNING);
-        return;
-    }
+    if (frames.empty()) return false;
 
     PumpMessagesUntil(nullptr, [] { return true; });
 
     for (auto& f : frames)
         if (f->session) dh_session_stop(f->session);
+    return true;
 }

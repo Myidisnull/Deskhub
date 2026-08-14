@@ -9,7 +9,7 @@
 namespace deskhubp {
 
 inline std::filesystem::path AppDataFilePath(const std::string& fileName) {
-    const std::string dir = LogDir();
+    const std::string dir = ConfigDir();
     if (dir.empty()) return {};
     const std::u8string dirU8(dir.begin(), dir.end());
     const std::u8string nameU8(fileName.begin(), fileName.end());
@@ -24,13 +24,6 @@ inline std::string ReadAppDataFile(const std::string& fileName) {
     std::ostringstream contents;
     contents << in.rdbuf();
     return contents.str();
-}
-
-inline void RemoveAppDataFile(const std::string& fileName) {
-    const std::filesystem::path path = AppDataFilePath(fileName);
-    if (path.empty()) return;
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
 }
 
 inline bool WriteAppDataFile(const std::string& fileName, const std::string& content) {

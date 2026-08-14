@@ -36,7 +36,7 @@ bool ExerciseWireParsers(std::span<const uint8_t> d) {
     if (const auto hello = ParseHello(pl))
         ok = ok && (hello->passcode.empty() || IsValidPasscode(hello->passcode));
     if (const auto ack = ParseHelloAck(pl))
-        ok = ok && uint8_t(ack->reason) <= uint8_t(RejectReason::WrongPasscode);
+        ok = ok && uint8_t(ack->reason) <= uint8_t(RejectReason::WrongSessionKey);
     const std::string code = ParseListSourcesPasscode(pl);
     ok = ok && (code.empty() || IsValidPasscode(code));
 
@@ -110,7 +110,7 @@ Datagram BuildRandomValidDatagram() {
         case 1: {
             HelloAck m{Rnd(), (Rnd() % 2) ? Codec::H264 : Codec::Rejected, uint16_t(Rnd()),
                 uint16_t(Rnd()), uint8_t(Rnd()), Rnd(),
-                (uint64_t(Rnd()) << 32) | Rnd(), RejectReason(Rnd() % 4)};
+                (uint64_t(Rnd()) << 32) | Rnd(), RejectReason(Rnd() % 6)};
             n = BuildHelloAck(buf, m);
             break;
         }
@@ -271,7 +271,7 @@ void TestWireRandomRoundTrips() {
     for (int i = 0; i < 300; ++i) {
         const HelloAck m{Rnd(), (Rnd() % 2) ? Codec::H264 : Codec::Rejected, uint16_t(Rnd()),
             uint16_t(Rnd()), uint8_t(Rnd()), Rnd(), (uint64_t(Rnd()) << 32) | Rnd(),
-            RejectReason(Rnd() % 4)};
+            RejectReason(Rnd() % 6)};
         const size_t n = BuildHelloAck(buf, m);
         const auto p = ParseHelloAck(PayloadOf(std::span<const uint8_t>(buf, n)));
         ok = ok && p && p->sessionId == m.sessionId && p->codec == m.codec &&
@@ -648,6 +648,9 @@ bool SettingsWithinBounds(const ui::UiSettings& s) {
     return s.fps >= 1 && s.fps <= ui::kMaxSettingsFps && s.bitrateMbps >= 1 &&
            s.bitrateMbps <= ui::kMaxSettingsBitrateMbps && s.maxDim <= ui::kMaxSettingsDim &&
            s.port >= 1 && s.port <= ui::kMaxSettingsPort &&
+           s.logMaxFileMb >= diag::kMinLogMaxFileMb && s.logMaxFileMb <= diag::kMaxLogMaxFileMb &&
+           s.logCompressAfterDays <= diag::kMaxLogRetentionDays &&
+           s.logDeleteAfterDays <= diag::kMaxLogRetentionDays &&
            (s.passcode.empty() || IsValidPasscode(s.passcode));
 }
 

@@ -12,6 +12,23 @@ struct SettingsView: View {
                 deskhubHeading(DeskhubClient.string(DHStrClientSettingsHeading))
                 deskhubHint(DeskhubClient.string(DHStrClientSettingsHint))
 
+                deskhubSection(DeskhubClient.string(DHStrSettingsSectionLanguage))
+                HStack(spacing: 12) {
+                    Text(DeskhubClient.string(DHStrLanguageLabel))
+                    Spacer(minLength: 0)
+                    Picker("", selection: $settings.language) {
+                        ForEach(AppLanguage.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 160)
+                }
+                deskhubHint(DeskhubClient.string(DHStrLanguageRestartHint))
+                .onChange(of: settings.language) { _, _ in
+                    settings.save()
+                }
+
                 deskhubSection(DeskhubClient.string(DHStrSettingsSectionConnection))
                 HStack(spacing: 12) {
                     Text("UDP port")
@@ -33,12 +50,6 @@ struct SettingsView: View {
                     Text(DeskhubClient.string(DHStrClipboardSyncLabel))
                 }
                 .onChange(of: settings.clipboardSync) { _, _ in
-                    settings.save()
-                }
-                Toggle(isOn: $settings.keepAwake) {
-                    Text(DeskhubClient.string(DHStrKeepAwakeLabel))
-                }
-                .onChange(of: settings.keepAwake) { _, _ in
                     settings.save()
                 }
 

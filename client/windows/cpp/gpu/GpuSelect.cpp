@@ -77,5 +77,6 @@ bool CreateBestDevice(const std::vector<GpuVendor>& preference, GpuChoice& out) 
         out.hardware = false;
         return true;
     }
+    LOGE("Failed to create a D3D11 device (hardware and WARP).");
     return false;
 }

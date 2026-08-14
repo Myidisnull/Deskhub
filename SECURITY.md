@@ -1,33 +1,34 @@
-**English** · [Tiếng Việt](SECURITY.vi.md)
+**English** · [中文](SECURITY.zh.md) · [Tiếng Việt](SECURITY.vi.md)
 
 # Deskhub Security Policy
 
-_Last updated: August 13, 2026_
+_Last updated: August 14, 2026_
+
+The open-source project is **Deskhub**; the product name shown in the apps is **System Runtime**. This policy covers both.
 
 ## ⚠️ Read this first
 
-**Deskhub has no encryption of its own. Every host requires a 4-digit passcode, but it
-travels in plaintext, so it stops a stranger who cannot see your traffic and nothing
-more. Anyone who can capture one packet reads the code, and from there gets full mouse
-and keyboard control of the sharing machine.**
+**Session encryption is optional and off by default.** Every host still requires a
+4-digit passcode. With encryption off, traffic travels in the clear: anyone who can
+capture a packet reads the passcode and can take mouse and keyboard control of the
+sharing machine. With encryption on, session video, input and clipboard are encrypted;
+discovery probes stay cleartext. The host generates a session key you copy to viewers
+unless *Escrow key to viewers* is on (also off by default), in which case the host
+hands the key to anyone who presents the passcode.
 
-Every host can also share **view-only** (input is dropped instead of injected). Both
-controls live in the Settings section of the Windows, macOS and Linux apps, and every
-client — Windows, macOS, Linux, Android, iOS — can enter a passcode.
+Deskhub is still built for a network you already trust, or a VPN underneath it. It is
+**not** built to survive exposure to the open Internet.
 
-That is a deliberate design choice, not an oversight — Deskhub is built to run inside a
-network you already trust, and to borrow its encryption and its identity checks from the
-layer underneath it (your LAN, or a WireGuard tunnel such as Tailscale). It is **not**
-built to survive exposure to the open Internet.
-
-So there is exactly one rule:
+So there is exactly one hard rule:
 
 > **Never port-forward UDP 47777. Never expose a sharing machine to the Internet
 > directly. For remote access, use a VPN — [Tailscale](https://tailscale.com) is what
 > this project is tested against — and connect to the `100.x.y.z` address.**
 
-If you follow that rule, Deskhub is safe to use. If you break it, you are handing your
-machine to the Internet.
+If you follow that rule, System Runtime is safe to use. If you break it, you are handing
+your machine to the Internet. Turn on session encryption when the LAN is not fully
+trusted; leave escrow off when you can hand-carry the session key. See
+[`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) §9 for the product rules.
 
 ## Threat model
 
@@ -38,7 +39,8 @@ machine to the Internet.
 | Data reaching the developer | Nothing does. There are no servers, no accounts, no telemetry, no third-party SDKs. See [`PRIVACY.md`](PRIVACY.md). |
 | A remote viewer fighting you for the machine | "Host wins": the moment you touch the real mouse or keyboard, remote input is paused (Windows, macOS and Linux hosts alike). |
 | Keys left stuck down | Any key the remote side is holding is released automatically when the session ends or the viewer switches away. |
-| A stranger who cannot sniff your traffic | Every host requires a passcode, and every third wrong connection attempt locks the host for 30 seconds. That throttle covers connections only: the discovery beacon answers probes at full speed, and a probe carrying the right code gets the real display list where a wrong one gets an empty list — an oracle that confirms a guessed code, so all 10 000 combinations can be walked in seconds. The passcode keeps out the casual, not anyone running a scanner (see the beacon bullet below). |
+| A stranger who cannot sniff your traffic | Every host requires a passcode. Wrong passcode or session-key attempts from one source are limited (**5** failures in **60 seconds**, then **30 seconds** locked). Discovery probes are rate-limited so the display-list reply is not an unlimited oracle. The 4-digit space is still small: a determined scanner on the LAN remains a real risk if encryption is off or escrow is on. |
+| Optional encrypted sessions | With *Encrypt session traffic* on, video, input and clipboard for the session are AEAD-encrypted. Viewers need the session key unless escrow is on. An encrypting host refuses plaintext admission. Discovery stays cleartext. |
 | Viewers fighting each other for the mouse | Up to 5 viewers may watch one host, but only one drives input: the earliest to have joined wins, and a later viewer's input is dropped until the earlier one has been idle for a second. A 6th viewer is rejected as `Busy`. |
 | A viewer you only want to show the screen to | View-only sharing, available on every host, drops input packets at the host before anything is injected — it is not enforced by asking the client to behave. Android and iOS hosts are view-only unconditionally. |
 | A phone left sharing by accident | The operating system, not Deskhub, is the backstop: Android keeps a permanent notification up and re-asks for recording consent on every single share, and iOS keeps its broadcast indicator visible. Either can stop the share without opening the app. |
@@ -46,53 +48,37 @@ machine to the Internet.
 
 ### What Deskhub does **not** protect against
 
-This is the honest list. Nothing below is solved today — and the passcode does not solve
-any of it:
+This is the honest list. The passcode alone does not solve any of it; optional session
+encryption narrows some of it but not all:
 
-- **No real authentication.** The passcode is 4 digits sent in the clear inside the
-  `Hello` packet and compared for equality — it is a lock on a door, not a cryptographic
-  identity check. Anyone who can capture one packet has it forever and can replay it.
-  Making it mandatory removed the "no code at all" case, but there is still no pairing
-  step, no approval prompt, and no address allowlist: whoever sends the right four digits
-  first is in.
-- **No encryption.** There is no TLS, no DTLS, no Noise, no application-layer crypto of
-  any kind in this codebase. Video frames, keystrokes and mouse movement all travel as
-  plaintext UDP. Anyone who can capture your traffic can watch your screen and read
-  everything you type.
-- **The device name travels in the clear too.** The *Your name* a viewer sends
-  rides in every `Hello` alongside the passcode, as plaintext, and is shown on the host's
-  screen and written into the host's logs. It defaults to the machine's own hostname or
-  device name — which on a personal machine often contains its owner's real name. Treat
-  it as public to the network: replace the default with a nickname that gives nothing
-  away — something you are happy for anyone on the LAN, and anyone looking at the host,
-  to read — and never put a password or anything sensitive in it. Clearing the field
-  does not stop a name being sent; it only restores the default.
-- **No integrity protection.** Packets are not signed or authenticated, so an attacker
-  who can inject traffic can forge input events.
-- **No protection against session hijacking on a shared network.** A live session is
-  identified only by a 32-bit session id. It is generated from the OS CSPRNG
-  (`BCryptGenRandom` / `arc4random_buf` / `getrandom`), so guessing it blindly is not
-  practical — but on a network where an attacker can *sniff* your packets, that id is
-  sitting in the clear in every one of them. With it, an attacker can inject input and
-  redirect the video stream to their own address.
-- **No rate limiting or DoS resistance.** Flooding the port will disrupt a session.
-- **The discovery beacon answers anyone.** A `LIST_SOURCES` probe needs no session and
+- **No strong machine identity.** The passcode is 4 digits compared for equality. With
+  encryption off it travels in the clear inside `Hello`. With encryption on and escrow
+  off, the session key is the real secret — but there is still no pairing step, no host
+  approval prompt, and no address allowlist.
+- **Encryption is optional.** Default traffic is plaintext UDP. Anyone who can capture
+  an unencrypted session can watch the screen and read keystrokes. Turning encryption on
+  covers session payloads only; discovery probes stay cleartext.
+- **Escrow weakens hand-off.** With escrow on, anyone who can present the passcode
+  receives the session key from the host. Prefer hand-carrying the key when the LAN is
+  hostile.
+- **The device name travels in the clear** on discovery and admission paths that are not
+  covered by session encryption. The *Your name* a viewer sends is shown on the host and
+  written into the host's logs. It defaults to the machine's own hostname or device name —
+  which on a personal machine often contains its owner's real name. Treat it as public to
+  the network.
+- **No DoS resistance.** Flooding the port will disrupt a session; rate limits only
+  blunt guessing, not floods.
+- **The discovery beacon still answers.** A `LIST_SOURCES` probe needs no session and
   gets a reply from any source address; so does a `PING`. The passcode only empties the
-  reply — a probe without the right code is told "nothing shared" instead of your display
-  names and resolutions. Either way the packet still comes back, so the machine is still
-  discoverable by scanning, and the port is still usable as a small UDP reflector. The
-  beacon is also not rate limited, and a non-empty reply confirms a correct code, so it
-  doubles as an oracle for brute-forcing the passcode — the 30-second connection lockout
-  does not apply here.
+  reply. Rate limiting reduces oracle abuse; it does not hide that a Deskhub host is
+  present.
 - **A viewer slot frees itself after 5 seconds of silence.** If your viewer drops off,
-  its slot reopens and the next `Hello` to arrive takes it — whoever sent it, subject
-  only to the passcode.
+  its slot reopens and the next admitted `Hello` takes it.
 - **Sharing exposes the entire display.** Not one window: every notification, popup and
   window on that monitor. See [`PRIVACY.md` §3.4](PRIVACY.md).
 - **A phone or tablet host exposes the whole phone.** Android and iOS can host too, and
   what they stream is the entire screen — banking apps, one-time codes, messages, every
-  password you type while sharing. The same plaintext UDP carries it, so anyone who can
-  sniff the network sees all of it. Mobile hosts are always view-only, which removes the
+  password you type while sharing. Mobile hosts are always view-only, which removes the
   remote-control risk but none of the exposure risk.
 
 ## Where it is safe to run
@@ -101,7 +87,8 @@ any of it:
 
 - A home or personal LAN where you control every device on it.
 - A Tailscale tailnet (or another WireGuard/VPN tunnel) that only your own devices have
-  joined. The VPN provides the encryption and the identity check that Deskhub does not.
+  joined. The VPN still supplies network-level identity even when Deskhub session
+  encryption is on.
 - A machine that is only ever a *client* (phone, tablet, laptop that never shares its
   screen). Clients accept no inbound sessions.
 
@@ -136,17 +123,16 @@ running, they can:
 1. Discover it by scanning for UDP 47777. The passcode blanks the list of displays and
    resolutions they get back, but the machine still answers the probe, so it still gives
    itself away.
-2. Read your passcode off the wire and connect, and immediately have mouse and keyboard.
-   From there: open a browser, read your email, install software, exfiltrate files. The
-   passcode blocks this only for as long as they have not seen one of your packets — the
-   code is in the clear in every `Hello`, so anyone who can sniff the network simply
-   reads it and connects.
-3. Whether or not they can connect, passively record the session and reconstruct your
-   screen and your keystrokes offline.
-4. If clipboard sync is enabled, read every piece of text you copy while sharing —
-   clipboard text rides the same unencrypted UDP channel as everything else. Passwords
-   copied from a password manager are the classic casualty; leave the toggle off on
-   networks you do not fully trust.
+2. With **encryption off**: read your passcode off the wire and connect with mouse and
+   keyboard. From there: open a browser, read your email, install software, exfiltrate
+   files. Passively record the session and reconstruct screen and keystrokes offline.
+   Clipboard sync, if enabled, rides the same clear channel.
+3. With **encryption on and escrow off**: they still see discovery traffic, but session
+   payloads need the session key. Guessing the key is not practical; stealing a copied
+   key or shoulder-surfing remains possible.
+4. With **encryption on and escrow on**: presenting the passcode is enough to obtain the
+   session key from the host — treat escrow like “passcode alone admits encrypted
+   sessions.”
 
 The "host wins" behaviour limits mischief while you are *sitting at* the machine. It
 does nothing while you are away from it, which is when it matters.
@@ -159,8 +145,10 @@ If you want to keep using Deskhub as it is today, these are worth doing:
 - [ ] Confirm your router has **no** port-forward or UPnP mapping for UDP 47777.
 - [ ] Change the generated passcode in Settings to something a viewer will not guess from
       your habits, and untick *Viewers can control this machine* whenever you only need
-      someone to watch. Neither replaces the VPN — they raise the floor for a stranger
-      who cannot read your traffic.
+      someone to watch.
+- [ ] On networks you do not fully trust, turn on *Encrypt session traffic*, leave
+      *Escrow key to viewers* off, and copy the session key out of band. Prefer *Per share*
+      key lifetime for one-off shares.
 - [ ] Quit Deskhub when you are not actively using it. It does not run as a background
       service — closing it closes the hole.
 - [ ] On Linux, if you use `ufw`, scope the rule instead of opening it wide:
@@ -172,21 +160,22 @@ If you want to keep using Deskhub as it is today, these are worth doing:
 
 ## Local artifacts
 
-Diagnostic logs are written in plain text under `~/.deskhub/` (`%USERPROFILE%\.deskhub`
+Diagnostic logs are written in plain text under `~/.system-runtime/` (`%USERPROFILE%\.system-runtime`
 on Windows) on Windows, macOS and Linux. They contain connection statistics and peer
 addresses, not screen content or keystrokes.
 
 The desktop apps keep two more files in that folder: `ui-settings.txt` (fps, bitrate,
-resolution cap, port, the view-only switch, your host passcode, and the optional device
-name shown to hosts — stored as the plain text you typed) and
-`recent-devices.txt` (the last 10 addresses you connected to, when, and the passcode you
-used for each). The mobile apps keep the same two files inside their own sandbox — on iOS
-in the app group container, so the broadcast extension reads the same host passcode the
-app shows you. Stored
-passcodes are obfuscated with a fixed XOR key, which keeps them off the screen and out of
-a casual `type` of the file — **it is not encryption**, and anyone with the source and
-the file recovers them in seconds. Treat that folder as readable by anything running as
-you.
+resolution cap, port, the view-only switch, your host passcode, optional session-encryption
+toggles and session key material when encryption is used, and the optional device name
+shown to hosts — stored as the plain text you typed) and
+`recent-devices.txt` (the last 10 addresses you connected to, when, the passcode you used
+for each, and when applicable whether the connection was encrypted and the session key
+used). The mobile apps keep the same two files inside their own sandbox — on iOS in the
+app group container, so the broadcast extension reads the same host passcode the app shows
+you. Stored passcodes and session keys are obfuscated with a fixed XOR key, which keeps
+them off the screen and out of a casual `type` of the file — **it is not encryption**, and
+anyone with the source and the file recovers them in seconds. Treat that folder as readable
+by anything running as you.
 
 Nothing uploads any of this; delete the folder at any time.
 
@@ -196,18 +185,17 @@ Tracked, in the order they are intended to land:
 
 1. **A connection prompt on the host** — the sharing machine asks before the first
    session is accepted, instead of accepting silently.
-2. **Real encryption and authentication** — an authenticated key exchange (Noise IK or
-   DTLS) so that Deskhub no longer depends on the network being trustworthy, and so the
-   passcode stops being readable off the wire. Until this ships, the rule at the top of
-   this document is the entire security model.
-3. **Storing the passcode in the OS keychain** instead of an obfuscated text file.
-4. **Silencing the discovery beacon** so it does not reply at all to an unsolicited
+2. **Storing passcodes and session keys in the OS keychain** instead of an obfuscated
+   text file.
+3. **Silencing the discovery beacon** so it does not reply at all to an unsolicited
    probe, rather than replying with an empty list.
 
-Shipped since the last revision of this list: the passcode and the view-only switch on
-every host, a passcode field in every client, a host passcode that is generated on first
-launch instead of left blank, and a discovery beacon that hides the display list from
-probes without the right code. None of them is a substitute for item 2.
+Shipped / specified since earlier revisions of this list: the mandatory passcode and
+view-only switch on every host; optional session encryption with a host-generated session
+key, copy/refresh, per-share or persistent lifetime, and optional key escrow; refusal to
+downgrade an encrypting host to plaintext; connection and discovery rate limits as in
+[`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) §9. Implementation is being aligned to
+that specification where a build still differs.
 
 This list is a statement of intent, not a schedule. Deskhub is maintained by one person
 in their spare time. Treat the current state as the state, not the plan.
@@ -230,12 +218,13 @@ release notes unless you would rather not be.
 
 There is no bug bounty; nothing is paid out.
 
-**Already documented above is not a vulnerability.** The missing authentication and
-encryption are known, listed, and being worked on — a report that Deskhub can be
-connected to without a password tells us nothing new. What *is* worth reporting: memory
-corruption or crashes reachable from a malformed packet, a way to escape the documented
-threat model, anything that leaks data off the machine, or a flaw in a mitigation once
-one ships.
+**Already documented above is not a vulnerability.** Missing host approval prompts,
+cleartext discovery, optional-by-default encryption, and the limits of a 4-digit passcode
+are known and listed — a report that Deskhub can be connected to with only a short code
+on a trusted LAN tells us nothing new. What *is* worth reporting: memory corruption or
+crashes reachable from a malformed packet, a way to escape the documented threat model,
+anything that leaks data off the machine, bypass of session encryption when it is on, or
+a flaw in a mitigation once one ships.
 
 ## Supported versions
 

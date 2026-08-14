@@ -19,7 +19,7 @@ endif()
 
 if(NOT DESKHUB_DEPS_FOUND)
     message(${deskhub_skip_level}
-        "Deskhub: skipping the Ubuntu app — development packages are missing. "
+        "System Runtime: skipping the Ubuntu app — development packages are missing. "
         "Run 'make bootstrap' to install them.")
     return()
 endif()
@@ -27,7 +27,7 @@ endif()
 set(FFMPEG_MIN_DIR ${CMAKE_SOURCE_DIR}/third_party/ffmpeg-min)
 if(NOT EXISTS ${FFMPEG_MIN_DIR}/lib/libavcodec.a)
     message(${deskhub_skip_level}
-        "Deskhub: skipping the Ubuntu app — third_party/ffmpeg-min is missing. "
+        "System Runtime: skipping the Ubuntu app — third_party/ffmpeg-min is missing. "
         "Run 'scripts/build-ffmpeg.sh' (or 'make bootstrap').")
     return()
 endif()
@@ -41,10 +41,7 @@ target_link_libraries(ffmpeg_min INTERFACE
 
 pkg_check_modules(DESKHUB_TRAY IMPORTED_TARGET ayatana-appindicator3-0.1)
 if(NOT DESKHUB_TRAY_FOUND)
-    # Without the tray the close button quits instead of hiding, so a release
-    # build (DESKHUB_REQUIRE_LINUX_APP=ON) must fail here rather than silently
-    # ship a binary that cannot run in the background.
-    message(${deskhub_skip_level}
+    message(STATUS
         "Deskhub: the Ubuntu app builds without a tray icon — "
         "libayatana-appindicator3-dev is missing. Run 'make bootstrap'.")
 endif()

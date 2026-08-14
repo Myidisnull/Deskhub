@@ -21,6 +21,10 @@ struct AgentOptions {
     std::string passcode{};
     std::string bindIp{};
     bool clipboardSync = false;
+    bool encryptSession = false;
+    bool escrowSessionKey = false;
+    std::vector<uint8_t> sessionKey{};
+    std::vector<uint8_t> hostStaticSk{};
 };
 
 struct AgentSourceStatus {

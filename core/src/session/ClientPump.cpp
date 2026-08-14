@@ -1,7 +1,11 @@
 #include "deskhub/session/ClientPump.h"
 
+#include "deskhub/crypto/KeyCodec.h"
+#include "deskhub/crypto/NoiseXx.h"
+
 #include <cstdio>
 #include <utility>
+#include <vector>
 
 namespace deskhub {
 
@@ -43,6 +47,11 @@ ClientCallbacks ClientPump::MakeSessionCallbacks() {
         Log(line_);
         if (cb_.onEnded) cb_.onEnded(reason ? reason : "disconnected");
     };
+    sc.randomBytes = [this](std::span<uint8_t> out) {
+        if (cb_.randomBytes) return cb_.randomBytes(out);
+        for (size_t i = 0; i < out.size(); ++i) out[i] = uint8_t(i * 17 + 31);
+        return !out.empty();
+    };
     return sc;
 }
 
@@ -50,6 +59,13 @@ void ClientPump::Start(const ClientPumpConfig& cfg, uint64_t nowUs) {
     cfg_ = cfg;
     linkStats_ = LinkStats(nowUs);
     windowBytes_ = 0;
+
+    session_.ClearSessionKey();
+    if (cfg.sessionKeyHex.size() == 64) {
+        uint8_t key[crypto::kKeySize];
+        if (crypto::KeyFromHex(cfg.sessionKeyHex, key)) session_.SetSessionKey(key);
+        crypto::SecureWipe(std::span<uint8_t>(key, sizeof(key)));
+    }
 
     Hello hello;
     hello.clientId = cfg.clientId;
@@ -75,16 +91,31 @@ void ClientPump::EnsureReassembler() {
 }
 
 void ClientPump::OnDatagram(std::span<const uint8_t> pkt, uint64_t nowUs) {
-    const auto h = ParseCommonHeader(pkt);
-    if (!h) return;
+    const auto h0 = ParseCommonHeader(pkt);
+    if (!h0) return;
 
-    if (h->chan != Chan::Video) {
+    if (h0->chan != Chan::Video) {
         session_.HandlePacket(pkt, nowUs);
         return;
     }
+
+    std::vector<uint8_t> decrypted;
+    std::span<const uint8_t> work = pkt;
+    const bool wireEncrypted = (h0->flags & crypto::kHdrFlagEncrypted) != 0;
+    if (wireEncrypted) {
+        auto opened = session_.cipher().OpenDatagram(pkt);
+        if (!opened) return;
+        decrypted = std::move(*opened);
+        work = decrypted;
+    } else if (session_.cipher().hasKey()) {
+        return;
+    }
+
+    const auto h = ParseCommonHeader(work);
+    if (!h) return;
     if (h->sessionId != session_.sessionId() || session_.sessionId() == 0) return;
 
-    const auto pl = PayloadOf(pkt);
+    const auto pl = PayloadOf(work);
     EnsureReassembler();
 
     if (h->type == MsgType::FecPacket) {

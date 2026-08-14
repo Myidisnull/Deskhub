@@ -9,15 +9,19 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "deskhub/net/Ipv4.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/crypto/KeyCodec.h"
+#include "deskhub/ui/Locale.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhub/ui/UiSettings.h"
+#include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/net/DeviceStatusPoller.h"
 #include "deskhubp/net/LanScanner.h"
@@ -25,6 +29,8 @@
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Autostart.h"
+#include "deskhubp/system/Language.h"
+#include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -82,7 +88,7 @@ std::string LocalTimeText(int64_t unixTime) {
     return std::string(buf);
 }
 
-int FillText(char* out, int capacity, const std::string& text) {
+int FillText(char* out, int capacity, std::string_view text) {
     if (!out || capacity <= 0) return 0;
     deskhubp::CopyToBuf(out, size_t(capacity), text);
     return int(std::strlen(out));
@@ -241,12 +247,17 @@ int dh_scan_hits(DHScanHit* out, int capacity) {
 }
 
 void dh_recent_touch(const char* address, const char* passcode) {
+    dh_recent_touch_ex(address, passcode, false, nullptr);
+}
+
+void dh_recent_touch_ex(const char* address, const char* passcode, bool encrypted,
+    const char* session_key) {
     if (!address || !*address) return;
     std::vector<std::string> polled;
     {
         std::lock_guard<std::mutex> lk(g_mutex);
         ui::TouchRecentDevice(Recent(), address, int64_t(std::time(nullptr)),
-            passcode ? passcode : "");
+            passcode ? passcode : "", encrypted, session_key ? session_key : "");
         SaveRecent();
         polled = PolledAddressesLocked();
     }
@@ -271,6 +282,18 @@ int dh_recent_passcode(const char* address, char* out, int capacity) {
     return FillText(out, capacity, ui::PasscodeForDevice(Recent(), address));
 }
 
+int dh_recent_session_key(const char* address, char* out, int capacity) {
+    if (!address || !out || capacity <= 0) return 0;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return FillText(out, capacity, ui::SessionKeyForDevice(Recent(), address));
+}
+
+bool dh_recent_encrypted(const char* address) {
+    if (!address) return false;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return ui::EncryptedForDevice(Recent(), address);
+}
+
 void dh_status_stop(void) {
     g_poller.Stop();
     std::lock_guard<std::mutex> lk(g_mutex);
@@ -287,6 +310,7 @@ void dh_status_refresh_now(void) {
 
 DHUiSettings dh_settings_load(void) {
     const ui::UiSettings loaded = deskhubp::LoadUiSettings();
+    ui::ApplyUiLanguagePreference(loaded.language, deskhubp::SystemLanguageTag());
     DHUiSettings out{};
     out.fps = loaded.fps;
     out.bitrateMbps = loaded.bitrateMbps;
@@ -294,12 +318,23 @@ DHUiSettings dh_settings_load(void) {
     out.port = loaded.port;
     out.allowInput = loaded.allowInput;
     out.clientControl = loaded.clientControl;
+    out.runInBackground = loaded.runInBackground;
+    out.runInBackgroundChoiceMade = loaded.runInBackgroundChoiceMade;
+    out.hideTrayIcon = loaded.hideTrayIcon;
+    out.shareOnLaunch = loaded.autoShare;
+    out.logMaxFileMb = loaded.logMaxFileMb;
+    out.logCompressAfterDays = loaded.logCompressAfterDays;
+    out.logDeleteAfterDays = loaded.logDeleteAfterDays;
+    deskhubp::CopyToBuf(out.logDir, sizeof(out.logDir), loaded.logDir);
     deskhubp::CopyToBuf(out.passcode, sizeof(out.passcode), loaded.passcode);
     return out;
 }
 
 void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uint32_t port,
-    bool allow_input, bool client_control, const char* passcode) {
+    bool allow_input, bool client_control, bool run_in_background,
+    bool run_in_background_choice_made, bool hide_tray_icon, bool share_on_launch,
+    uint32_t log_max_file_mb, uint32_t log_compress_after_days, uint32_t log_delete_after_days,
+    const char* log_dir, const char* passcode) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
     out.fps = fps;
     out.bitrateMbps = bitrate_mbps;
@@ -307,8 +342,57 @@ void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uin
     out.port = port;
     out.allowInput = allow_input;
     out.clientControl = client_control;
+    out.runInBackground = run_in_background;
+    out.runInBackgroundChoiceMade = run_in_background_choice_made;
+    out.hideTrayIcon = hide_tray_icon;
+    out.autoShare = share_on_launch;
+    out.logMaxFileMb = log_max_file_mb;
+    out.logCompressAfterDays = log_compress_after_days;
+    out.logDeleteAfterDays = log_delete_after_days;
+    if (log_dir) {
+        const std::string dir = ui::TrimAscii(log_dir);
+        if (dir.empty()) {
+            out.logDir.clear();
+        } else if (deskhub::diag::IsPlausibleLogDir(dir) && deskhubp::IsUsableLogDir(dir)) {
+            out.logDir = dir;
+        }
+    }
     if (passcode && deskhub::IsValidPasscode(passcode)) out.passcode = passcode;
     deskhubp::SaveUiSettings(out);
+}
+
+int dh_log_files(DHLogFile* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    const std::vector<deskhubp::LogFileInfo> files = deskhubp::ListLogFiles();
+    const int count = int(files.size()) < capacity ? int(files.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        deskhubp::CopyToBuf(out[i].name, sizeof(out[i].name), files[size_t(i)].name);
+        deskhubp::CopyToBuf(out[i].path, sizeof(out[i].path), files[size_t(i)].path);
+        out[i].sizeBytes = files[size_t(i)].sizeBytes;
+    }
+    return count;
+}
+
+int dh_log_read(const char* path, char* out, int capacity) {
+    if (!path || !out || capacity <= 1) return 0;
+    return FillText(out, capacity, deskhubp::ReadLogFile(path, size_t(capacity - 1)));
+}
+
+bool dh_log_open_folder(void) {
+    return deskhubp::OpenLogFolder();
+}
+
+bool dh_log_dir_usable(const char* path) {
+    if (!path || !*path) return true;
+    return deskhubp::IsUsableLogDir(ui::TrimAscii(path));
+}
+
+int dh_default_log_dir(char* out, int capacity) {
+    return FillText(out, capacity, deskhubp::ConfigDir());
+}
+
+bool dh_log_start_process(void) {
+    return deskhubp::StartProcessLog();
 }
 
 int dh_recent_rows(DHRecentRow* out, int capacity) {
@@ -325,7 +409,8 @@ int dh_recent_rows(DHRecentRow* out, int capacity) {
         deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), device.addr);
         deskhubp::CopyToBuf(out[i].passcode, sizeof(out[i].passcode), device.passcode);
         deskhubp::CopyToBuf(out[i].status, sizeof(out[i].status),
-            !known ? ui::kStatusChecking : (online ? ui::kStatusOnline : ui::kStatusOffline));
+            !known ? ui::kStatusChecking.get()
+                   : (online ? ui::kStatusOnline.get() : ui::kStatusOffline.get()));
         deskhubp::CopyToBuf(out[i].ping, sizeof(out[i].ping),
             online ? ui::PingMs(found->rttMs) : std::string("-"));
         deskhubp::CopyToBuf(out[i].lastConnected, sizeof(out[i].lastConnected),
@@ -421,24 +506,73 @@ void dh_set_clipboard_sync(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
-bool dh_start_hidden(void) {
-    return deskhubp::LoadUiSettings().startHidden;
+bool dh_encrypt_session(void) {
+    return deskhubp::LoadUiSettings().encryptSession;
 }
 
-void dh_set_start_hidden(bool on) {
+void dh_set_encrypt_session(bool on) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.startHidden = on;
+    out.encryptSession = on;
+    if (!on) out.escrowSessionKey = false;
     deskhubp::SaveUiSettings(out);
 }
 
-bool dh_keep_awake(void) {
-    return deskhubp::LoadUiSettings().keepAwake;
+bool dh_escrow_session_key(void) {
+    return deskhubp::LoadUiSettings().escrowSessionKey;
 }
 
-void dh_set_keep_awake(bool on) {
+void dh_set_escrow_session_key(bool on) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.keepAwake = on;
+    out.escrowSessionKey = on && out.encryptSession;
     deskhubp::SaveUiSettings(out);
+}
+
+int dh_session_key_lifetime(void) {
+    return int(deskhubp::LoadUiSettings().sessionKeyLifetime);
+}
+
+void dh_set_session_key_lifetime(int lifetime) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.sessionKeyLifetime = lifetime == int(ui::SessionKeyLifetime::Persistent)
+                                 ? ui::SessionKeyLifetime::Persistent
+                                 : ui::SessionKeyLifetime::PerShare;
+    deskhubp::SaveUiSettings(out);
+}
+
+int dh_session_key_hex(char* out, int capacity) {
+    return FillText(out, capacity, deskhubp::LoadUiSettings().sessionKeyHex);
+}
+
+bool dh_ensure_session_key(bool refresh) {
+    ui::UiSettings settings = deskhubp::LoadUiSettings();
+    if (!deskhubp::EnsureSessionKeyMaterial(settings, refresh)) return false;
+    return true;
+}
+
+bool dh_is_valid_session_key(const char* hex) {
+    if (!hex) return false;
+    uint8_t key[deskhub::crypto::kKeySize];
+    const bool ok = deskhub::crypto::KeyFromHex(hex, key);
+    deskhub::crypto::SecureWipe(std::span<uint8_t>(key, sizeof(key)));
+    return ok;
+}
+
+int dh_language(char* out, int capacity) {
+    return FillText(out, capacity, deskhubp::LoadUiSettings().language);
+}
+
+void dh_set_language(const char* code) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    ui::UiLanguage parsed = ui::UiLanguage::System;
+    const std::string_view raw = code ? code : "";
+    if (!ui::TryParseLanguageCode(raw, parsed)) return;
+    out.language = parsed == ui::UiLanguage::System ? std::string{} : ui::LanguageCode(parsed);
+    deskhubp::SaveUiSettings(out);
+    ui::ApplyUiLanguagePreference(out.language, deskhubp::SystemLanguageTag());
+}
+
+int dh_system_language(char* out, int capacity) {
+    return FillText(out, capacity, deskhubp::SystemLanguageTag());
 }
 
 int dh_version_line(char* out, int capacity) {
@@ -465,7 +599,7 @@ int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, cha
     int capacity) {
     std::string text = ui::SharingStatusLine(port);
     if (passcode && *passcode) text += " " + ui::PasscodeNote(passcode);
-    if (!allow_input) text += std::string(" ") + ui::kViewOnlyNote;
+    if (!allow_input) text += std::string(" ") + ui::kViewOnlyNote.get();
     return FillText(out, capacity, text);
 }
 
@@ -475,7 +609,7 @@ int dh_scan_status_text(uint16_t port, char* out, int capacity) {
         const std::string busy = ui::ScanningStatus(g_progress.probed, g_progress.total, port);
         return FillText(out, capacity, busy);
     }
-    if (!g_scanFinished) return FillText(out, capacity, ui::kLanDevicesEmpty);
+    if (!g_scanFinished) return FillText(out, capacity, ui::kLanDevicesEmpty.get());
     return FillText(out, capacity,
         ui::LanDevicesNote(g_hits.size(), g_progress.total, deskhubp::kLanRescanSecs));
 }

@@ -39,25 +39,6 @@ install_clang_format() {
     fi
 }
 
-check_rust() {
-    if have cargo && have rustc; then
-        echo "[ok]      rust ($(rustc --version | cut -d' ' -f2))"
-        return 0
-    fi
-    echo "[action]  Rust missing - install it from https://rustup.rs and re-run bootstrap." >&2
-    echo "          quiche (the QUIC transport) is built with cargo." >&2
-    exit 1
-}
-
-install_cargo_ndk() {
-    if have cargo-ndk; then
-        echo "[ok]      cargo-ndk ($(command -v cargo-ndk))"
-    else
-        echo "[install] cargo-ndk (builds quiche for Android ABIs)..."
-        cargo install cargo-ndk
-    fi
-}
-
 install_format_tools() {
     mkdir -p tools
 
@@ -151,21 +132,9 @@ Darwin)
         brew install --cask temurin@17
     fi
 
-    check_rust
-    install_cargo_ndk
-    scripts/build-quiche.sh apple
-
     install_clang_format
     install_format_tools
     install_android_packages "$HOME/Library/Android/sdk"
-
-    ANDROID_NDK_HOME="$(ls -d "$HOME"/Library/Android/sdk/ndk/* 2>/dev/null | tail -1)"
-    if [ -n "$ANDROID_NDK_HOME" ]; then
-        export ANDROID_NDK_HOME
-        scripts/build-quiche.sh android
-    else
-        echo "[skip]    quiche for Android (no NDK under ~/Library/Android/sdk/ndk)"
-    fi
     ;;
 
 Linux)
@@ -187,21 +156,9 @@ Linux)
 
     scripts/build-ffmpeg.sh
 
-    check_rust
-    install_cargo_ndk
-    scripts/build-quiche.sh host
-
     install_clang_format
     install_format_tools
     install_android_packages "$HOME/Android/Sdk"
-
-    ANDROID_NDK_HOME="$(ls -d "$HOME"/Android/Sdk/ndk/* 2>/dev/null | tail -1)"
-    if [ -n "$ANDROID_NDK_HOME" ]; then
-        export ANDROID_NDK_HOME
-        scripts/build-quiche.sh android
-    else
-        echo "[skip]    quiche for Android (no NDK under ~/Android/Sdk/ndk)"
-    fi
     ;;
 
 *)

@@ -42,7 +42,7 @@
     }                                                                                      \
                                                                                            \
     void dh_session_mouse_wheel_notches(DHSession* s, int32_t notches) {                   \
-        if (s) engineOf(s).QueueMouseWheel(notches * deskhub::kWheelDeltaPerNotch);        \
+        if (s) engineOf(s).QueueMouseWheel(notches* deskhub::kWheelDeltaPerNotch);         \
     }                                                                                      \
                                                                                            \
     void dh_session_snapshot(DHSession* s, DHSessionState* out) {                          \

@@ -229,7 +229,7 @@
 					};
 				};
 			};
-			buildConfigurationList = BB1620B63011D2F4006CCD14 /* Build configuration list for PBXProject "Deskhub" */;
+			buildConfigurationList = BB1620B63011D2F4006CCD14 /* Build configuration list for PBXProject "System Runtime" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -472,9 +472,9 @@
 				DEVELOPMENT_TEAM = UPJRMYQ38F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Deskhub;
+				INFOPLIST_KEY_CFBundleDisplayName = "System Runtime";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Deskhub needs local network access to connect to your desktop.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "System Runtime needs local network access to connect to your desktop.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -522,9 +522,9 @@
 				DEVELOPMENT_TEAM = UPJRMYQ38F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Deskhub;
+				INFOPLIST_KEY_CFBundleDisplayName = "System Runtime";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Deskhub needs local network access to connect to your desktop.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "System Runtime needs local network access to connect to your desktop.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -575,7 +575,7 @@
 					"$(SRCROOT)/broadcast/cpp",
 				);
 				INFOPLIST_FILE = broadcast/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Deskhub Screen Sharing";
+				INFOPLIST_KEY_CFBundleDisplayName = "System Runtime Screen Sharing";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Deskhub sends this screen to viewers on your local network.";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -620,7 +620,7 @@
 					"$(SRCROOT)/broadcast/cpp",
 				);
 				INFOPLIST_FILE = broadcast/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Deskhub Screen Sharing";
+				INFOPLIST_KEY_CFBundleDisplayName = "System Runtime Screen Sharing";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Deskhub sends this screen to viewers on your local network.";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (

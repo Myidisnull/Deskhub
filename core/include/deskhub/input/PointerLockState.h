@@ -17,7 +17,8 @@ struct PointerLockEffect {
 class PointerLockState {
 public:
     PointerLockState() = default;
-    explicit PointerLockState(bool locked) : locked_(locked) {}
+    explicit PointerLockState(bool locked)
+        : locked_(locked) {}
 
     bool locked() const {
         return locked_;

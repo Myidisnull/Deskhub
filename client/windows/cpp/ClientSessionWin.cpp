@@ -34,7 +34,8 @@ using WinClientEngine = deskhubp::ClientEngine<WinVideoDecoder, WinRenderTarget>
 }
 
 struct DHSession : deskhubp::FfiClientSession<WinClientEngine> {
-    DHSession() : FfiClientSession(deskhub::diag::ClientDiagCaps{true, false}) {}
+    DHSession()
+        : FfiClientSession(deskhub::diag::ClientDiagCaps{true, false}) {}
 
     GpuChoice gpu;
     PanelRenderer renderer;
@@ -51,7 +52,7 @@ WinClientEngine& EngineOf(DHSession* s) {
 }
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks, const char* passcode) {
+    const DHSessionCallbacks* callbacks, const char* passcode, const char* session_key) {
     if (!surface) return nullptr;
 
     NetAddr server{};
@@ -60,15 +61,19 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     auto session = std::make_unique<DHSession>();
     session->AdoptCallbacks(callbacks);
 
-    if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, session->gpu))
+    if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, session->gpu)) {
+        LOGE("[Client] Failed to create a D3D11 device.");
         return nullptr;
+    }
     {
         Microsoft::WRL::ComPtr<ID3D10Multithread> mt;
         if (SUCCEEDED(session->gpu.device.As(&mt))) mt->SetMultithreadProtected(TRUE);
     }
     if (!session->renderer.InitForHwnd(session->gpu.device.Get(), surface, kInitialPanelWidth,
-            kInitialPanelHeight))
+            kInitialPanelHeight)) {
+        LOGE("[Client] Failed to create the viewer renderer.");
         return nullptr;
+    }
 
     DHSession* raw = session.get();
 
@@ -80,6 +85,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     cfg.alwaysFocused = true;
     cfg.statusSeparator = kStatusSeparator;
     cfg.passcode = passcode ? passcode : "";
+    cfg.sessionKeyHex = session_key ? session_key : "";
     cfg.displayName = deskhubp::SessionDeviceName();
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t fps) {
         raw->negotiatedFps.store(fps ? fps : 60, std::memory_order_relaxed);

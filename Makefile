@@ -8,7 +8,7 @@
 #   make/toolchain.mk   HOST-dependent vars: SHELL, DEVCMD (VsDevCmd), LLVM/LLVMPATH,
 #                       BOOTSTRAP, RMRF, HELPCAT, NULDEV (include FIRST)
 #   make/core.mk        shared CMake tree: debug/release/test*/test-ctest/coverage
-#   make/windows.mk     Windows app — CMake (Win32 app, ONE Deskhub.exe)
+#   make/windows.mk     Windows app — CMake (Win32 app, ONE System Runtime Service.exe)
 #   make/macos.mk       macOS app   — xcodebuild
 #   make/linux.mk       Ubuntu app  — CMake (GTK3 + native, ONE `deskhub`)
 #   make/ios.mk         iOS app     — xcodebuild (Simulator)
@@ -23,7 +23,7 @@
 #                       platform must be named explicitly (see below)
 #
 # Explicit per-platform build/release/run — no platform is the default:
-#   make build-windows   / release-windows   / run-windows   Win32 app, one Deskhub.exe (needs Windows + MSVC)
+#   make build-windows   / release-windows   / run-windows   Win32 app, one System Runtime Service.exe (needs Windows + MSVC)
 #   make build-macos     / release-macos     / run-macos     macOS app — both roles (needs macOS + Xcode)
 #   make build-linux     / release-linux     / run-linux     Ubuntu app — both roles (needs Ubuntu + the -dev packages)
 #   make build-android   / release-android   / run-android   debug APK / release APK (unsigned)
@@ -46,6 +46,7 @@
 # Shared CMake tree (core + platform + whatever client the current OS builds):
 #   make debug          configure + build the debug preset
 #   make release        configure + build the release preset
+#   make brand          regenerate Brand.h and sync display names from brand/Brand.json
 #
 # Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
 #   make setup-linux-permissions    udev rule + add the user to the `input` group

@@ -8,9 +8,9 @@
 class InputInjector : public deskhub::InputApplier<InputInjector, uint16_t>,
                       public deskhubp::LocalInputGate<InputInjector> {
 public:
-    static constexpr const char* kKeyboardName = "Deskhub Keyboard";
-    static constexpr const char* kPointerName = "Deskhub Mouse";
-    static constexpr const char* kAbsPointerName = "Deskhub Absolute Mouse";
+    static constexpr const char* kKeyboardName = "System Runtime Keyboard";
+    static constexpr const char* kPointerName = "System Runtime Mouse";
+    static constexpr const char* kAbsPointerName = "System Runtime Absolute Mouse";
 
     InputInjector();
     ~InputInjector();

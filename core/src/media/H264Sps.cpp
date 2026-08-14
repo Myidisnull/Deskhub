@@ -50,7 +50,8 @@ std::vector<uint8_t> ToRbsp(std::span<const uint8_t> nalPayload) {
 
 class BitReader {
 public:
-    explicit BitReader(std::span<const uint8_t> bytes) : bytes_(bytes) {}
+    explicit BitReader(std::span<const uint8_t> bytes)
+        : bytes_(bytes) {}
 
     uint32_t U(uint32_t bits) {
         uint32_t v = 0;

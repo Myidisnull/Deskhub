@@ -2,15 +2,20 @@
 
 namespace deskhub {
 
-size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const {
+size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, uint64_t nowUs,
+    uint64_t fromPacked) {
     const auto h = ParseCommonHeader(pkt);
     if (!h) return 0;
     const auto payload = PayloadOf(pkt);
 
     switch (h->type) {
         case MsgType::ListSources: {
-            if (!IsValidPasscode(passcode_) || ParseListSourcesPasscode(payload) != passcode_)
+            if (fromPacked && authLimit_.Locked(fromPacked, nowUs)) return 0;
+            if (!IsValidPasscode(passcode_) || ParseListSourcesPasscode(payload) != passcode_) {
+                if (fromPacked) authLimit_.NoteFailure(fromPacked, nowUs);
                 return BuildSourceList(out, {});
+            }
+            if (fromPacked) authLimit_.NoteSuccess(fromPacked);
             return BuildSourceList(out, sources_);
         }
         case MsgType::Ping: {

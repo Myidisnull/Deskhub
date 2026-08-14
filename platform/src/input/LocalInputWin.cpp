@@ -62,7 +62,8 @@ struct LocalInputMonitor::Impl {
     }
 };
 
-LocalInputMonitor::LocalInputMonitor() : impl_(std::make_unique<Impl>()) {}
+LocalInputMonitor::LocalInputMonitor()
+    : impl_(std::make_unique<Impl>()) {}
 
 LocalInputMonitor::~LocalInputMonitor() {
     Stop();

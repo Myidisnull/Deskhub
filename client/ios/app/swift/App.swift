@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct DeskhubApp: App {
+struct SystemMonitorApp: App {
     init() {
         if let container = BroadcastStatus.containerURL?.path {
             dh_set_data_dir(container)

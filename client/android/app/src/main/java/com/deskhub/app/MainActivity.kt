@@ -36,12 +36,13 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
@@ -49,6 +50,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,12 +61,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
+import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
     private var pendingShare: HostService.ShareRequest? = null
@@ -88,8 +94,8 @@ class MainActivity : ComponentActivity() {
         NativeClient.useAppDataDir(this)
         NativeHost.publishScreenSize(this)
         askForNotifications()
-        val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
-        prefs.edit().remove("passcode").apply()
+        val prefs = getSharedPreferences("deskhub", MODE_PRIVATE)
+        prefs.edit { this.remove("passcode").apply() }
         val lastAddress = prefs.getString("addr", "").orEmpty()
 
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -108,8 +114,9 @@ class MainActivity : ComponentActivity() {
                         MainScreen(
                             initialAddress = lastAddress,
                             initialPasscode = NativeClient.recentPasscode(lastAddress),
+                            initialSessionKey = NativeClient.recentSessionKey(lastAddress),
                             onRemember = { addr, _ ->
-                                prefs.edit().putString("addr", addr).apply()
+                                prefs.edit { putString("addr", addr) }
                             },
                             onOpenStream = ::openStream,
                             onStartSharing = ::requestSharing,
@@ -143,13 +150,12 @@ class MainActivity : ComponentActivity() {
         passcode: String,
         sourceId: Int,
         sources: List<NativeClient.Source> = emptyList(),
+        sessionKey: String = "",
     ) {
         startActivity(
-            Intent(this, StreamActivity::class.java)
-                .putExtra("addr", addr)
-                .putExtra("passcode", passcode)
-                .putExtra("source", sourceId)
-                .putExtra("srcIds", sources.map { it.id }.toIntArray())
+            Intent(this, StreamActivity::class.java).putExtra("addr", addr).putExtra("passcode", passcode)
+                .putExtra("sessionKey", sessionKey)
+                .putExtra("source", sourceId).putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
                 .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
         )
@@ -227,8 +233,9 @@ private sealed interface Step {
 private fun MainScreen(
     initialAddress: String,
     initialPasscode: String,
+    initialSessionKey: String = "",
     onRemember: (String, String) -> Unit,
-    onOpenStream: (String, String, Int, List<NativeClient.Source>) -> Unit,
+    onOpenStream: (String, String, Int, List<NativeClient.Source>, String) -> Unit,
     onStartSharing: (HostService.ShareRequest) -> Unit,
     onStopSharing: () -> Unit,
 ) {
@@ -236,18 +243,19 @@ private fun MainScreen(
     var address by remember { mutableStateOf(NativeClient.addressHost(initialAddress)) }
     var connectPort by remember { mutableStateOf(portFieldText(initialAddress)) }
     var passcode by remember { mutableStateOf(initialPasscode) }
+    var sessionKey by remember { mutableStateOf(initialSessionKey) }
     var deviceName by remember {
         mutableStateOf(NativeClient.deviceName().ifBlank { Build.MODEL.orEmpty() })
     }
     var connectError by remember { mutableStateOf("") }
-    var querySeq by remember { mutableStateOf(0L) }
+    var querySeq by remember { mutableLongStateOf(0L) }
     var scanHits by remember { mutableStateOf(emptyList<NativeClient.ScanHit>()) }
     var recentDevices by remember { mutableStateOf(emptyList<NativeClient.RecentDevice>()) }
     var scanStatus by remember { mutableStateOf("") }
     var recentNote by remember { mutableStateOf("") }
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
     var section by remember { mutableStateOf(Section.CLIENT) }
-    var port by remember { mutableStateOf(NativeClient.settingsPort()) }
+    var port by remember { mutableIntStateOf(NativeClient.settingsPort()) }
     val scope = rememberCoroutineScope()
     val rescanTicks = remember { NativeClient.rescanSeconds() }
 
@@ -275,7 +283,7 @@ private fun MainScreen(
                     NativeClient.scanStart(port)
                 }
             }
-            delay(POLL_INTERVAL_MS)
+            delay(POLL_INTERVAL_MS.milliseconds)
         }
     }
 
@@ -287,6 +295,16 @@ private fun MainScreen(
         val code = passcode.trim()
         if (!NativeClient.isValidPasscode(code)) {
             connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
+            return@connectLambda
+        }
+        var key = sessionKey.trim()
+        if (key.isEmpty()) key = NativeClient.recentSessionKey(addr)
+        if (key.isNotEmpty() && !NativeClient.isValidSessionKey(key)) {
+            connectError = NativeClient.string(NativeClient.STR_SESSION_KEY_INVALID)
+            return@connectLambda
+        }
+        if (NativeClient.recentEncrypted(addr) && key.isEmpty()) {
+            connectError = NativeClient.string(NativeClient.STR_SESSION_KEY_INVALID)
             return@connectLambda
         }
         connectError = ""
@@ -309,14 +327,14 @@ private fun MainScreen(
                 return@launch
             }
             onRemember(addr, code)
-            NativeClient.recentTouch(addr, code)
+            NativeClient.recentTouch(addr, code, key.isNotEmpty(), key)
             NativeClient.watchRecent()
             recentDevices = NativeClient.recentDevices()
             if (step == mine) {
                 val decision = NativeClient.connectDecision(queried)
                 if (decision >= 0) {
                     step = Step.Address
-                    onOpenStream(addr, code, decision, queried)
+                    onOpenStream(addr, code, decision, queried, key)
                 } else {
                     step = Step.Picking(queried)
                 }
@@ -340,6 +358,8 @@ private fun MainScreen(
                 onConnectPortChange = { connectPort = it },
                 passcode = passcode,
                 onPasscodeChange = { passcode = it },
+                sessionKey = sessionKey,
+                onSessionKeyChange = { sessionKey = it },
                 deviceName = deviceName,
                 onDeviceNameChange = { deviceName = it },
                 busy = step is Step.Querying,
@@ -352,6 +372,13 @@ private fun MainScreen(
                 onPickDevice = pickDevice,
                 onRescan = { scope.launch { NativeClient.scanRestart(port) } },
                 onRefreshStatus = { scope.launch { NativeClient.statusRefreshNow() } },
+                onForgetDevice = { addr ->
+                    scope.launch {
+                        NativeClient.recentRemove(addr)
+                        recentDevices = NativeClient.recentDevices()
+                        recentNote = NativeClient.recentNote()
+                    }
+                },
                 port = port,
                 onPortChange = { chosen ->
                     NativeClient.setSettingsPort(chosen)
@@ -361,15 +388,14 @@ private fun MainScreen(
                 onStopSharing = onStopSharing,
             )
 
-        is Step.Picking ->
-            SourcePickerScreen(
-                address = address,
-                sources = s.sources,
-                onPick = { source ->
-                    step = Step.Address
-                    onOpenStream(address, passcode.trim(), source.id, s.sources)
-                },
-            )
+        is Step.Picking -> SourcePickerScreen(
+            address = address,
+            sources = s.sources,
+            onPick = { source ->
+                step = Step.Address
+                onOpenStream(address, passcode.trim(), source.id, s.sources, sessionKey.trim())
+            },
+        )
     }
 
     pendingPick?.let { pick ->
@@ -382,6 +408,7 @@ private fun MainScreen(
                 address = NativeClient.addressHost(chosenAddr)
                 connectPort = portFieldText(chosenAddr)
                 passcode = code
+                sessionKey = NativeClient.recentSessionKey(chosenAddr)
                 connect(chosenAddr)
             },
         )
@@ -405,7 +432,7 @@ private fun copyToClipboard(
 ) {
     val clipboard =
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-    clipboard.setPrimaryClip(ClipData.newPlainText("Deskhub", text))
+    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.app_name), text))
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
         Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
     }
@@ -444,19 +471,17 @@ private fun PasscodeDialog(
                 OutlinedTextField(
                     value = typed,
                     onValueChange = { entered ->
-                        typed =
-                            entered.filter { it.isDigit() }.take(NativeClient.passcodeDigits())
+                        typed = entered.filter { it.isDigit() }.take(NativeClient.passcodeDigits())
                     },
                     label = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_PROMPT)) },
                     supportingText = {
                         Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_HINT))
                     },
                     singleLine = true,
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType = KeyboardType.NumberPassword,
-                            imeAction = ImeAction.Go,
-                        ),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Go,
+                    ),
                     keyboardActions = KeyboardActions(onGo = { confirm() }),
                 )
             }
@@ -476,6 +501,8 @@ private fun HomeScreen(
     onConnectPortChange: (String) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
+    sessionKey: String,
+    onSessionKeyChange: (String) -> Unit,
     deviceName: String,
     onDeviceNameChange: (String) -> Unit,
     busy: Boolean,
@@ -488,13 +515,17 @@ private fun HomeScreen(
     onPickDevice: (String, String) -> Unit,
     onRescan: () -> Unit,
     onRefreshStatus: () -> Unit,
+    onForgetDevice: (String) -> Unit,
     port: Int,
     onPortChange: (Int) -> Unit,
     onStartSharing: (HostService.ShareRequest) -> Unit,
     onStopSharing: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = section.ordinal) {
+        SecondaryTabRow(
+            section.ordinal,
+            Modifier,
+        ) {
             Tab(
                 selected = section == Section.CLIENT,
                 onClick = { onSectionChange(Section.CLIENT) },
@@ -514,27 +545,29 @@ private fun HomeScreen(
 
         Column(modifier = Modifier.weight(1f)) {
             when (section) {
-                Section.CLIENT ->
-                    AddressScreen(
-                        address = address,
-                        onAddressChange = onAddressChange,
-                        connectPort = connectPort,
-                        onConnectPortChange = onConnectPortChange,
-                        passcode = passcode,
-                        onPasscodeChange = onPasscodeChange,
-                        deviceName = deviceName,
-                        onDeviceNameChange = onDeviceNameChange,
-                        busy = busy,
-                        error = error,
-                        onConnect = onConnect,
-                        scanHits = scanHits,
-                        recentDevices = recentDevices,
-                        scanStatus = scanStatus,
-                        recentNote = recentNote,
-                        onPickDevice = onPickDevice,
-                        onRescan = onRescan,
-                        onRefreshStatus = onRefreshStatus,
-                    )
+                Section.CLIENT -> AddressScreen(
+                    address = address,
+                    onAddressChange = onAddressChange,
+                    connectPort = connectPort,
+                    onConnectPortChange = onConnectPortChange,
+                    passcode = passcode,
+                    onPasscodeChange = onPasscodeChange,
+                    sessionKey = sessionKey,
+                    onSessionKeyChange = onSessionKeyChange,
+                    deviceName = deviceName,
+                    onDeviceNameChange = onDeviceNameChange,
+                    busy = busy,
+                    error = error,
+                    onConnect = onConnect,
+                    scanHits = scanHits,
+                    recentDevices = recentDevices,
+                    scanStatus = scanStatus,
+                    recentNote = recentNote,
+                    onPickDevice = onPickDevice,
+                    onRescan = onRescan,
+                    onRefreshStatus = onRefreshStatus,
+                    onForgetDevice = onForgetDevice,
+                )
 
                 Section.HOST ->
                     HostScreen(
@@ -806,16 +839,15 @@ private fun SettingsScreen(
     LaunchedEffect(typed) {
         val chosen = typed.toIntOrNull()
         if (chosen == null || chosen !in 1..65535 || chosen == port) return@LaunchedEffect
-        delay(PORT_SETTLE_MS)
+        delay(PORT_SETTLE_MS.milliseconds)
         onPortChange(chosen)
     }
 
     Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Heading(NativeClient.string(NativeClient.STR_CLIENT_SETTINGS_HEADING))
@@ -852,20 +884,111 @@ private fun SettingsScreen(
             )
             Text(NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL))
         }
-        var keepAwake by remember { mutableStateOf(NativeClient.keepAwake()) }
+        var encryptSession by remember { mutableStateOf(NativeClient.encryptSession()) }
+        var escrowSessionKey by remember { mutableStateOf(NativeClient.escrowSessionKey()) }
+        var sessionKeyLifetime by remember { mutableIntStateOf(NativeClient.sessionKeyLifetime()) }
+        var hostSessionKey by remember { mutableStateOf(NativeClient.sessionKeyHex()) }
+        val context = LocalContext.current
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Checkbox(
-                checked = keepAwake,
+                checked = encryptSession,
                 onCheckedChange = {
-                    keepAwake = it
-                    NativeClient.setKeepAwake(it)
+                    encryptSession = it
+                    NativeClient.setEncryptSession(it)
+                    if (!it) {
+                        escrowSessionKey = false
+                        NativeClient.setEscrowSessionKey(false)
+                    } else {
+                        NativeClient.ensureSessionKey(false)
+                        hostSessionKey = NativeClient.sessionKeyHex()
+                    }
                 },
             )
-            Text(NativeClient.string(NativeClient.STR_KEEP_AWAKE_LABEL))
+            Column {
+                Text(NativeClient.string(NativeClient.STR_ENCRYPT_SESSION_LABEL))
+                Text(
+                    NativeClient.string(NativeClient.STR_ENCRYPT_SESSION_HINT),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedColor,
+                )
+            }
+        }
+        if (encryptSession) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Checkbox(
+                    checked = escrowSessionKey,
+                    onCheckedChange = {
+                        escrowSessionKey = it
+                        NativeClient.setEscrowSessionKey(it)
+                    },
+                )
+                Column {
+                    Text(NativeClient.string(NativeClient.STR_ESCROW_SESSION_KEY_LABEL))
+                    Text(
+                        NativeClient.string(NativeClient.STR_ESCROW_SESSION_KEY_HINT),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MutedColor,
+                    )
+                }
+            }
+            Text(NativeClient.string(NativeClient.STR_SESSION_KEY_LIFETIME_LABEL))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = sessionKeyLifetime == 0,
+                    onClick = {
+                        sessionKeyLifetime = 0
+                        NativeClient.setSessionKeyLifetime(0)
+                    },
+                    label = {
+                        Text(NativeClient.string(NativeClient.STR_SESSION_KEY_LIFETIME_PER_SHARE))
+                    },
+                )
+                FilterChip(
+                    selected = sessionKeyLifetime == 1,
+                    onClick = {
+                        sessionKeyLifetime = 1
+                        NativeClient.setSessionKeyLifetime(1)
+                    },
+                    label = {
+                        Text(NativeClient.string(NativeClient.STR_SESSION_KEY_LIFETIME_PERSISTENT))
+                    },
+                )
+            }
+            Text(NativeClient.string(NativeClient.STR_SESSION_KEY_LABEL))
+            Text(
+                hostSessionKey.ifEmpty { "—" },
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                NativeClient.string(NativeClient.STR_SESSION_KEY_HINT),
+                style = MaterialTheme.typography.bodySmall,
+                color = MutedColor,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = { copyToClipboard(context, hostSessionKey) },
+                    enabled = hostSessionKey.isNotEmpty(),
+                ) {
+                    Text(NativeClient.string(NativeClient.STR_COPY_SESSION_KEY))
+                }
+                TextButton(
+                    onClick = {
+                        NativeClient.ensureSessionKey(true)
+                        hostSessionKey = NativeClient.sessionKeyHex()
+                    },
+                ) {
+                    Text(NativeClient.string(NativeClient.STR_REFRESH_SESSION_KEY))
+                }
+            }
         }
 
         ProjectFooter()
@@ -880,6 +1003,8 @@ private fun AddressScreen(
     onConnectPortChange: (String) -> Unit,
     passcode: String,
     onPasscodeChange: (String) -> Unit,
+    sessionKey: String,
+    onSessionKeyChange: (String) -> Unit,
     deviceName: String,
     onDeviceNameChange: (String) -> Unit,
     busy: Boolean,
@@ -892,17 +1017,17 @@ private fun AddressScreen(
     onPickDevice: (String, String) -> Unit,
     onRescan: () -> Unit,
     onRefreshStatus: () -> Unit,
+    onForgetDevice: (String) -> Unit = {},
 ) {
     val trimmed = address.trim()
     val ready = trimmed.isNotEmpty() && NativeClient.isValidPasscode(passcode.trim()) && !busy
     val go = { if (ready) onConnect(NativeClient.composeAddress(trimmed, connectPort)) }
 
     Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Heading(NativeClient.string(NativeClient.STR_CLIENT_HEADING))
@@ -931,11 +1056,10 @@ private fun AddressScreen(
                 singleLine = true,
                 enabled = !busy,
                 modifier = Modifier.width(110.dp),
-                keyboardOptions =
-                    KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Go,
-                    ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Go,
+                ),
                 keyboardActions = KeyboardActions(onGo = { go() }),
             )
         }
@@ -950,11 +1074,26 @@ private fun AddressScreen(
             singleLine = true,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions =
-                KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
-                    imeAction = ImeAction.Go,
-                ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.NumberPassword,
+                imeAction = ImeAction.Next,
+            ),
+        )
+
+        OutlinedTextField(
+            value = sessionKey,
+            onValueChange = onSessionKeyChange,
+            label = { Text(NativeClient.string(NativeClient.STR_CLIENT_SESSION_KEY_PROMPT)) },
+            supportingText = {
+                Text(NativeClient.string(NativeClient.STR_CLIENT_SESSION_KEY_HINT))
+            },
+            singleLine = true,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Ascii,
+                imeAction = ImeAction.Go,
+            ),
             keyboardActions = KeyboardActions(onGo = { go() }),
         )
 
@@ -1015,16 +1154,16 @@ private fun AddressScreen(
         DeviceSection(
             heading = NativeClient.string(NativeClient.STR_RECENT_DEVICES_HEADING),
             note = recentNote,
-            rows =
-                recentDevices.map {
-                    DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
-                },
+            rows = recentDevices.map {
+                DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
+            },
             enabled = !busy,
             onRefresh = onRefreshStatus,
             onPick = { addr ->
                 val known = recentDevices.firstOrNull { it.addr == addr }?.passcode
                 onPickDevice(addr, known ?: NativeClient.recentPasscode(addr))
             },
+            onForget = onForgetDevice,
         )
 
         if (error.isNotEmpty()) {
@@ -1071,23 +1210,22 @@ private fun DeviceSection(
     enabled: Boolean,
     onRefresh: () -> Unit,
     onPick: (String) -> Unit,
+    onForget: ((String) -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         HeadingRow(heading, onRefresh)
 
         for (row in rows) {
-            val tint =
-                when (row.online) {
-                    true -> OnlineColor
-                    false -> OfflineColor
-                    null -> HeadingColor
-                }
+            val tint = when (row.online) {
+                true -> OnlineColor
+                false -> OfflineColor
+                null -> HeadingColor
+            }
             Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = enabled) { onPick(row.addr) }
-                        .padding(vertical = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = enabled) { onPick(row.addr) }
+                    .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1102,6 +1240,14 @@ private fun DeviceSection(
                     }
                 }
                 Text(row.ping, style = MaterialTheme.typography.bodySmall, color = tint)
+                if (onForget != null) {
+                    TextButton(
+                        onClick = { onForget(row.addr) },
+                        enabled = enabled,
+                    ) {
+                        Text(NativeClient.string(NativeClient.STR_FORGET_DEVICE))
+                    }
+                }
             }
         }
 
@@ -1117,26 +1263,23 @@ private fun SourcePickerScreen(
     sources: List<NativeClient.Source>,
     onPick: (NativeClient.Source) -> Unit,
 ) {
-    var pickedId by remember { mutableStateOf(sources.first().id) }
+    var pickedId by remember { mutableIntStateOf(sources.first().id) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(text = address, style = MaterialTheme.typography.titleMedium)
-
             sources.forEach { source ->
                 Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { pickedId = source.id }
-                            .padding(vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { pickedId = source.id }
+                        .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -1160,10 +1303,9 @@ private fun SourcePickerScreen(
 
         Button(
             onClick = { sources.firstOrNull { it.id == pickedId }?.let(onPick) },
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
         ) { Text("Start viewing") }
     }
 }

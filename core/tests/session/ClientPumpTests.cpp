@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,7 @@ struct Rig {
         cb.onStatus = [this](const char* s) { status = s ? s : ""; };
         cb.localTime = [] { return std::string("12:34:56"); };
         cb.log = [this](bool, const char* line) { logs.emplace_back(line ? line : ""); };
+        cb.randomBytes = TestRandomBytes;
         return cb;
     }
 
@@ -73,18 +75,8 @@ size_t CountToHost(const std::deque<Datagram>& q, MsgType type) {
     return n;
 }
 
-struct Connected {
-    Rig rig;
-    ClientPump pump;
-    HostSession host;
-    uint64_t now = 10'000'000;
-
-    Connected(HostCallbacks hcb, StreamParams offer)
-        : pump(rig.Callbacks(), rig.diag), host(hcb, offer) {}
-};
-
 void Exchange(Rig& r, ClientPump& pump, HostSession& host, uint64_t now) {
-    for (int guard = 0; guard < 8; ++guard) {
+    for (int guard = 0; guard < 32; ++guard) {
         if (r.toHost.empty() && r.toClient.empty()) break;
         while (!r.toHost.empty()) {
             auto d = std::move(r.toHost.front());
@@ -99,31 +91,47 @@ void Exchange(Rig& r, ClientPump& pump, HostSession& host, uint64_t now) {
     }
 }
 
+std::unique_ptr<HostSession> MakeHost(Rig& r, StreamParams offer) {
+    HostCallbacks hcb;
+    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
+    hcb.randomBytes = TestRandomBytes;
+    auto host = std::make_unique<HostSession>(hcb, offer);
+    host->SetPasscode(kTestPasscode);
+    return host;
+}
+
 void TestHandshakeAndParams() {
     std::printf("[pump] Start() negotiates and reports the agreed parameters...\n");
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
-
-    HostCallbacks hcb;
-    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes;
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = MakeHost(r, StreamParams{1920, 1080, 60, 20'000'000});
 
     uint64_t now = 10'000'000;
     ClientPumpConfig cfg = TestPumpCfg(0x11223344, 2560, 1440, 0, 60);
     cfg.displayName = "Anh's laptop";
     pump.Start(cfg, now);
+    Check(CountToHost(r.toHost, MsgType::Noise1) == 1, "Start() begins with a Noise probe");
+    {
+        auto d = std::move(r.toHost.front());
+        r.toHost.pop_front();
+        host->HandlePacket(d, now, kTestViewer);
+    }
+    Check(!r.toClient.empty(), "host answers the Noise probe");
+    {
+        auto d = std::move(r.toClient.front());
+        r.toClient.pop_front();
+        pump.OnDatagram(d, now);
+    }
     Check(CountToHost(r.toHost, MsgType::Hello) == 1, "Start() puts a HELLO on the wire");
     const auto sentHello = ParseHello(PayloadOf(r.toHost.front()));
     Check(sentHello && sentHello->clientName == "Anh's laptop",
         "and the HELLO carries the configured display name");
 
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
     Check(r.paramsCalls == 1 && r.reconfigCalls == 0, "onParams fires once, not as a reconfig");
     Check(r.params.width == 1920 && r.params.height == 1080 && r.params.fps == 60,
         "the negotiated size and rate are handed to the client");
-    Check(host.state() == HostSession::State::Streaming, "the host went streaming");
+    Check(host->state() == HostSession::State::Streaming, "the host went streaming");
     Check(r.LoggedContaining("Negotiation done"), "and it was logged");
 }
 
@@ -132,18 +140,14 @@ void TestVideoReachesTheFrameSink() {
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
 
-    HostCallbacks hcb;
-    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes;
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = MakeHost(r, StreamParams{1920, 1080, 60, 20'000'000});
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     const TestFrame idr = MakeIdrFrame(0, 4);
     for (const auto& d : Packetize(pk, idr, now)) pump.OnDatagram(d, now);
 
@@ -165,15 +169,16 @@ void TestKeyframeRequestsAreLoggedOnce() {
     hcb.randomBytes = TestRandomBytes;
     bool hostSawRequest = false;
     hcb.onKeyframeRequest = [&] { hostSawRequest = true; };
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+
+    auto host = std::make_unique<HostSession>(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
     Check(pump.streaming(), "video traffic is what makes a keyframe request sendable");
     r.logs.clear();
@@ -189,7 +194,7 @@ void TestKeyframeRequestsAreLoggedOnce() {
     r.toHost.clear();
     now += 300'000;
     pump.Tick(now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
     Check(hostSawRequest, "the host did receive the request");
 }
 
@@ -207,15 +212,15 @@ void TestReportRunsOncePerWindow() {
         got = f;
         ++feedbacks;
     };
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 4), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
     r.renderedToReport = 60;
@@ -232,7 +237,7 @@ void TestReportRunsOncePerWindow() {
     Check(!r.status.empty(), "a compact status line reached the UI");
     Check(CountToHost(r.toHost, MsgType::Feedback) == 1, "exactly one FEEDBACK went out");
 
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
     Check(feedbacks == 1 && got.recvBitrateKbps > 0,
         "the host got it, carrying the bytes actually received");
 
@@ -245,18 +250,14 @@ void TestStatusSeparatorIsConfigurable() {
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
 
-    HostCallbacks hcb;
-    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes;
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = MakeHost(r, StreamParams{1920, 1080, 60, 20'000'000});
 
     uint64_t now = 10'000'000;
     ClientPumpConfig cfg{1, 1920, 1080, 0, 60};
     cfg.passcode = kTestPasscode;
     cfg.statusSeparator = " | ";
     pump.Start(cfg, now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     now += 1'100'000;
     Check(pump.Tick(now), "the window closes");
@@ -269,19 +270,15 @@ void TestDisconnectEndsTheLoop() {
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
 
-    HostCallbacks hcb;
-    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes;
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = MakeHost(r, StreamParams{1920, 1080, 60, 20'000'000});
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
     Check(r.ended.empty(), "still connected");
 
     uint8_t bye[kCommonHeaderSize];
-    const size_t n = BuildBye(bye, host.sessionId());
+    const size_t n = BuildBye(bye, host->sessionId());
     Check(n > 0, "built a BYE");
     pump.OnDatagram(std::span<const uint8_t>(bye, n), now);
 
@@ -308,18 +305,14 @@ void TestStrayTrafficIsIgnored() {
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
 
-    HostCallbacks hcb;
-    hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
-    hcb.randomBytes = TestRandomBytes;
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = MakeHost(r, StreamParams{1920, 1080, 60, 20'000'000});
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer stray;
-    stray.SetSessionId(host.sessionId() ^ 0xFFFF);
+    stray.SetSessionId(host->sessionId() ^ 0xFFFF);
     for (const auto& d : Packetize(stray, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now + 20'000);
     Check(r.frames.empty(), "nothing was handed to the decoder");
@@ -340,27 +333,27 @@ void TestReconfigIsAppliedMidStream() {
     std::printf("[pump] a host RECONFIG updates the params and the reassembler...\n");
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
-    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     uint8_t msg[64];
     Reconfig early{1280, 720, 10'000'000, 30};
-    size_t n = BuildReconfig(msg, host.sessionId(), early);
+    size_t n = BuildReconfig(msg, host->sessionId(), early);
     pump.OnDatagram(std::span<const uint8_t>(msg, n), now);
     Check(r.reconfigCalls == 1, "a reconfig before any video still reaches the client");
     Check(r.params.width == 1280 && r.params.fps == 30, "and carries the new mode");
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 4), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
 
     Reconfig later{1920, 1080, 20'000'000, 60};
-    n = BuildReconfig(msg, host.sessionId(), later);
+    n = BuildReconfig(msg, host->sessionId(), later);
     pump.OnDatagram(std::span<const uint8_t>(msg, n), now);
     Check(r.reconfigCalls == 2, "a mid-stream reconfig fires onParams again");
     Check(r.params.width == 1920 && r.params.fps == 60, "with the restored mode");
@@ -371,15 +364,15 @@ void TestOfferWithoutFpsFallsBackToDefault() {
     std::printf("[pump] a host that offers no fps still gets a working reassembler...\n");
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
-    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 0, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(HostSendTo(r), StreamParams{1920, 1080, 0, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     const TestFrame idr = MakeIdrFrame(0, 3);
     for (const auto& d : Packetize(pk, idr, now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
@@ -387,7 +380,7 @@ void TestOfferWithoutFpsFallsBackToDefault() {
         "frames still reassemble at the default fps");
 
     uint8_t msg[64];
-    const size_t n = BuildReconfig(msg, host.sessionId(), Reconfig{0, 0, 0, 0});
+    const size_t n = BuildReconfig(msg, host->sessionId(), Reconfig{0, 0, 0, 0});
     pump.OnDatagram(std::span<const uint8_t>(msg, n), now);
     Check(r.reconfigCalls == 1, "an all-zero reconfig is delivered and changes nothing");
 }
@@ -396,18 +389,18 @@ void TestFecRecoversALostPacket() {
     std::printf("[pump] a parity packet fills the hole a lost datagram left...\n");
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
-    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     pk.SetFecEnabled(true);
     Check(pk.fecEnabled(), "FEC can be switched on");
-    Check(pk.sessionId() == host.sessionId(), "the packetizer carries the session id");
+    Check(pk.sessionId() == host->sessionId(), "the packetizer carries the session id");
 
     const TestFrame idr = MakeIdrFrame(0, 4);
     const auto pkts = Packetize(pk, idr, now);
@@ -435,8 +428,8 @@ void TestNackGoesOutForAHole() {
         nackFrame = frameId;
         nackIdx.assign(idx.begin(), idx.end());
     };
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.PlanNacks(now);
@@ -446,10 +439,10 @@ void TestNackGoesOutForAHole() {
     cfg.passcode = kTestPasscode;
     cfg.sendNacks = true;
     pump.Start(cfg, now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
 
@@ -462,7 +455,7 @@ void TestNackGoesOutForAHole() {
     pump.PlanNacks(now + 5'000);
     Check(CountToHost(r.toHost, MsgType::Nack) == 1, "with NACKs on, the hole goes out");
 
-    Exchange(r, pump, host, now + 5'000);
+    Exchange(r, pump, *host, now + 5'000);
     Check(nackFrame == 1, "the host learned which frame");
     Check(nackIdx.size() == 1 && nackIdx[0] == 2, "and exactly which packet is missing");
 }
@@ -471,15 +464,15 @@ void TestLossAsksForAKeyframe() {
     std::printf("[pump] a dropped frame is logged and answered with a keyframe request...\n");
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
-    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
     r.logs.clear();
@@ -508,18 +501,18 @@ void TestLossRunsLineIsPrinted() {
     std::printf("[pump] with logLossRuns on, the run histogram is printed at the window...\n");
     Rig r;
     ClientPump pump(r.Callbacks(), r.diag);
-    HostSession host(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(HostSendTo(r), StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     ClientPumpConfig cfg{1, 1920, 1080, 0, 60};
     cfg.passcode = kTestPasscode;
     cfg.logLossRuns = true;
     pump.Start(cfg, now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
 
@@ -546,15 +539,15 @@ void TestFocusInputByeAndRtt() {
     hcb.onFocus = [&](bool on) { focused = on; };
     hcb.onInput = [&](const InputEvent&) { ++inputs; };
     hcb.onDisconnect = [&] { hostEnded = true; };
-    HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
-    host.SetPasscode(kTestPasscode);
+    auto host = std::make_unique<HostSession>(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+    host->SetPasscode(kTestPasscode);
 
     uint64_t now = 10'000'000;
     pump.Start(TestPumpCfg(1, 1920, 1080, 0, 60), now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
 
     Packetizer pk;
-    pk.SetSessionId(host.sessionId());
+    pk.SetSessionId(host->sessionId());
     for (const auto& d : Packetize(pk, MakeIdrFrame(0, 2), now)) pump.OnDatagram(d, now);
     pump.PollFrames(now);
     Check(pump.streaming(), "streaming after the first frame");
@@ -567,7 +560,7 @@ void TestFocusInputByeAndRtt() {
     pump.QueueInput(e);
     now += 60'000;
     pump.Tick(now);
-    Exchange(r, pump, host, now);
+    Exchange(r, pump, *host, now);
     Check(focused, "the focus change reached the host");
     Check(inputs == 1, "so did the key press");
 
@@ -577,7 +570,7 @@ void TestFocusInputByeAndRtt() {
     while (!r.toHost.empty()) {
         auto d = std::move(r.toHost.front());
         r.toHost.pop_front();
-        host.HandlePacket(d, now, kTestViewer);
+        host->HandlePacket(d, now, kTestViewer);
     }
     const uint64_t pongAt = now + 30'000;
     while (!r.toClient.empty()) {
@@ -588,7 +581,7 @@ void TestFocusInputByeAndRtt() {
     Check(pump.lastRttUs() == 30'000, "the pong round trip is measured");
 
     pump.SendBye();
-    Exchange(r, pump, host, pongAt);
+    Exchange(r, pump, *host, pongAt);
     Check(hostEnded, "the BYE told the host we left");
 }
 

@@ -54,6 +54,6 @@ struct SourcePickerView: View {
         guard !chosen.isEmpty else { return }
         route = .connect
         openViewers(chosen, address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
-                    openWindow: openWindow)
+                    sessionKey: connect.acceptedSessionKey, openWindow: openWindow)
     }
 }

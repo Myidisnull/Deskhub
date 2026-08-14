@@ -1,9 +1,13 @@
 #pragma once
+#include "deskhub/crypto/Keys.h"
+#include "deskhub/crypto/NoiseXx.h"
+#include "deskhub/crypto/TrafficCipher.h"
 #include "deskhub/input/InputSender.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ClipboardSync.h"
 
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <span>
 #include <string>
@@ -33,17 +37,30 @@ struct ClientCallbacks {
     std::function<void(uint32_t rttUs)> onRtt;
     std::function<void(const char* reason)> onDisconnect;
     std::function<void(std::string_view text)> onClipboardText;
+    std::function<bool(std::span<uint8_t>)> randomBytes;
 };
 
 class ClientSession {
 public:
     enum class State : uint8_t { Idle,
+        Noise,
         Hello,
         Starting,
         Streaming,
         Dead };
 
-    explicit ClientSession(ClientCallbacks cb) : cb_(std::move(cb)) {}
+    explicit ClientSession(ClientCallbacks cb)
+        : cb_(std::move(cb)) {}
+
+    void SetSessionKey(const uint8_t key[crypto::kKeySize]) {
+        std::memcpy(presetKey_, key, crypto::kKeySize);
+        havePresetKey_ = true;
+    }
+
+    void ClearSessionKey() {
+        havePresetKey_ = false;
+        crypto::SecureWipe(std::span<uint8_t>(presetKey_, crypto::kKeySize));
+    }
 
     void Start(const Hello& hello, uint64_t nowUs);
 
@@ -90,11 +107,20 @@ public:
     const NegotiatedParams& params() const {
         return params_;
     }
+    crypto::TrafficCipher& cipher() {
+        return cipher_;
+    }
+    bool encrypted() const {
+        return cipher_.hasKey();
+    }
 
 private:
+    void SendNoise1();
     void SendHello();
     void SendStart();
     void Die(const char* reason);
+    bool ApplyHelloAck(const HelloAck& m, uint64_t nowUs);
+    void SendMaybeEncrypted(std::span<const uint8_t> clearPkt);
 
     ClientCallbacks cb_;
     InputSender input_;
@@ -116,8 +142,14 @@ private:
     uint32_t lastRttUs_ = 0;
     bool keyframeWanted_ = false;
     RejectReason rejectReason_ = RejectReason::None;
-
+    crypto::NoiseXx noise_{};
+    crypto::KeyPair clientStatic_{};
+    crypto::TrafficCipher cipher_{};
+    uint8_t presetKey_[crypto::kKeySize]{};
+    bool havePresetKey_ = false;
     uint8_t buf_[kMaxDatagram] = {};
+    uint8_t encBuf_[kMaxDatagram] = {};
+    size_t noise3Len_ = 0;
 };
 
 }

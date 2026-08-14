@@ -91,6 +91,7 @@ class StreamActivity : ComponentActivity() {
     private var sources: List<NativeClient.Source> = emptyList()
     private var address = ""
     private var passcode = ""
+    private var trafficKey = ""
 
     private val holderCallback =
         object : SurfaceHolder.Callback {
@@ -113,12 +114,11 @@ class StreamActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
-        if (NativeClient.keepAwake()) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         address = intent.getStringExtra("addr").orEmpty()
         passcode = intent.getStringExtra("passcode").orEmpty()
+        trafficKey = intent.getStringExtra("sessionKey").orEmpty()
         currentSourceId = intent.getIntExtra("source", 0)
         sources = readSources(intent)
         screenPx = NativeClient.screenSizePx(this)
@@ -129,6 +129,7 @@ class StreamActivity : ComponentActivity() {
                 screenPx.first,
                 screenPx.second,
                 passcode,
+                trafficKey,
             )
 
         setContent {
@@ -170,6 +171,7 @@ class StreamActivity : ComponentActivity() {
                 screenPx.first,
                 screenPx.second,
                 passcode,
+                trafficKey,
             )
     }
 

@@ -70,6 +70,7 @@ struct DeviceListView: View {
     let rows: [DeviceListRow]
     let enabled: Bool
     let onPick: (DeviceListRow) -> Void
+    var onForget: ((DeviceListRow) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -97,6 +98,13 @@ struct DeviceListView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!enabled)
+                .contextMenu {
+                    if let onForget {
+                        Button(DeskhubClient.string(DHStrForgetDevice), role: .destructive) {
+                            onForget(row)
+                        }
+                    }
+                }
             }
 
             if !note.isEmpty {

@@ -29,7 +29,8 @@ class ScancodeTable {
 public:
     using Entry = ScancodeEntry<Native>;
 
-    constexpr explicit ScancodeTable(std::span<const Entry> entries) : entries_(entries) {}
+    constexpr explicit ScancodeTable(std::span<const Entry> entries)
+        : entries_(entries) {}
 
     constexpr bool ToWindows(Native native, int32_t& vk, int32_t& scan) const {
         for (const Entry& e : entries_) {

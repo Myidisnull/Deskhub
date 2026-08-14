@@ -201,7 +201,7 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
 
         if (n > 0) {
             const auto pkt = std::span<const uint8_t>(buf, size_t(n));
-            if (const size_t rn = beacon.Reply(beaconBuf, pkt); rn) {
+            if (const size_t rn = beacon.Reply(beaconBuf, pkt, now, from.Pack()); rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else {
                 deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);

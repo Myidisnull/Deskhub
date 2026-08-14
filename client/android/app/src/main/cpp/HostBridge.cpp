@@ -198,7 +198,10 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSavePasscode(JNIEnv
     const DHUiSettings settings = dh_settings_load();
     const std::string code = deskhubj::FromJString(env, passcode);
     dh_settings_save(settings.fps, settings.bitrateMbps, settings.maxDim, settings.port,
-        settings.allowInput, settings.clientControl, code.c_str());
+        settings.allowInput, settings.clientControl, settings.runInBackground,
+        settings.runInBackgroundChoiceMade, settings.hideTrayIcon, settings.shareOnLaunch,
+        settings.logMaxFileMb, settings.logCompressAfterDays, settings.logDeleteAfterDays,
+        settings.logDir, code.c_str());
 }
 
 JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeBindIp(JNIEnv* env, jobject) {

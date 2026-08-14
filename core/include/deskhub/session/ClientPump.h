@@ -28,6 +28,7 @@ struct ClientPumpConfig {
     const char* statusSeparator = "  ";
     std::string passcode{};
     std::string displayName{};
+    std::string sessionKeyHex{};
 };
 
 struct ClientPumpCallbacks {
@@ -41,6 +42,7 @@ struct ClientPumpCallbacks {
     std::function<void(const char* compactStatus)> onStatus;
     std::function<std::string()> localTime;
     std::function<void(bool warn, const char* line)> log;
+    std::function<bool(std::span<uint8_t>)> randomBytes;
 };
 
 class ClientPump {
@@ -77,6 +79,9 @@ public:
 
     bool streaming() const {
         return session_.state() == ClientSession::State::Streaming;
+    }
+    uint32_t sessionId() const {
+        return session_.sessionId();
     }
     uint32_t lastRttUs() const {
         return session_.lastRttUs();

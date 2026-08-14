@@ -1,5 +1,7 @@
 #include <gtk/gtk.h>
 
+#include "deskhubp/diag/LogFile.h"
+#include "deskhubp/system/UiSettingsStore.h"
 #include "gtk/MainWindow.h"
 
 namespace {
@@ -11,6 +13,9 @@ void OnActivate(GtkApplication* app, gpointer) {
 }
 
 int main(int argc, char** argv) {
+    deskhubp::LoadUiSettings();
+    deskhubp::StartProcessLog();
+
     GtkApplication* app = gtk_application_new("com.manhpham.deskhub",
         G_APPLICATION_NON_UNIQUE);
     g_signal_connect(app, "activate", G_CALLBACK(OnActivate), nullptr);

@@ -18,7 +18,8 @@ public:
     static constexpr size_t kSumBufBytes = 512;
     static constexpr size_t kStatusBufBytes = 256;
 
-    explicit ClientDiag(ClientDiagCaps caps = {}) : caps_(caps) {}
+    explicit ClientDiag(ClientDiagCaps caps = {})
+        : caps_(caps) {}
 
     WindowStat asmMs;
     WindowStat decMs;

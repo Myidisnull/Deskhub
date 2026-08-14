@@ -30,11 +30,19 @@ bool AwaitingFirstFrame(const deskhub::SourcePipelineState& st, const SourcePred
 
 size_t SendToViewers(const deskhub::SourcePipelineState& st, UdpSocket& sock,
     std::span<const uint8_t> datagram) {
+    uint8_t enc[deskhub::kMaxDatagram];
+    std::span<const uint8_t> out = datagram;
+    if (st.traffic.hasKey()) {
+        const size_t n = const_cast<deskhub::crypto::TrafficCipher&>(st.traffic)
+                             .SealDatagram(enc, datagram);
+        if (!n) return 0;
+        out = std::span<const uint8_t>(enc, n);
+    }
     uint64_t addrs[deskhub::kMaxViewersPerSource];
     const size_t viewers = deskhub::SnapshotViewerAddrs(st, addrs);
     size_t sent = 0;
     for (size_t i = 0; i < viewers; ++i)
-        if (sock.SendTo(NetAddr::Unpack(addrs[i]), datagram.data(), datagram.size())) ++sent;
+        if (sock.SendTo(NetAddr::Unpack(addrs[i]), out.data(), out.size())) ++sent;
     return sent;
 }
 
@@ -71,14 +79,21 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
         [&st, &sock, &addrs, viewers](std::span<const uint8_t> d) {
             const uint64_t waitUs = st.pacer.Gate(d.size() * viewers, NowUs());
             if (waitUs) SleepUs(waitUs);
+            uint8_t enc[deskhub::kMaxDatagram];
+            std::span<const uint8_t> out = d;
+            if (st.traffic.hasKey()) {
+                const size_t n = st.traffic.SealDatagram(enc, d);
+                if (!n) return;
+                out = std::span<const uint8_t>(enc, n);
+            }
             for (size_t i = 0; i < viewers; ++i) {
-                if (sock.SendTo(NetAddr::Unpack(addrs[i]), d.data(), d.size()))
-                    st.bytesSent.fetch_add(d.size(), std::memory_order_relaxed);
+                if (sock.SendTo(NetAddr::Unpack(addrs[i]), out.data(), out.size()))
+                    st.bytesSent.fetch_add(out.size(), std::memory_order_relaxed);
                 else
                     st.diag.sendFail.Add();
             }
             std::lock_guard<std::mutex> lk(st.retxMutex);
-            st.retxCache.Store(d);
+            st.retxCache.Store(out);
         });
 
     const uint32_t burstMs = uint32_t((NowUs() - sendT0) / 1000);

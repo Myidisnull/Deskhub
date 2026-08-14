@@ -1,4 +1,6 @@
 #pragma once
+#include "deskhub/ui/Brand.h"
+
 #include <string>
 #include <string_view>
 
@@ -14,7 +16,7 @@ inline std::string_view ViewerLockHintText(bool mouseLocked) {
 }
 
 inline std::string ViewerBaseTitle(std::string_view sourceName) {
-    std::string base = "Deskhub - viewing";
+    std::string base = std::string(brand::kProductName) + " - viewing";
     if (!sourceName.empty()) {
         base += ": ";
         base += sourceName;

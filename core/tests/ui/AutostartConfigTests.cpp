@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/ui/AutostartConfig.h"
+#include "deskhub/ui/Brand.h"
 
 #include <cstdio>
 #include <string>
@@ -21,7 +22,7 @@ void TestDesktopEntryNamesTheBinary() {
     Check(Contains(entry, "Type=Application"), "of type application");
     Check(Contains(entry, "Exec=/opt/deskhub/bin/deskhub\n"),
         "and Exec points at the binary that wrote it");
-    Check(Contains(entry, "Name=Deskhub"), "named for the app");
+    Check(Contains(entry, std::string("Name=") + brand::kProductName), "named for the app");
     Check(entry.back() == '\n', "the file ends with a newline");
 }
 
@@ -30,7 +31,8 @@ void TestSchtasksArgsElevateAtLogon() {
     const std::string create =
         ui::BuildSchtasksCreateArgs("C:\\Program Files\\Deskhub\\Deskhub.exe");
     Check(Contains(create, "/Create"), "it creates a task");
-    Check(Contains(create, "/TN Deskhub"), "with the fixed task name");
+    Check(Contains(create, std::string("/TN \"") + brand::kAutostartTaskId + "\""),
+        "with the fixed task name");
     Check(Contains(create, "/SC ONLOGON"), "that fires at logon");
     Check(Contains(create, "/RL HIGHEST"),
         "elevated, because the app manifest requires administrator");
@@ -38,10 +40,13 @@ void TestSchtasksArgsElevateAtLogon() {
         "with the exe path quoted against spaces");
     Check(Contains(create, "/F"), "and replaces a stale task instead of failing");
 
-    Check(Contains(ui::BuildSchtasksQueryArgs(), "/Query /TN Deskhub"),
+    Check(Contains(ui::BuildSchtasksQueryArgs(),
+              std::string("/Query /TN \"") + brand::kAutostartTaskId + "\""),
         "the query names the same task");
     const std::string del = ui::BuildSchtasksDeleteArgs();
-    Check(Contains(del, "/Delete") && Contains(del, "/TN Deskhub") && Contains(del, "/F"),
+    Check(Contains(del, "/Delete") &&
+              Contains(del, std::string("/TN \"") + brand::kAutostartTaskId + "\"") &&
+              Contains(del, "/F"),
         "and so does the delete, without a confirmation prompt");
 }
 

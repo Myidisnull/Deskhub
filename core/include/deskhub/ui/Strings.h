@@ -1,4 +1,6 @@
 #pragma once
+#include "deskhub/ui/Brand.h"
+#include "deskhub/ui/Locale.h"
 #include "deskhub/protocol/Wire.h"
 
 #include <cstddef>
@@ -13,189 +15,153 @@
 namespace deskhub::ui {
 
 inline constexpr const char* kAppVersion = DESKHUB_VERSION;
-inline constexpr const char* kProjectUrl = "https://github.com/manhpham90vn/Deskhub";
-inline constexpr const char* kProjectLinkLabel = "GitHub";
-inline constexpr const char* kAppTitle = "Deskhub - stream & remotely control a machine";
-inline constexpr const char* kHostIpIntro =
-    "Others connect to you using one of these IP addresses:";
-inline constexpr const char* kNoNetworkAddress = "(no network address found)";
-inline constexpr const char* kClientIpPrompt = "Host machine IP address:";
-inline constexpr const char* kPickerTitle = "What do you want to view?";
-inline constexpr const char* kPickerEachWindow = "Each one you pick opens its own window.";
-inline constexpr const char* kShareButton = "Share...  (pick the display to share)";
-inline constexpr const char* kSharingTitle = "Deskhub - sharing";
-inline constexpr const char* kSharingSourcesIntro = "Sources currently being shared:";
-inline constexpr const char* kSharingConnectHint =
-    "Others connect by entering this machine's IP address.";
-inline constexpr const char* kNothingShared = "(nothing is being shared)";
-inline constexpr const char* kStopSharing = "Stop sharing";
-inline constexpr const char* kShareStartFailed = "Could not start sharing";
-inline constexpr const char* kQueryingSources =
-    "Asking the other machine what it is sharing...";
-inline constexpr const char* kViewerOpenFailed =
-    "Could not open a viewing session - check the address and that the other machine is "
-    "sharing.";
-inline constexpr const char* kConnectionEndedTitle = "Connection ended";
-inline constexpr const char* kDisconnected = "disconnected";
-inline constexpr const char* kSessionEnded = "Session ended";
-inline constexpr const char* kScreenRecordingRequired =
+inline constexpr const char* kProjectUrl = brand::kProjectUrl;
+inline constexpr LStr kProjectLinkLabel{"GitHub"};
+inline constexpr LStr kAppTitle{"{app}"};
+inline constexpr LStr kAppDescription{"Important services for {app}"};
+inline constexpr LStr kHostIpIntro{"Others connect to you using one of these IP addresses:"};
+inline constexpr LStr kNoNetworkAddress{"(no network address found)"};
+inline constexpr LStr kClientIpPrompt{"Host machine IP address:"};
+inline constexpr LStr kPickerTitle{"What do you want to view?"};
+inline constexpr LStr kPickerEachWindow{"Each one you pick opens its own window."};
+inline constexpr LStr kShareButton{"Share...  (pick the display to share)"};
+inline constexpr LStr kSharingTitle{"{app} - sharing"};
+inline constexpr LStr kSharingSourcesIntro{"Sources currently being shared:"};
+inline constexpr LStr kSharingConnectHint{"Others connect by entering this machine's IP address."};
+inline constexpr LStr kNothingShared{"(nothing is being shared)"};
+inline constexpr LStr kStopSharing{"Stop sharing"};
+inline constexpr LStr kShareStartFailed{"Could not start sharing"};
+inline constexpr LStr kQueryingSources{"Asking the other machine what it is sharing..."};
+inline constexpr LStr kConnectInProgress{"A connection attempt is already in progress."};
+inline constexpr LStr kReconnecting{"Reconnecting\xE2\x80\xA6"};
+inline constexpr LStr kViewerOpenFailed{
+    "Could not open a viewing session - check the address, that the other machine is sharing, "
+    "and that this machine has a usable GPU (D3D11)."};
+inline constexpr LStr kViewerGpuFailed{
+    "Could not open a viewing session: this machine has no usable D3D11 GPU "
+    "(common on virtual machines without 3D acceleration / GPU passthrough)."};
+inline constexpr LStr kConnectionEndedTitle{"Connection ended"};
+inline constexpr LStr kDisconnected{"disconnected"};
+inline constexpr LStr kSessionEnded{"Session ended"};
+inline constexpr LStr kScreenRecordingRequired{
     "Screen Recording permission is required. Grant it in System Settings, then quit and "
-    "reopen Deskhub.";
-inline constexpr const char* kSidebarHost = "Host";
-inline constexpr const char* kSidebarClient = "Client";
-inline constexpr const char* kSidebarSettings = "Settings";
-inline constexpr const char* kHostHeading = "Share this machine's screen";
-inline constexpr const char* kClientHeading = "Connect to another machine";
-inline constexpr const char* kSettingsHeading = "Share settings";
-inline constexpr const char* kSettingsHint = "These apply the next time you start sharing.";
-inline constexpr const char* kClientSettingsHeading = "Connection settings";
-inline constexpr const char* kClientSettingsHint =
+    "reopen {app}."};
+inline constexpr LStr kSidebarHost{"Host"};
+inline constexpr LStr kSidebarClient{"Client"};
+inline constexpr LStr kSidebarSettings{"Settings"};
+inline constexpr LStr kHostHeading{"Share this machine's screen"};
+inline constexpr LStr kClientHeading{"Connect to another machine"};
+inline constexpr LStr kSettingsHeading{"Share settings"};
+inline constexpr LStr kSettingsHint{"These apply the next time you start sharing."};
+inline constexpr LStr kClientSettingsHeading{"Connection settings"};
+inline constexpr LStr kClientSettingsHint{
     "The device scan looks for sharing machines on this UDP port. Match it to the port in the "
-    "host's Share settings.";
-inline constexpr const char* kRecentDevicesHeading = "Recent devices";
-inline constexpr const char* kRecentDevicesHint = "Click a device to connect to it again.";
-inline constexpr const char* kRecentDevicesEmpty = "Devices you connect to will appear here.";
-inline constexpr const char* kStatusOnline = "Online";
-inline constexpr const char* kStatusOffline = "Offline";
-inline constexpr const char* kStatusChecking = "Checking...";
-inline constexpr const char* kNotSharing = "Not sharing.";
-inline constexpr const char* kStartingShare = "Starting share...";
-inline constexpr const char* kShareStateOn = "Sharing";
-inline constexpr const char* kShareStateOff = "Not sharing";
-inline constexpr const char* kStartSharing = "Start sharing";
-inline constexpr const char* kBroadcastMemoryLabel = "Broadcast memory";
-inline constexpr const char* kAllowControlLabel =
-    "Viewers can control this machine (mouse and keyboard)";
-inline constexpr const char* kRequestControlLabel =
-    "Control the remote machine (untick to just watch)";
-inline constexpr const char* kViewOnlyNote = "View-only: viewers can watch but not control.";
-inline constexpr const char* kPickDisplaysHint = "Tick the displays to share, then press Share.";
-inline constexpr const char* kPickSourcesHint =
-    "Tick what to share \xE2\x80\x94 displays, the terminal, or both \xE2\x80\x94 then press "
-    "Share.";
-inline constexpr const char* kPickDisplaysPortalHint =
-    "Press Share, then pick the displays in your desktop's screen-sharing dialog. Your "
-    "choice is remembered, so the dialog only appears the first time.";
-inline constexpr const char* kChooseScreensAgain = "Choose screens again\xE2\x80\xA6";
-inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
-inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
-inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";
-inline constexpr const char* kStopDisplayAction = "Stop";
-inline constexpr const char* kDisconnectViewerAction = "Disconnect";
-inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
-inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
-inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
-inline constexpr const char* kDeviceNameLabel = "Your name";
-inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
-inline constexpr const char* kUdpPortLabel = "UDP port";
-inline constexpr const char* kBindInterfaceLabel = "Share on network";
-inline constexpr const char* kBindAllInterfaces = "All networks";
-inline constexpr const char* kBindNotConnectedNote = "not connected";
-inline constexpr const char* kSettingsSectionVideo = "Video";
-inline constexpr const char* kSettingsSectionConnection = "Connection";
-inline constexpr const char* kSettingsSectionSecurity = "Security";
-inline constexpr const char* kSettingsSectionSession = "Session";
-inline constexpr const char* kSettingsSectionLaunch = "Launch & background";
-inline constexpr const char* kAutostartLabel = "Start Deskhub when you log in";
-inline constexpr const char* kAutoShareLabel = "Start sharing when Deskhub opens";
-inline constexpr const char* kClipboardSyncLabel =
-    "Sync clipboard text with connected devices";
-inline constexpr const char* kKeepAwakeLabel =
-    "Keep this device awake while a session is active";
-inline constexpr const char* kCloseToTrayLabel =
-    "Keep running in the background (tray icon) when the window is closed";
-inline constexpr const char* kTrayShowWindow = "Show Deskhub";
-inline constexpr const char* kTrayHideWindow = "Hide window";
-inline constexpr const char* kTrayQuit = "Quit Deskhub";
-inline constexpr const char* kLanDevicesHeading = "Machines sharing on this network";
-inline constexpr const char* kLanDevicesEmpty = "Looking for devices that are sharing\xE2\x80\xA6";
-inline constexpr const char* kLanDevicesHint = "Click a device to connect to it.";
-inline constexpr const char* kLanDevicesNoneSharing =
+    "host's Share settings."};
+inline constexpr LStr kRecentDevicesHeading{"Recent devices"};
+inline constexpr LStr kRecentDevicesHint{"Click a device to connect to it again."};
+inline constexpr LStr kRecentDevicesEmpty{"Devices you connect to will appear here."};
+inline constexpr LStr kForgetDevice{"Forget"};
+inline constexpr LStr kStatusOnline{"Online"};
+inline constexpr LStr kStatusOffline{"Offline"};
+inline constexpr LStr kStatusChecking{"Checking..."};
+inline constexpr LStr kNotSharing{"Not sharing."};
+inline constexpr LStr kStartingShare{"Starting share..."};
+inline constexpr LStr kShareStateOn{"Sharing"};
+inline constexpr LStr kShareStateOff{"Not sharing"};
+inline constexpr LStr kStartSharing{"Start sharing"};
+inline constexpr LStr kBroadcastMemoryLabel{"Broadcast memory"};
+inline constexpr LStr kAllowControlLabel{"Viewers can control this machine (mouse and keyboard)"};
+inline constexpr LStr kShareOnLaunchLabel{"Start sharing automatically when the app launches"};
+inline constexpr LStr kRunInBackgroundLabel{"Keep running in the background when the window is closed"};
+inline constexpr LStr kHideTrayIconLabel{"Hide the tray / menu bar icon"};
+inline constexpr LStr kLogMaxFileMbLabel{"Split log when larger than (MB)"};
+inline constexpr LStr kLogCompressAfterDaysLabel{"Compress logs older than (days, 0 = never)"};
+inline constexpr LStr kLogDeleteAfterDaysLabel{"Delete logs older than (days, 0 = never)"};
+inline constexpr LStr kLogDirLabel{"Log directory"};
+inline constexpr LStr kLogDirHint{"Leave blank to use the default {app} folder. New logs go here; existing files stay put."};
+inline constexpr LStr kLogDirInvalid{"That log directory cannot be used. Choose an absolute, writable folder."};
+inline constexpr LStr kLogDirBrowse{"Browse\xE2\x80\xA6"};
+inline constexpr LStr kLogDetailsLabel{"Log details"};
+inline constexpr LStr kLogRefresh{"Refresh"};
+inline constexpr LStr kLogOpenFolder{"Open log folder"};
+inline constexpr LStr kLogEmpty{"No log files yet."};
+inline constexpr LStr kBackgroundPromptTitle{"Close {app}"};
+inline constexpr LStr kBackgroundPromptMessage{"Keep running in the background after closing?"};
+inline constexpr LStr kBackgroundPromptYes{"Yes"};
+inline constexpr LStr kBackgroundPromptNo{"No"};
+inline constexpr LStr kBackgroundPromptConfirm{"Confirm"};
+inline constexpr LStr kBackgroundPromptClose{"Close"};
+inline constexpr LStr kTrayRestore{"Restore"};
+inline constexpr LStr kTrayExit{"Exit"};
+inline constexpr LStr kBackgroundRunningHint{"{app} is still running in the background."};
+inline constexpr LStr kAlreadyRunning{"{app} is already running. Close the other window or use the tray icon, then try again."};
+inline constexpr LStr kQuitWhileBusyMessage{"Sharing or a connection is still active. Quit {app} anyway?"};
+inline constexpr LStr kQuitWhileBusyQuit{"Quit"};
+inline constexpr LStr kQuitWhileBusyCancel{"Cancel"};
+inline constexpr LStr kRequestControlLabel{"Control the remote machine (untick to just watch)"};
+inline constexpr LStr kViewOnlyNote{"View-only: viewers can watch but not control."};
+inline constexpr LStr kPickDisplaysHint{"Tick the displays to share, then press Share."};
+inline constexpr LStr kPickDisplaysPortalHint{"Press Share, then pick the displays in your desktop's screen-sharing dialog."};
+inline constexpr LStr kNoDisplayTicked{"Tick at least one display to share."};
+inline constexpr LStr kStopSelectedDisplay{"Stop selected display"};
+inline constexpr LStr kDisconnectSelectedViewer{"Disconnect selected viewer"};
+inline constexpr LStr kStopDisplayAction{"Stop"};
+inline constexpr LStr kDisconnectViewerAction{"Disconnect"};
+inline constexpr LStr kPasscodeLabel{"Passcode (4 digits, required)"};
+inline constexpr LStr kClientPasscodePrompt{"Passcode (4 digits):"};
+inline constexpr LStr kClientPasscodeHint{"Read the 4-digit code off the host."};
+inline constexpr LStr kDeviceNameLabel{"Your name"};
+inline constexpr LStr kClientIpPlaceholder{"192.168.1.10"};
+inline constexpr LStr kUdpPortLabel{"UDP port"};
+inline constexpr LStr kBindInterfaceLabel{"Share on network"};
+inline constexpr LStr kBindAllInterfaces{"All networks"};
+inline constexpr LStr kBindNotConnectedNote{"not connected"};
+inline constexpr LStr kSettingsSectionVideo{"Video"};
+inline constexpr LStr kSettingsSectionConnection{"Connection"};
+inline constexpr LStr kSettingsSectionSecurity{"Security"};
+inline constexpr LStr kSettingsSectionSession{"Session"};
+inline constexpr LStr kSettingsSectionLaunch{"Launch & background"};
+inline constexpr LStr kAutostartLabel{"Start {app} when you log in"};
+inline constexpr LStr kAutoShareLabel = kShareOnLaunchLabel;
+inline constexpr LStr kClipboardSyncLabel{"Sync clipboard text with connected devices"};
+inline constexpr LStr kEncryptSessionLabel{"Encrypt session traffic"};
+inline constexpr LStr kEncryptSessionHint{
+    "When on, session video, input and clipboard are encrypted. Discovery stays cleartext. "
+    "Copy the session key to viewers unless escrow is on."};
+inline constexpr LStr kSessionKeyLabel{"Session key"};
+inline constexpr LStr kSessionKeyHint{"Copy this key to viewers when escrow is off."};
+inline constexpr LStr kCopySessionKey{"Copy key"};
+inline constexpr LStr kRefreshSessionKey{"Refresh key"};
+inline constexpr LStr kEscrowSessionKeyLabel{"Escrow key to viewers"};
+inline constexpr LStr kEscrowSessionKeyHint{
+    "When on, viewers that know the passcode receive the session key automatically."};
+inline constexpr LStr kSessionKeyLifetimeLabel{"Key lifetime"};
+inline constexpr LStr kSessionKeyLifetimePerShare{"Per share"};
+inline constexpr LStr kSessionKeyLifetimePersistent{"Persistent"};
+inline constexpr LStr kClientSessionKeyPrompt{"Session key:"};
+inline constexpr LStr kClientSessionKeyHint{
+    "Required when the host encrypts without escrow. Paste the key from the host."};
+inline constexpr LStr kSessionKeyInvalid{"Enter the session key shown on the host."};
+inline constexpr LStr kCloseToTrayLabel = kRunInBackgroundLabel;
+inline constexpr LStr kTrayShowWindow{"Show {app}"};
+inline constexpr LStr kTrayHideWindow{"Hide window"};
+inline constexpr LStr kTrayQuit{"Quit {app}"};
+inline constexpr LStr kLanDevicesHeading{"Machines sharing on this network"};
+inline constexpr LStr kLanDevicesEmpty{"Looking for devices that are sharing\xE2\x80\xA6"};
+inline constexpr LStr kLanDevicesHint{"Click a device to connect to it."};
+inline constexpr LStr kLanDevicesNoneSharing{
     "A machine appears here only while it is sharing \xE2\x80\x94 start the share on it, then "
-    "check again.";
-inline constexpr const char* kScanRescanNote = "Checking again shortly.";
-inline constexpr const char* kRefreshNow = "Refresh now";
-inline constexpr const char* kScanNoLocalNetwork =
-    "This machine has no network address to scan from.";
-inline constexpr const char* kConnectPromptTitle = "Connect to this device";
-inline constexpr const char* kPasscodeInvalid =
-    "The passcode must be exactly 4 digits (for example 0417).";
+    "check again."};
+inline constexpr LStr kScanRescanNote{"Checking again shortly."};
+inline constexpr LStr kRefreshNow{"Refresh now"};
+inline constexpr LStr kScanNoLocalNetwork{"This machine has no network address to scan from."};
+inline constexpr LStr kConnectPromptTitle{"Connect to this device"};
+inline constexpr LStr kPasscodeInvalid{"The passcode must be exactly 4 digits (for example 0417)."};
 
-inline constexpr const char* kTerminalSourceName = "Terminal";
-inline constexpr const char* kTerminalPickerLabel =
-    "Terminal \xE2\x80\x94 a shell on this machine";
-inline constexpr const char* kTerminalDetached = "(detached)";
-inline constexpr const char* kTerminalHostHeading = "Share this machine's terminal";
-inline constexpr const char* kTerminalHostHint =
-    "Anyone who knows the passcode gets a shell on this machine, running as you.";
-inline constexpr const char* kTerminalShareButton = "Share terminal";
-inline constexpr const char* kTerminalStopSharing = "Stop sharing the terminal";
-inline constexpr const char* kTerminalSharingOn = "This machine is sharing a terminal.";
-inline constexpr const char* kTerminalSharingOff = "This machine is not sharing a terminal.";
-inline constexpr const char* kTerminalNetworkLabel = "Share the terminal on:";
-inline constexpr const char* kTerminalOpenSessionsHeading = "Shells open on this machine";
-inline constexpr const char* kTerminalNoSessions = "(nobody has a shell open)";
-inline constexpr const char* kTerminalHostUnavailable =
-    "This system cannot offer a terminal to other machines.";
-inline constexpr const char* kTerminalPortLabel = "Terminal UDP port";
-inline constexpr const char* kTerminalPortInUse =
-    "That UDP port is already in use \xE2\x80\x94 screen sharing has its own port, so give the "
-    "terminal a different one.";
-
-inline constexpr const char* kOpenChoiceGroup = "What to open on that machine";
-inline constexpr const char* kOpenDesktopLabel = "Remote desktop \xE2\x80\x94 view its screen";
-inline constexpr const char* kOpenShellLabel = "Terminal \xE2\x80\x94 open a shell";
-inline constexpr const char* kOpenNothingTicked =
-    "Tick the remote desktop, a terminal, or both before connecting.";
-inline constexpr const char* kOpenChoiceHint =
-    "This applies to the Connect button and to the devices listed below.";
-inline constexpr const char* kTerminalClientHeading = "Open a terminal on another machine";
-inline constexpr const char* kTerminalClientHint =
-    "This is separate from viewing a screen \xE2\x80\x94 you can do either, or both.";
-inline constexpr const char* kTerminalOpenButton = "Open shell";
-inline constexpr const char* kTerminalCloseButton = "Close shell";
-inline constexpr const char* kTerminalConnecting = "Connecting\xE2\x80\xA6";
-inline constexpr const char* kTerminalConnected = "Connected.";
-inline constexpr const char* kTerminalClosed = "The shell has ended.";
-inline constexpr const char* kTerminalWrongPasscode = "That passcode was not accepted.";
-inline constexpr const char* kTerminalNotShared =
-    "That machine is not sharing a terminal right now.";
-inline constexpr const char* kTerminalTooManySessions =
-    "That machine already has as many shells open as it allows.";
-inline constexpr const char* kTerminalNoSuchSession =
-    "The shell we were attached to is gone; open a new one.";
-inline constexpr const char* kTerminalUnreachable = "Could not reach that machine.";
-inline constexpr const char* kTerminalReattaching = "Connection lost \xE2\x80\x94 reattaching\xE2\x80\xA6";
-inline constexpr const char* kTerminalReattached = "Reattached to the shell you had open.";
-
-inline constexpr const char* kTrustNewHostTitle = "Is this the right machine?";
-inline constexpr const char* kTrustNewHostBody =
-    "This is the first time this machine has been contacted. Check its fingerprint matches the "
-    "one it shows, then decide whether to trust it.";
-inline constexpr const char* kTrustChangedTitle = "This machine's key has changed";
-inline constexpr const char* kTrustChangedBody =
-    "The key does not match the one recorded the first time. Either the machine was reinstalled, "
-    "or something is sitting between you and it. Do not continue unless you know why it changed.";
-inline constexpr const char* kTrustFingerprintLabel = "Fingerprint:";
-inline constexpr const char* kTrustAccept = "Trust this machine";
-inline constexpr const char* kTrustReject = "Do not connect";
-inline constexpr const char* kTrustedHostsHeading = "Machines you have trusted";
-inline constexpr const char* kTrustedHostsEmpty = "(none yet)";
-inline constexpr const char* kTrustForget = "Forget";
-
-inline constexpr const char* kTerminalExtraKeysHint =
-    "Ctrl and Alt latch: tap one, then a letter.";
-
-inline const char* TerminalRefusalText(TermReason reason) {
-    switch (reason) {
-        case TermReason::WrongPasscode: return kTerminalWrongPasscode;
-        case TermReason::TooManySessions: return kTerminalTooManySessions;
-        case TermReason::NotShared: return kTerminalNotShared;
-        case TermReason::NoSuchSession: return kTerminalNoSuchSession;
-        case TermReason::Accepted: return kTerminalConnected;
-    }
-    return kTerminalUnreachable;
-}
+inline constexpr LStr kLanguageLabel{"Language"};
+inline constexpr LStr kLanguageSystem{"System default"};
+inline constexpr LStr kSettingsSectionLanguage{"Language"};
+inline constexpr LStr kLanguageRestartHint{"The new language applies after you restart the app."};
 
 inline std::string TrimAscii(std::string_view s) {
     const size_t b = s.find_first_not_of(" \t\r\n");
@@ -277,10 +243,6 @@ inline std::string UdpPortLine() {
     return UdpPortLine(kDeskhubPort);
 }
 
-inline std::string PortCell(uint16_t port) {
-    return "port " + std::to_string(port);
-}
-
 inline std::string PingMs(uint32_t ms) {
     return std::to_string(ms) + " ms";
 }
@@ -328,13 +290,13 @@ inline std::string ScanFinishedStatus(size_t found, size_t total) {
 }
 
 inline std::string LanDevicesNote(size_t found, size_t total, uint32_t rescanSecs) {
-    if (total == 0) return kScanNoLocalNetwork;
-    const char* detail = found > 0 ? kLanDevicesHint : kLanDevicesNoneSharing;
+    if (total == 0) return std::string(kScanNoLocalNetwork);
+    const char* detail = found > 0 ? kLanDevicesHint.get() : kLanDevicesNoneSharing.get();
     return ScanFinishedStatus(found, total) + " " + detail + " " + ScanRecheckNote(rescanSecs);
 }
 
 inline std::string RecentDevicesNote(size_t deviceCount, uint32_t recheckSecs) {
-    if (deviceCount == 0) return kRecentDevicesEmpty;
+    if (deviceCount == 0) return std::string(kRecentDevicesEmpty);
     return std::string(kRecentDevicesHint) + " " + StatusRecheckNote(recheckSecs);
 }
 

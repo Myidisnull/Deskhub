@@ -4,13 +4,14 @@
 #include <windows.h>
 
 #include <string>
+#include <string_view>
 
-inline std::wstring FromUtf8(const std::string& s) {
+inline std::wstring FromUtf8(std::string_view s) {
     if (s.empty()) return {};
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0);
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), nullptr, 0);
     if (n <= 0) return {};
     std::wstring w(size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()), w.data(), n);
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), int(s.size()), w.data(), n);
     return w;
 }
 

@@ -229,13 +229,50 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_deskhub_app_NativeClient_nativeKeepAwake(JNIEnv*, jobject) {
-    return dh_keep_awake() ? JNI_TRUE : JNI_FALSE;
+Java_com_deskhub_app_NativeClient_nativeEncryptSession(JNIEnv*, jobject) {
+    return dh_encrypt_session() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeSetKeepAwake(JNIEnv*, jobject, jboolean on) {
-    dh_set_keep_awake(on == JNI_TRUE);
+Java_com_deskhub_app_NativeClient_nativeSetEncryptSession(JNIEnv*, jobject, jboolean on) {
+    dh_set_encrypt_session(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeEscrowSessionKey(JNIEnv*, jobject) {
+    return dh_escrow_session_key() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetEscrowSessionKey(JNIEnv*, jobject, jboolean on) {
+    dh_set_escrow_session_key(on == JNI_TRUE);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeSessionKeyLifetime(JNIEnv*, jobject) {
+    return jint(dh_session_key_lifetime());
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetSessionKeyLifetime(JNIEnv*, jobject, jint lifetime) {
+    dh_set_session_key_lifetime(int(lifetime));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeSessionKeyHex(JNIEnv* env, jobject) {
+    char buf[DH_SESSION_KEY_CAP];
+    dh_session_key_hex(buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeEnsureSessionKey(JNIEnv*, jobject, jboolean refresh) {
+    return dh_ensure_session_key(refresh == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeIsValidSessionKey(JNIEnv* env, jobject, jstring hexStr) {
+    return dh_is_valid_session_key(FromJString(env, hexStr).c_str()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
@@ -288,7 +325,10 @@ JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeSetSettingsPort(JNIEnv*, jobject, jint port) {
     const DHUiSettings stored = dh_settings_load();
     dh_settings_save(stored.fps, stored.bitrateMbps, stored.maxDim, uint32_t(port),
-        stored.allowInput, stored.clientControl, stored.passcode);
+        stored.allowInput, stored.clientControl, stored.runInBackground,
+        stored.runInBackgroundChoiceMade, stored.hideTrayIcon, stored.shareOnLaunch,
+        stored.logMaxFileMb, stored.logCompressAfterDays, stored.logDeleteAfterDays,
+        stored.logDir, stored.passcode);
 }
 
 JNIEXPORT void JNICALL
@@ -414,6 +454,16 @@ Java_com_deskhub_app_NativeClient_nativeRecentTouch(JNIEnv* env, jobject, jstrin
 }
 
 JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentTouchEx(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr, jboolean encrypted, jstring sessionKeyStr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    const std::string sessionKey = FromJString(env, sessionKeyStr);
+    dh_recent_touch_ex(addr.c_str(), passcode.c_str(), encrypted == JNI_TRUE,
+        sessionKey.empty() ? nullptr : sessionKey.c_str());
+}
+
+JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeWatchRecent(JNIEnv*, jobject) {
     dh_status_watch_recent();
 }
@@ -436,6 +486,23 @@ Java_com_deskhub_app_NativeClient_nativeRecentPasscode(JNIEnv* env, jobject, jst
     char buf[16];
     dh_recent_passcode(addr.c_str(), buf, int(sizeof(buf)));
     return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentSessionKey(JNIEnv* env, jobject, jstring addrStr) {
+    char buf[DH_SESSION_KEY_CAP];
+    dh_recent_session_key(FromJString(env, addrStr).c_str(), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentEncrypted(JNIEnv* env, jobject, jstring addrStr) {
+    return dh_recent_encrypted(FromJString(env, addrStr).c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeRecentRemove(JNIEnv* env, jobject, jstring addrStr) {
+    dh_recent_remove(FromJString(env, addrStr).c_str());
 }
 
 JNIEXPORT jboolean JNICALL
@@ -475,9 +542,10 @@ Java_com_deskhub_app_NativeClient_nativeHotkeys(JNIEnv* env, jobject) {
 
 JNIEXPORT jlong JNICALL
 Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addrStr,
-    jint sourceId, jint screenW, jint screenH, jstring passcodeStr) {
+    jint sourceId, jint screenW, jint screenH, jstring passcodeStr, jstring sessionKeyStr) {
     const std::string addr = FromJString(env, addrStr);
     const std::string passcode = FromJString(env, passcodeStr);
+    const std::string sessionKey = FromJString(env, sessionKeyStr);
 
     dh_session_set_screen_hint(screenW > 0 ? uint32_t(screenW) : 0,
         screenH > 0 ? uint32_t(screenH) : 0);
@@ -492,7 +560,7 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     callbacks.onClosed = NotifySessionClosed;
 
     g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks,
-        passcode.c_str());
+        passcode.c_str(), sessionKey.empty() ? nullptr : sessionKey.c_str());
     g_callbackSession.store(g_session, std::memory_order_release);
     return jlong(reinterpret_cast<uintptr_t>(g_session));
 }

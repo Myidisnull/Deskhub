@@ -109,7 +109,8 @@ struct ScreenCapture::Impl {
     }
 };
 
-ScreenCapture::ScreenCapture() : impl_(std::make_unique<Impl>()) {}
+ScreenCapture::ScreenCapture()
+    : impl_(std::make_unique<Impl>()) {}
 
 ScreenCapture::~ScreenCapture() {
     Stop();

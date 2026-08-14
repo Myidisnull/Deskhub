@@ -83,13 +83,23 @@ nonisolated enum DeskhubDiscovery {
         )
     }
 
-    static func remember(address: String, passcode: String) {
-        dh_recent_touch(address, passcode)
+    static func remember(address: String, passcode: String, sessionKey: String = "") {
+        let encrypted = !sessionKey.isEmpty
+        dh_recent_touch_ex(address, passcode, encrypted, sessionKey.isEmpty ? nil : sessionKey)
+        dh_status_watch_recent()
+    }
+
+    static func forget(address: String) {
+        dh_recent_remove(address)
         dh_status_watch_recent()
     }
 
     static func passcode(for address: String) -> String {
         DeskhubClient.buffered(16) { dh_recent_passcode(address, $0, $1) }
+    }
+
+    static func sessionKey(for address: String) -> String {
+        DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_recent_session_key(address, $0, $1) }
     }
 
     static func watchRecent() {
@@ -177,9 +187,21 @@ final class DiscoveryModel {
         DeskhubDiscovery.cancelScan()
     }
 
-    func remember(address: String, passcode: String) async {
-        await Task.detached { DeskhubDiscovery.remember(address: address, passcode: passcode) }
-            .value
+    func remember(address: String, passcode: String, sessionKey: String = "") async {
+        await Task.detached {
+            DeskhubDiscovery.remember(address: address, passcode: passcode, sessionKey: sessionKey)
+        }.value
+        let snapshot = await Task.detached {
+            (rows: DeskhubDiscovery.recentDevices(), note: DeskhubDiscovery.recentNote())
+        }.value
+        recent = snapshot.rows
+        recentNote = snapshot.note
+    }
+
+    func forget(address: String) async {
+        await Task.detached {
+            DeskhubDiscovery.forget(address: address)
+        }.value
         let snapshot = await Task.detached {
             (rows: DeskhubDiscovery.recentDevices(), note: DeskhubDiscovery.recentNote())
         }.value

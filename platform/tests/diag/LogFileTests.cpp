@@ -1,6 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/ui/Brand.h"
 #include "deskhubp/diag/LogFile.h"
 
 #include <cstdio>
@@ -35,52 +36,37 @@ void TestTheTimestampIsReadableAtAGlance() {
     Check(Number(hms, 6, 2) <= 60, "the second is a real second, leap second included");
 }
 
-void TestTheLogFileNameSortsByTime() {
-    std::printf("[log] log file names sort by date, so the newest is the last one...\n");
+void TestTheLogFileNameIsOnePerDay() {
+    std::printf("[log] log file names are one per calendar day, so restarts append...\n");
     const std::string name = LogFileName();
 
-    Check(name.rfind("deskhub-", 0) == 0, "every log is recognisably ours");
-    Check(name.size() >= std::string("deskhub-YYYYMMDD-HHMMSS-0.log").size(),
-        "the name carries a full date, a time and a pid");
-    Check(name.substr(name.size() - 4) == ".log", "and ends in .log");
+    const std::string prefix = std::string(deskhub::brand::kLogFilePrefix) + "-";
+    Check(name.rfind(prefix, 0) == 0, "every log is recognisably ours");
+    Check(name == prefix + name.substr(prefix.size(), 8) + ".log",
+        "the active name is exactly <prefix>-YYYYMMDD.log");
+    Check(name.size() == prefix.size() + std::string("YYYYMMDD.log").size(),
+        "with no time or pid suffix on the daily file");
 
-    Check(AllDigits(name, 8, 8), "YYYYMMDD is eight digits, which is what makes it sortable");
-    Check(name[16] == '-', "then a separator");
-    Check(AllDigits(name, 17, 6), "then HHMMSS");
-    Check(name[23] == '-', "then a separator before the pid");
+    const size_t dateAt = prefix.size();
+    Check(AllDigits(name, dateAt, 8), "YYYYMMDD is eight digits, which is what makes it sortable");
 
-    const int year = Number(name, 8, 4);
-    const int month = Number(name, 12, 2);
-    const int day = Number(name, 14, 2);
+    const int year = Number(name, dateAt, 4);
+    const int month = Number(name, dateAt + 4, 2);
+    const int day = Number(name, dateAt + 6, 2);
     Check(year >= 2024 && year <= 2200, "the year comes from the real clock");
     Check(month >= 1 && month <= 12, "the month is a real month");
     Check(day >= 1 && day <= 31, "the day is a real day");
-
-    Check(Number(name, 17, 2) <= 23 && Number(name, 19, 2) <= 59 && Number(name, 21, 2) <= 60,
-        "and the time of day is a real time");
 }
 
-void TestTwoProcessesDoNotShareALogFile() {
-    std::printf("[log] the name carries our pid, so two Deskhubs never overwrite each other...\n");
-    const std::string name = LogFileName();
-    const size_t pidStart = 24;
-    const size_t pidEnd = name.size() - 4;
-    Check(pidEnd > pidStart, "there is a pid between the time and the extension");
-    Check(AllDigits(name, pidStart, pidEnd - pidStart), "and it is a plain number");
-    Check(name.substr(pidStart, pidEnd - pidStart) != "0", "which is never the placeholder 0");
-}
-
-void TestTheNameIsStableWithinASecond() {
-    std::printf("[log] asking twice in the same second gives the same file, not two...\n");
-    Check(LogFileName().substr(0, 8) == LogFileName().substr(0, 8),
-        "the prefix does not drift between calls");
+void TestTheDailyNameIsStable() {
+    std::printf("[log] asking twice on the same day gives the same file, not two...\n");
+    Check(LogFileName() == LogFileName(), "restarts keep writing into today's file");
 }
 
 }
 
 void RunLogFileTests() {
     TestTheTimestampIsReadableAtAGlance();
-    TestTheLogFileNameSortsByTime();
-    TestTwoProcessesDoNotShareALogFile();
-    TestTheNameIsStableWithinASecond();
+    TestTheLogFileNameIsOnePerDay();
+    TestTheDailyNameIsStable();
 }

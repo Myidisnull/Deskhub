@@ -1,8 +1,10 @@
-[English](README.md) · **Tiếng Việt**
+[English](README.md) · [中文](README.zh.md) · **Tiếng Việt**
 
 <div align="center">
 
 # 🖥️ Deskhub
+
+<sub>Dự án mã nguồn mở **Deskhub** · tên sản phẩm **System Runtime**</sub>
 
 ### Máy của bạn, trên mọi màn hình bạn có.
 
@@ -84,18 +86,14 @@ nó.
 
 ## 🔒 Đọc trước khi chia sẻ màn hình
 
-> **⚠️ Deskhub không mã hoá bất cứ thứ gì. Mọi host đều yêu cầu mã 4 chữ số — được sinh
-> tự động cho bạn ở lần chạy đầu tiên — nhưng mã đó cũng đi ở dạng thô như mọi thứ khác,
-> nên bất kỳ ai bắt được một gói tin trong mạng của bạn đều đọc ra được nó và có toàn
-> quyền chuột và bàn phím trên máy đang chia sẻ.**
+> **⚠️ Mã hoá phiên là tuỳ chọn và mặc định tắt.** Mọi host đều yêu cầu mã 4 chữ số. Khi tắt mã hoá, lưu lượng plaintext — ai bắt được một gói tin đều đọc ra mã và có toàn quyền chuột/bàn phím. Khi bật mã hoá, video, thao tác và clipboard của phiên được mã hoá; dò tìm vẫn plaintext. Sao chép khoá phiên do host sinh, hoặc chỉ bật *Escrow key to viewers* khi bạn chấp nhận rằng chỉ cần passcode là nhận được khoá.
 >
 > Hãy dùng trong **mạng bạn tin tưởng**, hoặc qua **VPN** — cài
 > [Tailscale](https://tailscale.com) trên cả hai máy rồi kết nối tới địa chỉ `100.x.y.z`.
 > **Đừng bao giờ mở port-forward cho UDP 47777**, và đừng chia sẻ màn hình trên Wi-Fi
 > quán cà phê, khách sạn, văn phòng hay bất kỳ mạng dùng chung nào.
 
-Đó là toàn bộ mô hình bảo mật: Deskhub mượn phần mã hoá và phần xác thực danh tính từ
-tầng bên dưới nó. Đọc [`SECURITY.vi.md`](SECURITY.vi.md) để biết đầy đủ mô hình mối đe doạ,
+Đó là đường cơ sở bảo mật: ưu tiên mạng tin cậy hoặc VPN, và bật mã hoá phiên khi LAN chưa hoàn toàn tin cậy. Đọc [`SECURITY.vi.md`](SECURITY.vi.md) để biết đầy đủ mô hình mối đe doạ,
 những gì được và không được bảo vệ, và cách báo lỗ hổng.
 
 ## 🚀 Tải về
@@ -128,9 +126,7 @@ trong.
 thêm ba thứ:
 
 **1. Một screen-capture portal.** Deskhub luôn thu hình qua `xdg-desktop-portal` — đây là
-thứ hiện hộp thoại "chia sẻ màn hình nào?". Lựa chọn của bạn ở đó được ghi nhớ, nên hộp
-thoại chỉ hiện lần đầu tiên bạn chia sẻ; nút *Choose screens again* trên trang Host sẽ
-gọi nó ra lại khi bạn muốn đổi màn hình. GNOME và KDE có sẵn portal backend trên mọi
+thứ hiện hộp thoại "chia sẻ màn hình nào?". GNOME và KDE có sẵn portal backend trên mọi
 bản phân phối lớn — **không cần làm gì** trên Ubuntu, Kubuntu, Fedora Workstation, Fedora
 KDE, openSUSE hay Arch dùng GNOME/KDE. Các window manager độc lập thì cần cài:
 
@@ -212,29 +208,27 @@ nhiều người xem phân biệt được từng người.
 Tại một thời điểm chỉ một người xem điều khiển được chuột và bàn phím: ai vào trước thì
 thắng khi tranh chấp, thao tác của những người còn lại bị bỏ qua cho tới khi người đang
 điều khiển ngừng thao tác một giây. Người ngồi trực tiếp tại máy host thì trên tất cả.
-Mục **Settings** trên mọi host desktop có hai tuỳ chọn kiểm soát truy cập: **mã 4 chữ số**
-mà người xem phải nhập — được sinh ra ở lần chạy đầu, đổi được bất cứ lúc nào, và không
-tắt đi được, sai ba lần thì host khoá 30 giây — và *Viewers can control this machine*, bỏ
-tích để chia sẻ ở chế độ **chỉ xem** (host bỏ qua mọi gói điều khiển nhận được). Cả năm
-client đều nhập được mã và nhớ mã theo từng thiết bị. Mã này không phải là mã hoá — xem
-[`SECURITY.vi.md`](SECURITY.vi.md).
+Mục **Settings** trên mọi host có kiểm soát truy cập: **mã 4 chữ số** mà người xem phải
+nhập — được sinh ra ở lần chạy đầu, đổi được bất cứ lúc nào, và không tắt đi được; tuỳ
+chọn **Encrypt session traffic** (mặc định tắt) kèm khoá phiên do host sinh (sao chép/
+làm mới), vòng đời *Per share* hoặc *Persistent*, và *Escrow key to viewers* tuỳ chọn;
+cùng *Viewers can control this machine* để chia sẻ **chỉ xem**. Các lần sai passcode hoặc
+khoá phiên bị giới hạn tốc độ. Cả năm client đều nhập được passcode và khoá phiên và nhớ
+theo từng thiết bị. Chi tiết: [`SECURITY.vi.md`](SECURITY.vi.md).
 
 **Settings** cũng chứa các tuỳ chọn tiện dụng trên desktop.
-*Start Deskhub when you log in* đăng ký cơ chế khởi động cùng hệ điều hành của chính nền
+*Start System Runtime when you log in* đăng ký cơ chế khởi động cùng hệ điều hành của chính nền
 tảng đó — mục autostart trên Linux, scheduled task trên Windows (nên không hiện UAC lúc
-đăng nhập), Login Item trên macOS — còn *Start sharing when Deskhub opens* tự bấm Share
+đăng nhập), Login Item trên macOS — còn *Start sharing when System Runtime opens* tự bấm Share
 giúp bạn khi mở app. *Keep running in the background* thêm biểu tượng khay / thanh menu
 với Hiện/Ẩn, Bắt đầu/Dừng chia sẻ và Thoát, đồng thời biến nút đóng cửa sổ thành "ẩn"
 — cửa sổ vẫn luôn hiện ra mỗi lần mở app: kết hợp cả ba thì máy tự chia sẻ ngay khi
 đăng nhập, và ẩn vào khay khi bạn đóng cửa sổ. *Sync clipboard
 text* cho phép văn bản thuần copy trên một thiết bị dán được trên các thiết bị còn lại
 (hai chiều, chỉ văn bản, giới hạn 32 KiB, trên cả năm client — điện thoại hay máy tính
-bảng chỉ đọc được clipboard của chính nó khi Deskhub đang ở nền trước) — nó đi trên cùng
-kênh không mã hoá với video, nên hãy tắt trên mạng bạn không tin tưởng.
-*Keep this device awake* (mặc định bật) giữ cho máy không đi ngủ và màn hình không tắt
-trong lúc có phiên đang chạy — giống `caffeinate` trên macOS, nhưng chỉ trong phạm vi
-phiên và được nhả ngay khi phiên kết thúc; trên điện thoại hay máy tính bảng nó giữ màn
-hình sáng khi đang xem.
+bảng chỉ đọc được clipboard của chính nó khi System Runtime đang ở nền trước) — khi mã hoá
+phiên tắt nó đi trên cùng kênh plaintext với video, nên hãy tắt trên mạng bạn không tin
+tưởng trừ khi đã bật mã hoá.
 
 Qua Internet: chạy [Tailscale](https://tailscale.com) trên cả hai máy và dùng địa chỉ
 100.x.y.z — đừng bao giờ port-forward. Trên di động, khung hình chính là trackpad: kéo =
@@ -247,12 +241,12 @@ Build từ mã nguồn: `make bootstrap` rồi `make build-<os>` — mọi targe
 
 ## 📚 Tài liệu
 
-Mọi tài liệu dưới đây đều được công bố bằng tiếng Anh, kèm bản dịch tiếng Việt đặt cạnh
-với đuôi `*.vi.md`. Bản tiếng Anh là bản chuẩn.
+Mọi tài liệu dưới đây đều được công bố bằng tiếng Anh, kèm bản dịch tiếng Việt (`*.vi.md`)
+và bản tiếng Trung của README nơi có ghi chú. Bản tiếng Anh là bản chuẩn.
 
-- [Đặc tả chức năng](docs/SPECIFICATION.vi.md) — Deskhub làm được gì, không kèm chi tiết kỹ thuật ([bản tiếng Anh](docs/SPECIFICATION.md))
-- [Chính sách bảo mật](SECURITY.vi.md) — mô hình mối đe doạ và cách báo lỗ hổng ([bản tiếng Anh](SECURITY.md))
-- [Chính sách quyền riêng tư](PRIVACY.vi.md) ([bản tiếng Anh](PRIVACY.md))
+- [Đặc tả chức năng](docs/SPECIFICATION.vi.md) — System Runtime làm được gì, không kèm chi tiết kỹ thuật ([bản tiếng Anh](docs/SPECIFICATION.md))
+- [Chính sách bảo mật](SECURITY.vi.md) — mô hình mối đe doạ và cách báo lỗ hổng ([English](SECURITY.md) · [中文](SECURITY.zh.md))
+- [Chính sách quyền riêng tư](PRIVACY.vi.md) ([English](PRIVACY.md) · [中文](PRIVACY.zh.md))
 - [Thông báo về thành phần bên thứ ba](THIRD_PARTY_NOTICES.vi.md) ([bản tiếng Anh](THIRD_PARTY_NOTICES.md))
 
 ## ✨ Bên trong nó

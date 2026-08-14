@@ -52,6 +52,7 @@ object NativeClient {
     const val STR_RECENT_DEVICES_HEADING = 26
     const val STR_RECENT_DEVICES_HINT = 27
     const val STR_RECENT_DEVICES_EMPTY = 28
+    const val STR_FORGET_DEVICE = 121
     const val STR_SIDEBAR_CLIENT = 30
     const val STR_SIDEBAR_SETTINGS = 31
     const val STR_SIDEBAR_HOST = 29
@@ -74,13 +75,26 @@ object NativeClient {
     const val STR_CLIENT_SETTINGS_HINT = 58
     const val STR_REFRESH_NOW = 51
     const val STR_UDP_PORT_LABEL = 59
-    const val STR_BIND_INTERFACE_LABEL = 61
-    const val STR_BIND_ALL_INTERFACES = 62
-    const val STR_CLIPBOARD_SYNC_LABEL = 65
-    const val STR_BIND_NOT_CONNECTED = 70
-    const val STR_SECTION_CONNECTION = 72
-    const val STR_SECTION_SESSION = 74
-    const val STR_KEEP_AWAKE_LABEL = 76
+    const val STR_BIND_INTERFACE_LABEL = 76
+    const val STR_BIND_ALL_INTERFACES = 77
+    const val STR_CLIPBOARD_SYNC_LABEL = 80
+    const val STR_BIND_NOT_CONNECTED = 85
+    const val STR_SECTION_CONNECTION = 87
+    const val STR_SECTION_SESSION = 89
+    const val STR_ENCRYPT_SESSION_LABEL = 106
+    const val STR_ENCRYPT_SESSION_HINT = 107
+    const val STR_SESSION_KEY_LABEL = 108
+    const val STR_SESSION_KEY_HINT = 109
+    const val STR_COPY_SESSION_KEY = 110
+    const val STR_REFRESH_SESSION_KEY = 111
+    const val STR_ESCROW_SESSION_KEY_LABEL = 112
+    const val STR_ESCROW_SESSION_KEY_HINT = 113
+    const val STR_SESSION_KEY_LIFETIME_LABEL = 114
+    const val STR_SESSION_KEY_LIFETIME_PER_SHARE = 115
+    const val STR_SESSION_KEY_LIFETIME_PERSISTENT = 116
+    const val STR_CLIENT_SESSION_KEY_PROMPT = 117
+    const val STR_CLIENT_SESSION_KEY_HINT = 118
+    const val STR_SESSION_KEY_INVALID = 119
 
     private external fun nativeString(id: Int): String
 
@@ -205,13 +219,41 @@ object NativeClient {
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
 
-    private external fun nativeKeepAwake(): Boolean
+    private external fun nativeEncryptSession(): Boolean
 
-    private external fun nativeSetKeepAwake(on: Boolean)
+    private external fun nativeSetEncryptSession(on: Boolean)
 
-    fun keepAwake(): Boolean = nativeKeepAwake()
+    fun encryptSession(): Boolean = nativeEncryptSession()
 
-    fun setKeepAwake(on: Boolean) = nativeSetKeepAwake(on)
+    fun setEncryptSession(on: Boolean) = nativeSetEncryptSession(on)
+
+    private external fun nativeEscrowSessionKey(): Boolean
+
+    private external fun nativeSetEscrowSessionKey(on: Boolean)
+
+    fun escrowSessionKey(): Boolean = nativeEscrowSessionKey()
+
+    fun setEscrowSessionKey(on: Boolean) = nativeSetEscrowSessionKey(on)
+
+    private external fun nativeSessionKeyLifetime(): Int
+
+    private external fun nativeSetSessionKeyLifetime(lifetime: Int)
+
+    fun sessionKeyLifetime(): Int = nativeSessionKeyLifetime()
+
+    fun setSessionKeyLifetime(lifetime: Int) = nativeSetSessionKeyLifetime(lifetime)
+
+    private external fun nativeSessionKeyHex(): String
+
+    private external fun nativeEnsureSessionKey(refresh: Boolean): Boolean
+
+    private external fun nativeIsValidSessionKey(hex: String): Boolean
+
+    fun sessionKeyHex(): String = nativeSessionKeyHex()
+
+    fun ensureSessionKey(refresh: Boolean): Boolean = nativeEnsureSessionKey(refresh)
+
+    fun isValidSessionKey(hex: String): Boolean = nativeIsValidSessionKey(hex)
 
     private external fun nativeClipOffer(text: String)
 
@@ -262,7 +304,20 @@ object NativeClient {
         passcode: String,
     )
 
+    private external fun nativeRecentTouchEx(
+        addr: String,
+        passcode: String,
+        encrypted: Boolean,
+        sessionKey: String,
+    )
+
     private external fun nativeRecentPasscode(addr: String): String
+
+    private external fun nativeRecentSessionKey(addr: String): String
+
+    private external fun nativeRecentEncrypted(addr: String): Boolean
+
+    private external fun nativeRecentRemove(addr: String)
 
     private external fun nativeWatchRecent()
 
@@ -289,9 +344,26 @@ object NativeClient {
     suspend fun recentTouch(
         addr: String,
         passcode: String,
-    ) = withContext(Dispatchers.IO) { nativeRecentTouch(addr, passcode) }
+        encrypted: Boolean = false,
+        sessionKey: String = "",
+    ) = withContext(Dispatchers.IO) {
+        if (encrypted || sessionKey.isNotEmpty()) {
+            nativeRecentTouchEx(addr, passcode, encrypted, sessionKey)
+        } else {
+            nativeRecentTouch(addr, passcode)
+        }
+    }
 
     fun recentPasscode(addr: String): String = nativeRecentPasscode(addr)
+
+    fun recentSessionKey(addr: String): String = nativeRecentSessionKey(addr)
+
+    fun recentEncrypted(addr: String): Boolean = nativeRecentEncrypted(addr)
+
+    suspend fun recentRemove(addr: String) = withContext(Dispatchers.IO) {
+        nativeRecentRemove(addr)
+        nativeWatchRecent()
+    }
 
     suspend fun watchRecent() = withContext(Dispatchers.IO) { nativeWatchRecent() }
 
@@ -301,6 +373,7 @@ object NativeClient {
         screenW: Int,
         screenH: Int,
         passcode: String,
+        sessionKey: String = "",
     ): Long
 
     external fun nativeStop(handle: Long)

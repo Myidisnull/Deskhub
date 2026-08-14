@@ -7,6 +7,7 @@
 
 #include "decode/AvDecoder.h"
 #include "deskhub/input/PointerLockState.h"
+#include "deskhub/media/ViewFit.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
 #include "render/VideoRenderer.h"
@@ -15,7 +16,7 @@ class ViewerWindow {
 public:
     static ViewerWindow* Open(const NetAddr& server, uint8_t sourceId,
         const std::string& sourceName, const std::string& passcode,
-        std::function<void()> onClosed);
+        const std::string& sessionKey, std::function<void()> onClosed);
 
 private:
     ViewerWindow() = default;
@@ -24,7 +25,7 @@ private:
     ViewerWindow& operator=(const ViewerWindow&) = delete;
 
     bool Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName,
-        const std::string& passcode);
+        const std::string& passcode, const std::string& sessionKey);
 
     void VideoRect(int& x, int& y, int& w, int& h) const;
     bool ToNormalized(double px, double py, int32_t& nx, int32_t& ny) const;
@@ -72,6 +73,10 @@ private:
     deskhubp::ClientEngine<AvDecoder, VideoSink*> loop_;
 
     deskhub::PointerLockState pointer_;
+    deskhub::ViewTransform transform_{};
+    bool panning_ = false;
+    double panLastX_ = 0;
+    double panLastY_ = 0;
     double lastPx_ = 0, lastPy_ = 0;
     bool haveLastPos_ = false;
 };

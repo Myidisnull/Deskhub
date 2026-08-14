@@ -58,7 +58,7 @@ struct StreamView: View {
             panMode = zoomed
         }
         .onAppear {
-            UIApplication.shared.isIdleTimerDisabled = dh_keep_awake()
+            UIApplication.shared.isIdleTimerDisabled = true
             model.refresh()
         }
         .task {

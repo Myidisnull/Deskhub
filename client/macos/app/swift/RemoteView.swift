@@ -21,6 +21,8 @@ final class RemoteVideoView: NSView {
     private var trackingArea: NSTrackingArea?
     private var lastFlags: NSEvent.ModifierFlags = []
     private var scrollCarry: Double = 0
+    private var transform = ViewTransform()
+    private var panAnchor: NSPoint?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -35,7 +37,7 @@ final class RemoteVideoView: NSView {
 
     override func makeBackingLayer() -> CALayer {
         let videoLayer = AVSampleBufferDisplayLayer()
-        videoLayer.videoGravity = .resizeAspect
+        videoLayer.videoGravity = .resize
         videoLayer.backgroundColor = NSColor.black.cgColor
         return videoLayer
     }
@@ -89,10 +91,13 @@ final class RemoteVideoView: NSView {
 
     private var videoRect: CGRect {
         guard videoSize.width > 0, videoSize.height > 0 else { return bounds }
-        let rect = ViewTransform.baseFrame(
-            in: bounds.size, aspect: videoSize.width / videoSize.height
-        )
+        let rect = transform.frame(in: bounds.size, aspect: videoSize.width / videoSize.height)
         return rect.isEmpty ? bounds : rect
+    }
+
+    override func layout() {
+        super.layout()
+        displayLayer?.frame = videoRect
     }
 
     private func normalize(_ point: NSPoint) -> (nx: Int32, ny: Int32)? {
@@ -224,6 +229,19 @@ final class RemoteVideoView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) || event.modifierFlags.contains(.command) {
+            let factor: CGFloat = event.scrollingDeltaY > 0 ? 1.1 : (1.0 / 1.1)
+            let local = convert(event.locationInWindow, from: nil)
+            transform.apply(
+                factor: factor,
+                centroid: local,
+                panDelta: .zero,
+                viewport: bounds.size,
+                aspect: videoSize.width / max(videoSize.height, 1)
+            )
+            needsLayout = true
+            return
+        }
         if event.hasPreciseScrollingDeltas {
             let notches = dh_take_scroll_notches(Double(event.scrollingDeltaY), &scrollCarry)
             if notches != 0 { model?.mouseWheelNotches(notches) }
@@ -231,6 +249,45 @@ final class RemoteVideoView: NSView {
         }
         let notches = dh_scroll_notches_from_lines(Double(event.scrollingDeltaY))
         if notches != 0 { model?.mouseWheelNotches(notches) }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2, transform.isZoomed else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        panAnchor = convert(event.locationInWindow, from: nil)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard let panAnchor else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        let local = convert(event.locationInWindow, from: nil)
+        transform.apply(
+            factor: 1,
+            centroid: .zero,
+            panDelta: CGSize(width: local.x - panAnchor.x, height: local.y - panAnchor.y),
+            viewport: bounds.size,
+            aspect: videoSize.width / max(videoSize.height, 1)
+        )
+        self.panAnchor = local
+        needsLayout = true
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        panAnchor = nil
+        super.otherMouseUp(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "0" {
+            transform = ViewTransform()
+            needsLayout = true
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func resignFirstResponder() -> Bool {

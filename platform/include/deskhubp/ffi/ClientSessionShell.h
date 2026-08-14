@@ -27,7 +27,8 @@ struct FfiClientSession {
     char statusBuf[256] = {};
     char reasonBuf[256] = {};
 
-    explicit FfiClientSession(deskhub::diag::ClientDiagCaps caps = {}) : engine(caps) {}
+    explicit FfiClientSession(deskhub::diag::ClientDiagCaps caps = {})
+        : engine(caps) {}
 
     void AdoptCallbacks(const DHSessionCallbacks* cb) {
         if (cb) callbacks = *cb;
@@ -56,7 +57,7 @@ struct FfiClientSession {
 template <class Session, class Surface>
 Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surface,
     const DHSessionCallbacks* callbacks, uint32_t screenW, uint32_t screenH,
-    const char* passcode = nullptr) {
+    const char* passcode = nullptr, const char* sessionKey = nullptr) {
     NetAddr server;
     if (!ParseSessionAddress(address, server)) return nullptr;
 
@@ -70,6 +71,7 @@ Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surf
     cfg.screenW = screenW;
     cfg.screenH = screenH;
     cfg.passcode = passcode ? passcode : "";
+    cfg.sessionKeyHex = sessionKey ? sessionKey : "";
     cfg.displayName = SessionDeviceName();
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t) {
         if (raw->callbacks.onSize) raw->callbacks.onSize(width, height, raw->callbacks.user);

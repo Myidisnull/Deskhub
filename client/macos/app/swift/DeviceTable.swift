@@ -6,6 +6,7 @@ struct DeviceTable: View {
     let withHistory: Bool
     let enabled: Bool
     let onPick: (DeviceListRow) -> Void
+    var onForget: ((DeviceListRow) -> Void)?
 
     @State private var selection: DeviceListRow.ID?
 
@@ -37,11 +38,18 @@ struct DeviceTable: View {
             TableColumn("Ping") { cell($0, $0.ping) }.width(70)
             TableColumn("Last connected") { cell($0, $0.lastConnected) }.width(150)
         }
+        .contextMenu(forSelectionType: DeviceListRow.ID.self) { ids in
+            if let id = ids.first, let row = rows.first(where: { $0.id == id }), let onForget {
+                Button(DeskhubClient.string(DHStrForgetDevice), role: .destructive) {
+                    onForget(row)
+                }
+            }
+        }
     }
 
     private func connectable(_ table: some View) -> some View {
         table
-            .frame(height: 130)
+            .frame(height: 110)
             .disabled(!enabled)
             .onChange(of: selection) { _, picked in
                 guard let picked, let row = rows.first(where: { $0.id == picked })

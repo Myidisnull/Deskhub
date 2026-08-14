@@ -1,36 +1,27 @@
-[English](SECURITY.md) · **Tiếng Việt**
+[English](SECURITY.md) · [中文](SECURITY.zh.md) · **Tiếng Việt**
 
 # Chính sách bảo mật của Deskhub
 
-_Cập nhật lần cuối: 13 tháng 8, 2026_
+_Cập nhật lần cuối: 14 tháng 8, 2026_
 
 > Đây là bản dịch của [`SECURITY.md`](SECURITY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản chuẩn**.
 
+Dự án mã nguồn mở là **Deskhub**; tên sản phẩm hiển thị trong ứng dụng là **System Runtime**. Chính sách này áp dụng cho cả hai.
+
 ## ⚠️ Đọc phần này trước
 
-**Deskhub không có lớp mã hoá nào của riêng nó. Mọi host đều yêu cầu mã 4 chữ số, nhưng
-mã đó đi ở dạng thô, nên nó chỉ chặn được người lạ không nhìn thấy lưu lượng của bạn, chỉ
-vậy thôi. Bất kỳ ai bắt được một gói tin đều đọc ra mã, và từ đó có toàn quyền chuột và
-bàn phím trên máy đang chia sẻ.**
+**Mã hoá phiên là tuỳ chọn và mặc định tắt.** Mọi host vẫn yêu cầu mã 4 chữ số. Khi tắt mã hoá, lưu lượng đi dạng thô: ai bắt được một gói tin đều đọc ra mã và có toàn quyền chuột/bàn phím trên máy đang chia sẻ. Khi bật mã hoá, video, thao tác và clipboard của phiên được mã hoá; gói dò tìm vẫn plaintext. Host sinh khoá phiên để bạn sao chép cho viewer, trừ khi bật *Escrow key to viewers* (cũng mặc định tắt) — khi đó ai đưa đúng passcode đều nhận khoá từ host.
 
-Mọi host cũng có thể chia sẻ ở chế độ **chỉ xem** (thao tác gửi tới bị bỏ đi thay vì được
-đưa vào máy). Cả hai tuỳ chọn nằm trong mục Settings của app Windows, macOS và Linux, và
-mọi client — Windows, macOS, Linux, Android, iOS — đều nhập được passcode.
+Deskhub vẫn dành cho mạng bạn đã tin, hoặc VPN bên dưới. Nó **không** được xây để sống sót khi phơi ra Internet công cộng.
 
-Đây là lựa chọn thiết kế có chủ đích, không phải sơ suất — Deskhub được xây để chạy bên
-trong một mạng mà bạn vốn đã tin tưởng, và để mượn phần mã hoá cùng phần xác thực danh
-tính từ tầng bên dưới nó (mạng LAN của bạn, hoặc một đường hầm WireGuard như Tailscale).
-Nó **không** được xây để sống sót khi phơi ra Internet công cộng.
-
-Nên chỉ có đúng một quy tắc:
+Chỉ có một quy tắc cứng:
 
 > **Đừng bao giờ port-forward UDP 47777. Đừng bao giờ phơi máy đang chia sẻ trực tiếp ra
 > Internet. Muốn truy cập từ xa, hãy dùng VPN — [Tailscale](https://tailscale.com) là thứ
 > dự án này được kiểm thử cùng — và kết nối tới địa chỉ `100.x.y.z`.**
 
-Nếu bạn theo đúng quy tắc đó, Deskhub an toàn để dùng. Nếu bạn phá vỡ nó, bạn đang trao
-máy của mình cho Internet.
+Theo đúng quy tắc đó, System Runtime an toàn để dùng. Phá vỡ nó là trao máy cho Internet. Bật mã hoá phiên khi LAN chưa hoàn toàn tin cậy; tắt escrow khi bạn có thể trao khoá ngoài băng. Quy tắc sản phẩm: [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) §9.
 
 ## Mô hình mối đe doạ
 
@@ -41,7 +32,8 @@ máy của mình cho Internet.
 | Dữ liệu tới tay nhà phát triển | Không có gì cả. Không máy chủ, không tài khoản, không telemetry, không SDK bên thứ ba. Xem [`PRIVACY.vi.md`](PRIVACY.vi.md). |
 | Người xem từ xa tranh máy với bạn | "Host thắng": ngay khi bạn chạm vào chuột hoặc bàn phím thật, thao tác từ xa tạm dừng (đúng như vậy trên cả host Windows, macOS và Linux). |
 | Phím bị kẹt ở trạng thái nhấn | Mọi phím mà phía từ xa đang giữ đều được nhả tự động khi phiên kết thúc hoặc người xem chuyển đi chỗ khác. |
-| Người lạ không nghe lén được lưu lượng của bạn | Mọi host đều yêu cầu passcode, và cứ mỗi ba lần kết nối sai mã thì host khoá 30 giây. Nhưng cái phanh đó chỉ áp cho kết nối: beacon dò tìm trả lời mọi gói dò với tốc độ tối đa, và gói dò mang mã đúng nhận về danh sách màn hình thật trong khi mã sai chỉ nhận danh sách rỗng — một oracle xác nhận mã đoán, nên đi hết 10 000 tổ hợp theo đường đó chỉ mất vài giây. Passcode chặn được người tò mò, không chặn được kẻ chạy máy quét (xem mục beacon bên dưới). |
+| Người lạ không nghe lén được lưu lượng của bạn | Mọi host đều yêu cầu passcode. Các lần sai passcode hoặc khoá phiên từ cùng một nguồn bị giới hạn (**5** lần trong **60 giây**, rồi khoá **30 giây**). Gói dò tìm cũng bị giới hạn tốc độ để phản hồi danh sách màn hình không thành oracle vô hạn. Không gian 4 chữ số vẫn nhỏ: nếu tắt mã hoá hoặc bật escrow, máy quét trên LAN vẫn là rủi ro thật. |
+| Phiên mã hoá tuỳ chọn | Khi bật *Encrypt session traffic*, video, thao tác và clipboard của phiên được mã hoá AEAD. Viewer cần khoá phiên trừ khi bật escrow. Host đang mã hoá từ chối cho vào plaintext. Dò tìm vẫn plaintext. |
 | Những người xem tranh chuột với nhau | Tối đa 5 người xem một host, nhưng chỉ một người điều khiển: ai vào trước thì thắng, và thao tác của người vào sau bị bỏ qua cho tới khi người vào trước ngừng thao tác một giây. Người thứ 6 bị từ chối với lý do `Busy`. |
 | Người xem mà bạn chỉ muốn cho xem màn hình | Chế độ chia sẻ chỉ xem, có trên mọi host, bỏ các gói điều khiển ngay tại host trước khi bất cứ thứ gì được đưa vào máy — nó không dựa vào việc yêu cầu client tự giác. Host Android và iOS luôn ở chế độ chỉ xem, không tắt được. |
 | Điện thoại bị bỏ quên trong lúc đang chia sẻ | Chốt chặn là hệ điều hành chứ không phải Deskhub: Android giữ một thông báo thường trực và hỏi lại quyền quay màn hình ở từng lần chia sẻ, còn iOS luôn hiện chỉ báo broadcast. Cả hai đều dừng được phiên chia sẻ mà không cần mở app. |
@@ -49,53 +41,30 @@ máy của mình cho Internet.
 
 ### Deskhub **không** bảo vệ được những gì
 
-Đây là danh sách thành thật. Không điều nào dưới đây được giải quyết ở thời điểm hiện
-tại — và passcode không giải quyết được điều nào cả:
+Đây là danh sách thành thật. Chỉ passcode không giải quyết được những điều này; mã hoá
+phiên tuỳ chọn thu hẹp một phần nhưng không phải tất cả:
 
-- **Không có xác thực thật sự.** Passcode là 4 chữ số gửi ở dạng thô bên trong gói
-  `Hello` và được so sánh bằng phép bằng — nó là cái khoá cửa, không phải phép kiểm tra
-  danh tính bằng mật mã. Ai bắt được một gói tin là có nó mãi mãi và phát lại được. Việc
-  bắt buộc phải có mã đã loại bỏ trường hợp "không có mã nào cả", nhưng vẫn không có bước
-  ghép đôi, không có hộp thoại phê duyệt, và không có danh sách địa chỉ được phép: ai gửi
-  đúng bốn chữ số trước thì người đó vào.
-- **Không có mã hoá.** Không TLS, không DTLS, không Noise, không có lớp mật mã nào ở tầng
-  ứng dụng trong mã nguồn này. Khung hình, phím gõ và chuyển động chuột đều đi dưới dạng
-  UDP thô. Ai bắt được lưu lượng của bạn đều xem được màn hình của bạn và đọc được mọi
-  thứ bạn gõ.
-- **Tên thiết bị cũng đi ở dạng thô.** Tên trong ô *Your name* mà người xem gửi được chở
-  trong mọi gói `Hello` cùng với passcode, không mã hoá, và được hiển thị trên màn hình
-  của host cũng như ghi vào nhật ký của host. Mặc định nó là hostname hay tên thiết bị
-  của chính máy — thứ trên máy cá nhân thường chứa tên thật của chủ máy. Hãy coi nó là
-  công khai với cả mạng: thay tên mặc định bằng một biệt danh không để lộ điều gì — một
-  cái tên bạn không ngại bất kỳ ai trong mạng LAN, và bất kỳ ai nhìn vào host, đọc
-  được — và đừng bao giờ đặt mật khẩu hay thông tin nhạy cảm vào đó. Xoá trắng ô nhập
-  không ngăn được việc gửi tên; nó chỉ khôi phục lại tên mặc định.
-- **Không bảo vệ toàn vẹn.** Gói tin không được ký hay xác thực, nên kẻ tấn công chèn
-  được lưu lượng thì giả mạo được sự kiện nhập liệu.
-- **Không chống được việc chiếm phiên trên mạng dùng chung.** Một phiên đang chạy chỉ
-  được nhận diện bằng một session id 32 bit. Nó được sinh từ CSPRNG của hệ điều hành
-  (`BCryptGenRandom` / `arc4random_buf` / `getrandom`), nên đoán mò là không khả thi —
-  nhưng trên mạng mà kẻ tấn công *nghe lén* được gói tin của bạn, id đó nằm phơi trong
-  từng gói một. Có nó, kẻ tấn công chèn được thao tác và chuyển hướng được luồng video về
-  địa chỉ của chính họ.
-- **Không giới hạn tần suất, không chống DoS.** Làm ngập cổng sẽ phá hỏng phiên đang chạy.
-- **Beacon dò tìm trả lời bất kỳ ai.** Gói `LIST_SOURCES` không cần phiên và nhận được
-  phản hồi từ bất kỳ địa chỉ nguồn nào; `PING` cũng vậy. Passcode chỉ làm rỗng phần trả
-  lời — gói dò không có mã đúng được báo "không chia sẻ gì" thay vì nhận tên và độ phân
-  giải các màn hình của bạn. Dù thế nào gói tin vẫn quay về, nên máy vẫn bị phát hiện
-  được bằng cách quét, và cổng vẫn dùng được như một bộ phản xạ UDP nhỏ. Beacon cũng
-  không bị giới hạn tần suất, và phản hồi không rỗng xác nhận mã đúng, nên nó kiêm luôn
-  vai trò oracle để dò passcode — khoá 30 giây của đường kết nối không áp dụng ở đây.
-- **Một chỗ người xem tự giải phóng sau 5 giây im lặng.** Nếu người xem của bạn rớt mạng,
-  chỗ đó mở lại và gói `Hello` tới tiếp theo sẽ chiếm — bất kể ai gửi, chỉ phải qua cửa
-  passcode.
-- **Chia sẻ là phơi nguyên màn hình.** Không phải một cửa sổ: mọi thông báo, cửa sổ bật
-  lên và cửa sổ trên màn hình đó. Xem [`PRIVACY.vi.md` §3.4](PRIVACY.vi.md).
-- **Điện thoại hay máy tính bảng làm host là phơi nguyên cái máy.** Android và iOS nay
-  cũng chia sẻ được, và thứ chúng phát là toàn bộ màn hình — ứng dụng ngân hàng, mã một
-  lần, tin nhắn, mọi mật khẩu bạn gõ trong lúc chia sẻ. Vẫn là UDP không mã hoá chở đi,
-  nên ai bắt được gói trong mạng là thấy hết. Host di động luôn ở chế độ chỉ xem, điều đó
-  loại bỏ rủi ro bị điều khiển từ xa nhưng không loại bỏ chút nào rủi ro lộ nội dung.
+- **Không có danh tính máy mạnh.** Passcode là 4 chữ số so sánh bằng phép bằng. Khi tắt
+  mã hoá nó đi dạng thô trong `Hello`. Khi bật mã hoá và tắt escrow, khoá phiên mới là bí
+  mật thật — nhưng vẫn không có bước ghép đôi, không hộp thoại phê duyệt trên host, không
+  danh sách địa chỉ được phép.
+- **Mã hoá là tuỳ chọn.** Lưu lượng mặc định là UDP plaintext. Ai bắt được phiên chưa mã
+  hoá đều xem được màn hình và đọc được phím. Bật mã hoá chỉ phủ payload phiên; gói dò tìm
+  vẫn plaintext.
+- **Escrow làm yếu việc trao khoá.** Khi escrow bật, ai đưa đúng passcode đều nhận khoá
+  phiên từ host. Khi LAN thù địch, hãy ưu tiên trao khoá ngoài băng.
+- **Tên thiết bị vẫn có thể đi plaintext** trên các đường dò tìm/cho vào chưa được mã hoá
+  phiên phủ. Tên trong ô *Your name* hiện trên host và ghi vào nhật ký host.
+- **Không chống DoS.** Làm ngập cổng sẽ phá phiên; giới hạn tốc độ chỉ làm chậm đoán, không
+  chặn lũ.
+- **Beacon dò tìm vẫn trả lời.** `LIST_SOURCES` không cần phiên và nhận phản hồi từ mọi
+  địa chỉ nguồn; `PING` cũng vậy. Passcode chỉ làm rỗng phần trả lời. Giới hạn tốc độ giảm
+  lạm dụng oracle; nó không giấu việc có host Deskhub.
+- **Một chỗ người xem tự giải phóng sau 5 giây im lặng.** Nếu người xem rớt, chỗ đó mở lại
+  và `Hello` được chấp nhận tiếp theo chiếm chỗ.
+- **Chia sẻ là phơi nguyên màn hình.** Không phải một cửa sổ. Xem [`PRIVACY.vi.md` §3.4](PRIVACY.vi.md).
+- **Điện thoại hay máy tính bảng làm host là phơi nguyên cái máy.** Host di động luôn chỉ
+  xem, loại rủi ro điều khiển từ xa nhưng không loại rủi ro lộ nội dung.
 
 ## Chạy ở đâu thì an toàn
 
@@ -199,18 +168,16 @@ Không thứ gì trong số này được tải lên đâu cả; bạn xoá thư
 
 1. **Hộp thoại xác nhận kết nối trên host** — máy đang chia sẻ hỏi trước khi chấp nhận
    phiên đầu tiên, thay vì chấp nhận âm thầm.
-2. **Mã hoá và xác thực thật sự** — một phép trao đổi khoá có xác thực (Noise IK hoặc
-   DTLS) để Deskhub không còn phụ thuộc vào việc mạng có đáng tin hay không, và để
-   passcode thôi bị đọc được trên đường truyền. Cho tới khi việc này hoàn thành, quy tắc ở
-   đầu tài liệu này chính là toàn bộ mô hình bảo mật.
-3. **Lưu passcode trong keychain của hệ điều hành** thay vì một tệp văn bản bị che đi.
-4. **Làm im beacon dò tìm** để nó không trả lời gì cả trước một gói dò không mời, thay vì
+2. **Lưu passcode và khoá phiên trong keychain của hệ điều hành** thay vì tệp văn bản bị
+   che đi.
+3. **Làm im beacon dò tìm** để nó không trả lời gì cả trước một gói dò không mời, thay vì
    trả lời bằng danh sách rỗng.
 
-Đã hoàn thành kể từ lần cập nhật trước của danh sách này: passcode và công tắc chỉ xem
-trên mọi host, ô nhập passcode trong mọi client, passcode host được sinh ra ở lần chạy
-đầu thay vì để trống, và beacon dò tìm giấu danh sách màn hình khỏi các gói dò không có
-mã đúng. Không cái nào trong số đó thay thế được mục 2.
+Đã giao / đã ghi trong đặc tả kể từ các lần sửa sớm hơn: passcode bắt buộc và công tắc
+chỉ xem trên mọi host; mã hoá phiên tuỳ chọn với khoá phiên do host sinh, sao chép/làm mới,
+vòng đời theo lần chia sẻ hoặc bền vững, và escrow khoá tuỳ chọn; từ chối hạ cấp host đang
+mã hoá xuống plaintext; giới hạn tốc độ kết nối và dò tìm như [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md)
+§9. Phần triển khai đang được căn theo đặc tả đó nếu bản dựng còn lệch.
 
 Danh sách này là tuyên bố về ý định, không phải lịch trình. Deskhub do một người duy trì
 trong thời gian rảnh. Hãy coi hiện trạng là hiện trạng, không phải kế hoạch.

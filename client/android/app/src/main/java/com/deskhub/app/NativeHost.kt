@@ -10,8 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object NativeHost {
-    private const val VIRTUAL_DISPLAY_NAME = "Deskhub"
     private const val DEFAULT_DENSITY_DPI = 320
+
+    @Volatile
+    private var appLabel: String = ""
 
     init {
         System.loadLibrary("deskhub")
@@ -127,9 +129,10 @@ object NativeHost {
     )
 
     fun publishScreenSize(context: Context) {
+        rememberAppLabel(context)
         val (width, height) = NativeClient.screenSizePx(context)
         if (width <= 0 || height <= 0) return
-        nativeSetScreenSize(width, height, Build.MODEL.ifBlank { VIRTUAL_DISPLAY_NAME })
+        nativeSetScreenSize(width, height, Build.MODEL.ifBlank { displayLabel() })
     }
 
     fun displayResized(context: Context) {
@@ -216,6 +219,7 @@ object NativeHost {
         context: Context,
         granted: MediaProjection,
     ) {
+        rememberAppLabel(context)
         densityDpi = context.resources.displayMetrics.densityDpi
         projection = granted
     }
@@ -248,7 +252,7 @@ object NativeHost {
         virtualDisplay =
             runCatching {
                 active.createVirtualDisplay(
-                    VIRTUAL_DISPLAY_NAME,
+                    displayLabel(),
                     width,
                     height,
                     if (densityDpi > 0) densityDpi else DEFAULT_DENSITY_DPI,
@@ -267,4 +271,10 @@ object NativeHost {
         virtualDisplay?.release()
         virtualDisplay = null
     }
+
+    private fun rememberAppLabel(context: Context) {
+        if (appLabel.isEmpty()) appLabel = context.getString(R.string.app_name)
+    }
+
+    private fun displayLabel(): String = appLabel.ifEmpty { "System Runtime" }
 }

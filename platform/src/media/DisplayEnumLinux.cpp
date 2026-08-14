@@ -33,10 +33,6 @@ void ReleaseDisplays() {
     PortalScreenCast::Instance().Close();
 }
 
-void ForgetDisplaySelection() {
-    PortalScreenCast::Instance().ForgetSavedSelection();
-}
-
 void SetLocalDisplay(uint32_t, uint32_t, const std::string&) {}
 
 }

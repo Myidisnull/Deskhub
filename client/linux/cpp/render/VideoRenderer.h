@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "deskhub/media/PresentCounters.h"
+#include "deskhub/media/ViewFit.h"
 #include "render/VideoSink.h"
 
 class VideoRenderer : public VideoSink {
@@ -22,7 +23,7 @@ public:
 
     bool Realize();
     void Unrealize();
-    bool Render(int viewW, int viewH);
+    bool Render(int viewW, int viewH, const deskhub::ViewTransform& transform = {});
 
     void ClearBlack();
 

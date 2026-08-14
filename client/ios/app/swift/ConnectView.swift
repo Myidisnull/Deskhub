@@ -46,6 +46,21 @@ struct ConnectView: View {
                         .foregroundStyle(DeskhubPalette.muted)
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField(
+                        DeskhubClient.string(DHStrClientSessionKeyPrompt),
+                        text: $model.connect.sessionKey
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .disabled(model.connect.isConnecting)
+
+                    Text(DeskhubClient.string(DHStrClientSessionKeyHint))
+                        .font(.caption)
+                        .foregroundStyle(DeskhubPalette.muted)
+                }
+
                 TextField("Your name", text: $model.connect.deviceName)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
@@ -102,7 +117,10 @@ struct ConnectView: View {
                     note: model.discovery.recentNote,
                     rows: model.discovery.recent.map { DeviceListRow($0) },
                     enabled: !model.connect.isConnecting,
-                    onPick: pick
+                    onPick: pick,
+                    onForget: { row in
+                        Task { await model.discovery.forget(address: row.addr) }
+                    }
                 )
             }
             .padding()

@@ -19,14 +19,20 @@ void TestRoundTrip() {
     s.port = 50123;
     s.allowInput = false;
     s.clientControl = false;
+    s.runInBackground = true;
+    s.runInBackgroundChoiceMade = true;
+    s.hideTrayIcon = true;
+    s.logMaxFileMb = 25;
+    s.logCompressAfterDays = 3;
+    s.logDeleteAfterDays = 14;
+    s.logDir = "/tmp/deskhub-logs";
     s.passcode = "0417";
     s.deviceName = "Anh's laptop";
     s.bindIp = "192.168.1.10";
     s.autostart = true;
     s.autoShare = true;
     s.clipboardSync = true;
-    s.startHidden = true;
-    s.keepAwake = false;
+    s.language = "zh-Hans";
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
 }
@@ -50,22 +56,22 @@ void TestBindIpPersistence() {
 void TestBehaviorTogglesPersist() {
     std::printf("[settings] the launch and clipboard toggles default off and round-trip...\n");
     const ui::UiSettings defaults;
-    Check(!defaults.autostart && !defaults.autoShare && !defaults.clipboardSync &&
-              !defaults.startHidden,
+    Check(!defaults.autostart && !defaults.autoShare && !defaults.clipboardSync,
         "every new toggle defaults off");
     Check(ui::ParseUiSettings("autostart=1").autostart, "autostart round-trips on");
     Check(!ui::ParseUiSettings("autostart=0").autostart, "and off");
     Check(ui::ParseUiSettings("auto_share=1").autoShare, "auto-share round-trips on");
     Check(ui::ParseUiSettings("clipboard_sync=1").clipboardSync,
         "clipboard sync round-trips on");
-    Check(ui::ParseUiSettings("start_hidden=1").startHidden, "start hidden round-trips on");
+    Check(ui::ParseUiSettings("start_hidden=1").runInBackground,
+        "legacy start_hidden migrates to run-in-background");
+    Check(ui::ParseUiSettings("start_hidden=1").runInBackgroundChoiceMade,
+        "legacy start_hidden records the background choice");
+    Check(ui::SerializeUiSettings(ui::ParseUiSettings("start_hidden=1")).find("start_hidden=") ==
+              std::string::npos,
+        "start_hidden is no longer written out");
     Check(!ui::ParseUiSettings("autostart=x").autostart,
         "junk in a toggle falls back to off");
-    Check(defaults.keepAwake, "keep awake defaults on");
-    Check(!ui::ParseUiSettings("keep_awake=0").keepAwake, "keep awake round-trips off");
-    Check(ui::ParseUiSettings("keep_awake=1").keepAwake, "and on");
-    Check(ui::ParseUiSettings("keep_awake=x").keepAwake,
-        "junk in keep awake falls back to on");
 }
 
 void TestDeviceNamePersistence() {
@@ -125,6 +131,14 @@ void TestDefaultsMatchShareDefaults() {
         "defaults are the long-standing share defaults");
     Check(defaults.port == kDeskhubPort, "the default port is the protocol default");
     Check(defaults.allowInput, "remote control is allowed unless the user turns it off");
+    Check(!defaults.runInBackground, "closing quits until the user opts into the tray");
+    Check(!defaults.runInBackgroundChoiceMade, "the first close still asks about the tray");
+    Check(!defaults.hideTrayIcon, "the tray icon is shown unless the user hides it");
+    Check(!defaults.autoShare, "sharing still waits for an explicit start by default");
+    Check(defaults.logMaxFileMb == 10 && defaults.logCompressAfterDays == 7 &&
+              defaults.logDeleteAfterDays == 30,
+        "log retention defaults match common desktop logging practice");
+    Check(defaults.logDir.empty(), "log directory defaults to the built-in Deskhub folder");
     Check(ui::ParseUiSettings("") == defaults, "empty text is all defaults");
 }
 
@@ -165,57 +179,34 @@ void TestBoundsAreEnforced() {
     Check(ui::ParseUiSettings("").clientControl, "and defaults to controlling");
     Check(ui::ParseUiSettings("allow_input=x").allowInput,
         "junk falls back to allowing control, the long-standing behaviour");
+    Check(ui::ParseUiSettings("run_in_background=1").runInBackground, "tray preference round-trips");
+    Check(ui::ParseUiSettings("run_in_background_choice_made=1").runInBackgroundChoiceMade,
+        "so does the recorded-choice flag");
+    Check(ui::ParseUiSettings("hide_tray_icon=1").hideTrayIcon, "hiding the tray round-trips too");
+    Check(ui::ParseUiSettings("share_on_launch=1").autoShare, "share-on-launch round-trips");
+    Check(!ui::ParseUiSettings("").autoShare, "share-on-launch stays off by default");
+    Check(ui::ParseUiSettings("auto_share=1").autoShare, "auto-share round-trips");
+    Check(ui::ParseUiSettings("log_max_file_mb=20").logMaxFileMb == 20,
+        "log size ceiling round-trips");
+    Check(ui::ParseUiSettings("log_max_file_mb=0").logMaxFileMb == 10,
+        "log size zero is rejected");
+    Check(ui::ParseUiSettings("log_compress_after_days=0").logCompressAfterDays == 0,
+        "compress never is allowed");
+    Check(ui::ParseUiSettings("log_delete_after_days=2\nlog_compress_after_days=9")
+                  .logDeleteAfterDays == 9,
+        "delete cannot be earlier than compress");
+    Check(ui::ParseUiSettings("log_dir=/var/log/deskhub").logDir == "/var/log/deskhub",
+        "a custom log directory round-trips");
+    Check(ui::ParseUiSettings("log_dir=\n").logDir.empty(), "blank log directory means default");
     Check(ui::ParseUiSettings("fps = 30 ").fps == 30, "spaces around key and value are fine");
-}
-
-void TestTerminalSharePersistence() {
-    std::printf("[settings] the terminal is a source of its own, on the shared network...\n");
-    ui::UiSettings s;
-    s.terminalPort = 47790;
-    s.bindIp = "192.168.1.10";
-    s.clientShell = true;
-    const ui::UiSettings back = ui::ParseUiSettings(ui::SerializeUiSettings(s));
-    Check(back.bindIp == "192.168.1.10",
-        "the terminal shares on the one network the host picked");
-    Check(back == s, "nothing else changed on the way through");
-
-    Check(back.terminalPort == 47790, "and it keeps its own port");
-
-    const ui::UiSettings fresh;
-    Check(fresh.terminalPort == kDeskhubTerminalPort && fresh.port == kDeskhubPort,
-        "by default the terminal listens beside the screen rather than on top of it");
-    Check(back.clientShell, "what the client opens on connect round-trips too");
-    Check(fresh.clientDesktop && !fresh.clientShell,
-        "and by default connecting opens the desktop, not a shell");
-
-    Check(ui::SerializeUiSettings(s).find("terminal_share") == std::string::npos,
-        "which source is ticked is not a saved setting: the terminal starts ticked every time, "
-        "like the displays do");
-
-    const std::string fourX =
-        "fps=30\n"
-        "bitrate_mbps=15\n"
-        "max_dim=1280\n"
-        "port=47777\n"
-        "allow_input=1\n"
-        "client_control=1\n"
-        "passcode=\n"
-        "name=Old machine\n"
-        "bind_ip=192.168.1.10\n"
-        "autostart=0\n"
-        "auto_share=1\n"
-        "clipboard_sync=1\n"
-        "start_hidden=0\n"
-        "keep_awake=1\n";
-    const ui::UiSettings old = ui::ParseUiSettings(fourX);
-    Check(old.fps == 30 && old.autoShare && old.deviceName == "Old machine",
-        "a 4.x settings file still reads back everything it used to hold");
-    Check(old.clientDesktop && !old.clientShell,
-        "and the fields it never heard of come out at their defaults");
-    Check(old.terminalPort == kDeskhubTerminalPort,
-        "including a terminal port that does not collide with the screen it already shares");
-    Check(ui::ParseUiSettings("terminal_port=0").terminalPort == kDeskhubTerminalPort,
-        "port zero is rejected here too");
+    Check(ui::ParseUiSettings("language=zh-Hans").language == "zh-Hans", "language round-trips");
+    Check(ui::ParseUiSettings("language=fr").language == "fr", "french code is kept");
+    Check(ui::ParseUiSettings("language=").language.empty(), "blank language means system");
+    Check(ui::ParseUiSettings("language=nope").language.empty(), "junk language is dropped");
+    ui::UiSettings lang;
+    lang.language = "ja";
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(lang)).language == "ja",
+        "serialize keeps language");
 }
 
 }
@@ -230,5 +221,4 @@ void RunUiSettingsTests() {
     TestNativeQualityIsPreserved();
     TestGarbageFallsBackPerKey();
     TestBoundsAreEnforced();
-    TestTerminalSharePersistence();
 }

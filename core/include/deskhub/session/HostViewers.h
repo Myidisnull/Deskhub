@@ -40,6 +40,7 @@ struct ViewerSlot {
     uint64_t joinOrder = 0;
     uint64_t lastRecvUs = 0;
     uint64_t lastInputUs = 0;
+    uint64_t aeadRecvCounter = 0;
     std::string name{};
     Feedback feedback{};
     InputReceiver input;

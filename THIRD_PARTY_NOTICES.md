@@ -55,10 +55,10 @@ bundled or modified; users may replace the system libraries freely.
 
 The Windows app builds unmodified upstream wxWidgets from the official release archive
 (fetched by CMake at configure time, see `client/windows/win32/CMakeLists.txt`) and
-links it statically into `Deskhub.exe`. The wxWindows Library Licence is the LGPL plus
-an exception that explicitly permits distributing binaries linked against the library —
-statically or dynamically — under the distributor's own terms, so the single-file MIT
-distribution of Deskhub is unaffected. Licence text:
+links it statically into `System Runtime Service.exe`. The wxWindows Library Licence is
+the LGPL plus an exception that explicitly permits distributing binaries linked against
+the library — statically or dynamically — under the distributor's own terms, so the
+single-file MIT distribution of System Runtime is unaffected. Licence text:
 <https://www.wxwidgets.org/about/licence/>.
 
 `third_party/nvenc-13.0` is a git submodule containing only the NVIDIA Video Codec SDK

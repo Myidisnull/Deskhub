@@ -20,8 +20,6 @@ public:
 
     void Close();
 
-    void ForgetSavedSelection();
-
     bool isOpen() const {
         return pipewireFd_ >= 0;
     }
@@ -39,17 +37,10 @@ public:
     }
 
 private:
-    enum class AttemptResult { Ok,
-        Cancelled,
-        FailedWithToken,
-        Failed };
-
     PortalScreenCast() = default;
     ~PortalScreenCast();
     PortalScreenCast(const PortalScreenCast&) = delete;
     PortalScreenCast& operator=(const PortalScreenCast&) = delete;
-
-    AttemptResult OpenAttempt();
 
     int pipewireFd_ = -1;
     std::string sessionHandle_;

@@ -30,7 +30,8 @@ std::vector<uint8_t> Unescape(const std::vector<uint8_t>& in, size_t from) {
 
 class BitReader {
 public:
-    explicit BitReader(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
+    explicit BitReader(std::vector<uint8_t> bytes)
+        : bytes_(std::move(bytes)) {}
 
     uint32_t U(uint32_t bits) {
         uint32_t v = 0;

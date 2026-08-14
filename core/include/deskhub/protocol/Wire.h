@@ -8,7 +8,7 @@
 
 namespace deskhub {
 
-inline constexpr uint8_t kProtocolVersion = 2;
+inline constexpr uint8_t kProtocolVersion = 1;
 inline constexpr size_t kMaxDatagram = 1200;
 inline constexpr size_t kCommonHeaderSize = 8;
 inline constexpr size_t kVideoHeaderSize = 16;
@@ -19,8 +19,9 @@ inline constexpr uint16_t kFecGroupSize = 8;
 inline constexpr size_t kMaxFecGroups = 256;
 
 inline constexpr size_t kFecLenPrefix = 2;
+inline constexpr size_t kEncryptedPayloadOverhead = 24;
 inline constexpr size_t kMaxVideoPayload =
-    kMaxDatagram - kCommonHeaderSize - kFecHeaderSize - kFecLenPrefix;
+    kMaxDatagram - kCommonHeaderSize - kFecHeaderSize - kFecLenPrefix - kEncryptedPayloadOverhead;
 
 inline constexpr size_t kInputHeaderSize = 5;
 inline constexpr size_t kInputEventSize = 19;
@@ -41,8 +42,7 @@ inline constexpr size_t kMaxClipboardChunks =
 enum class Chan : uint8_t { Control = 0,
     Video = 1,
     Input = 2,
-    Audio = 3,
-    Terminal = 4 };
+    Audio = 3 };
 
 enum class MsgType : uint8_t {
     Hello = 0x01,
@@ -63,13 +63,13 @@ enum class MsgType : uint8_t {
     Nack = 0x36,
     InvalidateRef = 0x37,
     Clipboard = 0x40,
-    TermOpen = 0x50,
-    TermOpenAck = 0x51,
-    TermData = 0x52,
-    TermResize = 0x53,
-    TermClose = 0x54,
-    TermExit = 0x55,
+    Noise1 = 0x50,
+    Noise2 = 0x51,
+    Noise3 = 0x52,
+    NoiseDecline = 0x53,
 };
+
+inline constexpr uint16_t kFeatureEncryptCapable = 1u << 0;
 
 inline constexpr uint8_t kVideoFlagIdr = 1u << 0;
 inline constexpr uint8_t kVideoFlagFrameEnd = 1u << 1;
@@ -87,7 +87,6 @@ struct CommonHeader {
 };
 
 inline constexpr uint16_t kDeskhubPort = 47777;
-inline constexpr uint16_t kDeskhubTerminalPort = 47778;
 inline constexpr size_t kMaxSources = 8;
 inline constexpr size_t kMaxSourceNameBytes = 64;
 
@@ -138,6 +137,8 @@ enum class RejectReason : uint8_t {
     Busy = 1,
     CodecMismatch = 2,
     WrongPasscode = 3,
+    EncryptionRequired = 4,
+    WrongSessionKey = 5,
 };
 
 struct HelloAck {
@@ -256,8 +257,13 @@ size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t fir
 size_t BuildClipboardChunk(std::span<uint8_t> out, uint32_t sessionId,
     const ClipboardChunkView& chunk);
 
+void WriteCommonHeader(std::span<uint8_t> out, const CommonHeader& h);
 std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram);
 std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram);
+size_t BuildNoise1(std::span<uint8_t> out, std::span<const uint8_t> body);
+size_t BuildNoise2(std::span<uint8_t> out, std::span<const uint8_t> body);
+size_t BuildNoise3(std::span<uint8_t> out, std::span<const uint8_t> body);
+size_t BuildNoiseDecline(std::span<uint8_t> out);
 
 std::optional<Hello> ParseHello(std::span<const uint8_t> payload);
 std::string ParseListSourcesPasscode(std::span<const uint8_t> payload);
@@ -278,78 +284,5 @@ size_t ParseInputEvents(std::span<const uint8_t> payload, uint32_t& firstSeq,
     std::span<InputEvent> out);
 std::optional<ClipboardChunkView> ParseClipboardChunk(std::span<const uint8_t> payload);
 std::string TruncateClipboardText(std::string_view text);
-
-inline constexpr size_t kRecordPrefixSize = 2;
-inline constexpr size_t kMaxRecordSize = 16384;
-
-enum class RecordStatus : uint8_t { Ok = 0,
-    NeedMore = 1,
-    Invalid = 2 };
-
-struct RecordView {
-    RecordStatus status = RecordStatus::NeedMore;
-    std::span<const uint8_t> message{};
-    size_t consumed = 0;
-};
-
-size_t BuildRecord(std::span<uint8_t> out, std::span<const uint8_t> message);
-RecordView ReadRecord(std::span<const uint8_t> buffer);
-
-enum class PacketKind : uint8_t { Unknown = 0,
-    Quic = 1,
-    Deskhub = 2 };
-
-PacketKind ClassifyPacket(std::span<const uint8_t> datagram);
-
-inline constexpr size_t kMaxTermDataBytes = 4096;
-inline constexpr uint16_t kMinTermCols = 1;
-inline constexpr uint16_t kMinTermRows = 1;
-inline constexpr uint16_t kMaxTermCols = 1000;
-inline constexpr uint16_t kMaxTermRows = 1000;
-inline constexpr uint16_t kDefaultTermCols = 80;
-inline constexpr uint16_t kDefaultTermRows = 24;
-
-struct TermSize {
-    uint16_t cols = kDefaultTermCols;
-    uint16_t rows = kDefaultTermRows;
-
-    bool operator==(const TermSize&) const = default;
-};
-
-bool IsValidTermSize(TermSize size);
-TermSize ClampTermSize(TermSize size);
-
-struct TermOpen {
-    TermSize size{};
-    uint32_t resumeId = 0;
-    std::string passcode{};
-    std::string clientName{};
-};
-
-enum class TermReason : uint8_t {
-    Accepted = 0,
-    WrongPasscode = 1,
-    TooManySessions = 2,
-    NotShared = 3,
-    NoSuchSession = 4,
-};
-
-struct TermOpenAck {
-    uint32_t termId = 0;
-    TermReason reason = TermReason::Accepted;
-    bool resumed = false;
-};
-
-size_t BuildTermOpen(std::span<uint8_t> out, const TermOpen& m);
-size_t BuildTermOpenAck(std::span<uint8_t> out, const TermOpenAck& m);
-size_t BuildTermData(std::span<uint8_t> out, uint32_t termId, std::span<const uint8_t> data);
-size_t BuildTermResize(std::span<uint8_t> out, uint32_t termId, TermSize size);
-size_t BuildTermClose(std::span<uint8_t> out, uint32_t termId);
-size_t BuildTermExit(std::span<uint8_t> out, uint32_t termId, int32_t exitCode);
-
-std::optional<TermOpen> ParseTermOpen(std::span<const uint8_t> payload);
-std::optional<TermOpenAck> ParseTermOpenAck(std::span<const uint8_t> payload);
-std::optional<TermSize> ParseTermResize(std::span<const uint8_t> payload);
-std::optional<int32_t> ParseTermExit(std::span<const uint8_t> payload);
 
 }

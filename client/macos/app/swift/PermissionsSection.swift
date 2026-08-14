@@ -21,8 +21,8 @@ struct PermissionsSection: View {
             )
 
             if agent.screenRecordingNeedsRelaunch {
-                Text("Deskhub is now listed under Privacy & Security \u{2192} Screen & System "
-                    + "Audio Recording. Turn it on there, then quit and reopen Deskhub.")
+                Text("\(DeskhubClient.string(DHStrAppTitle)) is now listed under Privacy & Security \u{2192} Screen & System "
+                    + "Audio Recording. Turn it on there, then quit and reopen \(DeskhubClient.string(DHStrAppTitle)).")
                     .foregroundStyle(DeskhubPalette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }

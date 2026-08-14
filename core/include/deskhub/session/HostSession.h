@@ -1,10 +1,15 @@
 #pragma once
+#include "deskhub/crypto/Keys.h"
+#include "deskhub/crypto/NoiseXx.h"
+#include "deskhub/crypto/TrafficCipher.h"
 #include "deskhub/input/InputReceiver.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/AuthRateLimit.h"
 #include "deskhub/session/HostViewers.h"
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <span>
 #include <string>
@@ -13,9 +18,10 @@
 namespace deskhub {
 
 inline constexpr uint64_t kSessionTimeoutUs = 5'000'000;
+inline constexpr uint64_t kPendingAdmitTimeoutUs = 3'000'000;
 
-inline constexpr uint32_t kMaxPasscodeAttempts = 3;
-inline constexpr uint64_t kPasscodeLockoutUs = 30'000'000;
+inline constexpr uint32_t kMaxPasscodeAttempts = kMaxAuthFailures;
+inline constexpr uint64_t kPasscodeLockoutUs = kAuthLockoutUs;
 
 struct StreamParams {
     uint16_t width = 0;
@@ -42,6 +48,8 @@ struct HostCallbacks {
     std::function<void(uint32_t frameId)> onInvalidateRef;
     std::function<void(std::string_view text)> onClipboardText;
     std::function<bool(std::span<uint8_t>)> randomBytes;
+    std::function<void(const uint8_t key[crypto::kKeySize])> onTrafficKey;
+    std::function<void()> onTrafficKeyClear;
 };
 
 class HostSession {
@@ -65,6 +73,28 @@ public:
 
     void SetClipboardEnabled(bool on) {
         clipboardEnabled_ = on;
+    }
+
+    void SetEncryptRequired(bool on) {
+        encryptRequired_ = on;
+    }
+
+    void SetEscrowKey(bool on) {
+        escrowKey_ = on;
+    }
+
+    void SetHostStaticKey(const crypto::KeyPair& kp) {
+        hostStatic_ = kp;
+        haveHostStatic_ = true;
+    }
+
+    void SetSessionKey(const uint8_t key[crypto::kKeySize]) {
+        std::memcpy(sessionKey_, key, crypto::kKeySize);
+        haveSessionKey_ = true;
+    }
+
+    void SetTrafficCipher(crypto::TrafficCipher* cipher) {
+        traffic_ = cipher;
     }
 
     bool HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs, uint64_t fromPacked);
@@ -92,14 +122,40 @@ public:
     uint64_t inputDenied() const {
         return inputDenied_.load(std::memory_order_relaxed);
     }
+    bool encryptRequired() const {
+        return encryptRequired_;
+    }
+    bool escrowKey() const {
+        return escrowKey_;
+    }
 
 private:
+    struct PendingNoise {
+        uint64_t fromPacked = 0;
+        uint64_t createdUs = 0;
+        crypto::NoiseXx noise{};
+    };
+
+    struct PendingAdmit {
+        bool used = false;
+        uint64_t fromPacked = 0;
+        uint64_t createdUs = 0;
+        uint64_t aeadRecvCounter = 0;
+        uint32_t clientId = 0;
+        Hello hello{};
+    };
+
     bool InSession(uint32_t sid) const {
         const uint32_t cur = sessionId();
         return cur != 0 && sid == cur;
     }
 
     bool HandleHello(std::span<const uint8_t> payload, uint64_t nowUs, uint64_t fromPacked);
+    bool HandleNoise1(std::span<const uint8_t> payload, uint64_t nowUs, uint64_t fromPacked);
+    bool HandleNoise3(std::span<const uint8_t> payload, uint64_t nowUs, uint64_t fromPacked);
+    bool AdmitHello(const Hello& m, uint64_t nowUs, uint64_t fromPacked);
+    bool QueuePendingAdmit(const Hello& m, uint64_t nowUs, uint64_t fromPacked);
+    bool CompletePendingAdmit(PendingAdmit& pending, uint64_t nowUs);
     bool HandleFromViewer(const CommonHeader& header, std::span<const uint8_t> payload,
         ViewerSlot& viewer, uint64_t nowUs);
     void ApplyInput(std::span<const uint8_t> payload, ViewerSlot& viewer, uint64_t nowUs);
@@ -108,24 +164,47 @@ private:
     void SendHelloAck(uint64_t nowUs);
     void SendReject(RejectReason reason);
     bool BeginSession();
+    bool EnsureTrafficKey();
     void DropViewer(ViewerSlot& viewer);
     void RefreshState();
     void Disconnect();
+    void ExpirePending(uint64_t nowUs);
+    void ClearPendingNoise(uint64_t fromPacked);
+    void ClearPendingAdmit(uint64_t fromPacked);
+    PendingNoise* FindPendingNoise(uint64_t fromPacked);
+    PendingNoise* AllocPendingNoise(uint64_t fromPacked, uint64_t nowUs);
+    PendingAdmit* FindPendingAdmit(uint64_t fromPacked);
+    PendingAdmit* AllocPendingAdmit(uint64_t fromPacked, uint64_t nowUs);
+    bool AllowCleartext(MsgType type) const;
 
-    bool PasscodeAllows(const Hello& m, uint64_t nowUs);
+    bool PasscodeAllows(const Hello& m, uint64_t nowUs, uint64_t fromPacked);
+    void SendRaw(std::span<const uint8_t> pkt);
+    void SendEncrypted(MsgType type, Chan chan, std::span<const uint8_t> plainPayload);
 
     HostCallbacks cb_;
     StreamParams offer_;
     ViewerTable viewers_;
+    AuthRateLimit authLimit_;
     std::atomic<State> state_{State::Idle};
     std::atomic<uint32_t> sessionId_{0};
     std::atomic<uint64_t> inputDenied_{0};
     uint64_t controllingAddr_ = 0;
     std::string passcode_;
     bool clipboardEnabled_ = false;
-    uint32_t wrongPasscodes_ = 0;
-    uint64_t passcodeLockUntilUs_ = 0;
+    bool encryptRequired_ = false;
+    bool escrowKey_ = false;
+    bool haveHostStatic_ = false;
+    bool haveSessionKey_ = false;
+    crypto::KeyPair hostStatic_{};
+    PendingNoise pendingNoise_[kMaxViewersPerHost]{};
+    PendingAdmit pendingAdmit_[kMaxViewersPerHost]{};
+    uint8_t sessionKey_[crypto::kKeySize]{};
+    uint8_t trafficKey_[crypto::kKeySize]{};
+    bool haveTrafficKey_ = false;
+    crypto::TrafficCipher* traffic_ = nullptr;
+    uint64_t replyTo_ = 0;
     uint8_t buf_[kMaxDatagram] = {};
+    uint8_t plainBuf_[kMaxDatagram] = {};
 };
 
 }

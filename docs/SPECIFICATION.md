@@ -2,12 +2,14 @@
 
 # Deskhub — Functional Specification
 
-This document describes **what** Deskhub does, as experienced by a person using it. It is
+The open-source project is **Deskhub**; the product name shown in the apps is **System Runtime**. This document describes **what** System Runtime does, as experienced by a person using it. It is
 a product specification, not a design document: it contains no implementation detail, no
 protocol description and no build instructions. Those live in
 [`README.md`](../README.md), [`SECURITY.md`](../SECURITY.md) and the source tree.
 
-- **Status:** describes the behaviour of the current code.
+- **Status:** describes the intended product behaviour. Where a running build still
+  differs, the implementation is being aligned to this document — notably the optional
+  session-encryption model in section 9.
 - **Audience:** anyone who needs to know what the product is supposed to do — testers,
   reviewers, contributors, store listings.
 
@@ -15,12 +17,14 @@ protocol description and no build instructions. Those live in
 
 ## 1. Product summary
 
-Deskhub lets one machine show its screen to other machines on the same network, and lets
+System Runtime lets one machine show its screen to other machines on the same network, and lets
 those machines drive its mouse and keyboard. It is a single application: the same app
 both shares a screen and views someone else's.
 
-There is no installer requirement, no account, no sign-in, no background service and no
-cloud component. Two machines find each other by IP address on a network both can reach.
+There is no installer requirement, no account, no sign-in, no system background service and
+no cloud component. Two machines find each other by IP address on a network both can reach.
+On Windows and macOS the user may optionally keep the app running in the notification area
+after closing the window; that is not a system service.
 
 ## 2. Vocabulary
 
@@ -30,7 +34,9 @@ cloud component. Two machines find each other by IP address on a network both ca
 | **Client** / **Viewer** | The machine watching a host, and optionally controlling it. |
 | **Source** | One shareable display on the host. A host may share several at once. |
 | **Session** | One viewer watching one source. Each source opens in its own window. |
-| **Passcode** | The 4-digit code a host requires before a viewer is admitted. |
+| **Passcode** | The 4-digit code a host requires for discovery and admission. Always required; not an encryption key. |
+| **Session key** | The secret used when session encryption is on. The host generates it; viewers copy it when escrow is off. |
+| **Escrow** | When encryption is on and escrow is on, the host passes the session key to connecting viewers automatically so they need not type it. |
 
 A single machine can be host and client at the same time.
 
@@ -74,9 +80,10 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 | --- | --- | --- |
 | C-1 | Connect by address | The user types the host's IP address in one field and the UDP port in another, prefilled with the default `47777`. Pasting `192.168.1.10:47777` into the address field still works — its explicit port wins over the port field. Invalid input produces an explanatory hint, not a failure. |
 | C-2 | Passcode entry | The user enters the 4 digits shown on the host. A code that is not exactly 4 digits is rejected before connecting; if the address is a known one, its remembered code is used when the field is left empty. The prompt that opens from the device lists also shows the device's UDP port, prefilled and editable. |
+| C-2a | Session key entry | When the host has encryption on and escrow off, the viewer must supply the host's session key. The connect UI treats the session key as the primary secret in that mode; the passcode is still checked but is not emphasised for hand-off. When escrow is on, or encryption is off, no session-key field is required. |
 | C-3 | Control opt-out | Before connecting, the viewer can untick *control the remote machine* to watch without sending any input. |
 | C-4 | Source picker | If the host is sharing more than one display, the viewer is asked which to view. Picking several opens several windows. If the host shares exactly one display, it opens immediately. |
-| C-5 | Clear failures | If the host cannot be reached, is not sharing, or refuses the passcode, the viewer is told which — with the address named in the message. |
+| C-5 | Clear failures | If the host cannot be reached, is not sharing, refuses the passcode, refuses the session key, or requires encryption that this viewer cannot satisfy, the viewer is told which — with the address named in the message. If this machine cannot create a viewing session (for example no usable D3D11 GPU on Windows), that is reported as its own clear failure. |
 | C-6 | Session end notice | When a session ends, from either side, the viewer sees why. |
 | C-7 | Viewer name | A *Your name* field on the connect page names this device. Until the user first sets a name, it is prefilled with a platform default: the computer's hostname on Windows and Linux (the login username if no hostname is available), the computer's name on macOS, the device name on iOS, and the device model on Android. The field can be edited, and whatever it contains when connecting is what is saved and sent. It can never end up unset: connecting with a cleared field falls back to the platform default above, which refills the field and is what is saved and sent, so a name always accompanies a connection. Hosts show the name next to this machine's address so viewers can be told apart. The name is remembered on this device, holds at most **64** bytes of text, and control characters are removed from it. A host running an older version simply does not show it. |
 
@@ -90,8 +97,9 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 | D-4 | Click to connect | Clicking a discovered device starts a connection to it. |
 | D-5 | Recent devices | Machines connected to before are kept in a *Recent devices* list — up to **10** — showing address, status, ping and when they were last connected. |
 | D-6 | Live status | Each recent device shows **Online**, **Offline** or **Checking…** with a round-trip time, refreshed automatically every **30 seconds** and on demand. |
-| D-7 | Remembered passcode | The passcode used for a device is remembered with it, so reconnecting does not require retyping it. It is stored obscured, which is convenience — not protection (see section 9). |
+| D-7 | Remembered secrets | The passcode used for a device is remembered with it. When a connection used encryption, that fact and the session key used are remembered too, so reconnecting can fill them in automatically. All of this is stored obscured, which is convenience — not protection (see section 9). |
 | D-8 | Forget a device | A recent device can be removed from the list. |
+| D-9 | Reconnect with encryption | Opening a recent device that was last connected with encryption first retries with the remembered passcode and session key. If that fails for a key or encryption reason, the app shows a session-key prompt, explains that the key is wrong or the host has rotated it, and lets the user paste a new key. |
 
 ## 7. Viewing a session
 
@@ -123,21 +131,26 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| S-1 | No encryption | Deskhub does not encrypt anything. It is intended for trusted networks or a VPN. This is stated in the app and documented in [`SECURITY.md`](../SECURITY.md). |
-| S-2 | Mandatory passcode | Every host requires a 4-digit passcode. One is generated at random on first launch; the user can change it but cannot leave it blank or switch it off. |
-| S-3 | Passcode gates discovery | A host that requires a passcode will not even reveal what it is sharing without it. |
-| S-4 | Lockout on repeated failure | **3** wrong passcode attempts lock the host against further attempts for **30 seconds**. |
+| S-1 | Optional session encryption | The host may turn on *Encrypt session traffic* (off by default). When on, video, input and clipboard for the session are encrypted end-to-end between host and viewers. Network discovery probes stay unencrypted. Intended for networks that are not fully trusted; a trusted LAN or VPN may leave it off. Details and residual risks are in [`SECURITY.md`](../SECURITY.md). |
+| S-2 | Mandatory passcode | Every host requires a 4-digit passcode. One is generated at random on first launch; the user can change it but cannot leave it blank or switch it off. The passcode admits viewers and gates discovery; it is not the session encryption key. |
+| S-3 | Passcode gates discovery | A host will not reveal what it is sharing without the correct passcode. |
+| S-4 | Lockout on repeated failure | Wrong passcode or session-key attempts from the same source are counted. After **5** failures inside a **60-second** window the host refuses further attempts from that source for **30 seconds**. |
+| S-4a | Discovery rate limit | Discovery probes from the same source are rate-limited so the display-list reply cannot be used as an unlimited oracle for guessing the passcode. |
 | S-5 | Control switch | The host can share with *viewers can control this machine* turned off, making every session view-only regardless of what viewers request. |
-| S-6 | Consent to capture | On platforms that require it, the operating system's own permission prompts and screen-picker dialogs are used; Deskhub cannot capture without the user granting it. |
-| S-7 | Explicit sharing only | Nothing is shared until the user starts a share. Closing or stopping ends all sessions. |
+| S-6 | Consent to capture | On platforms that require it, the operating system's own permission prompts and screen-picker dialogs are used; System Runtime cannot capture without the user granting it. |
+| S-7 | Explicit sharing only | Nothing is shared until the user starts a share, or until launch if **Start sharing automatically when the app launches** is enabled in Settings. Stopping sharing, or fully quitting the app, ends all sessions. Closing the window to the notification area on Windows, macOS or Linux (when that option is on) leaves an active share running. |
+| S-8 | Session key | When encryption is on, the host shows a generated session key with **Copy** and **Refresh**. The key is meant to be copied, not invented by the user. Refreshing invalidates the previous key and drops viewers that depended on it. |
+| S-9 | Key lifetime | When encryption is on, the host chooses *Per share* (default) or *Persistent*. *Per share* generates a new session key each time sharing starts and discards it when sharing stops. *Persistent* keeps the same key across shares and restarts until the user refreshes it. |
+| S-10 | Escrow key to viewers | When encryption is on, the host may turn on *Escrow key to viewers* (off by default; unavailable while encryption is off). With escrow on, a connecting viewer that presents the correct passcode receives the session key from the host and need not type it. With escrow off, the viewer must supply the session key locally (C-2a). Escrow is a convenience on the local network, not a substitute for a trusted path when hand-carrying the key. |
+| S-11 | No plaintext downgrade | A host with encryption on refuses unencrypted admission. Viewers that cannot satisfy encryption are rejected with a clear failure (C-5), never silently accepted in the clear. |
 
 ## 10. Settings
 
 Settings are per machine, persist across restarts, and apply the next time sharing
-starts. Phones and tablets expose only the network port (T-4) — which also decides which
-port the network scan knocks on — clipboard sync (T-17) and keep awake (T-19), plus the
-passcode (T-5) and the network to share on (T-9) on their sharing screen; they host with
-the built-in defaults for everything else.
+starts. Phones and tablets expose the network port (T-4) — which also decides which
+port the network scan knocks on — clipboard sync (T-17), the passcode (T-5), optional
+session encryption and its related controls (T-29–T-32), and the network to share on
+(T-14) on their sharing screen; they host with the built-in defaults for everything else.
 
 | ID | Setting | Range | Default |
 | --- | --- | --- | --- |
@@ -147,23 +160,36 @@ the built-in defaults for everything else.
 | T-4 | Network port | 1 – 65535 | 47777 |
 | T-5 | Passcode | exactly 4 digits | generated at random on first launch |
 | T-6 | Viewers can control this machine | on / off | on |
-| T-9 | Share on network | All networks · one of this machine's addresses | All networks |
-| T-11 | Start sharing when the app opens | on / off | off |
-| T-13 | Start Deskhub when you log in | on / off | off |
-| T-15 | Keep running in the background | on / off | off |
+| T-9 | Keep running in the background when closed | on / off (Windows, macOS and Linux) | off until the user chooses |
+| T-13 | Hide the tray / menu bar icon | on / off (Windows and macOS); shown and enabled only while background running is on; turning background off clears this choice | off |
+| T-14 | Share on network | All networks · one of this machine's addresses | All networks |
+| T-15 | Start sharing when the app opens | on / off | off |
+| T-16 | Start System Runtime when you log in | on / off | off |
 | T-17 | Sync clipboard text | on / off | off |
-| T-19 | Keep this device awake during sessions | on / off | on |
+| T-22 | Split log when larger than | 1 – 1024 MB (Windows, macOS, Linux) | 10 |
+| T-23 | Compress logs older than | 0 – 3650 days; 0 means never (Windows, macOS, Linux) | 7 |
+| T-24 | Delete logs older than | 0 – 3650 days; 0 means never; cannot be earlier than T-23 (Windows, macOS, Linux) | 30 |
+| T-25 | Log directory | absolute writable folder, or blank for the default System Runtime folder (Windows, macOS, Linux) | blank (default folder) |
+| T-27 | Language | System default · English · 简体中文 · Français · Deutsch · Русский · 日本語 · 한국어 · العربية | System default (follow the operating system) |
+| T-29 | Encrypt session traffic | on / off | off |
+| T-30 | Session key lifetime | Per share · Persistent; shown only while T-29 is on | Per share |
+| T-31 | Escrow key to viewers | on / off; shown and enabled only while T-29 is on; turning T-29 off clears this to off | off |
+| T-32 | Session key | generated value with Copy and Refresh; shown only while T-29 is on; not user-invented | generated when encryption is turned on, and again per S-8 / S-9 |
 
 | ID | Feature | Description |
 | --- | --- | --- |
 | T-7 | Automatic quality | Stream quality adapts on its own to the available network capacity within the configured limits; no user action is required when conditions change. |
-| T-8 | Validation | Out-of-range or non-numeric values are rejected and the previous value kept, rather than applied. |
-| T-10 | Network fallback | When a specific network is chosen (T-9), the host is reachable only through that address. If that address no longer exists when sharing starts, the host shares on all networks instead and says so in the sharing status. A saved address that is currently unavailable is still listed, marked *not connected*. |
-| T-12 | Auto-share on launch | Desktop only. With T-11 on, opening the app goes straight to the Host page and starts sharing with the saved settings, exactly as if the user had pressed Share. The platform rules still apply: Linux shows the desktop's screen-sharing dialog the first time and reuses the remembered choice after that (P-3), and macOS still requires its permissions (P-2). |
-| T-14 | Launch at login | Desktop only. With T-13 on: Linux writes an autostart entry into `~/.config/autostart`; Windows registers a scheduled task named *Deskhub* that starts the app elevated at logon, so no UAC prompt appears; macOS registers a Login Item the user can also see in System Settings. Turning it off removes that artifact again. The checkbox always shows what the operating system reports, not merely what was last saved. |
-| T-16 | Background mode | Desktop only. With T-15 on, a tray / menu-bar icon appears with *Show/Hide window*, *Start/Stop sharing* and *Quit*; closing the window hides the app instead of quitting it, and sharing continues in the background. The window always appears on launch and hides only when the user closes it, so T-13 + T-11 + T-15 together start sharing at login with the window shown until it is closed. On Windows, left-clicking the tray icon shows or hides the window. On macOS the Dock icon disappears while the window is hidden. On Linux the tray needs a StatusNotifier host (standard on KDE; GNOME needs the AppIndicator extension) — without one, closing the window still quits, so the app can never become unreachable. On Windows and Linux, while sharing is active, closing the window always hides to the tray even with T-15 off (when a tray is available), so connected viewers are not dropped; on macOS closing the window never quits the app, so sharing continues either way. |
-| T-18 | Clipboard sync | With T-17 on, plain text copied on any machine in the session appears on the others within a couple of seconds, in both directions; the host relays a viewer's copy to the other viewers. Text is capped at 32 KiB (longer copies are cut at a whole character); images, files and formatting are never transferred. The host's toggle governs the session: with it off, the host ignores and never sends clipboard data. Each machine also needs its own toggle on to read or write its local clipboard. On Android and iOS the operating system constrains this: an Android device picks up its own copies only while Deskhub is the app in the foreground, though incoming text is applied at any time; an iOS viewer may show the system paste prompt when Deskhub reads a fresh copy; and an iOS device that is hosting does not take part at all, because its broadcast runs in a separate process without clipboard access. |
-| T-20 | Keep awake | With T-19 on, the machine does not go to sleep and the display does not turn off while it is sharing or viewing; the block is released the moment the session ends, and no sleep settings are changed. On Windows, macOS and Linux this covers both display and system sleep for hosts and viewers alike (on Linux it needs systemd-logind and a desktop that honours the freedesktop screensaver interface — standard on KDE and GNOME). The operating system still wins where it insists: closing a laptop lid, pressing the power button, or macOS on battery power may still sleep the machine. On Android and iOS the toggle keeps the screen on while viewing a stream; sharing from a phone already survives the screen turning off (P-5), so hosting there does not hold the screen. |
+| T-8 | Validation | Out-of-range or non-numeric values are rejected and the previous value kept, rather than applied. An unusable log directory is rejected the same way. |
+| T-10 | First-close background prompt | On Windows and macOS, the first time the main window is closed before the background preference has been recorded, the app asks whether to keep running in the background. **Yes** is selected by default. **Confirm** records the choice and applies it; **Close** leaves the preference unrecorded so the prompt appears again next time, and quits for this close. |
+| T-11 | Persistent tray while background is on | While the background setting is on and the tray is not hidden, the notification-area / menu-bar icon stays visible even with the main window open. Closing the window to the background removes the app from the taskbar / Dock; restore via the tray icon, or by launching System Runtime again. A short notice is shown when the tray icon is visible. |
+| T-12 | Quit confirmation while busy | On Windows and macOS, fully quitting while **Share** or a **Connect** viewer session is active asks for confirmation first. Closing the window to the background does not. |
+| T-18 | Network fallback | When a specific network is chosen (T-14), the host is reachable only through that address. If that address no longer exists when sharing starts, the host shares on all networks instead and says so in the sharing status. A saved address that is currently unavailable is still listed, marked *not connected*. |
+| T-19 | Auto-share on launch | Desktop only. With T-15 on, opening the app goes straight to the Host page and starts sharing with the saved settings, exactly as if the user had pressed Share. The platform rules still apply: Linux first shows the desktop's screen-sharing dialog (P-3), and macOS still requires its permissions (P-2). |
+| T-20 | Launch at login | Desktop only. With T-16 on: Linux writes an autostart entry into `~/.config/autostart`; Windows registers a scheduled task named *System Runtime* that starts the app elevated at logon, so no UAC prompt appears; macOS registers a Login Item the user can also see in System Settings. Turning it off removes that artifact again. The checkbox always shows what the operating system reports, not merely what was last saved. |
+| T-21 | Clipboard sync | With T-17 on, plain text copied on any machine in the session appears on the others within a couple of seconds, in both directions; the host relays a viewer's copy to the other viewers. Text is capped at 32 KiB (longer copies are cut at a whole character); images, files and formatting are never transferred. The host's toggle governs the session: with it off, the host ignores and never sends clipboard data. Each machine also needs its own toggle on to read or write its local clipboard. On Android and iOS the operating system constrains this: an Android device picks up its own copies only while System Runtime is the app in the foreground, though incoming text is applied at any time; an iOS viewer may show the system paste prompt when System Runtime reads a fresh copy; and an iOS device that is hosting does not take part at all, because its broadcast runs in a separate process without clipboard access. |
+| T-26 | Log details | On Windows, macOS and Linux the Settings page lists local log files, shows their contents, and can open the log folder. Compressed `.log.gz` files appear in the list but are opened from the folder rather than shown inline. |
+| T-28 | Language preference | The Settings page offers a language choice (T-27). **System default** follows the operating system's locale and maps common tags such as `zh-CN`, `fr-FR` and `ja` onto the supported list, falling back to English when the tag is unknown. An explicit choice is stored and applied the next time the app starts; changing it while the app is open updates newly shown strings immediately, while labels already drawn on the main window may need a restart. |
+| T-33 | Session encryption controls | With T-29 on, Settings (and the sharing screen on phones and tablets) show the current session key (T-32), lifetime (T-30) and escrow (T-31). Turning encryption off hides those controls and forces escrow off. Copy places the key on the local clipboard; Refresh follows S-8. |
 
 ## 11. Status and troubleshooting
 
@@ -171,23 +197,23 @@ the built-in defaults for everything else.
 | --- | --- | --- |
 | G-1 | Live host statistics | Per-display and per-viewer figures for capture rate, send rate, bandwidth and round-trip time. |
 | G-2 | Live client statistics | Per-session frame rate, bandwidth, round-trip time and end-to-end latency. |
-| G-3 | Session logs | On Windows, macOS and Linux each run writes a log file to the user's Deskhub folder, for attaching to bug reports. Android and iOS write their diagnostics to the operating system's own log stream instead and leave no file behind. |
+| G-3 | Session logs | On Windows, macOS and Linux the app appends to one log file per calendar day in the configured log directory (the user's System Runtime folder by default), for attaching to bug reports. A process start writes a short banner with version, host identity, local addresses and current settings; Share and Connect also leave an entry. A new file is started only when the current one grows past the configured size (the full file is archived with a timestamp). Older files are compressed and later deleted according to the Settings retention values. Changing the log directory affects new writes only; existing files stay where they are. Android and iOS write their diagnostics to the operating system's own log stream instead and leave no file behind. |
 | G-4 | Version and project link | The app displays its version and links to the project page. |
 
 ## 12. Platform-specific behaviour
 
 | ID | Platform | Behaviour |
 | --- | --- | --- |
-| P-1 | Windows | The app asks for administrator rights once at start, which is what allows it to type into elevated windows. It adds its own firewall rule when sharing begins. |
-| P-2 | macOS | Shows a **Permissions** panel with the live grant state of *Screen Recording* (needed to share) and *Accessibility* (needed to accept remote input), a button to request each, and a shortcut into System Settings. Some keystrokes are silently blocked by macOS unless Accessibility is granted. |
-| P-3 | Linux | Displays are chosen in the desktop's own screen-sharing dialog after pressing Share, rather than in the app. The choice is remembered where the desktop supports it (ScreenCast portal version 4+): later shares reuse it silently, including across restarts, so the dialog appears only the first time. A *Choose screens again* button on the Host page forgets the remembered choice and shows the dialog once more; if the desktop rejects or has expired the remembered choice — after a compositor upgrade or a monitor change — the dialog simply appears again, and cancelling it never retries. Sharing additionally requires the system to permit input injection. |
+| P-1 | Windows | The app asks for administrator rights once at start, which is what allows it to type into elevated windows. It adds its own firewall rule when sharing begins. Only one instance may run; a second launch shows a notice and exits. When the background setting is on, a notification-area icon is always shown; left-click restores the window and right-click offers **Restore** / **Exit**. Closing the window while background is on shows a short balloon that System Runtime is still running. |
+| P-2 | macOS | Shows a **Permissions** panel with the live grant state of *Screen Recording* (needed to share) and *Accessibility* (needed to accept remote input), a button to request each, and a shortcut into System Settings. Some keystrokes are silently blocked by macOS unless Accessibility is granted. Only one instance may run; a second launch shows a notice and exits. When the background setting is on, a menu-bar icon is always shown; left-click restores the window and right-click offers **Restore** / **Exit**. Closing the window while background is on shows a short notice that System Runtime is still running. |
+| P-3 | Linux | Displays are chosen in the desktop's own screen-sharing dialog after pressing Share, rather than in the app. Sharing additionally requires the system to permit input injection. |
 | P-4 | Android / iOS | Hosting is **view-only**: the device streams its screen and silently drops every control packet, because neither OS lets an app inject input system-wide. The whole screen is shared as a single source, so the display picker, multi-display sharing and per-display stop (H-1, H-2, H-3, H-5) do not apply. Turning the device turns the stream with it: what viewers see stays the right way up, and their window re-fits to the new shape (V-1). The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
 | P-5 | Android | Sharing needs the system screen-recording consent dialog, which is granted per share and cannot be remembered. While sharing, an ongoing notification is shown and the stream survives the app going to the background or the screen turning off. Stopping the share from the system notification ends the session. |
 | P-6 | iOS | Sharing is started from an in-app **Start sharing** button which opens the system broadcast sheet, because iOS requires that sheet to confirm every broadcast, and runs in a separate broadcast process so it continues after the app is closed. The sharing screen reports the number of connected viewers — listing the names of those that have set one (C-7) — and the broadcast process's current memory use — iOS ends a broadcast that grows past its memory limit — without the per-viewer table of H-7, and viewers cannot be dropped individually (H-8). A system event that ends the broadcast — an incoming call, for instance — ends the session. |
 
 ## 13. Explicitly out of scope
 
-Deskhub does **not** provide, and this specification does not cover:
+System Runtime does **not** provide, and this specification does not cover:
 
 - Audio streaming.
 - File transfer or remote printing.
@@ -197,5 +223,6 @@ Deskhub does **not** provide, and this specification does not cover:
   user's responsibility (for example via a VPN).
 - Session recording.
 - Unattended access, wake-on-LAN, or remote power control.
-- Encryption, authentication of machine identity, or transport-level integrity.
+- Authentication of machine identity beyond the passcode and optional session key,
+  mutual device attestation, or a public-key directory.
 - Multi-user administration, roles, or audit trails.

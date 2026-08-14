@@ -3,14 +3,15 @@
 #include "deskhub/net/BindAddress.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
+#include "deskhub/ui/Brand.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
-#include "deskhubp/system/KeepAwake.h"
-#include "deskhubp/system/UiSettingsStore.h"
 
 #include <cstdio>
+#include <cstring>
 #include <span>
+#include <string>
 #include <utility>
 
 namespace deskhubp {
@@ -19,7 +20,9 @@ namespace {
 std::string DefaultPortError(const UdpSocket& sock, uint16_t port) {
     return sock.lastBindAddrInUse()
                ? "UDP port " + std::to_string(port) +
-                     " is already in use \xE2\x80\x94 another Deskhub is probably still "
+                     " is already in use \xE2\x80\x94 another " +
+                     std::string(deskhub::brand::kProductName) +
+                     " is probably still "
                      "running. Close it and try again."
                : "Could not open UDP port " + std::to_string(port) + ".";
 }
@@ -30,7 +33,8 @@ HostEngine::~HostEngine() {
     try {
         Stop();
     } catch (...) {
-        std::fputs("[Deskhub] [Agent] stop failed during shutdown\n", stderr);
+        std::fprintf(stderr, "[%s] [Agent] stop failed during shutdown\n",
+            deskhub::brand::kLogLineTag);
     }
 }
 
@@ -123,6 +127,19 @@ void HostEngine::AttachSession(HostSource& st) {
     st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
     st.session->SetPasscode(opt_.passcode);
     st.session->SetClipboardEnabled(opt_.clipboardSync);
+    st.session->SetTrafficCipher(&st.traffic);
+    st.session->SetEncryptRequired(opt_.encryptSession);
+    if (opt_.encryptSession) {
+        st.session->SetEscrowKey(opt_.escrowSessionKey);
+        deskhub::crypto::KeyPair kp{};
+        if (opt_.hostStaticSk.size() == deskhub::crypto::kKeySize) {
+            std::memcpy(kp.sk, opt_.hostStaticSk.data(), deskhub::crypto::kKeySize);
+            deskhub::crypto::PublicFromSecret(kp.pk, kp.sk);
+            st.session->SetHostStaticKey(kp);
+        }
+        if (opt_.sessionKey.size() == deskhub::crypto::kKeySize)
+            st.session->SetSessionKey(opt_.sessionKey.data());
+    }
     st.netReady.store(true, std::memory_order_release);
 }
 
@@ -219,10 +236,6 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         RecvLoop();
         running_.store(false, std::memory_order_release);
     });
-    if (LoadUiSettings().keepAwake) {
-        AcquireKeepAwake();
-        keepAwakeHeld_ = true;
-    }
     return true;
 }
 
@@ -241,11 +254,6 @@ void HostEngine::Stop() {
 
     live_.clear();
     pipes_.clear();
-
-    if (keepAwakeHeld_) {
-        ReleaseKeepAwake();
-        keepAwakeHeld_ = false;
-    }
 }
 
 void HostEngine::RequestStopSource(uint8_t sourceId) {

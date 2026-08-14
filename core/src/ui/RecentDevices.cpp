@@ -1,7 +1,10 @@
 #include "deskhub/ui/RecentDevices.h"
 
 #include <algorithm>
+#include <climits>
+#include <cstdint>
 
+#include "deskhub/crypto/KeyCodec.h"
 #include "deskhub/ui/SecretText.h"
 #include "deskhub/ui/Strings.h"
 
@@ -29,21 +32,54 @@ bool ParseLine(std::string_view line, RecentDevice& out) {
     int64_t stamp = 0;
     if (!ParseUnixTime(std::string_view(trimmed).substr(0, space), stamp)) return false;
 
-    const std::string rest = TrimAscii(std::string_view(trimmed).substr(space + 1));
-    const size_t next = rest.find(' ');
+    std::string rest = TrimAscii(std::string_view(trimmed).substr(space + 1));
+    if (rest.empty()) return false;
 
-    std::string addr = rest;
+    std::string addr;
     std::string passcode;
-    if (next != std::string::npos) {
-        const std::string tail = DecodeSecret(TrimAscii(std::string_view(rest).substr(next + 1)));
-        if (IsValidPasscode(tail)) passcode = tail;
-        addr = TrimAscii(std::string_view(rest).substr(0, next));
+    bool encrypted = false;
+    std::string sessionKey;
+    size_t pos = 0;
+    while (pos < rest.size()) {
+        while (pos < rest.size() && rest[pos] == ' ') ++pos;
+        if (pos >= rest.size()) break;
+        size_t end = rest.find(' ', pos);
+        if (end == std::string::npos) end = rest.size();
+        const std::string_view tok(rest.data() + pos, end - pos);
+        pos = end;
+        if (addr.empty()) {
+            addr = std::string(tok);
+            continue;
+        }
+        if (tok.size() >= 2 && tok[0] == '@') {
+            const std::string decoded = DecodeSecret(tok.substr(1));
+            if (IsValidPasscode(decoded)) passcode = decoded;
+            continue;
+        }
+        if (tok == "!1") {
+            encrypted = true;
+            continue;
+        }
+        if (tok.size() >= 2 && tok[0] == '#') {
+            const std::string decoded = DecodeSecret(tok.substr(1));
+            uint8_t key[crypto::kKeySize];
+            if (crypto::KeyFromHex(decoded, std::span<uint8_t>(key, crypto::kKeySize))) {
+                sessionKey = decoded;
+                encrypted = true;
+            }
+            crypto::SecureWipe(std::span<uint8_t>(key, crypto::kKeySize));
+            continue;
+        }
+        const std::string decoded = DecodeSecret(tok);
+        if (IsValidPasscode(decoded) && passcode.empty()) passcode = decoded;
     }
     if (addr.empty()) return false;
 
     out.addr = std::move(addr);
     out.lastConnectedUnix = stamp;
     out.passcode = std::move(passcode);
+    out.encrypted = encrypted;
+    out.sessionKey = std::move(sessionKey);
     return true;
 }
 
@@ -80,9 +116,16 @@ std::string SerializeRecentDevices(const std::vector<RecentDevice>& devices) {
         out += ' ';
         out += d.addr;
         if (IsValidPasscode(d.passcode)) {
-            out += ' ';
+            out += " @";
             out += EncodeSecret(d.passcode);
         }
+        if (d.encrypted) out += " !1";
+        uint8_t key[crypto::kKeySize];
+        if (d.encrypted && crypto::KeyFromHex(d.sessionKey, std::span<uint8_t>(key, crypto::kKeySize))) {
+            out += " #";
+            out += EncodeSecret(d.sessionKey);
+        }
+        crypto::SecureWipe(std::span<uint8_t>(key, crypto::kKeySize));
         out += '\n';
         ++count;
     }
@@ -90,14 +133,21 @@ std::string SerializeRecentDevices(const std::vector<RecentDevice>& devices) {
 }
 
 void TouchRecentDevice(std::vector<RecentDevice>& devices, std::string_view addr,
-    int64_t nowUnix, std::string_view passcode) {
+    int64_t nowUnix, std::string_view passcode, bool encrypted, std::string_view sessionKey) {
     const std::string trimmed = TrimAscii(addr);
     if (trimmed.empty()) return;
 
     RemoveRecentDevice(devices, trimmed);
-    devices.insert(devices.begin(),
-        RecentDevice{trimmed, nowUnix,
-            IsValidPasscode(passcode) ? std::string(passcode) : std::string()});
+    RecentDevice row;
+    row.addr = trimmed;
+    row.lastConnectedUnix = nowUnix;
+    row.passcode = IsValidPasscode(passcode) ? std::string(passcode) : std::string();
+    row.encrypted = encrypted;
+    uint8_t key[crypto::kKeySize];
+    if (encrypted && crypto::KeyFromHex(sessionKey, std::span<uint8_t>(key, crypto::kKeySize)))
+        row.sessionKey = std::string(sessionKey);
+    crypto::SecureWipe(std::span<uint8_t>(key, crypto::kKeySize));
+    devices.insert(devices.begin(), std::move(row));
     if (devices.size() > kMaxRecentDevices) devices.resize(kMaxRecentDevices);
 }
 
@@ -106,6 +156,20 @@ std::string PasscodeForDevice(const std::vector<RecentDevice>& devices, std::str
     for (const RecentDevice& d : devices)
         if (d.addr == trimmed) return d.passcode;
     return {};
+}
+
+std::string SessionKeyForDevice(const std::vector<RecentDevice>& devices, std::string_view addr) {
+    const std::string trimmed = TrimAscii(addr);
+    for (const RecentDevice& d : devices)
+        if (d.addr == trimmed) return d.sessionKey;
+    return {};
+}
+
+bool EncryptedForDevice(const std::vector<RecentDevice>& devices, std::string_view addr) {
+    const std::string trimmed = TrimAscii(addr);
+    for (const RecentDevice& d : devices)
+        if (d.addr == trimmed) return d.encrypted;
+    return false;
 }
 
 void RemoveRecentDevice(std::vector<RecentDevice>& devices, std::string_view addr) {

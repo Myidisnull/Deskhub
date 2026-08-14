@@ -11,6 +11,13 @@ final class AgentModel {
     var maxDim = Int(AgentModel.stored.maxDim)
     var port = Int(AgentModel.stored.port)
     var allowInput = AgentModel.stored.allowInput
+    var runInBackground = AgentModel.stored.runInBackground
+    var runInBackgroundChoiceMade = AgentModel.stored.runInBackgroundChoiceMade
+    var hideTrayIcon = AgentModel.stored.hideTrayIcon
+    var logMaxFileMb = Int(AgentModel.stored.logMaxFileMb)
+    var logCompressAfterDays = Int(AgentModel.stored.logCompressAfterDays)
+    var logDeleteAfterDays = Int(AgentModel.stored.logDeleteAfterDays)
+    var logDir = DeskhubClient.cString(AgentModel.stored.logDir)
     var passcode = DeskhubClient.cString(AgentModel.stored.passcode) {
         didSet {
             if DeskhubClient.isValidPasscode(passcode) { lastValidPasscode = passcode }
@@ -41,9 +48,12 @@ final class AgentModel {
     var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
     var autoShare = dh_auto_share()
     var autostart = dh_autostart_enabled()
-    var startHidden = dh_start_hidden()
     var clipboardSync = dh_clipboard_sync()
-    var keepAwake = dh_keep_awake()
+    var encryptSession = dh_encrypt_session()
+    var escrowSessionKey = dh_escrow_session_key()
+    var sessionKeyLifetime = dh_session_key_lifetime()
+    var sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
+    var language = AppLanguage.fromStored(DeskhubClient.buffered(32) { dh_language($0, $1) })
     var didAutoShare = false
     private var lastPasteboardChange = NSPasteboard.general.changeCount
 
@@ -66,6 +76,13 @@ final class AgentModel {
     }
 
     func save() {
+        if !runInBackground { hideTrayIcon = false }
+        let trimmedDir = logDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDir.isEmpty && !dh_log_dir_usable(trimmedDir) {
+            logDir = DeskhubClient.cString(dh_settings_load().logDir)
+            return
+        }
+        logDir = trimmedDir
         dh_settings_save(
             UInt32(max(1, fps)),
             UInt32(max(1, bitrateMbps)),
@@ -73,13 +90,45 @@ final class AgentModel {
             UInt32(max(1, port)),
             allowInput,
             clientControl,
+            runInBackground,
+            runInBackgroundChoiceMade,
+            hideTrayIcon,
+            autoShare,
+            UInt32(max(1, logMaxFileMb)),
+            UInt32(max(0, logCompressAfterDays)),
+            UInt32(max(0, logDeleteAfterDays)),
+            logDir,
             acceptedPasscode
         )
         dh_set_bind_ip(bindIp)
-        dh_set_auto_share(autoShare)
-        dh_set_start_hidden(startHidden)
         dh_set_clipboard_sync(clipboardSync)
-        dh_set_keep_awake(keepAwake)
+        dh_set_encrypt_session(encryptSession)
+        if !encryptSession { escrowSessionKey = false }
+        dh_set_escrow_session_key(escrowSessionKey)
+        dh_set_session_key_lifetime(Int32(sessionKeyLifetime))
+        if encryptSession {
+            _ = dh_ensure_session_key(false)
+            sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
+        }
+        dh_set_language(language.rawValue)
+    }
+
+    func refreshSessionKey() {
+        guard encryptSession else { return }
+        _ = dh_ensure_session_key(true)
+        sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
+    }
+
+    func recordRunInBackground(_ enabled: Bool) {
+        runInBackground = enabled
+        runInBackgroundChoiceMade = true
+        if !enabled { hideTrayIcon = false }
+        save()
+    }
+
+    func recordHideTrayIcon(_ enabled: Bool) {
+        hideTrayIcon = enabled
+        save()
     }
 
     private var pollTimer: Timer?

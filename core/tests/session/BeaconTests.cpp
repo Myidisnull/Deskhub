@@ -9,7 +9,7 @@ using namespace deskhub;
 
 namespace {
 
-std::vector<uint8_t> Ask(const Beacon& b, std::span<const uint8_t> req) {
+std::vector<uint8_t> Ask(Beacon& b, std::span<const uint8_t> req) {
     uint8_t out[kMaxDatagram];
     const size_t n = b.Reply(out, req);
     return std::vector<uint8_t>(out, out + n);
@@ -98,7 +98,7 @@ void TestBeaconHidesSourcesBehindThePasscode() {
 
 void TestBeaconIgnoresSessionTraffic() {
     std::printf("[disc] Beacon: leaves session traffic alone...\n");
-    const Beacon b;
+    Beacon b;
     uint8_t req[kMaxDatagram];
 
     Hello hello{};

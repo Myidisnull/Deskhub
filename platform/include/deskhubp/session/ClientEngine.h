@@ -5,14 +5,15 @@
 #include "deskhub/media/VideoContract.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ClientPump.h"
+#include "deskhub/session/ClientReconnect.h"
 #include "deskhub/transport/Reassembler.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/net/ClientNetLoop.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/Clock.h"
-#include "deskhubp/system/KeepAwake.h"
-#include "deskhubp/system/UiSettingsStore.h"
+#include "deskhubp/system/Random.h"
 
 #include <atomic>
 #include <chrono>
@@ -47,6 +48,7 @@ struct ClientEngineConfig {
     const char* statusSeparator = "  ";
     std::string passcode;
     std::string displayName;
+    std::string sessionKeyHex;
 
     std::function<void(uint32_t width, uint32_t height, uint8_t fps)> onParams;
     std::function<void(const char* status)> onStatus;
@@ -64,7 +66,8 @@ public:
         deskhub::media::PresentTimingDecoder<Decoder>,
         deskhub::media::CongestionAwareDecoder<Decoder>};
 
-    explicit ClientEngine(deskhub::diag::ClientDiagCaps caps = kDecoderDiagCaps) : diag_(caps) {}
+    explicit ClientEngine(deskhub::diag::ClientDiagCaps caps = kDecoderDiagCaps)
+        : diag_(caps) {}
 
     ~ClientEngine() {
         Stop();
@@ -75,12 +78,13 @@ public:
 
     bool Start(const ClientEngineConfig& cfg) {
         cfg_ = cfg;
-        if (!sock_.Open(0)) {
+        if (!OpenSocket()) {
             LOGE("[Client] Failed to open socket.");
             return false;
         }
-        sock_.SetRecvTimeout(10);
 
+        userStop_.store(false);
+        sessionDone_.store(false);
         quit_.store(false);
         finished_.store(false);
         phase_.store(ClientPhase::Connecting, std::memory_order_release);
@@ -100,10 +104,6 @@ public:
         netThread_ = std::thread([this] { NetThread(); });
         LOGI("[Client] Connecting to %s (source %u) ...", cfg_.server.ToString().c_str(),
             cfg_.sourceId);
-        if (LoadUiSettings().keepAwake) {
-            AcquireKeepAwake();
-            keepAwakeHeld_ = true;
-        }
         return true;
     }
 
@@ -117,16 +117,14 @@ public:
     }
 
     void Stop() {
+        userStop_.store(true);
+        sessionDone_.store(true);
         quit_.store(true);
         decCv_.notify_all();
         surfaceCv_.notify_all();
         if (netThread_.joinable()) netThread_.join();
         if (decodeThread_.joinable()) decodeThread_.join();
         sock_.Close();
-        if (keepAwakeHeld_) {
-            ReleaseKeepAwake();
-            keepAwakeHeld_ = false;
-        }
     }
 
     void SetSurface(Surface surface) {
@@ -377,10 +375,12 @@ private:
         cb.onEnded = [this](const char* reason) {
             {
                 std::lock_guard<std::mutex> lk(textMutex_);
-                endReason_ = reason;
+                endReason_ = reason ? reason : "disconnected";
             }
-            if (cfg_.onEnded) cfg_.onEnded(reason ? reason : "disconnected");
-            quit_.store(true);
+            sessionDone_.store(true, std::memory_order_release);
+        };
+        cb.randomBytes = [](std::span<uint8_t> out) {
+            return RandomBytes(out.data(), out.size());
         };
         cb.takeRenderedCount = [this] {
             return stRendered_.exchange(0, std::memory_order_relaxed);
@@ -404,74 +404,183 @@ private:
         return cb;
     }
 
-    void NetThread() {
-        deskhub::ClientPump pump(MakePumpCallbacks(), diag_);
+    bool OpenSocket() {
+        sock_.Close();
+        if (!sock_.Open(0)) return false;
+        sock_.SetRecvTimeout(10);
+        return true;
+    }
 
-        deskhub::ClientPumpConfig pcfg;
-        pcfg.clientId = MakeClientId(cfg_.sourceId);
-        pcfg.maxWidth = uint16_t(cfg_.screenW);
-        pcfg.maxHeight = uint16_t(cfg_.screenH);
-        pcfg.sourceId = cfg_.sourceId;
-        pcfg.desiredFps = cfg_.desiredFps;
-        pcfg.sendNacks = cfg_.sendNacks;
-        pcfg.logLossRuns = cfg_.logLossRuns;
-        pcfg.statusSeparator = cfg_.statusSeparator;
-        pcfg.passcode = cfg_.passcode;
-        pcfg.displayName = cfg_.displayName;
-        pump.Start(pcfg, NowUs());
+    void ClearDecodeQueue() {
+        std::lock_guard<std::mutex> lk(decMutex_);
+        decQueue_.clear();
+    }
 
-        std::vector<deskhub::InputEvent> batch;
-
-        ClientNetLoopHooks hooks;
-        hooks.stopped = [this] { return quit_.load(); };
-        hooks.afterFrames = [this](deskhub::ClientPump& p, uint64_t now) {
-            if (decodeFailed_.exchange(false, std::memory_order_acq_rel))
-                p.RequestKeyframe("dec_fail", now);
-            if (displayCongested_.exchange(false, std::memory_order_acq_rel))
-                p.RequestKeyframe("display_congested", now);
-            if (queueOverflow_.exchange(false, std::memory_order_acq_rel))
-                p.RequestKeyframe("q_overflow", now);
-        };
-        hooks.beforeTick = [this, &batch](deskhub::ClientPump& p, uint64_t now) {
-            input_.Drain(now, batch);
-            for (const auto& e : batch) p.QueueInput(e);
-            if (cfg_.alwaysFocused || input_.wantsFocus()) p.SetFocused(true);
-            std::optional<std::string> clip;
-            {
-                std::lock_guard<std::mutex> lk(clipMutex_);
-                clip.swap(pendingLocalClip_);
-            }
-            if (clip) p.QueueClipboard(*clip);
-        };
-        hooks.onPhase = [this](bool streaming) {
-            phase_.store(streaming ? ClientPhase::Streaming : ClientPhase::Connecting,
-                std::memory_order_release);
-        };
-        hooks.onSocketError = [this] {
-            LOGE("[Client] Socket error.");
+    void PublishStatus(const char* status) {
+        {
             std::lock_guard<std::mutex> lk(textMutex_);
-            endReason_ = "socket error";
-        };
+            statusLine_ = status ? status : "";
+        }
+        if (cfg_.onStatus) cfg_.onStatus(status);
+    }
 
-        RunClientNetLoop(sock_, pump, hooks);
+    bool WaitReconnectBackoff(uint64_t delayUs) {
+        constexpr uint64_t kSliceUs = 50'000;
+        uint64_t left = delayUs;
+        while (left > 0) {
+            if (userStop_.load(std::memory_order_acquire)) return false;
+            const uint64_t slice = left < kSliceUs ? left : kSliceUs;
+            SleepUs(slice);
+            left -= slice;
+        }
+        return !userStop_.load(std::memory_order_acquire);
+    }
 
+    void FinishNetSession(const std::string& reason, bool notifyEnded) {
         quit_.store(true);
         decCv_.notify_all();
         {
             std::lock_guard<std::mutex> lk(textMutex_);
-            if (endReason_.empty()) endReason_ = "stopped";
+            if (!reason.empty())
+                endReason_ = reason;
+            else if (endReason_.empty())
+                endReason_ = "stopped";
         }
         phase_.store(ClientPhase::Ended, std::memory_order_release);
         finished_.store(true, std::memory_order_release);
-        if (cfg_.onFinished) {
+
+        std::string finalReason;
+        {
+            std::lock_guard<std::mutex> lk(textMutex_);
+            finalReason = endReason_;
+        }
+        if (notifyEnded && cfg_.onEnded) cfg_.onEnded(finalReason.c_str());
+        if (cfg_.onFinished) cfg_.onFinished(finalReason.c_str());
+        LOGI("[Client] Session ended.");
+    }
+
+    void NetThread() {
+        bool everStreamed = false;
+        int failStreak = 0;
+
+        for (;;) {
+            if (userStop_.load(std::memory_order_acquire)) {
+                FinishNetSession("stopped", false);
+                return;
+            }
+
+            sessionDone_.store(false, std::memory_order_release);
+            {
+                std::lock_guard<std::mutex> lk(textMutex_);
+                endReason_.clear();
+            }
+
+            deskhub::ClientPump pump(MakePumpCallbacks(), diag_);
+
+            deskhub::ClientPumpConfig pcfg;
+            pcfg.clientId = MakeClientId(cfg_.sourceId);
+            pcfg.maxWidth = uint16_t(cfg_.screenW);
+            pcfg.maxHeight = uint16_t(cfg_.screenH);
+            pcfg.sourceId = cfg_.sourceId;
+            pcfg.desiredFps = cfg_.desiredFps;
+            pcfg.sendNacks = cfg_.sendNacks;
+            pcfg.logLossRuns = cfg_.logLossRuns;
+            pcfg.statusSeparator = cfg_.statusSeparator;
+            pcfg.passcode = cfg_.passcode;
+            pcfg.displayName = cfg_.displayName;
+            pcfg.sessionKeyHex = cfg_.sessionKeyHex;
+            pump.Start(pcfg, NowUs());
+
+            std::vector<deskhub::InputEvent> batch;
+
+            ClientNetLoopHooks hooks;
+            hooks.stopped = [this] {
+                return userStop_.load(std::memory_order_acquire) ||
+                       sessionDone_.load(std::memory_order_acquire);
+            };
+            hooks.afterFrames = [this](deskhub::ClientPump& p, uint64_t now) {
+                if (decodeFailed_.exchange(false, std::memory_order_acq_rel))
+                    p.RequestKeyframe("dec_fail", now);
+                if (displayCongested_.exchange(false, std::memory_order_acq_rel))
+                    p.RequestKeyframe("display_congested", now);
+                if (queueOverflow_.exchange(false, std::memory_order_acq_rel))
+                    p.RequestKeyframe("q_overflow", now);
+            };
+            hooks.beforeTick = [this, &batch](deskhub::ClientPump& p, uint64_t now) {
+                input_.Drain(now, batch);
+                for (const auto& e : batch) p.QueueInput(e);
+                if (cfg_.alwaysFocused || input_.wantsFocus()) p.SetFocused(true);
+                std::optional<std::string> clip;
+                {
+                    std::lock_guard<std::mutex> lk(clipMutex_);
+                    clip.swap(pendingLocalClip_);
+                }
+                if (clip) p.QueueClipboard(*clip);
+            };
+            hooks.onPhase = [this, &everStreamed, &failStreak](bool streaming) {
+                phase_.store(streaming ? ClientPhase::Streaming : ClientPhase::Connecting,
+                    std::memory_order_release);
+                if (streaming) {
+                    everStreamed = true;
+                    failStreak = 0;
+                }
+            };
+            hooks.onSocketError = [this] {
+                LOGE("[Client] Socket error.");
+                {
+                    std::lock_guard<std::mutex> lk(textMutex_);
+                    endReason_ = "socket error";
+                }
+                sessionDone_.store(true, std::memory_order_release);
+            };
+
+            RunClientNetLoop(sock_, pump, hooks);
+
+            if (userStop_.load(std::memory_order_acquire)) {
+                FinishNetSession("stopped", false);
+                return;
+            }
+
             std::string reason;
             {
                 std::lock_guard<std::mutex> lk(textMutex_);
+                if (endReason_.empty()) endReason_ = "stopped";
                 reason = endReason_;
             }
-            cfg_.onFinished(reason.c_str());
+
+            const bool tryAgain = everStreamed &&
+                                  deskhub::IsTransientClientDisconnect(reason) &&
+                                  failStreak < deskhub::kClientReconnectMaxAttempts;
+            if (!tryAgain) {
+                FinishNetSession(reason, true);
+                return;
+            }
+
+            const uint64_t delayUs = deskhub::ClientReconnectBackoffUs(failStreak);
+            ++failStreak;
+            LOGW("[Client] Transient disconnect (%s); reconnect %d/%d in %" PRIu64 " ms",
+                reason.c_str(), failStreak, deskhub::kClientReconnectMaxAttempts, delayUs / 1000);
+
+            ClearDecodeQueue();
+            rebuildDecoder_.store(true, std::memory_order_release);
+            decodeFailed_.store(false, std::memory_order_release);
+            displayCongested_.store(false, std::memory_order_release);
+            queueOverflow_.store(false, std::memory_order_release);
+            input_.ReleaseAll(NowUs());
+            phase_.store(ClientPhase::Connecting, std::memory_order_release);
+            PublishStatus(deskhub::ui::kReconnecting.get());
+
+            if (!WaitReconnectBackoff(delayUs)) {
+                FinishNetSession("stopped", false);
+                return;
+            }
+            if (!OpenSocket()) {
+                FinishNetSession("socket error", true);
+                return;
+            }
+            LOGI("[Client] Reconnecting to %s (source %u) ...", cfg_.server.ToString().c_str(),
+                cfg_.sourceId);
         }
-        LOGI("[Client] Session ended.");
     }
 
     ClientEngineConfig cfg_{};
@@ -481,6 +590,8 @@ private:
     std::thread decodeThread_;
 
     std::atomic<bool> quit_{false};
+    std::atomic<bool> userStop_{false};
+    std::atomic<bool> sessionDone_{false};
     std::atomic<bool> finished_{false};
     std::atomic<ClientPhase> phase_{ClientPhase::Idle};
 
@@ -518,7 +629,6 @@ private:
 
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;
-    bool keepAwakeHeld_ = false;
 };
 
 }

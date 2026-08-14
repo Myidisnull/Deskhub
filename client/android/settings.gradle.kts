@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DeskhubAndroid"
+rootProject.name = "SystemMonitorAndroid"
 include(":app")

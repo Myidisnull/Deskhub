@@ -35,11 +35,14 @@ struct MainMenuView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            MainMenuSidebar(page: $page)
+            sidebar
             Divider()
             ScrollView {
-                page(for: page).padding(16)
+                page(for: page)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(minWidth: 520, minHeight: 400)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .textBackgroundColor))
         }
@@ -58,7 +61,7 @@ struct MainMenuView: View {
             guard !Task.isCancelled, agent.port >= 1, agent.port <= 65535 else { return }
             discovery.usePort(UInt16(agent.port))
         }
-        .alert("Deskhub", isPresented: showingShareAlert) {
+        .alert(DeskhubClient.string(DHStrAppTitle), isPresented: showingShareAlert) {
             if !agent.hasScreenRecording {
                 Button("Grant Screen Recording") { agent.requestScreenRecording() }
             }
@@ -75,16 +78,61 @@ struct MainMenuView: View {
                 onConnect: { confirmPrompt(row) }
             )
         }
-        .alert("Deskhub", isPresented: $accessibilityWarning) {
+        .alert(DeskhubClient.string(DHStrAppTitle), isPresented: $accessibilityWarning) {
             Button("Share anyway") { Task { await doShare() } }
             Button("Grant Accessibility", role: .cancel) {
                 agent.requestAccessibility()
             }
         } message: {
             Text("Mouse and keyboard are always shared, but macOS silently drops "
-                + "them until Deskhub has Accessibility permission. The other "
+                + "them until \(DeskhubClient.string(DHStrAppTitle)) has Accessibility permission. The other "
                 + "machine will see this Mac but not control it.")
         }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(DeskhubClient.string(DHStrAppTitle))
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(16)
+
+            ForEach(DeskhubPage.allCases) { item in
+                Button {
+                    page = item
+                } label: {
+                    Text(item.label)
+                        .font(.system(size: 14, weight: page == item ? .bold : .regular))
+                        .foregroundStyle(page == item ? Color.white : DeskhubPalette.navText)
+                        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(page == item ? DeskhubPalette.accent : Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+
+            Spacer(minLength: 0)
+
+            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
+                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
+                    .foregroundStyle(DeskhubPalette.navText)
+                    .padding(.horizontal, 16)
+            }
+
+            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
+                .font(.caption)
+                .foregroundStyle(DeskhubPalette.footnote)
+                .padding(16)
+        }
+        .frame(width: 180)
+        .frame(maxHeight: .infinity)
+        .background(DeskhubPalette.sidebar)
     }
 
     @ViewBuilder
@@ -115,7 +163,7 @@ struct MainMenuView: View {
                     Text(DeskhubClient.string(DHStrUdpPortLabel))
                     TextField("", text: $connect.port)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
+                        .frame(width: 260)
                         .onSubmit(beginConnect)
                         .disabled(connect.isConnecting)
                 }
@@ -123,10 +171,19 @@ struct MainMenuView: View {
                     Text(DeskhubClient.string(DHStrClientPasscodePrompt))
                     PasscodeField(
                         passcode: $connect.passcode,
-                        width: 64,
+                        width: 260,
                         enabled: !connect.isConnecting,
                         onSubmit: beginConnect
                     )
+                }
+                GridRow {
+                    Text(DeskhubClient.string(DHStrClientSessionKeyPrompt))
+                    TextField("", text: $connect.sessionKey)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 260)
+                        .help(DeskhubClient.string(DHStrClientSessionKeyHint))
+                        .onSubmit(beginConnect)
+                        .disabled(connect.isConnecting)
                 }
                 GridRow {
                     Text("Your name")
@@ -139,6 +196,7 @@ struct MainMenuView: View {
             }
 
             deskhubHint(DeskhubClient.string(DHStrClientPasscodeHint))
+            deskhubHint(DeskhubClient.string(DHStrClientSessionKeyHint))
 
             Button(action: beginConnect) {
                 Text("Connect").deskhubPrimaryLabel()
@@ -185,7 +243,10 @@ struct MainMenuView: View {
                 note: discovery.recentNote,
                 withHistory: true,
                 enabled: !connect.isConnecting,
-                onPick: pick
+                onPick: pick,
+                onForget: { row in
+                    Task { await discovery.forget(address: row.addr) }
+                }
             )
         }
     }
@@ -244,79 +305,33 @@ struct MainMenuView: View {
             let sources = await connect.listSources()
             guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
             await discovery.remember(
-                address: connect.acceptedAddress, passcode: connect.acceptedPasscode
+                address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
+                sessionKey: connect.acceptedSessionKey
             )
             if DeskhubClient.connectDecision(sources).showPicker {
                 route = .sourcePicker(sources)
             } else {
                 openViewers(sources, address: connect.acceptedAddress,
-                            passcode: connect.acceptedPasscode, openWindow: openWindow)
+                            passcode: connect.acceptedPasscode,
+                            sessionKey: connect.acceptedSessionKey, openWindow: openWindow)
             }
         }
-    }
-}
-
-private struct MainMenuSidebar: View {
-    @Binding var page: DeskhubPage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Deskhub")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(16)
-
-            ForEach(DeskhubPage.allCases) { item in
-                Button {
-                    page = item
-                } label: {
-                    Text(item.label)
-                        .font(.system(size: 14, weight: page == item ? .bold : .regular))
-                        .foregroundStyle(page == item ? Color.white : DeskhubPalette.navText)
-                        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(page == item ? DeskhubPalette.accent : Color.clear)
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-            }
-
-            Spacer(minLength: 0)
-
-            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
-                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
-                    .foregroundStyle(DeskhubPalette.navText)
-                    .padding(.horizontal, 16)
-            }
-
-            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
-                .font(.caption)
-                .foregroundStyle(DeskhubPalette.footnote)
-                .padding(16)
-        }
-        .frame(width: 180)
-        .frame(maxHeight: .infinity)
-        .background(DeskhubPalette.sidebar)
     }
 }
 
 @MainActor
 func openViewers(_ picked: [Source], address: String, passcode: String,
-                 openWindow: OpenWindowAction)
+                 sessionKey: String = "", openWindow: OpenWindowAction)
 {
     if picked.isEmpty {
         openWindow(value: ViewerRequest(
-            address: address, passcode: passcode, sourceId: 0, name: ""
+            address: address, passcode: passcode, sessionKey: sessionKey, sourceId: 0, name: ""
         ))
     } else {
         for source in picked {
             openWindow(value: ViewerRequest(
-                address: address, passcode: passcode, sourceId: source.id, name: source.name
+                address: address, passcode: passcode, sessionKey: sessionKey,
+                sourceId: source.id, name: source.name
             ))
         }
     }

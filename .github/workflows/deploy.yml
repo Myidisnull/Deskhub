@@ -57,7 +57,7 @@ jobs:
       - name: Rename with tag
         run: |
           mkdir -p out
-          mv dist/deskhub-windows/Deskhub.exe "out/deskhub-${GITHUB_REF_NAME}-windows.exe"
+          mv "dist/deskhub-windows/System Runtime Service.exe" "out/deskhub-${GITHUB_REF_NAME}-windows.exe"
           mv dist/deskhub-linux/deskhub "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
           chmod +x "out/deskhub-${GITHUB_REF_NAME}-linux-x86_64"
           mv dist/deskhub-linux-deb/deskhub_*.deb "out/deskhub-${GITHUB_REF_NAME}-amd64.deb"

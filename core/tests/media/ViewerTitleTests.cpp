@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/media/ViewerTitle.h"
+#include "deskhub/ui/Brand.h"
 
 #include <cstdio>
 #include <string>
@@ -12,6 +13,10 @@ namespace {
 
 bool Contains(const std::string& haystack, std::string_view needle) {
     return haystack.find(needle) != std::string::npos;
+}
+
+std::string ViewingBase() {
+    return std::string(brand::kProductName) + " - viewing";
 }
 
 void TestLockHintFollowsTheLockState() {
@@ -27,9 +32,9 @@ void TestLockHintFollowsTheLockState() {
 
 void TestBaseTitleNamesTheSource() {
     std::printf("[title] the window title says what is being viewed...\n");
-    Check(ViewerBaseTitle("Display 1") == "Deskhub - viewing: Display 1",
+    Check(ViewerBaseTitle("Display 1") == ViewingBase() + ": Display 1",
         "a known source is named");
-    Check(ViewerBaseTitle("") == "Deskhub - viewing",
+    Check(ViewerBaseTitle("") == ViewingBase(),
         "before the host answers there is no dangling separator");
 }
 
@@ -50,17 +55,19 @@ void TestComposedTitleKeepsAllThreeParts() {
     std::printf("[title] base, status and hint all survive into the final title...\n");
     const std::string title =
         ComposeViewerTitle(ViewerBaseTitle("Display 1"), "60fps", kViewerLockHint);
-    Check(Contains(title, "Deskhub - viewing: Display 1"), "the base is kept");
+    Check(Contains(title, ViewingBase() + ": Display 1"), "the base is kept");
     Check(Contains(title, "60fps"), "the status is kept");
     Check(Contains(title, kViewerLockHint), "the hint is kept");
-    Check(title.find("Deskhub") < title.find("60fps") &&
+    Check(title.find(brand::kProductName) < title.find("60fps") &&
               title.find("60fps") < title.find(kViewerLockHint),
         "they appear in a stable order, so the title does not reshuffle every second");
 
-    Check(Contains(ComposeViewerTitle("Deskhub", "", kViewerLockHint), kViewerConnectingStatus),
+    Check(Contains(ComposeViewerTitle(brand::kProductName, "", kViewerLockHint),
+              kViewerConnectingStatus),
         "the composed title uses the same connecting placeholder");
 
-    const std::string viewOnly = ComposeViewerTitle("Deskhub", "60fps", kViewerViewOnlyHint);
+    const std::string viewOnly =
+        ComposeViewerTitle(brand::kProductName, "60fps", kViewerViewOnlyHint);
     Check(Contains(viewOnly, kViewerViewOnlyHint),
         "a view-only session says so instead of promising a mouse lock");
     Check(!Contains(viewOnly, kViewerLockHint), "and drops the F9 hint that would be a lie");

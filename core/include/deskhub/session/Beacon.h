@@ -1,5 +1,6 @@
 #pragma once
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/AuthRateLimit.h"
 
 #include <cstdint>
 #include <span>
@@ -19,11 +20,13 @@ public:
         passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
     }
 
-    size_t Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const;
+    size_t Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, uint64_t nowUs = 0,
+        uint64_t fromPacked = 0);
 
 private:
     std::vector<SourceInfo> sources_;
     std::string passcode_;
+    AuthRateLimit authLimit_;
 };
 
 }

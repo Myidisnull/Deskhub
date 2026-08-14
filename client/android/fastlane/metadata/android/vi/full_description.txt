@@ -1,22 +1,16 @@
-Deskhub stream màn hình máy tính Windows, macOS hoặc Linux của bạn sang điện thoại và cho bạn điều khiển với độ trễ cực thấp — sinh ra cho chơi game chứ không chỉ làm việc từ xa.
+System Runtime stream màn hình PC Windows sang điện thoại và cho bạn điều khiển với độ trễ cực thấp — sinh ra cho chơi game chứ không chỉ làm việc từ xa.
 
 <b>Tính năng</b>
-• Stream video H.264, giải mã bằng phần cứng
-• Trackpad ảo: rê ngón tay để di chuột, chạm để click, chạm hai lần để click chuột phải, giữ rồi kéo để bôi chọn
-• Chụm hai ngón để phóng to màn hình từ xa; kéo hai ngón để cuộn, hoặc để dời hình khi đang phóng to
+• Stream video H.264, giải mã phần cứng
+• Trackpad ảo: rê ngón tay để di chuột, chạm để click, chạm hai lần cho chuột phải, giữ rồi kéo để bôi chọn
 • Gõ bàn phím đầy đủ, kèm thanh phím tắt Esc, Tab, Enter, mũi tên, Del, Ctrl+C/Ctrl+V
-• Tự tìm những máy đang chia sẻ trong mạng, và nhớ lại các máy bạn từng kết nối
-• Chọn màn hình muốn xem khi máy tính chia sẻ nhiều màn hình
+• Đồng bộ clipboard giữa điện thoại và PC
 • Bitrate thích ứng + sửa lỗi FEC giữ hình mượt khi Wi-Fi chập chờn
-• Đồng bộ clipboard tuỳ chọn: văn bản thuần copy ở máy này dán được ở máy kia
 • Chia sẻ ngược màn hình điện thoại ở chế độ chỉ xem, để máy tính xem được (Android 10 trở lên)
 
 <b>Cách dùng</b>
-Cài app Deskhub miễn phí lên máy tính bạn muốn điều khiển — tải từ trang dự án — rồi bấm chia sẻ ở đó. Mở Deskhub trên điện thoại, chạm vào máy đó trong danh sách hoặc nhập địa chỉ của nó, rồi nhập mã passcode 4 chữ số đang hiện trên máy tính. Chạy ngay trong mạng LAN; muốn dùng qua Internet thì bật Tailscale trên cả hai máy và kết nối bằng IP Tailscale.
-
-<b>Cần biết</b>
-Deskhub không mã hoá đường truyền. Mọi máy chia sẻ đều bắt buộc có passcode 4 chữ số, nhưng bản thân luồng dữ liệu là UDP thuần — hãy dùng trong mạng bạn tin tưởng, hoặc qua VPN như Tailscale. Không có tài khoản và không có máy chủ nào của chúng tôi: điện thoại chỉ nói chuyện với chính máy tính của bạn.
+Cài System Runtime host (miễn phí) lên PC Windows — tải từ trang dự án — rồi mở app, nhập địa chỉ PC và bấm Connect. Chạy ngay trong mạng LAN; muốn dùng qua Internet thì bật Tailscale trên cả hai máy và kết nối bằng IP Tailscale.
 
 <b>Yêu cầu</b>
-• Một máy tính chạy Windows 10 trở lên (x64), macOS 14 trở lên, hoặc bản Linux desktop hiện hành (glibc 2.35+), có cài app Deskhub miễn phí
+• PC host chạy Windows 10 1903 trở lên (x64)
 • Hai thiết bị cùng mạng, hoặc nối qua Tailscale

@@ -11,6 +11,10 @@ final class SharingModel {
     var status = BroadcastStatus()
     var addresses: [LocalAddress] = []
     var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
+    var encryptSession = dh_encrypt_session()
+    var escrowSessionKey = dh_escrow_session_key()
+    var sessionKeyLifetime = dh_session_key_lifetime()
+    var sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
 
     private var lastValidPasscode: String
 
@@ -18,6 +22,10 @@ final class SharingModel {
         let stored = dh_settings_load()
         passcode = DeskhubClient.cString(stored.passcode)
         lastValidPasscode = DeskhubClient.cString(stored.passcode)
+        if encryptSession {
+            _ = dh_ensure_session_key(false)
+            sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
+        }
     }
 
     var acceptedPasscode: String {
@@ -38,13 +46,41 @@ final class SharingModel {
         dh_set_bind_ip(bindIp)
     }
 
+    func saveEncryptSession() {
+        dh_set_encrypt_session(encryptSession)
+        if !encryptSession { escrowSessionKey = false }
+        dh_set_escrow_session_key(escrowSessionKey)
+        if encryptSession {
+            _ = dh_ensure_session_key(false)
+            sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
+        }
+    }
+
+    func saveEscrowSessionKey() {
+        if !encryptSession { escrowSessionKey = false }
+        dh_set_escrow_session_key(escrowSessionKey)
+    }
+
+    func saveSessionKeyLifetime() {
+        dh_set_session_key_lifetime(Int32(sessionKeyLifetime))
+    }
+
+    func refreshSessionKey() {
+        guard encryptSession else { return }
+        _ = dh_ensure_session_key(true)
+        sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
+    }
+
     func savePasscode() {
         guard DeskhubClient.isValidPasscode(passcode) else { return }
         lastValidPasscode = passcode
         let stored = dh_settings_load()
         dh_settings_save(
             stored.fps, stored.bitrateMbps, stored.maxDim, stored.port, stored.allowInput,
-            stored.clientControl, passcode
+            stored.clientControl, stored.runInBackground, stored.runInBackgroundChoiceMade,
+            stored.hideTrayIcon, stored.shareOnLaunch, stored.logMaxFileMb,
+            stored.logCompressAfterDays, stored.logDeleteAfterDays,
+            DeskhubClient.cString(stored.logDir), passcode
         )
     }
 

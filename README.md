@@ -1,8 +1,10 @@
-**English** · [Tiếng Việt](README.vi.md)
+**English** · [中文](README.zh.md) · [Tiếng Việt](README.vi.md)
 
 <div align="center">
 
 # 🖥️ Deskhub
+
+<sub>Open-source project **Deskhub** · product name **System Runtime**</sub>
 
 ### Your machine, on every screen you own.
 
@@ -82,19 +84,21 @@ display, type an IP on the other machine, and you're driving it.
 
 ## 🔒 Before you share a screen
 
-> **⚠️ Deskhub encrypts nothing. Every host requires a 4-digit passcode — generated for
-> you on first launch — but that code travels in the clear like everything else, so
-> anyone who can capture a single packet on your network reads it and gets full mouse and
-> keyboard control of the sharing machine.**
+> **⚠️ Session encryption is optional and off by default.** Every host requires a
+> 4-digit passcode. With encryption off, traffic is cleartext — anyone who captures a
+> packet can read the code and take mouse and keyboard control. With encryption on,
+> session video, input and clipboard are encrypted; discovery stays cleartext. Copy the
+> host-generated session key to viewers, or turn on *Escrow key to viewers* only when you
+> accept that the passcode alone hands them the key.
 >
 > Run it on a **network you trust**, or over a **VPN** — install
 > [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z`
 > address. **Never port-forward UDP 47777**, and don't share your screen on café,
 > hotel, office or any other shared Wi-Fi.
 
-That is the whole security model: Deskhub borrows its encryption and its identity check
-from the layer underneath it. Read [`SECURITY.md`](SECURITY.md) for the full threat
-model, what is and isn't protected, and how to report a vulnerability.
+That is the security baseline: prefer a trusted network or VPN, and turn on session
+encryption when the LAN is not fully trusted. Read [`SECURITY.md`](SECURITY.md) for the
+full threat model, what is and isn't protected, and how to report a vulnerability.
 
 ## 🚀 Get it
 
@@ -124,9 +128,7 @@ has, and the H.264 decoder is compiled in.
 three more things must be in place:
 
 **1. A screen-capture portal.** Deskhub always captures through `xdg-desktop-portal` — it
-is what shows the "which screen to share?" dialog. Your choice there is remembered, so
-the dialog appears only the first time you share; *Choose screens again* on the Host page
-brings it back when you want a different screen. GNOME and KDE ship their portal
+is what shows the "which screen to share?" dialog. GNOME and KDE ship their portal
 backend out of the box on every major distro — **nothing to do** on Ubuntu, Kubuntu,
 Fedora Workstation, Fedora KDE, openSUSE or Arch with GNOME/KDE. Standalone window
 managers do need one:
@@ -207,18 +209,19 @@ with several viewers can tell them apart.
 
 Only one viewer drives the mouse and keyboard at a time: the earliest to have joined
 wins ties, and the others' input is dropped until it has been idle for a second. The
-person sitting at the host outranks all of them. **Settings** on every desktop host holds
-two access controls: the **4-digit passcode** viewers must enter — generated on first
-launch, changeable at any time, and not something you can turn off, with three wrong
-tries locking the host for 30 seconds — and *Viewers can control this machine*, which you
-can untick to share **view-only** (the host drops every input packet it receives). All
-five clients can enter a passcode and remember it per device. The passcode is not
-encryption — see [`SECURITY.md`](SECURITY.md).
+person sitting at the host outranks all of them. **Settings** on every host holds access
+controls: the **4-digit passcode** viewers must enter — generated on first launch,
+changeable at any time, and not something you can turn off — optional **Encrypt session
+traffic** (off by default) with a host-generated session key you can copy or refresh,
+*Per share* or *Persistent* lifetime, and optional *Escrow key to viewers*; plus *Viewers
+can control this machine*, which you can untick to share **view-only**. Wrong passcode or
+session-key attempts are rate-limited. All five clients can enter a passcode and session
+key and remember them per device. Details: [`SECURITY.md`](SECURITY.md).
 
-**Settings** also holds the desktop quality-of-life toggles. *Start Deskhub when you
+**Settings** also holds the desktop quality-of-life toggles. *Start System Runtime when you
 log in* registers the platform's own
 launch-at-login mechanism — an autostart entry on Linux, a scheduled task on Windows (so
-no UAC prompt at logon), a Login Item on macOS — and *Start sharing when Deskhub opens*
+no UAC prompt at logon), a Login Item on macOS — and *Start sharing when System Runtime opens*
 presses Share for you on launch. *Keep running in the background* adds a tray / menu-bar
 icon with Show/Hide, Start/Stop sharing and Quit, and turns the window's close button
 into "hide" — the window still opens visible on every launch: combine the three and the
@@ -226,12 +229,9 @@ machine starts sharing at login on its own, hiding into the tray once you close 
 window.
 *Sync clipboard text* makes plain text copied on one device pastable on the others
 (both directions, text only, 32 KiB cap, on all five clients — a phone or tablet reads
-its own clipboard only while Deskhub is in the foreground) — it rides the same
-unencrypted channel as the video, so leave it off on networks you do not trust.
-*Keep this device awake* (on by default) stops the machine from sleeping and the screen
-from turning off while a session is running — like `caffeinate` on macOS, but scoped to
-the session and released the moment it ends; on a phone or tablet it keeps the screen on
-while viewing.
+its own clipboard only while System Runtime is in the foreground) — when session
+encryption is off it rides the clear channel like the video, so leave it off on networks
+you do not trust unless encryption is on.
 
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:
@@ -244,12 +244,11 @@ at the top of the [`Makefile`](Makefile). Bugs & feedback:
 
 ## 📚 Docs
 
-Every document below is published in English, with a Vietnamese translation beside it as
-`*.vi.md`. The English text is the authoritative one.
+Every document below is published in English, with Vietnamese (`*.vi.md`) and where noted Chinese (`*.zh.md`) translations beside it. The English text is the authoritative one.
 
-- [Functional specification](docs/SPECIFICATION.md) — what Deskhub does, with no implementation detail ([Tiếng Việt](docs/SPECIFICATION.vi.md))
-- [`SECURITY.md`](SECURITY.md) — threat model and how to report a vulnerability ([Tiếng Việt](SECURITY.vi.md))
-- [`PRIVACY.md`](PRIVACY.md) — privacy policy ([Tiếng Việt](PRIVACY.vi.md))
+- [Functional specification](docs/SPECIFICATION.md) — what System Runtime does, with no implementation detail ([Tiếng Việt](docs/SPECIFICATION.vi.md))
+- [`SECURITY.md`](SECURITY.md) — threat model and how to report a vulnerability ([中文](SECURITY.zh.md) · [Tiếng Việt](SECURITY.vi.md))
+- [`PRIVACY.md`](PRIVACY.md) — privacy policy ([中文](PRIVACY.zh.md) · [Tiếng Việt](PRIVACY.vi.md))
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — third-party components ([Tiếng Việt](THIRD_PARTY_NOTICES.vi.md))
 
 ## ✨ Under the hood

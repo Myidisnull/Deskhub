@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "deskhub/net/Ipv4.h"
+#include "deskhub/ui/Locale.h"
 #include "deskhub/ui/SecretText.h"
 #include "deskhub/ui/Strings.h"
 
@@ -35,6 +36,29 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
         if (value.empty() || ParseIPv4(value)) out.bindIp = value;
         return;
     }
+    if (key == "log_dir") {
+        const std::string dir = TrimAscii(value);
+        if (diag::IsPlausibleLogDir(dir)) out.logDir = dir;
+        return;
+    }
+    if (key == "host_static_sk") {
+        const std::string decoded = DecodeSecret(value);
+        if (decoded.size() == 64) out.hostStaticSkHex = decoded;
+        return;
+    }
+    if (key == "session_key") {
+        const std::string decoded = DecodeSecret(value);
+        if (decoded.size() == 64) out.sessionKeyHex = decoded;
+        return;
+    }
+    if (key == "language") {
+        const std::string code = TrimAscii(value);
+        UiLanguage parsed = UiLanguage::System;
+        if (!TryParseLanguageCode(code, parsed)) return;
+        out.language = parsed == UiLanguage::System ? std::string{} : LanguageCode(parsed);
+        return;
+    }
+
     const std::optional<uint32_t> v = ParseUint(value);
     if (!v) return;
 
@@ -44,14 +68,29 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "port" && *v >= 1 && *v <= kMaxSettingsPort) out.port = *v;
     if (key == "allow_input") out.allowInput = *v != 0;
     if (key == "client_control") out.clientControl = *v != 0;
-    if (key == "client_desktop") out.clientDesktop = *v != 0;
-    if (key == "client_shell") out.clientShell = *v != 0;
+    if (key == "run_in_background") out.runInBackground = *v != 0;
+    if (key == "run_in_background_choice_made") out.runInBackgroundChoiceMade = *v != 0;
+    if (key == "hide_tray_icon") out.hideTrayIcon = *v != 0;
     if (key == "autostart") out.autostart = *v != 0;
-    if (key == "auto_share") out.autoShare = *v != 0;
+    if (key == "auto_share" || key == "share_on_launch") out.autoShare = *v != 0;
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
-    if (key == "start_hidden") out.startHidden = *v != 0;
-    if (key == "keep_awake") out.keepAwake = *v != 0;
-    if (key == "terminal_port" && *v >= 1 && *v <= kMaxSettingsPort) out.terminalPort = *v;
+    if (key == "encrypt_session") out.encryptSession = *v != 0;
+    if (key == "escrow_session_key") out.escrowSessionKey = *v != 0;
+    if (key == "session_key_lifetime")
+        out.sessionKeyLifetime =
+            *v == uint32_t(SessionKeyLifetime::Persistent) ? SessionKeyLifetime::Persistent
+                                                           : SessionKeyLifetime::PerShare;
+    if (key == "start_hidden" && *v != 0) {
+        out.runInBackground = true;
+        out.runInBackgroundChoiceMade = true;
+    }
+    if (key == "log_max_file_mb" && *v >= diag::kMinLogMaxFileMb &&
+        *v <= diag::kMaxLogMaxFileMb)
+        out.logMaxFileMb = *v;
+    if (key == "log_compress_after_days" && *v <= diag::kMaxLogRetentionDays)
+        out.logCompressAfterDays = *v;
+    if (key == "log_delete_after_days" && *v <= diag::kMaxLogRetentionDays)
+        out.logDeleteAfterDays = *v;
 }
 
 }
@@ -86,6 +125,10 @@ UiSettings ParseUiSettings(std::string_view text) {
 
         pos = end + 1;
     }
+    const diag::LogPolicy log = out.LogPolicy();
+    out.logMaxFileMb = log.maxFileMb;
+    out.logCompressAfterDays = log.compressAfterDays;
+    out.logDeleteAfterDays = log.deleteAfterDays;
     return out;
 }
 
@@ -97,8 +140,18 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += "port=" + std::to_string(settings.port) + '\n';
     out += std::string("allow_input=") + (settings.allowInput ? "1" : "0") + '\n';
     out += std::string("client_control=") + (settings.clientControl ? "1" : "0") + '\n';
-    out += std::string("client_desktop=") + (settings.clientDesktop ? "1" : "0") + '\n';
-    out += std::string("client_shell=") + (settings.clientShell ? "1" : "0") + '\n';
+    out += std::string("run_in_background=") + (settings.runInBackground ? "1" : "0") + '\n';
+    out += std::string("run_in_background_choice_made=") +
+           (settings.runInBackgroundChoiceMade ? "1" : "0") + '\n';
+    out += std::string("hide_tray_icon=") + (settings.hideTrayIcon ? "1" : "0") + '\n';
+    const diag::LogPolicy log = settings.LogPolicy();
+    out += "log_max_file_mb=" + std::to_string(log.maxFileMb) + '\n';
+    out += "log_compress_after_days=" + std::to_string(log.compressAfterDays) + '\n';
+    out += "log_delete_after_days=" + std::to_string(log.deleteAfterDays) + '\n';
+    out += "log_dir=";
+    if (diag::IsPlausibleLogDir(settings.logDir) && !settings.logDir.empty())
+        out += settings.logDir;
+    out += '\n';
     out += "passcode=";
     if (IsValidPasscode(settings.passcode)) out += EncodeSecret(settings.passcode);
     out += '\n';
@@ -109,9 +162,26 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("autostart=") + (settings.autostart ? "1" : "0") + '\n';
     out += std::string("auto_share=") + (settings.autoShare ? "1" : "0") + '\n';
     out += std::string("clipboard_sync=") + (settings.clipboardSync ? "1" : "0") + '\n';
-    out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
-    out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
-    out += "terminal_port=" + std::to_string(settings.terminalPort) + '\n';
+    out += std::string("encrypt_session=") + (settings.encryptSession ? "1" : "0") + '\n';
+    const bool escrow = settings.encryptSession && settings.escrowSessionKey;
+    out += std::string("escrow_session_key=") + (escrow ? "1" : "0") + '\n';
+    out += "session_key_lifetime=" +
+           std::to_string(uint32_t(settings.encryptSession ? settings.sessionKeyLifetime
+                                                           : SessionKeyLifetime::PerShare)) +
+           '\n';
+    out += "session_key=";
+    if (settings.encryptSession && settings.sessionKeyHex.size() == 64)
+        out += EncodeSecret(settings.sessionKeyHex);
+    out += '\n';
+    out += "host_static_sk=";
+    if (settings.hostStaticSkHex.size() == 64) out += EncodeSecret(settings.hostStaticSkHex);
+    out += '\n';
+    out += "language=";
+    if (!settings.language.empty()) {
+        const UiLanguage parsed = ParseLanguageCode(settings.language);
+        if (parsed != UiLanguage::System) out += LanguageCode(parsed);
+    }
+    out += '\n';
     return out;
 }
 

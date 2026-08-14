@@ -7,7 +7,6 @@ import kotlinx.coroutines.delay
 
 object ClipboardPump {
     private const val PUMP_INTERVAL_MS = 1000L
-    private const val CLIP_LABEL = "Deskhub"
 
     suspend fun run(
         context: Context,
@@ -16,6 +15,7 @@ object ClipboardPump {
     ) {
         val clipboard =
             context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        val clipLabel = context.getString(R.string.app_name)
         var dirty = true
         val listener = ClipboardManager.OnPrimaryClipChangedListener { dirty = true }
         clipboard.addPrimaryClipChangedListener(listener)
@@ -23,7 +23,7 @@ object ClipboardPump {
             while (true) {
                 val remote = take()
                 if (remote.isNotEmpty()) {
-                    clipboard.setPrimaryClip(ClipData.newPlainText(CLIP_LABEL, remote))
+                    clipboard.setPrimaryClip(ClipData.newPlainText(clipLabel, remote))
                 } else if (dirty) {
                     dirty = false
                     val local = localText(clipboard)

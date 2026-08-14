@@ -46,33 +46,6 @@ if (-not $vsOk) {
     $restartNote = $true
 }
 
-if (Install-IfMissing 'rustc' 'Rustlang.Rustup' 'Rust (builds quiche, the QUIC transport)') { $restartNote = $true }
-$cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
-if (Test-Path $cargoBin) { $env:PATH = "$cargoBin;$env:PATH" }
-$rustHost = ''
-$rustc = Get-Command rustc -ErrorAction SilentlyContinue
-if ($rustc) {
-    $hostLine = & $rustc.Source -vV | Select-String '^host:'
-    if ($hostLine) { $rustHost = ($hostLine.ToString() -replace '^host:\s*', '') }
-}
-if ($rustHost -and $rustHost -ne 'x86_64-pc-windows-msvc') {
-    Write-Host "[action]  Rust host is '$rustHost' - quiche needs the MSVC toolchain."
-    Write-Host "          rustup default stable-x86_64-pc-windows-msvc"
-}
-
-# boring-sys builds BoringSSL, which assembles with nasm on Windows. winget does not
-# put it on PATH, so add it here and tell the user to make it permanent.
-$nasmDir = Join-Path $env:LOCALAPPDATA 'bin\NASM'
-if (Install-IfMissing 'nasm' 'NASM.NASM' 'NASM (assembles BoringSSL)') { $restartNote = $true }
-if (-not (Get-Command nasm -ErrorAction SilentlyContinue)) {
-    if (Test-Path (Join-Path $nasmDir 'nasm.exe')) {
-        $env:PATH = "$nasmDir;$env:PATH"
-        Write-Host "[action]  Add '$nasmDir' to your PATH - the NASM installer does not."
-    } else {
-        Write-Host "[action]  nasm not found after install - 'build-quiche.sh windows' will fail without it."
-    }
-}
-
 if (Install-IfMissing 'make' 'GnuWin32.Make' 'GNU make') { $restartNote = $true }
 if (Install-IfMissing 'java' 'EclipseAdoptium.Temurin.17.JDK' 'JDK 17 (Temurin)') { $restartNote = $true }
 

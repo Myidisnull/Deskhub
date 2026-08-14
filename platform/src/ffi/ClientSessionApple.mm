@@ -76,11 +76,11 @@ AppleClientEngine& EngineOf(DHSession* s) {
 }
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks, const char* passcode) {
+    const DHSessionCallbacks* callbacks, const char* passcode, const char* session_key) {
     uint32_t screenW = 0, screenH = 0;
     LocalScreenPixels(screenW, screenH);
     return deskhubp::StartFfiClientSession<DHSession, void*>(address, sourceId, surface,
-        callbacks, screenW, screenH, passcode);
+        callbacks, screenW, screenH, passcode, session_key);
 }
 
 void dh_session_stop(DHSession* s) {

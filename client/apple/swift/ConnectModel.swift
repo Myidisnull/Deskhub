@@ -33,6 +33,7 @@ final class ConnectModel {
     var address: String = DeskhubClient.addressHost(ConnectModel.lastAddress)
     var port: String = DeskhubClient.addressPortText(ConnectModel.lastAddress)
     var passcode: String = DeskhubDiscovery.passcode(for: ConnectModel.lastAddress)
+    var sessionKey: String = DeskhubDiscovery.sessionKey(for: ConnectModel.lastAddress)
     var deviceName: String = ConnectModel.initialDeviceName
     var isConnecting = false
     var connectError = ""
@@ -40,6 +41,12 @@ final class ConnectModel {
 
     var acceptedPasscode: String {
         DeskhubClient.isValidPasscode(passcode) ? passcode : ""
+    }
+
+    var acceptedSessionKey: String {
+        let trimmed = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        return dh_is_valid_session_key(trimmed) ? trimmed : ""
     }
 
     func saveDeviceName() {
@@ -59,6 +66,11 @@ final class ConnectModel {
         }
         guard DeskhubClient.isValidPasscode(passcode) else {
             connectError = DeskhubClient.string(DHStrPasscodeInvalid)
+            return nil
+        }
+        let key = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !key.isEmpty && !dh_is_valid_session_key(key) {
+            connectError = DeskhubClient.string(DHStrSessionKeyInvalid)
             return nil
         }
         address = DeskhubClient.addressHost(accepted)

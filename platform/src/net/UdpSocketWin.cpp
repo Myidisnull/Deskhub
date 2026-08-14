@@ -5,6 +5,7 @@
 
 #include <cstdio>
 
+#include "deskhub/ui/Brand.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 
@@ -72,9 +73,9 @@ bool UdpSocket::Open(uint16_t localPort, const std::string& bindIp) {
         lastBindAddrInUse_ = (err == WSAEADDRINUSE);
         if (lastBindAddrInUse_)
             LOGE(
-                "[UDP] Port %u is already in use — another Deskhub host (or another "
+                "[UDP] Port %u is already in use — another %s host (or another "
                 "program) is still listening on it.",
-                localPort);
+                localPort, deskhub::brand::kProductName);
         else
             LOGE("[UDP] bind(:%u) failed: %d", localPort, err);
         closesocket(s);
@@ -115,14 +116,6 @@ int UdpSocket::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
     const int err = WSAGetLastError();
     if (err == WSAETIMEDOUT || err == WSAECONNRESET || err == WSAEMSGSIZE) return 0;
     return -1;
-}
-
-uint16_t UdpSocket::LocalPort() const {
-    if (!IsOpen()) return 0;
-    sockaddr_in bound{};
-    int len = sizeof(bound);
-    if (getsockname(SOCKET(sock_), (sockaddr*)&bound, &len) == SOCKET_ERROR) return 0;
-    return ntohs(bound.sin_port);
 }
 
 void UdpSocket::Close() {

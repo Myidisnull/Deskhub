@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 file(READ ${CMAKE_CURRENT_LIST_DIR}/../VERSION DESKHUB_VERSION_TEXT)
 string(STRIP "${DESKHUB_VERSION_TEXT}" DESKHUB_VERSION_TEXT)
-project(DeskhubCore LANGUAGES CXX VERSION ${DESKHUB_VERSION_TEXT})
+project(DeskhubCore LANGUAGES C CXX VERSION ${DESKHUB_VERSION_TEXT})
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_LIST_DIR}/../VERSION)
@@ -13,7 +13,13 @@ endif()
 
 add_library(core STATIC
     src/protocol/Wire.cpp
-    src/protocol/RecordStream.cpp
+
+    src/crypto/Keys.cpp
+    src/crypto/Aead.cpp
+    src/crypto/NoiseXx.cpp
+    src/crypto/TrafficCipher.cpp
+    src/crypto/KeyCodec.cpp
+    third_party/monocypher/monocypher.c
 
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
@@ -26,8 +32,6 @@ add_library(core STATIC
     src/session/HostFeedback.cpp
     src/session/HostRouter.cpp
     src/session/ClipboardSync.cpp
-    src/session/TerminalSession.cpp
-    src/session/TerminalClient.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
@@ -55,22 +59,26 @@ add_library(core STATIC
     src/net/LanScan.cpp
     src/net/Ipv4.cpp
     src/net/BindAddress.cpp
-    src/net/TrustStore.cpp
-
-    src/terminal/VtParser.cpp
-    src/terminal/Screen.cpp
-    src/terminal/KeyEncoder.cpp
-    src/terminal/Palette.cpp
 
     src/ui/HostRows.cpp
     src/ui/RecentDevices.cpp
     src/ui/SecretText.cpp
     src/ui/UiSettings.cpp
     src/ui/AutostartConfig.cpp
+    src/ui/Locale.cpp
+    src/ui/LocaleCatalog.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/monocypher)
 target_compile_definitions(core PUBLIC DESKHUB_VERSION="${PROJECT_VERSION}")
+
+set_source_files_properties(third_party/monocypher/monocypher.c PROPERTIES
+    LANGUAGE C
+    COMPILE_OPTIONS "$<$<C_COMPILER_ID:MSVC>:/wd4244>")
+if(MSVC)
+    set_source_files_properties(third_party/monocypher/monocypher.c PROPERTIES COMPILE_FLAGS "/wd4244")
+endif()
 
 deskhub_target_warnings(core)
 if(MSVC)
@@ -99,6 +107,7 @@ if(DESKHUB_CORE_TESTS)
 
         tests/session/SessionTests.cpp
         tests/session/ClientPumpTests.cpp
+        tests/session/ClientReconnectTests.cpp
         tests/session/ClipboardSyncTests.cpp
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
@@ -107,7 +116,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/ShareFlowTests.cpp
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
-        tests/session/TerminalSessionTests.cpp
+        tests/crypto/NoiseAeadTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp
@@ -126,6 +135,7 @@ if(DESKHUB_CORE_TESTS)
         tests/control/QualityLadderTests.cpp
 
         tests/diag/DiagTests.cpp
+        tests/diag/LogPolicyTests.cpp
 
         tests/media/ContractTests.cpp
         tests/media/BitWriterTests.cpp
@@ -143,14 +153,9 @@ if(DESKHUB_CORE_TESTS)
         tests/net/LanScanTests.cpp
         tests/net/Ipv4Tests.cpp
         tests/net/BindAddressTests.cpp
-        tests/net/TrustStoreTests.cpp
-
-        tests/terminal/VtParserTests.cpp
-        tests/terminal/ScreenTests.cpp
-        tests/terminal/KeyEncoderTests.cpp
-        tests/terminal/PaletteTests.cpp
 
         tests/ui/StringsTests.cpp
+        tests/ui/LocaleTests.cpp
         tests/ui/HostRowsTests.cpp
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp
@@ -162,6 +167,9 @@ if(DESKHUB_CORE_TESTS)
     target_link_libraries(core_tests PRIVATE core)
     target_include_directories(core_tests PRIVATE tests)
     deskhub_target_warnings(core_tests)
+    if(MSVC)
+        target_link_options(core_tests PRIVATE /STACK:16777216)
+    endif()
 
     include(CTest)
     add_test(NAME core_tests COMMAND core_tests)
@@ -201,5 +209,4 @@ if(DESKHUB_FUZZ)
     deskhub_fuzz_target(fuzz_reassembler fuzz/FuzzReassembler.cpp)
     deskhub_fuzz_target(fuzz_session fuzz/FuzzSession.cpp)
     deskhub_fuzz_target(fuzz_uitext fuzz/FuzzUiText.cpp)
-    deskhub_fuzz_target(fuzz_term fuzz/FuzzTerm.cpp)
 endif()

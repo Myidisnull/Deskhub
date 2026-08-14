@@ -7,15 +7,19 @@
 #include <string>
 #include <vector>
 
+#include "deskhub/crypto/KeyCodec.h"
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/HostRows.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/system/Random.h"
+#include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -82,10 +86,14 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     opt.passcode = passcode && deskhub::IsValidPasscode(passcode) ? std::string(passcode)
                                                                   : deskhubp::HostPasscode();
     {
-        const deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
+        deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
         opt.bindIp = stored.bindIp;
         opt.clipboardSync = stored.clipboardSync;
+        if (!deskhubp::ApplyEncryptToAgentOptions(stored, opt)) return false;
     }
+
+    LOGI("[UI] Share start: %d source(s), %u fps, %u Mbps, port %u.", count, opt.fps,
+        opt.bitrateMbps, unsigned(opt.port));
 
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
@@ -103,6 +111,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
 }
 
 void dha_stop(void) {
+    LOGI("[UI] Share stop requested.");
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
         g_agent->Stop();

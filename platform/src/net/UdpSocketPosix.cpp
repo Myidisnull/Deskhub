@@ -100,14 +100,6 @@ int UdpSocket::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
     return -1;
 }
 
-uint16_t UdpSocket::LocalPort() const {
-    if (!IsOpen()) return 0;
-    sockaddr_in bound{};
-    socklen_t len = sizeof(bound);
-    if (getsockname(fd_, (sockaddr*)&bound, &len) != 0) return 0;
-    return ntohs(bound.sin_port);
-}
-
 void UdpSocket::Close() {
     if (IsOpen()) {
         close(fd_);

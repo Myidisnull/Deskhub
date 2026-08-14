@@ -172,6 +172,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return true;
 
         case WM_MOUSEWHEEL:
+            if (GET_KEYSTATE_WPARAM(wp) & MK_CONTROL) return false;
             if (session_) dh_session_mouse_wheel(session_, GET_WHEEL_DELTA_WPARAM(wp));
             return true;
 

@@ -62,11 +62,11 @@ void LargestScreenPixels(GtkWidget* w, uint32_t& outW, uint32_t& outH) {
 }
 
 ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
-    const std::string& sourceName, const std::string& passcode,
+    const std::string& sourceName, const std::string& passcode, const std::string& sessionKey,
     std::function<void()> onClosed) {
     auto* v = new ViewerWindow();
     v->onClosed_ = std::move(onClosed);
-    if (!v->Build(server, sourceId, sourceName, passcode)) {
+    if (!v->Build(server, sourceId, sourceName, passcode, sessionKey)) {
         delete v;
         return nullptr;
     }
@@ -85,7 +85,7 @@ void ViewerWindow::PostToMain(std::function<void(ViewerWindow&)> fn) {
 }
 
 bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName,
-    const std::string& passcode) {
+    const std::string& passcode, const std::string& sessionKey) {
     baseTitle_ = deskhub::ViewerBaseTitle(sourceName);
     alive_ = std::make_shared<ViewerWindow*>(this);
 
@@ -125,6 +125,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     cfg.screenW = sw;
     cfg.screenH = sh;
     cfg.passcode = passcode;
+    cfg.sessionKeyHex = sessionKey;
     cfg.displayName = deskhubp::SessionDeviceName();
     cfg.onStatus = [this](const char* status) {
         std::string line = status ? status : "";
@@ -188,7 +189,8 @@ void ViewerWindow::VideoRect(int& x, int& y, int& w, int& h) const {
     h = alloc.height;
     if (vw <= 0 || vh <= 0 || w <= 0 || h <= 0) return;
 
-    const deskhub::ViewRect r = deskhub::FitVideoRect(w, h, double(vw) / double(vh));
+    const deskhub::ViewRect r =
+        deskhub::FitVideoRect(w, h, double(vw) / double(vh), transform_);
     x += int(r.x);
     y += int(r.y);
     w = int(r.width);
@@ -229,7 +231,7 @@ gboolean ViewerWindow::OnRender(GtkGLArea* area, GdkGLContext*, gpointer user) {
     GtkAllocation alloc{};
     gtk_widget_get_allocation(GTK_WIDGET(area), &alloc);
     const int scale = gtk_widget_get_scale_factor(GTK_WIDGET(area));
-    if (!self->renderer_.Render(alloc.width * scale, alloc.height * scale))
+    if (!self->renderer_.Render(alloc.width * scale, alloc.height * scale, self->transform_))
         self->renderer_.ClearBlack();
     return TRUE;
 }
@@ -305,6 +307,12 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
         self->ApplyLockEffect(self->pointer_.OnEscape());
         return TRUE;
     }
+    if (down && (e->state & GDK_CONTROL_MASK) &&
+        (e->keyval == GDK_KEY_0 || e->keyval == GDK_KEY_KP_0)) {
+        self->transform_ = {};
+        gtk_gl_area_queue_render(GTK_GL_AREA(self->glArea_));
+        return TRUE;
+    }
 
     int32_t vk = 0, scan = 0;
     if (!dh_native_key_to_vk(GdkKeycodeToEvdev(e->hardware_keycode), &vk, &scan)) return TRUE;
@@ -318,6 +326,20 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
 
 gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (self->panning_) {
+        const int vw = int(self->loop_.videoWidth()), vh = int(self->loop_.videoHeight());
+        GtkAllocation alloc{};
+        gtk_widget_get_allocation(self->glArea_, &alloc);
+        if (vw > 0 && vh > 0 && alloc.width > 0 && alloc.height > 0) {
+            self->transform_ = deskhub::ApplyGesture(self->transform_, 1.0, 0, 0,
+                e->x - self->panLastX_, e->y - self->panLastY_, double(alloc.width),
+                double(alloc.height), double(vw) / double(vh));
+            self->panLastX_ = e->x;
+            self->panLastY_ = e->y;
+            gtk_gl_area_queue_render(GTK_GL_AREA(self->glArea_));
+        }
+        return TRUE;
+    }
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
 
     if (!self->pointer_.locked()) {
@@ -352,6 +374,22 @@ gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
 
 gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (e->button == 2 && deskhub::IsZoomed(self->transform_.zoom)) {
+        if (e->type == GDK_BUTTON_PRESS) {
+            self->panning_ = true;
+            self->panLastX_ = e->x;
+            self->panLastY_ = e->y;
+            return TRUE;
+        }
+        if (e->type == GDK_BUTTON_RELEASE) {
+            self->panning_ = false;
+            return TRUE;
+        }
+    }
+    if (e->type == GDK_BUTTON_RELEASE && self->panning_) {
+        self->panning_ = false;
+        return TRUE;
+    }
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
     if (e->type != GDK_BUTTON_PRESS && e->type != GDK_BUTTON_RELEASE) return TRUE;
 
@@ -369,6 +407,28 @@ gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
 gboolean ViewerWindow::OnScroll(GtkWidget*, GdkEventScroll* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
+
+    if (e->state & GDK_CONTROL_MASK) {
+        const int vw = int(self->loop_.videoWidth()), vh = int(self->loop_.videoHeight());
+        GtkAllocation alloc{};
+        gtk_widget_get_allocation(self->glArea_, &alloc);
+        if (vw > 0 && vh > 0 && alloc.width > 0 && alloc.height > 0) {
+            double factor = 1.0;
+            if (e->direction == GDK_SCROLL_UP ||
+                (e->direction == GDK_SCROLL_SMOOTH && e->delta_y < 0))
+                factor = 1.1;
+            else if (e->direction == GDK_SCROLL_DOWN ||
+                     (e->direction == GDK_SCROLL_SMOOTH && e->delta_y > 0))
+                factor = 1.0 / 1.1;
+            if (factor != 1.0) {
+                self->transform_ = deskhub::ApplyGesture(self->transform_, factor,
+                    e->x - alloc.x, e->y - alloc.y, 0, 0, double(alloc.width),
+                    double(alloc.height), double(vw) / double(vh));
+                gtk_gl_area_queue_render(GTK_GL_AREA(self->glArea_));
+            }
+        }
+        return TRUE;
+    }
 
     int32_t delta = 0;
     switch (e->direction) {

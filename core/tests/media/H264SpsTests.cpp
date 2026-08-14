@@ -19,7 +19,8 @@ constexpr uint8_t kSpsHeaderByte = 0x67;
 
 class Reader {
 public:
-    explicit Reader(std::vector<uint8_t> rbsp) : bytes_(std::move(rbsp)) {}
+    explicit Reader(std::vector<uint8_t> rbsp)
+        : bytes_(std::move(rbsp)) {}
 
     uint32_t U(uint32_t bits) {
         uint32_t v = 0;

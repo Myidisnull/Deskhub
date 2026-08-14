@@ -25,7 +25,8 @@ void dh_session_set_screen_hint(uint32_t width, uint32_t height) {
 }
 
 struct DHSession : deskhubp::FfiClientSession<AndroidClientEngine> {
-    DHSession() : FfiClientSession(deskhub::diag::ClientDiagCaps{false, true}) {}
+    DHSession()
+        : FfiClientSession(deskhub::diag::ClientDiagCaps{false, true}) {}
 };
 
 namespace {
@@ -37,10 +38,10 @@ AndroidClientEngine& EngineOf(DHSession* s) {
 }
 
 DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks, const char* passcode) {
+    const DHSessionCallbacks* callbacks, const char* passcode, const char* session_key) {
     return deskhubp::StartFfiClientSession<DHSession, ANativeWindow*>(address, sourceId, surface,
         callbacks, g_screenW.load(std::memory_order_relaxed),
-        g_screenH.load(std::memory_order_relaxed), passcode);
+        g_screenH.load(std::memory_order_relaxed), passcode, session_key);
 }
 
 void dh_session_stop(DHSession* s) {

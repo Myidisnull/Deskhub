@@ -3,7 +3,18 @@
 
 #include <cstdio>
 
+#if defined(_MSC_VER)
+#include <crtdbg.h>
+#endif
+
 int main() {
+#if defined(_MSC_VER)
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG);
+#endif
     std::printf("=== core self-test (offline: no network, no GPU) ===\n");
 
     std::printf("--- wire: big-endian field accessors ---\n");
@@ -25,10 +36,20 @@ int main() {
     RunPacerTests();
 
     std::printf("--- session ---\n");
+    std::fflush(stdout);
     RunSessionTests();
+    std::printf("--- crypto: Noise_XX + AEAD ---\n");
+    std::fflush(stdout);
+    RunNoiseAeadTests();
+    std::printf("--- crypto done ---\n");
+    std::fflush(stdout);
 
     std::printf("--- session: client pump (ingest + keyframes + reporting) ---\n");
+    std::fflush(stdout);
     RunClientPumpTests();
+
+    std::printf("--- session: client reconnect classification ---\n");
+    RunClientReconnectTests();
 
     std::printf("--- session: clipboard sync (chunking, dedupe, echo suppression) ---\n");
     RunClipboardSyncTests();
@@ -53,9 +74,6 @@ int main() {
 
     std::printf("--- session: per-source pipeline state defaults ---\n");
     RunSourcePipelineStateTests();
-
-    std::printf("--- session: remote terminal (host sessions, client, stream framing) ---\n");
-    RunTerminalSessionTests();
 
     std::printf("--- input ---\n");
     RunInputTests();
@@ -102,6 +120,9 @@ int main() {
     std::printf("--- diag: window counters + log line formatting ---\n");
     RunDiagTests();
 
+    std::printf("--- diag: log retention policy ---\n");
+    RunLogPolicyTests();
+
     std::printf("--- media: encoder/decoder signature contract ---\n");
     RunMediaContractTests();
 
@@ -144,23 +165,11 @@ int main() {
     std::printf("--- net: which address the host binds ---\n");
     RunBindAddressTests();
 
-    std::printf("--- net: which host keys we have decided to trust ---\n");
-    RunTrustStoreTests();
-
-    std::printf("--- terminal: the VT escape-sequence parser ---\n");
-    RunVtParserTests();
-
-    std::printf("--- terminal: the character grid every client draws ---\n");
-    RunScreenTests();
-
-    std::printf("--- terminal: keys and modifiers to bytes ---\n");
-    RunKeyEncoderTests();
-
-    std::printf("--- terminal: the colours every client paints with ---\n");
-    RunPaletteTests();
-
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();
+
+    std::printf("--- ui: language catalogs ---\n");
+    RunLocaleTests();
 
     std::printf("--- ui: host table rows (displays, viewers, cells) ---\n");
     RunHostRowsTests();

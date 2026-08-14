@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/control/BitrateController.h"
 #include "deskhub/control/QualityLadder.h"
+#include "deskhub/crypto/TrafficCipher.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/session/ClipboardSync.h"
 #include "deskhub/session/HostSession.h"
@@ -35,6 +36,7 @@ struct SourcePipelineState {
     Packetizer packetizer;
     Pacer pacer;
     ClipboardSync clipOut;
+    crypto::TrafficCipher traffic;
 
     RetransmitCache retxCache;
     std::mutex retxMutex;

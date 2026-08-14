@@ -24,6 +24,9 @@ debug:
 release:
 	@$(DEVCMD) cmake --preset x64-release && cmake --build --preset x64-release
 
+brand:
+	@python scripts/gen_brand.py
+
 test:
 	@$(DEVCMD) cmake --preset x64-debug >$(NULDEV) && cmake --build --preset x64-debug --target core_tests
 	@echo ===== Running core_tests offline =====
@@ -41,7 +44,7 @@ test-integration:
 
 test-all: test test-platform test-integration
 
-FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext fuzz_term
+FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext
 FUZZ_SECONDS ?= 30
 FUZZ_COV_BIN := out/build/fuzz-coverage/core/$(firstword $(FUZZ_TARGETS))
 FUZZ_COV_OBJS := $(FUZZ_COV_BIN) $(foreach t,$(wordlist 2,$(words $(FUZZ_TARGETS)),$(FUZZ_TARGETS)),-object out/build/fuzz-coverage/core/$(t))
@@ -107,4 +110,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage
+.PHONY: debug release brand test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage

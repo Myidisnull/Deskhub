@@ -56,6 +56,7 @@ ViewerSlot* ViewerTable::Admit(uint32_t clientId, uint64_t addrPacked, uint64_t 
 void ViewerTable::Rebind(ViewerSlot& slot, uint64_t addrPacked) {
     if (!slot.active || !addrPacked || slot.addrPacked == addrPacked) return;
     slot.addrPacked = addrPacked;
+    slot.aeadRecvCounter = 0;
     Publish();
 }
 

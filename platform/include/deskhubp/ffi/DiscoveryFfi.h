@@ -9,11 +9,21 @@ extern "C" {
 
 #define DH_ADDR_CAP 64
 #define DH_PASSCODE_CAP 8
+#define DH_SESSION_KEY_CAP 65
+#define DH_LOG_NAME_CAP 96
+#define DH_LOG_PATH_CAP 512
+#define DH_LOG_DIR_CAP 1024
 
 typedef struct {
     char addr[DH_ADDR_CAP];
     uint32_t rttMs;
 } DHScanHit;
+
+typedef struct {
+    char name[DH_LOG_NAME_CAP];
+    char path[DH_LOG_PATH_CAP];
+    uint64_t sizeBytes;
+} DHLogFile;
 
 typedef struct {
     uint32_t probed;
@@ -38,6 +48,14 @@ typedef struct {
     uint32_t port;
     bool allowInput;
     bool clientControl;
+    bool runInBackground;
+    bool runInBackgroundChoiceMade;
+    bool hideTrayIcon;
+    bool shareOnLaunch;
+    uint32_t logMaxFileMb;
+    uint32_t logCompressAfterDays;
+    uint32_t logDeleteAfterDays;
+    char logDir[DH_LOG_DIR_CAP];
     char passcode[DH_PASSCODE_CAP];
 } DHUiSettings;
 
@@ -49,15 +67,29 @@ int dh_scan_hits(DHScanHit* out, int capacity);
 uint32_t dh_scan_rescan_secs(void);
 
 void dh_recent_touch(const char* address, const char* passcode);
+void dh_recent_touch_ex(const char* address, const char* passcode, bool encrypted,
+    const char* session_key);
 void dh_recent_remove(const char* address);
 int dh_recent_passcode(const char* address, char* out, int capacity);
+int dh_recent_session_key(const char* address, char* out, int capacity);
+bool dh_recent_encrypted(const char* address);
 
 void dh_status_stop(void);
 void dh_status_refresh_now(void);
 
 DHUiSettings dh_settings_load(void);
 void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uint32_t port,
-    bool allow_input, bool client_control, const char* passcode);
+    bool allow_input, bool client_control, bool run_in_background,
+    bool run_in_background_choice_made, bool hide_tray_icon, bool share_on_launch,
+    uint32_t log_max_file_mb, uint32_t log_compress_after_days, uint32_t log_delete_after_days,
+    const char* log_dir, const char* passcode);
+
+int dh_log_files(DHLogFile* out, int capacity);
+int dh_log_read(const char* path, char* out, int capacity);
+bool dh_log_open_folder(void);
+bool dh_log_dir_usable(const char* path);
+int dh_default_log_dir(char* out, int capacity);
+bool dh_log_start_process(void);
 
 int dh_recent_rows(DHRecentRow* out, int capacity);
 void dh_status_watch_recent(void);
@@ -84,11 +116,22 @@ void dh_set_auto_share(bool on);
 bool dh_clipboard_sync(void);
 void dh_set_clipboard_sync(bool on);
 
-bool dh_start_hidden(void);
-void dh_set_start_hidden(bool on);
+bool dh_encrypt_session(void);
+void dh_set_encrypt_session(bool on);
 
-bool dh_keep_awake(void);
-void dh_set_keep_awake(bool on);
+bool dh_escrow_session_key(void);
+void dh_set_escrow_session_key(bool on);
+
+int dh_session_key_lifetime(void);
+void dh_set_session_key_lifetime(int lifetime);
+
+int dh_session_key_hex(char* out, int capacity);
+bool dh_ensure_session_key(bool refresh);
+bool dh_is_valid_session_key(const char* hex);
+
+int dh_language(char* out, int capacity);
+void dh_set_language(const char* code);
+int dh_system_language(char* out, int capacity);
 
 int dh_version_line(char* out, int capacity);
 const char* dh_local_addresses(void);

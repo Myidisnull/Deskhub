@@ -34,10 +34,10 @@ struct HostPage: View {
 
             if agent.isSharing {
                 HostSourceTable(rows: agent.rows) { agent.runRowAction($0) }
-                    .frame(minHeight: 170)
+                    .frame(minHeight: 120)
             } else {
                 SharePickerTable(sources: agent.shareSources, ticked: $agent.tickedSources)
-                    .frame(minHeight: 170)
+                    .frame(minHeight: 120)
                 deskhubHint(DeskhubClient.string(DHStrPickDisplaysHint))
             }
 

@@ -28,6 +28,7 @@
 #include "net/Firewall.h"
 
 #include "deskhub/control/FrameGate.h"
+#include "deskhub/ui/Brand.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/session/HostRouter.h"
@@ -95,8 +96,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         else
             LOGW(
                 "[Agent] Could not add/verify a Windows Firewall rule (needs admin). "
-                "If the other machine cannot connect, allow Deskhub.exe through Windows "
-                "Firewall for the current network.");
+                "If the other machine cannot connect, allow %s through Windows "
+                "Firewall for the current network.",
+                deskhub::brand::kWindowsServiceName);
         return std::string();
     };
 

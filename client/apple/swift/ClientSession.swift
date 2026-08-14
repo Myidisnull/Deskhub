@@ -184,7 +184,8 @@ final class ClientSession: @unchecked Sendable {
     }
 
     static func start(
-        address: String, sourceId: UInt8, passcode: String, handlers: SessionHandlers
+        address: String, sourceId: UInt8, passcode: String, sessionKey: String? = nil,
+        handlers: SessionHandlers
     ) -> ClientSession? {
         let box = Unmanaged.passRetained(HandlerBox(handlers)).toOpaque()
 
@@ -200,7 +201,9 @@ final class ClientSession: @unchecked Sendable {
             HandlerBox.unwrap(user)?.onClosed(reason.map { String(cString: $0) } ?? "")
         }
 
-        guard let handle = dh_session_start(address, sourceId, nil, &callbacks, passcode) else {
+        guard let handle = dh_session_start(
+            address, sourceId, nil, &callbacks, passcode, sessionKey
+        ) else {
             Unmanaged<HandlerBox>.fromOpaque(box).release()
             return nil
         }

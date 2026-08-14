@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "deskhubp/diag/Log.h"
+#include "deskhub/ui/Brand.h"
 #include "WinPaths.h"
 
 #pragma comment(lib, "ole32.lib")
@@ -17,14 +18,31 @@
 
 namespace {
 
-constexpr wchar_t kRuleName[] = L"Deskhub (host)";
-
 constexpr long kWantProfiles =
     NET_FW_PROFILE2_DOMAIN | NET_FW_PROFILE2_PRIVATE | NET_FW_PROFILE2_PUBLIC;
 
+std::wstring Utf8ToWide(const std::string& utf8) {
+    if (utf8.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), int(utf8.size()), nullptr, 0);
+    if (n <= 0) return {};
+    std::wstring wide(size_t(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), int(utf8.size()), wide.data(), n);
+    return wide;
+}
+
+std::wstring FirewallRuleName() {
+    return Utf8ToWide(std::string(deskhub::brand::kWindowsServiceName) + " (host)");
+}
+
+std::wstring FirewallRuleDescription() {
+    return Utf8ToWide(std::string("Allow incoming connections for ") +
+                      deskhub::brand::kWindowsServiceName + " host.");
+}
+
 struct ComScope {
     HRESULT hr;
-    ComScope() : hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
+    ComScope()
+        : hr(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)) {}
     ~ComScope() {
         if (SUCCEEDED(hr)) CoUninitialize();
     }
@@ -59,7 +77,8 @@ void ReleaseRules(INetFwRules* rules, INetFwPolicy2* policy) {
 }
 
 int InspectOwnRule(INetFwRules* rules, const std::wstring& exe) {
-    BSTR name = SysAllocString(kRuleName);
+    const std::wstring ruleName = FirewallRuleName();
+    BSTR name = SysAllocString(ruleName.c_str());
     if (!name) return 0;
     INetFwRule* rule = nullptr;
     int state = 0;
@@ -81,7 +100,8 @@ int InspectOwnRule(INetFwRules* rules, const std::wstring& exe) {
 }
 
 void RemoveOwnRule(INetFwRules* rules) {
-    if (BSTR name = SysAllocString(kRuleName)) {
+    const std::wstring ruleName = FirewallRuleName();
+    if (BSTR name = SysAllocString(ruleName.c_str())) {
         rules->Remove(name);
         SysFreeString(name);
     }
@@ -135,8 +155,10 @@ bool AddOwnRule(INetFwRules* rules, const std::wstring& exe) {
         return false;
 
     bool ok = false;
-    BSTR name = SysAllocString(kRuleName);
-    BSTR desc = SysAllocString(L"Allow incoming connections for Deskhub host.");
+    const std::wstring ruleName = FirewallRuleName();
+    const std::wstring ruleDesc = FirewallRuleDescription();
+    BSTR name = SysAllocString(ruleName.c_str());
+    BSTR desc = SysAllocString(ruleDesc.c_str());
     BSTR app = SysAllocString(exe.c_str());
     if (name && app) {
         rule->put_Name(name);

@@ -59,12 +59,14 @@ size_t ClipboardSync::Flush(uint64_t nowUs, const SendFn& send) {
 }
 
 bool ClipboardSync::Accept(const ClipboardChunkView& chunk) {
+    if (chunk.chunkCount == 0 || chunk.chunkIndex >= chunk.chunkCount) return false;
     if (haveTakenRevision_ && chunk.revision <= lastTakenRevision_) return false;
     if (chunk.revision != inRevision_ || chunk.chunkCount != inChunks_.size()) {
         inRevision_ = chunk.revision;
         inChunks_.assign(chunk.chunkCount, {});
         inReceived_ = 0;
     }
+    if (chunk.chunkIndex >= inChunks_.size()) return false;
     std::vector<uint8_t>& slot = inChunks_[chunk.chunkIndex];
     if (!slot.empty()) return false;
     if (chunk.payload.empty()) return false;

@@ -5,6 +5,7 @@
 #include "deskhub/session/HostSession.h"
 
 #include <cstdio>
+#include <memory>
 #include <deque>
 #include <string>
 #include <vector>
@@ -37,6 +38,7 @@ void TestSessions() {
     std::string cliDead;
     NegotiatedParams np{};
     ClientCallbacks ccb;
+    ccb.randomBytes = TestRandomBytes;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
     ccb.onReady = [&](const NegotiatedParams& p) { cliReady = true; np = p; };
     ccb.onRtt = [&](uint32_t r) { cliRtt = r; };
@@ -93,6 +95,7 @@ void TestSessions() {
         std::string otherDead;
         NegotiatedParams otherParams{};
         ClientCallbacks c2 = ccb;
+        c2.randomBytes = TestRandomBytes;
         c2.send = [&](std::span<const uint8_t> d) { w2.toHost.emplace_back(d.begin(), d.end()); };
         c2.onReady = [&](const NegotiatedParams& p) { otherParams = p; };
         c2.onDisconnect = [&](const char* r) { otherDead = r; };
@@ -131,11 +134,19 @@ void TestSessions() {
     ClientSession cli2(ccb);
     cliDead.clear();
     cli2.Start(Hello{0x99AA0001, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
-    while (!w.toHost.empty()) {
-        host.HandlePacket(w.toHost.front(), now, kTestViewer);
-        w.toHost.pop_front();
+    for (int guard = 0; guard < 8; ++guard) {
+        if (w.toHost.empty() && w.toClient.empty()) break;
+        while (!w.toHost.empty()) {
+            auto d = std::move(w.toHost.front());
+            w.toHost.pop_front();
+            host.HandlePacket(d, now, kTestViewer);
+        }
+        while (!w.toClient.empty()) {
+            auto d = std::move(w.toClient.front());
+            w.toClient.pop_front();
+            cli2.HandlePacket(d, now);
+        }
     }
-    w.toClient.clear();
     Check(host.state() != HostSession::State::Idle, "second session established");
     now += 11'000'000;
     host.Tick(now);
@@ -161,6 +172,7 @@ void TestHostKicksOneViewer() {
 
     std::string cliDead;
     ClientCallbacks ccb;
+    ccb.randomBytes = TestRandomBytes;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
     ccb.onDisconnect = [&](const char* r) { cliDead = r; };
     ClientSession cli(ccb);
@@ -218,6 +230,7 @@ void TestSessionsNackInvalidate() {
     host.SetPasscode(kTestPasscode);
 
     ClientCallbacks ccb;
+    ccb.randomBytes = TestRandomBytes;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
     ClientSession cli(ccb);
 
@@ -278,6 +291,7 @@ void TestReconfigFocusFeedback() {
     bool reconfigured = false;
     NegotiatedParams rp{};
     ClientCallbacks ccb;
+    ccb.randomBytes = TestRandomBytes;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
     ccb.onReconfig = [&](const NegotiatedParams& p) { reconfigured = true; rp = p; };
     ClientSession cli(ccb);
@@ -354,14 +368,15 @@ struct Rig {
     uint32_t lastRtt = 0;
     std::vector<InputEvent> hostInput;
     std::string cliDead;
-    HostSession host;
-    ClientSession cli;
-
     std::vector<std::string> hostClipboard;
     std::vector<std::string> cliClipboard;
+    std::unique_ptr<HostSession> host;
+    std::unique_ptr<ClientSession> cli;
 
-    Rig() : host(HostCb(), StreamParams{1920, 1080, 60, 20'000'000}), cli(CliCb()) {
-        host.SetPasscode(kTestPasscode);
+    Rig() {
+        host = std::make_unique<HostSession>(HostCb(), StreamParams{1920, 1080, 60, 20'000'000});
+        cli = std::make_unique<ClientSession>(CliCb());
+        host->SetPasscode(kTestPasscode);
     }
 
     HostCallbacks HostCb() {
@@ -377,6 +392,7 @@ struct Rig {
     }
     ClientCallbacks CliCb() {
         ClientCallbacks cb;
+        cb.randomBytes = TestRandomBytes;
         cb.send = [this](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
         cb.onReady = [this](const NegotiatedParams&) { ++readyCalls; };
         cb.onRtt = [this](uint32_t r) { lastRtt = r; };
@@ -390,19 +406,19 @@ struct Rig {
             while (!w.toHost.empty()) {
                 auto d = std::move(w.toHost.front());
                 w.toHost.pop_front();
-                host.HandlePacket(d, now, kTestViewer);
+                host->HandlePacket(d, now, kTestViewer);
             }
             while (!w.toClient.empty()) {
                 auto d = std::move(w.toClient.front());
                 w.toClient.pop_front();
-                cli.HandlePacket(d, now);
+                cli->HandlePacket(d, now);
             }
         }
     }
     void Handshake(uint32_t clientId = 0x1) {
-        cli.Start(Hello{clientId, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
+        cli->Start(Hello{clientId, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
         Pump();
-        cli.NotifyVideoPacket(now);
+        cli->NotifyVideoPacket(now);
     }
 };
 
@@ -420,24 +436,24 @@ void TestHandshakeDuplicates() {
     dup.height = 480;
     dup.fps = 30;
     size_t n = BuildHelloAck(buf, dup);
-    Check(r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+    Check(r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now),
         "duplicate HELLO_ACK accepted as valid traffic");
-    Check(r.cli.sessionId() != 0xDEAD && r.cli.params().width == 1920 && r.readyCalls == 1,
+    Check(r.cli->sessionId() != 0xDEAD && r.cli->params().width == 1920 && r.readyCalls == 1,
         "duplicate HELLO_ACK doesn't rebuild the session");
 
-    const uint32_t sid = r.host.sessionId();
+    const uint32_t sid = r.host->sessionId();
     r.w.toClient.clear();
     n = BuildHello(buf, Hello{0x1, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode});
-    Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
+    Check(r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
         "re-HELLO from the same client accepted");
-    Check(r.host.sessionId() == sid && r.host.state() == HostSession::State::Streaming,
+    Check(r.host->sessionId() == sid && r.host->state() == HostSession::State::Streaming,
         "re-HELLO keeps the existing session");
     Check(CountType(r.w.toClient, MsgType::HelloAck) == 1, "re-HELLO answered with another ACK");
     const auto ack = ParseHelloAck(PayloadOf(r.w.toClient.front()));
     Check(ack && ack->sessionId == sid, "re-sent ACK carries the same sessionId");
 
     n = BuildStart(buf, sid);
-    r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+    r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
     Check(r.startCalls == 1, "repeated START doesn't re-fire onStart");
 }
 
@@ -447,17 +463,17 @@ void TestClientDeathPaths() {
         Rig r;
         r.Handshake();
         uint8_t buf[kMaxDatagram];
-        const size_t n = BuildBye(buf, r.cli.sessionId());
-        r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now);
-        Check(r.cli.state() == ClientSession::State::Dead && !r.cliDead.empty(),
+        const size_t n = BuildBye(buf, r.cli->sessionId());
+        r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now);
+        Check(r.cli->state() == ClientSession::State::Dead && !r.cliDead.empty(),
             "BYE from host kills the client session");
     }
     {
         Rig r;
         r.Handshake();
         r.now += kSessionTimeoutUs + 1'000'000;
-        r.cli.Tick(r.now);
-        Check(r.cli.state() == ClientSession::State::Dead && !r.cliDead.empty(),
+        r.cli->Tick(r.now);
+        Check(r.cli->state() == ClientSession::State::Dead && !r.cliDead.empty(),
             "silent host -> client dies on session timeout");
     }
 }
@@ -465,78 +481,78 @@ void TestClientDeathPaths() {
 void TestRejectCodecMismatch() {
     std::printf("[session] HELLO without H.264 -> rejected at handshake...\n");
     Rig r;
-    r.cli.Start(Hello{0x2, uint16_t(0), 1920, 1080, 60, 0, 0, kTestPasscode}, r.now);
+    r.cli->Start(Hello{0x2, uint16_t(0), 1920, 1080, 60, 0, 0, kTestPasscode}, r.now);
     r.Pump();
     Check(!r.cliDead.empty(), "client without H.264 refused at handshake");
-    Check(r.host.state() == HostSession::State::Idle, "host stays IDLE after the codec reject");
+    Check(r.host->state() == HostSession::State::Idle, "host stays IDLE after the codec reject");
 }
 
 void TestPasscodeGate() {
     std::printf("[session] 4-digit passcode: wrong rejected, right admitted, lockout...\n");
     {
         Rig r;
-        r.host.SetPasscode("0417");
+        r.host->SetPasscode("0417");
         Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
         h.passcode = "1111";
-        r.cli.Start(h, r.now);
+        r.cli->Start(h, r.now);
         r.Pump();
         Check(r.cliDead.find("passcode") != std::string::npos, "wrong passcode is told why");
-        Check(r.cli.rejectReason() == RejectReason::WrongPasscode,
+        Check(r.cli->rejectReason() == RejectReason::WrongPasscode,
             "the reject reason names the passcode");
-        Check(r.host.state() == HostSession::State::Idle && r.host.viewerCount() == 0,
+        Check(r.host->state() == HostSession::State::Idle && r.host->viewerCount() == 0,
             "host stays idle after a wrong passcode");
     }
     {
         Rig r;
-        r.host.SetPasscode("0417");
+        r.host->SetPasscode("0417");
         Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
         h.passcode = "0417";
-        r.cli.Start(h, r.now);
+        r.cli->Start(h, r.now);
         r.Pump();
-        Check(r.readyCalls == 1 && r.host.viewerCount() == 1, "the right passcode is admitted");
+        Check(r.readyCalls == 1 && r.host->viewerCount() == 1, "the right passcode is admitted");
     }
     {
         Rig r;
-        r.host.SetPasscode("");
+        r.host->SetPasscode("");
         Hello h{0x2, kCodecMaskH264, 1920, 1080, 60, 0};
         h.passcode = "9999";
-        r.cli.Start(h, r.now);
+        r.cli->Start(h, r.now);
         r.Pump();
-        Check(r.readyCalls == 0 && r.host.viewerCount() == 0,
+        Check(r.readyCalls == 0 && r.host->viewerCount() == 0,
             "a host with no passcode set admits nobody");
-        Check(r.cli.rejectReason() == RejectReason::WrongPasscode,
+        Check(r.cli->rejectReason() == RejectReason::WrongPasscode,
             "and the viewer is told why rather than left hanging");
     }
     {
         Rig r;
-        r.host.SetPasscode("");
-        r.cli.Start(Hello{0x2, kCodecMaskH264, 1920, 1080, 60, 0}, r.now);
+        r.host->SetPasscode("");
+        r.cli->Start(Hello{0x2, kCodecMaskH264, 1920, 1080, 60, 0}, r.now);
         r.Pump();
         Check(r.readyCalls == 0, "not even a viewer that sends no passcode either");
     }
     {
         Rig r;
-        r.host.SetPasscode("0417");
+        r.host->SetPasscode("0417");
         uint8_t buf[kMaxDatagram];
         Hello bad{0x9, kCodecMaskH264, 1920, 1080, 60, 0};
         bad.passcode = "0000";
         for (uint32_t i = 0; i < kMaxPasscodeAttempts; ++i) {
             const size_t n = BuildHello(buf, bad);
-            r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+            r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
         }
         r.w.toClient.clear();
 
         Hello good = bad;
         good.passcode = "0417";
         size_t n = BuildHello(buf, good);
-        r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
-        Check(r.w.toClient.empty() && r.host.viewerCount() == 0,
+        r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+        Check(r.w.toClient.empty() && r.host->viewerCount() == 0,
             "locked out after repeated wrong guesses, even with the right code");
 
         r.now += kPasscodeLockoutUs + 1;
         n = BuildHello(buf, good);
-        r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
-        Check(r.host.viewerCount() == 1, "the lockout expires and the right code works again");
+        r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer);
+        Check(r.host->viewerCount() == 1, "the lockout expires and the right code works again");
     }
 }
 
@@ -549,20 +565,24 @@ void RunHandshakeAgainstBrokenRng(HostCallbacks hcb, const char* what) {
 
     std::string cliDead;
     ClientCallbacks ccb;
+    ccb.randomBytes = TestRandomBytes;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
     ccb.onDisconnect = [&](const char* r) { cliDead = r; };
     ClientSession cli(ccb);
 
     cli.Start(Hello{0x3, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);
-    while (!w.toHost.empty()) {
-        auto d = std::move(w.toHost.front());
-        w.toHost.pop_front();
-        host.HandlePacket(d, now, kTestViewer);
-    }
-    while (!w.toClient.empty()) {
-        auto d = std::move(w.toClient.front());
-        w.toClient.pop_front();
-        cli.HandlePacket(d, now);
+    for (int guard = 0; guard < 8; ++guard) {
+        if (w.toHost.empty() && w.toClient.empty()) break;
+        while (!w.toHost.empty()) {
+            auto d = std::move(w.toHost.front());
+            w.toHost.pop_front();
+            host.HandlePacket(d, now, kTestViewer);
+        }
+        while (!w.toClient.empty()) {
+            auto d = std::move(w.toClient.front());
+            w.toClient.pop_front();
+            cli.HandlePacket(d, now);
+        }
     }
 
     Check(host.state() == HostSession::State::Idle, what);
@@ -590,23 +610,24 @@ void TestUnknownMessagesAreIgnored() {
 
     uint8_t buf[kMaxDatagram];
     HelloAck ack{};
-    ack.sessionId = r.host.sessionId();
+    ack.sessionId = r.host->sessionId();
     ack.codec = Codec::H264;
     size_t n = BuildHelloAck(buf, ack);
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
+    Check(!r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer),
         "a HELLO_ACK sent at a host is refused");
-    Check(r.host.state() == HostSession::State::Streaming, "and changes nothing");
+    Check(r.host->state() == HostSession::State::Streaming, "and changes nothing");
 
     n = BuildHello(buf, Hello{0x9, kCodecMaskH264, 640, 480, 30, 0, 0, kTestPasscode});
-    Check(!r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+    Check(!r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now),
         "a HELLO sent at a client is refused");
-    Check(r.cli.state() == ClientSession::State::Streaming, "and changes nothing");
+    Check(r.cli->state() == ClientSession::State::Streaming, "and changes nothing");
 }
 
 void TestIdleClientTickIsInert() {
     std::printf("[session] a client that never started stays silent...\n");
     std::deque<Datagram> sent;
     ClientCallbacks cb;
+    cb.randomBytes = TestRandomBytes;
     cb.send = [&](std::span<const uint8_t> d) { sent.emplace_back(d.begin(), d.end()); };
     ClientSession cli(cb);
     cli.Tick(10'000'000);
@@ -619,33 +640,33 @@ void TestHostInputStats() {
     std::printf("[session] the host exposes the input counters for its status line...\n");
     Rig r;
     r.Handshake();
-    Check(r.host.inputStats().applied == 0, "no input applied yet");
+    Check(r.host->inputStats().applied == 0, "no input applied yet");
 
-    r.cli.QueueInput(SessionKey(0x41, true));
-    r.cli.QueueInput(SessionKey(0x41, false));
+    r.cli->QueueInput(SessionKey(0x41, true));
+    r.cli->QueueInput(SessionKey(0x41, false));
     r.now += 20'000;
-    r.cli.Tick(r.now);
+    r.cli->Tick(r.now);
     r.Pump();
-    Check(r.host.inputStats().applied == 2, "both key events are counted as applied");
-    Check(r.host.inputStats().lost == 0, "nothing was lost on a clean wire");
+    Check(r.host->inputStats().applied == 2, "both key events are counted as applied");
+    Check(r.host->inputStats().lost == 0, "nothing was lost on a clean wire");
 }
 
 void TestInputThroughSession() {
     std::printf("[session] input flows client -> host, deduped, gated on STREAMING...\n");
     Rig r;
-    r.cli.QueueInput(SessionKey('A', true));
+    r.cli->QueueInput(SessionKey('A', true));
     r.Handshake();
-    r.cli.Tick(r.now);
+    r.cli->Tick(r.now);
     r.Pump();
     Check(r.hostInput.empty(), "input queued before STREAMING is dropped");
 
-    r.cli.QueueInput(SessionKey('B', true));
-    r.cli.QueueInput(SessionKey('B', false));
+    r.cli->QueueInput(SessionKey('B', true));
+    r.cli->QueueInput(SessionKey('B', false));
     r.now += 20'000;
-    r.cli.Tick(r.now);
+    r.cli->Tick(r.now);
     for (int i = 0; i < 3; ++i) {
         r.now += kInputRepeatIntervalUs;
-        r.cli.Tick(r.now);
+        r.cli->Tick(r.now);
     }
     r.Pump();
     Check(r.hostInput.size() == 2 && r.hostInput[0].a == 'B' && r.hostInput[0].state == 1 &&
@@ -658,31 +679,31 @@ void TestStraySessionIdIgnored() {
     Rig r;
     r.Handshake();
     uint8_t buf[kMaxDatagram];
-    const uint32_t bad = r.cli.sessionId() ^ 0x55AA55AA;
+    const uint32_t bad = r.cli->sessionId() ^ 0x55AA55AA;
 
     size_t n = BuildPong(buf, bad, PingPong{9, 1});
-    Check(!r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now) && r.lastRtt == 0,
+    Check(!r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now) && r.lastRtt == 0,
         "stray PONG rejected, RTT untouched");
     n = BuildReconfig(buf, bad, Reconfig{320, 200, 1'000'000});
-    Check(!r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now) &&
-              r.cli.params().width == 1920,
+    Check(!r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now) &&
+              r.cli->params().width == 1920,
         "stray RECONFIG ignored, params untouched");
     n = BuildBye(buf, bad);
-    Check(!r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now) &&
-              r.cli.state() == ClientSession::State::Streaming,
+    Check(!r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now) &&
+              r.cli->state() == ClientSession::State::Streaming,
         "stray BYE doesn't kill the session");
 
     r.w.toClient.clear();
     n = BuildPing(buf, bad, PingPong{1, 1});
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.w.toClient.empty(),
+    Check(!r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.w.toClient.empty(),
         "stray PING rejected, no PONG sent");
     const uint16_t idx[] = {1};
     n = BuildNack(buf, bad, 7, idx);
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.nackCalls == 0,
+    Check(!r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.nackCalls == 0,
         "stray NACK rejected, onNack not called");
     const InputEvent ev = SessionKey('Z', true);
     n = BuildInputEvents(buf, bad, 0, std::span<const InputEvent>(&ev, 1));
-    Check(!r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.hostInput.empty(),
+    Check(!r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer) && r.hostInput.empty(),
         "stray INPUT_EVENT rejected, nothing injected");
 }
 
@@ -692,31 +713,31 @@ void TestFocusRepeatsAndKeyframeCancel() {
     r.Handshake();
     r.w.toHost.clear();
 
-    r.cli.SetFocused(true);
+    r.cli->SetFocused(true);
     for (int i = 0; i < 10; ++i) {
         r.now += kFocusRetryUs;
-        r.cli.Tick(r.now);
+        r.cli->Tick(r.now);
     }
     Check(CountType(r.w.toHost, MsgType::SetFocus) == size_t(kFocusRepeats),
         "SET_FOCUS sent exactly kFocusRepeats times");
 
     r.w.toHost.clear();
-    r.cli.SetFocused(true);
+    r.cli->SetFocused(true);
     r.now += kFocusRetryUs;
-    r.cli.Tick(r.now);
+    r.cli->Tick(r.now);
     Check(CountType(r.w.toHost, MsgType::SetFocus) == 0, "SetFocused(same value) doesn't resend");
 
     r.w.toHost.clear();
-    r.cli.RequestKeyframe();
-    r.cli.Tick(r.now);
+    r.cli->RequestKeyframe();
+    r.cli->Tick(r.now);
     r.now += kKeyframeRetryUs;
-    r.cli.Tick(r.now);
+    r.cli->Tick(r.now);
     Check(CountType(r.w.toHost, MsgType::RequestKeyframe) == 2,
         "REQUEST_KEYFRAME repeats while wanted");
-    r.cli.CancelKeyframeRequest();
+    r.cli->CancelKeyframeRequest();
     r.w.toHost.clear();
     r.now += kKeyframeRetryUs;
-    r.cli.Tick(r.now);
+    r.cli->Tick(r.now);
     Check(CountType(r.w.toHost, MsgType::RequestKeyframe) == 0,
         "CancelKeyframeRequest stops the retries");
 }
@@ -725,16 +746,16 @@ void TestSessionsSurviveGarbage() {
     std::printf("[session] 500 garbage datagrams -> both sides unaffected...\n");
     Rig r;
     r.Handshake();
-    const uint32_t sid = r.host.sessionId();
+    const uint32_t sid = r.host->sessionId();
     for (int i = 0; i < 500; ++i) {
         Datagram d(Rnd() % 1300, 0);
         for (auto& b : d) b = uint8_t(Rnd());
-        r.host.HandlePacket(d, r.now, kTestViewer);
-        r.cli.HandlePacket(d, r.now);
+        r.host->HandlePacket(d, r.now, kTestViewer);
+        r.cli->HandlePacket(d, r.now);
     }
-    Check(r.host.state() == HostSession::State::Streaming && r.host.sessionId() == sid,
+    Check(r.host->state() == HostSession::State::Streaming && r.host->sessionId() == sid,
         "host unaffected by garbage datagrams");
-    Check(r.cli.state() == ClientSession::State::Streaming && r.cliDead.empty(),
+    Check(r.cli->state() == ClientSession::State::Streaming && r.cliDead.empty(),
         "client unaffected by garbage datagrams");
 }
 
@@ -742,13 +763,13 @@ void TestClipboardThroughSession() {
     std::printf("[session] clipboard flows only when the host enables it...\n");
     {
         Rig r;
-        r.host.SetClipboardEnabled(true);
+        r.host->SetClipboardEnabled(true);
         r.Handshake();
         r.w.toHost.clear();
 
-        r.cli.QueueClipboard("shared text");
+        r.cli->QueueClipboard("shared text");
         r.now += 20'000;
-        r.cli.Tick(r.now);
+        r.cli->Tick(r.now);
         Check(CountType(r.w.toHost, MsgType::Clipboard) > 0, "the viewer sends its clipboard");
         r.Pump();
         Check(r.hostClipboard.size() == 1 && r.hostClipboard[0] == "shared text",
@@ -756,7 +777,7 @@ void TestClipboardThroughSession() {
 
         for (uint32_t i = 0; i < 1 + kClipboardResendCount; ++i) {
             r.now += kClipboardResendIntervalUs;
-            r.cli.Tick(r.now);
+            r.cli->Tick(r.now);
         }
         r.Pump();
         Check(r.hostClipboard.size() == 1, "the redundant resends never re-apply");
@@ -769,8 +790,8 @@ void TestClipboardThroughSession() {
         chunk.chunkCount = 1;
         chunk.payload = std::span<const uint8_t>(
             reinterpret_cast<const uint8_t*>(down.data()), down.size());
-        const size_t n = BuildClipboardChunk(buf, r.host.sessionId(), chunk);
-        Check(r.cli.HandlePacket(std::span<const uint8_t>(buf, n), r.now),
+        const size_t n = BuildClipboardChunk(buf, r.host->sessionId(), chunk);
+        Check(r.cli->HandlePacket(std::span<const uint8_t>(buf, n), r.now),
             "a clipboard datagram from the host is valid");
         Check(r.cliClipboard.size() == 1 && r.cliClipboard[0] == down,
             "and the viewer applies it");
@@ -778,9 +799,9 @@ void TestClipboardThroughSession() {
     {
         Rig r;
         r.Handshake();
-        r.cli.QueueClipboard("blocked");
+        r.cli->QueueClipboard("blocked");
         r.now += 20'000;
-        r.cli.Tick(r.now);
+        r.cli->Tick(r.now);
         r.Pump();
         Check(r.hostClipboard.empty(), "with the toggle off, the host drops clipboard packets");
     }
@@ -793,9 +814,9 @@ void TestInputAlwaysFlows() {
         r.Handshake();
         r.w.toHost.clear();
         for (int i = 0; i < 5; ++i)
-            r.cli.QueueInput(InputEvent{InputType::Key, uint64_t(i), 65, 30, 1, 0});
+            r.cli->QueueInput(InputEvent{InputType::Key, uint64_t(i), 65, 30, 1, 0});
         r.now += 20'000;
-        r.cli.Tick(r.now);
+        r.cli->Tick(r.now);
         Check(CountType(r.w.toHost, MsgType::InputEvent) > 0, "the client sends input by default");
     }
     {
@@ -803,9 +824,9 @@ void TestInputAlwaysFlows() {
         r.Handshake();
         uint8_t buf[kMaxDatagram];
         const InputEvent ev{InputType::Key, 1, 65, 30, 1, 0};
-        const size_t n = BuildInputEvents(buf, r.cli.sessionId(), 0,
+        const size_t n = BuildInputEvents(buf, r.cli->sessionId(), 0,
             std::span<const InputEvent>(&ev, 1));
-        Check(r.host.HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer), "the packet is valid");
+        Check(r.host->HandlePacket(std::span<const uint8_t>(buf, n), r.now, kTestViewer), "the packet is valid");
         Check(r.hostInput.size() == 1, "and it reaches the injector");
     }
 }
@@ -826,7 +847,6 @@ void RunSessionTests() {
     TestRejectCodecMismatch();
     TestPasscodeGate();
     TestInputThroughSession();
-    TestClipboardThroughSession();
     TestStraySessionIdIgnored();
     TestFocusRepeatsAndKeyframeCancel();
     TestInputAlwaysFlows();

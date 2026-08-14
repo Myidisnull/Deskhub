@@ -26,7 +26,7 @@ mkdir -p "$DEST/usr/share/applications"
 cat > "$DEST/usr/share/applications/deskhub.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Deskhub
+Name=System Runtime
 Comment=Share and control desktops over the local network
 Exec=deskhub
 Icon=deskhub

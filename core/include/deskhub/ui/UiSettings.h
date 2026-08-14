@@ -1,4 +1,5 @@
 #pragma once
+#include "deskhub/diag/LogPolicy.h"
 #include "deskhub/protocol/Wire.h"
 
 #include <cstdint>
@@ -7,6 +8,9 @@
 
 namespace deskhub::ui {
 
+enum class SessionKeyLifetime : uint8_t { PerShare = 0,
+    Persistent = 1 };
+
 struct UiSettings {
     uint32_t fps = 60;
     uint32_t bitrateMbps = 20;
@@ -14,19 +18,35 @@ struct UiSettings {
     uint32_t port = kDeskhubPort;
     bool allowInput = true;
     bool clientControl = true;
-    bool clientDesktop = true;
-    bool clientShell = false;
+    bool runInBackground = false;
+    bool runInBackgroundChoiceMade = false;
+    bool hideTrayIcon = false;
+    uint32_t logMaxFileMb = diag::LogPolicy{}.maxFileMb;
+    uint32_t logCompressAfterDays = diag::LogPolicy{}.compressAfterDays;
+    uint32_t logDeleteAfterDays = diag::LogPolicy{}.deleteAfterDays;
+    std::string logDir{};
     std::string passcode{};
     std::string deviceName{};
     std::string bindIp{};
     bool autostart = false;
     bool autoShare = false;
     bool clipboardSync = false;
-    bool startHidden = false;
-    bool keepAwake = true;
-    uint32_t terminalPort = kDeskhubTerminalPort;
+    bool encryptSession = false;
+    bool escrowSessionKey = false;
+    SessionKeyLifetime sessionKeyLifetime = SessionKeyLifetime::PerShare;
+    std::string sessionKeyHex{};
+    std::string hostStaticSkHex{};
+    std::string language{};
 
     bool operator==(const UiSettings&) const = default;
+
+    diag::LogPolicy LogPolicy() const {
+        return diag::ClampLogPolicy(diag::LogPolicy{
+            logMaxFileMb,
+            logCompressAfterDays,
+            logDeleteAfterDays,
+        });
+    }
 };
 
 inline constexpr uint32_t kMaxSettingsFps = 240;

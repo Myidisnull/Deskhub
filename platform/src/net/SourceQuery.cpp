@@ -13,17 +13,24 @@ constexpr uint64_t kResendUs = 500'000;
 bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
     const std::string& passcode) {
     out.clear();
+    LOGI("[Sources] Querying %s ...", server.ToString().c_str());
 
     UdpSocket sock;
     if (!sock.Open(0)) {
         LOGE("[Sources] Failed to open socket.");
         return false;
     }
-    sock.SetRecvTimeout(200);
+    if (!sock.SetRecvTimeout(200)) {
+        LOGE("[Sources] Failed to set receive timeout.");
+        return false;
+    }
 
     uint8_t query[deskhub::kMaxDatagram];
     const size_t qn = deskhub::BuildListSources(query, passcode);
-    if (!qn) return false;
+    if (!qn) {
+        LOGE("[Sources] Failed to build LIST_SOURCES.");
+        return false;
+    }
 
     uint8_t buf[deskhub::kMaxDatagram];
     const uint64_t startUs = NowUs();
@@ -32,7 +39,8 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
         const uint64_t now = NowUs();
         if (now - lastSendUs >= kResendUs) {
             lastSendUs = now;
-            sock.SendTo(server, query, qn);
+            if (!sock.SendTo(server, query, qn))
+                LOGW("[Sources] SendTo %s failed.", server.ToString().c_str());
         }
 
         NetAddr from;

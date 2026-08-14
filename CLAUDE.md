@@ -117,21 +117,23 @@ those.
 Every prose document is published as an English/Vietnamese pair: `NAME.md` and
 `NAME.vi.md` beside it. **English is the authoritative version** — write the change there
 first, then mirror it into the `.vi.md`, in the same commit. A `.vi.md` that lags behind
-its English original is a bug.
+its English original is a bug. `README.md`, `SECURITY.md` and `PRIVACY.md` also have
+Chinese companions (`README.zh.md`, `SECURITY.zh.md`, `PRIVACY.zh.md`); keep the language
+switcher links in sync when you edit the English originals.
 
 | English | Vietnamese | Covers |
 | --- | --- | --- |
-| `README.md` | `README.vi.md` | What it is, install, day-to-day use |
+| `README.md` | `README.vi.md` (+ `README.zh.md`) | What it is, install, day-to-day use |
 | `docs/SPECIFICATION.md` | `docs/SPECIFICATION.vi.md` | Feature spec — behaviour only, no implementation detail |
-| `SECURITY.md` | `SECURITY.vi.md` | Threat model, hardening, vulnerability reports |
-| `PRIVACY.md` | `PRIVACY.vi.md` | Privacy policy — versioned, with a changelog table |
+| `SECURITY.md` | `SECURITY.vi.md` (+ `SECURITY.zh.md`) | Threat model, hardening, vulnerability reports |
+| `PRIVACY.md` | `PRIVACY.vi.md` (+ `PRIVACY.zh.md`) | Privacy policy — versioned, with a changelog table |
 | `THIRD_PARTY_NOTICES.md` | `THIRD_PARTY_NOTICES.vi.md` | Third-party components and licences |
 
 Rules for these files:
 
-- Every one starts with a language switcher line: the English file shows **English** in
-  bold followed by a link labelled *Tiếng Việt*, and the `.vi.md` shows the mirror of
-  that. Each `.vi.md` states that English governs.
+- The English file shows **English** in bold followed by language links (*中文* where a
+  `.zh.md` exists, and *Tiếng Việt*), and each translation shows the mirror of that.
+  Each `.vi.md` / `.zh.md` states that English governs.
 - Links inside a `.vi.md` point at the `.vi.md` counterpart wherever one exists.
 - Cross-language link integrity is not enforced by CI — check relative links resolve
   before you finish.

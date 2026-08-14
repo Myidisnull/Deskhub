@@ -1,6 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/ui/Brand.h"
 #include "deskhub/ui/Strings.h"
 
 #include <cstdio>
@@ -16,32 +17,48 @@ bool Contains(const std::string& haystack, std::string_view needle) {
 
 void TestEveryLabelSaysSomething() {
     std::printf("[strings] no screen can end up showing an empty label...\n");
-    const char* const labels[] = {ui::kAppTitle, ui::kHostIpIntro, ui::kNoNetworkAddress,
-        ui::kClientIpPrompt, ui::kPickerTitle, ui::kPickerEachWindow, ui::kShareButton,
-        ui::kSharingTitle, ui::kSharingSourcesIntro, ui::kSharingConnectHint, ui::kNothingShared,
-        ui::kStopSharing, ui::kShareStartFailed, ui::kQueryingSources, ui::kViewerOpenFailed,
+    const auto check = [](const char* text) {
+        Check(text && *text, "every shared UI string is non-empty");
+    };
+    const ui::LStr localized[] = {ui::kAppTitle, ui::kAppDescription, ui::kHostIpIntro,
+        ui::kNoNetworkAddress, ui::kClientIpPrompt, ui::kPickerTitle, ui::kPickerEachWindow,
+        ui::kShareButton, ui::kSharingTitle, ui::kSharingSourcesIntro, ui::kSharingConnectHint,
+        ui::kNothingShared, ui::kStopSharing, ui::kShareStartFailed, ui::kQueryingSources,
+        ui::kConnectInProgress, ui::kReconnecting, ui::kViewerOpenFailed, ui::kViewerGpuFailed,
         ui::kConnectionEndedTitle, ui::kDisconnected, ui::kSessionEnded, ui::kSidebarHost,
         ui::kSidebarClient, ui::kSidebarSettings, ui::kHostHeading, ui::kClientHeading,
         ui::kSettingsHeading, ui::kSettingsHint, ui::kClientSettingsHeading,
-        ui::kClientSettingsHint, ui::kRecentDevicesHeading,
-        ui::kRecentDevicesHint, ui::kRecentDevicesEmpty, ui::kStatusOnline, ui::kStatusOffline,
-        ui::kStatusChecking, ui::kNotSharing, ui::kStartingShare, ui::kShareStateOn,
-        ui::kShareStateOff, ui::kStartSharing, ui::kPickDisplaysHint,
-        ui::kNoDisplayTicked, ui::kStopSelectedDisplay, ui::kDisconnectSelectedViewer,
-        ui::kStopDisplayAction, ui::kDisconnectViewerAction,
-        ui::kAllowControlLabel, ui::kViewOnlyNote, ui::kRequestControlLabel,
-        ui::kPasscodeLabel, ui::kClientPasscodePrompt, ui::kClientPasscodeHint,
-        ui::kClientIpPlaceholder, ui::kUdpPortLabel, ui::kPasscodeInvalid, ui::kLanDevicesHeading,
-        ui::kLanDevicesEmpty, ui::kLanDevicesHint, ui::kLanDevicesNoneSharing,
-        ui::kScanRescanNote, ui::kScanNoLocalNetwork,
-        ui::kConnectPromptTitle, ui::kAppVersion, ui::kProjectUrl, ui::kProjectLinkLabel,
-        ui::kRefreshNow, ui::kBindInterfaceLabel, ui::kBindAllInterfaces,
-        ui::kBindNotConnectedNote, ui::kAutostartLabel,
-        ui::kAutoShareLabel, ui::kClipboardSyncLabel, ui::kCloseToTrayLabel,
-        ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit,
+        ui::kClientSettingsHint, ui::kRecentDevicesHeading, ui::kRecentDevicesHint,
+        ui::kRecentDevicesEmpty, ui::kForgetDevice, ui::kStatusOnline, ui::kStatusOffline, ui::kStatusChecking,
+        ui::kNotSharing, ui::kStartingShare, ui::kShareStateOn, ui::kShareStateOff,
+        ui::kStartSharing, ui::kPickDisplaysHint, ui::kNoDisplayTicked, ui::kStopSelectedDisplay,
+        ui::kDisconnectSelectedViewer, ui::kStopDisplayAction, ui::kDisconnectViewerAction,
+        ui::kAllowControlLabel, ui::kShareOnLaunchLabel, ui::kRunInBackgroundLabel,
+        ui::kHideTrayIconLabel, ui::kLogMaxFileMbLabel, ui::kLogCompressAfterDaysLabel,
+        ui::kLogDeleteAfterDaysLabel, ui::kLogDirLabel, ui::kLogDirHint, ui::kLogDirInvalid,
+        ui::kLogDirBrowse, ui::kLogDetailsLabel, ui::kLogRefresh, ui::kLogOpenFolder,
+        ui::kLogEmpty, ui::kBackgroundPromptTitle, ui::kBackgroundPromptMessage,
+        ui::kBackgroundPromptYes, ui::kBackgroundPromptNo, ui::kBackgroundPromptConfirm,
+        ui::kBackgroundPromptClose, ui::kTrayRestore, ui::kTrayExit, ui::kBackgroundRunningHint,
+        ui::kAlreadyRunning, ui::kQuitWhileBusyMessage, ui::kQuitWhileBusyQuit,
+        ui::kQuitWhileBusyCancel, ui::kViewOnlyNote, ui::kRequestControlLabel, ui::kPasscodeLabel,
+        ui::kClientPasscodePrompt, ui::kClientPasscodeHint, ui::kClientIpPlaceholder,
+        ui::kUdpPortLabel, ui::kPasscodeInvalid, ui::kLanDevicesHeading, ui::kLanDevicesEmpty,
+        ui::kLanDevicesHint, ui::kLanDevicesNoneSharing, ui::kScanRescanNote,
+        ui::kScanNoLocalNetwork, ui::kConnectPromptTitle, ui::kProjectLinkLabel, ui::kRefreshNow,
+        ui::kBindInterfaceLabel, ui::kBindAllInterfaces, ui::kBindNotConnectedNote,
+        ui::kAutostartLabel, ui::kAutoShareLabel, ui::kClipboardSyncLabel, ui::kEncryptSessionLabel,
+        ui::kEncryptSessionHint, ui::kSessionKeyLabel, ui::kSessionKeyHint, ui::kCopySessionKey,
+        ui::kRefreshSessionKey, ui::kEscrowSessionKeyLabel, ui::kEscrowSessionKeyHint,
+        ui::kSessionKeyLifetimeLabel, ui::kSessionKeyLifetimePerShare, ui::kSessionKeyLifetimePersistent,
+        ui::kClientSessionKeyPrompt, ui::kClientSessionKeyHint, ui::kSessionKeyInvalid,
+        ui::kCloseToTrayLabel, ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit,
         ui::kSettingsSectionVideo, ui::kSettingsSectionConnection, ui::kSettingsSectionSecurity,
-        ui::kSettingsSectionSession, ui::kSettingsSectionLaunch};
-    for (const char* s : labels) Check(s && *s, "every shared UI string is non-empty");
+        ui::kSettingsSectionSession, ui::kSettingsSectionLaunch, ui::kLanguageLabel,
+        ui::kLanguageSystem, ui::kSettingsSectionLanguage, ui::kLanguageRestartHint};
+    for (ui::LStr s : localized) check(s.get());
+    check(ui::kAppVersion);
+    check(ui::kProjectUrl);
     Check(Contains(ui::PasscodeNote("0417"), "0417"),
         "the sharing status quotes the passcode viewers must enter");
 }
@@ -183,6 +200,10 @@ void TestTheAboutLineNamesTheBuild() {
         "the version line quotes the version the build was stamped with");
     Check(std::string(ui::kProjectUrl).rfind("https://github.com/", 0) == 0,
         "the project link points at GitHub over https");
+    Check(std::string(ui::kAppTitle) == brand::kProductName,
+        "the app title uses the requested product name");
+    Check(std::string(ui::kAppDescription) == brand::kProductDescription,
+        "the description matches the requested tagline");
 }
 
 void TestScanStatusCountsWhatWasChecked() {
@@ -208,27 +229,27 @@ void TestRecheckNotesQuoteTheRealInterval() {
 
 void TestDeviceListNotesReadTheSameOnEveryClient() {
     std::printf("[strings] the two device lists explain themselves the same way everywhere...\n");
-    Check(ui::LanDevicesNote(0, 0, 45) == ui::kScanNoLocalNetwork,
+    Check(ui::LanDevicesNote(0, 0, 45) == ui::kScanNoLocalNetwork.get(),
         "a machine with no local network says so instead of reporting 0 of 0");
 
     const std::string empty = ui::LanDevicesNote(0, 253, 45);
     Check(Contains(empty, "0 devices") && Contains(empty, "45"),
         "an empty sweep still says how much was checked and when it retries");
-    Check(!Contains(empty, ui::kLanDevicesHint),
+    Check(!Contains(empty, ui::kLanDevicesHint.get()),
         "there is nothing to click, so no click hint is offered");
-    Check(Contains(empty, ui::kLanDevicesNoneSharing),
+    Check(Contains(empty, ui::kLanDevicesNoneSharing.get()),
         "an empty sweep says why a machine would be missing, not just that none was found");
 
     const std::string found = ui::LanDevicesNote(2, 253, 45);
-    Check(Contains(found, ui::kLanDevicesHint) && Contains(found, "45"),
+    Check(Contains(found, ui::kLanDevicesHint.get()) && Contains(found, "45"),
         "once devices are listed the user is told to click one, and when the list refreshes");
-    Check(!Contains(found, ui::kLanDevicesNoneSharing),
+    Check(!Contains(found, ui::kLanDevicesNoneSharing.get()),
         "the missing-machine explanation is dropped once the list has something in it");
 
-    Check(ui::RecentDevicesNote(0, 30) == ui::kRecentDevicesEmpty,
+    Check(ui::RecentDevicesNote(0, 30) == ui::kRecentDevicesEmpty.get(),
         "an empty history explains what will fill it");
     const std::string recent = ui::RecentDevicesNote(3, 30);
-    Check(Contains(recent, ui::kRecentDevicesHint) && Contains(recent, "30"),
+    Check(Contains(recent, ui::kRecentDevicesHint.get()) && Contains(recent, "30"),
         "a populated history says it is clickable and how often status is rechecked");
 }
 

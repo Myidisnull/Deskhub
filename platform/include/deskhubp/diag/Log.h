@@ -1,26 +1,15 @@
 ﻿#pragma once
 
+#include "deskhub/ui/Brand.h"
+
 #if defined(__ANDROID__)
 
 #include <android/log.h>
 
-#define DESKHUB_LOG_TAG "Deskhub"
+#define DESKHUB_LOG_TAG ::deskhub::brand::kAndroidLogTag
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, DESKHUB_LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, DESKHUB_LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, DESKHUB_LOG_TAG, __VA_ARGS__)
-
-#elif defined(_WIN32)
-
-#include <cstdio>
-
-#define LOGI(...)                  \
-    do {                           \
-        std::printf("[Deskhub] "); \
-        std::printf(__VA_ARGS__);  \
-        std::printf("\n");         \
-    } while (0)
-#define LOGW(...) LOGI(__VA_ARGS__)
-#define LOGE(...) LOGI(__VA_ARGS__)
 
 #else
 
@@ -28,17 +17,16 @@
 #include <TargetConditionals.h>
 #endif
 
-#include "deskhubp/diag/LogFile.h"
-
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
 #include <cstdio>
-#define LOGI(...)                           \
-    do {                                    \
-        std::fprintf(stderr, "[Deskhub] "); \
-        std::fprintf(stderr, __VA_ARGS__);  \
-        std::fprintf(stderr, "\n");         \
+#define LOGI(...)                                                     \
+    do {                                                              \
+        std::fprintf(stderr, "[%s] ", ::deskhub::brand::kLogLineTag); \
+        std::fprintf(stderr, __VA_ARGS__);                            \
+        std::fprintf(stderr, "\n");                                   \
     } while (0)
 #else
+#include "deskhubp/diag/LogFile.h"
 #define LOGI(...) deskhubp::LogEmit(__VA_ARGS__)
 #endif
 

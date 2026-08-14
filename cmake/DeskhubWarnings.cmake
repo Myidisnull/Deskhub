@@ -2,7 +2,7 @@ option(DESKHUB_WERROR "Treat compiler warnings as errors" OFF)
 
 function(deskhub_target_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive-)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
         if(DESKHUB_WERROR)
             target_compile_options(${target} PRIVATE /WX)
         endif()

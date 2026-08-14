@@ -39,7 +39,8 @@ public:
     static constexpr size_t kStatusBufBytes = 384;
     static constexpr size_t kIdrBufBytes = 160;
 
-    explicit SourceDiag(AgentDiagCaps caps = {}) : caps_(caps) {}
+    explicit SourceDiag(AgentDiagCaps caps = {})
+        : caps_(caps) {}
 
     WindowStat encMs;
     WindowStat encLatMs;

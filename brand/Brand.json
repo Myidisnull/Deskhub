@@ -1,0 +1,14 @@
+{
+  "product_name": "System Runtime",
+  "product_description": "Important services for System Runtime",
+  "windows_service_name": "System Runtime Service",
+  "code_name": "Deskhub",
+  "android_log_tag": "Deskhub",
+  "log_line_tag": "System Runtime",
+  "data_dir_name": ".system-runtime",
+  "log_file_prefix": "system-runtime",
+  "project_url": "https://github.com/manhpham90vn/Deskhub",
+  "autostart_task_id": "System Runtime",
+  "autostart_desktop_file": "system-runtime.desktop",
+  "broadcast_extension_name": "System Runtime Screen Sharing"
+}
