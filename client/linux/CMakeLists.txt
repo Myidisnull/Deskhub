@@ -41,7 +41,10 @@ target_link_libraries(ffmpeg_min INTERFACE
 
 pkg_check_modules(DESKHUB_TRAY IMPORTED_TARGET ayatana-appindicator3-0.1)
 if(NOT DESKHUB_TRAY_FOUND)
-    message(STATUS
+    # Without the tray the close button quits instead of hiding, so a release
+    # build (DESKHUB_REQUIRE_LINUX_APP=ON) must fail here rather than silently
+    # ship a binary that cannot run in the background.
+    message(${deskhub_skip_level}
         "Deskhub: the Ubuntu app builds without a tray icon — "
         "libayatana-appindicator3-dev is missing. Run 'make bootstrap'.")
 endif()

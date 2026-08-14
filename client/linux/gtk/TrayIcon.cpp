@@ -7,6 +7,7 @@
 #include <libayatana-appindicator/app-indicator.h>
 
 #include "deskhub/ui/Strings.h"
+#include "deskhubp/diag/Log.h"
 
 namespace {
 
@@ -32,7 +33,10 @@ bool StatusNotifierWatcherPresent() {
 
 bool TrayIcon::Attach(const Actions& actions) {
     if (attached_) return true;
-    if (!StatusNotifierWatcherPresent()) return false;
+    if (!StatusNotifierWatcherPresent()) {
+        LOGW("[Tray] No StatusNotifier host on this desktop — cannot show a tray icon.");
+        return false;
+    }
 
     actions_ = actions;
 

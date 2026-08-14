@@ -1452,11 +1452,17 @@ gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
     const bool sessionActive = self->hosting_ || self->hostStarting_;
     const bool keepRunning = self->settings_.startHidden || sessionActive;
+    LOGI("[Ui] Window close requested: startHidden=%d hosting=%d starting=%d",
+        self->settings_.startHidden ? 1 : 0, self->hosting_ ? 1 : 0,
+        self->hostStarting_ ? 1 : 0);
     if (keepRunning && self->EnsureTrayAttached()) {
+        LOGI("[Ui] Hiding to the tray; sessions keep running.");
         gtk_widget_hide(self->window_);
         self->tray_.SetWindowVisible(false);
         return TRUE;
     }
+    LOGW("[Ui] Quitting on close (%s).",
+        keepRunning ? "no tray available" : "background mode off, no session");
     return FALSE;
 }
 
