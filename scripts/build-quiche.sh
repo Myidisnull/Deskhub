@@ -75,12 +75,24 @@ android_abi_of() {
     esac
 }
 
+# Rust names a staticlib after the platform's own convention: libquiche.a
+# everywhere, but quiche.lib on MSVC. Keep the native name so the linker on
+# each platform sees what it expects.
+artifact_of() {
+    case "$1" in
+        *-windows-msvc) echo quiche.lib ;;
+        *) echo libquiche.a ;;
+    esac
+}
+
 build_target() {
     local target=$1
     local out="$PREFIX/$target"
     local stamp="$out/.stamp"
+    local artifact
+    artifact=$(artifact_of "$target")
 
-    if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$QUICHE_COMMIT" ] && [ -f "$out/libquiche.a" ]; then
+    if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$QUICHE_COMMIT" ] && [ -f "$out/$artifact" ]; then
         echo "[ok]      quiche $QUICHE_VERSION ($target)"
         return 0
     fi
@@ -101,19 +113,42 @@ build_target() {
         (cd "$SRC" && cargo ndk --target "$(android_abi_of "$target")" --platform 24 \
             -- build --release -p quiche --features ffi >/dev/null)
     else
-        (cd "$SRC" && cargo build --release --target "$target" -p quiche --features ffi >/dev/null)
+        (
+            cd "$SRC"
+            case "$target" in
+            *-apple-ios*)
+                # Pin the minimum iOS version for both compilers. Without this,
+                # boring-sys's clang floats to the SDK default while rustc links
+                # for its own minimum, and the mismatch surfaces as an undefined
+                # ___chkstk_darwin at link time. 17.0 matches the iOS app.
+                export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
+                ;;
+            esac
+            cargo build --release --target "$target" -p quiche --features ffi >/dev/null
+        )
     fi
 
+    local built="$SRC/target/$target/release/$artifact"
+    [ -f "$built" ] || {
+        echo "build-quiche.sh: cargo reported success but $built is missing." >&2
+        echo "                 Built artifacts for $target:" >&2
+        ls "$SRC/target/$target/release/" 2>/dev/null | sed 's/^/                   /' >&2
+        exit 1
+    }
+
     mkdir -p "$out"
-    cp "$SRC/target/$target/release/libquiche.a" "$out/libquiche.a"
+    cp "$built" "$out/$artifact"
     echo "$QUICHE_COMMIT" >"$stamp"
-    echo "[ok]      quiche $QUICHE_VERSION ($target) → third_party/quiche/$target"
+    echo "[ok]      quiche $QUICHE_VERSION ($target) → third_party/quiche/$target/$artifact"
 }
 
 REQUESTED=("$@")
 [ ${#REQUESTED[@]} -gt 0 ] || REQUESTED=(host)
 
-mapfile -t TARGETS < <(resolve_targets "${REQUESTED[@]}")
+TARGETS=()
+while IFS= read -r target; do
+    TARGETS+=("$target")
+done < <(resolve_targets "${REQUESTED[@]}")
 
 fetch_source
 mkdir -p "$PREFIX/include"

@@ -153,7 +153,7 @@ Darwin)
 
     check_rust
     install_cargo_ndk
-    scripts/build-quiche.sh host apple
+    scripts/build-quiche.sh apple
 
     install_clang_format
     install_format_tools
