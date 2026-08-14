@@ -132,6 +132,84 @@ void TestViewerRowShowsTheClientName() {
         "a name change is a different row list");
 }
 
+TerminalRecord MakeShell(uint32_t termId, std::string endpoint, std::string name,
+    TerminalState state = TerminalState::Live) {
+    TerminalRecord record;
+    record.termId = termId;
+    record.state = state;
+    record.size = TermSize{80, 24};
+    record.clientEndpoint = std::move(endpoint);
+    record.clientName = std::move(name);
+    return record;
+}
+
+void TestTerminalIsARowInTheSameTable() {
+    std::printf("[hostrows] a shared terminal sits in the table beside the displays...\n");
+    const std::vector<media::AgentSourceStatus> sources{MakeSource(1, {"192.168.1.7:47777"})};
+    const std::vector<TerminalRecord> shells{
+        MakeShell(4, "192.168.1.9:51000", "Anh's laptop"),
+        MakeShell(5, "192.168.1.9:51001", "", TerminalState::Detached),
+    };
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows(sources, true, shells);
+
+    Check(rows.size() == 5, "one display, its viewer, the terminal and its two shells");
+    Check(!rows[2].viewer && rows[2].terminal && rows[2].sourceId == ui::kTerminalSourceId,
+        "the terminal follows the displays as a source of its own");
+    Check(rows[3].viewer && rows[3].terminal && rows[3].termId == 4,
+        "each open shell hangs off the terminal row");
+    Check(rows[4].termId == 5, "in the order the host reports them");
+    Check(!rows[0].terminal && !rows[1].terminal, "display rows are not marked as terminal");
+
+    Check(ui::BuildHostRows(sources, false, shells) == ui::BuildHostRows(sources),
+        "no terminal row while the terminal is not shared");
+    Check(ui::BuildHostRows(sources, true, {}).size() == 3,
+        "a shared terminal with nobody attached is still one row");
+}
+
+void TestTerminalCellsReadLikeTheTable() {
+    std::printf("[hostrows] the terminal row shows its port and how many shells are open...\n");
+    const std::vector<TerminalRecord> shells{
+        MakeShell(4, "192.168.1.9:51000", "Anh's laptop"),
+        MakeShell(5, "192.168.1.9:51001", "", TerminalState::Detached),
+    };
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows({}, true, shells);
+
+    const ui::HostRowCells terminal = ui::TerminalRowText(rows[0], 47778, shells);
+    Check(terminal.source == ui::kTerminalSourceName, "the first column names the terminal");
+    Check(terminal.size == ui::PortCell(47778), "the size column carries the terminal port");
+    Check(terminal.viewers == "2", "both shells are counted, attached or not");
+    Check(terminal.rtt == "-" && terminal.capture.empty(),
+        "a shell has no frame rate or ping to report");
+    Check(terminal.online, "one live shell tints the terminal as online");
+
+    const ui::HostRowCells live = ui::TerminalRowText(rows[1], 47778, shells);
+    Check(live.source == ui::kShellRowLabel, "a shell row is indented like a viewer row");
+    Check(live.client == "Anh's laptop (192.168.1.9:51000)",
+        "the client cell reads name then address");
+    Check(live.size == "80x24", "the shell row carries the grid it is running at");
+    Check(live.online, "an attached shell reads as online");
+
+    const ui::HostRowCells detached = ui::TerminalRowText(rows[2], 47778, shells);
+    Check(detached.client == "192.168.1.9:51001 " + std::string(ui::kTerminalDetached),
+        "a dropped client is marked as detached");
+    Check(!detached.online, "and is not tinted as online");
+
+    const std::vector<TerminalRecord> gone{};
+    const ui::HostRowCells vanished = ui::TerminalRowText(rows[1], 47778, gone);
+    Check(vanished.client == "Anh's laptop (192.168.1.9:51000)" && !vanished.online,
+        "a shell that ended between polls still renders, greyed out");
+    Check(ui::TerminalRowText(rows[0], 47778, gone).viewers == "0",
+        "and the terminal row counts none");
+}
+
+void TestShellLookupByTermId() {
+    std::printf("[hostrows] a shell row finds its session by id...\n");
+    const std::vector<TerminalRecord> shells{MakeShell(7, "10.0.0.4:51000", "")};
+    const TerminalRecord* found = ui::FindShell(shells, 7);
+    Check(found != nullptr && found->termId == 7, "the session is found by id");
+    Check(ui::FindShell(shells, 8) == nullptr, "an unknown id finds nothing");
+}
+
 void TestSourceLookupByIdIgnoresOrder() {
     std::printf("[hostrows] a row finds its display whatever order the host reports...\n");
     const std::vector<media::AgentSourceStatus> sources{MakeSource(5, {}), MakeSource(2, {})};
@@ -150,5 +228,8 @@ void RunHostRowsTests() {
     TestIdleSourceHasNoPing();
     TestViewerRowOnlyNamesTheClient();
     TestViewerRowShowsTheClientName();
+    TestTerminalIsARowInTheSameTable();
+    TestTerminalCellsReadLikeTheTable();
+    TestShellLookupByTermId();
     TestSourceLookupByIdIgnoresOrder();
 }

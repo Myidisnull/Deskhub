@@ -169,34 +169,28 @@ void TestBoundsAreEnforced() {
 }
 
 void TestTerminalSharePersistence() {
-    std::printf("[settings] the terminal share choices are their own fields...\n");
+    std::printf("[settings] the terminal is a source of its own, on the shared network...\n");
     ui::UiSettings s;
-    s.terminalShare = true;
-    s.terminalAutoShare = true;
-    s.terminalBindIp = "10.0.0.5";
     s.terminalPort = 47790;
     s.bindIp = "192.168.1.10";
+    s.clientShell = true;
     const ui::UiSettings back = ui::ParseUiSettings(ui::SerializeUiSettings(s));
-    Check(back.terminalShare && back.terminalAutoShare, "both terminal toggles round-trip");
-    Check(back.terminalBindIp == "10.0.0.5",
-        "the terminal picks its own interface, not the screen's");
-    Check(back.bindIp == "192.168.1.10", "and the screen keeps its own");
+    Check(back.bindIp == "192.168.1.10",
+        "the terminal shares on the one network the host picked");
     Check(back == s, "nothing else changed on the way through");
 
-    Check(back.terminalPort == 47790, "and its own port");
+    Check(back.terminalPort == 47790, "and it keeps its own port");
 
     const ui::UiSettings fresh;
     Check(fresh.terminalPort == kDeskhubTerminalPort && fresh.port == kDeskhubPort,
         "by default the terminal listens beside the screen rather than on top of it");
-    Check(!fresh.terminalShare, "sharing a terminal is off until it is switched on");
-    Check(!fresh.terminalAutoShare,
-        "and automatic terminal sharing is off by default, which section 5.2 requires");
-    Check(fresh.terminalBindIp.empty(), "with no interface preference");
+    Check(back.clientShell, "what the client opens on connect round-trips too");
+    Check(fresh.clientDesktop && !fresh.clientShell,
+        "and by default connecting opens the desktop, not a shell");
 
-    Check(ui::ParseUiSettings("terminal_bind_ip=not-an-ip").terminalBindIp.empty(),
-        "junk never becomes a terminal bind address");
-    Check(ui::ParseUiSettings("terminal_auto_share=x").terminalAutoShare == false,
-        "and junk never turns automatic sharing on");
+    Check(ui::SerializeUiSettings(s).find("terminal_share") == std::string::npos,
+        "which source is ticked is not a saved setting: the terminal starts ticked every time, "
+        "like the displays do");
 
     const std::string fourX =
         "fps=30\n"
@@ -216,8 +210,8 @@ void TestTerminalSharePersistence() {
     const ui::UiSettings old = ui::ParseUiSettings(fourX);
     Check(old.fps == 30 && old.autoShare && old.deviceName == "Old machine",
         "a 4.x settings file still reads back everything it used to hold");
-    Check(!old.terminalShare && !old.terminalAutoShare && old.terminalBindIp.empty(),
-        "and the fields it never heard of come out at their safe defaults");
+    Check(old.clientDesktop && !old.clientShell,
+        "and the fields it never heard of come out at their defaults");
     Check(old.terminalPort == kDeskhubTerminalPort,
         "including a terminal port that does not collide with the screen it already shares");
     Check(ui::ParseUiSettings("terminal_port=0").terminalPort == kDeskhubTerminalPort,

@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -26,10 +27,13 @@
 
 #include "PasscodePrompt.h"
 #include "SourcePickerDialog.h"
-#include "TerminalPage.h"
+#include "TerminalWindow.h"
 #include "Viewer.h"
+#include "WxUi.h"
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/media/SourceLabel.h"
+#include "deskhub/net/BindAddress.h"
+#include "deskhub/net/TrustStore.h"
 #include "deskhub/session/ShareFlow.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
@@ -44,9 +48,11 @@
 #include "deskhubp/session/AgentDriver.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
+#include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
+#include "deskhubp/system/HostIdentity.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -59,25 +65,23 @@ constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
 constexpr int kClipTimerId = 3;
 constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
-constexpr int kHintWrapDip = 620;
 constexpr int kPrimaryButtonH = 46;
+constexpr int kListMinH = 130;
+constexpr int kHostListMinH = 150;
 
 enum Page { kPageHost = 0,
     kPageClient = 1,
-    kPageTerminal = 2,
-    kPageSettings = 3,
-    kPageCount = 4 };
+    kPageSettings = 2,
+    kPageCount = 3 };
 
 const char* const kPageLabels[kPageCount] = {ui::kSidebarHost, ui::kSidebarClient,
-    ui::kSidebarTerminal, ui::kSidebarSettings};
+    ui::kSidebarSettings};
 
 const wxColour kSidebarBg(31, 41, 55);
 const wxColour kSidebarHover(55, 65, 81);
 const wxColour kAccent(37, 99, 235);
 const wxColour kNavText(209, 213, 219);
 const wxColour kSidebarFootnote(148, 163, 184);
-const wxColour kHeadingText(17, 24, 39);
-const wxColour kMutedText(107, 114, 128);
 const wxColour kOnline(0, 145, 60);
 const wxColour kOffline(200, 40, 40);
 const wxColour kWarning(202, 108, 8);
@@ -147,14 +151,6 @@ HostStateStyle StyleFor(HostShareState state) {
     return {ui::kShareStateOff, ui::kStartSharing, kMutedText, kBannerIdleBg};
 }
 
-wxString ToWx(const std::string& s) {
-    return wxString::FromUTF8(s.c_str(), s.size());
-}
-
-wxString ToWx(const char* s) {
-    return wxString::FromUTF8(s);
-}
-
 int64_t NowUnix() {
     return int64_t(std::time(nullptr));
 }
@@ -193,20 +189,6 @@ std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& device
     return out;
 }
 
-wxStaticText* MakeHeading(wxWindow* parent, const char* text) {
-    auto* heading = new wxStaticText(parent, wxID_ANY, ToWx(text));
-    heading->SetFont(heading->GetFont().Bold().Scaled(1.35f));
-    heading->SetForegroundColour(kHeadingText);
-    return heading;
-}
-
-wxStaticText* MakeHint(wxWindow* parent, const wxString& text) {
-    auto* hint = new wxStaticText(parent, wxID_ANY, text);
-    hint->SetForegroundColour(kMutedText);
-    hint->Wrap(parent->FromDIP(kHintWrapDip));
-    return hint;
-}
-
 void SetHintLabel(wxStaticText* hint, const wxString& text) {
     hint->SetLabel(text);
     hint->Wrap(hint->FromDIP(kHintWrapDip));
@@ -225,13 +207,6 @@ wxSizer* MakeHeadingRow(wxWindow* parent, const char* heading, const wxString& a
         [onClick = std::move(onClick)](wxCommandEvent&) { onClick(); });
     row->Add(button, wxSizerFlags().CentreVertical());
     return row;
-}
-
-wxStaticText* MakeSection(wxWindow* parent, const char* text) {
-    auto* section = new wxStaticText(parent, wxID_ANY, ToWx(text));
-    section->SetFont(section->GetFont().Bold().Scaled(1.1f));
-    section->SetForegroundColour(kHeadingText);
-    return section;
 }
 
 void CopyTextToClipboard(HWND owner, const wxString& text) {
@@ -349,10 +324,18 @@ private:
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
 
     void OnShare();
+    bool Sharing() const;
+    bool TerminalTicked() const;
     void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
     void OnHostStarted(bool started, const std::string& error, uint16_t port,
         bool allowInput, const std::string& passcode);
     void StopHosting();
+    void StartTerminalShare();
+    void StopTerminalShare();
+    void StopTerminalRow();
+    void RefreshShells();
+    void KickShell(uint32_t termId);
+    void ApplySharingBanner();
     void OnHostTimer(wxTimerEvent& event);
     void OnClipboardTimer(wxTimerEvent& event);
     void RefreshDisplayChoices();
@@ -369,6 +352,8 @@ private:
     std::string HostPortDetail() const;
 
     void StartConnect(const std::string& addr);
+    void OpenShell(const std::string& addr, const std::string& passcode);
+    void SaveOpenChoices();
     void SetClientStatus(const wxString& text, const wxColour& colour);
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartScan();
@@ -393,10 +378,13 @@ private:
     void OnClose(wxCloseEvent& event);
 
     wxSimplebook* book_ = nullptr;
-    wxWindow* terminalPage_ = nullptr;
+    wxScrolledWindow* hostPage_ = nullptr;
     NavItem* pageButtons_[kPageCount] = {};
     wxTextCtrl* addrCtrl_ = nullptr;
     wxTextCtrl* connectPortCtrl_ = nullptr;
+    wxTextCtrl* shellPortCtrl_ = nullptr;
+    wxCheckBox* desktopCtrl_ = nullptr;
+    wxCheckBox* shellCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
     wxStaticText* clientStatus_ = nullptr;
     wxListCtrl* scanList_ = nullptr;
@@ -420,6 +408,7 @@ private:
     wxSpinCtrl* fpsCtrl_ = nullptr;
     wxSpinCtrl* bitrateCtrl_ = nullptr;
     wxSpinCtrl* portCtrl_ = nullptr;
+    wxSpinCtrl* terminalPortCtrl_ = nullptr;
     wxChoice* qualityChoice_ = nullptr;
     wxCheckBox* allowInputCtrl_ = nullptr;
     wxTextCtrl* passcodeCtrl_ = nullptr;
@@ -435,6 +424,11 @@ private:
 
     deskhub::ui::UiSettings settings_;
     std::vector<AgentSource> availableDisplays_;
+    std::vector<AgentSourceStatus> hostStatus_;
+    std::vector<deskhub::TerminalRecord> shells_;
+    std::optional<std::string> pendingClipboard_;
+    std::string screenStatusLine_;
+    std::string terminalStatusLine_;
     std::vector<ui::HostRow> hostRows_;
     std::vector<ui::RecentDevice> recent_;
     std::vector<deskhubp::ScanHit> scanned_;
@@ -445,6 +439,7 @@ private:
     deskhubp::LanScanner scanner_;
     AgentLoop agentLoop_;
     deskhubp::AgentDriver agentDriver_;
+    deskhubp::TerminalHost terminalHost_;
     wxTimer hostTimer_;
     wxTimer scanTimer_;
     wxTimer clipTimer_;
@@ -464,8 +459,6 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     book_ = new wxSimplebook(this);
     book_->AddPage(BuildHostPage(book_), wxString());
     book_->AddPage(BuildClientPage(book_), wxString());
-    terminalPage_ = BuildTerminalPage(book_, settings_, [this] { SaveSettings(); });
-    book_->AddPage(terminalPage_, wxString());
     book_->AddPage(BuildSettingsPage(book_), wxString());
     root->Add(book_, wxSizerFlags(1).Expand());
 
@@ -489,8 +482,6 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     StartScan();
     SelectPage(kPageClient);
     ApplyTrayMode();
-
-    if (settings_.terminalAutoShare) CallAfter([this] { StartTerminalAutoShare(terminalPage_); });
 
     if (settings_.autoShare) {
         SelectPage(kPageHost);
@@ -579,8 +570,10 @@ wxWindow* MainFrame::BuildSidebar() {
 }
 
 wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
-    auto* panel = new wxPanel(parent);
+    auto* panel = new wxScrolledWindow(parent);
     panel->SetBackgroundColour(*wxWHITE);
+    panel->SetScrollRate(0, FromDIP(10));
+    hostPage_ = panel;
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     const wxSizerFlags pad = wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
 
@@ -625,14 +618,16 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
     hostPicker_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
         wxLC_REPORT | wxLC_NO_HEADER | wxLC_SINGLE_SEL);
     hostPicker_->InsertColumn(0, "Source", wxLIST_FORMAT_LEFT, FromDIP(560));
+    hostPicker_->SetMinSize(FromDIP(wxSize(-1, kHostListMinH)));
     sizer->Add(hostPicker_,
         wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
 
     hostTableHolder_ = BuildHostTable(panel);
+    hostTableHolder_->SetMinSize(FromDIP(wxSize(-1, kHostListMinH)));
     sizer->Add(hostTableHolder_,
         wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
 
-    hostHint_ = MakeHint(panel, ToWx(ui::kPickDisplaysHint));
+    hostHint_ = MakeHint(panel, ToWx(ui::kPickSourcesHint));
     sizer->Add(hostHint_, pad);
 
     shareBtn_ = new wxButton(panel, wxID_ANY, wxString());
@@ -641,6 +636,7 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
     sizer->Add(shareBtn_, wxSizerFlags().Expand().Border(wxALL, FromDIP(14)));
 
     panel->SetSizer(sizer);
+    panel->FitInside();
     ShowIdleHostState();
     RefreshDisplayChoices();
     return panel;
@@ -697,7 +693,7 @@ void MainFrame::RebuildHostAddressRows() {
         holder->Add(grid, wxSizerFlags(1).Expand());
     }
     hostAddrPanel_->SetSizer(holder);
-    hostAddrPanel_->GetParent()->Layout();
+    RelayoutHostPage();
 }
 
 wxTextCtrl* MainFrame::MakePasscodeCtrl(wxWindow* parent) {
@@ -709,8 +705,9 @@ wxTextCtrl* MainFrame::MakePasscodeCtrl(wxWindow* parent) {
 }
 
 wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
-    auto* panel = new wxPanel(parent);
+    auto* panel = new wxScrolledWindow(parent);
     panel->SetBackgroundColour(*wxWHITE);
+    panel->SetScrollRate(0, FromDIP(10));
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     const wxSizerFlags pad = wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
 
@@ -741,6 +738,14 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     connectPortCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(connectPortCtrl_, wxSizerFlags().CentreVertical());
 
+    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kTerminalPortLabel)),
+        wxSizerFlags().CentreVertical());
+    shellPortCtrl_ = new wxTextCtrl(panel, wxID_ANY, ToWx(std::to_string(settings_.terminalPort)),
+        wxDefaultPosition, FromDIP(wxSize(80, -1)), wxTE_PROCESS_ENTER);
+    shellPortCtrl_->SetName("terminal-connect-port");
+    shellPortCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
+    grid->Add(shellPortCtrl_, wxSizerFlags().CentreVertical());
+
     grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kClientPasscodePrompt)),
         wxSizerFlags().CentreVertical());
     clientPasscodeCtrl_ = MakePasscodeCtrl(panel);
@@ -761,6 +766,38 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
 
     sizer->Add(grid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
+    auto* openBox = new wxStaticBox(panel, wxID_ANY, ToWx(ui::kOpenChoiceGroup));
+    auto* openSizer = new wxStaticBoxSizer(openBox, wxVERTICAL);
+
+    desktopCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kOpenDesktopLabel));
+    desktopCtrl_->SetName("open-desktop");
+    desktopCtrl_->SetValue(settings_.clientDesktop);
+    desktopCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
+    openSizer->Add(desktopCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+
+    auto* controlRow = new wxBoxSizer(wxHORIZONTAL);
+    controlRow->AddSpacer(FromDIP(24));
+    controlCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kRequestControlLabel));
+    controlCtrl_->SetName("request-control");
+    controlCtrl_->SetValue(settings_.clientControl);
+    controlCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        settings_.clientControl = controlCtrl_->GetValue();
+        deskhubp::SaveUiSettings(settings_);
+    });
+    controlCtrl_->Enable(settings_.clientDesktop);
+    controlRow->Add(controlCtrl_, wxSizerFlags().CentreVertical());
+    openSizer->Add(controlRow, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+
+    shellCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kOpenShellLabel));
+    shellCtrl_->SetName("open-shell");
+    shellCtrl_->SetValue(settings_.clientShell);
+    shellCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
+    openSizer->Add(shellCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+
+    openSizer->Add(MakeHint(openBox, ToWx(ui::kOpenChoiceHint)),
+        wxSizerFlags().Border(wxALL, FromDIP(8)));
+    sizer->Add(openSizer, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+
     connectBtn_ = new wxButton(panel, wxID_ANY, "Connect");
     connectBtn_->SetName("connect-button");
     connectBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
@@ -770,16 +807,9 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
         wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     clientStatus_ = new wxStaticText(panel, wxID_ANY, wxString());
+    clientStatus_->SetName("client-status");
     clientStatus_->SetForegroundColour(kMutedText);
     sizer->Add(clientStatus_, wxSizerFlags().Centre().Border(wxTOP, FromDIP(8)));
-
-    controlCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kRequestControlLabel));
-    controlCtrl_->SetValue(settings_.clientControl);
-    controlCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
-        settings_.clientControl = controlCtrl_->GetValue();
-        deskhubp::SaveUiSettings(settings_);
-    });
-    sizer->Add(controlCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(20)));
 
     sizer->Add(MakeHeadingRow(panel, ui::kLanDevicesHeading, ToWx(ui::kRefreshNow),
                    [this] { RescanNow(); }),
@@ -789,7 +819,7 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
         wxLC_REPORT | wxLC_SINGLE_SEL);
     scanList_->InsertColumn(0, "Device", wxLIST_FORMAT_LEFT, FromDIP(170));
     scanList_->InsertColumn(1, "Ping", wxLIST_FORMAT_RIGHT, FromDIP(70));
-    scanList_->SetMinSize(FromDIP(wxSize(-1, 130)));
+    scanList_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
     scanList_->Bind(wxEVT_LEFT_DOWN,
         [this](wxMouseEvent& event) { OnListClick(scanList_, event, true); });
     sizer->Add(scanList_,
@@ -808,7 +838,7 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     list_->InsertColumn(1, "Status", wxLIST_FORMAT_LEFT, FromDIP(100));
     list_->InsertColumn(2, "Ping", wxLIST_FORMAT_RIGHT, FromDIP(70));
     list_->InsertColumn(3, "Last connected", wxLIST_FORMAT_LEFT, FromDIP(150));
-    list_->SetMinSize(FromDIP(wxSize(-1, 130)));
+    list_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
     list_->Bind(wxEVT_LEFT_DOWN,
         [this](wxMouseEvent& event) { OnListClick(list_, event, false); });
     sizer->Add(list_, wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -817,6 +847,7 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     sizer->Add(listHint_, wxSizerFlags().Border(wxALL, FromDIP(16)));
 
     panel->SetSizer(sizer);
+    panel->FitInside();
     return panel;
 }
 
@@ -864,6 +895,14 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsPort), int(settings_.port));
     netGrid->Add(portCtrl_);
 
+    netGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kTerminalPortLabel)),
+        wxSizerFlags().CentreVertical());
+    terminalPortCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition,
+        wxDefaultSize, wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsPort),
+        int(settings_.terminalPort));
+    terminalPortCtrl_->SetName("terminal-port");
+    netGrid->Add(terminalPortCtrl_);
+
     sizer->Add(netGrid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     sizer->AddSpacer(FromDIP(12));
@@ -906,6 +945,8 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     bitrateCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
     portCtrl_->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) { SaveSettings(); });
     portCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
+    terminalPortCtrl_->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) { SaveSettings(); });
+    terminalPortCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
     qualityChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
@@ -922,7 +963,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
 void MainFrame::SelectPage(int page) {
     for (int i = 0; i < kPageCount; ++i) pageButtons_[i]->SetSelected(i == page);
     book_->ChangeSelection(size_t(page));
-    if (page == kPageHost && !hosting_ && !hostStarting_) RefreshDisplayChoices();
+    if (page == kPageHost && !Sharing()) RefreshDisplayChoices();
 }
 
 void MainFrame::RefreshDisplayChoices() {
@@ -938,7 +979,20 @@ void MainFrame::RefreshDisplayChoices() {
                 source.height)));
         hostPicker_->CheckItem(row, true);
     }
+    const long terminalRow = hostPicker_->InsertItem(long(availableDisplays_.size()),
+        ToWx(ui::kTerminalPickerLabel));
+    hostPicker_->CheckItem(terminalRow, true);
     ShowHostTable(false);
+}
+
+bool MainFrame::TerminalTicked() const {
+    const long row = long(availableDisplays_.size());
+    if (row >= hostPicker_->GetItemCount()) return false;
+    return hostPicker_->IsItemChecked(row);
+}
+
+bool MainFrame::Sharing() const {
+    return hosting_ || hostStarting_ || terminalHost_.Running();
 }
 
 wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
@@ -989,6 +1043,18 @@ wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
         ToWx(viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
     button->SetMinSize(FromDIP(wxSize(kHostActionWidth, 26)));
     PaintButton(button, viewer ? kWarning : kOffline);
+
+    if (ref.terminal) {
+        const uint32_t termId = ref.termId;
+        button->Bind(wxEVT_BUTTON, [this, viewer, termId](wxCommandEvent&) {
+            if (viewer) {
+                KickShell(termId);
+            } else {
+                StopTerminalRow();
+            }
+        });
+        return button;
+    }
 
     const uint8_t sourceId = ref.sourceId;
     const std::string addr = ref.viewerAddr;
@@ -1150,12 +1216,13 @@ void MainFrame::ShowIdleHostState() {
 
 void MainFrame::OnShare() {
     if (hostStarting_) return;
-    if (hosting_) {
+    if (Sharing()) {
         StopHosting();
         return;
     }
 
-    if (availableDisplays_.empty()) {
+    const bool terminal = TerminalTicked();
+    if (availableDisplays_.empty() && !terminal) {
         const std::string err = deskhubp::ListDisplaysError();
         wxMessageBox(err.empty() ? wxString("No display found to share.") : ToWx(err),
             "Deskhub", wxOK | wxICON_WARNING, this);
@@ -1167,8 +1234,20 @@ void MainFrame::OnShare() {
         if (long(i) >= hostPicker_->GetItemCount()) break;
         if (hostPicker_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
     }
-    if (chosen.empty()) {
+    if (chosen.empty() && !terminal) {
         wxMessageBox(ToWx(ui::kNoDisplayTicked), "Deskhub", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    if (terminal) StartTerminalShare();
+
+    if (chosen.empty()) {
+        if (!terminalHost_.Running()) return;
+        ShowHostTable(true);
+        ApplySharingBanner();
+        hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
+        RefreshShells();
+        UpdateHostRows(hostStatus_);
         return;
     }
 
@@ -1189,6 +1268,84 @@ void MainFrame::OnShare() {
     options.clipboardSync = settings_.clipboardSync;
 
     StartHosting(sources, options);
+}
+
+void MainFrame::StartTerminalShare() {
+    if (terminalHost_.Running()) return;
+    if (!deskhubp::QuicAvailable()) {
+        wxMessageBox(ToWx(ui::kTerminalHostUnavailable), "Deskhub", wxOK | wxICON_WARNING, this);
+        return;
+    }
+    const std::string name =
+        settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity(name);
+    if (!identity.Valid()) {
+        wxMessageBox(ToWx(ui::kTerminalHostUnavailable), "Deskhub", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    std::vector<std::string> adapters;
+    for (const AdapterAddr& adapter : ListLocalIPv4()) adapters.push_back(adapter.ip);
+    const deskhub::BindChoice bind = deskhub::SelectBindAddress(settings_.bindIp, adapters);
+
+    deskhubp::TerminalHostConfig config;
+    config.bindIp = bind.ip;
+    config.port = uint16_t(settings_.terminalPort);
+    config.passcode = settings_.passcode;
+
+    deskhubp::TerminalHostCallbacks hooks;
+    hooks.onSessionsChanged = [this] {
+        CallAfter([this] {
+            RefreshShells();
+            UpdateHostRows(hostStatus_);
+        });
+    };
+
+    if (!terminalHost_.Start(config, identity, std::move(hooks))) {
+        wxMessageBox(
+            ToWx(terminalHost_.LastPortInUse() ? ui::kTerminalPortInUse : ui::kShareStartFailed),
+            "Deskhub", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    terminalStatusLine_ = std::string(ui::kTerminalSharingOn) + " " +
+                          ui::PortCell(config.port) + "  " + deskhub::FormatFingerprint(identity.fingerprint);
+    RefreshShells();
+}
+
+void MainFrame::StopTerminalShare() {
+    if (!terminalHost_.Running()) return;
+    terminalHost_.Stop();
+    shells_.clear();
+    terminalStatusLine_.clear();
+}
+
+void MainFrame::StopTerminalRow() {
+    StopTerminalShare();
+    if (!Sharing()) {
+        StopHosting();
+        return;
+    }
+    ApplySharingBanner();
+    UpdateHostRows(hostStatus_);
+}
+
+void MainFrame::RefreshShells() {
+    shells_ = terminalHost_.Running() ? terminalHost_.Sessions()
+                                      : std::vector<deskhub::TerminalRecord>{};
+}
+
+void MainFrame::KickShell(uint32_t termId) {
+    if (!terminalHost_.Running()) return;
+    terminalHost_.KickSession(termId);
+}
+
+void MainFrame::ApplySharingBanner() {
+    std::string status = screenStatusLine_;
+    if (terminalHost_.Running()) {
+        if (!status.empty()) status += "  ";
+        status += terminalStatusLine_;
+    }
+    ApplyHostState(HostShareState::kSharing, ToWx(status));
 }
 
 void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
@@ -1221,20 +1378,26 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     shareBtn_->Enable();
 
     if (!started) {
-        ShowIdleHostState();
-        RefreshDisplayChoices();
         wxMessageBox(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), "Deskhub",
             wxOK | wxICON_ERROR, this);
+        if (terminalHost_.Running()) {
+            ApplySharingBanner();
+            ShowHostTable(true);
+            hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
+            return;
+        }
+        ShowIdleHostState();
+        RefreshDisplayChoices();
         return;
     }
 
     hosting_ = true;
-    std::string status = ui::SharingStatusLine(port);
-    if (!passcode.empty()) status += " " + ui::PasscodeNote(passcode);
-    if (!allowInput) status += std::string(" ") + ui::kViewOnlyNote;
+    screenStatusLine_ = ui::SharingStatusLine(port);
+    if (!passcode.empty()) screenStatusLine_ += " " + ui::PasscodeNote(passcode);
+    if (!allowInput) screenStatusLine_ += std::string(" ") + ui::kViewOnlyNote;
     const std::string bindWarning = agentLoop_.BindWarning();
-    if (!bindWarning.empty()) status += " " + bindWarning;
-    ApplyHostState(HostShareState::kSharing, ToWx(status));
+    if (!bindWarning.empty()) screenStatusLine_ += " " + bindWarning;
+    ApplySharingBanner();
     ShowHostTable(true);
     hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
     if (settings_.clipboardSync) clipTimer_.Start(1000);
@@ -1242,11 +1405,14 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
 
 void MainFrame::OnClipboardTimer(wxTimerEvent&) {
     if (!hosting_) return;
-    if (const auto remote = agentLoop_.TakeRemoteClipboard()) {
-        if (wxTheClipboard->Open()) {
-            wxTheClipboard->SetData(new wxTextDataObject(wxString::FromUTF8(*remote)));
-            wxTheClipboard->Close();
-        }
+    const wxLogNull quietWhileClipboardIsBusy;
+    if (!pendingClipboard_) pendingClipboard_ = agentLoop_.TakeRemoteClipboard();
+    if (pendingClipboard_) {
+        if (!wxTheClipboard->Open()) return;
+        const bool put =
+            wxTheClipboard->SetData(new wxTextDataObject(wxString::FromUTF8(*pendingClipboard_)));
+        wxTheClipboard->Close();
+        if (put) pendingClipboard_.reset();
         return;
     }
     if (!wxTheClipboard->Open()) return;
@@ -1265,24 +1431,36 @@ void MainFrame::StopHosting() {
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
+    pendingClipboard_.reset();
+    screenStatusLine_.clear();
+    hostStatus_.clear();
+    StopTerminalShare();
     ShowIdleHostState();
     RefreshDisplayChoices();
 }
 
 void MainFrame::OnHostTimer(wxTimerEvent&) {
-    if (!hosting_) return;
-
-    std::vector<AgentSourceStatus> rows;
-    const deskhubp::AgentDriveState state = agentDriver_.Poll(agentLoop_, rows);
-    if (state == deskhubp::AgentDriveState::Stopped) {
-        StopHosting();
+    if (!Sharing()) {
+        hostTimer_.Stop();
         return;
     }
-    if (state == deskhubp::AgentDriveState::Running) UpdateHostRows(rows);
+
+    if (hosting_) {
+        std::vector<AgentSourceStatus> rows;
+        const deskhubp::AgentDriveState state = agentDriver_.Poll(agentLoop_, rows);
+        if (state == deskhubp::AgentDriveState::Stopped) {
+            StopHosting();
+            return;
+        }
+        if (state == deskhubp::AgentDriveState::Running) hostStatus_ = std::move(rows);
+    }
+
+    RefreshShells();
+    UpdateHostRows(hostStatus_);
 }
 
 void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows);
+    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, terminalHost_.Running(), shells_);
 
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
@@ -1292,10 +1470,15 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
 
     for (size_t i = 0; i < hostRows_.size() && i < hostRowViews_.size(); ++i) {
         const ui::HostRow& ref = hostRows_[i];
-        const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
-        if (!s) continue;
+        ui::HostRowCells cells;
+        if (ref.terminal) {
+            cells = ui::TerminalRowText(ref, uint16_t(settings_.terminalPort), shells_);
+        } else {
+            const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
+            if (!s) continue;
+            cells = ui::HostRowText(ref, *s);
+        }
 
-        const ui::HostRowCells cells = ui::HostRowText(ref, *s);
         const wxString texts[kHostColumnCount] = {ToWx(cells.source), ToWx(cells.size),
             ToWx(cells.viewers), ToWx(cells.client), ToWx(cells.capture), ToWx(cells.send),
             ToWx(cells.mbps), ToWx(cells.rtt)};
@@ -1313,7 +1496,9 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
 }
 
 void MainFrame::RelayoutHostPage() {
-    hostPicker_->GetParent()->Layout();
+    if (!hostPage_) return;
+    hostPage_->Layout();
+    hostPage_->FitInside();
 }
 
 void MainFrame::StopDisplay(uint8_t sourceId) {
@@ -1335,6 +1520,33 @@ void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
     clientStatus_->GetParent()->Layout();
 }
 
+void MainFrame::SaveOpenChoices() {
+    settings_.clientDesktop = desktopCtrl_->GetValue();
+    settings_.clientShell = shellCtrl_->GetValue();
+    controlCtrl_->Enable(settings_.clientDesktop);
+    deskhubp::SaveUiSettings(settings_);
+}
+
+void MainFrame::OpenShell(const std::string& addr, const std::string& passcode) {
+    const uint16_t port = ui::PortOrDefault(std::string(shellPortCtrl_->GetValue().utf8_str()));
+    const std::string address = ui::AddressHost(addr) + ":" + std::to_string(port);
+    NetAddr host{};
+    if (!ParseNetAddr(address, host)) {
+        SetClientStatus(ToWx(ui::kTerminalUnreachable), kOffline);
+        return;
+    }
+
+    TerminalLaunch launch;
+    launch.address = address;
+    launch.passcode = passcode;
+    launch.clientName =
+        ui::TruncateDeviceName(std::string(deviceNameCtrl_->GetValue().utf8_str()));
+    if (launch.clientName.empty()) launch.clientName = deskhubp::LocalDeviceName();
+
+    if (!OpenTerminalWindow(this, launch))
+        SetClientStatus(ToWx(ui::kTerminalUnreachable), kOffline);
+}
+
 void MainFrame::StartConnect(const std::string& rawAddr) {
     LOGI("[UI] Connect requested for \"%s\".", rawAddr.c_str());
     SetClientStatus(wxString(), kMutedText);
@@ -1346,6 +1558,11 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         settings_.deviceName = deviceName;
         deskhubp::SaveUiSettings(settings_);
     }
+    if (!desktopCtrl_->GetValue() && !shellCtrl_->GetValue()) {
+        wxMessageBox(ToWx(ui::kOpenNothingTicked), "Deskhub", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
     const std::string addr = ui::TrimAscii(rawAddr);
     if (addr.empty()) {
         wxMessageBox("Enter the host machine's IP address first (e.g., 192.168.1.10).",
@@ -1367,6 +1584,16 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
     if (!deskhub::IsValidPasscode(passcode)) {
         wxMessageBox(ToWx(ui::kPasscodeInvalid), "Deskhub", wxOK | wxICON_ERROR, this);
         clientPasscodeCtrl_->SetFocus();
+        return;
+    }
+
+    if (shellCtrl_->GetValue()) OpenShell(addr, passcode);
+    if (!desktopCtrl_->GetValue()) {
+        ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
+        SaveRecentDevices();
+        poller_.SetAddresses(AddressesOf(recent_));
+        RefreshRecentList();
+        DeselectAllRows();
         return;
     }
 
@@ -1555,6 +1782,7 @@ void MainFrame::SaveSettings() {
     settings_.fps = uint32_t(fpsCtrl_->GetValue());
     settings_.bitrateMbps = uint32_t(bitrateCtrl_->GetValue());
     settings_.port = uint32_t(portCtrl_->GetValue());
+    settings_.terminalPort = uint32_t(terminalPortCtrl_->GetValue());
     settings_.allowInput = allowInputCtrl_->GetValue();
     settings_.clientControl = controlCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();
@@ -1578,7 +1806,7 @@ void MainFrame::SaveSettings() {
         autostartCtrl_->SetValue(settings_.autostart);
     }
     deskhubp::SaveUiSettings(settings_);
-    if (!hosting_ && !hostStarting_) ShowIdleHostState();
+    if (!Sharing()) ShowIdleHostState();
 }
 
 void MainFrame::SaveRecentDevices() {
@@ -1586,8 +1814,7 @@ void MainFrame::SaveRecentDevices() {
 }
 
 void MainFrame::OnClose(wxCloseEvent& event) {
-    const bool sessionActive = hosting_ || hostStarting_;
-    const bool keepRunning = settings_.startHidden || sessionActive;
+    const bool keepRunning = settings_.startHidden || Sharing();
     if (!quitting_ && keepRunning && event.CanVeto() && EnsureTrayAttached()) {
         event.Veto();
         Hide();
@@ -1599,7 +1826,7 @@ void MainFrame::OnClose(wxCloseEvent& event) {
         trayIcon_ = nullptr;
     }
     *alive_ = false;
-    ShutdownTerminalPage(terminalPage_);
+    terminalHost_.Stop();
     hostTimer_.Stop();
     clipTimer_.Stop();
     scanTimer_.Stop();
@@ -1617,7 +1844,7 @@ wxMenu* DeskhubTrayIcon::CreatePopupMenu() {
                 ToWx(frame_.IsShown() ? ui::kTrayHideWindow : ui::kTrayShowWindow))
             ->GetId();
     const int toggleShareId =
-        menu->Append(wxID_ANY, ToWx(frame_.hosting_ ? ui::kStopSharing : ui::kStartSharing))
+        menu->Append(wxID_ANY, ToWx(frame_.Sharing() ? ui::kStopSharing : ui::kStartSharing))
             ->GetId();
     menu->AppendSeparator();
     const int quitId = menu->Append(wxID_ANY, ToWx(ui::kTrayQuit))->GetId();

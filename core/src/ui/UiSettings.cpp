@@ -35,11 +35,6 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
         if (value.empty() || ParseIPv4(value)) out.bindIp = value;
         return;
     }
-    if (key == "terminal_bind_ip") {
-        if (value.empty() || ParseIPv4(value)) out.terminalBindIp = value;
-        return;
-    }
-
     const std::optional<uint32_t> v = ParseUint(value);
     if (!v) return;
 
@@ -49,14 +44,14 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "port" && *v >= 1 && *v <= kMaxSettingsPort) out.port = *v;
     if (key == "allow_input") out.allowInput = *v != 0;
     if (key == "client_control") out.clientControl = *v != 0;
+    if (key == "client_desktop") out.clientDesktop = *v != 0;
+    if (key == "client_shell") out.clientShell = *v != 0;
     if (key == "autostart") out.autostart = *v != 0;
     if (key == "auto_share") out.autoShare = *v != 0;
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
     if (key == "start_hidden") out.startHidden = *v != 0;
     if (key == "keep_awake") out.keepAwake = *v != 0;
     if (key == "terminal_port" && *v >= 1 && *v <= kMaxSettingsPort) out.terminalPort = *v;
-    if (key == "terminal_share") out.terminalShare = *v != 0;
-    if (key == "terminal_auto_share") out.terminalAutoShare = *v != 0;
 }
 
 }
@@ -102,6 +97,8 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += "port=" + std::to_string(settings.port) + '\n';
     out += std::string("allow_input=") + (settings.allowInput ? "1" : "0") + '\n';
     out += std::string("client_control=") + (settings.clientControl ? "1" : "0") + '\n';
+    out += std::string("client_desktop=") + (settings.clientDesktop ? "1" : "0") + '\n';
+    out += std::string("client_shell=") + (settings.clientShell ? "1" : "0") + '\n';
     out += "passcode=";
     if (IsValidPasscode(settings.passcode)) out += EncodeSecret(settings.passcode);
     out += '\n';
@@ -115,11 +112,6 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
     out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
     out += "terminal_port=" + std::to_string(settings.terminalPort) + '\n';
-    out += std::string("terminal_share=") + (settings.terminalShare ? "1" : "0") + '\n';
-    out += std::string("terminal_auto_share=") + (settings.terminalAutoShare ? "1" : "0") + '\n';
-    out += "terminal_bind_ip=";
-    if (ParseIPv4(settings.terminalBindIp)) out += settings.terminalBindIp;
-    out += '\n';
     return out;
 }
 

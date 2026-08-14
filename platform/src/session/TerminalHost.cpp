@@ -82,6 +82,11 @@ void TerminalHost::SetPasscode(std::string passcode) {
     sessions_.SetPasscode(std::move(passcode));
 }
 
+void TerminalHost::KickSession(uint32_t termId) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    kicks_.push_back(termId);
+}
+
 size_t TerminalHost::SessionCount() const {
     const std::lock_guard<std::mutex> lock(mutex_);
     return sessions_.Count();
@@ -98,6 +103,7 @@ void TerminalHost::Loop() {
         const uint64_t nowUs = NowUs();
         {
             const std::lock_guard<std::mutex> lock(mutex_);
+            DrainKicks();
             PumpShells(nowUs);
             for (uint32_t id : sessions_.Expire(nowUs)) {
                 shells_.erase(id);
@@ -190,19 +196,19 @@ void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
     if (shell == shells_.end() || shell->second.conn != conn) return;
 
     switch (header->type) {
-    case deskhub::MsgType::TermData:
-        if (!payload.empty()) shell->second.pty->Write(payload);
-        return;
-    case deskhub::MsgType::TermResize:
-        if (const std::optional<deskhub::TermSize> size = deskhub::ParseTermResize(payload)) {
-            sessions_.Resize(termId, *size);
-            shell->second.pty->Resize(*size);
-        }
-        return;
-    case deskhub::MsgType::TermClose:
-        CloseShell(termId, 0, false);
-        return;
-    default: return;
+        case deskhub::MsgType::TermData:
+            if (!payload.empty()) shell->second.pty->Write(payload);
+            return;
+        case deskhub::MsgType::TermResize:
+            if (const std::optional<deskhub::TermSize> size = deskhub::ParseTermResize(payload)) {
+                sessions_.Resize(termId, *size);
+                shell->second.pty->Resize(*size);
+            }
+            return;
+        case deskhub::MsgType::TermClose:
+            CloseShell(termId, 0, false);
+            return;
+        default: return;
     }
 }
 
@@ -240,6 +246,13 @@ void TerminalHost::PumpShells(uint64_t nowUs) {
     }
 }
 
+void TerminalHost::DrainKicks() {
+    if (kicks_.empty()) return;
+    const std::vector<uint32_t> kicks = std::move(kicks_);
+    kicks_.clear();
+    for (uint32_t termId : kicks) CloseShell(termId, 0, true);
+}
+
 void TerminalHost::CloseShell(uint32_t termId, int exitCode, bool tellClient) {
     const auto at = shells_.find(termId);
     if (at == shells_.end()) return;
@@ -262,8 +275,10 @@ void TerminalHost::OnConnectionClosed(QuicConnId conn, uint64_t nowUs) {
         Audit(termId, "detached");
     }
     for (auto it = streams_.begin(); it != streams_.end();) {
-        if ((it->first ^ (it->first >> 48 << 48)) == conn) it = streams_.erase(it);
-        else ++it;
+        if ((it->first ^ (it->first >> 48 << 48)) == conn)
+            it = streams_.erase(it);
+        else
+            ++it;
     }
     if (cb_.onSessionsChanged) cb_.onSessionsChanged();
 }

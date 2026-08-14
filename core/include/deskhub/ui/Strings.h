@@ -70,6 +70,9 @@ inline constexpr const char* kRequestControlLabel =
     "Control the remote machine (untick to just watch)";
 inline constexpr const char* kViewOnlyNote = "View-only: viewers can watch but not control.";
 inline constexpr const char* kPickDisplaysHint = "Tick the displays to share, then press Share.";
+inline constexpr const char* kPickSourcesHint =
+    "Tick what to share \xE2\x80\x94 displays, the terminal, or both \xE2\x80\x94 then press "
+    "Share.";
 inline constexpr const char* kPickDisplaysPortalHint =
     "Press Share, then pick the displays in your desktop's screen-sharing dialog. Your "
     "choice is remembered, so the dialog only appears the first time.";
@@ -118,7 +121,10 @@ inline constexpr const char* kConnectPromptTitle = "Connect to this device";
 inline constexpr const char* kPasscodeInvalid =
     "The passcode must be exactly 4 digits (for example 0417).";
 
-inline constexpr const char* kSidebarTerminal = "Terminal";
+inline constexpr const char* kTerminalSourceName = "Terminal";
+inline constexpr const char* kTerminalPickerLabel =
+    "Terminal \xE2\x80\x94 a shell on this machine";
+inline constexpr const char* kTerminalDetached = "(detached)";
 inline constexpr const char* kTerminalHostHeading = "Share this machine's terminal";
 inline constexpr const char* kTerminalHostHint =
     "Anyone who knows the passcode gets a shell on this machine, running as you.";
@@ -127,12 +133,6 @@ inline constexpr const char* kTerminalStopSharing = "Stop sharing the terminal";
 inline constexpr const char* kTerminalSharingOn = "This machine is sharing a terminal.";
 inline constexpr const char* kTerminalSharingOff = "This machine is not sharing a terminal.";
 inline constexpr const char* kTerminalNetworkLabel = "Share the terminal on:";
-inline constexpr const char* kTerminalAutoShareLabel =
-    "Start sharing the terminal automatically when Deskhub starts";
-inline constexpr const char* kTerminalAutoShareWarning =
-    "With this on, a shell on this machine is offered to the network from the moment Deskhub "
-    "starts, with nothing on screen to tell you. Anyone with the passcode can run commands as "
-    "you. Leave it off unless you are certain.";
 inline constexpr const char* kTerminalOpenSessionsHeading = "Shells open on this machine";
 inline constexpr const char* kTerminalNoSessions = "(nobody has a shell open)";
 inline constexpr const char* kTerminalHostUnavailable =
@@ -142,6 +142,13 @@ inline constexpr const char* kTerminalPortInUse =
     "That UDP port is already in use \xE2\x80\x94 screen sharing has its own port, so give the "
     "terminal a different one.";
 
+inline constexpr const char* kOpenChoiceGroup = "What to open on that machine";
+inline constexpr const char* kOpenDesktopLabel = "Remote desktop \xE2\x80\x94 view its screen";
+inline constexpr const char* kOpenShellLabel = "Terminal \xE2\x80\x94 open a shell";
+inline constexpr const char* kOpenNothingTicked =
+    "Tick the remote desktop, a terminal, or both before connecting.";
+inline constexpr const char* kOpenChoiceHint =
+    "This applies to the Connect button and to the devices listed below.";
 inline constexpr const char* kTerminalClientHeading = "Open a terminal on another machine";
 inline constexpr const char* kTerminalClientHint =
     "This is separate from viewing a screen \xE2\x80\x94 you can do either, or both.";
@@ -268,6 +275,10 @@ inline std::string UdpPortLine(uint16_t port) {
 
 inline std::string UdpPortLine() {
     return UdpPortLine(kDeskhubPort);
+}
+
+inline std::string PortCell(uint16_t port) {
+    return "port " + std::to_string(port);
 }
 
 inline std::string PingMs(uint32_t ms) {

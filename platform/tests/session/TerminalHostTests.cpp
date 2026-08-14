@@ -47,8 +47,10 @@ struct Viewer {
         cb.send = [this](std::span<const uint8_t> message) {
             std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
             record.resize(deskhub::BuildRecord(record, message));
-            if (connected) endpoint.SendStream(conn, deskhubp::kQuicFirstTerminalStream, record);
-            else pending.insert(pending.end(), record.begin(), record.end());
+            if (connected)
+                endpoint.SendStream(conn, deskhubp::kQuicFirstTerminalStream, record);
+            else
+                pending.insert(pending.end(), record.begin(), record.end());
         };
         cb.onOutput = [this](std::span<const uint8_t> bytes) { screen.Write(bytes); };
         cb.onOpened = [this](const deskhub::TermOpenAck& ack) {
@@ -71,7 +73,7 @@ struct Viewer {
             }
         };
         hooks.onStream = [this](deskhubp::QuicConnId, uint64_t, std::span<const uint8_t> bytes,
-                            bool) {
+                             bool) {
             framer.Append(bytes);
             std::vector<uint8_t> message;
             while (framer.Next(message)) client->HandleMessage(message);
@@ -184,6 +186,17 @@ void TestHostSharesAShell() {
     Check(viewer.PumpUntil([&host] { return host.SessionCount() == 0; }, kMaxRounds),
         "closing the shell from the client ends the session on the host");
 
+    viewer.client->Open(kTestPasscode, deskhub::TermSize{80, 24}, "test-client");
+    if (viewer.PumpUntil([&viewer] { return viewer.opens == 2; }, kMaxRounds)) {
+        const std::vector<deskhub::TerminalRecord> open = host.Sessions();
+        Check(open.size() == 1, "a second shell opens after the first one ended");
+        host.KickSession(open[0].termId);
+        Check(viewer.PumpUntil([&host] { return host.SessionCount() == 0; }, kMaxRounds),
+            "and the host can end a shell from its own table");
+        Check(viewer.PumpUntil([&viewer] { return !viewer.exits.empty(); }, kMaxRounds),
+            "telling the client the shell is gone");
+    }
+
     host.Stop();
     Check(!host.Running(), "and the host stops sharing cleanly");
     viewer.endpoint.Close();
@@ -271,7 +284,7 @@ void TestViewerTrustsThenRunsAShell() {
 
     const deskhubp::TerminalSnapshot shot = viewer.Snapshot();
     Check(shot.size == deskhub::TermSize{80, 24} &&
-            shot.cells.size() == size_t(shot.size.rows) * shot.size.cols,
+              shot.cells.size() == size_t(shot.size.rows) * shot.size.cols,
         "the snapshot holds one cell per position");
     Check(shot.At(999, 999) == deskhub::term::Cell{}, "and reading outside it is blank, not a crash");
     Check(shot.scrollOffset == 0 && shot.cursor.visible,
@@ -297,13 +310,15 @@ void TestViewerTrustsThenRunsAShell() {
     const deskhub::TrustStore trusted = deskhubp::LoadTrustStore();
     Check(trusted.Size() == 1, "the machine we trusted was written down");
     Check(deskhubp::CheckTrustedHost(viewerConfig.host.ToString(), identity.fingerprint) ==
-            deskhub::TrustVerdict::Trusted,
+              deskhub::TrustVerdict::Trusted,
         "so the next connection will not ask again");
 
     if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
     if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
-    if (savedTrust.empty()) deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
-    else deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, savedTrust);
+    if (savedTrust.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, savedTrust);
 }
 
 void TestHostRefusesWithoutIdentity() {

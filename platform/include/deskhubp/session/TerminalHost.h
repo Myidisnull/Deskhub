@@ -45,6 +45,7 @@ public:
         return endpoint_.LastBindAddrInUse();
     }
     void SetPasscode(std::string passcode);
+    void KickSession(uint32_t termId);
     size_t SessionCount() const;
     std::vector<deskhub::TerminalRecord> Sessions() const;
     uint16_t Port() const {
@@ -66,6 +67,7 @@ private:
     void HandleMessage(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
     void OnConnectionClosed(QuicConnId conn, uint64_t nowUs);
     void PumpShells(uint64_t nowUs);
+    void DrainKicks();
     void SendToStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
     void CloseShell(uint32_t termId, int exitCode, bool tellClient);
     void Audit(uint32_t termId, std::string_view what);
@@ -77,6 +79,7 @@ private:
     QuicEndpoint endpoint_{};
     deskhub::TerminalSessions sessions_{};
     std::map<uint32_t, Shell> shells_{};
+    std::vector<uint32_t> kicks_{};
     std::map<uint64_t, deskhub::RecordStream> streams_{};
     mutable std::mutex mutex_{};
     std::thread thread_{};
