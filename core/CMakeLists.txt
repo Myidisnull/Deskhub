@@ -13,6 +13,7 @@ endif()
 
 add_library(core STATIC
     src/protocol/Wire.cpp
+    src/protocol/RecordStream.cpp
 
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
@@ -25,6 +26,8 @@ add_library(core STATIC
     src/session/HostFeedback.cpp
     src/session/HostRouter.cpp
     src/session/ClipboardSync.cpp
+    src/session/TerminalSession.cpp
+    src/session/TerminalClient.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
@@ -52,6 +55,12 @@ add_library(core STATIC
     src/net/LanScan.cpp
     src/net/Ipv4.cpp
     src/net/BindAddress.cpp
+    src/net/TrustStore.cpp
+
+    src/terminal/VtParser.cpp
+    src/terminal/Screen.cpp
+    src/terminal/KeyEncoder.cpp
+    src/terminal/Palette.cpp
 
     src/ui/HostRows.cpp
     src/ui/RecentDevices.cpp
@@ -98,6 +107,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/ShareFlowTests.cpp
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
+        tests/session/TerminalSessionTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp
@@ -133,6 +143,12 @@ if(DESKHUB_CORE_TESTS)
         tests/net/LanScanTests.cpp
         tests/net/Ipv4Tests.cpp
         tests/net/BindAddressTests.cpp
+        tests/net/TrustStoreTests.cpp
+
+        tests/terminal/VtParserTests.cpp
+        tests/terminal/ScreenTests.cpp
+        tests/terminal/KeyEncoderTests.cpp
+        tests/terminal/PaletteTests.cpp
 
         tests/ui/StringsTests.cpp
         tests/ui/HostRowsTests.cpp
@@ -185,4 +201,5 @@ if(DESKHUB_FUZZ)
     deskhub_fuzz_target(fuzz_reassembler fuzz/FuzzReassembler.cpp)
     deskhub_fuzz_target(fuzz_session fuzz/FuzzSession.cpp)
     deskhub_fuzz_target(fuzz_uitext fuzz/FuzzUiText.cpp)
+    deskhub_fuzz_target(fuzz_term fuzz/FuzzTerm.cpp)
 endif()

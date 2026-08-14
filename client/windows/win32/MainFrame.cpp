@@ -26,6 +26,7 @@
 
 #include "PasscodePrompt.h"
 #include "SourcePickerDialog.h"
+#include "TerminalPage.h"
 #include "Viewer.h"
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/media/SourceLabel.h"
@@ -63,11 +64,12 @@ constexpr int kPrimaryButtonH = 46;
 
 enum Page { kPageHost = 0,
     kPageClient = 1,
-    kPageSettings = 2,
-    kPageCount = 3 };
+    kPageTerminal = 2,
+    kPageSettings = 3,
+    kPageCount = 4 };
 
 const char* const kPageLabels[kPageCount] = {ui::kSidebarHost, ui::kSidebarClient,
-    ui::kSidebarSettings};
+    ui::kSidebarTerminal, ui::kSidebarSettings};
 
 const wxColour kSidebarBg(31, 41, 55);
 const wxColour kSidebarHover(55, 65, 81);
@@ -391,6 +393,7 @@ private:
     void OnClose(wxCloseEvent& event);
 
     wxSimplebook* book_ = nullptr;
+    wxWindow* terminalPage_ = nullptr;
     NavItem* pageButtons_[kPageCount] = {};
     wxTextCtrl* addrCtrl_ = nullptr;
     wxTextCtrl* connectPortCtrl_ = nullptr;
@@ -461,6 +464,8 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     book_ = new wxSimplebook(this);
     book_->AddPage(BuildHostPage(book_), wxString());
     book_->AddPage(BuildClientPage(book_), wxString());
+    terminalPage_ = BuildTerminalPage(book_, settings_, [this] { SaveSettings(); });
+    book_->AddPage(terminalPage_, wxString());
     book_->AddPage(BuildSettingsPage(book_), wxString());
     root->Add(book_, wxSizerFlags(1).Expand());
 
@@ -484,6 +489,8 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     StartScan();
     SelectPage(kPageClient);
     ApplyTrayMode();
+
+    if (settings_.terminalAutoShare) CallAfter([this] { StartTerminalAutoShare(terminalPage_); });
 
     if (settings_.autoShare) {
         SelectPage(kPageHost);
@@ -1592,6 +1599,7 @@ void MainFrame::OnClose(wxCloseEvent& event) {
         trayIcon_ = nullptr;
     }
     *alive_ = false;
+    ShutdownTerminalPage(terminalPage_);
     hostTimer_.Stop();
     clipTimer_.Stop();
     scanTimer_.Stop();

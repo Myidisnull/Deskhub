@@ -52,6 +52,8 @@ public:
         return lastBindAddrInUse_;
     }
 
+    uint16_t LocalPort() const;
+
 private:
 #ifdef _WIN32
     uint64_t sock_ = ~0ull;

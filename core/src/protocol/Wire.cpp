@@ -493,4 +493,158 @@ std::string TruncateClipboardText(std::string_view text) {
     return out;
 }
 
+size_t BuildRecord(std::span<uint8_t> out, std::span<const uint8_t> message) {
+    if (message.empty() || message.size() > kMaxRecordSize) return 0;
+    const size_t total = kRecordPrefixSize + message.size();
+    if (out.size() < total) return 0;
+    PutU16(out.data(), uint16_t(message.size()));
+    std::memcpy(out.data() + kRecordPrefixSize, message.data(), message.size());
+    return total;
+}
+
+RecordView ReadRecord(std::span<const uint8_t> buffer) {
+    RecordView v;
+    if (buffer.size() < kRecordPrefixSize) return v;
+    const size_t len = GetU16(buffer.data());
+    if (len == 0 || len > kMaxRecordSize) {
+        v.status = RecordStatus::Invalid;
+        return v;
+    }
+    if (buffer.size() < kRecordPrefixSize + len) return v;
+    v.status = RecordStatus::Ok;
+    v.message = buffer.subspan(kRecordPrefixSize, len);
+    v.consumed = kRecordPrefixSize + len;
+    return v;
+}
+
+PacketKind ClassifyPacket(std::span<const uint8_t> datagram) {
+    if (datagram.empty()) return PacketKind::Unknown;
+    constexpr uint8_t kQuicHeaderBits = 0xC0;
+    if ((datagram[0] & kQuicHeaderBits) != 0) return PacketKind::Quic;
+    if (datagram[0] == 0 || datagram[0] > kProtocolVersion) return PacketKind::Unknown;
+    if (datagram.size() < kCommonHeaderSize) return PacketKind::Unknown;
+    return PacketKind::Deskhub;
+}
+
+bool IsValidTermSize(TermSize size) {
+    return size.cols >= kMinTermCols && size.cols <= kMaxTermCols &&
+           size.rows >= kMinTermRows && size.rows <= kMaxTermRows;
+}
+
+TermSize ClampTermSize(TermSize size) {
+    TermSize out = size;
+    if (out.cols < kMinTermCols) out.cols = kMinTermCols;
+    if (out.cols > kMaxTermCols) out.cols = kMaxTermCols;
+    if (out.rows < kMinTermRows) out.rows = kMinTermRows;
+    if (out.rows > kMaxTermRows) out.rows = kMaxTermRows;
+    return out;
+}
+
+size_t BuildTermOpen(std::span<uint8_t> out, const TermOpen& m) {
+    constexpr size_t kFixed = 13;
+    const size_t nameLen = Utf8TruncLen(m.clientName, kMaxClientNameBytes);
+    const size_t total = WriteCommon(out, MsgType::TermOpen, 0, Chan::Terminal, 0,
+        kFixed + nameLen);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    const TermSize size = ClampTermSize(m.size);
+    PutU16(p, size.cols);
+    PutU16(p + 2, size.rows);
+    PutU32(p + 4, m.resumeId);
+    const bool hasPasscode = IsValidPasscode(m.passcode);
+    for (size_t i = 0; i < kPasscodeDigits; ++i)
+        p[8 + i] = hasPasscode ? uint8_t(m.passcode[i]) : 0;
+    p[12] = uint8_t(nameLen);
+    if (nameLen) std::memcpy(p + kFixed, m.clientName.data(), nameLen);
+    return total;
+}
+
+size_t BuildTermOpenAck(std::span<uint8_t> out, const TermOpenAck& m) {
+    constexpr size_t kPayload = 6;
+    const size_t total = WriteCommon(out, MsgType::TermOpenAck, 0, Chan::Terminal, m.termId,
+        kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.termId);
+    p[4] = uint8_t(m.reason);
+    p[5] = m.resumed ? 1 : 0;
+    return total;
+}
+
+size_t BuildTermData(std::span<uint8_t> out, uint32_t termId, std::span<const uint8_t> data) {
+    if (data.empty() || data.size() > kMaxTermDataBytes) return 0;
+    const size_t total = WriteCommon(out, MsgType::TermData, 0, Chan::Terminal, termId,
+        data.size());
+    if (!total) return 0;
+    std::memcpy(out.data() + kCommonHeaderSize, data.data(), data.size());
+    return total;
+}
+
+size_t BuildTermResize(std::span<uint8_t> out, uint32_t termId, TermSize size) {
+    const size_t total = WriteCommon(out, MsgType::TermResize, 0, Chan::Terminal, termId, 4);
+    if (!total) return 0;
+    const TermSize clamped = ClampTermSize(size);
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU16(p, clamped.cols);
+    PutU16(p + 2, clamped.rows);
+    return total;
+}
+
+size_t BuildTermClose(std::span<uint8_t> out, uint32_t termId) {
+    return WriteCommon(out, MsgType::TermClose, 0, Chan::Terminal, termId, 0);
+}
+
+size_t BuildTermExit(std::span<uint8_t> out, uint32_t termId, int32_t exitCode) {
+    const size_t total = WriteCommon(out, MsgType::TermExit, 0, Chan::Terminal, termId, 4);
+    if (!total) return 0;
+    PutU32(out.data() + kCommonHeaderSize, uint32_t(exitCode));
+    return total;
+}
+
+std::optional<TermOpen> ParseTermOpen(std::span<const uint8_t> payload) {
+    constexpr size_t kFixed = 13;
+    if (payload.size() < kFixed) return std::nullopt;
+    const uint8_t* p = payload.data();
+    TermOpen m;
+    m.size.cols = GetU16(p);
+    m.size.rows = GetU16(p + 2);
+    if (!IsValidTermSize(m.size)) return std::nullopt;
+    m.resumeId = GetU32(p + 4);
+    const std::string_view code(reinterpret_cast<const char*>(p + 8), kPasscodeDigits);
+    if (IsValidPasscode(code)) m.passcode = code;
+    size_t nameLen = p[12];
+    if (nameLen > kMaxClientNameBytes) nameLen = 0;
+    if (nameLen && payload.size() >= kFixed + nameLen) {
+        m.clientName.reserve(nameLen);
+        for (size_t i = 0; i < nameLen; ++i) {
+            const uint8_t c = p[kFixed + i];
+            if (c >= 0x20 && c != 0x7F) m.clientName.push_back(char(c));
+        }
+    }
+    return m;
+}
+
+std::optional<TermOpenAck> ParseTermOpenAck(std::span<const uint8_t> payload) {
+    if (payload.size() < 6) return std::nullopt;
+    const uint8_t* p = payload.data();
+    if (p[4] > uint8_t(TermReason::NoSuchSession)) return std::nullopt;
+    TermOpenAck m;
+    m.termId = GetU32(p);
+    m.reason = TermReason(p[4]);
+    m.resumed = p[5] != 0;
+    return m;
+}
+
+std::optional<TermSize> ParseTermResize(std::span<const uint8_t> payload) {
+    if (payload.size() < 4) return std::nullopt;
+    const TermSize size{GetU16(payload.data()), GetU16(payload.data() + 2)};
+    if (!IsValidTermSize(size)) return std::nullopt;
+    return size;
+}
+
+std::optional<int32_t> ParseTermExit(std::span<const uint8_t> payload) {
+    if (payload.size() < 4) return std::nullopt;
+    return int32_t(GetU32(payload.data()));
+}
+
 }

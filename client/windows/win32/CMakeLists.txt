@@ -21,6 +21,7 @@ add_executable(deskhub_app WIN32
     MainFrame.cpp
     PasscodePrompt.cpp
     SourcePickerDialog.cpp
+    TerminalPage.cpp
     Viewer.cpp
     ViewerInput.cpp
 

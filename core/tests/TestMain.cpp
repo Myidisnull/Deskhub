@@ -54,6 +54,9 @@ int main() {
     std::printf("--- session: per-source pipeline state defaults ---\n");
     RunSourcePipelineStateTests();
 
+    std::printf("--- session: remote terminal (host sessions, client, stream framing) ---\n");
+    RunTerminalSessionTests();
+
     std::printf("--- input ---\n");
     RunInputTests();
 
@@ -140,6 +143,21 @@ int main() {
 
     std::printf("--- net: which address the host binds ---\n");
     RunBindAddressTests();
+
+    std::printf("--- net: which host keys we have decided to trust ---\n");
+    RunTrustStoreTests();
+
+    std::printf("--- terminal: the VT escape-sequence parser ---\n");
+    RunVtParserTests();
+
+    std::printf("--- terminal: the character grid every client draws ---\n");
+    RunScreenTests();
+
+    std::printf("--- terminal: keys and modifiers to bytes ---\n");
+    RunKeyEncoderTests();
+
+    std::printf("--- terminal: the colours every client paints with ---\n");
+    RunPaletteTests();
 
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();

@@ -33,6 +33,19 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
     ParseClipboardChunk(pl);
 
+    ParseTermOpen(pl);
+    ParseTermOpenAck(pl);
+    ParseTermResize(pl);
+    ParseTermExit(pl);
+
+    ClassifyPacket(d);
+    for (std::span<const uint8_t> rest = d; !rest.empty();) {
+        const RecordView record = ReadRecord(rest);
+        if (record.status != RecordStatus::Ok) break;
+        ParseCommonHeader(record.message);
+        rest = rest.subspan(record.consumed);
+    }
+
     if (h) {
         ParseVideoPacket(*h, pl);
         ParseFecPacket(*h, pl);

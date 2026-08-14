@@ -35,6 +35,10 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
         if (value.empty() || ParseIPv4(value)) out.bindIp = value;
         return;
     }
+    if (key == "terminal_bind_ip") {
+        if (value.empty() || ParseIPv4(value)) out.terminalBindIp = value;
+        return;
+    }
 
     const std::optional<uint32_t> v = ParseUint(value);
     if (!v) return;
@@ -50,6 +54,9 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
     if (key == "start_hidden") out.startHidden = *v != 0;
     if (key == "keep_awake") out.keepAwake = *v != 0;
+    if (key == "terminal_port" && *v >= 1 && *v <= kMaxSettingsPort) out.terminalPort = *v;
+    if (key == "terminal_share") out.terminalShare = *v != 0;
+    if (key == "terminal_auto_share") out.terminalAutoShare = *v != 0;
 }
 
 }
@@ -107,6 +114,12 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("clipboard_sync=") + (settings.clipboardSync ? "1" : "0") + '\n';
     out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
     out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
+    out += "terminal_port=" + std::to_string(settings.terminalPort) + '\n';
+    out += std::string("terminal_share=") + (settings.terminalShare ? "1" : "0") + '\n';
+    out += std::string("terminal_auto_share=") + (settings.terminalAutoShare ? "1" : "0") + '\n';
+    out += "terminal_bind_ip=";
+    if (ParseIPv4(settings.terminalBindIp)) out += settings.terminalBindIp;
+    out += '\n';
     return out;
 }
 

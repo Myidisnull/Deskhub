@@ -168,6 +168,62 @@ void TestBoundsAreEnforced() {
     Check(ui::ParseUiSettings("fps = 30 ").fps == 30, "spaces around key and value are fine");
 }
 
+void TestTerminalSharePersistence() {
+    std::printf("[settings] the terminal share choices are their own fields...\n");
+    ui::UiSettings s;
+    s.terminalShare = true;
+    s.terminalAutoShare = true;
+    s.terminalBindIp = "10.0.0.5";
+    s.terminalPort = 47790;
+    s.bindIp = "192.168.1.10";
+    const ui::UiSettings back = ui::ParseUiSettings(ui::SerializeUiSettings(s));
+    Check(back.terminalShare && back.terminalAutoShare, "both terminal toggles round-trip");
+    Check(back.terminalBindIp == "10.0.0.5",
+        "the terminal picks its own interface, not the screen's");
+    Check(back.bindIp == "192.168.1.10", "and the screen keeps its own");
+    Check(back == s, "nothing else changed on the way through");
+
+    Check(back.terminalPort == 47790, "and its own port");
+
+    const ui::UiSettings fresh;
+    Check(fresh.terminalPort == kDeskhubTerminalPort && fresh.port == kDeskhubPort,
+        "by default the terminal listens beside the screen rather than on top of it");
+    Check(!fresh.terminalShare, "sharing a terminal is off until it is switched on");
+    Check(!fresh.terminalAutoShare,
+        "and automatic terminal sharing is off by default, which section 5.2 requires");
+    Check(fresh.terminalBindIp.empty(), "with no interface preference");
+
+    Check(ui::ParseUiSettings("terminal_bind_ip=not-an-ip").terminalBindIp.empty(),
+        "junk never becomes a terminal bind address");
+    Check(ui::ParseUiSettings("terminal_auto_share=x").terminalAutoShare == false,
+        "and junk never turns automatic sharing on");
+
+    const std::string fourX =
+        "fps=30\n"
+        "bitrate_mbps=15\n"
+        "max_dim=1280\n"
+        "port=47777\n"
+        "allow_input=1\n"
+        "client_control=1\n"
+        "passcode=\n"
+        "name=Old machine\n"
+        "bind_ip=192.168.1.10\n"
+        "autostart=0\n"
+        "auto_share=1\n"
+        "clipboard_sync=1\n"
+        "start_hidden=0\n"
+        "keep_awake=1\n";
+    const ui::UiSettings old = ui::ParseUiSettings(fourX);
+    Check(old.fps == 30 && old.autoShare && old.deviceName == "Old machine",
+        "a 4.x settings file still reads back everything it used to hold");
+    Check(!old.terminalShare && !old.terminalAutoShare && old.terminalBindIp.empty(),
+        "and the fields it never heard of come out at their safe defaults");
+    Check(old.terminalPort == kDeskhubTerminalPort,
+        "including a terminal port that does not collide with the screen it already shares");
+    Check(ui::ParseUiSettings("terminal_port=0").terminalPort == kDeskhubTerminalPort,
+        "port zero is rejected here too");
+}
+
 }
 
 void RunUiSettingsTests() {
@@ -180,4 +236,5 @@ void RunUiSettingsTests() {
     TestNativeQualityIsPreserved();
     TestGarbageFallsBackPerKey();
     TestBoundsAreEnforced();
+    TestTerminalSharePersistence();
 }

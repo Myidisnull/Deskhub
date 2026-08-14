@@ -14,3 +14,7 @@ void RunHostCallbackTests();
 void RunHostProbeTests();
 void RunLanScannerTests();
 void RunAppDataFileTests();
+void RunHostIdentityTests();
+void RunQuicEndpointTests();
+void RunPtyTests();
+void RunTerminalHostTests();

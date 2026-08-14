@@ -508,6 +508,200 @@ void TestParseGarbage() {
     Check(true, "Parse* survived 300 garbage datagrams");
 }
 
+void TestRecordFraming() {
+    std::printf("[wire] length-prefixed records cut a byte stream apart...\n");
+    uint8_t one[kMaxDatagram];
+    uint8_t two[kMaxDatagram];
+    const size_t a = BuildPing(one, 7, PingPong{1, 2});
+    const size_t b = BuildBye(two, 7);
+
+    std::vector<uint8_t> stream(kMaxRecordSize);
+    size_t used = BuildRecord(stream, std::span<const uint8_t>(one, a));
+    Check(used == kRecordPrefixSize + a, "a record is its message plus the length prefix");
+    used += BuildRecord(std::span<uint8_t>(stream).subspan(used),
+        std::span<const uint8_t>(two, b));
+    stream.resize(used);
+
+    for (size_t cut = 0; cut < used; ++cut) {
+        const RecordView partial = ReadRecord(std::span<const uint8_t>(stream).first(cut));
+        if (cut < kRecordPrefixSize + a)
+            Check(partial.status == RecordStatus::NeedMore,
+                "a half-arrived record asks for more bytes");
+        else
+            Check(partial.status == RecordStatus::Ok, "a whole record is readable");
+    }
+
+    const RecordView first = ReadRecord(stream);
+    Check(first.status == RecordStatus::Ok && first.consumed == kRecordPrefixSize + a,
+        "the first record ends where the second begins");
+    Check(first.message.size() == a &&
+              std::memcmp(first.message.data(), one, a) == 0,
+        "the framed message comes back byte for byte");
+    const RecordView second = ReadRecord(
+        std::span<const uint8_t>(stream).subspan(first.consumed));
+    Check(second.status == RecordStatus::Ok && second.message.size() == b,
+        "the second record follows immediately");
+
+    const uint8_t zero[kRecordPrefixSize] = {0, 0};
+    Check(ReadRecord(zero).status == RecordStatus::Invalid, "a zero-length record is junk");
+    const uint8_t huge[kRecordPrefixSize] = {0xFF, 0xFF};
+    Check(ReadRecord(huge).status == RecordStatus::Invalid,
+        "a record larger than the cap is junk");
+
+    uint8_t small[4];
+    Check(BuildRecord(small, std::span<const uint8_t>(one, a)) == 0,
+        "a record refuses to build into a buffer that cannot hold it");
+    Check(BuildRecord(stream, std::span<const uint8_t>()) == 0, "an empty message is refused");
+    const std::vector<uint8_t> over(kMaxRecordSize + 1, 0xAB);
+    Check(BuildRecord(stream, over) == 0, "a message past the cap is refused");
+}
+
+void TestPacketClassification() {
+    std::printf("[wire] QUIC and beacon packets share a port and stay apart...\n");
+    uint8_t buf[kMaxDatagram];
+    const size_t n = BuildListSources(buf);
+    Check(ClassifyPacket(std::span<const uint8_t>(buf, n)) == PacketKind::Deskhub,
+        "a beacon query is a Deskhub packet");
+
+    const uint8_t longHeader[16] = {0xC3, 0x00, 0x00, 0x00, 0x01};
+    Check(ClassifyPacket(longHeader) == PacketKind::Quic, "a QUIC long header is QUIC");
+    const uint8_t shortHeader[16] = {0x41, 0x11, 0x22};
+    Check(ClassifyPacket(shortHeader) == PacketKind::Quic, "a QUIC short header is QUIC");
+
+    Check(ClassifyPacket(std::span<const uint8_t>()) == PacketKind::Unknown,
+        "an empty datagram is neither");
+    const uint8_t zeroVer[kCommonHeaderSize] = {0};
+    Check(ClassifyPacket(zeroVer) == PacketKind::Unknown, "version 0 is neither");
+    const uint8_t future[kCommonHeaderSize] = {kProtocolVersion + 1};
+    Check(ClassifyPacket(future) == PacketKind::Unknown,
+        "a version we do not speak is not claimed as ours");
+    Check(ClassifyPacket(std::span<const uint8_t>(buf, kCommonHeaderSize - 1)) ==
+              PacketKind::Unknown,
+        "a Deskhub packet too short for a header is not claimed either");
+
+    const uint8_t legacy[kCommonHeaderSize] = {1, uint8_t(MsgType::ListSources)};
+    Check(ClassifyPacket(legacy) == PacketKind::Deskhub,
+        "a 4.x packet still classifies as ours so it can be answered with a version error");
+    Check(!ParseCommonHeader(legacy).has_value(), "...but it does not parse as version 2");
+
+    for (int i = 0; i < 2000; ++i) {
+        std::vector<uint8_t> d(1 + Rnd() % 64);
+        for (auto& x : d) x = uint8_t(Rnd());
+        const PacketKind k = ClassifyPacket(d);
+        if ((d[0] & 0xC0) != 0)
+            Check(k == PacketKind::Quic, "every packet with the QUIC header bits is QUIC");
+        else
+            Check(k != PacketKind::Quic, "and no other packet is mistaken for QUIC");
+    }
+}
+
+void TestTerminalWire() {
+    std::printf("[wire] terminal frames round-trip over the stream channel...\n");
+    uint8_t buf[kMaxRecordSize];
+
+    TermOpen open;
+    open.size = TermSize{120, 40};
+    open.resumeId = 0;
+    open.passcode = "0417";
+    open.clientName = "Pixel 9";
+    size_t n = BuildTermOpen(buf, open);
+    auto h = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(h && h->type == MsgType::TermOpen && h->chan == Chan::Terminal,
+        "TERM_OPEN rides the terminal channel");
+    auto op = ParseTermOpen(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(op && op->size == open.size && op->passcode == "0417" &&
+              op->clientName == "Pixel 9" && op->resumeId == 0,
+        "TERM_OPEN round-trip");
+
+    open.passcode = "abcd";
+    n = BuildTermOpen(buf, open);
+    op = ParseTermOpen(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(op && op->passcode.empty(), "an invalid passcode never goes on the wire");
+
+    open.passcode = "0417";
+    open.resumeId = 0xABCD1234;
+    n = BuildTermOpen(buf, open);
+    op = ParseTermOpen(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(op && op->resumeId == 0xABCD1234, "a reattach carries the old session id");
+
+    open.size = TermSize{0, 0};
+    n = BuildTermOpen(buf, open);
+    op = ParseTermOpen(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(op && op->size.cols == kMinTermCols && op->size.rows == kMinTermRows,
+        "a zero window is clamped rather than sent");
+    open.size = TermSize{40000, 40000};
+    n = BuildTermOpen(buf, open);
+    op = ParseTermOpen(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(op && op->size.cols == kMaxTermCols && op->size.rows == kMaxTermRows,
+        "an absurd window is clamped too");
+
+    const TermOpenAck ack{0x99, TermReason::Accepted, true};
+    n = BuildTermOpenAck(buf, ack);
+    h = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(h && h->sessionId == 0x99, "TERM_OPEN_ACK names the terminal in its header");
+    auto ap = ParseTermOpenAck(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(ap && ap->termId == 0x99 && ap->reason == TermReason::Accepted && ap->resumed,
+        "TERM_OPEN_ACK round-trip");
+
+    const uint8_t payload[] = {0x1B, '[', '3', '1', 'm', 'h', 'i'};
+    n = BuildTermData(buf, 0x99, payload);
+    h = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    const auto data = PayloadOf(std::span<const uint8_t>(buf, n));
+    Check(h && h->type == MsgType::TermData && data.size() == sizeof(payload) &&
+              std::memcmp(data.data(), payload, sizeof(payload)) == 0,
+        "TERM_DATA carries raw bytes untouched");
+
+    n = BuildTermResize(buf, 0x99, TermSize{100, 30});
+    auto sz = ParseTermResize(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(sz && sz->cols == 100 && sz->rows == 30, "TERM_RESIZE round-trip");
+
+    n = BuildTermClose(buf, 0x99);
+    h = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(h && h->type == MsgType::TermClose && n == kCommonHeaderSize,
+        "TERM_CLOSE carries nothing but its header");
+
+    n = BuildTermExit(buf, 0x99, -1);
+    auto code = ParseTermExit(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(code && *code == -1, "TERM_EXIT carries a signed exit code");
+    n = BuildTermExit(buf, 0x99, 130);
+    code = ParseTermExit(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(code && *code == 130, "...and an ordinary one");
+
+    Check(BuildTermData(buf, 1, std::span<const uint8_t>()) == 0, "empty TERM_DATA is refused");
+    const std::vector<uint8_t> big(kMaxTermDataBytes + 1, 'x');
+    Check(BuildTermData(buf, 1, big) == 0, "over-long TERM_DATA is refused");
+    uint8_t tiny[4];
+    Check(BuildTermOpen(tiny, open) == 0 && BuildTermOpenAck(tiny, ack) == 0 &&
+              BuildTermResize(tiny, 1, TermSize{}) == 0 && BuildTermClose(tiny, 1) == 0 &&
+              BuildTermExit(tiny, 1, 0) == 0,
+        "every terminal builder refuses a buffer too small to hold it");
+
+    Check(!ParseTermOpen(std::span<const uint8_t>(buf, 12)).has_value(), "short TERM_OPEN");
+    Check(!ParseTermOpenAck(std::span<const uint8_t>(buf, 5)).has_value(), "short TERM_OPEN_ACK");
+    Check(!ParseTermResize(std::span<const uint8_t>(buf, 3)).has_value(), "short TERM_RESIZE");
+    Check(!ParseTermExit(std::span<const uint8_t>(buf, 3)).has_value(), "short TERM_EXIT");
+    {
+        uint8_t badAck[6] = {0, 0, 0, 1, 0xFF, 0};
+        Check(!ParseTermOpenAck(badAck).has_value(), "an unknown refusal reason is rejected");
+        uint8_t badOpen[13] = {};
+        Check(!ParseTermOpen(badOpen).has_value(), "a zero window on the wire is rejected");
+        uint8_t badResize[4] = {0, 0, 0, 0};
+        Check(!ParseTermResize(badResize).has_value(), "a zero resize is rejected");
+    }
+
+    for (int i = 0; i < 300; ++i) {
+        std::vector<uint8_t> d(Rnd() % 80);
+        for (auto& x : d) x = uint8_t(Rnd());
+        ParseTermOpen(d);
+        ParseTermOpenAck(d);
+        ParseTermResize(d);
+        ParseTermExit(d);
+        ReadRecord(d);
+        ClassifyPacket(d);
+    }
+    Check(true, "the terminal parsers survived 300 garbage payloads");
+}
+
 }
 
 namespace {
@@ -535,4 +729,7 @@ void RunWireTests() {
     TestSourceListTruncation();
     TestHelloAckReserved();
     TestParseGarbage();
+    TestRecordFraming();
+    TestPacketClassification();
+    TestTerminalWire();
 }

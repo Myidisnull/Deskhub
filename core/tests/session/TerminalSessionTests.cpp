@@ -1,0 +1,425 @@
+#include "Tests.h"
+#include "support/TestSupport.h"
+
+#include "deskhub/protocol/RecordStream.h"
+#include "deskhub/session/HostSession.h"
+#include "deskhub/session/TerminalClient.h"
+#include "deskhub/session/TerminalSession.h"
+
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
+
+using namespace deskhub;
+
+namespace {
+
+Fingerprint TestFingerprint(uint8_t seed) {
+    Fingerprint fp;
+    for (size_t i = 0; i < kFingerprintBytes; ++i) fp.bytes[i] = uint8_t(seed * 3 + i + 1);
+    return fp;
+}
+
+TerminalOpenRequest MakeRequest(std::string_view passcode = kTestPasscode,
+    uint32_t resumeId = 0) {
+    TerminalOpenRequest request;
+    request.message.passcode = passcode;
+    request.message.size = TermSize{100, 30};
+    request.message.resumeId = resumeId;
+    request.message.clientName = "Pixel 9";
+    request.endpoint = "192.168.1.20:47777";
+    request.fingerprint = TestFingerprint(4);
+    return request;
+}
+
+void TestSharingGate() {
+    std::printf("[term] nothing opens until the host has switched terminal sharing on...\n");
+    TerminalSessions host;
+    Check(!host.Sharing(), "sharing a terminal is off until asked for");
+    Check(host.Open(MakeRequest(), 0).reason == TermReason::NotShared,
+        "a shell cannot be opened on a host that is not sharing one");
+    Check(host.Count() == 0, "and nothing is recorded for it");
+
+    host.SetSharing(true);
+    host.SetPasscode(kTestPasscode);
+    Check(host.Open(MakeRequest(), 0).reason == TermReason::Accepted, "with sharing on it opens");
+    Check(host.Count() == 1 && host.LiveCount() == 1, "and the session is on the list");
+
+    host.SetSharing(false);
+    Check(host.Count() == 0, "switching sharing off ends every open session");
+}
+
+void TestPasscodeAndLockout() {
+    std::printf("[term] the wrong passcode is refused, and repeated tries lock out...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    host.SetPasscode(kTestPasscode);
+
+    Check(host.Open(MakeRequest("9999"), 0).reason == TermReason::WrongPasscode,
+        "a wrong passcode is refused");
+    Check(host.Count() == 0, "and leaves nothing behind");
+    Check(host.Open(MakeRequest(""), 0).reason == TermReason::WrongPasscode,
+        "so is no passcode at all when one is required");
+
+    for (uint32_t i = 0; i < kMaxPasscodeAttempts; ++i) host.Open(MakeRequest("9999"), 1000);
+    Check(host.LockedOut(1000), "enough wrong tries lock the terminal out");
+    Check(host.Open(MakeRequest(), 1000).reason == TermReason::WrongPasscode,
+        "and even the right passcode is refused while the lockout lasts");
+    Check(host.Open(MakeRequest(), 1000 + kPasscodeLockoutUs).reason == TermReason::Accepted,
+        "once it expires the right passcode works again");
+
+    TerminalSessions open;
+    open.SetSharing(true);
+    Check(open.Open(MakeRequest(""), 0).reason == TermReason::Accepted,
+        "a host with no passcode set lets anyone in, as the screen side already does");
+
+    TerminalSessions junk;
+    junk.SetSharing(true);
+    junk.SetPasscode("abc");
+    Check(junk.Open(MakeRequest(""), 0).reason == TermReason::Accepted,
+        "a passcode that is not four digits is treated as no passcode");
+}
+
+void TestSessionCap() {
+    std::printf("[term] the number of shells one host will hand out is capped...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    for (size_t i = 0; i < kMaxTerminalSessions; ++i)
+        Check(host.Open(MakeRequest(""), 0).reason == TermReason::Accepted,
+            "each shell up to the cap opens");
+    const TermOpenAck refused = host.Open(MakeRequest(""), 0);
+    Check(refused.reason == TermReason::TooManySessions, "the one past the cap is refused");
+    Check(refused.termId == 0, "a refusal never names a session");
+    Check(host.Count() == kMaxTerminalSessions, "and the cap really holds");
+
+    Check(host.Close(1) && host.Count() == kMaxTerminalSessions - 1,
+        "closing one makes room");
+    Check(host.Open(MakeRequest(""), 0).reason == TermReason::Accepted, "so the next one opens");
+    Check(!host.Close(9999), "closing a session that never existed reports nothing happened");
+}
+
+void TestIdentityIsRecorded() {
+    std::printf("[term] every session records who opened it, for the log 5.2 asks for...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    const TermOpenAck ack = host.Open(MakeRequest(""), 12345);
+    const TerminalRecord* record = host.Find(ack.termId);
+    Check(record != nullptr, "the session can be looked up by id");
+    Check(record && record->clientEndpoint == "192.168.1.20:47777", "its address is kept");
+    Check(record && record->clientName == "Pixel 9", "its name is kept");
+    Check(record && record->clientFingerprint == TestFingerprint(4), "and its key");
+    Check(record && record->openedUs == 12345, "and when it started");
+    Check(host.Find(9999) == nullptr, "an id we never issued has no record");
+
+    const std::string line = TerminalAuditLine(*record, "opened");
+    Check(line.find("192.168.1.20:47777") != std::string::npos, "the log line names the address");
+    Check(line.find("Pixel 9") != std::string::npos, "and the machine");
+    Check(line.find(FormatFingerprint(TestFingerprint(4))) != std::string::npos,
+        "and the key we trusted");
+
+    TerminalRecord anonymous;
+    anonymous.termId = 7;
+    const std::string blank = TerminalAuditLine(anonymous, "opened");
+    Check(blank.find("none") != std::string::npos,
+        "a session with no key on record says so rather than printing nothing");
+}
+
+void TestResizeAndDetach() {
+    std::printf("[term] a window size follows the session, and a lost link does not kill it...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    const uint32_t id = host.Open(MakeRequest(""), 0).termId;
+
+    Check(host.Resize(id, TermSize{132, 43}), "a resize reaches the session");
+    Check(host.Find(id)->size == TermSize{132, 43}, "and is remembered");
+    Check(host.Resize(id, TermSize{0, 0}), "an impossible size is still accepted");
+    Check(host.Find(id)->size.cols == kMinTermCols, "but clamped to something real");
+    Check(!host.Resize(9999, TermSize{80, 24}), "a resize for a session we do not have is refused");
+
+    Check(host.Detach(id, 1000), "losing the link detaches the session");
+    Check(host.Find(id)->state == TerminalState::Detached, "which is a state we can see");
+    Check(host.LiveCount() == 0 && host.Count() == 1,
+        "the shell is still alive even though nobody is attached");
+    Check(!host.Detach(id, 2000), "detaching twice reports nothing happened");
+    Check(!host.Detach(9999, 1000), "and neither does detaching a stranger");
+}
+
+void TestReattach() {
+    std::printf("[term] a client that comes back gets its own shell, not a new one...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    host.SetPasscode(kTestPasscode);
+    const uint32_t id = host.Open(MakeRequest(), 0).termId;
+    host.Detach(id, 1000);
+
+    const TermOpenAck back = host.Open(MakeRequest(kTestPasscode, id), 2000);
+    Check(back.reason == TermReason::Accepted && back.termId == id,
+        "coming back with the old id lands on the old session");
+    Check(back.resumed, "and the client is told it was resumed, not started fresh");
+    Check(host.Count() == 1, "no second session was created");
+    Check(host.Find(id)->state == TerminalState::Live, "and it is live again");
+
+    Check(host.Open(MakeRequest(kTestPasscode, id), 3000).reason == TermReason::NoSuchSession,
+        "reattaching to a session that is already attached is refused");
+    Check(host.Open(MakeRequest(kTestPasscode, 4242), 3000).reason == TermReason::NoSuchSession,
+        "and so is an id the host never issued");
+    Check(host.Open(MakeRequest("9999", id), 3000).reason == TermReason::WrongPasscode,
+        "reattaching still needs the passcode");
+}
+
+void TestExpiry() {
+    std::printf("[term] a detached shell is kept for a while, then given up...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    const uint32_t kept = host.Open(MakeRequest(""), 0).termId;
+    const uint32_t gone = host.Open(MakeRequest(""), 0).termId;
+    host.Detach(gone, 1000);
+
+    Check(host.Expire(1000).empty(), "a session that just detached is not given up");
+    Check(host.Expire(1000 + kTerminalReattachGraceUs - 1).empty(),
+        "nor one still inside the grace period");
+    const std::vector<uint32_t> expired = host.Expire(1000 + kTerminalReattachGraceUs);
+    Check(expired.size() == 1 && expired[0] == gone,
+        "once the grace period is up the caller is told which shell to kill");
+    Check(host.Find(gone) == nullptr && host.Find(kept) != nullptr,
+        "and only that one is dropped");
+    Check(host.Expire(1'000'000'000).empty(), "a live session is never expired");
+}
+
+void TestRecordStream() {
+    std::printf("[term] the stream framer cuts messages out of a byte stream...\n");
+    uint8_t one[kMaxDatagram];
+    uint8_t two[kMaxDatagram];
+    const size_t a = BuildTermClose(one, 5);
+    const size_t b = BuildTermExit(two, 5, 0);
+
+    std::vector<uint8_t> wire(kMaxRecordSize);
+    size_t used = BuildRecord(wire, std::span<const uint8_t>(one, a));
+    used += BuildRecord(std::span<uint8_t>(wire).subspan(used), std::span<const uint8_t>(two, b));
+    wire.resize(used);
+
+    RecordStream stream;
+    std::vector<uint8_t> message;
+    for (uint8_t byte : wire) stream.Append(std::span<const uint8_t>(&byte, 1));
+    Check(stream.Next(message) && message.size() == a, "the first message comes out whole");
+    Check(stream.Next(message) && message.size() == b, "and so does the second");
+    Check(!stream.Next(message), "and then the stream is empty");
+    Check(stream.Buffered() == 0, "with nothing left buffered");
+
+    RecordStream bad;
+    const uint8_t junk[] = {0x00, 0x00};
+    bad.Append(junk);
+    Check(!bad.Next(message) && bad.Failed(),
+        "a length that cannot be right marks the stream as broken");
+    bad.Append(wire);
+    Check(!bad.Next(message), "and a broken stream never yields another message");
+    bad.Reset();
+    bad.Append(wire);
+    Check(bad.Next(message), "until it is reset");
+
+    RecordStream flood;
+    const std::vector<uint8_t> huge(kMaxRecordBacklog + 1, 0xAB);
+    flood.Append(huge);
+    Check(flood.Failed(), "a peer that never finishes a record cannot make us grow forever");
+
+    Check(!RecordStream().Next(message), "an empty stream yields nothing");
+    RecordStream nothing;
+    nothing.Append(std::span<const uint8_t>());
+    Check(nothing.Buffered() == 0, "appending nothing changes nothing");
+}
+
+struct ClientHarness {
+    TerminalClient client;
+    std::vector<std::vector<uint8_t>> sent{};
+    std::string output{};
+    std::vector<TermReason> refusals{};
+    std::vector<int32_t> exits{};
+    size_t opens = 0;
+    bool lastResumed = false;
+
+    ClientHarness()
+        : client(TerminalClientCallbacks{}) {
+    }
+};
+
+std::unique_ptr<ClientHarness> MakeClient() {
+    auto harness = std::make_unique<ClientHarness>();
+    ClientHarness* raw = harness.get();
+    TerminalClientCallbacks cb;
+    cb.send = [raw](std::span<const uint8_t> m) {
+        raw->sent.emplace_back(m.begin(), m.end());
+    };
+    cb.onOutput = [raw](std::span<const uint8_t> m) {
+        raw->output.append(reinterpret_cast<const char*>(m.data()), m.size());
+    };
+    cb.onOpened = [raw](const TermOpenAck& ack) {
+        ++raw->opens;
+        raw->lastResumed = ack.resumed;
+    };
+    cb.onRefused = [raw](TermReason reason) { raw->refusals.push_back(reason); };
+    cb.onExit = [raw](int32_t code) { raw->exits.push_back(code); };
+    harness->client = TerminalClient(std::move(cb));
+    return harness;
+}
+
+std::vector<uint8_t> AckMessage(uint32_t termId, TermReason reason, bool resumed) {
+    std::vector<uint8_t> out(kMaxDatagram);
+    const TermOpenAck ack{termId, reason, resumed};
+    out.resize(BuildTermOpenAck(out, ack));
+    return out;
+}
+
+void TestClientLifecycle() {
+    std::printf("[term] the client side: open, type, resize, and be told when it ends...\n");
+    auto h = MakeClient();
+    Check(h->client.State() == TerminalClientState::Idle, "a fresh client is idle");
+    Check(!h->client.CanReattach(), "with nothing to come back to");
+
+    h->client.Open(kTestPasscode, TermSize{100, 30}, "Pixel 9");
+    Check(h->client.State() == TerminalClientState::Opening, "opening puts it in flight");
+    Check(h->sent.size() == 1, "and one message goes out");
+    const auto request = ParseTermOpen(PayloadOf(h->sent[0]));
+    Check(request && request->passcode == kTestPasscode && request->resumeId == 0,
+        "which asks for a new shell with the passcode");
+
+    h->client.SendInput(std::span<const uint8_t>());
+    Check(h->sent.size() == 1, "typing before the shell is open sends nothing");
+
+    h->client.HandleMessage(AckMessage(9, TermReason::Accepted, false));
+    Check(h->client.State() == TerminalClientState::Open && h->client.TermId() == 9,
+        "the acknowledgement opens it");
+    Check(h->opens == 1 && !h->lastResumed, "and the caller is told it is a fresh shell");
+
+    const std::string typed = "ls -la\r";
+    h->client.SendInput(std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(typed.data()), typed.size()));
+    Check(h->sent.size() == 2, "typing now reaches the wire");
+    const auto header = ParseCommonHeader(h->sent[1]);
+    Check(header && header->type == MsgType::TermData && header->sessionId == 9,
+        "as terminal data for our session");
+
+    h->client.Resize(TermSize{132, 43});
+    Check(h->sent.size() == 3 && h->client.Size() == TermSize{132, 43}, "a resize goes out");
+    h->client.Resize(TermSize{132, 43});
+    Check(h->sent.size() == 3, "resizing to the size we already have sends nothing");
+
+    std::vector<uint8_t> data(kMaxDatagram);
+    const uint8_t payload[] = {'o', 'k'};
+    data.resize(BuildTermData(data, 9, payload));
+    h->client.HandleMessage(data);
+    Check(h->output == "ok", "output from the shell reaches the screen");
+
+    std::vector<uint8_t> wrongSession(kMaxDatagram);
+    wrongSession.resize(BuildTermData(wrongSession, 77, payload));
+    h->client.HandleMessage(wrongSession);
+    Check(h->output == "ok", "output addressed to another session is dropped");
+
+    std::vector<uint8_t> exit(kMaxDatagram);
+    exit.resize(BuildTermExit(exit, 9, 130));
+    h->client.HandleMessage(exit);
+    Check(h->client.State() == TerminalClientState::Closed && h->exits.size() == 1 &&
+            h->exits[0] == 130,
+        "when the shell exits the client is told the code");
+    Check(h->client.TermId() == 0, "and no longer holds a session");
+}
+
+void TestClientReattachAndRefusal() {
+    std::printf("[term] the client keeps its id across a dropped link and reattaches...\n");
+    auto h = MakeClient();
+    h->client.Open(kTestPasscode, TermSize{80, 24}, "Pixel 9");
+    h->client.HandleMessage(AckMessage(4, TermReason::Accepted, false));
+
+    h->client.LinkLost();
+    Check(h->client.State() == TerminalClientState::Idle, "a dropped link puts it back to idle");
+    Check(h->client.CanReattach() && h->client.TermId() == 4,
+        "but it still knows which shell was its own");
+
+    const size_t before = h->sent.size();
+    h->client.Reattach();
+    Check(h->sent.size() == before + 1 && h->client.State() == TerminalClientState::Reattaching,
+        "reattaching sends a fresh request");
+    const auto again = ParseTermOpen(PayloadOf(h->sent.back()));
+    Check(again && again->resumeId == 4, "naming the session it wants back");
+
+    h->client.HandleMessage(AckMessage(4, TermReason::Accepted, true));
+    Check(h->client.State() == TerminalClientState::Open && h->lastResumed,
+        "and the host confirms it was resumed rather than started again");
+
+    auto refused = MakeClient();
+    refused->client.Open("9999", TermSize{80, 24}, "Pixel 9");
+    refused->client.HandleMessage(AckMessage(0, TermReason::WrongPasscode, false));
+    Check(refused->client.State() == TerminalClientState::Refused &&
+            refused->refusals.size() == 1 &&
+            refused->refusals[0] == TermReason::WrongPasscode,
+        "a refusal is reported with its reason");
+    Check(refused->client.TermId() == 0 && !refused->client.CanReattach(),
+        "and leaves nothing to come back to");
+
+    auto lying = MakeClient();
+    lying->client.Open("", TermSize{80, 24}, "");
+    lying->client.HandleMessage(AckMessage(0, TermReason::Accepted, false));
+    Check(lying->client.State() == TerminalClientState::Refused,
+        "an acceptance that names no session is treated as a refusal");
+
+    auto closed = MakeClient();
+    closed->client.Open("", TermSize{80, 24}, "");
+    closed->client.HandleMessage(AckMessage(3, TermReason::Accepted, false));
+    closed->client.Close();
+    Check(closed->client.State() == TerminalClientState::Closed, "closing ends the session");
+    closed->client.LinkLost();
+    Check(closed->client.State() == TerminalClientState::Closed,
+        "and a link that drops afterwards does not revive it");
+    Check(!closed->client.CanReattach(), "a closed shell is never reattached to");
+    closed->client.Reattach();
+    Check(closed->client.State() == TerminalClientState::Closed,
+        "and asking anyway does nothing");
+}
+
+void TestClientIgnoresJunk() {
+    std::printf("[term] the client drops anything that is not its own protocol...\n");
+    auto h = MakeClient();
+    h->client.Open("", TermSize{80, 24}, "");
+    h->client.HandleMessage(AckMessage(2, TermReason::Accepted, false));
+
+    uint8_t control[kMaxDatagram];
+    const size_t n = BuildPing(control, 2, PingPong{1, 2});
+    h->client.HandleMessage(std::span<const uint8_t>(control, n));
+    Check(h->client.State() == TerminalClientState::Open,
+        "a control-channel message on the terminal stream is ignored");
+
+    for (int i = 0; i < 500; ++i) {
+        std::vector<uint8_t> soup(Rnd() % 60);
+        for (auto& b : soup) b = uint8_t(Rnd());
+        h->client.HandleMessage(soup);
+    }
+    Check(true, "and 500 random messages leave it standing");
+
+    std::vector<uint8_t> big(kMaxRecordSize);
+    const std::vector<uint8_t> payload(kMaxTermDataBytes, 'x');
+    big.resize(BuildTermData(big, 2, payload));
+    h->client.HandleMessage(big);
+    Check(h->output.size() == kMaxTermDataBytes, "a full-size chunk of output is accepted");
+
+    const std::string typed(kMaxTermDataBytes * 2 + 5, 'y');
+    const size_t before = h->sent.size();
+    h->client.SendInput(std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(typed.data()), typed.size()));
+    Check(h->sent.size() == before + 3, "a paste larger than one chunk is split across messages");
+}
+
+}
+
+void RunTerminalSessionTests() {
+    TestSharingGate();
+    TestPasscodeAndLockout();
+    TestSessionCap();
+    TestIdentityIsRecorded();
+    TestResizeAndDetach();
+    TestReattach();
+    TestExpiry();
+    TestRecordStream();
+    TestClientLifecycle();
+    TestClientReattachAndRefusal();
+    TestClientIgnoresJunk();
+}

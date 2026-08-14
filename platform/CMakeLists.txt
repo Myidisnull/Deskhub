@@ -4,6 +4,33 @@ if(NOT COMMAND deskhub_target_warnings)
     include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)
 endif()
 
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubQuiche.cmake)
+
+option(DESKHUB_QUIC "Build the QUIC transport (needs third_party/quiche)" ON)
+if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
+    set(deskhub_platform_quic
+        src/net/QuicEndpoint.cpp
+        src/system/HostIdentity.cpp
+    )
+else()
+    message(STATUS
+        "Deskhub: platform falls back to a stub QUIC transport — "
+        "third_party/quiche/${DESKHUB_QUICHE_TARGET} is missing. Run 'make bootstrap'.")
+    set(deskhub_platform_quic
+        src/net/QuicEndpointNone.cpp
+        src/system/HostIdentityNone.cpp
+    )
+endif()
+
+if(WIN32)
+    set(deskhub_platform_pty src/system/PtyWin.cpp)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+       (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"))
+    set(deskhub_platform_pty src/system/PtyPosix.cpp)
+else()
+    set(deskhub_platform_pty src/system/PtyNone.cpp)
+endif()
+
 if(WIN32)
     set(deskhub_platform_os
         src/net/UdpSocketWin.cpp
@@ -98,6 +125,11 @@ endif()
 
 add_library(platform STATIC
     ${deskhub_platform_os}
+    ${deskhub_platform_quic}
+    ${deskhub_platform_pty}
+    src/system/TrustStoreFile.cpp
+    src/session/TerminalHost.cpp
+    src/session/TerminalViewer.cpp
     src/net/SourceQuery.cpp
     src/net/HostProbe.cpp
     src/net/DeviceStatusPoller.cpp
@@ -113,6 +145,14 @@ add_library(platform STATIC
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)
 target_link_libraries(platform PUBLIC core)
+
+if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
+    target_link_libraries(platform PRIVATE deskhub::quiche)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(platform PUBLIC util)
+endif()
 
 if(APPLE)
     target_compile_options(platform PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
@@ -172,7 +212,11 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/net/LanScannerTests.cpp
         tests/net/UdpSocketTests.cpp
         tests/system/AppDataFileTests.cpp
+        tests/system/HostIdentityTests.cpp
+        tests/system/PtyTests.cpp
+        tests/net/QuicEndpointTests.cpp
         tests/session/HostCallbackTests.cpp
+        tests/session/TerminalHostTests.cpp
         tests/system/ClockTests.cpp
         tests/system/DeviceNameTests.cpp
         tests/system/MemoryFootprintTests.cpp

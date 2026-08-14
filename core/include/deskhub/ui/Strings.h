@@ -118,6 +118,78 @@ inline constexpr const char* kConnectPromptTitle = "Connect to this device";
 inline constexpr const char* kPasscodeInvalid =
     "The passcode must be exactly 4 digits (for example 0417).";
 
+inline constexpr const char* kSidebarTerminal = "Terminal";
+inline constexpr const char* kTerminalHostHeading = "Share this machine's terminal";
+inline constexpr const char* kTerminalHostHint =
+    "Anyone who knows the passcode gets a shell on this machine, running as you.";
+inline constexpr const char* kTerminalShareButton = "Share terminal";
+inline constexpr const char* kTerminalStopSharing = "Stop sharing the terminal";
+inline constexpr const char* kTerminalSharingOn = "This machine is sharing a terminal.";
+inline constexpr const char* kTerminalSharingOff = "This machine is not sharing a terminal.";
+inline constexpr const char* kTerminalNetworkLabel = "Share the terminal on:";
+inline constexpr const char* kTerminalAutoShareLabel =
+    "Start sharing the terminal automatically when Deskhub starts";
+inline constexpr const char* kTerminalAutoShareWarning =
+    "With this on, a shell on this machine is offered to the network from the moment Deskhub "
+    "starts, with nothing on screen to tell you. Anyone with the passcode can run commands as "
+    "you. Leave it off unless you are certain.";
+inline constexpr const char* kTerminalOpenSessionsHeading = "Shells open on this machine";
+inline constexpr const char* kTerminalNoSessions = "(nobody has a shell open)";
+inline constexpr const char* kTerminalHostUnavailable =
+    "This system cannot offer a terminal to other machines.";
+inline constexpr const char* kTerminalPortLabel = "Terminal UDP port";
+inline constexpr const char* kTerminalPortInUse =
+    "That UDP port is already in use \xE2\x80\x94 screen sharing has its own port, so give the "
+    "terminal a different one.";
+
+inline constexpr const char* kTerminalClientHeading = "Open a terminal on another machine";
+inline constexpr const char* kTerminalClientHint =
+    "This is separate from viewing a screen \xE2\x80\x94 you can do either, or both.";
+inline constexpr const char* kTerminalOpenButton = "Open shell";
+inline constexpr const char* kTerminalCloseButton = "Close shell";
+inline constexpr const char* kTerminalConnecting = "Connecting\xE2\x80\xA6";
+inline constexpr const char* kTerminalConnected = "Connected.";
+inline constexpr const char* kTerminalClosed = "The shell has ended.";
+inline constexpr const char* kTerminalWrongPasscode = "That passcode was not accepted.";
+inline constexpr const char* kTerminalNotShared =
+    "That machine is not sharing a terminal right now.";
+inline constexpr const char* kTerminalTooManySessions =
+    "That machine already has as many shells open as it allows.";
+inline constexpr const char* kTerminalNoSuchSession =
+    "The shell we were attached to is gone; open a new one.";
+inline constexpr const char* kTerminalUnreachable = "Could not reach that machine.";
+inline constexpr const char* kTerminalReattaching = "Connection lost \xE2\x80\x94 reattaching\xE2\x80\xA6";
+inline constexpr const char* kTerminalReattached = "Reattached to the shell you had open.";
+
+inline constexpr const char* kTrustNewHostTitle = "Is this the right machine?";
+inline constexpr const char* kTrustNewHostBody =
+    "This is the first time this machine has been contacted. Check its fingerprint matches the "
+    "one it shows, then decide whether to trust it.";
+inline constexpr const char* kTrustChangedTitle = "This machine's key has changed";
+inline constexpr const char* kTrustChangedBody =
+    "The key does not match the one recorded the first time. Either the machine was reinstalled, "
+    "or something is sitting between you and it. Do not continue unless you know why it changed.";
+inline constexpr const char* kTrustFingerprintLabel = "Fingerprint:";
+inline constexpr const char* kTrustAccept = "Trust this machine";
+inline constexpr const char* kTrustReject = "Do not connect";
+inline constexpr const char* kTrustedHostsHeading = "Machines you have trusted";
+inline constexpr const char* kTrustedHostsEmpty = "(none yet)";
+inline constexpr const char* kTrustForget = "Forget";
+
+inline constexpr const char* kTerminalExtraKeysHint =
+    "Ctrl and Alt latch: tap one, then a letter.";
+
+inline const char* TerminalRefusalText(TermReason reason) {
+    switch (reason) {
+        case TermReason::WrongPasscode: return kTerminalWrongPasscode;
+        case TermReason::TooManySessions: return kTerminalTooManySessions;
+        case TermReason::NotShared: return kTerminalNotShared;
+        case TermReason::NoSuchSession: return kTerminalNoSuchSession;
+        case TermReason::Accepted: return kTerminalConnected;
+    }
+    return kTerminalUnreachable;
+}
+
 inline std::string TrimAscii(std::string_view s) {
     const size_t b = s.find_first_not_of(" \t\r\n");
     if (b == std::string_view::npos) return {};

@@ -22,6 +22,10 @@ struct UiSettings {
     bool clipboardSync = false;
     bool startHidden = false;
     bool keepAwake = true;
+    bool terminalShare = false;
+    bool terminalAutoShare = false;
+    uint32_t terminalPort = kDeskhubTerminalPort;
+    std::string terminalBindIp{};
 
     bool operator==(const UiSettings&) const = default;
 };

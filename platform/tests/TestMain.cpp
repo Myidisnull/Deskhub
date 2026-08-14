@@ -66,6 +66,18 @@ int main() {
     std::printf("--- system: app data files next to the logs ---\n");
     RunAppDataFileTests();
 
+    std::printf("--- system: the host's own key pair and the machines it trusts ---\n");
+    RunHostIdentityTests();
+
+    std::printf("--- net: QUIC over loopback (handshake, stream, datagram) ---\n");
+    RunQuicEndpointTests();
+
+    std::printf("--- system: pseudo terminal running a real shell ---\n");
+    RunPtyTests();
+
+    std::printf("--- session: sharing a shell over QUIC end to end ---\n");
+    RunTerminalHostTests();
+
     std::printf("--- ffi: string handover to the managed clients ---\n");
     RunFfiTextTests();
 

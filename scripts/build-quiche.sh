@@ -59,6 +59,26 @@ fetch_source() {
     echo "$QUICHE_COMMIT" >"$SRC/.commit"
 }
 
+# quiche links BoringSSL through the boring-sys crate, so every Deskhub binary
+# already contains it. Deskhub calls it directly for the host's self-signed
+# identity (platform/src/system/HostIdentity.cpp), which needs the headers -
+# and boring-sys only vendors them into the cargo registry. Copy them out next
+# to quiche.h so there is one include path and no second TLS library.
+export_boringssl_headers() {
+    local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+    local found=""
+    found=$(find "$cargo_home/registry/src" -maxdepth 6 -type d \
+        -path '*/boring-sys-*/deps/boringssl/src/include' 2>/dev/null | sort | tail -1)
+    if [ -z "$found" ]; then
+        echo "build-quiche.sh: BoringSSL headers not found under $cargo_home/registry/src." >&2
+        echo "                 They appear once cargo has fetched boring-sys; re-run after a build." >&2
+        return 0
+    fi
+    rm -rf "$PREFIX/include/openssl"
+    cp -R "$found/openssl" "$PREFIX/include/openssl"
+    echo "[ok]      BoringSSL headers → third_party/quiche/include/openssl"
+}
+
 is_msvc_target() {
     case "$1" in
         *-windows-msvc) return 0 ;;
@@ -184,3 +204,5 @@ cp "$SRC/quiche/include/quiche.h" "$PREFIX/include/quiche.h"
 for target in "${TARGETS[@]}"; do
     build_target "$target"
 done
+
+export_boringssl_headers
