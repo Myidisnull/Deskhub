@@ -26,6 +26,13 @@ inline std::string ReadAppDataFile(const std::string& fileName) {
     return contents.str();
 }
 
+inline void RemoveAppDataFile(const std::string& fileName) {
+    const std::filesystem::path path = AppDataFilePath(fileName);
+    if (path.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 inline bool WriteAppDataFile(const std::string& fileName, const std::string& content) {
     const std::filesystem::path path = AppDataFilePath(fileName);
     if (path.empty()) return false;

@@ -8,7 +8,9 @@
 #include <atomic>
 #include <cstdio>
 
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/system/AppDataFile.h"
 
 namespace deskhubp {
 namespace {
@@ -28,6 +30,8 @@ constexpr uint32_t kCursorModeEmbedded = 2;
 
 constexpr uint32_t kPersistModePersistent = 2;
 constexpr uint32_t kScreenCastVersionPersist = 4;
+
+constexpr const char* kRestoreTokenFile = "portal-restore-token.txt";
 
 std::atomic<uint64_t> g_tokenCounter{0};
 
@@ -77,7 +81,7 @@ gboolean OnWaitTimeout(gpointer user) {
 }
 
 GVariant* PortalRequest(GDBusConnection* conn, GMainContext* ctx, const char* method,
-    GVariant* params, const std::string& token, std::string* err) {
+    GVariant* params, const std::string& token, std::string* err, bool* cancelled = nullptr) {
     const std::string reqPath = RequestPath(conn, token);
 
     ResponseWait wait;
@@ -111,6 +115,7 @@ GVariant* PortalRequest(GDBusConnection* conn, GMainContext* ctx, const char* me
 
     if (wait.code != 0) {
         if (wait.results) g_variant_unref(wait.results);
+        if (cancelled) *cancelled = wait.code == 1;
         if (err)
             *err = wait.code == 1 ? "cancelled by the user"
                                   : std::string(method) + ": portal ended the request";
@@ -151,16 +156,40 @@ PortalScreenCast::~PortalScreenCast() {
 
 bool PortalScreenCast::Open() {
     if (isOpen()) return true;
+    if (restoreToken_.empty())
+        restoreToken_ = deskhub::ui::TrimAscii(ReadAppDataFile(kRestoreTokenFile));
+
+    AttemptResult result = OpenAttempt();
+    if (result == AttemptResult::FailedWithToken) {
+        LOGW("[Portal] The saved screen selection was rejected — asking with the dialog.");
+        ForgetSavedSelection();
+        result = OpenAttempt();
+    }
+    return result == AttemptResult::Ok;
+}
+
+void PortalScreenCast::ForgetSavedSelection() {
+    restoreToken_.clear();
+    RemoveAppDataFile(kRestoreTokenFile);
+}
+
+PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
     lastError_.clear();
     streams_.clear();
+    bool sentToken = false;
+    bool cancelled = false;
 
     GMainContext* ctx = g_main_context_new();
     g_main_context_push_thread_default(ctx);
 
-    auto finish = [&](bool ok) {
+    auto finish = [&](AttemptResult result) {
         g_main_context_pop_thread_default(ctx);
         g_main_context_unref(ctx);
-        return ok;
+        return result;
+    };
+    auto fail = [&] {
+        if (cancelled) return finish(AttemptResult::Cancelled);
+        return finish(sentToken ? AttemptResult::FailedWithToken : AttemptResult::Failed);
     };
 
     GError* gerr = nullptr;
@@ -169,7 +198,7 @@ bool PortalScreenCast::Open() {
         lastError_ = std::string("no session D-Bus: ") + (gerr ? gerr->message : "?");
         if (gerr) g_error_free(gerr);
         LOGE("[Portal] %s", lastError_.c_str());
-        return finish(false);
+        return fail();
     }
 
     const uint32_t version = ReadUintProperty(conn, "version");
@@ -180,7 +209,7 @@ bool PortalScreenCast::Open() {
             "xdg-desktop-portal-gnome (GNOME), -kde (KDE) or -wlr (wlroots)";
         LOGE("[Portal] %s", lastError_.c_str());
         g_object_unref(conn);
-        return finish(false);
+        return fail();
     }
     LOGI("[Portal] ScreenCast version %u, cursor modes 0x%x.", version, cursorModes);
 
@@ -198,7 +227,7 @@ bool PortalScreenCast::Open() {
         if (!res) {
             LOGE("[Portal] CreateSession failed: %s", lastError_.c_str());
             g_object_unref(conn);
-            return finish(false);
+            return fail();
         }
         const char* sh = nullptr;
         g_variant_lookup(res, "session_handle", "&s", &sh);
@@ -208,7 +237,7 @@ bool PortalScreenCast::Open() {
             lastError_ = "portal returned no session_handle";
             LOGE("[Portal] %s", lastError_.c_str());
             g_object_unref(conn);
-            return finish(false);
+            return fail();
         }
     }
 
@@ -225,17 +254,24 @@ bool PortalScreenCast::Open() {
         if (version >= kScreenCastVersionPersist) {
             g_variant_builder_add(&ob, "{sv}", "persist_mode",
                 g_variant_new_uint32(kPersistModePersistent));
-            if (!restoreToken_.empty())
+            if (!restoreToken_.empty()) {
                 g_variant_builder_add(&ob, "{sv}", "restore_token",
                     g_variant_new_string(restoreToken_.c_str()));
+                sentToken = true;
+            }
         }
 
         GVariant* res = PortalRequest(conn, ctx, "SelectSources",
-            g_variant_new("(oa{sv})", sessionHandle_.c_str(), &ob), tok2, &lastError_);
+            g_variant_new("(oa{sv})", sessionHandle_.c_str(), &ob), tok2, &lastError_,
+            &cancelled);
+        if (sentToken) {
+            restoreToken_.clear();
+            RemoveAppDataFile(kRestoreTokenFile);
+        }
         if (!res) {
             LOGE("[Portal] SelectSources failed: %s", lastError_.c_str());
             g_object_unref(conn);
-            return finish(false);
+            return fail();
         }
         g_variant_unref(res);
     }
@@ -246,18 +282,27 @@ bool PortalScreenCast::Open() {
         g_variant_builder_init(&ob, G_VARIANT_TYPE_VARDICT);
         g_variant_builder_add(&ob, "{sv}", "handle_token", g_variant_new_string(tok3.c_str()));
 
-        LOGI("[Portal] Asking the compositor for screen capture — a system dialog will appear.");
+        if (sentToken)
+            LOGI("[Portal] Reusing the saved screen selection — no dialog should appear.");
+        else
+            LOGI(
+                "[Portal] Asking the compositor for screen capture — a system dialog will "
+                "appear.");
         GVariant* res = PortalRequest(conn, ctx, "Start",
-            g_variant_new("(osa{sv})", sessionHandle_.c_str(), "", &ob), tok3, &lastError_);
+            g_variant_new("(osa{sv})", sessionHandle_.c_str(), "", &ob), tok3, &lastError_,
+            &cancelled);
         if (!res) {
             LOGE("[Portal] Start failed: %s", lastError_.c_str());
             Close();
             g_object_unref(conn);
-            return finish(false);
+            return fail();
         }
 
         const char* rt = nullptr;
-        if (g_variant_lookup(res, "restore_token", "&s", &rt) && rt) restoreToken_ = rt;
+        if (g_variant_lookup(res, "restore_token", "&s", &rt) && rt) {
+            restoreToken_ = rt;
+            WriteAppDataFile(kRestoreTokenFile, restoreToken_);
+        }
 
         GVariant* list = g_variant_lookup_value(res, "streams", G_VARIANT_TYPE("a(ua{sv})"));
         if (list) {
@@ -307,7 +352,7 @@ bool PortalScreenCast::Open() {
             LOGE("[Portal] %s", lastError_.c_str());
             Close();
             g_object_unref(conn);
-            return finish(false);
+            return fail();
         }
     }
 
@@ -327,7 +372,7 @@ bool PortalScreenCast::Open() {
             if (fdList) g_object_unref(fdList);
             Close();
             g_object_unref(conn);
-            return finish(false);
+            return finish(AttemptResult::Failed);
         }
 
         gint32 idx = -1;
@@ -342,13 +387,13 @@ bool PortalScreenCast::Open() {
             LOGE("[Portal] %s", lastError_.c_str());
             Close();
             g_object_unref(conn);
-            return finish(false);
+            return finish(AttemptResult::Failed);
         }
     }
 
     LOGI("[Portal] Ready: %zu screen(s), PipeWire fd %d.", streams_.size(), pipewireFd_);
     g_object_unref(conn);
-    return finish(true);
+    return finish(AttemptResult::Ok);
 }
 
 void PortalScreenCast::Close() {

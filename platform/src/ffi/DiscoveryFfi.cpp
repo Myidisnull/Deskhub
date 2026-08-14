@@ -431,6 +431,16 @@ void dh_set_start_hidden(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+bool dh_keep_awake(void) {
+    return deskhubp::LoadUiSettings().keepAwake;
+}
+
+void dh_set_keep_awake(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.keepAwake = on;
+    deskhubp::SaveUiSettings(out);
+}
+
 int dh_version_line(char* out, int capacity) {
     return FillText(out, capacity, ui::VersionLine());
 }

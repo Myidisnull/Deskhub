@@ -14,6 +14,7 @@ if(WIN32)
         src/system/MemoryFootprintWin.cpp
         src/system/DeviceNameWin.cpp
         src/system/AutostartWin.cpp
+        src/system/KeepAwakeWin.cpp
     )
 else()
     set(deskhub_platform_os
@@ -85,6 +86,14 @@ else()
     else()
         list(APPEND deskhub_platform_os src/media/DisplayEnumNone.cpp)
     endif()
+
+    if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        list(APPEND deskhub_platform_os src/system/KeepAwakeMac.cpp)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND DESKHUB_PORTAL_FOUND)
+        list(APPEND deskhub_platform_os src/system/KeepAwakeLinux.cpp)
+    else()
+        list(APPEND deskhub_platform_os src/system/KeepAwakeNone.cpp)
+    endif()
 endif()
 
 add_library(platform STATIC
@@ -123,6 +132,7 @@ if(APPLE)
             "-framework AppKit"
             "-framework ScreenCaptureKit"
             "-framework ServiceManagement"
+            "-framework IOKit"
         )
     endif()
 endif()

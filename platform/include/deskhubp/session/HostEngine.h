@@ -151,6 +151,7 @@ private:
     deskhub::Beacon beacon_;
 
     uint32_t startBitrateBps_ = 0;
+    bool keepAwakeHeld_ = false;
 };
 
 template <class Capture, class Injector, class Encoder>

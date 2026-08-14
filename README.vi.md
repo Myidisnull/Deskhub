@@ -128,7 +128,9 @@ trong.
 thêm ba thứ:
 
 **1. Một screen-capture portal.** Deskhub luôn thu hình qua `xdg-desktop-portal` — đây là
-thứ hiện hộp thoại "chia sẻ màn hình nào?". GNOME và KDE có sẵn portal backend trên mọi
+thứ hiện hộp thoại "chia sẻ màn hình nào?". Lựa chọn của bạn ở đó được ghi nhớ, nên hộp
+thoại chỉ hiện lần đầu tiên bạn chia sẻ; nút *Choose screens again* trên trang Host sẽ
+gọi nó ra lại khi bạn muốn đổi màn hình. GNOME và KDE có sẵn portal backend trên mọi
 bản phân phối lớn — **không cần làm gì** trên Ubuntu, Kubuntu, Fedora Workstation, Fedora
 KDE, openSUSE hay Arch dùng GNOME/KDE. Các window manager độc lập thì cần cài:
 
@@ -229,6 +231,10 @@ text* cho phép văn bản thuần copy trên một thiết bị dán được t
 (hai chiều, chỉ văn bản, giới hạn 32 KiB, trên cả năm client — điện thoại hay máy tính
 bảng chỉ đọc được clipboard của chính nó khi Deskhub đang ở nền trước) — nó đi trên cùng
 kênh không mã hoá với video, nên hãy tắt trên mạng bạn không tin tưởng.
+*Keep this device awake* (mặc định bật) giữ cho máy không đi ngủ và màn hình không tắt
+trong lúc có phiên đang chạy — giống `caffeinate` trên macOS, nhưng chỉ trong phạm vi
+phiên và được nhả ngay khi phiên kết thúc; trên điện thoại hay máy tính bảng nó giữ màn
+hình sáng khi đang xem.
 
 Qua Internet: chạy [Tailscale](https://tailscale.com) trên cả hai máy và dùng địa chỉ
 100.x.y.z — đừng bao giờ port-forward. Trên di động, khung hình chính là trackpad: kéo =

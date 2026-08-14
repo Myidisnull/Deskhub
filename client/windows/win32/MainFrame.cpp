@@ -326,6 +326,7 @@ private:
     friend class DeskhubTrayIcon;
 
     void ApplyTrayMode();
+    bool EnsureTrayAttached();
     void ToggleWindowFromTray();
     void QuitFromTray();
 
@@ -423,6 +424,7 @@ private:
     wxCheckBox* autoShareCtrl_ = nullptr;
     wxCheckBox* autostartCtrl_ = nullptr;
     wxCheckBox* startHiddenCtrl_ = nullptr;
+    wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* clipboardCtrl_ = nullptr;
     DeskhubTrayIcon* trayIcon_ = nullptr;
     bool quitting_ = false;
@@ -491,11 +493,7 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
 
 void MainFrame::ApplyTrayMode() {
     if (settings_.startHidden && !trayIcon_) {
-        trayIcon_ = new DeskhubTrayIcon(*this);
-        if (!trayIcon_->SetIcon(wxICON(deskhub_app_icon), "Deskhub")) {
-            delete trayIcon_;
-            trayIcon_ = nullptr;
-        }
+        EnsureTrayAttached();
         return;
     }
     if (!settings_.startHidden && trayIcon_) {
@@ -504,6 +502,17 @@ void MainFrame::ApplyTrayMode() {
         trayIcon_ = nullptr;
         if (!IsShown()) Show(true);
     }
+}
+
+bool MainFrame::EnsureTrayAttached() {
+    if (trayIcon_) return true;
+    trayIcon_ = new DeskhubTrayIcon(*this);
+    if (!trayIcon_->SetIcon(wxICON(deskhub_app_icon), "Deskhub")) {
+        delete trayIcon_;
+        trayIcon_ = nullptr;
+        return false;
+    }
+    return true;
 }
 
 void MainFrame::ToggleWindowFromTray() {
@@ -868,6 +877,9 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     clipboardCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kClipboardSyncLabel));
     clipboardCtrl_->SetValue(settings_.clipboardSync);
     sizer->Add(clipboardCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    keepAwakeCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kKeepAwakeLabel));
+    keepAwakeCtrl_->SetValue(settings_.keepAwake);
+    sizer->Add(keepAwakeCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     sizer->AddSpacer(FromDIP(12));
     sizer->Add(MakeSection(panel, ui::kSettingsSectionLaunch), pad);
@@ -890,6 +902,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     qualityChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    keepAwakeCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     autoShareCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     autostartCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     startHiddenCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
@@ -1538,6 +1551,7 @@ void MainFrame::SaveSettings() {
     settings_.allowInput = allowInputCtrl_->GetValue();
     settings_.clientControl = controlCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();
+    settings_.keepAwake = keepAwakeCtrl_->GetValue();
     const std::string passcode(passcodeCtrl_->GetValue().utf8_str());
     if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
     const int quality = qualityChoice_->GetSelection();
@@ -1565,7 +1579,9 @@ void MainFrame::SaveRecentDevices() {
 }
 
 void MainFrame::OnClose(wxCloseEvent& event) {
-    if (!quitting_ && settings_.startHidden && trayIcon_ && event.CanVeto()) {
+    const bool sessionActive = hosting_ || hostStarting_;
+    const bool keepRunning = settings_.startHidden || sessionActive;
+    if (!quitting_ && keepRunning && event.CanVeto() && EnsureTrayAttached()) {
         event.Veto();
         Hide();
         return;

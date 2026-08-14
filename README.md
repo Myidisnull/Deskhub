@@ -124,7 +124,9 @@ has, and the H.264 decoder is compiled in.
 three more things must be in place:
 
 **1. A screen-capture portal.** Deskhub always captures through `xdg-desktop-portal` — it
-is what shows the "which screen to share?" dialog. GNOME and KDE ship their portal
+is what shows the "which screen to share?" dialog. Your choice there is remembered, so
+the dialog appears only the first time you share; *Choose screens again* on the Host page
+brings it back when you want a different screen. GNOME and KDE ship their portal
 backend out of the box on every major distro — **nothing to do** on Ubuntu, Kubuntu,
 Fedora Workstation, Fedora KDE, openSUSE or Arch with GNOME/KDE. Standalone window
 managers do need one:
@@ -226,6 +228,10 @@ window.
 (both directions, text only, 32 KiB cap, on all five clients — a phone or tablet reads
 its own clipboard only while Deskhub is in the foreground) — it rides the same
 unencrypted channel as the video, so leave it off on networks you do not trust.
+*Keep this device awake* (on by default) stops the machine from sleeping and the screen
+from turning off while a session is running — like `caffeinate` on macOS, but scoped to
+the session and released the moment it ends; on a phone or tablet it keeps the screen on
+while viewing.
 
 Over the Internet: run [Tailscale](https://tailscale.com) on both machines and use the
 100.x.y.z IP — never a port-forward. On mobile the video frame is a trackpad:

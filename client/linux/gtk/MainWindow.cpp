@@ -506,6 +506,11 @@ GtkWidget* MainWindow::BuildHostPage() {
     g_signal_connect(shareButton_, "clicked", G_CALLBACK(OnShareClicked), this);
     gtk_box_pack_start(GTK_BOX(box), shareButton_, FALSE, FALSE, 0);
 
+    rechooseButton_ = gtk_button_new_with_label(ui::kChooseScreensAgain);
+    gtk_widget_set_halign(rechooseButton_, GTK_ALIGN_START);
+    g_signal_connect(rechooseButton_, "clicked", G_CALLBACK(OnRechooseClicked), this);
+    gtk_box_pack_start(GTK_BOX(box), rechooseButton_, FALSE, FALSE, 0);
+
     ShowIdleHostState();
     return WrapPage(box);
 }
@@ -718,6 +723,9 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     clipboardCheck_ = gtk_check_button_new_with_label(ui::kClipboardSyncLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(clipboardCheck_), settings_.clipboardSync);
     gtk_box_pack_start(GTK_BOX(box), clipboardCheck_, FALSE, FALSE, 0);
+    keepAwakeCheck_ = gtk_check_button_new_with_label(ui::kKeepAwakeLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_), settings_.keepAwake);
+    gtk_box_pack_start(GTK_BOX(box), keepAwakeCheck_, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionLaunch), FALSE, FALSE, 0);
     autostartCheck_ = gtk_check_button_new_with_label(ui::kAutostartLabel);
@@ -738,6 +746,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(hostPasscodeEntry_, "changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(allowInputCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(keepAwakeCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(autostartCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(autoShareCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(startHiddenCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
@@ -812,6 +821,7 @@ void MainWindow::SaveSettings() {
     settings_.allowInput = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowInputCheck_));
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
+    settings_.keepAwake = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_));
     const gint bindSel = gtk_combo_box_get_active(GTK_COMBO_BOX(bindCombo_));
     if (bindSel >= 0 && size_t(bindSel) < bindChoices_.size())
         settings_.bindIp = bindChoices_[size_t(bindSel)];
@@ -837,20 +847,25 @@ void MainWindow::SaveRecentDevices() {
 
 void MainWindow::ApplyTrayMode() {
     if (settings_.startHidden && !tray_.Attached()) {
-        TrayIcon::Actions actions;
-        actions.onToggleWindow = [this] { ToggleWindowFromTray(); };
-        actions.onToggleShare = [this] { OnShare(); };
-        actions.onQuit = [this] { gtk_widget_destroy(window_); };
-        if (tray_.Attach(actions)) {
-            tray_.SetSharing(hosting_);
-            tray_.SetWindowVisible(gtk_widget_get_visible(window_));
-        }
+        EnsureTrayAttached();
         return;
     }
     if (!settings_.startHidden && tray_.Attached()) {
         tray_.Detach();
         ShowMainWindow();
     }
+}
+
+bool MainWindow::EnsureTrayAttached() {
+    if (tray_.Attached()) return true;
+    TrayIcon::Actions actions;
+    actions.onToggleWindow = [this] { ToggleWindowFromTray(); };
+    actions.onToggleShare = [this] { OnShare(); };
+    actions.onQuit = [this] { gtk_widget_destroy(window_); };
+    if (!tray_.Attach(actions)) return false;
+    tray_.SetSharing(hosting_);
+    tray_.SetWindowVisible(gtk_widget_get_visible(window_));
+    return true;
 }
 
 void MainWindow::ToggleWindowFromTray() {
@@ -1171,6 +1186,17 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     static_cast<MainWindow*>(user)->OnShare();
 }
 
+void MainWindow::OnRechooseClicked(GtkButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->hosting_ || self->hostStarting_) return;
+    deskhubp::ForgetDisplaySelection();
+    self->OnShare();
+}
+
+void MainWindow::RefreshRechooseButton() {
+    gtk_widget_set_sensitive(rechooseButton_, !hosting_ && !hostStarting_);
+}
+
 void MainWindow::OnShare() {
     if (hostStarting_) return;
     if (hosting_) {
@@ -1190,6 +1216,7 @@ void MainWindow::OnShare() {
 
     hostStarting_ = true;
     gtk_widget_set_sensitive(shareButton_, FALSE);
+    RefreshRechooseButton();
     ApplyHostState(HostShareState::kStarting, "Waiting for the screen-sharing dialog\xE2\x80\xA6");
 
     std::thread([this, options, alive = alive_] {
@@ -1200,6 +1227,7 @@ void MainWindow::OnShare() {
             if (!alive->load()) return;
             hostStarting_ = false;
             gtk_widget_set_sensitive(shareButton_, TRUE);
+            RefreshRechooseButton();
 
             if (sources.empty()) {
                 ShowIdleHostState();
@@ -1221,6 +1249,7 @@ void MainWindow::StartHosting(const std::vector<AgentSource>& sources,
     const AgentOptions& options) {
     hostStarting_ = true;
     gtk_widget_set_sensitive(shareButton_, FALSE);
+    RefreshRechooseButton();
     ApplyHostState(HostShareState::kStarting, HostPortDetail());
     ClearHostRows();
     gtk_widget_hide(hostHintLabel_);
@@ -1238,6 +1267,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     const AgentOptions& options) {
     hostStarting_ = false;
     gtk_widget_set_sensitive(shareButton_, TRUE);
+    RefreshRechooseButton();
 
     if (!started) {
         ShowIdleHostState();
@@ -1248,6 +1278,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     }
 
     hosting_ = true;
+    RefreshRechooseButton();
 
     std::string status = ui::SharingStatusLine(options.port);
     if (!options.passcode.empty()) status += " " + ui::PasscodeNote(options.passcode);
@@ -1277,6 +1308,7 @@ void MainWindow::StopHosting() {
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
+    RefreshRechooseButton();
     tray_.SetSharing(false);
     ShowIdleHostState();
     if (gtk_widget_get_visible(window_)) gtk_widget_show(hostHintLabel_);
@@ -1418,7 +1450,9 @@ void MainWindow::OnHostRowActionClicked(GtkButton* b, gpointer user) {
 
 gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    if (self->settings_.startHidden && self->tray_.Attached()) {
+    const bool sessionActive = self->hosting_ || self->hostStarting_;
+    const bool keepRunning = self->settings_.startHidden || sessionActive;
+    if (keepRunning && self->EnsureTrayAttached()) {
         gtk_widget_hide(self->window_);
         self->tray_.SetWindowVisible(false);
         return TRUE;

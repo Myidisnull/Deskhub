@@ -26,6 +26,7 @@ void TestRoundTrip() {
     s.autoShare = true;
     s.clipboardSync = true;
     s.startHidden = true;
+    s.keepAwake = false;
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
 }
@@ -60,6 +61,11 @@ void TestBehaviorTogglesPersist() {
     Check(ui::ParseUiSettings("start_hidden=1").startHidden, "start hidden round-trips on");
     Check(!ui::ParseUiSettings("autostart=x").autostart,
         "junk in a toggle falls back to off");
+    Check(defaults.keepAwake, "keep awake defaults on");
+    Check(!ui::ParseUiSettings("keep_awake=0").keepAwake, "keep awake round-trips off");
+    Check(ui::ParseUiSettings("keep_awake=1").keepAwake, "and on");
+    Check(ui::ParseUiSettings("keep_awake=x").keepAwake,
+        "junk in keep awake falls back to on");
 }
 
 void TestDeviceNamePersistence() {

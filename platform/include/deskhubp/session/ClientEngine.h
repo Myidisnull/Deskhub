@@ -11,6 +11,8 @@
 #include "deskhubp/net/ClientNetLoop.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/Clock.h"
+#include "deskhubp/system/KeepAwake.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 #include <atomic>
 #include <chrono>
@@ -98,6 +100,10 @@ public:
         netThread_ = std::thread([this] { NetThread(); });
         LOGI("[Client] Connecting to %s (source %u) ...", cfg_.server.ToString().c_str(),
             cfg_.sourceId);
+        if (LoadUiSettings().keepAwake) {
+            AcquireKeepAwake();
+            keepAwakeHeld_ = true;
+        }
         return true;
     }
 
@@ -117,6 +123,10 @@ public:
         if (netThread_.joinable()) netThread_.join();
         if (decodeThread_.joinable()) decodeThread_.join();
         sock_.Close();
+        if (keepAwakeHeld_) {
+            ReleaseKeepAwake();
+            keepAwakeHeld_ = false;
+        }
     }
 
     void SetSurface(Surface surface) {
@@ -508,6 +518,7 @@ private:
 
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;
+    bool keepAwakeHeld_ = false;
 };
 
 }

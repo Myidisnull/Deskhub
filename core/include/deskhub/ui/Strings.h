@@ -71,7 +71,9 @@ inline constexpr const char* kRequestControlLabel =
 inline constexpr const char* kViewOnlyNote = "View-only: viewers can watch but not control.";
 inline constexpr const char* kPickDisplaysHint = "Tick the displays to share, then press Share.";
 inline constexpr const char* kPickDisplaysPortalHint =
-    "Press Share, then pick the displays in your desktop's screen-sharing dialog.";
+    "Press Share, then pick the displays in your desktop's screen-sharing dialog. Your "
+    "choice is remembered, so the dialog only appears the first time.";
+inline constexpr const char* kChooseScreensAgain = "Choose screens again\xE2\x80\xA6";
 inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
 inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
 inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";
@@ -95,6 +97,8 @@ inline constexpr const char* kAutostartLabel = "Start Deskhub when you log in";
 inline constexpr const char* kAutoShareLabel = "Start sharing when Deskhub opens";
 inline constexpr const char* kClipboardSyncLabel =
     "Sync clipboard text with connected devices";
+inline constexpr const char* kKeepAwakeLabel =
+    "Keep this device awake while a session is active";
 inline constexpr const char* kCloseToTrayLabel =
     "Keep running in the background (tray icon) when the window is closed";
 inline constexpr const char* kTrayShowWindow = "Show Deskhub";

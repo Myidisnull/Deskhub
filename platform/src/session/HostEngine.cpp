@@ -6,6 +6,8 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
+#include "deskhubp/system/KeepAwake.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 #include <cstdio>
 #include <span>
@@ -217,6 +219,10 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         RecvLoop();
         running_.store(false, std::memory_order_release);
     });
+    if (LoadUiSettings().keepAwake) {
+        AcquireKeepAwake();
+        keepAwakeHeld_ = true;
+    }
     return true;
 }
 
@@ -235,6 +241,11 @@ void HostEngine::Stop() {
 
     live_.clear();
     pipes_.clear();
+
+    if (keepAwakeHeld_) {
+        ReleaseKeepAwake();
+        keepAwakeHeld_ = false;
+    }
 }
 
 void HostEngine::RequestStopSource(uint8_t sourceId) {

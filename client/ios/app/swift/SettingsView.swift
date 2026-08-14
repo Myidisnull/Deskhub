@@ -35,6 +35,12 @@ struct SettingsView: View {
                 .onChange(of: settings.clipboardSync) { _, _ in
                     settings.save()
                 }
+                Toggle(isOn: $settings.keepAwake) {
+                    Text(DeskhubClient.string(DHStrKeepAwakeLabel))
+                }
+                .onChange(of: settings.keepAwake) { _, _ in
+                    settings.save()
+                }
 
                 ProjectFooter()
             }

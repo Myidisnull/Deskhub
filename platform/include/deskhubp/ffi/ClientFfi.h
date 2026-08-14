@@ -147,6 +147,7 @@ typedef enum {
     DHStrSettingsSectionSecurity = 73,
     DHStrSettingsSectionSession = 74,
     DHStrSettingsSectionLaunch = 75,
+    DHStrKeepAwakeLabel = 76,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

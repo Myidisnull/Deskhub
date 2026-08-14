@@ -113,7 +113,9 @@ class StreamActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (NativeClient.keepAwake()) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
 
         address = intent.getStringExtra("addr").orEmpty()
         passcode = intent.getStringExtra("passcode").orEmpty()

@@ -49,6 +49,7 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "auto_share") out.autoShare = *v != 0;
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
     if (key == "start_hidden") out.startHidden = *v != 0;
+    if (key == "keep_awake") out.keepAwake = *v != 0;
 }
 
 }
@@ -105,6 +106,7 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("auto_share=") + (settings.autoShare ? "1" : "0") + '\n';
     out += std::string("clipboard_sync=") + (settings.clipboardSync ? "1" : "0") + '\n';
     out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
+    out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
     return out;
 }
 

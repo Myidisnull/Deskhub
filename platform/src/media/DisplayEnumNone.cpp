@@ -12,6 +12,8 @@ std::string ListDisplaysError() {
 
 void ReleaseDisplays() {}
 
+void ForgetDisplaySelection() {}
+
 void SetLocalDisplay(uint32_t, uint32_t, const std::string&) {}
 
 }

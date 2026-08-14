@@ -99,6 +99,7 @@ private:
     void SetBusy(bool busy, const char* what);
 
     void ApplyTrayMode();
+    bool EnsureTrayAttached();
     void ToggleWindowFromTray();
     void ShowMainWindow();
 
@@ -107,6 +108,8 @@ private:
 
     static void OnNavClicked(GtkButton* b, gpointer user);
     static void OnShareClicked(GtkButton* b, gpointer user);
+    static void OnRechooseClicked(GtkButton* b, gpointer user);
+    void RefreshRechooseButton();
     static void OnHostRowActionClicked(GtkButton* b, gpointer user);
     static void OnConnectClicked(GtkButton* b, gpointer user);
     static void OnAddressActivate(GtkEntry* e, gpointer user);
@@ -136,6 +139,7 @@ private:
     GtkWidget* hostGrid_ = nullptr;
     std::vector<HostRowWidgets> hostRowWidgets_;
     GtkWidget* shareButton_ = nullptr;
+    GtkWidget* rechooseButton_ = nullptr;
 
     GtkWidget* addressEntry_ = nullptr;
     GtkWidget* portEntry_ = nullptr;
@@ -159,6 +163,7 @@ private:
     GtkWidget* autostartCheck_ = nullptr;
     GtkWidget* startHiddenCheck_ = nullptr;
     GtkWidget* clipboardCheck_ = nullptr;
+    GtkWidget* keepAwakeCheck_ = nullptr;
     TrayIcon tray_;
     guint clipTimerId_ = 0;
 

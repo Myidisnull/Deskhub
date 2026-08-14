@@ -21,6 +21,7 @@ struct UiSettings {
     bool autoShare = false;
     bool clipboardSync = false;
     bool startHidden = false;
+    bool keepAwake = true;
 
     bool operator==(const UiSettings&) const = default;
 };
