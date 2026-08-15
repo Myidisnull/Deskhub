@@ -36,12 +36,12 @@ struct HostPage: View {
                 HostSourceTable(rows: agent.rows) { agent.runRowAction($0) }
                     .frame(minHeight: 170)
             } else {
-                SharePickerTable(sources: agent.shareSources, ticked: $agent.tickedSources)
-                    .frame(minHeight: 170)
-                Toggle(
-                    DeskhubClient.string(DHStrTerminalPickerLabel),
-                    isOn: $agent.shareTerminal
+                SharePickerTable(
+                    sources: agent.shareSources,
+                    ticked: $agent.tickedSources,
+                    terminal: $agent.shareTerminal
                 )
+                .frame(minHeight: 170)
                 deskhubHint(DeskhubClient.string(DHStrPickSourcesHint))
             }
 
@@ -119,11 +119,6 @@ struct HostStatusBanner: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(state.tint)
-                .frame(width: 10, height: 10)
-                .padding(.top, 5)
-
             VStack(alignment: .leading, spacing: 3) {
                 Text(state.label)
                     .font(.system(size: 15, weight: .bold))
@@ -136,9 +131,14 @@ struct HostStatusBanner: View {
             Spacer(minLength: 0)
         }
         .padding(12)
+        .padding(.leading, 4)
         .background(
             RoundedRectangle(cornerRadius: 10).fill(state.tint.opacity(0.12))
         )
+        .overlay(alignment: .leading) {
+            Rectangle().fill(state.tint).frame(width: 4)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10).stroke(state.tint.opacity(0.35), lineWidth: 1)
         )
@@ -184,26 +184,46 @@ struct HostSourceTable: View {
 struct SharePickerTable: View {
     let sources: [ShareSource]
     @Binding var ticked: Set<UInt32>
+    @Binding var terminal: Bool
+
+    private struct Row: Identifiable {
+        let id: String
+        let name: String
+        let size: String
+        let sourceId: UInt32?
+    }
+
+    private var rows: [Row] {
+        var all = sources.map { source in
+            Row(id: "source-\(source.id)", name: source.name,
+                size: "\(source.width)x\(source.height)", sourceId: source.id)
+        }
+        all.append(Row(id: "terminal",
+                       name: DeskhubClient.string(DHStrTerminalPickerLabel),
+                       size: "", sourceId: nil))
+        return all
+    }
 
     var body: some View {
-        Table(sources) {
-            TableColumn("") { source in
-                Toggle("", isOn: tick(source)).labelsHidden()
+        Table(rows) {
+            TableColumn("") { row in
+                Toggle("", isOn: tick(row)).labelsHidden()
             }
             .width(24)
             TableColumn("Source") { Text($0.name) }.width(220)
-            TableColumn("Size") { Text("\($0.width)x\($0.height)") }.width(110)
+            TableColumn("Size") { Text($0.size) }.width(110)
         }
     }
 
-    private func tick(_ source: ShareSource) -> Binding<Bool> {
-        Binding(
-            get: { ticked.contains(source.id) },
+    private func tick(_ row: Row) -> Binding<Bool> {
+        guard let sourceId = row.sourceId else { return $terminal }
+        return Binding(
+            get: { ticked.contains(sourceId) },
             set: { on in
                 if on {
-                    ticked.insert(source.id)
+                    ticked.insert(sourceId)
                 } else {
-                    ticked.remove(source.id)
+                    ticked.remove(sourceId)
                 }
             }
         )

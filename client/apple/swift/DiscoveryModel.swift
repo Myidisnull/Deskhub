@@ -66,6 +66,24 @@ nonisolated enum DeskhubDiscovery {
         )
     }
 
+    static func deviceRows() -> [DeviceListRow] {
+        DeskhubClient.ffiList(
+            64, DHDeviceRow(),
+            { dh_device_rows($0, $1) },
+            { row in
+                DeviceListRow(
+                    addr: DeskhubClient.cString(row.addr),
+                    passcode: DeskhubClient.cString(row.passcode),
+                    origin: DeskhubClient.cString(row.origin),
+                    status: DeskhubClient.cString(row.status),
+                    ping: DeskhubClient.cString(row.ping),
+                    lastConnected: DeskhubClient.cString(row.lastConnected),
+                    online: row.known ? row.online : nil
+                )
+            }
+        )
+    }
+
     static func recentDevices() -> [RecentDevice] {
         DeskhubClient.ffiList(
             16, DHRecentRow(),
@@ -108,6 +126,7 @@ final class DiscoveryModel {
 
     var scanHits: [ScanHit] = []
     var recent: [RecentDevice] = []
+    var devices: [DeviceListRow] = []
     var scanStatus = ""
     var recentNote = DeskhubDiscovery.recentNote()
 
@@ -143,6 +162,7 @@ final class DiscoveryModel {
                     (
                         hits: DeskhubDiscovery.scanHits(),
                         recent: DeskhubDiscovery.recentDevices(),
+                        devices: DeskhubDiscovery.deviceRows(),
                         status: DeskhubDiscovery.scanStatus(port: port),
                         note: DeskhubDiscovery.recentNote(),
                         scanning: DeskhubDiscovery.isScanning
@@ -151,6 +171,7 @@ final class DiscoveryModel {
 
                 scanHits = snapshot.hits
                 recent = snapshot.recent
+                devices = snapshot.devices
                 scanStatus = snapshot.status
                 recentNote = snapshot.note
 
@@ -181,9 +202,14 @@ final class DiscoveryModel {
         await Task.detached { DeskhubDiscovery.remember(address: address, passcode: passcode) }
             .value
         let snapshot = await Task.detached {
-            (rows: DeskhubDiscovery.recentDevices(), note: DeskhubDiscovery.recentNote())
+            (
+                rows: DeskhubDiscovery.recentDevices(),
+                devices: DeskhubDiscovery.deviceRows(),
+                note: DeskhubDiscovery.recentNote()
+            )
         }.value
         recent = snapshot.rows
+        devices = snapshot.devices
         recentNote = snapshot.note
     }
 }

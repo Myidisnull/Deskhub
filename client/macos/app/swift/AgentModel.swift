@@ -118,11 +118,17 @@ final class AgentModel {
         addresses = LocalAddress.all()
     }
 
+    private var sourcesRefresh: Task<Void, Never>?
+
     func refreshShareSources() async {
-        guard !isSharing, !isStarting else { return }
-        let found = await Task.detached { DeskhubAgent.listShareSources() }.value
-        shareSources = found
-        tickedSources = Set(found.map(\.id))
+        if let running = sourcesRefresh {
+            await running.value
+            return
+        }
+        let task = Task { await self.loadShareSources() }
+        sourcesRefresh = task
+        await task.value
+        sourcesRefresh = nil
     }
 
     var pickedSources: [ShareSource] {
@@ -268,6 +274,21 @@ final class AgentModel {
         }
         drainPairingRequests()
         if clipboardSync { pumpClipboard() }
+    }
+}
+
+extension AgentModel {
+    private func loadShareSources() async {
+        guard !isSharing, !isStarting else { return }
+        refreshPermissions()
+        guard hasScreenRecording else {
+            shareSources = []
+            tickedSources = []
+            return
+        }
+        let found = await Task.detached { DeskhubAgent.listShareSources() }.value
+        shareSources = found
+        tickedSources = Set(found.map(\.id))
     }
 
     private func pumpClipboard() {

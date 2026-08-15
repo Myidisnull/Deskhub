@@ -15,6 +15,7 @@
 
 #include "deskhub/net/Ipv4.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhub/ui/UiSettings.h"
@@ -337,6 +338,39 @@ int dh_recent_rows(DHRecentRow* out, int capacity) {
     return count;
 }
 
+int dh_device_rows(DHDeviceRow* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    std::vector<std::string> scanned;
+    scanned.reserve(g_hits.size());
+    for (const deskhubp::ScanHit& hit : g_hits) scanned.push_back(hit.addr);
+
+    const std::vector<ui::DeviceRow> rows = ui::BuildDeviceRows(scanned, Recent());
+    const int count = int(rows.size()) < capacity ? int(rows.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        const ui::DeviceRow& row = rows[size_t(i)];
+        const std::optional<deskhubp::DeviceStatus> found = StatusForLocked(row.addr);
+        const bool known = found.has_value();
+        const bool online = known && found->online;
+
+        deskhubp::CopyToBuf(out[i].addr, sizeof(out[i].addr), row.addr);
+        deskhubp::CopyToBuf(out[i].passcode, sizeof(out[i].passcode),
+            ui::PasscodeForDevice(Recent(), row.addr));
+        deskhubp::CopyToBuf(out[i].origin, sizeof(out[i].origin),
+            ui::DeviceOriginLabel(row.origin));
+        deskhubp::CopyToBuf(out[i].status, sizeof(out[i].status),
+            !known ? ui::kStatusChecking : (online ? ui::kStatusOnline : ui::kStatusOffline));
+        deskhubp::CopyToBuf(out[i].ping, sizeof(out[i].ping),
+            online ? ui::PingMs(found->rttMs) : std::string("-"));
+        const std::string last = LocalTimeText(row.lastConnectedUnix);
+        deskhubp::CopyToBuf(out[i].lastConnected, sizeof(out[i].lastConnected),
+            last.empty() ? std::string("-") : last);
+        out[i].known = known;
+        out[i].online = online;
+    }
+    return count;
+}
+
 void dh_status_watch_recent(void) {
     std::vector<std::string> list;
     {
@@ -369,6 +403,26 @@ bool dh_client_control(void) {
 void dh_set_client_control(bool on) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
     out.clientControl = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_client_desktop(void) {
+    return deskhubp::LoadUiSettings().clientDesktop;
+}
+
+void dh_set_client_desktop(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.clientDesktop = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_client_shell(void) {
+    return deskhubp::LoadUiSettings().clientShell;
+}
+
+void dh_set_client_shell(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.clientShell = on;
     deskhubp::SaveUiSettings(out);
 }
 

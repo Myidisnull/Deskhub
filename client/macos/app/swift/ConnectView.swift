@@ -29,7 +29,10 @@ struct MainMenuView: View {
     @State private var discovery = DiscoveryModel()
     @State private var page: DeskhubPage = .client
     @State private var shareAlert = ""
+    @State private var connectAlert = ""
     @State private var accessibilityWarning = false
+    @State private var openDesktop = dh_client_desktop()
+    @State private var openShell = dh_client_shell()
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""
     @State private var promptPort = ""
@@ -67,6 +70,11 @@ struct MainMenuView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(shareAlert)
+        }
+        .alert("Deskhub", isPresented: showingConnectAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(connectAlert)
         }
         .sheet(item: $prompting) { row in
             PasscodePromptSheet(
@@ -153,9 +161,10 @@ struct MainMenuView: View {
                         enabled: !connect.isConnecting,
                         onSubmit: beginConnect
                     )
+                    .help(DeskhubClient.string(DHStrClientPasscodeHint))
                 }
                 GridRow {
-                    Text("Your name")
+                    Text(DeskhubClient.string(DHStrDeviceNameLabel))
                     TextField("", text: $connect.deviceName)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 260)
@@ -164,7 +173,29 @@ struct MainMenuView: View {
                 }
             }
 
-            deskhubHint(DeskhubClient.string(DHStrClientPasscodeHint))
+            GroupBox(DeskhubClient.string(DHStrOpenChoiceGroup)) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(
+                        DeskhubClient.string(DHStrOpenDesktopLabel), isOn: $openDesktop
+                    )
+                    .toggleStyle(.checkbox)
+                    .onChange(of: openDesktop) { _, on in dh_set_client_desktop(on) }
+                    Toggle(
+                        DeskhubClient.string(DHStrRequestControlLabel),
+                        isOn: $agent.clientControl
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(!openDesktop)
+                    .padding(.leading, 24)
+                    .onChange(of: agent.clientControl) { _, _ in agent.save() }
+                    Toggle(DeskhubClient.string(DHStrOpenShellLabel), isOn: $openShell)
+                        .toggleStyle(.checkbox)
+                        .onChange(of: openShell) { _, on in dh_set_client_shell(on) }
+                    deskhubHint(DeskhubClient.string(DHStrOpenChoiceHint))
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             Button(action: beginConnect) {
                 Text("Connect").deskhubPrimaryLabel()
@@ -174,49 +205,30 @@ struct MainMenuView: View {
             .tint(DeskhubPalette.accent)
             .disabled(connect.address.isEmpty || connect.isConnecting)
 
-            Button(action: openShell) {
-                Text(DeskhubClient.string(DHStrOpenShellLabel)).deskhubPrimaryLabel()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(connect.address.isEmpty || connect.isConnecting)
+            VStack(spacing: 4) {
+                if connect.isConnecting {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(DeskhubClient.string(DHStrQueryingSources))
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
-            Toggle(DeskhubClient.string(DHStrRequestControlLabel), isOn: $agent.clientControl)
-                .onChange(of: agent.clientControl) { _, _ in agent.save() }
-
-            if connect.isConnecting {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(DeskhubClient.string(DHStrQueryingSources)).foregroundStyle(.secondary)
+                if !connect.connectError.isEmpty {
+                    Text(connect.connectError)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity)
 
-            if !connect.connectError.isEmpty {
-                Text(connect.connectError)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            deskhubHeadingRow(DeskhubClient.string(DHStrLanDevicesHeading)) {
+            deskhubHeadingRow(DeskhubClient.string(DHStrDevicesHeading)) {
+                discovery.refreshStatus()
                 discovery.rescanNow()
             }
             DeviceTable(
-                rows: discovery.scanHits.map {
-                    DeviceListRow($0, passcode: DeskhubDiscovery.passcode(for: $0.addr))
-                },
+                rows: discovery.devices,
                 note: discovery.scanStatus,
-                withHistory: false,
-                enabled: !connect.isConnecting,
-                onPick: pick
-            )
-
-            deskhubHeadingRow(DeskhubClient.string(DHStrRecentDevicesHeading)) {
-                discovery.refreshStatus()
-            }
-            DeviceTable(
-                rows: discovery.recent.map { DeviceListRow($0) },
-                note: discovery.recentNote,
-                withHistory: true,
                 enabled: !connect.isConnecting,
                 onPick: pick
             )
@@ -225,6 +237,10 @@ struct MainMenuView: View {
 
     private var showingShareAlert: Binding<Bool> {
         Binding(get: { !shareAlert.isEmpty }, set: { if !$0 { shareAlert = "" } })
+    }
+
+    private var showingConnectAlert: Binding<Bool> {
+        Binding(get: { !connectAlert.isEmpty }, set: { if !$0 { connectAlert = "" } })
     }
 }
 
@@ -272,17 +288,22 @@ extension MainMenuView {
         beginConnect()
     }
 
-    private func openShell() {
+    private func beginConnect() {
+        guard !connect.address.isEmpty, !connect.isConnecting else { return }
+        if !openDesktop, !openShell {
+            connectAlert = DeskhubClient.string(DHStrOpenNothingTicked)
+            return
+        }
         guard let accepted = connect.acceptAddress() else { return }
         connect.saveDeviceName()
         let passcode = connect.acceptedPasscode
-        Task { await discovery.remember(address: accepted, passcode: passcode) }
-        openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
-    }
-
-    private func beginConnect() {
-        guard !connect.address.isEmpty, !connect.isConnecting else { return }
-        connect.saveDeviceName()
+        if openShell {
+            openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
+        }
+        guard openDesktop else {
+            Task { await discovery.remember(address: accepted, passcode: passcode) }
+            return
+        }
         Task {
             let sources = await connect.listSources()
             guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
@@ -296,55 +317,6 @@ extension MainMenuView {
                             passcode: connect.acceptedPasscode, openWindow: openWindow)
             }
         }
-    }
-}
-
-private struct MainMenuSidebar: View {
-    @Binding var page: DeskhubPage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Deskhub")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(16)
-
-            ForEach(DeskhubPage.allCases) { item in
-                Button {
-                    page = item
-                } label: {
-                    Text(item.label)
-                        .font(.system(size: 14, weight: page == item ? .bold : .regular))
-                        .foregroundStyle(page == item ? Color.white : DeskhubPalette.navText)
-                        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(page == item ? DeskhubPalette.accent : Color.clear)
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-            }
-
-            Spacer(minLength: 0)
-
-            if let url = URL(string: DeskhubClient.string(DHStrProjectUrl)) {
-                Link(DeskhubClient.string(DHStrProjectLinkLabel), destination: url)
-                    .foregroundStyle(DeskhubPalette.navText)
-                    .padding(.horizontal, 16)
-            }
-
-            Text(DeskhubClient.buffered(64) { dh_version_line($0, $1) })
-                .font(.caption)
-                .foregroundStyle(DeskhubPalette.footnote)
-                .padding(16)
-        }
-        .frame(width: 180)
-        .frame(maxHeight: .infinity)
-        .background(DeskhubPalette.sidebar)
     }
 }
 

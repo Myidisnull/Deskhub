@@ -71,8 +71,10 @@ export_boringssl_headers() {
         -path '*/boring-sys-*/deps/boringssl/src/include' 2>/dev/null | sort | tail -1)
     if [ -z "$found" ]; then
         echo "build-quiche.sh: BoringSSL headers not found under $cargo_home/registry/src." >&2
-        echo "                 They appear once cargo has fetched boring-sys; re-run after a build." >&2
-        return 0
+        echo "                 Without include/openssl the CMake build silently falls back to" >&2
+        echo "                 the no-QUIC stubs and the apps cannot share. They appear once" >&2
+        echo "                 cargo has fetched boring-sys; re-run this script after a build." >&2
+        return 1
     fi
     rm -rf "$PREFIX/include/openssl"
     cp -R "$found/openssl" "$PREFIX/include/openssl"

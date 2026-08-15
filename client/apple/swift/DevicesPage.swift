@@ -14,38 +14,76 @@ struct DevicesPage: View {
     @State private var devices: [PairedDeviceRow] = []
     @State private var allowPairing = dh_allow_pairing()
     @State private var confirmForgetAll = false
+    @State private var selection: PairedDeviceRow.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             deskhubHeading(DeskhubClient.string(DHStrPairedHeading))
             deskhubHint(DeskhubClient.string(DHStrPairedHint))
 
-            if devices.isEmpty {
-                deskhubHint(DeskhubClient.string(DHStrPairedEmpty))
-            } else {
-                ForEach(devices) { device in
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.name.isEmpty ? "(unnamed)" : device.name)
-                                .foregroundStyle(DeskhubPalette.heading)
-                            Text(Self.subtitle(for: device))
-                                .font(.caption)
-                                .foregroundStyle(DeskhubPalette.muted)
-                        }
-                        Spacer(minLength: 0)
-                        Button(DeskhubClient.string(DHStrPairedForget)) {
-                            _ = dh_paired_forget(device.fingerprint)
-                            refresh()
-                        }
+            #if os(macOS)
+                Table(devices, selection: $selection) {
+                    TableColumn(DeskhubClient.string(DHStrPairedColumnName)) { device in
+                        Text(device.name.isEmpty ? "(unnamed)" : device.name)
                     }
-                    .padding(.vertical, 2)
+                    .width(200)
+                    TableColumn(DeskhubClient.string(DHStrPairedColumnKey)) {
+                        Text($0.shortKey)
+                    }
+                    .width(130)
+                    TableColumn(DeskhubClient.string(DHStrPairedColumnPaired)) {
+                        Text(Self.dateText($0.pairedUnix))
+                    }
+                    .width(150)
+                    TableColumn(DeskhubClient.string(DHStrPairedColumnLastSeen)) {
+                        Text(Self.dateText($0.lastSeenUnix))
+                    }
+                    .width(150)
                 }
-            }
+                .frame(minHeight: 130)
 
-            Button(DeskhubClient.string(DHStrPairedForgetAll)) {
-                confirmForgetAll = true
-            }
-            .disabled(devices.isEmpty)
+                if devices.isEmpty {
+                    deskhubHint(DeskhubClient.string(DHStrPairedEmpty))
+                }
+
+                HStack(spacing: 8) {
+                    Button(DeskhubClient.string(DHStrPairedForget)) {
+                        forgetSelected()
+                    }
+                    .disabled(selection == nil)
+                    Button(DeskhubClient.string(DHStrPairedForgetAll)) {
+                        confirmForgetAll = true
+                    }
+                    .disabled(devices.isEmpty)
+                }
+            #else
+                if devices.isEmpty {
+                    deskhubHint(DeskhubClient.string(DHStrPairedEmpty))
+                } else {
+                    ForEach(devices) { device in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.name.isEmpty ? "(unnamed)" : device.name)
+                                    .foregroundStyle(DeskhubPalette.heading)
+                                Text(Self.subtitle(for: device))
+                                    .font(.caption)
+                                    .foregroundStyle(DeskhubPalette.muted)
+                            }
+                            Spacer(minLength: 0)
+                            Button(DeskhubClient.string(DHStrPairedForget)) {
+                                _ = dh_paired_forget(device.fingerprint)
+                                refresh()
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
+                Button(DeskhubClient.string(DHStrPairedForgetAll)) {
+                    confirmForgetAll = true
+                }
+                .disabled(devices.isEmpty)
+            #endif
 
             deskhubHint(DeskhubClient.string(DHStrPairedForgetNote))
 
@@ -73,6 +111,15 @@ struct DevicesPage: View {
         } message: {
             Text(DeskhubClient.string(DHStrPairedForgetAllPrompt))
         }
+    }
+
+    private func forgetSelected() {
+        guard let selection,
+              let device = devices.first(where: { $0.id == selection })
+        else { return }
+        _ = dh_paired_forget(device.fingerprint)
+        self.selection = nil
+        refresh()
     }
 
     private func refresh() {

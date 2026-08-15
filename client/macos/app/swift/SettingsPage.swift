@@ -48,6 +48,7 @@ struct SettingsPage: View {
                     PasscodeField(passcode: $agent.passcode, width: 64)
                 }
             }
+            deskhubHint(DeskhubClient.string(DHStrPasscodeHint))
             Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $agent.allowInput)
                 .toggleStyle(.checkbox)
 

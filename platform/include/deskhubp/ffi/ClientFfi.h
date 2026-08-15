@@ -183,6 +183,11 @@ typedef enum {
     DHStrTerminalExtraKeysHint = 108,
     DHStrPickSourcesHint = 109,
     DHStrPairedForgetNote = 110,
+    DHStrOpenChoiceHint = 111,
+    DHStrPasscodeHint = 112,
+    DHStrDevicesHeading = 113,
+    DHStrDeviceColumnWhere = 114,
+    DHStrDeviceNameLabel = 115,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

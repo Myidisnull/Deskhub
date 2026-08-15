@@ -154,6 +154,11 @@ const char* dh_string(DHStringId id) {
         case DHStrTerminalExtraKeysHint: return deskhub::ui::kTerminalExtraKeysHint;
         case DHStrPickSourcesHint: return deskhub::ui::kPickSourcesHint;
         case DHStrPairedForgetNote: return deskhub::ui::kPairedForgetNote;
+        case DHStrOpenChoiceHint: return deskhub::ui::kOpenChoiceHint;
+        case DHStrPasscodeHint: return deskhub::ui::kPasscodeHint;
+        case DHStrDevicesHeading: return deskhub::ui::kDevicesHeading;
+        case DHStrDeviceColumnWhere: return deskhub::ui::kDeviceColumnWhere;
+        case DHStrDeviceNameLabel: return deskhub::ui::kDeviceNameLabel;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();

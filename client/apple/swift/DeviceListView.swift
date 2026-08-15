@@ -28,6 +28,7 @@ struct PaletteRgb {
 
 enum DeskhubPalette {
     static let sidebar = Color(red: 0.122, green: 0.161, blue: 0.216)
+    static let sidebarHover = Color(red: 0.216, green: 0.255, blue: 0.318)
     static let accent = Color(red: 0.145, green: 0.388, blue: 0.922)
     static let navText = Color(red: 0.820, green: 0.835, blue: 0.859)
     static let footnote = Color(red: 0.580, green: 0.639, blue: 0.722)
@@ -106,9 +107,10 @@ struct DeviceListView: View {
     }
 }
 
-struct DeviceListRow: Identifiable, Hashable {
+struct DeviceListRow: Identifiable, Hashable, Sendable {
     let addr: String
     let passcode: String
+    let origin: String
     let ping: String
     let status: String
     let lastConnected: String
@@ -119,9 +121,22 @@ struct DeviceListRow: Identifiable, Hashable {
         status.isEmpty && lastConnected.isEmpty ? "" : "\(status)  \(lastConnected)"
     }
 
+    init(addr: String, passcode: String, origin: String, status: String, ping: String,
+         lastConnected: String, online: Bool?)
+    {
+        self.addr = addr
+        self.passcode = passcode
+        self.origin = origin
+        self.status = status
+        self.ping = ping
+        self.lastConnected = lastConnected
+        self.online = online
+    }
+
     init(_ hit: ScanHit, passcode: String) {
         addr = hit.addr
         self.passcode = passcode
+        origin = ""
         ping = hit.ping
         status = ""
         lastConnected = ""
@@ -131,6 +146,7 @@ struct DeviceListRow: Identifiable, Hashable {
     init(_ device: RecentDevice) {
         addr = device.addr
         passcode = device.passcode
+        origin = ""
         ping = device.ping
         status = device.status
         lastConnected = device.lastConnected

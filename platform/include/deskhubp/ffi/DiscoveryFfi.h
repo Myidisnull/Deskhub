@@ -32,6 +32,17 @@ typedef struct {
 } DHRecentRow;
 
 typedef struct {
+    char addr[DH_ADDR_CAP];
+    char passcode[DH_PASSCODE_CAP];
+    char origin[20];
+    char status[16];
+    char ping[16];
+    char lastConnected[24];
+    bool known;
+    bool online;
+} DHDeviceRow;
+
+typedef struct {
     uint32_t fps;
     uint32_t bitrateMbps;
     uint32_t maxDim;
@@ -60,6 +71,7 @@ void dh_settings_save(uint32_t fps, uint32_t bitrate_mbps, uint32_t max_dim, uin
     bool allow_input, bool client_control, const char* passcode);
 
 int dh_recent_rows(DHRecentRow* out, int capacity);
+int dh_device_rows(DHDeviceRow* out, int capacity);
 void dh_status_watch_recent(void);
 int dh_scan_status_text(uint16_t port, char* out, int capacity);
 int dh_recent_note(char* out, int capacity);
@@ -68,6 +80,12 @@ uint16_t dh_default_port(void);
 
 bool dh_client_control(void);
 void dh_set_client_control(bool on);
+
+bool dh_client_desktop(void);
+void dh_set_client_desktop(bool on);
+
+bool dh_client_shell(void);
+void dh_set_client_shell(bool on);
 
 int dh_device_name(char* out, int capacity);
 void dh_set_device_name(const char* name);
