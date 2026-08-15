@@ -52,6 +52,7 @@ public:
         std::string_view serverName, QuicCallbacks callbacks);
 
     void Poll(uint64_t nowUs, uint32_t waitMs);
+    bool WaitReadable(uint32_t waitMs);
 
     bool SendStream(QuicConnId conn, uint64_t streamId, std::span<const uint8_t> bytes,
         bool fin = false);

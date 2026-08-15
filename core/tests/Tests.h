@@ -16,6 +16,7 @@ void RunShareFlowTests();
 void RunOpenViewersTests();
 void RunSourcePipelineStateTests();
 void RunTerminalSessionTests();
+void RunAuthThrottleTests();
 void RunInputTests();
 void RunPressedInputTests();
 void RunClientInputQueueTests();

@@ -100,8 +100,8 @@ void TestControlTravelsOnAStream() {
     viewer.Close();
 }
 
-void TestVideoStaysOffTheStream() {
-    std::printf("[transport] video takes the unreliable path, not the ordered one...\n");
+void TestVideoRidesEncryptedDatagrams() {
+    std::printf("[transport] video rides QUIC datagrams by default, and raw video is refused...\n");
     if (!deskhubp::QuicAvailable()) {
         std::printf("[transport] skipped: this build has no QUIC library\n");
         return;
@@ -133,8 +133,10 @@ void TestVideoStaysOffTheStream() {
     }
     if (!viewer.Established(target)) return;
 
-    Check(viewer.videoPath() == deskhubp::VideoPath::RawUdp,
-        "M3 leaves video on the old path while control moves");
+    Check(viewer.videoPath() == deskhubp::VideoPath::QuicDatagram,
+        "video takes the encrypted datagram path out of the box");
+    Check(viewer.MaxDatagramSize(target) >= deskhub::kMaxDatagram,
+        "and a QUIC datagram fits a whole video packet");
 
     deskhub::VideoHeader header{};
     header.frameId = 7;
@@ -146,21 +148,22 @@ void TestVideoStaysOffTheStream() {
     const size_t videoSize = deskhub::BuildVideoPacket(video, 1234, header, true, true, payload);
     Check(videoSize > 0, "a video packet is built");
 
-    Check(viewer.SendTo(target, video, videoSize), "and the transport accepts it");
+    Check(viewer.SendTo(target, video, videoSize), "the transport accepts it");
     const int got = PumpFor(host, viewer, buf, sizeof(buf), from);
     Check(got == int(videoSize), "it arrives whole");
     Check(std::equal(video, video + videoSize, buf), "and unchanged");
 
-    viewer.SetVideoPath(deskhubp::VideoPath::QuicDatagram);
-    Check(viewer.videoPath() == deskhubp::VideoPath::QuicDatagram,
-        "M4 flips the same packets onto QUIC datagrams without touching the callers");
-    Check(viewer.MaxDatagramSize(target) >= deskhub::kMaxDatagram,
-        "and a QUIC datagram still fits a whole video packet");
+    viewer.SetVideoPath(deskhubp::VideoPath::RawUdp);
+    Check(viewer.SendTo(target, video, videoSize),
+        "a sender forced onto the old raw path still transmits");
+    const int refused = PumpFor(host, viewer, buf, sizeof(buf), from);
+    Check(refused == 0, "but the receiver refuses plaintext video now that the stream is encrypted");
 
-    Check(viewer.SendTo(target, video, videoSize), "the datagram write is accepted");
-    const int again = PumpFor(host, viewer, buf, sizeof(buf), from);
-    Check(again == int(videoSize) && std::equal(video, video + videoSize, buf),
-        "the host reads the very same bytes off the new path");
+    host.SetVideoPath(deskhubp::VideoPath::RawUdp);
+    Check(viewer.SendTo(target, video, videoSize), "with both ends forced raw, in a test rig,");
+    const int legacy = PumpFor(host, viewer, buf, sizeof(buf), from);
+    Check(legacy == int(videoSize) && std::equal(video, video + videoSize, buf),
+        "the legacy path still works for A/B measurements");
 
     host.Close();
     viewer.Close();
@@ -204,6 +207,15 @@ void TestAStrangerIsStillAnsweredInThePlain() {
     const int returned = scanner.RecvFrom(back, sizeof(back), replyFrom);
     Check(returned == int(probeSize), "so a scanner that speaks no QUIC still gets an answer");
 
+    uint8_t bye[deskhub::kMaxDatagram];
+    const size_t byeSize = deskhub::BuildBye(bye, 1234);
+    Check(scanner.SendTo(target, bye, byeSize),
+        "the scanner then tries a session message with no connection");
+    NetAddr byeFrom;
+    int leaked = 0;
+    for (int i = 0; i < 200 && leaked == 0; ++i) leaked = host.RecvFrom(buf, sizeof(buf), byeFrom);
+    Check(leaked == 0, "and the transport drops it: only beacon traffic crosses in the plain");
+
     scanner.Close();
     host.Close();
 }
@@ -225,7 +237,7 @@ void TestAnUnopenedTransportIsHarmless() {
 
 void RunSessionTransportTests() {
     TestControlTravelsOnAStream();
-    TestVideoStaysOffTheStream();
+    TestVideoRidesEncryptedDatagrams();
     TestAStrangerIsStillAnsweredInThePlain();
     TestAnUnopenedTransportIsHarmless();
 }

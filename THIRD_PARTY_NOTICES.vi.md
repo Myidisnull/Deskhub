@@ -85,6 +85,19 @@ nó không được đóng gói kèm.
 | Thư viện chuẩn [Kotlin](https://kotlinlang.org) | Apache-2.0 | động |
 | MediaCodec, các API media của NDK | Android SDK / NDK | thành phần hệ điều hành |
 
+## Tầng truyền tải QUIC (mọi app)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [quiche](https://github.com/cloudflare/quiche) 0.29.3 | BSD-2-Clause | **tĩnh** |
+| [BoringSSL](https://boringssl.googlesource.com/boringssl/) (đi kèm quiche) | OpenSSL / kiểu ISC | **tĩnh** |
+
+Tầng truyền tải mã hoá của Deskhub nhúng quiche của Cloudflare, dựng từ mã nguồn
+upstream không chỉnh sửa, ghim đúng phiên bản và commit bởi
+[`scripts/build-quiche.sh`](scripts/build-quiche.sh). quiche mang theo bản BoringSSL của
+riêng nó (qua crate `boring`), cung cấp TLS và phần mật mã đứng sau cơ chế ghép đôi của
+Deskhub. Cả hai được liên kết tĩnh vào mọi app. Không thư viện nào bị chỉnh sửa.
+
 ## Bằng sáng chế
 
 H.264/AVC được bảo hộ bởi các bằng sáng chế cấp phép qua

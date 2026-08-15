@@ -39,6 +39,18 @@ bool CarriesVideo(std::span<const uint8_t> message) {
     return header.has_value() && header->chan == deskhub::Chan::Video;
 }
 
+bool IsBeaconMessage(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return false;
+    switch (header->type) {
+        case deskhub::MsgType::ListSources:
+        case deskhub::MsgType::SourceList:
+        case deskhub::MsgType::Ping:
+        case deskhub::MsgType::Pong: return true;
+        default: return false;
+    }
+}
+
 }
 
 SessionTransport::SessionTransport() = default;
@@ -133,6 +145,10 @@ void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> mes
     bool overQuic) {
     if (message.empty()) return;
 
+    if (!overQuic && !IsBeaconMessage(message) &&
+        !(videoPath_ == VideoPath::RawUdp && CarriesVideo(message)))
+        return;
+
     if (clientAuthOn_ && IsAuthMessage(message)) {
         TransportMessage queued;
         queued.from = from;
@@ -167,6 +183,19 @@ bool SessionTransport::HandleHostAuth(const NetAddr& from, std::span<const uint8
         const std::optional<deskhub::AuthChallenge> challenge = auth->Begin(*start);
         if (!challenge) return false;
 
+        if (challenge->mode == deskhub::AuthMode::Passcode && authThrottle_.Locked(NowUs())) {
+            deskhub::AuthResult locked;
+            locked.code = deskhub::AuthResultCode::Locked;
+            std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+            out.resize(deskhub::BuildAuthResult(out, locked));
+            SendAuth(from, out);
+            LOGW("transport: %s is locked out after too many wrong passcodes",
+                from.ToString().c_str());
+            if (authCallbacks_.onRefused)
+                authCallbacks_.onRefused(from, deskhub::AuthResultCode::Locked);
+            return false;
+        }
+
         std::vector<uint8_t> out(deskhub::kMaxRecordSize);
         out.resize(deskhub::BuildAuthChallenge(out, *challenge));
         SendAuth(from, out);
@@ -185,7 +214,13 @@ bool SessionTransport::HandleHostAuth(const NetAddr& from, std::span<const uint8
         if (at == hostAuth_.end()) return false;
         const std::optional<deskhub::AuthResponse> response = deskhub::ParseAuthResponse(payload);
         if (!response) return false;
-        SettleHostAuth(from, *at->second, at->second->Respond(*response, NowUnix()));
+        const deskhub::AuthResult result = at->second->Respond(*response, NowUnix());
+        if (at->second->Mode() == deskhub::AuthMode::Passcode) {
+            if (result.code == deskhub::AuthResultCode::WrongPasscode)
+                authThrottle_.RecordFailure(NowUs());
+            if (result.code == deskhub::AuthResultCode::Accepted) authThrottle_.RecordSuccess();
+        }
+        SettleHostAuth(from, *at->second, result);
         return false;
     }
 
@@ -332,8 +367,9 @@ bool SessionTransport::SendTo(const NetAddr& to, const uint8_t* data, size_t len
 int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
     if (!endpoint_.IsOpen()) return -1;
     if (inbox_.empty()) {
+        endpoint_.WaitReadable(recvWaitMs_);
         const std::lock_guard<std::mutex> lock(sendMutex_);
-        endpoint_.Poll(NowUs(), recvWaitMs_);
+        endpoint_.Poll(NowUs(), 0);
     }
     if (inbox_.empty()) return 0;
 

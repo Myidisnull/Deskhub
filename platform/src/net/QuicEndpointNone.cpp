@@ -36,6 +36,10 @@ bool QuicEndpoint::Connect(const QuicSettings&, const NetAddr&, std::string_view
 void QuicEndpoint::Poll(uint64_t, uint32_t) {
 }
 
+bool QuicEndpoint::WaitReadable(uint32_t) {
+    return false;
+}
+
 bool QuicEndpoint::SendStream(QuicConnId, uint64_t, std::span<const uint8_t>, bool) {
     return false;
 }

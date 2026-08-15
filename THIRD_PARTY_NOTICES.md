@@ -81,6 +81,20 @@ resolved at runtime; it is not bundled.
 | [Kotlin](https://kotlinlang.org) standard library | Apache-2.0 | dynamic |
 | MediaCodec, NDK media APIs | Android SDK / NDK | OS component |
 
+## QUIC transport (all apps)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [quiche](https://github.com/cloudflare/quiche) 0.29.3 | BSD-2-Clause | **static** |
+| [BoringSSL](https://boringssl.googlesource.com/boringssl/) (bundled by quiche) | OpenSSL / ISC-style | **static** |
+
+Deskhub's encrypted transport embeds Cloudflare's quiche, built from unmodified
+upstream sources pinned to an exact version and commit by
+[`scripts/build-quiche.sh`](scripts/build-quiche.sh). quiche carries its own copy of
+BoringSSL (via the `boring` crate), which provides TLS and the cryptography behind
+Deskhub's pairing. Both are linked statically into every app. Neither library is
+modified.
+
 ## Patents
 
 H.264/AVC is covered by patents licensed through [Via LA](https://www.via-la.com/).

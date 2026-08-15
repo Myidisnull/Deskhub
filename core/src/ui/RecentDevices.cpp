@@ -94,10 +94,10 @@ void TouchRecentDevice(std::vector<RecentDevice>& devices, std::string_view addr
     const std::string trimmed = TrimAscii(addr);
     if (trimmed.empty()) return;
 
+    std::string kept = IsValidPasscode(passcode) ? std::string(passcode)
+                                                 : PasscodeForDevice(devices, trimmed);
     RemoveRecentDevice(devices, trimmed);
-    devices.insert(devices.begin(),
-        RecentDevice{trimmed, nowUnix,
-            IsValidPasscode(passcode) ? std::string(passcode) : std::string()});
+    devices.insert(devices.begin(), RecentDevice{trimmed, nowUnix, std::move(kept)});
     if (devices.size() > kMaxRecentDevices) devices.resize(kMaxRecentDevices);
 }
 

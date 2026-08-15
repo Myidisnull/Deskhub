@@ -34,6 +34,8 @@ public:
 
     bool SetRecvTimeout(uint32_t ms);
 
+    bool WaitReadable(uint32_t ms);
+
     bool SendTo(const NetAddr& to, const uint8_t* data, size_t len);
 
     int RecvFrom(uint8_t* buf, size_t cap, NetAddr& from);

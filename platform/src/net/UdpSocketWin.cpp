@@ -92,6 +92,15 @@ bool UdpSocket::SetRecvTimeout(uint32_t ms) {
                (const char*)&t, sizeof(t)) == 0;
 }
 
+bool UdpSocket::WaitReadable(uint32_t ms) {
+    if (!IsOpen()) return false;
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(SOCKET(sock_), &readable);
+    TIMEVAL tv{long(ms / 1000), long((ms % 1000) * 1000)};
+    return select(0, &readable, nullptr, nullptr, &tv) > 0;
+}
+
 bool UdpSocket::SendTo(const NetAddr& to, const uint8_t* data, size_t len) {
     if (!IsOpen()) return false;
     sockaddr_in sa{};

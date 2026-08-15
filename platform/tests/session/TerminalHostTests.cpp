@@ -294,6 +294,10 @@ void TestHostSharesAShell() {
 
     if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
     if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+    if (savedPaired.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kPairedDevicesFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kPairedDevicesFileName, savedPaired);
 }
 
 bool WaitFor(const std::function<bool()>& done, int millis) {
@@ -429,8 +433,10 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
     const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
     const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
     const std::string savedTrust = deskhubp::ReadAppDataFile(deskhubp::kTrustStoreFileName);
+    const std::string savedPaired = deskhubp::ReadAppDataFile(deskhubp::kPairedDevicesFileName);
     deskhubp::ForgetHostIdentity();
     deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
+    deskhubp::ForgetAllPairedDevices();
 
     const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
     deskhubp::TerminalHostConfig config;
@@ -461,7 +467,45 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
             "and never reaches a shell while nobody at the host has said yes");
         Check(asks == 0, "its own user is not asked to vouch for a machine they cannot check");
         Check(host.SessionCount() == 0, "and no shell was started for it");
+
+        const std::vector<deskhubp::PairingRequest> question = host.TakePairingRequests();
+        Check(question.size() == 1, "the question is queued for the person at the host instead");
+        Check(!question.empty() && question[0].name == "shared-viewer",
+            "named after the machine that is asking");
+        if (!question.empty()) {
+            host.AnswerPairing(question[0].addrPacked, false);
+            Check(WaitFor([&viewer] {
+                return viewer.State() == deskhubp::TerminalViewerState::Refused;
+            },
+                      15000),
+                "saying no turns that machine away");
+            Check(deskhubp::LoadPairedDevices().Size() == 0, "and pairs nothing");
+        }
         viewer.Stop();
+
+        deskhubp::TerminalViewer approved;
+        Check(approved.Start(open, deskhubp::TerminalViewerCallbacks{}),
+            "the machine can ask again");
+        std::vector<deskhubp::PairingRequest> retry;
+        Check(WaitFor([&host, &retry] {
+            const std::vector<deskhubp::PairingRequest> got = host.TakePairingRequests();
+            retry.insert(retry.end(), got.begin(), got.end());
+            return !retry.empty();
+        },
+                  15000),
+            "and the host queues a fresh question");
+        if (!retry.empty()) {
+            host.AnswerPairing(retry[0].addrPacked, true);
+            Check(WaitFor([&approved] {
+                return approved.State() == deskhubp::TerminalViewerState::Live;
+            },
+                      20000),
+                "saying yes opens the shell");
+            Check(host.SessionCount() == 1, "which the host lists");
+            Check(deskhubp::LoadPairedDevices().Size() == 1,
+                "and the machine is written down as paired");
+        }
+        approved.Stop();
         host.Stop();
     }
 
@@ -509,6 +553,73 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
         deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
     else
         deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, savedTrust);
+    if (savedPaired.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kPairedDevicesFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kPairedDevicesFileName, savedPaired);
+}
+
+void TestWrongGuessesLockTheHost() {
+    std::printf("[termhost] three wrong passcodes lock the host for a while...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[termhost] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
+    const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    const std::string savedPaired = deskhubp::ReadAppDataFile(deskhubp::kPairedDevicesFileName);
+    deskhubp::ForgetAllPairedDevices();
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity clientIdentity =
+        deskhubp::LoadOrCreateHostIdentity("deskhub-client");
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid() || !clientIdentity.Valid()) return;
+
+    deskhubp::TerminalHostConfig config;
+    config.bindIp = "127.0.0.1";
+    config.port = uint16_t(kTestPort + 3);
+    config.passcode = kTestPasscode;
+
+    deskhubp::TerminalHost host;
+    if (!host.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+        Check(false, "the terminal host starts");
+        return;
+    }
+
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        Viewer stranger;
+        stranger.Start();
+        stranger.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, config.port},
+            "deskhub-test", stranger.Hooks());
+        stranger.PumpUntil([&stranger] { return stranger.connected; }, kMaxRounds);
+        stranger.BeginAuth(clientIdentity, identity.fingerprint, "0000");
+        stranger.PumpUntil([&stranger] { return stranger.authSettled; }, kMaxRounds);
+        Check(stranger.authCode == deskhub::AuthResultCode::WrongPasscode,
+            "a wrong code is named as wrong while the door is still open");
+        stranger.endpoint.Close();
+    }
+
+    Viewer lockedOut;
+    lockedOut.Start();
+    lockedOut.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, config.port},
+        "deskhub-test", lockedOut.Hooks());
+    lockedOut.PumpUntil([&lockedOut] { return lockedOut.connected; }, kMaxRounds);
+    lockedOut.BeginAuth(clientIdentity, identity.fingerprint, kTestPasscode);
+    lockedOut.PumpUntil([&lockedOut] { return lockedOut.authSettled; }, kMaxRounds);
+    Check(lockedOut.authCode == deskhub::AuthResultCode::Locked,
+        "after three wrong guesses even the right code is told to wait");
+    Check(host.SessionCount() == 0, "and nothing opened");
+    lockedOut.endpoint.Close();
+
+    host.Stop();
+    if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
+    if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+    if (savedPaired.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kPairedDevicesFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kPairedDevicesFileName, savedPaired);
 }
 
 }
@@ -518,4 +629,5 @@ void RunTerminalHostTests() {
     TestHostSharesAShell();
     TestViewerTrustsThenRunsAShell();
     TestTheTwoCasesAPasscodeCannotSettle();
+    TestWrongGuessesLockTheHost();
 }

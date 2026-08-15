@@ -395,7 +395,7 @@ std::optional<AuthResponse> ParseAuthResponse(std::span<const uint8_t> payload) 
 std::optional<AuthResult> ParseAuthResult(std::span<const uint8_t> payload) {
     if (payload.size() < 1 + kAuthMacBytes) return std::nullopt;
     const uint8_t* p = payload.data();
-    if (p[0] > uint8_t(AuthResultCode::TimedOut)) return std::nullopt;
+    if (p[0] > uint8_t(AuthResultCode::Locked)) return std::nullopt;
     AuthResult m;
     m.code = AuthResultCode(p[0]);
     std::memcpy(m.confirm.data(), p + 1, kAuthMacBytes);

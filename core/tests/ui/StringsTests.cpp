@@ -95,6 +95,10 @@ void TestThePortIsNeverHardcodedTwice() {
     const std::string port = std::to_string(kDeskhubPort);
     Check(Contains(ui::UdpPortLine(), port), "the port line quotes the protocol constant");
     Check(Contains(ui::UdpPortLine(50123), "50123"), "a custom port shows as configured");
+    Check(Contains(ui::ScreenShareLine(50123), "Screen on UDP port 50123"),
+        "the screen banner part names what is shared and where");
+    Check(Contains(ui::TerminalShareLine(47778), "Terminal on UDP port 47778"),
+        "and so does the terminal part");
     Check(Contains(ui::SharingStatusLine(50123), "50123"),
         "the sharing banner quotes the port actually bound");
     Check(Contains(ui::InvalidAddressHint(), port), "so does the bad-address hint");
@@ -131,6 +135,8 @@ void TestThePortFieldFallsBackToTheDefault() {
     const char* bad[] = {"", "0", "65536", "999999", "47a77", "-1", " "};
     for (const char* s : bad) {
         Check(ui::PortOrDefault(s) == kDeskhubPort, "junk falls back to the default port");
+        Check(ui::PortOrDefault(s, kDeskhubTerminalPort) == kDeskhubTerminalPort,
+            "and to the caller's own fallback when it names one");
     }
 }
 

@@ -38,8 +38,11 @@ void TestPasscodePerDevice() {
         "an address we have never seen has no code");
 
     ui::TouchRecentDevice(devices, "192.168.1.10", 200, "");
-    Check(ui::PasscodeForDevice(devices, "192.168.1.10").empty(),
-        "reconnecting without a code clears the stored one");
+    Check(ui::PasscodeForDevice(devices, "192.168.1.10") == "0417",
+        "reconnecting without a code keeps the remembered one");
+    ui::TouchRecentDevice(devices, "192.168.1.10", 300, "5150");
+    Check(ui::PasscodeForDevice(devices, "192.168.1.10") == "5150",
+        "and a newly typed code replaces it");
 
     const std::vector<ui::RecentDevice> saved{{"192.168.1.50", 1754300000, "0417"}};
     const std::string text = ui::SerializeRecentDevices(saved);

@@ -11,14 +11,7 @@ using AgentSource = deskhub::media::ShareSource;
 using AgentOptions = deskhub::media::AgentOptions;
 using AgentSourceStatus = deskhub::media::AgentSourceStatus;
 
-// A machine asking to pair when no passcode is set. It waits until somebody here
-// answers, so the request is queued for the UI thread rather than blocking the net
-// loop on a dialog.
-struct PairingRequest {
-    uint64_t addrPacked = 0;
-    std::string shortKey{};
-    std::string name{};
-};
+using PairingRequest = deskhubp::PairingRequest;
 
 class AgentLoop {
 public:

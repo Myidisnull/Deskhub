@@ -72,6 +72,10 @@ void TerminalHost::Stop() {
     const std::lock_guard<std::mutex> lock(mutex_);
     shells_.clear();
     streams_.clear();
+    auth_.clear();
+    authenticated_.clear();
+    pairingRequests_.clear();
+    approvalAnswers_.clear();
     sessions_.SetSharing(false);
     endpoint_.Close();
     LOGI("terminal host: stopped sharing");
@@ -86,6 +90,18 @@ void TerminalHost::SetPasscode(std::string passcode) {
 void TerminalHost::KickSession(uint32_t termId) {
     const std::lock_guard<std::mutex> lock(mutex_);
     kicks_.push_back(termId);
+}
+
+std::vector<PairingRequest> TerminalHost::TakePairingRequests() {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<PairingRequest> out;
+    out.swap(pairingRequests_);
+    return out;
+}
+
+void TerminalHost::AnswerPairing(uint64_t addrPacked, bool allowed) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    approvalAnswers_.emplace_back(addrPacked, allowed);
 }
 
 size_t TerminalHost::SessionCount() const {
@@ -104,6 +120,7 @@ void TerminalHost::Loop() {
         const uint64_t nowUs = NowUs();
         {
             const std::lock_guard<std::mutex> lock(mutex_);
+            DrainApprovals();
             DrainKicks();
             PumpShells(nowUs);
             for (uint32_t id : sessions_.Expire(nowUs)) {
@@ -163,10 +180,23 @@ bool TerminalHost::AuthAllows(QuicConnId conn, uint64_t stream,
         const std::optional<deskhub::AuthChallenge> challenge = auth->Begin(*start);
         if (!challenge) return false;
 
+        if (challenge->mode == deskhub::AuthMode::Passcode && authThrottle_.Locked(NowUs())) {
+            deskhub::AuthResult locked;
+            locked.code = deskhub::AuthResultCode::Locked;
+            std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+            out.resize(deskhub::BuildAuthResult(out, locked));
+            SendToStream(conn, stream, out);
+            LOGW("terminal host: a client is locked out after too many wrong passcodes");
+            return false;
+        }
+
         std::vector<uint8_t> out(deskhub::kMaxRecordSize);
         out.resize(deskhub::BuildAuthChallenge(out, *challenge));
         SendToStream(conn, stream, out);
-        auth_[conn] = std::move(auth);
+        if (challenge->mode == deskhub::AuthMode::Approval)
+            pairingRequests_.push_back(PairingRequest{conn,
+                deskhub::ShortFingerprint(auth->PeerFingerprint()), auth->PeerName()});
+        auth_[conn] = PendingAuth{std::move(auth), stream};
         return false;
     }
 
@@ -176,7 +206,12 @@ bool TerminalHost::AuthAllows(QuicConnId conn, uint64_t stream,
         const std::optional<deskhub::AuthResponse> response = deskhub::ParseAuthResponse(payload);
         if (!response) return false;
 
-        const deskhub::AuthResult result = at->second->Respond(*response, nowUnix);
+        const deskhub::AuthResult result = at->second.auth->Respond(*response, nowUnix);
+        if (at->second.auth->Mode() == deskhub::AuthMode::Passcode) {
+            if (result.code == deskhub::AuthResultCode::WrongPasscode)
+                authThrottle_.RecordFailure(NowUs());
+            if (result.code == deskhub::AuthResultCode::Accepted) authThrottle_.RecordSuccess();
+        }
         std::vector<uint8_t> out(deskhub::kMaxRecordSize);
         out.resize(deskhub::BuildAuthResult(out, result));
         SendToStream(conn, stream, out);
@@ -301,6 +336,27 @@ void TerminalHost::DrainKicks() {
     const std::vector<uint32_t> kicks = std::move(kicks_);
     kicks_.clear();
     for (uint32_t termId : kicks) CloseShell(termId, 0, true);
+}
+
+void TerminalHost::DrainApprovals() {
+    if (approvalAnswers_.empty()) return;
+    const std::vector<std::pair<uint64_t, bool>> answers = std::move(approvalAnswers_);
+    approvalAnswers_.clear();
+    for (const auto& [conn, allowed] : answers) {
+        const auto at = auth_.find(conn);
+        if (at == auth_.end()) continue;
+        const deskhub::AuthResult result = at->second.auth->Approve(allowed, NowUnixSeconds());
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+        out.resize(deskhub::BuildAuthResult(out, result));
+        SendToStream(conn, at->second.stream, out);
+        const bool accepted = result.code == deskhub::AuthResultCode::Accepted;
+        authenticated_[conn] = accepted;
+        if (accepted)
+            LOGI("terminal host: %s is allowed in (%s)", at->second.auth->PeerName().c_str(),
+                deskhub::ShortFingerprint(at->second.auth->PeerFingerprint()).c_str());
+        else
+            LOGW("terminal host: %s was turned away", at->second.auth->PeerName().c_str());
+    }
 }
 
 void TerminalHost::CloseShell(uint32_t termId, int exitCode, bool tellClient) {

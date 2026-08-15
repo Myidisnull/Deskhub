@@ -774,6 +774,12 @@ void TestAuthWire() {
     Check(gotResult && gotResult->code == AuthResultCode::WrongPasscode,
         "and the verdict says which of the refusals it was");
 
+    result.code = AuthResultCode::Locked;
+    n = BuildAuthResult(buf, result);
+    gotResult = ParseAuthResult(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(gotResult && gotResult->code == AuthResultCode::Locked,
+        "a lockout verdict survives the trip too");
+
     for (size_t cut = 0; cut < n; ++cut)
         Check(!ParseAuthResult(std::span<const uint8_t>(buf, cut)).has_value() || cut >= 1 + kAuthMacBytes,
             "a truncated verdict is refused rather than half-read");

@@ -304,6 +304,10 @@ struct QuicEndpoint::Impl {
         }
     }
 
+    bool WaitReadable(uint32_t waitMs) {
+        return open_ && socket_.WaitReadable(waitMs);
+    }
+
     void Poll(uint32_t waitMs) {
         if (!open_) return;
         socket_.SetRecvTimeout(waitMs == 0 ? 1 : waitMs);
@@ -355,6 +359,10 @@ bool QuicEndpoint::Connect(const QuicSettings& settings, const NetAddr& server,
 
 void QuicEndpoint::Poll(uint64_t, uint32_t waitMs) {
     impl_->Poll(waitMs);
+}
+
+bool QuicEndpoint::WaitReadable(uint32_t waitMs) {
+    return impl_->WaitReadable(waitMs);
 }
 
 bool QuicEndpoint::SendStream(QuicConnId conn, uint64_t streamId, std::span<const uint8_t> bytes,

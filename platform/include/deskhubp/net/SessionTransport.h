@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/protocol/RecordStream.h"
+#include "deskhub/session/AuthThrottle.h"
 #include "deskhubp/net/QuicEndpoint.h"
 #include "deskhubp/session/AuthNegotiation.h"
 
@@ -88,12 +89,13 @@ private:
     std::deque<TransportMessage> authInbox_;
     std::map<uint64_t, std::unique_ptr<HostAuth>> hostAuth_;
     std::map<uint64_t, bool> authenticated_;
+    deskhub::AuthThrottle authThrottle_{};
     HostAuthConfig hostAuthConfig_{};
     TransportAuthCallbacks authCallbacks_{};
     bool hostAuthOn_ = false;
     bool clientAuthOn_ = false;
     std::function<void(const NetAddr&)> onPeerGone_;
-    VideoPath videoPath_ = VideoPath::RawUdp;
+    VideoPath videoPath_ = VideoPath::QuicDatagram;
     uint32_t recvWaitMs_ = 10;
     mutable std::mutex sendMutex_;
 };

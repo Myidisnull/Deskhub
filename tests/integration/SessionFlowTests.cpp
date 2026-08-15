@@ -10,6 +10,7 @@
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
 #include "deskhubp/system/PairedDevicesFile.h"
+#include "deskhubp/system/TrustStoreFile.h"
 
 #include <cstdio>
 #include <string>
@@ -656,7 +657,29 @@ void TestJunkDatagramsDoNotDisturbTheStream() {
 
 }
 
+namespace {
+
+struct SavedTrustFiles {
+    std::string paired = deskhubp::ReadAppDataFile(deskhubp::kPairedDevicesFileName);
+    std::string known = deskhubp::ReadAppDataFile(deskhubp::kTrustStoreFileName);
+
+    ~SavedTrustFiles() {
+        Restore(deskhubp::kPairedDevicesFileName, paired);
+        Restore(deskhubp::kTrustStoreFileName, known);
+    }
+
+    static void Restore(const char* fileName, const std::string& content) {
+        if (content.empty())
+            deskhubp::RemoveAppDataFile(fileName);
+        else
+            deskhubp::WriteAppDataFile(fileName, content);
+    }
+};
+
+}
+
 void RunSessionFlowTests() {
+    const SavedTrustFiles guard;
     TestAViewerConnectsAndSeesTheFramesTheHostEncoded();
     TestPasscodeGatesTheStream();
     TestDiscoveryIsGatedByThePasscode();

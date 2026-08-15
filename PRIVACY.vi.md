@@ -2,7 +2,7 @@
 
 # Chính sách quyền riêng tư của Deskhub
 
-_Ngày hiệu lực: 14 tháng 8, 2026 — Phiên bản 1.9_
+_Ngày hiệu lực: 15 tháng 8, 2026 — Phiên bản 2.0_
 
 > Đây là bản dịch của [`PRIVACY.md`](PRIVACY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản có giá trị pháp lý**.
@@ -39,15 +39,19 @@ ba.
 
 | Dữ liệu | Mục đích | Nó đi đâu | Thời gian lưu |
 |---|---|---|---|
-| Nội dung màn hình của máy đang chia sẻ (các khung hình) | Hiển thị màn hình đó trên thiết bị còn lại của bạn | Gửi trực tiếp giữa hai thiết bị của bạn, chỉ được mã hoá trên đường truyền bởi chính lớp mạng/VPN của bạn | Không bao giờ lưu; chỉ tồn tại trong bộ nhớ trong lúc phiên đang chạy |
-| Thao tác chuột, bàn phím và chạm | Điều khiển máy đang chia sẻ từ thiết bị còn lại | Gửi trực tiếp từ thiết bị đang xem tới máy đang chia sẻ | Không bao giờ lưu; bỏ đi ngay sau khi được đưa vào máy |
+| Nội dung màn hình của máy đang chia sẻ (các khung hình) | Hiển thị màn hình đó trên thiết bị còn lại của bạn | Gửi trực tiếp giữa hai thiết bị của bạn, mã hoá trên đường truyền (QUIC/TLS) | Không bao giờ lưu; chỉ tồn tại trong bộ nhớ trong lúc phiên đang chạy |
+| Thao tác chuột, bàn phím và chạm | Điều khiển máy đang chia sẻ từ thiết bị còn lại | Gửi trực tiếp từ thiết bị đang xem tới máy đang chia sẻ, mã hoá trên đường truyền (QUIC/TLS) | Không bao giờ lưu; bỏ đi ngay sau khi được đưa vào máy |
+| Cặp khoá của máy này — khoá riêng và chứng chỉ tự ký sinh ra ở lần chạy đầu | Chứng minh danh tính máy này với các máy nó kết nối tới; người dùng thấy nó dưới dạng dấu vân tay (`SHA256:…`) | Ghi vào `host_key.pem` và `host_cert.pem` trong thư mục riêng của app; chỉ nửa công khai (chứng chỉ) được trình cho máy bạn kết nối tới | Giữ cho tới khi bạn xoá tệp; xoá đi thì máy mang danh tính mới, và các máy từng biết danh tính cũ sẽ cảnh báo |
+| Khoá của các host mà thiết bị này đã tin (dấu vân tay, địa chỉ, nhãn, lần gặp đầu/cuối) | Nhận ra host quen và cảnh báo lớn nếu khoá của nó đổi | Ghi vào `known_hosts` trong cùng thư mục; không bao giờ được truyền đi | Giữ cho tới khi bạn xoá tệp |
+| Các máy đã ghép đôi với host này — dấu vân tay khoá, tên chúng gửi, thời điểm ghép và lần gặp cuối | Cho máy đã ghép vào lại không cần passcode, và liệt kê trên trang Devices để bạn quên chúng được | Ghi vào `paired_devices` trong cùng thư mục; không bao giờ được truyền đi | Giữ cho tới khi bạn bấm quên máy đó trên trang Devices hoặc xoá tệp |
+| Một salt ngẫu nhiên cho verifier của passcode | Biến passcode thành giá trị mà cuộc bắt tay ghép đôi kiểm tra, để bản thân mã không bao giờ phải đi qua mạng | Ghi vào `auth_salt` trong cùng thư mục; salt được gửi cho máy đang kết nối trong lúc bắt tay (nó không phải bí mật) | Giữ cho tới khi bạn xoá tệp |
 | Địa chỉ (IP/hostname) bạn nhập | Kết nối tới máy kia | Nằm lại trên chính thiết bị bạn đã nhập | Giữ cục bộ cho tới khi bạn thay đổi |
 | 10 địa chỉ gần nhất bạn đã kết nối, thời điểm của từng lần, và mã passcode bạn dùng cho từng địa chỉ | Điền vào danh sách *Recent devices* để bạn kết nối lại bằng một cú bấm | Ghi vào `recent-devices.txt` trong thư mục riêng của app trên thiết bị bạn — `%USERPROFILE%\.deskhub` trên Windows, `~/.deskhub` trên macOS và Linux, vùng sandbox của app trên iOS và Android | Giữ cho tới khi bạn kết nối tới 10 địa chỉ mới hơn, hoặc bạn xoá tệp đó |
 | Tuỳ chọn chia sẻ của bạn (tốc độ khung hình, bitrate, giới hạn độ phân giải, cổng, địa chỉ mạng để chia sẻ, có cho người xem điều khiển máy hay không, các công tắc đồng bộ clipboard, giữ máy thức, khởi động cùng hệ điều hành, tự chia sẻ và chế độ chạy nền, và mã passcode bạn yêu cầu người xem nhập) | Khôi phục cài đặt cho lần mở app kế tiếp | Ghi vào `ui-settings.txt` trong cùng thư mục. Trên iOS tệp này nằm trong app group container mà app và broadcast extension dùng chung, để cả hai phần thống nhất passcode và cổng | Giữ cho tới khi bạn thay đổi hoặc xoá tệp |
 | Token cấp quyền màn hình mà desktop Linux phát ra sau khi bạn chọn màn hình trong hộp thoại chia sẻ của nó (chỉ Linux) | Để các lần chia sẻ sau dùng lại lựa chọn của bạn trong im lặng, nên hộp thoại chỉ hiện lần đầu | Ghi vào `portal-restore-token.txt` trong cùng thư mục; token chỉ có ý nghĩa với phiên desktop của chính bạn trên máy này và không bao giờ được truyền đi | Được thay mới sau mỗi lần chia sẻ; bị xoá khi bạn bấm *Choose screens again* hoặc xoá tệp |
-| Văn bản clipboard (chỉ khi công tắc đồng bộ clipboard đang bật và có phiên đang chạy) | Để văn bản copy trên một thiết bị dán được trên các thiết bị kia | Gửi trực tiếp giữa các thiết bị của bạn — không mã hoá, như phần còn lại của lưu lượng — giới hạn 32 KiB mỗi lần copy; chỉ văn bản thuần, không bao giờ là ảnh hay tệp | Deskhub không bao giờ lưu; chỉ nằm trong clipboard hệ thống bình thường của mỗi thiết bị |
+| Văn bản clipboard (chỉ khi công tắc đồng bộ clipboard đang bật và có phiên đang chạy) | Để văn bản copy trên một thiết bị dán được trên các thiết bị kia | Gửi trực tiếp giữa các thiết bị của bạn, mã hoá trên đường truyền (QUIC/TLS), giới hạn 32 KiB mỗi lần copy; chỉ văn bản thuần, không bao giờ là ảnh hay tệp | Deskhub không bao giờ lưu; chỉ nằm trong clipboard hệ thống bình thường của mỗi thiết bị |
 | Việc có đang phát hay không, số người xem đang kết nối, mức bộ nhớ tính bằng megabyte mà chính broadcast extension đang dùng, và nội dung lỗi khởi động gần nhất (chỉ trên iOS) | Để màn hình chia sẻ của app báo được trạng thái của broadcast extension, thứ mà iOS chạy như một tiến trình riêng và sẽ chấm dứt nếu nó dùng quá nhiều bộ nhớ | Ghi vào `broadcast-status.txt` trong cùng app group container đó | Xoá đi khi buổi phát kết thúc |
-| Tên thiết bị trong ô *Your name* — được điền sẵn tên của chính máy hoặc thiết bị này (hostname trên Windows và Linux, tên máy tính trên macOS, tên thiết bị trên iOS, model trên Android) cho tới khi bạn sửa nó | Hiển thị trên host mà bạn kết nối tới, bên cạnh địa chỉ của thiết bị này, để người đang chia sẻ phân biệt được các người xem | Lưu vào `ui-settings.txt` trong cùng thư mục, và gửi tới host khi bạn kết nối — ở dạng thô, như phần còn lại của lưu lượng — nên tên mặc định này được gửi đi trừ khi bạn thay nó bằng một tên do bạn tự chọn; xoá trắng ô chỉ khôi phục lại tên mặc định, và tên đó vẫn được lưu và gửi đi. Host chỉ giữ nó trong bộ nhớ, chỉ trong thời gian kết nối | Mặc định là tên của máy hoặc thiết bị; giữ cho tới khi bạn đổi nó hoặc xoá tệp. Xoá trắng ô chỉ khôi phục tên mặc định chứ không bỏ được tên |
+| Tên thiết bị trong ô *Your name* — được điền sẵn tên của chính máy hoặc thiết bị này (hostname trên Windows và Linux, tên máy tính trên macOS, tên thiết bị trên iOS, model trên Android) cho tới khi bạn sửa nó | Hiển thị trên host mà bạn kết nối tới, bên cạnh địa chỉ của thiết bị này, để người đang chia sẻ phân biệt được các người xem | Lưu vào `ui-settings.txt` trong cùng thư mục, và gửi tới host khi bạn kết nối — mã hoá trên đường truyền, nhưng hiển thị trên màn hình host và ghi vào nhật ký của host — nên tên mặc định này được gửi đi trừ khi bạn thay nó bằng một tên do bạn tự chọn; xoá trắng ô chỉ khôi phục lại tên mặc định, và tên đó vẫn được lưu và gửi đi. Khi hai máy ghép đôi, host còn lưu tên này trong danh sách `paired_devices` của nó cho tới khi bạn bị quên ở đó | Mặc định là tên của máy hoặc thiết bị; giữ cho tới khi bạn đổi nó hoặc xoá tệp. Xoá trắng ô chỉ khôi phục tên mặc định chứ không bỏ được tên |
 | Thống kê kết nối (bitrate, tỉ lệ mất gói, độ trễ) | Điều chỉnh chất lượng luồng; hiển thị trên thanh trạng thái | Chỉ trao đổi giữa hai thiết bị của bạn | Không bao giờ lưu; bỏ đi khi phiên kết thúc |
 
 ### 3.1 Ngang hàng theo thiết kế
@@ -136,14 +140,14 @@ quyền đó sẽ được xin đúng ngữ cảnh và chính sách này sẽ đ
 - Lưu lượng truyền hình ảnh nằm trong chính mạng của bạn hoặc trong đường hầm VPN của
   bạn. Khi bạn dùng VPN như Tailscale, lưu lượng giữa các thiết bị được VPN đó mã hoá
   đầu-cuối (WireGuard).
-- Trên mạng nội bộ thông thường, Deskhub không mã hoá thêm cho lưu lượng. Mọi host đều
-  yêu cầu mã 4 chữ số trước khi chấp nhận kết nối — mã được sinh tự động cho bạn ở lần
-  chạy đầu tiên và bạn đổi được — nhưng mã đó đi ở dạng thô như phần còn lại của lưu
-  lượng, nên nó chỉ chặn được người không bắt được gói tin của bạn. Tên thiết bị
-  cũng đi ở dạng thô như vậy và hiển thị trên host, nên đừng đặt vào đó bất kỳ thông tin
-  nhạy cảm nào. Chỉ dùng Deskhub trên
-  các mạng bạn tin tưởng, hoặc qua VPN, và đừng bao giờ phơi nó trực tiếp ra Internet. Mô hình mối
-  đe doạ đầy đủ — cái gì được bảo vệ, cái gì không, và cách báo lỗ hổng — nằm trong
+- Deskhub mã hoá lưu lượng phiên — video, điều khiển, thao tác, clipboard và terminal
+  đều chạy trên QUIC/TLS giữa các thiết bị của bạn. Quyền vào được quyết bằng một cuộc
+  bắt tay ghép đôi: máy lạ phải chứng minh nó biết mã 4 chữ số tuỳ chọn của host (bản
+  thân mã không bao giờ được truyền đi) hoặc được người ngồi tại host phê duyệt. Tên
+  thiết bị được mã hoá trên đường truyền nhưng hiển thị trên host, nên đừng đặt vào đó
+  bất kỳ thông tin nhạy cảm nào. Đừng bao giờ phơi Deskhub trực tiếp ra Internet. Mô
+  hình mối đe doạ đầy đủ — cái gì được bảo vệ, cái gì không, và cách báo lỗ hổng — nằm
+  trong
   [`SECURITY.vi.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.vi.md).
 - Các mã passcode lưu trong `recent-devices.txt` và `ui-settings.txt` được che đi bằng
   một khoá cố định để không đọc được ngay khi nhìn vào. Đó không phải mã hoá và không
@@ -193,6 +197,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Phiên bản | Ngày | Thay đổi |
 |---|---|---|
+| 2.0 | 2026-08-15 | Phiên làm việc nay chạy trên kênh truyền mã hoá (QUIC/TLS) — video, thao tác, clipboard lẫn terminal — và máy được cho vào bằng cơ chế ghép đôi. Dữ liệu mới lưu trên chính thiết bị của bạn, tất cả trong thư mục của app và không bao giờ gửi cho chúng tôi: cặp khoá là danh tính của máy này (`host_key.pem`, `host_cert.pem`), khoá của các host bạn đã tin (`known_hosts`), các máy được phép vào host này (`paired_devices` — dấu vân tay khoá, tên mỗi máy gửi, mốc thời gian), và một salt không bí mật (`auth_salt`). Passcode nay là tuỳ chọn và không bao giờ được truyền đi: cuộc bắt tay ghép đôi chứng minh mã mà không gửi mã. |
 | 1.9 | 2026-08-14 | Trên Linux, lựa chọn màn hình trong hộp thoại chia sẻ của desktop nay được ghi nhớ: token cấp quyền mà desktop phát ra được lưu vào `portal-restore-token.txt` để các lần chia sẻ sau bỏ qua hộp thoại. Token chỉ hoạt động với phiên desktop của chính bạn trên máy này, không bao giờ được truyền đi, được thay mới sau mỗi lần chia sẻ, và bị xoá khi bạn bấm *Choose screens again* hoặc xoá tệp. |
 | 1.8 | 2026-08-14 | Công tắc *giữ máy thức* mới (mặc định bật): trong lúc bạn đang chia sẻ hoặc đang xem, app yêu cầu hệ điều hành không đưa máy vào giấc ngủ và không tắt màn hình, và nhả yêu cầu đó khi phiên kết thúc. Chỉ lựa chọn bật/tắt được lưu, trong cùng tệp cài đặt cục bộ; không có gì về nó được truyền đi, và không cài đặt ngủ nào của hệ thống bị thay đổi. |
 | 1.7 | 2026-08-13 | Đồng bộ clipboard nay hoạt động cả trên Android và iOS, với cùng công tắc, giới hạn 32 KiB và quy tắc chỉ-văn-bản-thuần như trên desktop. Hệ điều hành có giới hạn: thiết bị Android chỉ đọc được clipboard của chính nó khi Deskhub là ứng dụng đang ở nền trước (văn bản gửi tới thì được áp dụng bất cứ lúc nào); iOS có thể hiện hộp thoại dán của hệ thống khi Deskhub đọc một bản copy mới; thiết bị iOS đang làm host không bao giờ đồng bộ clipboard, vì broadcast của nó chạy trong một tiến trình riêng. Điện thoại và máy tính bảng cũng có thêm lựa chọn địa chỉ mạng để chia sẻ như trên desktop, lưu trong cùng tệp cài đặt cục bộ và không bao giờ được gửi đi đâu. Ngoài lựa chọn đó, không có gì mới được lưu trên bất kỳ thiết bị nào. |

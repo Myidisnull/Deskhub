@@ -20,7 +20,9 @@ tiếng Anh là bản chuẩn.
 
 Deskhub cho phép một máy hiển thị màn hình của nó cho các máy khác trong cùng mạng, và
 cho phép các máy đó điều khiển chuột và bàn phím của nó. Chỉ có một ứng dụng duy nhất:
-cùng một app vừa chia sẻ màn hình, vừa xem màn hình của máy khác.
+cùng một app vừa chia sẻ màn hình, vừa xem màn hình của máy khác. Máy để bàn còn chia sẻ
+được cả **terminal**: một shell thật trên host mà máy khác mở trong cửa sổ riêng (mục 4
+và 5).
 
 Không bắt buộc cài đặt, không có tài khoản, không đăng nhập, không chạy nền, không có
 thành phần đám mây. Hai máy tìm thấy nhau bằng địa chỉ IP trong một mạng mà cả hai đều
@@ -30,11 +32,13 @@ truy cập được.
 
 | Thuật ngữ | Ý nghĩa |
 | --- | --- |
-| **Host** | Máy đang được chia sẻ màn hình. |
+| **Host** | Máy đang được chia sẻ màn hình (hoặc terminal). |
 | **Client** / **Viewer** | Máy đang xem host, và có thể điều khiển host. |
-| **Source** (nguồn) | Một màn hình có thể chia sẻ trên host. Một host có thể chia sẻ nhiều nguồn cùng lúc. |
+| **Source** (nguồn) | Một thứ chia sẻ được trên host: một màn hình, hoặc terminal. Một host có thể chia sẻ nhiều nguồn cùng lúc. |
 | **Session** (phiên) | Một viewer đang xem một nguồn. Mỗi nguồn mở trong một cửa sổ riêng. |
-| **Passcode** (mã) | Mã 4 chữ số mà host yêu cầu trước khi cho viewer vào. |
+| **Key** (khoá) | Danh tính mật mã mà mỗi máy tự sinh ở lần chạy đầu, hiển thị cho người dùng dưới dạng dấu vân tay (`SHA256:…`). |
+| **Pairing** (ghép đôi) | Việc host cho một máy vào lâu dài. Máy đã ghép đôi được nhận diện bằng khoá của nó và kết nối không cần passcode, cho tới khi bị quên đi (mục 9). |
+| **Passcode** (mã) | Mã 4 chữ số tuỳ chọn mà host có thể yêu cầu trước khi một máy lạ được ghép đôi. |
 
 Một máy có thể vừa là host vừa là client cùng lúc.
 
@@ -54,7 +58,8 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 điều khiển máy.
 
 Ứng dụng được chia thành các mục cùng tên trên mọi nền tảng: **Host**, **Client** và
-**Settings**.
+**Settings** — cộng thêm trang **Devices** liệt kê các máy đã ghép đôi với máy này
+(mục 9).
 
 ---
 
@@ -71,19 +76,23 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 | H-7 | Bảng phiên trực tiếp | Với mỗi màn hình đang chia sẻ, host thấy: tên màn hình, độ phân giải, số viewer, tốc độ thu hình, tốc độ gửi, băng thông đang dùng và độ trễ khứ hồi. Mỗi viewer đang kết nối hiện thành một dòng riêng dưới màn hình tương ứng, nhận diện bằng tên hiển thị kèm địa chỉ — dạng "Tên (ip:port)" — nếu viewer đã đặt tên (C-7), hoặc chỉ bằng địa chỉ nếu chưa. |
 | H-8 | Ngắt một viewer | Host có thể ngắt bất kỳ viewer nào từ bảng phiên. |
 | H-9 | Giới hạn viewer | Tối đa **5** viewer xem một host cùng lúc. Các kết nối thêm bị từ chối với lý do máy đang bận. |
-| H-10 | Báo lỗi | Nếu không bắt đầu chia sẻ được, lý do được hiển thị cho người dùng thay vì thất bại âm thầm. |
+| H-10 | Báo lỗi | Nếu không bắt đầu chia sẻ được, lý do được hiển thị cho người dùng thay vì thất bại âm thầm. Terminal không khởi động được vì cổng đã bị chiếm sẽ báo đúng điều đó. |
+| H-11 | Nguồn Terminal (desktop) | Danh sách nguồn có thêm mục **Terminal — a shell on this machine**. Nó được tích sẵn mỗi lần danh sách hiện ra và không bao giờ được lưu; chia sẻ màn hình không kèm terminal, terminal không kèm màn hình, hay cả hai, đều hợp lệ. Terminal lắng nghe trên cổng UDP riêng (T-21) và dùng chung passcode cùng lựa chọn mạng với màn hình. |
+| H-12 | Phiên shell trong bảng | Khi terminal đang được chia sẻ, bảng phiên trực tiếp có một dòng *Terminal* (kèm cổng), và mỗi shell đang mở là một dòng bên dưới, nhận diện như viewer (C-7), với nút *Disconnect*; nút *Stop* của dòng *Terminal* chỉ dừng chia sẻ terminal. Tối đa **8** shell mở cùng lúc. Mọi lần shell được mở, đóng, gắn lại hay hết hạn đều được ghi vào nhật ký phiên (G-3) kèm địa chỉ, tên và khoá của máy client. |
+| H-13 | Shell sống sót khi rớt mạng | Shell bị mất kết nối được giữ sống trong **2 phút** để đúng máy đó gắn lại với nội dung phiên còn nguyên; quá hạn thì bị huỷ. |
 
 ## 5. Client — kết nối và xem máy khác
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
 | C-1 | Kết nối theo địa chỉ | Người dùng nhập địa chỉ IP của host vào một ô và cổng UDP vào ô riêng, được điền sẵn giá trị mặc định `47777`. Dán `192.168.1.10:47777` vào ô địa chỉ vẫn hoạt động — cổng ghi rõ trong địa chỉ được ưu tiên hơn ô cổng. Nhập sai định dạng sẽ hiện gợi ý giải thích chứ không báo lỗi cụt. |
-| C-2 | Nhập passcode | Người dùng nhập 4 chữ số hiển thị trên host. Mã không đúng 4 chữ số bị chặn ngay trước khi kết nối; nếu địa chỉ là máy đã từng kết nối, mã đã nhớ sẽ được dùng khi ô nhập để trống. Hộp thoại mở ra từ danh sách thiết bị cũng hiển thị cổng UDP của thiết bị, được điền sẵn và sửa được. |
+| C-2 | Nhập passcode | Ô passcode được phép để trống. Mã đã gõ phải đúng 4 chữ số, nếu không kết nối bị chặn trước khi gửi đi bất cứ thứ gì. Ô hiện gì thì đúng cái đó được dùng — không có gì được điền hộ sau lưng người dùng. Với ô trống, host là bên quyết định: máy đã ghép đôi được vào thẳng; gặp host có passcode thì bị từ chối với thông báo nêu rõ lý do passcode; gặp host không có passcode thì client đứng chờ (khoảng một phút) cho người ở host phê duyệt (S-2). Hộp thoại mở ra từ danh sách thiết bị hiển thị cổng UDP của thiết bị và mã đã nhớ (D-7), đều điền sẵn và sửa được. |
 | C-3 | Tuỳ chọn chỉ xem | Trước khi kết nối, viewer có thể bỏ tích *điều khiển máy từ xa* để chỉ xem mà không gửi bất kỳ thao tác nào. |
 | C-4 | Chọn nguồn | Nếu host chia sẻ nhiều hơn một màn hình, viewer được hỏi muốn xem màn hình nào. Chọn nhiều thì mở nhiều cửa sổ. Nếu host chỉ chia sẻ một màn hình, cửa sổ mở ngay. |
 | C-5 | Lỗi rõ ràng | Nếu không tới được host, host không chia sẻ, hoặc passcode sai, viewer được cho biết chính xác là trường hợp nào — kèm địa chỉ trong thông báo. |
 | C-6 | Thông báo kết thúc | Khi một phiên kết thúc, từ phía nào cũng vậy, viewer được cho biết lý do. |
 | C-7 | Tên người xem | Ô *Your name* trên trang kết nối dùng để đặt tên cho thiết bị này. Khi người dùng chưa từng đặt tên, ô được điền sẵn giá trị mặc định theo nền tảng: hostname của máy trên Windows và Linux (tên đăng nhập nếu không lấy được hostname), tên máy tính trên macOS, tên thiết bị trên iOS, và model thiết bị trên Android. Ô có thể sửa, và nội dung của ô lúc kết nối chính là thứ được lưu và gửi đi. Ô không bao giờ rơi vào trạng thái không có tên: kết nối khi ô bị xoá trắng sẽ quay về giá trị mặc định theo nền tảng ở trên — giá trị đó được điền lại vào ô, được lưu và gửi đi — nên mỗi kết nối luôn kèm theo một cái tên. Host hiển thị tên đó bên cạnh địa chỉ của máy để phân biệt các viewer với nhau. Tên được nhớ trên thiết bị, dài tối đa **64** byte, và các ký tự điều khiển bị loại bỏ. Host chạy phiên bản cũ đơn giản là không hiển thị tên. |
+| C-8 | Mở shell | Trang Client có ô tích *Terminal — open a shell* cạnh *Desktop*, cùng một ô cổng terminal (mặc định `47778`); bấm Connect sẽ mở đúng những gì đã tích, dùng lại chính các ô địa chỉ, passcode và tên. Shell mở trong cửa sổ riêng — lưới ký tự, cuộn lại lịch sử, dòng trạng thái — và cửa sổ đó nêu rõ vì sao shell không mở được (sai passcode, bị từ chối, không tới được máy). Vừa xem màn hình vừa chạy shell là chuyện bình thường. |
 
 ## 6. Tìm máy để kết nối
 
@@ -95,7 +104,7 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 | D-4 | Bấm để kết nối | Bấm vào một thiết bị tìm được sẽ bắt đầu kết nối tới thiết bị đó. |
 | D-5 | Thiết bị gần đây | Các máy đã từng kết nối được lưu trong danh sách *Recent devices* — tối đa **10** — kèm địa chỉ, trạng thái, ping và thời điểm kết nối gần nhất. |
 | D-6 | Trạng thái trực tiếp | Mỗi thiết bị gần đây hiển thị **Online**, **Offline** hoặc **Checking…** kèm độ trễ khứ hồi, tự làm mới mỗi **30 giây** và làm mới được theo yêu cầu. |
-| D-7 | Nhớ passcode | Passcode đã dùng cho một thiết bị được lưu cùng thiết bị đó, nên lần sau kết nối không cần gõ lại. Mã được lưu ở dạng che đi — đây là tiện lợi, không phải bảo vệ (xem mục 9). |
+| D-7 | Nhớ passcode | Passcode đã dùng cho một thiết bị được lưu cùng thiết bị đó và điền sẵn vào hộp thoại khi kết nối từ danh sách thiết bị — hiện rõ trong ô sửa được, không bao giờ dùng ngầm. Kết nối mà không gõ mã sẽ không xoá mã đã nhớ; gõ mã mới thì thay mã cũ. Mã được lưu ở dạng che đi — đây là tiện lợi, không phải bảo vệ (xem mục 9). Khi hai máy đã ghép đôi thì mã không còn vai trò: chúng nhận nhau bằng khoá. |
 | D-8 | Xoá thiết bị | Có thể xoá một thiết bị khỏi danh sách gần đây. |
 
 ## 7. Xem một phiên
@@ -128,13 +137,14 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
-| S-1 | Không mã hoá | Deskhub không mã hoá bất cứ thứ gì. Sản phẩm dành cho mạng tin cậy hoặc VPN. Điều này được nêu trong ứng dụng và ghi rõ trong [`SECURITY.vi.md`](../SECURITY.vi.md). |
-| S-2 | Passcode bắt buộc | Mọi host đều yêu cầu passcode 4 chữ số. Mã được sinh ngẫu nhiên ở lần chạy đầu tiên; người dùng đổi được nhưng không thể để trống hay tắt đi. |
-| S-3 | Passcode chặn cả việc dò | Host có yêu cầu passcode sẽ không tiết lộ đang chia sẻ những gì nếu chưa có mã đúng. |
-| S-4 | Khoá khi sai nhiều lần | Sai passcode **3** lần sẽ khoá host, không nhận thêm lần thử nào trong **30 giây**. |
+| S-1 | Mã hoá | Phiên làm việc chạy trên kênh truyền có mã hoá (QUIC/TLS). Mọi thứ một phiên chuyên chở — video, điều khiển, thao tác chuột phím, clipboard và terminal — đều đi trong kênh mã hoá giữa hai máy. Gói beacon phục vụ dò tìm là bản rõ có chủ đích và không mang bí mật nào; mọi gói không mã hoá khác tới cổng đều bị bỏ. Xem bức tranh đầy đủ trong [`SECURITY.vi.md`](../SECURITY.vi.md). |
+| S-2 | Ghép đôi quyết định việc vào | Lần đầu một máy kết nối, host là bên quyết định cho vào hay không. Nếu host có passcode, máy kia phải chứng minh nó biết mã — bản thân mã không bao giờ đi qua mạng. Nếu host không có passcode, người ngồi tại host được hỏi — *Let this machine in?*, với **Allow** và **Deny** — và một câu trả lời áp cho mọi thứ máy đó đang mở (cả màn hình lẫn shell). Cho vào tức là **ghép đôi** hai máy: từ đó nó được nhận diện bằng khoá và kết nối không cần passcode, cho tới khi bị quên đi. |
+| S-3 | Passcode tuỳ chọn, danh sách máy đã ghép | Passcode là tuỳ chọn và mặc định để trống; khi trống, không gì vào được nếu người ở host chưa phê duyệt. Các máy đã ghép đôi được liệt kê trên trang **Devices** — tên, khoá, ngày ghép, lần gặp cuối — với *Forget* và *Forget every machine*, một công tắc *allow new pairings* mà khi tắt thì chỉ máy đã ghép mới vào được, cùng khoá của chính máy này để đọc đối chiếu. Host chỉ tiết lộ đang chia sẻ những gì cho máy đã được cho vào. |
+| S-4 | Khoá khi sai nhiều lần | Sai passcode **3** lần sẽ khoá phần ghép đôi của host trong **30 giây**, và máy đang thử được báo là phải chờ. Máy đã ghép đôi không bị ảnh hưởng. |
 | S-5 | Công tắc điều khiển | Host có thể chia sẻ với tuỳ chọn *viewer được điều khiển máy này* tắt đi, khiến mọi phiên đều là chỉ xem bất kể viewer yêu cầu gì. |
 | S-6 | Đồng ý thu hình | Trên các nền tảng yêu cầu, hệ điều hành tự hiện hộp thoại xin quyền và hộp thoại chọn màn hình; Deskhub không thu hình được nếu người dùng chưa cấp quyền. |
 | S-7 | Chỉ chia sẻ khi được yêu cầu | Không có gì được chia sẻ cho tới khi người dùng bấm bắt đầu. Đóng ứng dụng hoặc dừng chia sẻ sẽ kết thúc mọi phiên. |
+| S-8 | Cảnh báo khoá đổi | Client ghi nhớ khoá của mọi host nó đã tin. Nếu khoá đó đổi — đúng hình dạng của một máy chen giữa — một cảnh báo lớn hiện dấu vân tay mới và kết nối bị từ chối cho tới khi người dùng chấp nhận rõ ràng. Khoá chưa gặp bao giờ thì được chính cuộc bắt tay ghép đôi phân xử, không hỏi gì thêm. |
 
 ## 10. Cài đặt
 
@@ -150,7 +160,7 @@ giá trị mặc định dựng sẵn.
 | T-2 | Bitrate | 1 – 1000 Mbps | 20 |
 | T-3 | Chất lượng | 720p · 1080p · 1440p · Native | 1080p |
 | T-4 | Cổng mạng | 1 – 65535 | 47777 |
-| T-5 | Passcode | đúng 4 chữ số | sinh ngẫu nhiên ở lần chạy đầu |
+| T-5 | Passcode | trống, hoặc đúng 4 chữ số | trống (xem S-2, S-3) |
 | T-6 | Viewer được điều khiển máy này | bật / tắt | bật |
 | T-9 | Chia sẻ trên mạng | Mọi mạng · một trong các địa chỉ của máy | Mọi mạng |
 | T-11 | Bắt đầu chia sẻ khi mở app | bật / tắt | tắt |
@@ -158,6 +168,8 @@ giá trị mặc định dựng sẵn.
 | T-15 | Tiếp tục chạy trong nền | bật / tắt | tắt |
 | T-17 | Đồng bộ văn bản clipboard | bật / tắt | tắt |
 | T-19 | Giữ thiết bị này thức trong phiên | bật / tắt | bật |
+| T-21 | Cổng terminal (desktop) | 1 – 65535 | 47778 |
+| T-22 | Cho máy mới ghép đôi (trang Devices) | bật / tắt | bật |
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
@@ -202,5 +214,4 @@ Deskhub **không** cung cấp, và đặc tả này không bao gồm:
   nhiệm của người dùng (ví dụ bằng VPN).
 - Ghi lại phiên làm việc.
 - Truy cập khi không có người tại máy, wake-on-LAN, hay điều khiển nguồn điện từ xa.
-- Mã hoá, xác thực danh tính máy, hay đảm bảo toàn vẹn ở tầng truyền tải.
 - Quản trị nhiều người dùng, phân quyền, hay nhật ký kiểm toán.

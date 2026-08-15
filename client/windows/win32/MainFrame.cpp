@@ -71,6 +71,7 @@ constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
 constexpr int kPrimaryButtonH = 46;
 constexpr int kListMinH = 130;
 constexpr int kHostListMinH = 150;
+constexpr int kBannerWrapWidth = 520;
 
 enum Page { kPageHost = 0,
     kPageClient = 1,
@@ -318,6 +319,7 @@ private:
     wxWindow* BuildSettingsPage(wxWindow* parent);
     void RefreshPairedDevices();
     void DrainPairingRequests();
+    bool AskPairing(const PairingRequest& request);
     void ForgetSelectedDevice();
     void ForgetEveryDevice();
     static wxTextCtrl* MakePasscodeCtrl(wxWindow* parent);
@@ -357,7 +359,6 @@ private:
     void KickViewer(uint8_t sourceId, const std::string& viewerAddr);
     void ApplyHostState(HostShareState state, const wxString& detail);
     void ShowIdleHostState();
-    std::string HostPortDetail() const;
 
     void StartConnect(const std::string& addr);
     void OpenShell(const std::string& addr, const std::string& passcode);
@@ -440,6 +441,9 @@ private:
     std::optional<std::string> pendingClipboard_;
     std::string screenStatusLine_;
     std::string terminalStatusLine_;
+    std::string sharePasscodeNote_;
+    std::string shareBindWarning_;
+    bool shareViewOnly_ = false;
     std::vector<ui::HostRow> hostRows_;
     std::vector<ui::RecentDevice> recent_;
     std::vector<deskhubp::ScanHit> scanned_;
@@ -452,6 +456,7 @@ private:
     AgentLoop agentLoop_;
     deskhubp::AgentDriver agentDriver_;
     deskhubp::TerminalHost terminalHost_;
+    bool askingPairing_ = false;
     wxTimer hostTimer_;
     wxTimer scanTimer_;
     wxTimer clipTimer_;
@@ -938,17 +943,39 @@ void MainFrame::RefreshPairedDevices() {
 // has to come from whoever is sitting here. Saying yes pairs it for good, which is
 // why the key is shown rather than just the name it chose for itself.
 void MainFrame::DrainPairingRequests() {
-    const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
-    for (const PairingRequest& request : requests) {
-        wxString body = ToWx(ui::PairingRequestBody(request.name,
-            NetAddr::Unpack(request.addrPacked).ToString(), request.shortKey));
-        wxMessageDialog dialog(this, body, ToWx(ui::kPairingRequestTitle),
-            wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
-        dialog.SetYesNoLabels(ToWx(ui::kPairingAllow), ToWx(ui::kPairingDeny));
-        const bool allowed = dialog.ShowModal() == wxID_YES;
-        agentLoop_.AnswerPairing(request.addrPacked, allowed);
-        if (allowed) RefreshPairedDevices();
-    }
+    if (askingPairing_) return;
+    const std::vector<PairingRequest> screen = agentLoop_.TakePairingRequests();
+    const std::vector<PairingRequest> shell = terminalHost_.TakePairingRequests();
+    if (screen.empty() && shell.empty()) return;
+
+    askingPairing_ = true;
+    std::map<std::string, bool> answers;
+    for (const deskhub::PairedDevice& device : deskhubp::LoadPairedDevices().Devices())
+        answers[deskhub::ShortFingerprint(device.fingerprint)] = true;
+
+    const auto answerFor = [this, &answers](const PairingRequest& request) {
+        const auto found = answers.find(request.shortKey);
+        if (found != answers.end()) return found->second;
+        const bool allowed = AskPairing(request);
+        answers[request.shortKey] = allowed;
+        return allowed;
+    };
+    for (const PairingRequest& request : screen)
+        agentLoop_.AnswerPairing(request.addrPacked, answerFor(request));
+    for (const PairingRequest& request : shell)
+        terminalHost_.AnswerPairing(request.addrPacked, answerFor(request));
+    askingPairing_ = false;
+}
+
+bool MainFrame::AskPairing(const PairingRequest& request) {
+    wxString body = ToWx(ui::PairingRequestBody(request.name,
+        NetAddr::Unpack(request.addrPacked).ToString(), request.shortKey));
+    wxMessageDialog dialog(this, body, ToWx(ui::kPairingRequestTitle),
+        wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+    dialog.SetYesNoLabels(ToWx(ui::kPairingAllow), ToWx(ui::kPairingDeny));
+    const bool allowed = dialog.ShowModal() == wxID_YES;
+    if (allowed) RefreshPairedDevices();
+    return allowed;
 }
 
 void MainFrame::ForgetSelectedDevice() {
@@ -1303,10 +1330,6 @@ void MainFrame::OnDeviceStatus(const deskhubp::DeviceStatus& status) {
     ApplyProbeToRows(status.addr);
 }
 
-std::string MainFrame::HostPortDetail() const {
-    return ui::UdpPortLine(uint16_t(settings_.port)) + ".";
-}
-
 void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
     const HostStateStyle style = StyleFor(state);
 
@@ -1314,9 +1337,13 @@ void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
     hostStateLabel_->SetForegroundColour(style.tint);
     hostStateLabel_->SetBackgroundColour(style.background);
     hostStatusLabel_->SetLabel(detail);
+    hostStatusLabel_->Wrap(FromDIP(kBannerWrapWidth));
+    hostStatusLabel_->Show(!detail.empty());
     hostStatusLabel_->SetBackgroundColour(style.background);
     hostBannerBar_->SetBackgroundColour(style.tint);
     hostBanner_->SetBackgroundColour(style.background);
+    hostBanner_->Layout();
+    if (wxWindow* page = hostBanner_->GetParent()) page->Layout();
     hostBanner_->Refresh();
 
     shareBtn_->SetLabel(ToWx(style.action));
@@ -1327,7 +1354,7 @@ void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
 }
 
 void MainFrame::ShowIdleHostState() {
-    ApplyHostState(HostShareState::kIdle, ToWx(HostPortDetail()));
+    ApplyHostState(HostShareState::kIdle, wxString());
 }
 
 void MainFrame::OnShare() {
@@ -1426,8 +1453,8 @@ void MainFrame::StartTerminalShare() {
             "Deskhub", wxOK | wxICON_ERROR, this);
         return;
     }
-    terminalStatusLine_ = std::string(ui::kTerminalSharingOn) + " " +
-                          ui::PortCell(config.port) + "  " + deskhub::FormatFingerprint(identity.fingerprint);
+    terminalStatusLine_ = ui::TerminalShareLine(config.port);
+    sharePasscodeNote_ = ui::PasscodeNote(config.passcode);
     RefreshShells();
 }
 
@@ -1461,9 +1488,13 @@ void MainFrame::KickShell(uint32_t termId) {
 void MainFrame::ApplySharingBanner() {
     std::string status = screenStatusLine_;
     if (terminalHost_.Running()) {
-        if (!status.empty()) status += "  ";
+        if (!status.empty()) status += " \xC2\xB7 ";
         status += terminalStatusLine_;
     }
+    if (!status.empty()) status += ".";
+    if (!sharePasscodeNote_.empty()) status += "\n" + sharePasscodeNote_;
+    if (hosting_ && shareViewOnly_) status += std::string("\n") + ui::kViewOnlyNote;
+    if (hosting_ && !shareBindWarning_.empty()) status += "\n" + shareBindWarning_;
     ApplyHostState(HostShareState::kSharing, ToWx(status));
 }
 
@@ -1471,7 +1502,7 @@ void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
     const AgentOptions& options) {
     hostStarting_ = true;
     shareBtn_->Disable();
-    ApplyHostState(HostShareState::kStarting, ToWx(HostPortDetail()));
+    ApplyHostState(HostShareState::kStarting, wxString());
     hostRows_.clear();
     RebuildHostTable();
     ShowHostTable(true);
@@ -1511,11 +1542,10 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     }
 
     hosting_ = true;
-    screenStatusLine_ = ui::SharingStatusLine(port);
-    screenStatusLine_ += " " + ui::PasscodeNote(passcode);
-    if (!allowInput) screenStatusLine_ += std::string(" ") + ui::kViewOnlyNote;
-    const std::string bindWarning = agentLoop_.BindWarning();
-    if (!bindWarning.empty()) screenStatusLine_ += " " + bindWarning;
+    screenStatusLine_ = ui::ScreenShareLine(port);
+    sharePasscodeNote_ = ui::PasscodeNote(passcode);
+    shareViewOnly_ = !allowInput;
+    shareBindWarning_ = agentLoop_.BindWarning();
     ApplySharingBanner();
     ShowHostTable(true);
     hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
@@ -1552,6 +1582,9 @@ void MainFrame::StopHosting() {
     hosting_ = false;
     pendingClipboard_.reset();
     screenStatusLine_.clear();
+    sharePasscodeNote_.clear();
+    shareBindWarning_.clear();
+    shareViewOnly_ = false;
     hostStatus_.clear();
     StopTerminalShare();
     ShowIdleHostState();
@@ -1648,7 +1681,8 @@ void MainFrame::SaveOpenChoices() {
 }
 
 void MainFrame::OpenShell(const std::string& addr, const std::string& passcode) {
-    const uint16_t port = ui::PortOrDefault(std::string(shellPortCtrl_->GetValue().utf8_str()));
+    const uint16_t port = ui::PortOrDefault(std::string(shellPortCtrl_->GetValue().utf8_str()),
+        uint16_t(settings_.terminalPort));
     const std::string address = ui::AddressHost(addr) + ":" + std::to_string(port);
     NetAddr host{};
     if (!ParseNetAddr(address, host)) {
@@ -1697,11 +1731,9 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         return;
     }
 
-    const std::string typed(clientPasscodeCtrl_->GetValue().utf8_str());
-    const std::string passcode = deskhub::IsValidPasscode(typed)
-                                     ? typed
-                                     : ui::PasscodeForDevice(recent_, addr);
-    if (!deskhub::IsValidPasscode(passcode)) {
+    const std::string passcode =
+        ui::TrimAscii(std::string(clientPasscodeCtrl_->GetValue().utf8_str()));
+    if (!passcode.empty() && !deskhub::IsValidPasscode(passcode)) {
         wxMessageBox(ToWx(ui::kPasscodeInvalid), "Deskhub", wxOK | wxICON_ERROR, this);
         clientPasscodeCtrl_->SetFocus();
         return;

@@ -57,6 +57,9 @@ int main() {
     std::printf("--- session: remote terminal (host sessions, client, stream framing) ---\n");
     RunTerminalSessionTests();
 
+    std::printf("--- session: passcode attempt throttle ---\n");
+    RunAuthThrottleTests();
+
     std::printf("--- input ---\n");
     RunInputTests();
 

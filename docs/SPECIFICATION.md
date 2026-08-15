@@ -17,7 +17,9 @@ protocol description and no build instructions. Those live in
 
 Deskhub lets one machine show its screen to other machines on the same network, and lets
 those machines drive its mouse and keyboard. It is a single application: the same app
-both shares a screen and views someone else's.
+both shares a screen and views someone else's. A desktop machine can also share a
+**terminal**: a real shell on the host that other machines open in a window of their own
+(sections 4 and 5).
 
 There is no installer requirement, no account, no sign-in, no background service and no
 cloud component. Two machines find each other by IP address on a network both can reach.
@@ -26,11 +28,13 @@ cloud component. Two machines find each other by IP address on a network both ca
 
 | Term | Meaning |
 | --- | --- |
-| **Host** | The machine whose screen is being shared. |
+| **Host** | The machine whose screen (or terminal) is being shared. |
 | **Client** / **Viewer** | The machine watching a host, and optionally controlling it. |
-| **Source** | One shareable display on the host. A host may share several at once. |
+| **Source** | One shareable thing on the host: a display, or the terminal. A host may share several at once. |
 | **Session** | One viewer watching one source. Each source opens in its own window. |
-| **Passcode** | The 4-digit code a host requires before a viewer is admitted. |
+| **Key** | The cryptographic identity a machine creates on first run, shown to people as a fingerprint (`SHA256:…`). |
+| **Pairing** | The host letting a machine in for good. A paired machine is recognised by its key and connects without a passcode, until it is forgotten (section 9). |
+| **Passcode** | The optional 4-digit code a host may require before an unknown machine can pair. |
 
 A single machine can be host and client at the same time.
 
@@ -49,7 +53,8 @@ Phones and tablets host in **view-only** mode: they stream their screen but neve
 remote input, because no mobile OS lets an ordinary app drive the device.
 
 The app is organised into the same named sections everywhere: **Host**, **Client** and
-**Settings**.
+**Settings** — plus a **Devices** page listing the machines paired with this one
+(section 9).
 
 ---
 
@@ -66,19 +71,23 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 | H-7 | Live session table | For each shared display the host sees: display name, resolution, number of viewers, capture rate, send rate, bandwidth in use, and round-trip time. Each connected viewer appears as its own row under its display, identified by its display name and address — "Name (ip:port)" — when the viewer has set a name (C-7), or by the bare address otherwise. |
 | H-8 | Disconnect a viewer | The host can drop any individual viewer from the session table. |
 | H-9 | Viewer limit | At most **5** viewers may watch one host at a time. Further attempts are rejected as busy. |
-| H-10 | Failure reporting | If sharing cannot start, the reason is shown to the user rather than failing silently. |
+| H-10 | Failure reporting | If sharing cannot start, the reason is shown to the user rather than failing silently. A terminal that cannot start because its port is taken says exactly that. |
+| H-11 | Terminal source (desktop) | The source list also offers **Terminal — a shell on this machine**. It is ticked afresh every time the list is shown and never saved; sharing screen without terminal, terminal without screen, or both, are all valid. The terminal listens on its own UDP port (T-21) and shares the passcode and network choice with the screen. |
+| H-12 | Shell sessions in the table | While the terminal is shared, the live table shows a *Terminal* row (with its port), and each open shell as a row beneath it identified like a viewer (C-7), with *Disconnect*; the *Terminal* row's *Stop* ends terminal sharing alone. At most **8** shells are open at once. Every shell opened, closed, reattached or expired is written to the session log (G-3) with the client's address, name and key. |
+| H-13 | Shell survives a drop | A shell whose connection is lost is kept alive for **2 minutes** so the same machine can reattach with the session contents intact; after that it is discarded. |
 
 ## 5. Connecting — viewing another machine
 
 | ID | Feature | Description |
 | --- | --- | --- |
 | C-1 | Connect by address | The user types the host's IP address in one field and the UDP port in another, prefilled with the default `47777`. Pasting `192.168.1.10:47777` into the address field still works — its explicit port wins over the port field. Invalid input produces an explanatory hint, not a failure. |
-| C-2 | Passcode entry | The user enters the 4 digits shown on the host. A code that is not exactly 4 digits is rejected before connecting; if the address is a known one, its remembered code is used when the field is left empty. The prompt that opens from the device lists also shows the device's UDP port, prefilled and editable. |
+| C-2 | Passcode entry | The passcode field may be left empty. A typed code must be exactly 4 digits, or the connect is refused before anything is sent. What the field shows is exactly what is used — nothing is filled in behind the user's back. With an empty field, the host decides: a paired machine is let straight in; against a passcode-protected host the attempt fails with a message naming the passcode; against a host with no passcode the client waits (about a minute) for the person at the host to approve (S-2). The prompt that opens from the device lists shows the device's UDP port and its remembered passcode (D-7), both prefilled and editable. |
 | C-3 | Control opt-out | Before connecting, the viewer can untick *control the remote machine* to watch without sending any input. |
 | C-4 | Source picker | If the host is sharing more than one display, the viewer is asked which to view. Picking several opens several windows. If the host shares exactly one display, it opens immediately. |
 | C-5 | Clear failures | If the host cannot be reached, is not sharing, or refuses the passcode, the viewer is told which — with the address named in the message. |
 | C-6 | Session end notice | When a session ends, from either side, the viewer sees why. |
 | C-7 | Viewer name | A *Your name* field on the connect page names this device. Until the user first sets a name, it is prefilled with a platform default: the computer's hostname on Windows and Linux (the login username if no hostname is available), the computer's name on macOS, the device name on iOS, and the device model on Android. The field can be edited, and whatever it contains when connecting is what is saved and sent. It can never end up unset: connecting with a cleared field falls back to the platform default above, which refills the field and is what is saved and sent, so a name always accompanies a connection. Hosts show the name next to this machine's address so viewers can be told apart. The name is remembered on this device, holds at most **64** bytes of text, and control characters are removed from it. A host running an older version simply does not show it. |
+| C-8 | Open a shell | The Client page has a *Terminal — open a shell* tick beside *Desktop*, plus a terminal-port field (default `47778`); Connect opens whatever is ticked, reusing the same address, passcode and name fields. The shell opens in its own window — grid, scrollback, status line — and that window states why a shell could not open (wrong passcode, refused, unreachable). Watching the screen and running a shell at the same time is normal. |
 
 ## 6. Finding machines
 
@@ -90,7 +99,7 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 | D-4 | Click to connect | Clicking a discovered device starts a connection to it. |
 | D-5 | Recent devices | Machines connected to before are kept in a *Recent devices* list — up to **10** — showing address, status, ping and when they were last connected. |
 | D-6 | Live status | Each recent device shows **Online**, **Offline** or **Checking…** with a round-trip time, refreshed automatically every **30 seconds** and on demand. |
-| D-7 | Remembered passcode | The passcode used for a device is remembered with it, so reconnecting does not require retyping it. It is stored obscured, which is convenience — not protection (see section 9). |
+| D-7 | Remembered passcode | The passcode used for a device is remembered with it and prefills the prompt when connecting from the device list — visibly, in the editable field, never silently. Connecting without typing a code does not erase the remembered one; typing a new code replaces it. It is stored obscured, which is convenience — not protection (see section 9). Once machines are paired the code stops mattering: they are recognised by key. |
 | D-8 | Forget a device | A recent device can be removed from the list. |
 
 ## 7. Viewing a session
@@ -123,13 +132,14 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| S-1 | No encryption | Deskhub does not encrypt anything. It is intended for trusted networks or a VPN. This is stated in the app and documented in [`SECURITY.md`](../SECURITY.md). |
-| S-2 | Mandatory passcode | Every host requires a 4-digit passcode. One is generated at random on first launch; the user can change it but cannot leave it blank or switch it off. |
-| S-3 | Passcode gates discovery | A host that requires a passcode will not even reveal what it is sharing without it. |
-| S-4 | Lockout on repeated failure | **3** wrong passcode attempts lock the host against further attempts for **30 seconds**. |
+| S-1 | Encryption | Sessions run over an encrypted transport (QUIC/TLS). Everything a session carries — video, control, input, clipboard and terminal traffic — travels encrypted between the two machines. Discovery beacons are plain by design and carry no secrets; any other unencrypted packet arriving at the port is dropped. [`SECURITY.md`](../SECURITY.md) has the full picture. |
+| S-2 | Pairing gates admission | The first time a machine connects, the host decides whether to let it in. If the host has a passcode, the machine must prove it knows the code — the code itself never travels over the network. If the host has no passcode, the person at the host is asked — *Let this machine in?*, with **Allow** and **Deny** — and one answer covers everything that machine is opening (screen and shell alike). Letting it in **pairs** the two machines: from then on it is recognised by its key and connects without a passcode, until it is forgotten. |
+| S-3 | Optional passcode, paired list | The passcode is optional and empty by default; with it empty, nothing gets in without a person at the host approving it. The paired machines are listed on the **Devices** page — name, key, when paired, last seen — with *Forget* and *Forget every machine*, an *allow new pairings* switch that, when off, admits already-paired machines only, and this machine's own key for reading out. A host reveals what it is sharing only to machines it has admitted. |
+| S-4 | Lockout on repeated failure | **3** wrong passcode attempts lock the host's pairing against further attempts for **30 seconds**, and the machine trying is told to wait. Already-paired machines are unaffected. |
 | S-5 | Control switch | The host can share with *viewers can control this machine* turned off, making every session view-only regardless of what viewers request. |
 | S-6 | Consent to capture | On platforms that require it, the operating system's own permission prompts and screen-picker dialogs are used; Deskhub cannot capture without the user granting it. |
 | S-7 | Explicit sharing only | Nothing is shared until the user starts a share. Closing or stopping ends all sessions. |
+| S-8 | Key change warning | A client remembers the key of every host it has trusted. If that key ever changes — the shape a machine-in-the-middle has — a loud warning shows the new fingerprint and the connection is refused until the user explicitly accepts it. A key never seen before is settled by the pairing handshake itself and asks nothing. |
 
 ## 10. Settings
 
@@ -145,7 +155,7 @@ the built-in defaults for everything else.
 | T-2 | Bitrate | 1 – 1000 Mbps | 20 |
 | T-3 | Quality | 720p · 1080p · 1440p · Native | 1080p |
 | T-4 | Network port | 1 – 65535 | 47777 |
-| T-5 | Passcode | exactly 4 digits | generated at random on first launch |
+| T-5 | Passcode | empty, or exactly 4 digits | empty (see S-2, S-3) |
 | T-6 | Viewers can control this machine | on / off | on |
 | T-9 | Share on network | All networks · one of this machine's addresses | All networks |
 | T-11 | Start sharing when the app opens | on / off | off |
@@ -153,6 +163,8 @@ the built-in defaults for everything else.
 | T-15 | Keep running in the background | on / off | off |
 | T-17 | Sync clipboard text | on / off | off |
 | T-19 | Keep this device awake during sessions | on / off | on |
+| T-21 | Terminal port (desktop) | 1 – 65535 | 47778 |
+| T-22 | Allow new machines to pair (Devices page) | on / off | on |
 
 | ID | Feature | Description |
 | --- | --- | --- |
@@ -197,5 +209,4 @@ Deskhub does **not** provide, and this specification does not cover:
   user's responsibility (for example via a VPN).
 - Session recording.
 - Unattended access, wake-on-LAN, or remote power control.
-- Encryption, authentication of machine identity, or transport-level integrity.
 - Multi-user administration, roles, or audit trails.

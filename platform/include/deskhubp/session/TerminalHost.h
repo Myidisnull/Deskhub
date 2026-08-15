@@ -1,5 +1,6 @@
 #pragma once
 #include "deskhub/protocol/RecordStream.h"
+#include "deskhub/session/AuthThrottle.h"
 #include "deskhub/session/TerminalSession.h"
 #include "deskhubp/net/QuicEndpoint.h"
 #include "deskhubp/system/HostIdentity.h"
@@ -12,13 +13,14 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace deskhubp {
 
 struct TerminalHostConfig {
     std::string bindIp{};
-    uint16_t port = deskhub::kDeskhubPort;
+    uint16_t port = deskhub::kDeskhubTerminalPort;
     bool allowNewPairings = true;
     std::string passcode{};
     std::string shell{};
@@ -48,6 +50,8 @@ public:
     }
     void SetPasscode(std::string passcode);
     void KickSession(uint32_t termId);
+    std::vector<PairingRequest> TakePairingRequests();
+    void AnswerPairing(uint64_t addrPacked, bool allowed);
     size_t SessionCount() const;
     std::vector<deskhub::TerminalRecord> Sessions() const;
     uint16_t Port() const {
@@ -64,6 +68,11 @@ private:
         uint64_t stream = 0;
     };
 
+    struct PendingAuth {
+        std::unique_ptr<HostAuth> auth{};
+        uint64_t stream = 0;
+    };
+
     void Loop();
     void OnStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes);
     void HandleMessage(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
@@ -71,6 +80,7 @@ private:
     void OnConnectionClosed(QuicConnId conn, uint64_t nowUs);
     void PumpShells(uint64_t nowUs);
     void DrainKicks();
+    void DrainApprovals();
     void SendToStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
     void CloseShell(uint32_t termId, int exitCode, bool tellClient);
     void Audit(uint32_t termId, std::string_view what);
@@ -84,8 +94,11 @@ private:
     std::map<uint32_t, Shell> shells_{};
     std::vector<uint32_t> kicks_{};
     std::map<uint64_t, deskhub::RecordStream> streams_{};
-    std::map<uint64_t, std::unique_ptr<HostAuth>> auth_{};
+    std::map<uint64_t, PendingAuth> auth_{};
     std::map<uint64_t, bool> authenticated_{};
+    std::vector<PairingRequest> pairingRequests_{};
+    std::vector<std::pair<uint64_t, bool>> approvalAnswers_{};
+    deskhub::AuthThrottle authThrottle_{};
     mutable std::mutex mutex_{};
     std::thread thread_{};
     std::atomic<bool> running_{false};

@@ -110,6 +110,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
         tests/session/TerminalSessionTests.cpp
+        tests/session/AuthThrottleTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp

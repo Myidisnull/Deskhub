@@ -178,6 +178,7 @@ enum class AuthResultCode : uint8_t {
     PairingDisabled = 3,
     Refused = 4,
     TimedOut = 5,
+    Locked = 6,
 };
 
 // The public key travels, not the fingerprint: the host has to hash it to get the

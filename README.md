@@ -44,7 +44,7 @@ display, type an IP on the other machine, and you're driving it.
     </td>
     <td align="center" width="50%">
       <img src="docs/imgs/macos_3.png" alt="Deskhub Settings page on macOS: fps, bitrate, quality, port, passcode, view-only switch and live permission state">
-      <br><sub><b>Settings</b> — fps, bitrate, quality cap, port, the mandatory 4-digit passcode, the view-only switch, and (on macOS) the live permission state.</sub>
+      <br><sub><b>Settings</b> — fps, bitrate, quality cap, port, the optional 4-digit pairing passcode, the view-only switch, and (on macOS) the live permission state.</sub>
     </td>
   </tr>
 </table>

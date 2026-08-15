@@ -32,6 +32,15 @@ enum class HostAuthState : uint8_t {
     Settled = 3,
 };
 
+// A machine asking to pair when no passcode is set. It waits until somebody at the
+// host answers, so the request is queued for the UI thread rather than blocking the
+// net loop on a dialog.
+struct PairingRequest {
+    uint64_t addrPacked = 0;
+    std::string shortKey{};
+    std::string name{};
+};
+
 // One of these per connection. It decides which of the three ways a machine may
 // prove itself, checks the proof, and is the only place a passcode is ever
 // consulted - the passcode itself never leaves the machine.

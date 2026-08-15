@@ -2,7 +2,7 @@
 
 # Deskhub Privacy Policy
 
-_Effective date: August 14, 2026 — Version 1.9_
+_Effective date: August 15, 2026 — Version 2.0_
 
 > A Vietnamese translation is available at [`PRIVACY.vi.md`](PRIVACY.vi.md). This English
 > version is the authoritative one.
@@ -40,15 +40,19 @@ party.
 
 | Data | Purpose | Where it goes | Retention |
 |---|---|---|---|
-| Screen content of the shared computer (video frames) | Displaying that screen on your other device | Sent directly between your two devices, encrypted in transit only by your own network/VPN layer | Never stored; exists only in memory during the session |
-| Mouse, keyboard, and touch input | Controlling the shared computer from your other device | Sent directly from the viewing device to the shared computer | Never stored; discarded after injection |
+| Screen content of the shared computer (video frames) | Displaying that screen on your other device | Sent directly between your two devices, encrypted in transit (QUIC/TLS) | Never stored; exists only in memory during the session |
+| Mouse, keyboard, and touch input | Controlling the shared computer from your other device | Sent directly from the viewing device to the shared computer, encrypted in transit (QUIC/TLS) | Never stored; discarded after injection |
+| This machine's key pair — a private key and self-signed certificate created on first run | Proving this machine's identity to machines it connects to; people see it as a fingerprint (`SHA256:…`) | Written to `host_key.pem` and `host_cert.pem` in the app's own folder; only the public half (the certificate) is presented to machines you connect to | Kept until you delete the files; deleting them gives the machine a new identity, and machines that knew the old one will warn |
+| The keys of hosts this device has trusted (fingerprint, address, label, first/last seen) | Recognising a known host and warning loudly if its key ever changes | Written to `known_hosts` in the same folder; never transmitted | Kept until you delete the file |
+| The machines paired with this host — their key fingerprint, the name they sent, when they paired and were last seen | Letting paired machines reconnect without a passcode, and listing them on the Devices page so you can forget them | Written to `paired_devices` in the same folder; never transmitted | Kept until you forget the machine on the Devices page or delete the file |
+| A random salt for the passcode verifier | Turning the passcode into the value the pairing handshake checks, so the code itself never travels | Written to `auth_salt` in the same folder; the salt is sent to a connecting machine during the handshake (it is not a secret) | Kept until you delete the file |
 | The address (IP/hostname) you type | Connecting to the other machine | Stays on the device you typed it on | Kept locally until you change it |
 | The last 10 addresses you connected to, the time of each, and the passcode you used for each | Filling in the *Recent devices* list so you can reconnect with one click | Written to `recent-devices.txt` in the app's own folder on your device — `%USERPROFILE%\.deskhub` on Windows, `~/.deskhub` on macOS and Linux, the app sandbox on iOS and Android | Kept until you connect to 10 newer addresses, or you delete the file |
 | Your sharing preferences (frame rate, bitrate, resolution cap, port, which network address to share on, whether viewers may control the machine, the clipboard-sync, keep-awake, start-with-OS, auto-share and background-mode toggles, and the passcode you ask viewers for) | Restoring your settings the next time you open the app | Written to `ui-settings.txt` in the same folder. On iOS the file lives in the app group container shared by the app and its broadcast extension, so both halves agree on your passcode and port | Kept until you change them or delete the file |
 | The screen-permission token the Linux desktop issues after you pick displays in its screen-sharing dialog (Linux only) | Letting later shares reuse your choice silently, so the dialog appears only the first time | Written to `portal-restore-token.txt` in the same folder; the token is meaningful only to your own desktop session on this machine and is never transmitted | Replaced after each share; removed when you press *Choose screens again* or delete the file |
-| Clipboard text (only while the clipboard-sync toggle is on and a session is active) | Making text copied on one device pastable on the others | Sent directly between your devices — unencrypted, like the rest of the traffic — capped at 32 KiB per copy; only plain text, never images or files | Never stored by Deskhub; lives only in each device's normal system clipboard |
+| Clipboard text (only while the clipboard-sync toggle is on and a session is active) | Making text copied on one device pastable on the others | Sent directly between your devices, encrypted in transit (QUIC/TLS), capped at 32 KiB per copy; only plain text, never images or files | Never stored by Deskhub; lives only in each device's normal system clipboard |
 | Whether a broadcast is currently running, how many viewers are connected, the broadcast extension's own memory use in megabytes, and the text of the last start-up error (iOS only) | Letting the app's sharing screen report the state of the broadcast extension, which iOS runs as a separate process and terminates if it uses too much memory | Written to `broadcast-status.txt` in the same app group container | Deleted when the broadcast ends |
-| The device name in the *Your name* field — prefilled with this computer or device's own name (its hostname on Windows and Linux, its computer name on macOS, its device name on iOS, its model on Android) until you edit it | Shown on the host you connect to, next to this device's address, so the person sharing can tell viewers apart | Saved in `ui-settings.txt` in the same folder, and sent to the host when you connect — in the clear, like the rest of the traffic — so this default name is transmitted unless you replace it with a name of your choice; clearing the field only restores the default, which is then saved and sent. The host keeps it only in memory, only for the duration of the connection | Defaults to the computer or device's name; kept until you change it or delete the file. Clearing the field restores the default rather than removing the name |
+| The device name in the *Your name* field — prefilled with this computer or device's own name (its hostname on Windows and Linux, its computer name on macOS, its device name on iOS, its model on Android) until you edit it | Shown on the host you connect to, next to this device's address, so the person sharing can tell viewers apart | Saved in `ui-settings.txt` in the same folder, and sent to the host when you connect — encrypted in transit, but displayed on the host's screen and written into its logs — so this default name is transmitted unless you replace it with a name of your choice; clearing the field only restores the default, which is then saved and sent. When the machines pair, the host also stores the name in its `paired_devices` list until you are forgotten there | Defaults to the computer or device's name; kept until you change it or delete the file. Clearing the field restores the default rather than removing the name |
 | Connection statistics (bitrate, packet loss, latency) | Adapting stream quality; shown in the status bar | Exchanged only between your two devices | Never stored; discarded when the session ends |
 
 ### 3.1 Peer-to-peer by design
@@ -140,15 +144,14 @@ permission, it will be requested in-context and this policy will be updated.
 - Streaming traffic stays inside your own network or your own VPN tunnel.
   When you use a VPN such as Tailscale, traffic between devices is end-to-end
   encrypted by that VPN (WireGuard).
-- On a plain local network, traffic is not additionally encrypted by Deskhub.
-  Every host requires a 4-digit passcode before accepting a connection — one is
-  generated for you on first launch and you can change it — but that code
-  travels in the clear like the rest of the traffic, so it only stops someone
-  who cannot capture your packets. The device name travels in the
-  clear the same way and is displayed on the host, so do not put anything
-  sensitive in it. Use Deskhub only on networks you trust, or
-  through a VPN, and never expose it to the Internet directly. The full threat model — what is protected, what is
-  not, and how to report a vulnerability — is in
+- Deskhub encrypts its session traffic — video, control, input, clipboard and
+  terminal data all run over QUIC/TLS between your devices. Admission is
+  decided by a pairing handshake: an unknown machine must prove it knows the
+  host's optional 4-digit passcode (the code itself is never transmitted) or be
+  approved by the person at the host. The device name is encrypted in transit
+  but displayed on the host, so do not put anything sensitive in it. Never
+  expose Deskhub to the Internet directly. The full threat model — what is
+  protected, what is not, and how to report a vulnerability — is in
   [`SECURITY.md`](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
 - The passcodes saved in `recent-devices.txt` and `ui-settings.txt` are
   obfuscated with a fixed key so they are not legible at a glance. That is not
@@ -199,6 +202,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0 | 2026-08-15 | Sessions now run over an encrypted transport (QUIC/TLS) — video, input, clipboard and terminal traffic alike — and machines are admitted by pairing. New data stored on your own device, all in the app's folder and never sent to us: a key pair that is this machine's identity (`host_key.pem`, `host_cert.pem`), the keys of hosts you have trusted (`known_hosts`), the machines allowed into this host (`paired_devices` — key fingerprint, the name each sent, timestamps), and a non-secret salt (`auth_salt`). The passcode is now optional and is never transmitted: the pairing handshake proves it without sending it. |
 | 1.9 | 2026-08-14 | On Linux, the screen choice made in the desktop's screen-sharing dialog is now remembered: the permission token the desktop issues is saved to `portal-restore-token.txt` so later shares skip the dialog. The token only works for your own desktop session on this machine, is never transmitted, is replaced after each share, and is removed when you press *Choose screens again* or delete the file. |
 | 1.8 | 2026-08-14 | New *keep awake* toggle (on by default): while you are sharing or viewing, the app asks the operating system not to sleep the machine or turn off the display, and releases that request when the session ends. Only the on/off choice is stored, in the same local settings file; nothing about it is transmitted, and no system sleep settings are changed. |
 | 1.7 | 2026-08-13 | Clipboard sync now also works on Android and iOS, with the same toggle, 32 KiB cap and plain-text-only rule as on desktop. The operating systems limit it: an Android device can read its own clipboard only while Deskhub is the app in the foreground (incoming text is applied at any time); iOS may show its system paste prompt when Deskhub reads a fresh copy; an iOS device that is hosting never syncs its clipboard, because its broadcast runs in a separate process. Phones and tablets also gain the desktop's choice of which network address to share on, saved in the same local settings file and never sent anywhere. Nothing new is stored on any device beyond that choice. |

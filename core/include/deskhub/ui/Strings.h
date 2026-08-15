@@ -88,7 +88,9 @@ inline constexpr const char* kPasscodeHint =
     "afterwards. Leave it empty and you will be asked here instead, each time a new machine "
     "wants in.";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
-inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
+inline constexpr const char* kClientPasscodeHint =
+    "Read the 4-digit code off the host. Leave it empty if that machine has no passcode "
+    "or already knows this one.";
 inline constexpr const char* kDeviceNameLabel = "Your name";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
 inline constexpr const char* kUdpPortLabel = "UDP port";
@@ -128,6 +130,9 @@ inline constexpr const char* kAuthPairingDisabled =
     "That machine is not letting new machines pair with it right now.";
 inline constexpr const char* kAuthRefused = "Somebody at that machine turned this one away.";
 inline constexpr const char* kAuthTimedOut = "Nobody at that machine answered in time.";
+inline constexpr const char* kAuthLocked =
+    "Too many wrong passcodes \xE2\x80\x94 that machine is not taking attempts right now. "
+    "Wait half a minute and try again.";
 
 inline const char* AuthRefusalText(AuthResultCode code) {
     switch (code) {
@@ -135,6 +140,7 @@ inline const char* AuthRefusalText(AuthResultCode code) {
         case AuthResultCode::PairingDisabled: return kAuthPairingDisabled;
         case AuthResultCode::Refused: return kAuthRefused;
         case AuthResultCode::TimedOut: return kAuthTimedOut;
+        case AuthResultCode::Locked: return kAuthLocked;
         case AuthResultCode::Accepted: return "Connected.";
         case AuthResultCode::NotPaired: break;
     }
@@ -143,7 +149,7 @@ inline const char* AuthRefusalText(AuthResultCode code) {
 
 inline constexpr const char* kPairingRequestTitle = "Let this machine in?";
 inline constexpr const char* kPairingAllow = "Allow";
-inline constexpr const char* kPairingDeny = "Turn it away";
+inline constexpr const char* kPairingDeny = "Deny";
 
 inline std::string PairingRequestBody(std::string_view name, std::string_view address,
     std::string_view shortKey) {
@@ -370,6 +376,14 @@ inline std::string SharingStatusLine(uint16_t port) {
            " - others can connect to this machine now.";
 }
 
+inline std::string ScreenShareLine(uint16_t port) {
+    return "Screen on UDP port " + std::to_string(port);
+}
+
+inline std::string TerminalShareLine(uint16_t port) {
+    return "Terminal on UDP port " + std::to_string(port);
+}
+
 inline std::string PasscodeNote(std::string_view passcode) {
     if (passcode.empty())
         return "No passcode set \xE2\x80\x94 you will be asked here before a new machine is "
@@ -421,15 +435,15 @@ inline std::string RecentDevicesNote(size_t deviceCount, uint32_t recheckSecs) {
     return std::string(kRecentDevicesHint) + " " + StatusRecheckNote(recheckSecs);
 }
 
-inline uint16_t PortOrDefault(std::string_view typed) {
+inline uint16_t PortOrDefault(std::string_view typed, uint16_t fallback = kDeskhubPort) {
     const std::string trimmed = TrimAscii(typed);
-    if (trimmed.empty() || trimmed.size() > 5) return kDeskhubPort;
+    if (trimmed.empty() || trimmed.size() > 5) return fallback;
     uint32_t value = 0;
     for (char c : trimmed) {
-        if (c < '0' || c > '9') return kDeskhubPort;
+        if (c < '0' || c > '9') return fallback;
         value = value * 10 + uint32_t(c - '0');
     }
-    if (value < 1 || value > 65535) return kDeskhubPort;
+    if (value < 1 || value > 65535) return fallback;
     return uint16_t(value);
 }
 
