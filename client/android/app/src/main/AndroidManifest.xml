@@ -31,6 +31,12 @@
             android:screenOrientation="fullUser"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
 
+        <activity
+            android:name=".TerminalActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|density|uiMode"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".HostService"
             android:exported="false"

@@ -7,7 +7,7 @@ struct PasscodePromptSheet: View {
     let onCancel: () -> Void
     let onConnect: () -> Void
 
-    private var ready: Bool { DeskhubClient.isValidPasscode(passcode) }
+    private var ready: Bool { passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

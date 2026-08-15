@@ -1,0 +1,106 @@
+import SwiftUI
+
+struct PairedDeviceRow: Identifiable {
+    let name: String
+    let shortKey: String
+    let fingerprint: String
+    let pairedUnix: Int64
+    let lastSeenUnix: Int64
+
+    var id: String { fingerprint }
+}
+
+struct DevicesPage: View {
+    @State private var devices: [PairedDeviceRow] = []
+    @State private var allowPairing = dh_allow_pairing()
+    @State private var confirmForgetAll = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            deskhubHeading(DeskhubClient.string(DHStrPairedHeading))
+            deskhubHint(DeskhubClient.string(DHStrPairedHint))
+
+            if devices.isEmpty {
+                deskhubHint(DeskhubClient.string(DHStrPairedEmpty))
+            } else {
+                ForEach(devices) { device in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(device.name.isEmpty ? "(unnamed)" : device.name)
+                                .foregroundStyle(DeskhubPalette.heading)
+                            Text(
+                                device.shortKey + "  ·  "
+                                    + DeskhubClient.string(DHStrPairedColumnPaired) + " "
+                                    + Self.dateText(device.pairedUnix) + "  ·  "
+                                    + DeskhubClient.string(DHStrPairedColumnLastSeen) + " "
+                                    + Self.dateText(device.lastSeenUnix)
+                            )
+                            .font(.caption)
+                            .foregroundStyle(DeskhubPalette.muted)
+                        }
+                        Spacer(minLength: 0)
+                        Button(DeskhubClient.string(DHStrPairedForget)) {
+                            _ = dh_paired_forget(device.fingerprint)
+                            refresh()
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            Button(DeskhubClient.string(DHStrPairedForgetAll)) {
+                confirmForgetAll = true
+            }
+            .disabled(devices.isEmpty)
+
+            deskhubHint(DeskhubClient.string(DHStrPairedForgetNote))
+
+            Toggle(DeskhubClient.string(DHStrAllowPairingLabel), isOn: $allowPairing)
+                .onChange(of: allowPairing) { _, allow in dh_set_allow_pairing(allow) }
+            deskhubHint(DeskhubClient.string(DHStrAllowPairingHint))
+
+            deskhubSection(DeskhubClient.string(DHStrThisMachineHeading))
+            Text(DeskhubClient.buffered(128) { dh_own_fingerprint($0, $1) })
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(DeskhubPalette.heading)
+                .textSelection(.enabled)
+            deskhubHint(DeskhubClient.string(DHStrThisMachineHint))
+        }
+        .onAppear(perform: refresh)
+        .alert(
+            DeskhubClient.string(DHStrPairedForgetAll),
+            isPresented: $confirmForgetAll
+        ) {
+            Button(DeskhubClient.string(DHStrPairedForgetAll), role: .destructive) {
+                dh_paired_forget_all()
+                refresh()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(DeskhubClient.string(DHStrPairedForgetAllPrompt))
+        }
+    }
+
+    private func refresh() {
+        devices = DeskhubClient.ffiList(
+            128, DHPairedDevice(),
+            { dh_paired_devices($0, $1) },
+            { raw in
+                PairedDeviceRow(
+                    name: DeskhubClient.cString(raw.name),
+                    shortKey: DeskhubClient.cString(raw.shortKey),
+                    fingerprint: DeskhubClient.cString(raw.fingerprint),
+                    pairedUnix: raw.pairedUnix,
+                    lastSeenUnix: raw.lastSeenUnix
+                )
+            }
+        )
+        allowPairing = dh_allow_pairing()
+    }
+
+    private static func dateText(_ unix: Int64) -> String {
+        guard unix > 0 else { return "-" }
+        let date = Date(timeIntervalSince1970: TimeInterval(unix))
+        return date.formatted(date: .numeric, time: .shortened)
+    }
+}

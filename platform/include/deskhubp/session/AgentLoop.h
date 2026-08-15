@@ -73,6 +73,14 @@ public:
         engine_.AnswerPairingRequest(addrPacked, allowed);
     }
 
+    deskhubp::SessionTransport& Socket() {
+        return engine_.socket();
+    }
+
+    void SetTerminal(deskhubp::TerminalHost* terminal) {
+        engine_.SetTerminal(terminal);
+    }
+
 private:
     deskhubp::HostEngine engine_;
     std::mutex pairingMutex_;

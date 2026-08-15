@@ -146,6 +146,7 @@ add_library(platform STATIC
     src/ffi/ClientFfi.cpp
     src/ffi/AgentSession.cpp
     src/ffi/DiscoveryFfi.cpp
+    src/ffi/TerminalFfi.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)
@@ -210,6 +211,7 @@ if(DESKHUB_PLATFORM_TESTS)
 
         tests/diag/LogFileTests.cpp
         tests/ffi/FfiTextTests.cpp
+        tests/ffi/TerminalFfiTests.cpp
         tests/input/LocalInputGateTests.cpp
         tests/net/NetAddrTests.cpp
         tests/net/SourceQueryTests.cpp

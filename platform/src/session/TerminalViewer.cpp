@@ -155,6 +155,9 @@ void TerminalViewer::Stop() {
         endpoint_.Close();
         return;
     }
+    if (State() == TerminalViewerState::Live) {
+        Post([this] { client_->Close(); });
+    }
     stop_.store(true, std::memory_order_release);
     if (thread_.joinable()) thread_.join();
     running_.store(false, std::memory_order_release);
@@ -335,10 +338,10 @@ void TerminalViewer::SendRecord(std::span<const uint8_t> message) {
         return;
     }
     if (!outbox_.empty()) {
-        endpoint_.SendStream(conn_, kQuicFirstTerminalStream, outbox_);
+        endpoint_.SendStream(conn_, kQuicControlStream, outbox_);
         outbox_.clear();
     }
-    endpoint_.SendStream(conn_, kQuicFirstTerminalStream,
+    endpoint_.SendStream(conn_, kQuicControlStream,
         std::span<const uint8_t>(record.data(), written));
 }
 

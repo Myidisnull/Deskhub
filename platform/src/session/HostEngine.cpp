@@ -6,6 +6,7 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
+#include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/HostIdentity.h"
 #include "deskhubp/system/PairedDevicesFile.h"
@@ -154,7 +155,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         statusRows_.clear();
     }
 
-    if (sources.empty()) return Fail(policy_.noSourceError);
+    if (sources.empty() && !opt_.terminal) return Fail(policy_.noSourceError);
     if (sources.size() > deskhub::kMaxSources)
         return Fail("At most " + std::to_string(deskhub::kMaxSources) +
                     " sources can be shared at once.");
@@ -210,6 +211,9 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         LOGW("[Agent] %s was refused.", peer.ToString().c_str());
     };
     sock_.SetHostAuth(std::move(auth), std::move(authHooks));
+    sock_.SetOnPeerGone([this](const NetAddr& peer) {
+        if (terminal_ != nullptr) terminal_->OnPeerGone(peer);
+    });
 
     if (policy_.afterSocket) {
         std::string err = policy_.afterSocket();
@@ -231,7 +235,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     const std::vector<HostSource*> all = AllSources();
     live_ = SelectLiveSources(all, policy_.status.closed, nullptr,
         [this](HostSource& st) { ShutdownSource(st); });
-    if (live_.empty()) {
+    if (live_.empty() && !(sources.empty() && opt_.terminal)) {
         sock_.Close();
         return Fail(policy_.noUsableSourceError);
     }
@@ -268,6 +272,7 @@ void HostEngine::Stop() {
 
     localInputMon_.Stop();
 
+    if (terminal_ != nullptr) terminal_->Stop();
     for (auto& up : pipes_) ShutdownSource(*up);
     LogTransferTotals(AllSources());
     sock_.Close();
@@ -378,6 +383,10 @@ void HostEngine::RecvLoop() {
         DrainLocalClipboard();
     };
     loop.publishStatus = [this] { PublishStatus(); };
+    loop.onTerminal = [this](const NetAddr& from, std::span<const uint8_t> message) {
+        if (terminal_ != nullptr) terminal_->HandleMessage(from, message);
+    };
+    loop.keepAlive = [this] { return terminal_ != nullptr && terminal_->Running(); };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;
     loop.source.shutdown = [this](HostSource& st) { ShutdownSource(st); };

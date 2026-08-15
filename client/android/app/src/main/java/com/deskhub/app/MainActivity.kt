@@ -37,6 +37,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -112,6 +113,7 @@ class MainActivity : ComponentActivity() {
                                 prefs.edit().putString("addr", addr).apply()
                             },
                             onOpenStream = ::openStream,
+                            onOpenShell = ::openShell,
                             onStartSharing = ::requestSharing,
                             onStopSharing = { HostService.stop(this@MainActivity) },
                         )
@@ -152,6 +154,17 @@ class MainActivity : ComponentActivity() {
                 .putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
                 .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
+        )
+    }
+
+    private fun openShell(
+        addr: String,
+        passcode: String,
+    ) {
+        startActivity(
+            Intent(this, TerminalActivity::class.java)
+                .putExtra("addr", addr)
+                .putExtra("passcode", passcode),
         )
     }
 }
@@ -208,6 +221,7 @@ private fun HeadingRow(
 private enum class Section {
     CLIENT,
     HOST,
+    DEVICES,
     SETTINGS,
 }
 
@@ -229,6 +243,7 @@ private fun MainScreen(
     initialPasscode: String,
     onRemember: (String, String) -> Unit,
     onOpenStream: (String, String, Int, List<NativeClient.Source>) -> Unit,
+    onOpenShell: (String, String) -> Unit,
     onStartSharing: (HostService.ShareRequest) -> Unit,
     onStopSharing: () -> Unit,
 ) {
@@ -285,7 +300,7 @@ private fun MainScreen(
             return@connectLambda
         }
         val code = passcode.trim()
-        if (!NativeClient.isValidPasscode(code)) {
+        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
             connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
             return@connectLambda
         }
@@ -324,6 +339,28 @@ private fun MainScreen(
         }
     }
 
+    val openShell: (String) -> Unit = shellLambda@{ addr ->
+        if (!NativeClient.parseAddress(addr)) {
+            connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
+            return@shellLambda
+        }
+        val code = passcode.trim()
+        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
+            connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
+            return@shellLambda
+        }
+        connectError = ""
+        deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
+        NativeClient.setDeviceName(deviceName)
+        onRemember(addr, code)
+        scope.launch {
+            NativeClient.recentTouch(addr, code)
+            NativeClient.watchRecent()
+            recentDevices = NativeClient.recentDevices()
+        }
+        onOpenShell(addr, code)
+    }
+
     val pickDevice: (String, String) -> Unit = { addr, code ->
         connectError = ""
         pendingPick = PendingPick(addr, code)
@@ -345,6 +382,7 @@ private fun MainScreen(
                 busy = step is Step.Querying,
                 error = connectError,
                 onConnect = connect,
+                onOpenShell = openShell,
                 scanHits = scanHits,
                 recentDevices = recentDevices,
                 scanStatus = scanStatus,
@@ -421,7 +459,7 @@ private fun PasscodeDialog(
     val host = NativeClient.addressHost(addr)
     var typed by remember(addr, initial) { mutableStateOf(initial) }
     var typedPort by remember(addr) { mutableStateOf(portFieldText(addr)) }
-    val ready = NativeClient.isValidPasscode(typed.trim())
+    val ready = typed.trim().isEmpty() || NativeClient.isValidPasscode(typed.trim())
     val confirm = {
         if (ready) onConfirm(NativeClient.composeAddress(host, typedPort), typed.trim())
     }
@@ -481,6 +519,7 @@ private fun HomeScreen(
     busy: Boolean,
     error: String,
     onConnect: (String) -> Unit,
+    onOpenShell: (String) -> Unit,
     scanHits: List<NativeClient.ScanHit>,
     recentDevices: List<NativeClient.RecentDevice>,
     scanStatus: String,
@@ -506,6 +545,11 @@ private fun HomeScreen(
                 text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_HOST)) },
             )
             Tab(
+                selected = section == Section.DEVICES,
+                onClick = { onSectionChange(Section.DEVICES) },
+                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_DEVICES)) },
+            )
+            Tab(
                 selected = section == Section.SETTINGS,
                 onClick = { onSectionChange(Section.SETTINGS) },
                 text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_SETTINGS)) },
@@ -527,6 +571,7 @@ private fun HomeScreen(
                         busy = busy,
                         error = error,
                         onConnect = onConnect,
+                        onOpenShell = onOpenShell,
                         scanHits = scanHits,
                         recentDevices = recentDevices,
                         scanStatus = scanStatus,
@@ -542,6 +587,8 @@ private fun HomeScreen(
                         onStartSharing = onStartSharing,
                         onStopSharing = onStopSharing,
                     )
+
+                Section.DEVICES -> DevicesScreen()
 
                 Section.SETTINGS -> SettingsScreen(port = port, onPortChange = onPortChange)
             }
@@ -560,6 +607,7 @@ private fun HostScreen(
     var error by remember { mutableStateOf(NativeHost.shareError) }
     var rows by remember { mutableStateOf(emptyList<NativeHost.HostRow>()) }
     var addresses by remember { mutableStateOf(NativeHost.localAddresses()) }
+    var pairingQueue by remember { mutableStateOf(emptyList<NativeHost.PairingRequest>()) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -567,14 +615,48 @@ private fun HostScreen(
             error = NativeHost.shareError
             rows = if (state == NativeHost.ShareState.SHARING) NativeHost.hostRows() else emptyList()
             addresses = NativeHost.localAddresses()
+            if (state == NativeHost.ShareState.SHARING) {
+                val fresh = NativeHost.takePairingRequests()
+                if (fresh.isNotEmpty()) {
+                    val queued = pairingQueue.map { it.addrPacked }.toSet()
+                    pairingQueue = pairingQueue + fresh.filter { it.addrPacked !in queued }
+                }
+            } else if (pairingQueue.isNotEmpty()) {
+                pairingQueue = emptyList()
+            }
             if (state == NativeHost.ShareState.SHARING && !NativeHost.isRunning()) onStopSharing()
             delay(POLL_INTERVAL_MS)
         }
     }
 
+    pairingQueue.firstOrNull()?.let { request ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(NativeClient.string(NativeClient.STR_PAIRING_REQUEST_TITLE)) },
+            text = { Text(request.body) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        NativeHost.answerPairing(request.addrPacked, true)
+                        pairingQueue = pairingQueue.drop(1)
+                    },
+                ) { Text(NativeClient.string(NativeClient.STR_PAIRING_ALLOW)) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        NativeHost.answerPairing(request.addrPacked, false)
+                        pairingQueue = pairingQueue.drop(1)
+                    },
+                ) { Text(NativeClient.string(NativeClient.STR_PAIRING_DENY)) }
+            },
+        )
+    }
+
     val sharing = state == NativeHost.ShareState.SHARING
     val starting = state == NativeHost.ShareState.STARTING
-    val ready = NativeClient.isValidPasscode(passcode.trim())
+    val trimmedCode = passcode.trim()
+    val ready = trimmedCode.isEmpty() || NativeClient.isValidPasscode(trimmedCode)
 
     Column(
         modifier =
@@ -797,6 +879,130 @@ private fun HostRowList(
 }
 
 @Composable
+private fun DevicesScreen() {
+    var devices by remember { mutableStateOf(NativeClient.pairedDevices()) }
+    var allowPairing by remember { mutableStateOf(NativeClient.allowPairing()) }
+    var confirmForgetAll by remember { mutableStateOf(false) }
+    val dateText: (Long) -> String = { unix ->
+        if (unix <= 0) {
+            "-"
+        } else {
+            java.text
+                .SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                .format(java.util.Date(unix * 1000))
+        }
+    }
+
+    if (confirmForgetAll) {
+        AlertDialog(
+            onDismissRequest = { confirmForgetAll = false },
+            title = { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL)) },
+            text = { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL_PROMPT)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        NativeClient.pairedForgetAll()
+                        devices = NativeClient.pairedDevices()
+                        confirmForgetAll = false
+                    },
+                ) { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmForgetAll = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Heading(NativeClient.string(NativeClient.STR_PAIRED_HEADING))
+        Text(
+            NativeClient.string(NativeClient.STR_PAIRED_HINT),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MutedColor,
+        )
+
+        if (devices.isEmpty()) {
+            Text(
+                NativeClient.string(NativeClient.STR_PAIRED_EMPTY),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedColor,
+            )
+        } else {
+            for (device in devices) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            device.name.ifBlank { "(unnamed)" },
+                            color = HeadingColor,
+                        )
+                        Text(
+                            "${device.shortKey}  ·  ${dateText(device.pairedUnix)}  ·  " +
+                                dateText(device.lastSeenUnix),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MutedColor,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            NativeClient.pairedForget(device.fingerprint)
+                            devices = NativeClient.pairedDevices()
+                        },
+                    ) { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET)) }
+                }
+            }
+        }
+
+        TextButton(
+            onClick = { confirmForgetAll = true },
+            enabled = devices.isNotEmpty(),
+        ) { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL)) }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = allowPairing,
+                onCheckedChange = {
+                    allowPairing = it
+                    NativeClient.setAllowPairing(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_ALLOW_PAIRING_LABEL))
+        }
+        Text(
+            NativeClient.string(NativeClient.STR_ALLOW_PAIRING_HINT),
+            style = MaterialTheme.typography.bodySmall,
+            color = MutedColor,
+        )
+
+        SectionLabel(NativeClient.string(NativeClient.STR_THIS_MACHINE_HEADING))
+        Text(
+            NativeClient.ownFingerprint(),
+            style = MaterialTheme.typography.bodySmall,
+            color = HeadingColor,
+        )
+        Text(
+            NativeClient.string(NativeClient.STR_THIS_MACHINE_HINT),
+            style = MaterialTheme.typography.bodySmall,
+            color = MutedColor,
+        )
+    }
+}
+
+@Composable
 private fun SettingsScreen(
     port: Int,
     onPortChange: (Int) -> Unit,
@@ -885,6 +1091,7 @@ private fun AddressScreen(
     busy: Boolean,
     error: String,
     onConnect: (String) -> Unit,
+    onOpenShell: (String) -> Unit,
     scanHits: List<NativeClient.ScanHit>,
     recentDevices: List<NativeClient.RecentDevice>,
     scanStatus: String,
@@ -894,7 +1101,9 @@ private fun AddressScreen(
     onRefreshStatus: () -> Unit,
 ) {
     val trimmed = address.trim()
-    val ready = trimmed.isNotEmpty() && NativeClient.isValidPasscode(passcode.trim()) && !busy
+    val code = passcode.trim()
+    val codeOk = code.isEmpty() || NativeClient.isValidPasscode(code)
+    val ready = trimmed.isNotEmpty() && codeOk && !busy
     val go = { if (ready) onConnect(NativeClient.composeAddress(trimmed, connectPort)) }
 
     Column(
@@ -974,6 +1183,12 @@ private fun AddressScreen(
             enabled = ready,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Connect") }
+
+        OutlinedButton(
+            onClick = { onOpenShell(NativeClient.composeAddress(trimmed, connectPort)) },
+            enabled = ready,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL)) }
 
         if (busy) {
             Row(

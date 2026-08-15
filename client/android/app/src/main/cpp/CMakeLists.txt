@@ -13,6 +13,7 @@ add_library(deskhub SHARED
     JniBridge.cpp
     JniEnv.cpp
     HostBridge.cpp
+    TerminalBridge.cpp
     AgentLoop.cpp
     ClientSessionAndroid.cpp
 

@@ -123,6 +123,7 @@ its English original is a bug.
 | --- | --- | --- |
 | `README.md` | `README.vi.md` | What it is, install, day-to-day use |
 | `docs/SPECIFICATION.md` | `docs/SPECIFICATION.vi.md` | Feature spec — behaviour only, no implementation detail |
+| `docs/ARCHITECTURE.md` | `docs/ARCHITECTURE.vi.md` | How it is built — layers, threads, wire protocol, design decisions |
 | `SECURITY.md` | `SECURITY.vi.md` | Threat model, hardening, vulnerability reports |
 | `PRIVACY.md` | `PRIVACY.vi.md` | Privacy policy — versioned, with a changelog table |
 | `THIRD_PARTY_NOTICES.md` | `THIRD_PARTY_NOTICES.vi.md` | Third-party components and licences |

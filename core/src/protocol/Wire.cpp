@@ -67,10 +67,11 @@ size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
 size_t BuildAuthStart(std::span<uint8_t> out, const AuthStart& m) {
     if (m.publicKey.empty() || m.publicKey.size() > kMaxAuthBlobBytes) return 0;
     const size_t nameLen = Utf8TruncLen(m.clientName, kMaxClientNameBytes);
-    const size_t payload = 2 + m.publicKey.size() + 1 + nameLen;
+    const size_t payload = 1 + 2 + m.publicKey.size() + 1 + nameLen;
     const size_t total = WriteCommon(out, MsgType::AuthStart, 0, Chan::Control, 0, payload);
     if (!total) return 0;
     uint8_t* p = out.data() + kCommonHeaderSize;
+    *p++ = m.hasPasscode ? 1 : 0;
     PutU16(p, uint16_t(m.publicKey.size()));
     p += 2;
     std::memcpy(p, m.publicKey.data(), m.publicKey.size());
@@ -344,15 +345,17 @@ std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram) {
 }
 
 std::optional<AuthStart> ParseAuthStart(std::span<const uint8_t> payload) {
-    if (payload.size() < 3) return std::nullopt;
+    if (payload.size() < 4) return std::nullopt;
     const uint8_t* p = payload.data();
-    const size_t keyLen = GetU16(p);
-    if (keyLen == 0 || keyLen > kMaxAuthBlobBytes || payload.size() < 2 + keyLen + 1)
+    if (p[0] > 1) return std::nullopt;
+    const size_t keyLen = GetU16(p + 1);
+    if (keyLen == 0 || keyLen > kMaxAuthBlobBytes || payload.size() < 1 + 2 + keyLen + 1)
         return std::nullopt;
 
     AuthStart m;
-    m.publicKey.assign(p + 2, p + 2 + keyLen);
-    const size_t nameOff = 2 + keyLen;
+    m.hasPasscode = p[0] != 0;
+    m.publicKey.assign(p + 3, p + 3 + keyLen);
+    const size_t nameOff = 1 + 2 + keyLen;
     size_t nameLen = p[nameOff];
     if (nameLen > kMaxClientNameBytes) nameLen = 0;
     if (nameLen && payload.size() >= nameOff + 1 + nameLen) {

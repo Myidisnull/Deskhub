@@ -18,6 +18,10 @@ final class StreamModel {
 
     var mouseLocked = false
 
+    var askingTrust = false
+    var trustChanged = false
+    var trustFingerprint = ""
+
     private var session: ClientSession?
     private var layer: AVSampleBufferDisplayLayer?
 
@@ -107,6 +111,15 @@ final class StreamModel {
         session?.mouseWheelNotches(notches)
     }
 
+    func answerTrust(_ accept: Bool) {
+        askingTrust = false
+        if accept {
+            session?.acceptKey()
+        } else {
+            session?.rejectKey()
+        }
+    }
+
     func offerClipboard(_ text: String) {
         session?.offerClipboard(text)
     }
@@ -156,6 +169,14 @@ final class StreamModel {
                     self.phase = .ended
                     self.endReason = reason
                     self.mouseLocked = false
+                }
+            },
+            onTrustAsked: { [weak self] verdict, fingerprint in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.trustChanged = verdict == 2
+                    self.trustFingerprint = fingerprint
+                    self.askingTrust = true
                 }
             }
         )

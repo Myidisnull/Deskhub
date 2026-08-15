@@ -13,7 +13,9 @@ final class AgentModel {
     var allowInput = AgentModel.stored.allowInput
     var passcode = DeskhubClient.cString(AgentModel.stored.passcode) {
         didSet {
-            if DeskhubClient.isValidPasscode(passcode) { lastValidPasscode = passcode }
+            if passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) {
+                lastValidPasscode = passcode
+            }
         }
     }
 
@@ -28,13 +30,24 @@ final class AgentModel {
     var rows: [HostRow] = []
     var shareSources: [ShareSource] = []
     var tickedSources: Set<UInt32> = []
+    var shareTerminal = true
+    var pairingAsks: [PairingAsk] = []
+
+    struct PairingAsk: Identifiable {
+        let addrPacked: UInt64
+        let shortKey: String
+        let body: String
+
+        var id: UInt64 { addrPacked }
+    }
 
     var hasScreenRecording = false
     var hasAccessibility = false
     var screenRecordingNeedsRelaunch = false
 
     var acceptedPasscode: String {
-        DeskhubClient.isValidPasscode(passcode) ? passcode : lastValidPasscode
+        passcode.isEmpty || DeskhubClient.isValidPasscode(passcode)
+            ? passcode : lastValidPasscode
     }
 
     var clientControl = AgentModel.stored.clientControl
@@ -118,6 +131,15 @@ final class AgentModel {
 
     func runRowAction(_ row: HostRow) {
         guard isSharing else { return }
+        if row.terminal {
+            if row.viewer {
+                dha_kick_shell(row.termId)
+            } else {
+                dha_stop_terminal()
+                if !rows.contains(where: { !$0.terminal }) { stopSharing() }
+            }
+            return
+        }
         if row.viewer {
             DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
         } else {
@@ -125,18 +147,59 @@ final class AgentModel {
         }
     }
 
+    func answerPairing(_ ask: PairingAsk, allow: Bool) {
+        dha_answer_pairing(ask.addrPacked, allow)
+        pairingAsks.removeAll { $0.addrPacked == ask.addrPacked }
+    }
+
+    private func drainPairingRequests() {
+        let requests = DeskhubClient.ffiList(
+            16, DHPairingRequest(),
+            { dha_take_pairing_requests($0, $1) },
+            { $0 }
+        )
+        guard !requests.isEmpty else { return }
+
+        let paired = Set(DeskhubClient.ffiList(
+            128, DHPairedDevice(),
+            { dh_paired_devices($0, $1) },
+            { DeskhubClient.cString($0.shortKey) }
+        ))
+
+        for request in requests {
+            let shortKey = DeskhubClient.cString(request.shortKey)
+            if paired.contains(shortKey) {
+                dha_answer_pairing(request.addrPacked, true)
+                continue
+            }
+            guard !pairingAsks.contains(where: { $0.addrPacked == request.addrPacked })
+            else { continue }
+            let address = DeskhubClient.buffered(64) {
+                dh_format_address(request.addrPacked, $0, $1)
+            }
+            let name = DeskhubClient.cString(request.name)
+            let body = DeskhubClient.buffered(512) {
+                dh_pairing_request_body(name, address, shortKey, $0, $1)
+            }
+            pairingAsks.append(
+                PairingAsk(addrPacked: request.addrPacked, shortKey: shortKey, body: body)
+            )
+        }
+    }
+
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
-        guard DeskhubClient.isValidPasscode(passcode) else {
+        guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {
             startError = DeskhubClient.string(DHStrPasscodeInvalid)
             return false
         }
+        let terminal = shareTerminal
         if shareSources.isEmpty { await refreshShareSources() }
-        guard !shareSources.isEmpty else {
+        guard !shareSources.isEmpty || terminal else {
             startError = DeskhubClient.string(DHStrScreenRecordingRequired)
             return false
         }
-        guard !pickedSources.isEmpty else {
+        guard !pickedSources.isEmpty || terminal else {
             startError = DeskhubClient.string(DHStrNoDisplayTicked)
             return false
         }
@@ -155,7 +218,8 @@ final class AgentModel {
             maxDim: maxDim <= 0 ? UInt32(0) : UInt32(maxDim),
             port: UInt16(max(1, min(65535, port))),
             allowInput: allowInput,
-            passcode: acceptedPasscode
+            passcode: acceptedPasscode,
+            terminal: terminal
         )
 
         let ok = await Task.detached {
@@ -202,6 +266,7 @@ final class AgentModel {
             stopSharing()
             return
         }
+        drainPairingRequests()
         if clipboardSync { pumpClipboard() }
     }
 

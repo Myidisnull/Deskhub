@@ -46,6 +46,8 @@ struct HostNetLoopHooks {
     std::function<void()> onTick;
     std::function<void()> publishStatus;
     std::function<void()> onSocketError;
+    std::function<void(const NetAddr& from, std::span<const uint8_t> message)> onTerminal;
+    std::function<bool()> keepAlive;
 
     HostSourceHooks source;
     uint32_t fallbackFps = 60;

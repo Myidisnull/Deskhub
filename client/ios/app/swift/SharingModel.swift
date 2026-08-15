@@ -21,7 +21,8 @@ final class SharingModel {
     }
 
     var acceptedPasscode: String {
-        DeskhubClient.isValidPasscode(passcode) ? passcode : lastValidPasscode
+        passcode.isEmpty || DeskhubClient.isValidPasscode(passcode)
+            ? passcode : lastValidPasscode
     }
 
     var statusLine: String {
@@ -39,7 +40,7 @@ final class SharingModel {
     }
 
     func savePasscode() {
-        guard DeskhubClient.isValidPasscode(passcode) else { return }
+        guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else { return }
         lastValidPasscode = passcode
         let stored = dh_settings_load()
         dh_settings_save(

@@ -269,6 +269,22 @@ bool SessionTransport::Authenticated(const NetAddr& peer) const {
     return at != authenticated_.end() && at->second;
 }
 
+bool SessionTransport::PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp,
+    std::string& name) const {
+    if (!Authenticated(peer)) return false;
+    const auto at = hostAuth_.find(peer.Pack());
+    if (at == hostAuth_.end()) return false;
+    fp = at->second->PeerFingerprint();
+    name = at->second->PeerName();
+    return true;
+}
+
+bool SessionTransport::SendRecord(const NetAddr& to, std::span<const uint8_t> message) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
+    if (!endpoint_.Established(to.Pack())) return false;
+    return SendReliable(to, message);
+}
+
 bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig config,
     uint32_t timeoutMs, deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode) {
     clientAuthOn_ = true;

@@ -32,6 +32,7 @@ jclass g_nativeClientClass = nullptr;
 jmethodID g_onSessionStatus = nullptr;
 jmethodID g_onSessionSize = nullptr;
 jmethodID g_onSessionEnded = nullptr;
+jmethodID g_onSessionTrustAsked = nullptr;
 std::atomic<DHSession*> g_callbackSession{nullptr};
 
 template <class Call>
@@ -67,12 +68,22 @@ void NotifySessionClosed(const char* reasonUtf8, void*) {
     });
 }
 
+void NotifySessionTrustAsked(int32_t verdict, const char* fingerprintUtf8, void*) {
+    CallIntoJava([verdict, fingerprintUtf8](JNIEnv* env) {
+        jstring fingerprint = env->NewStringUTF(fingerprintUtf8 ? fingerprintUtf8 : "");
+        env->CallStaticVoidMethod(g_nativeClientClass, g_onSessionTrustAsked, jint(verdict),
+            fingerprint);
+        env->DeleteLocalRef(fingerprint);
+    });
+}
+
 using deskhubj::FromJString;
 
 constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
 constexpr const char* kScanHitClass = "com/deskhub/app/NativeClient$ScanHit";
 constexpr const char* kRecentDeviceClass = "com/deskhub/app/NativeClient$RecentDevice";
 constexpr const char* kHotkeyClass = "com/deskhub/app/NativeClient$Hotkey";
+constexpr const char* kPairedDeviceClass = "com/deskhub/app/NativeClient$PairedDevice";
 
 jfloatArray NewFloatArray2(JNIEnv* env, jfloat a, jfloat b) {
     const jfloat values[2] = {a, b};
@@ -103,7 +114,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     g_onSessionSize = env->GetStaticMethodID(g_nativeClientClass, "onSessionSize", "(II)V");
     g_onSessionEnded =
         env->GetStaticMethodID(g_nativeClientClass, "onSessionEnded", "(Ljava/lang/String;)V");
-    if (!g_onSessionStatus || !g_onSessionSize || !g_onSessionEnded) return JNI_ERR;
+    g_onSessionTrustAsked = env->GetStaticMethodID(g_nativeClientClass, "onSessionTrustAsked",
+        "(ILjava/lang/String;)V");
+    if (!g_onSessionStatus || !g_onSessionSize || !g_onSessionEnded || !g_onSessionTrustAsked)
+        return JNI_ERR;
     deskhubj::RememberJavaVm(vm);
     if (!RegisterHostBridge(env)) return JNI_ERR;
     return JNI_VERSION_1_6;
@@ -438,6 +452,61 @@ Java_com_deskhub_app_NativeClient_nativeRecentPasscode(JNIEnv* env, jobject, jst
     return env->NewStringUTF(buf);
 }
 
+JNIEXPORT jobjectArray JNICALL
+Java_com_deskhub_app_NativeClient_nativePairedDevices(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass(kPairedDeviceClass);
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(cls, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ)V");
+    if (!ctor) return nullptr;
+
+    DHPairedDevice rows[128];
+    const int count = dh_paired_devices(rows, int(sizeof(rows) / sizeof(rows[0])));
+
+    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
+    for (int i = 0; i < count && arr; ++i) {
+        jstring name = env->NewStringUTF(rows[i].name);
+        jstring shortKey = env->NewStringUTF(rows[i].shortKey);
+        jstring fingerprint = env->NewStringUTF(rows[i].fingerprint);
+        jobject item = env->NewObject(cls, ctor, name, shortKey, fingerprint,
+            jlong(rows[i].pairedUnix), jlong(rows[i].lastSeenUnix));
+        env->SetObjectArrayElement(arr, jsize(i), item);
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(fingerprint);
+        env->DeleteLocalRef(shortKey);
+        env->DeleteLocalRef(name);
+    }
+    return arr;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativePairedForget(JNIEnv* env, jobject,
+    jstring fingerprintStr) {
+    return dh_paired_forget(FromJString(env, fingerprintStr).c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativePairedForgetAll(JNIEnv*, jobject) {
+    dh_paired_forget_all();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeAllowPairing(JNIEnv*, jobject) {
+    return dh_allow_pairing() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetAllowPairing(JNIEnv*, jobject, jboolean allow) {
+    dh_set_allow_pairing(allow == JNI_TRUE);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeOwnFingerprint(JNIEnv* env, jobject) {
+    char buf[128];
+    dh_own_fingerprint(buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeIsValidPasscode(JNIEnv* env, jobject,
     jstring passcodeStr) {
@@ -490,11 +559,22 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     callbacks.onStatus = NotifySessionStatus;
     callbacks.onSize = NotifySessionSize;
     callbacks.onClosed = NotifySessionClosed;
+    callbacks.onTrustAsked = NotifySessionTrustAsked;
 
     g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks,
         passcode.c_str());
     g_callbackSession.store(g_session, std::memory_order_release);
     return jlong(reinterpret_cast<uintptr_t>(g_session));
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeAcceptKey(JNIEnv*, jobject) {
+    dh_session_accept_key(g_session);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeRejectKey(JNIEnv*, jobject) {
+    dh_session_reject_key(g_session);
 }
 
 JNIEXPORT void JNICALL

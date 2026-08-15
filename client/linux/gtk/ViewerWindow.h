@@ -33,6 +33,7 @@ private:
 
     void ApplyLockEffect(const deskhub::PointerLockEffect& effect);
     void GrabPointer(bool locked);
+    void AskAboutKey(deskhub::TrustVerdict verdict, const std::string& fingerprint);
     void UpdateTitle();
     void SizeToVideo();
     void EndSession();

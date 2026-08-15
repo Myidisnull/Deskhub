@@ -14,6 +14,13 @@ struct ContentView: View {
                 if let stream = model.stream {
                     StreamView(session: model, model: stream)
                 }
+            case .terminal:
+                if let terminal = model.terminal {
+                    TerminalScreen(
+                        model: terminal,
+                        title: DeskhubClient.addressHost(model.connect.address)
+                    ) { model.closeShell() }
+                }
             }
         }
         .preferredColorScheme(.dark)

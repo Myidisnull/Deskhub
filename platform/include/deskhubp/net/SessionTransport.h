@@ -60,6 +60,9 @@ public:
         deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode);
     void ApproveConnection(const NetAddr& peer, bool allowed);
     bool Authenticated(const NetAddr& peer) const;
+    bool PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp, std::string& name) const;
+
+    bool SendRecord(const NetAddr& to, std::span<const uint8_t> message);
 
     void SetVideoPath(VideoPath path);
     VideoPath videoPath() const;

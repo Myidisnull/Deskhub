@@ -96,6 +96,22 @@ int dh_idle_host_status(uint16_t port, char* out, int capacity);
 int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, char* out,
     int capacity);
 
+typedef struct {
+    char name[80];
+    char shortKey[16];
+    char fingerprint[64];
+    int64_t pairedUnix;
+    int64_t lastSeenUnix;
+} DHPairedDevice;
+
+int dh_paired_devices(DHPairedDevice* out, int capacity);
+bool dh_paired_forget(const char* fingerprint);
+void dh_paired_forget_all(void);
+bool dh_allow_pairing(void);
+void dh_set_allow_pairing(bool allow);
+int dh_own_fingerprint(char* out, int capacity);
+int dh_format_address(uint64_t addr_packed, char* out, int capacity);
+
 #ifdef __cplusplus
 }
 #endif

@@ -517,9 +517,20 @@ void TestPasscodeGatesTheStream() {
         deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
         cfg.passcode.clear();
         StartViewer(blank, cfg);
+
+        std::vector<uint64_t> asks;
+        Check(WaitFor(
+                  [&] {
+                      const std::vector<uint64_t> got = agent.TakePairingRequests();
+                      asks.insert(asks.end(), got.begin(), got.end());
+                      return !asks.empty();
+                  },
+                  kConnectTimeoutMs),
+            "a viewer that sends no passcode is put to the person at the host");
+        if (!asks.empty()) agent.AnswerPairing(asks[0], false);
         Check(WaitFor([&] { return blank.phase() == deskhubp::ClientPhase::Ended; },
                   kConnectTimeoutMs),
-            "so is a viewer that sends no passcode at all");
+            "and saying no turns it away");
         Check(fake::Decoded().frameCount() == 0, "still nothing decoded");
         blank.Stop();
     }

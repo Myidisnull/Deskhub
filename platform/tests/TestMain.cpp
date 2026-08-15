@@ -86,6 +86,7 @@ int main() {
 
     std::printf("--- session: sharing a shell over QUIC end to end ---\n");
     RunTerminalHostTests();
+    RunTerminalFfiTests();
 
     std::printf("--- ffi: string handover to the managed clients ---\n");
     RunFfiTextTests();

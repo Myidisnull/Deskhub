@@ -10,7 +10,9 @@
 #include <vector>
 
 #include "TrayIcon.h"
+#include "deskhub/net/PairedDevices.h"
 #include "deskhub/session/OpenViewers.h"
+#include "deskhub/session/TerminalSession.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/UiSettings.h"
@@ -19,6 +21,7 @@
 #include "deskhubp/session/AgentDriver.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
+#include "deskhubp/session/TerminalHost.h"
 
 class MainWindow {
 public:
@@ -27,8 +30,9 @@ public:
 private:
     enum Page { kPageHost = 0,
         kPageClient = 1,
-        kPageSettings = 2,
-        kPageCount = 3 };
+        kPageDevices = 2,
+        kPageSettings = 3,
+        kPageCount = 4 };
 
     enum class HostShareState { kIdle,
         kStarting,
@@ -50,8 +54,24 @@ private:
     GtkWidget* BuildSidebar();
     GtkWidget* BuildHostPage();
     GtkWidget* BuildClientPage();
+    GtkWidget* BuildDevicesPage();
     GtkWidget* BuildSettingsPage();
     void SelectPage(int page);
+
+    void RefreshPairedDevices();
+    void DrainPairingRequests();
+    bool AskPairing(const PairingRequest& request);
+    void ForgetSelectedDevice();
+    void ForgetEveryDevice();
+
+    bool Sharing() const;
+    void StartTerminalShare();
+    void StopTerminalShare();
+    void StopTerminalRow();
+    void RefreshShells();
+    void KickShell(uint32_t termId);
+    void ApplySharingBanner();
+    void OpenShell(const NetAddr& server, const std::string& passcode);
 
     void LoadSettings();
     void SaveSettings();
@@ -88,8 +108,7 @@ private:
     void ClearHostRows();
     void RebuildHostRowWidgets();
     HostRowWidgets MakeHostRowWidgets(const deskhub::ui::HostRow& ref, size_t index);
-    void FillHostRow(const HostRowWidgets& widgets, const deskhub::ui::HostRow& ref,
-        const AgentSourceStatus& status);
+    void FillHostRow(const HostRowWidgets& widgets, const deskhub::ui::HostRowCells& cells);
     void RunRowAction(const deskhub::ui::HostRow& row);
     std::string HostPortDetail() const;
     void ApplyHostState(HostShareState state, const std::string& detail);
@@ -118,6 +137,8 @@ private:
     static void OnBindChanged(GtkWidget* w, gpointer user);
     static void OnRescanClicked(GtkButton* b, gpointer user);
     static void OnRefreshStatusClicked(GtkButton* b, gpointer user);
+    static void OnForgetDeviceClicked(GtkButton* b, gpointer user);
+    static void OnForgetAllClicked(GtkButton* b, gpointer user);
     static void OnScanRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
         gpointer user);
     static void OnRecentRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
@@ -141,12 +162,23 @@ private:
     GtkWidget* shareButton_ = nullptr;
     GtkWidget* rechooseButton_ = nullptr;
 
+    GtkWidget* hostTerminalCheck_ = nullptr;
+
     GtkWidget* addressEntry_ = nullptr;
     GtkWidget* portEntry_ = nullptr;
     GtkWidget* passcodeEntry_ = nullptr;
     GtkWidget* deviceNameEntry_ = nullptr;
     GtkWidget* connectButton_ = nullptr;
     GtkWidget* controlCheck_ = nullptr;
+    GtkWidget* desktopCheck_ = nullptr;
+    GtkWidget* shellCheck_ = nullptr;
+
+    GtkWidget* pairedView_ = nullptr;
+    GtkListStore* pairedStore_ = nullptr;
+    GtkWidget* pairedHintLabel_ = nullptr;
+    GtkWidget* forgetDeviceButton_ = nullptr;
+    GtkWidget* allowPairingCheck_ = nullptr;
+    std::vector<deskhub::PairedDevice> pairedDevices_;
     GtkWidget* scanStatusLabel_ = nullptr;
     GtkWidget* recentHintLabel_ = nullptr;
     GtkListStore* scanStore_ = nullptr;
@@ -181,12 +213,22 @@ private:
     deskhubp::DeviceStatusPoller poller_;
     AgentLoop agentLoop_;
     deskhubp::AgentDriver agentDriver_;
+    deskhubp::TerminalHost terminalHost_;
+    std::vector<deskhub::TerminalRecord> shells_;
+    std::vector<AgentSourceStatus> hostStatus_;
 
     guint rescanTimerId_ = 0;
     guint hostTimerId_ = 0;
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool loadingSettings_ = false;
+    bool askingPairing_ = false;
+    bool screenSharing_ = false;
+    bool terminalRequested_ = false;
+    bool shareViewOnly_ = false;
+    uint16_t sharePort_ = 0;
+    std::string sharePasscodeNote_;
+    std::string shareBindWarning_;
 
     deskhub::OpenViewerCount openViewers_;
     deskhubp::ConnectDriver connectDriver_;

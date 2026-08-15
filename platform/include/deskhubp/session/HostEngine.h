@@ -28,6 +28,8 @@
 
 namespace deskhubp {
 
+class TerminalHost;
+
 using HostSource = deskhub::SourcePipelineState;
 
 struct HostSourcePolicy {
@@ -82,6 +84,10 @@ public:
     void RequestKickViewer(uint8_t sourceId, uint64_t addrPacked);
     void AnswerPairingRequest(uint64_t addrPacked, bool allowed);
 
+    void SetTerminal(TerminalHost* terminal) {
+        terminal_ = terminal;
+    }
+
     bool running() const {
         return running_.load(std::memory_order_acquire);
     }
@@ -127,6 +133,7 @@ private:
     HostEnginePolicy policy_;
 
     SessionTransport sock_;
+    TerminalHost* terminal_ = nullptr;
     std::thread recvThread_;
     std::atomic<bool> quit_{false};
     std::atomic<bool> running_{false};

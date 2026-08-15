@@ -95,4 +95,12 @@
         if (!text) return 0;                                                               \
         deskhubp::CopyToBuf(out, size_t(capacity), *text);                                 \
         return int(std::strlen(out));                                                      \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_accept_key(DHSession* s) {                                             \
+        deskhubp::AcceptFfiClientKey(s);                                                   \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_reject_key(DHSession* s) {                                             \
+        deskhubp::RejectFfiClientKey(s);                                                   \
     }

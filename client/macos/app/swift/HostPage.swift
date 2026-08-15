@@ -38,7 +38,11 @@ struct HostPage: View {
             } else {
                 SharePickerTable(sources: agent.shareSources, ticked: $agent.tickedSources)
                     .frame(minHeight: 170)
-                deskhubHint(DeskhubClient.string(DHStrPickDisplaysHint))
+                Toggle(
+                    DeskhubClient.string(DHStrTerminalPickerLabel),
+                    isOn: $agent.shareTerminal
+                )
+                deskhubHint(DeskhubClient.string(DHStrPickSourcesHint))
             }
 
             Button {

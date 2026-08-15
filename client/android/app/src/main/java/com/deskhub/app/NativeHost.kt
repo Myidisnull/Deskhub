@@ -100,6 +100,20 @@ object NativeHost {
 
     fun setBindIp(ip: String) = nativeSetBindIp(ip)
 
+    private external fun nativeTakePairingRequests(): Array<PairingRequest>?
+
+    private external fun nativeAnswerPairing(
+        addrPacked: Long,
+        allow: Boolean,
+    )
+
+    fun takePairingRequests(): List<PairingRequest> = nativeTakePairingRequests()?.toList() ?: emptyList()
+
+    fun answerPairing(
+        addrPacked: Long,
+        allow: Boolean,
+    ) = nativeAnswerPairing(addrPacked, allow)
+
     data class HostRow(
         val viewer: Boolean,
         val sourceId: Int,
@@ -118,6 +132,12 @@ object NativeHost {
     data class LocalAddress(
         val ip: String,
         val name: String,
+    )
+
+    data class PairingRequest(
+        val addrPacked: Long,
+        val shortKey: String,
+        val body: String,
     )
 
     data class ShareDefaults(

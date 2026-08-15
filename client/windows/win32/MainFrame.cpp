@@ -361,7 +361,7 @@ private:
     void ShowIdleHostState();
 
     void StartConnect(const std::string& addr);
-    void OpenShell(const std::string& addr, const std::string& passcode);
+    void OpenShell(const NetAddr& server, const std::string& passcode);
     void SaveOpenChoices();
     void SetClientStatus(const wxString& text, const wxColour& colour);
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
@@ -391,7 +391,6 @@ private:
     NavItem* pageButtons_[kPageCount] = {};
     wxTextCtrl* addrCtrl_ = nullptr;
     wxTextCtrl* connectPortCtrl_ = nullptr;
-    wxTextCtrl* shellPortCtrl_ = nullptr;
     wxCheckBox* desktopCtrl_ = nullptr;
     wxCheckBox* shellCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
@@ -420,7 +419,6 @@ private:
     wxSpinCtrl* fpsCtrl_ = nullptr;
     wxSpinCtrl* bitrateCtrl_ = nullptr;
     wxSpinCtrl* portCtrl_ = nullptr;
-    wxSpinCtrl* terminalPortCtrl_ = nullptr;
     wxChoice* qualityChoice_ = nullptr;
     wxCheckBox* allowInputCtrl_ = nullptr;
     wxTextCtrl* passcodeCtrl_ = nullptr;
@@ -439,8 +437,9 @@ private:
     std::vector<AgentSourceStatus> hostStatus_;
     std::vector<deskhub::TerminalRecord> shells_;
     std::optional<std::string> pendingClipboard_;
-    std::string screenStatusLine_;
-    std::string terminalStatusLine_;
+    bool screenSharing_ = false;
+    bool terminalRequested_ = false;
+    uint16_t sharePort_ = 0;
     std::string sharePasscodeNote_;
     std::string shareBindWarning_;
     bool shareViewOnly_ = false;
@@ -495,6 +494,7 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     Bind(wxEVT_TIMER, &MainFrame::OnClipboardTimer, this, kClipTimerId);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
+    agentLoop_.SetTerminal(&terminalHost_);
     RefreshDeviceList();
     StartPoller();
     StartScan();
@@ -756,14 +756,6 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     connectPortCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(connectPortCtrl_, wxSizerFlags().CentreVertical());
 
-    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kTerminalPortLabel)),
-        wxSizerFlags().CentreVertical());
-    shellPortCtrl_ = new wxTextCtrl(panel, wxID_ANY, ToWx(std::to_string(settings_.terminalPort)),
-        wxDefaultPosition, FromDIP(wxSize(80, -1)), wxTE_PROCESS_ENTER);
-    shellPortCtrl_->SetName("terminal-connect-port");
-    shellPortCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
-    grid->Add(shellPortCtrl_, wxSizerFlags().CentreVertical());
-
     grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kClientPasscodePrompt)),
         wxSizerFlags().CentreVertical());
     clientPasscodeCtrl_ = MakePasscodeCtrl(panel);
@@ -944,13 +936,13 @@ void MainFrame::RefreshPairedDevices() {
 // why the key is shown rather than just the name it chose for itself.
 void MainFrame::DrainPairingRequests() {
     if (askingPairing_) return;
-    const std::vector<PairingRequest> screen = agentLoop_.TakePairingRequests();
-    const std::vector<PairingRequest> shell = terminalHost_.TakePairingRequests();
-    if (screen.empty() && shell.empty()) return;
+    const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
+    if (requests.empty()) return;
 
     askingPairing_ = true;
     std::map<std::string, bool> answers;
-    for (const deskhub::PairedDevice& device : deskhubp::LoadPairedDevices().Devices())
+    const deskhub::PairedDevices paired = deskhubp::LoadPairedDevices();
+    for (const deskhub::PairedDevice& device : paired.Devices())
         answers[deskhub::ShortFingerprint(device.fingerprint)] = true;
 
     const auto answerFor = [this, &answers](const PairingRequest& request) {
@@ -960,10 +952,8 @@ void MainFrame::DrainPairingRequests() {
         answers[request.shortKey] = allowed;
         return allowed;
     };
-    for (const PairingRequest& request : screen)
+    for (const PairingRequest& request : requests)
         agentLoop_.AnswerPairing(request.addrPacked, answerFor(request));
-    for (const PairingRequest& request : shell)
-        terminalHost_.AnswerPairing(request.addrPacked, answerFor(request));
     askingPairing_ = false;
 }
 
@@ -1038,14 +1028,6 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsPort), int(settings_.port));
     netGrid->Add(portCtrl_);
 
-    netGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kTerminalPortLabel)),
-        wxSizerFlags().CentreVertical());
-    terminalPortCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition,
-        wxDefaultSize, wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsPort),
-        int(settings_.terminalPort));
-    terminalPortCtrl_->SetName("terminal-port");
-    netGrid->Add(terminalPortCtrl_);
-
     sizer->Add(netGrid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
     sizer->AddSpacer(FromDIP(12));
@@ -1090,8 +1072,6 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     bitrateCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
     portCtrl_->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) { SaveSettings(); });
     portCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
-    terminalPortCtrl_->Bind(wxEVT_SPINCTRL, [this](wxSpinEvent&) { SaveSettings(); });
-    terminalPortCtrl_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { SaveSettings(); });
     qualityChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
@@ -1382,18 +1362,6 @@ void MainFrame::OnShare() {
         return;
     }
 
-    if (terminal) StartTerminalShare();
-
-    if (chosen.empty()) {
-        if (!terminalHost_.Running()) return;
-        ShowHostTable(true);
-        ApplySharingBanner();
-        hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
-        RefreshShells();
-        UpdateHostRows(hostStatus_);
-        return;
-    }
-
     const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(chosen);
     if (clamp.clamped)
         wxMessageBox(ToWx(ui::ShareClampWarning()), "Deskhub", wxOK | wxICON_WARNING, this);
@@ -1411,33 +1379,14 @@ void MainFrame::OnShare() {
     options.deviceName = settings_.deviceName;
     options.allowNewPairings = settings_.allowNewPairings;
     options.clipboardSync = settings_.clipboardSync;
+    options.terminal = terminal;
 
+    terminalRequested_ = terminal;
     StartHosting(sources, options);
 }
 
 void MainFrame::StartTerminalShare() {
     if (terminalHost_.Running()) return;
-    if (!deskhubp::QuicAvailable()) {
-        wxMessageBox(ToWx(ui::kTerminalNoQuicLibrary), "Deskhub", wxOK | wxICON_WARNING, this);
-        return;
-    }
-    const std::string name =
-        settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
-    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity(name);
-    if (!identity.Valid()) {
-        wxMessageBox(ToWx(ui::kTerminalNoHostIdentity), "Deskhub", wxOK | wxICON_WARNING, this);
-        return;
-    }
-
-    std::vector<std::string> adapters;
-    for (const AdapterAddr& adapter : ListLocalIPv4()) adapters.push_back(adapter.ip);
-    const deskhub::BindChoice bind = deskhub::SelectBindAddress(settings_.bindIp, adapters);
-
-    deskhubp::TerminalHostConfig config;
-    config.bindIp = bind.ip;
-    config.port = uint16_t(settings_.terminalPort);
-    config.passcode = settings_.passcode;
-    config.allowNewPairings = settings_.allowNewPairings;
 
     deskhubp::TerminalHostCallbacks hooks;
     hooks.onSessionsChanged = [this] {
@@ -1447,14 +1396,10 @@ void MainFrame::StartTerminalShare() {
         });
     };
 
-    if (!terminalHost_.Start(config, identity, std::move(hooks))) {
-        wxMessageBox(
-            ToWx(terminalHost_.LastPortInUse() ? ui::kTerminalPortInUse : ui::kShareStartFailed),
-            "Deskhub", wxOK | wxICON_ERROR, this);
+    if (!terminalHost_.Start(agentLoop_.Socket(), std::string(), std::move(hooks))) {
+        wxMessageBox(ToWx(ui::kShareStartFailed), "Deskhub", wxOK | wxICON_ERROR, this);
         return;
     }
-    terminalStatusLine_ = ui::TerminalShareLine(config.port);
-    sharePasscodeNote_ = ui::PasscodeNote(config.passcode);
     RefreshShells();
 }
 
@@ -1462,7 +1407,6 @@ void MainFrame::StopTerminalShare() {
     if (!terminalHost_.Running()) return;
     terminalHost_.Stop();
     shells_.clear();
-    terminalStatusLine_.clear();
 }
 
 void MainFrame::StopTerminalRow() {
@@ -1486,14 +1430,10 @@ void MainFrame::KickShell(uint32_t termId) {
 }
 
 void MainFrame::ApplySharingBanner() {
-    std::string status = screenStatusLine_;
-    if (terminalHost_.Running()) {
-        if (!status.empty()) status += " \xC2\xB7 ";
-        status += terminalStatusLine_;
-    }
-    if (!status.empty()) status += ".";
+    std::string status =
+        ui::ShareSummaryLine(screenSharing_, terminalHost_.Running(), sharePort_);
     if (!sharePasscodeNote_.empty()) status += "\n" + sharePasscodeNote_;
-    if (hosting_ && shareViewOnly_) status += std::string("\n") + ui::kViewOnlyNote;
+    if (screenSharing_ && shareViewOnly_) status += std::string("\n") + ui::kViewOnlyNote;
     if (hosting_ && !shareBindWarning_.empty()) status += "\n" + shareBindWarning_;
     ApplyHostState(HostShareState::kSharing, ToWx(status));
 }
@@ -1530,22 +1470,19 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     if (!started) {
         wxMessageBox(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), "Deskhub",
             wxOK | wxICON_ERROR, this);
-        if (terminalHost_.Running()) {
-            ApplySharingBanner();
-            ShowHostTable(true);
-            hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
-            return;
-        }
+        terminalRequested_ = false;
         ShowIdleHostState();
         RefreshDisplayChoices();
         return;
     }
 
     hosting_ = true;
-    screenStatusLine_ = ui::ScreenShareLine(port);
+    screenSharing_ = !agentLoop_.Status().empty();
+    sharePort_ = port;
     sharePasscodeNote_ = ui::PasscodeNote(passcode);
     shareViewOnly_ = !allowInput;
     shareBindWarning_ = agentLoop_.BindWarning();
+    if (terminalRequested_) StartTerminalShare();
     ApplySharingBanner();
     ShowHostTable(true);
     hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
@@ -1577,16 +1514,17 @@ void MainFrame::OnClipboardTimer(wxTimerEvent&) {
 void MainFrame::StopHosting() {
     hostTimer_.Stop();
     clipTimer_.Stop();
+    StopTerminalShare();
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
+    screenSharing_ = false;
+    terminalRequested_ = false;
     pendingClipboard_.reset();
-    screenStatusLine_.clear();
     sharePasscodeNote_.clear();
     shareBindWarning_.clear();
     shareViewOnly_ = false;
     hostStatus_.clear();
-    StopTerminalShare();
     ShowIdleHostState();
     RefreshDisplayChoices();
 }
@@ -1605,7 +1543,13 @@ void MainFrame::OnHostTimer(wxTimerEvent&) {
             StopHosting();
             return;
         }
-        if (state == deskhubp::AgentDriveState::Running) hostStatus_ = std::move(rows);
+        if (state == deskhubp::AgentDriveState::Running) {
+            hostStatus_ = std::move(rows);
+            if (screenSharing_ && hostStatus_.empty()) {
+                screenSharing_ = false;
+                ApplySharingBanner();
+            }
+        }
     }
 
     RefreshShells();
@@ -1625,7 +1569,7 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
         const ui::HostRow& ref = hostRows_[i];
         ui::HostRowCells cells;
         if (ref.terminal) {
-            cells = ui::TerminalRowText(ref, uint16_t(settings_.terminalPort), shells_);
+            cells = ui::TerminalRowText(ref, uint16_t(settings_.port), shells_);
         } else {
             const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
             if (!s) continue;
@@ -1680,18 +1624,9 @@ void MainFrame::SaveOpenChoices() {
     deskhubp::SaveUiSettings(settings_);
 }
 
-void MainFrame::OpenShell(const std::string& addr, const std::string& passcode) {
-    const uint16_t port = ui::PortOrDefault(std::string(shellPortCtrl_->GetValue().utf8_str()),
-        uint16_t(settings_.terminalPort));
-    const std::string address = ui::AddressHost(addr) + ":" + std::to_string(port);
-    NetAddr host{};
-    if (!ParseNetAddr(address, host)) {
-        SetClientStatus(ToWx(ui::kTerminalUnreachable), kOffline);
-        return;
-    }
-
+void MainFrame::OpenShell(const NetAddr& server, const std::string& passcode) {
     TerminalLaunch launch;
-    launch.address = address;
+    launch.address = server.ToString();
     launch.passcode = passcode;
     launch.clientName =
         ui::TruncateDeviceName(std::string(deviceNameCtrl_->GetValue().utf8_str()));
@@ -1739,7 +1674,7 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         return;
     }
 
-    if (shellCtrl_->GetValue()) OpenShell(addr, passcode);
+    if (shellCtrl_->GetValue()) OpenShell(server, passcode);
     if (!desktopCtrl_->GetValue()) {
         ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
         SaveRecentDevices();
@@ -1921,7 +1856,6 @@ void MainFrame::SaveSettings() {
     settings_.fps = uint32_t(fpsCtrl_->GetValue());
     settings_.bitrateMbps = uint32_t(bitrateCtrl_->GetValue());
     settings_.port = uint32_t(portCtrl_->GetValue());
-    settings_.terminalPort = uint32_t(terminalPortCtrl_->GetValue());
     settings_.allowInput = allowInputCtrl_->GetValue();
     settings_.clientControl = controlCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();

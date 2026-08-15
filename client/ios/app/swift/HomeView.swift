@@ -18,6 +18,18 @@ struct HomeView: View {
                     )
                 }
 
+            ScrollView {
+                DevicesPage()
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .tabItem {
+                Label(
+                    DeskhubClient.string(DHStrSidebarDevices),
+                    systemImage: "checkmark.shield"
+                )
+            }
+
             SettingsView(settings: model.settings) { port in
                 model.discovery.usePort(port)
             }

@@ -25,7 +25,6 @@ struct UiSettings {
     bool startHidden = false;
     bool keepAwake = true;
     bool allowNewPairings = true;
-    uint32_t terminalPort = kDeskhubTerminalPort;
 
     bool operator==(const UiSettings&) const = default;
 };

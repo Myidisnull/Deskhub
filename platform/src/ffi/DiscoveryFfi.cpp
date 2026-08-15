@@ -25,6 +25,8 @@
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Autostart.h"
+#include "deskhubp/system/HostIdentity.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -484,5 +486,53 @@ int dh_recent_note(char* out, int capacity) {
     std::lock_guard<std::mutex> lk(g_mutex);
     return FillText(out, capacity,
         ui::RecentDevicesNote(Recent().size(), deskhubp::kDeviceStatusRoundSecs));
+}
+
+int dh_paired_devices(DHPairedDevice* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    const std::vector<deskhub::PairedDevice> devices = deskhubp::LoadPairedDevices().Devices();
+    const int count = int(devices.size()) < capacity ? int(devices.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        const deskhub::PairedDevice& device = devices[size_t(i)];
+        FillText(out[i].name, int(sizeof(out[i].name)), device.name);
+        FillText(out[i].shortKey, int(sizeof(out[i].shortKey)),
+            deskhub::ShortFingerprint(device.fingerprint));
+        FillText(out[i].fingerprint, int(sizeof(out[i].fingerprint)),
+            deskhub::FormatFingerprint(device.fingerprint));
+        out[i].pairedUnix = device.pairedUnix;
+        out[i].lastSeenUnix = device.lastSeenUnix;
+    }
+    return count;
+}
+
+bool dh_paired_forget(const char* fingerprint) {
+    if (!fingerprint) return false;
+    const std::optional<deskhub::Fingerprint> fp = deskhub::ParseFingerprint(fingerprint);
+    return fp && deskhubp::ForgetPairedDevice(*fp);
+}
+
+void dh_paired_forget_all(void) {
+    deskhubp::ForgetAllPairedDevices();
+}
+
+bool dh_allow_pairing(void) {
+    return deskhubp::LoadUiSettings().allowNewPairings;
+}
+
+void dh_set_allow_pairing(bool allow) {
+    deskhub::ui::UiSettings settings = deskhubp::LoadUiSettings();
+    settings.allowNewPairings = allow;
+    deskhubp::SaveUiSettings(settings);
+}
+
+int dh_own_fingerprint(char* out, int capacity) {
+    const deskhubp::HostIdentity identity =
+        deskhubp::LoadOrCreateHostIdentity(deskhubp::SessionDeviceName());
+    return FillText(out, capacity,
+        identity.Valid() ? deskhub::FormatFingerprint(identity.fingerprint) : std::string());
+}
+
+int dh_format_address(uint64_t addr_packed, char* out, int capacity) {
+    return FillText(out, capacity, NetAddr::Unpack(addr_packed).ToString());
 }
 }

@@ -107,14 +107,6 @@ void dh_session_stop(DHSession* s) {
     deskhubp::StopFfiClientSession(s);
 }
 
-void dh_session_accept_key(DHSession* s) {
-    deskhubp::AcceptFfiClientKey(s);
-}
-
-void dh_session_reject_key(DHSession* s) {
-    deskhubp::RejectFfiClientKey(s);
-}
-
 void dh_session_set_layer(DHSession*, void*) {}
 
 DESKHUB_DEFINE_CLIENT_SESSION_FORWARDERS(EngineOf)

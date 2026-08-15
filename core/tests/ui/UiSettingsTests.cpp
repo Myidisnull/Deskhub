@@ -171,7 +171,6 @@ void TestBoundsAreEnforced() {
 void TestTerminalSharePersistence() {
     std::printf("[settings] the terminal is a source of its own, on the shared network...\n");
     ui::UiSettings s;
-    s.terminalPort = 47790;
     s.bindIp = "192.168.1.10";
     s.clientShell = true;
     const ui::UiSettings back = ui::ParseUiSettings(ui::SerializeUiSettings(s));
@@ -179,11 +178,7 @@ void TestTerminalSharePersistence() {
         "the terminal shares on the one network the host picked");
     Check(back == s, "nothing else changed on the way through");
 
-    Check(back.terminalPort == 47790, "and it keeps its own port");
-
     const ui::UiSettings fresh;
-    Check(fresh.terminalPort == kDeskhubTerminalPort && fresh.port == kDeskhubPort,
-        "by default the terminal listens beside the screen rather than on top of it");
     Check(back.clientShell, "what the client opens on connect round-trips too");
     Check(fresh.clientDesktop && !fresh.clientShell,
         "and by default connecting opens the desktop, not a shell");
@@ -206,16 +201,15 @@ void TestTerminalSharePersistence() {
         "auto_share=1\n"
         "clipboard_sync=1\n"
         "start_hidden=0\n"
-        "keep_awake=1\n";
+        "keep_awake=1\n"
+        "terminal_port=47778\n";
     const ui::UiSettings old = ui::ParseUiSettings(fourX);
     Check(old.fps == 30 && old.autoShare && old.deviceName == "Old machine",
-        "a 4.x settings file still reads back everything it used to hold");
+        "an older settings file still reads back everything it used to hold");
     Check(old.clientDesktop && !old.clientShell,
         "and the fields it never heard of come out at their defaults");
-    Check(old.terminalPort == kDeskhubTerminalPort,
-        "including a terminal port that does not collide with the screen it already shares");
-    Check(ui::ParseUiSettings("terminal_port=0").terminalPort == kDeskhubTerminalPort,
-        "port zero is rejected here too");
+    Check(ui::SerializeUiSettings(old).find("terminal_port") == std::string::npos,
+        "the retired terminal-port key is dropped rather than written back");
 }
 
 }

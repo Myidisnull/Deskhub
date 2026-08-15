@@ -1,23 +1,19 @@
 #include "deskhubp/session/TerminalHost.h"
 
 #include <algorithm>
+#include <utility>
 #include <vector>
 
-#include "deskhub/net/BindAddress.h"
+#include "deskhub/protocol/Wire.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
-#include "deskhubp/system/PairedDevicesFile.h"
 
 namespace deskhubp {
 
 namespace {
 
-constexpr uint32_t kPollWaitMs = 5;
+constexpr uint32_t kPumpWaitUs = 2'000;
 constexpr uint32_t kPtyWaitMs = 0;
-
-uint64_t StreamKey(QuicConnId conn, uint64_t stream) {
-    return conn ^ (stream << 48);
-}
 
 }
 
@@ -25,41 +21,28 @@ TerminalHost::~TerminalHost() {
     Stop();
 }
 
-bool TerminalHost::Start(const TerminalHostConfig& config, const HostIdentity& identity,
+bool TerminalHost::Start(SessionTransport& sock, std::string shell,
     TerminalHostCallbacks callbacks) {
     if (Running()) return false;
-    if (!identity.Valid()) {
-        LOGE("terminal host: no host identity, cannot offer an encrypted shell");
-        return false;
+    if (!sock.IsOpen()) return false;
+
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        sock_ = &sock;
+        shell_ = std::move(shell);
+        cb_ = std::move(callbacks);
+        sessions_.SetConnectionAuthenticated(true);
+        sessions_.SetSharing(true);
     }
-
-    config_ = config;
-    identity_ = identity;
-    cb_ = std::move(callbacks);
-    sessions_.SetConnectionAuthenticated(true);
-    sessions_.SetSharing(true);
-
-    QuicSettings settings;
-    settings.certPemPath = identity_.certPath;
-    settings.keyPemPath = identity_.keyPath;
-
-    QuicCallbacks hooks;
-    hooks.onStream = [this](QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes,
-                         bool) { OnStream(conn, stream, bytes); };
-    hooks.onClosed = [this](QuicConnId conn, const NetAddr&) {
-        OnConnectionClosed(conn, NowUs());
-    };
-
-    if (!endpoint_.Listen(settings, config_.bindIp, config_.port, std::move(hooks))) {
-        sessions_.SetSharing(false);
-        return false;
+    {
+        const std::lock_guard<std::mutex> lock(goneMutex_);
+        gone_.clear();
     }
 
     stop_.store(false, std::memory_order_release);
     running_.store(true, std::memory_order_release);
     thread_ = std::thread([this] { Loop(); });
-    LOGI("terminal host: sharing a shell on %s:%u",
-        config_.bindIp.empty() ? "0.0.0.0" : config_.bindIp.c_str(), unsigned(config_.port));
+    LOGI("terminal host: sharing a shell on the session port");
     return true;
 }
 
@@ -71,37 +54,15 @@ void TerminalHost::Stop() {
 
     const std::lock_guard<std::mutex> lock(mutex_);
     shells_.clear();
-    streams_.clear();
-    auth_.clear();
-    authenticated_.clear();
-    pairingRequests_.clear();
-    approvalAnswers_.clear();
+    kicks_.clear();
     sessions_.SetSharing(false);
-    endpoint_.Close();
+    sock_ = nullptr;
     LOGI("terminal host: stopped sharing");
-}
-
-void TerminalHost::SetPasscode(std::string passcode) {
-    const std::lock_guard<std::mutex> lock(mutex_);
-    config_.passcode = passcode;
-    sessions_.SetPasscode(std::move(passcode));
 }
 
 void TerminalHost::KickSession(uint32_t termId) {
     const std::lock_guard<std::mutex> lock(mutex_);
     kicks_.push_back(termId);
-}
-
-std::vector<PairingRequest> TerminalHost::TakePairingRequests() {
-    const std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<PairingRequest> out;
-    out.swap(pairingRequests_);
-    return out;
-}
-
-void TerminalHost::AnswerPairing(uint64_t addrPacked, bool allowed) {
-    const std::lock_guard<std::mutex> lock(mutex_);
-    approvalAnswers_.emplace_back(addrPacked, allowed);
 }
 
 size_t TerminalHost::SessionCount() const {
@@ -116,120 +77,40 @@ std::vector<deskhub::TerminalRecord> TerminalHost::Sessions() const {
 
 void TerminalHost::Loop() {
     while (!stop_.load(std::memory_order_acquire)) {
-        endpoint_.Poll(NowUs(), kPollWaitMs);
         const uint64_t nowUs = NowUs();
         {
             const std::lock_guard<std::mutex> lock(mutex_);
-            DrainApprovals();
+            DrainGone(nowUs);
             DrainKicks();
-            PumpShells(nowUs);
+            PumpShells();
             for (uint32_t id : sessions_.Expire(nowUs)) {
                 shells_.erase(id);
                 LOGI("terminal host: gave up on detached session %u", unsigned(id));
             }
         }
+        SleepUs(kPumpWaitUs);
     }
 }
 
-void TerminalHost::OnStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes) {
-    const std::lock_guard<std::mutex> lock(mutex_);
-    deskhub::RecordStream& framer = streams_[StreamKey(conn, stream)];
-    framer.Append(bytes);
-    std::vector<uint8_t> message;
-    while (framer.Next(message)) HandleMessage(conn, stream, message);
-    if (framer.Failed()) {
-        LOGW("terminal host: a client sent a malformed stream, closing it");
-        endpoint_.CloseConnection(conn, 1, "bad framing");
-    }
+void TerminalHost::SendToPeer(const NetAddr& peer, std::span<const uint8_t> message) {
+    if (sock_ != nullptr) sock_->SendRecord(peer, message);
 }
 
-void TerminalHost::SendToStream(QuicConnId conn, uint64_t stream,
-    std::span<const uint8_t> message) {
-    std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
-    const size_t written = deskhub::BuildRecord(record, message);
-    if (written == 0) return;
-    endpoint_.SendStream(conn, stream, std::span<const uint8_t>(record.data(), written));
-}
-
-uint32_t TerminalHost::TermIdFor(QuicConnId conn, uint64_t stream) const {
+uint32_t TerminalHost::TermIdFor(const NetAddr& peer) const {
     for (const auto& [id, shell] : shells_)
-        if (shell.conn == conn && shell.stream == stream) return id;
+        if (shell.peer == peer) return id;
     return 0;
 }
 
-// Same gate the screen path uses: a machine proves itself once per connection, and
-// until it has, nothing it sends opens a shell.
-bool TerminalHost::AuthAllows(QuicConnId conn, uint64_t stream,
-    std::span<const uint8_t> message) {
-    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
-    if (!header) return false;
-    const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
-    const int64_t nowUnix = NowUnixSeconds();
-
-    if (header->type == deskhub::MsgType::AuthStart) {
-        const std::optional<deskhub::AuthStart> start = deskhub::ParseAuthStart(payload);
-        if (!start) return false;
-
-        HostAuthConfig config;
-        config.identity = identity_;
-        config.SetPasscode(LoadOrCreateAuthSalt(), config_.passcode);
-        config.allowNewPairings = config_.allowNewPairings;
-
-        auto auth = std::make_unique<HostAuth>();
-        auth->Configure(std::move(config));
-        const std::optional<deskhub::AuthChallenge> challenge = auth->Begin(*start);
-        if (!challenge) return false;
-
-        if (challenge->mode == deskhub::AuthMode::Passcode && authThrottle_.Locked(NowUs())) {
-            deskhub::AuthResult locked;
-            locked.code = deskhub::AuthResultCode::Locked;
-            std::vector<uint8_t> out(deskhub::kMaxRecordSize);
-            out.resize(deskhub::BuildAuthResult(out, locked));
-            SendToStream(conn, stream, out);
-            LOGW("terminal host: a client is locked out after too many wrong passcodes");
-            return false;
-        }
-
-        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
-        out.resize(deskhub::BuildAuthChallenge(out, *challenge));
-        SendToStream(conn, stream, out);
-        if (challenge->mode == deskhub::AuthMode::Approval)
-            pairingRequests_.push_back(PairingRequest{conn,
-                deskhub::ShortFingerprint(auth->PeerFingerprint()), auth->PeerName()});
-        auth_[conn] = PendingAuth{std::move(auth), stream};
-        return false;
-    }
-
-    if (header->type == deskhub::MsgType::AuthResponse) {
-        const auto at = auth_.find(conn);
-        if (at == auth_.end()) return false;
-        const std::optional<deskhub::AuthResponse> response = deskhub::ParseAuthResponse(payload);
-        if (!response) return false;
-
-        const deskhub::AuthResult result = at->second.auth->Respond(*response, nowUnix);
-        if (at->second.auth->Mode() == deskhub::AuthMode::Passcode) {
-            if (result.code == deskhub::AuthResultCode::WrongPasscode)
-                authThrottle_.RecordFailure(NowUs());
-            if (result.code == deskhub::AuthResultCode::Accepted) authThrottle_.RecordSuccess();
-        }
-        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
-        out.resize(deskhub::BuildAuthResult(out, result));
-        SendToStream(conn, stream, out);
-        authenticated_[conn] = result.code == deskhub::AuthResultCode::Accepted;
-        return false;
-    }
-
-    const auto settled = authenticated_.find(conn);
-    return settled != authenticated_.end() && settled->second;
-}
-
-void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
-    std::span<const uint8_t> message) {
-    if (!AuthAllows(conn, stream, message)) return;
+void TerminalHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> message) {
+    if (!Running()) return;
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
     if (!header || header->chan != deskhub::Chan::Terminal) return;
     const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
     const uint64_t nowUs = NowUs();
+
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (sock_ == nullptr) return;
 
     if (header->type == deskhub::MsgType::TermOpen) {
         const std::optional<deskhub::TermOpen> request = deskhub::ParseTermOpen(payload);
@@ -237,17 +118,16 @@ void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
 
         deskhub::TerminalOpenRequest full;
         full.message = *request;
-        full.endpoint = NetAddr::Unpack(conn).ToString();
-        if (const std::optional<deskhub::Fingerprint> fp = endpoint_.PeerFingerprint(conn))
-            full.fingerprint = *fp;
+        full.endpoint = from.ToString();
+        std::string peerName;
+        sock_->PeerAuth(from, full.fingerprint, peerName);
 
         deskhub::TermOpenAck ack = sessions_.Open(full, nowUs);
         if (ack.reason == deskhub::TermReason::Accepted && !ack.resumed) {
             Shell shell;
             shell.pty = std::make_unique<Pty>();
-            shell.conn = conn;
-            shell.stream = stream;
-            if (!shell.pty->Start(config_.shell, request->size)) {
+            shell.peer = from;
+            if (!shell.pty->Start(shell_, request->size)) {
                 sessions_.Close(ack.termId);
                 ack = deskhub::TermOpenAck{};
                 ack.reason = deskhub::TermReason::TooManySessions;
@@ -262,8 +142,7 @@ void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
                 ack = deskhub::TermOpenAck{};
                 ack.reason = deskhub::TermReason::NoSuchSession;
             } else {
-                at->second.conn = conn;
-                at->second.stream = stream;
+                at->second.peer = from;
                 at->second.pty->Resize(request->size);
                 Audit(ack.termId, "reattached");
             }
@@ -271,14 +150,14 @@ void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
 
         std::vector<uint8_t> out(deskhub::kMaxDatagram);
         out.resize(deskhub::BuildTermOpenAck(out, ack));
-        SendToStream(conn, stream, out);
+        SendToPeer(from, out);
         if (cb_.onSessionsChanged) cb_.onSessionsChanged();
         return;
     }
 
-    const uint32_t termId = header->sessionId != 0 ? header->sessionId : TermIdFor(conn, stream);
+    const uint32_t termId = header->sessionId != 0 ? header->sessionId : TermIdFor(from);
     const auto shell = shells_.find(termId);
-    if (shell == shells_.end() || shell->second.conn != conn) return;
+    if (shell == shells_.end() || !(shell->second.peer == from)) return;
 
     switch (header->type) {
         case deskhub::MsgType::TermData:
@@ -297,8 +176,31 @@ void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
     }
 }
 
-void TerminalHost::PumpShells(uint64_t nowUs) {
-    (void)nowUs;
+void TerminalHost::OnPeerGone(const NetAddr& peer) {
+    if (!Running()) return;
+    const std::lock_guard<std::mutex> lock(goneMutex_);
+    gone_.push_back(peer);
+}
+
+void TerminalHost::DrainGone(uint64_t nowUs) {
+    std::vector<NetAddr> gone;
+    {
+        const std::lock_guard<std::mutex> lock(goneMutex_);
+        gone.swap(gone_);
+    }
+    for (const NetAddr& peer : gone) {
+        bool changed = false;
+        for (auto& [termId, shell] : shells_) {
+            if (!(shell.peer == peer)) continue;
+            sessions_.Detach(termId, nowUs);
+            Audit(termId, "detached");
+            changed = true;
+        }
+        if (changed && cb_.onSessionsChanged) cb_.onSessionsChanged();
+    }
+}
+
+void TerminalHost::PumpShells() {
     std::vector<uint32_t> finished;
     std::vector<uint8_t> chunk(kPtyReadChunk);
     std::vector<uint8_t> message(deskhub::kMaxRecordSize);
@@ -317,8 +219,7 @@ void TerminalHost::PumpShells(uint64_t nowUs) {
                 const size_t written = deskhub::BuildTermData(message, termId,
                     std::span<const uint8_t>(chunk.data() + at, take));
                 if (written == 0) break;
-                SendToStream(shell.conn, shell.stream,
-                    std::span<const uint8_t>(message.data(), written));
+                SendToPeer(shell.peer, std::span<const uint8_t>(message.data(), written));
                 at += take;
             }
         }
@@ -338,56 +239,17 @@ void TerminalHost::DrainKicks() {
     for (uint32_t termId : kicks) CloseShell(termId, 0, true);
 }
 
-void TerminalHost::DrainApprovals() {
-    if (approvalAnswers_.empty()) return;
-    const std::vector<std::pair<uint64_t, bool>> answers = std::move(approvalAnswers_);
-    approvalAnswers_.clear();
-    for (const auto& [conn, allowed] : answers) {
-        const auto at = auth_.find(conn);
-        if (at == auth_.end()) continue;
-        const deskhub::AuthResult result = at->second.auth->Approve(allowed, NowUnixSeconds());
-        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
-        out.resize(deskhub::BuildAuthResult(out, result));
-        SendToStream(conn, at->second.stream, out);
-        const bool accepted = result.code == deskhub::AuthResultCode::Accepted;
-        authenticated_[conn] = accepted;
-        if (accepted)
-            LOGI("terminal host: %s is allowed in (%s)", at->second.auth->PeerName().c_str(),
-                deskhub::ShortFingerprint(at->second.auth->PeerFingerprint()).c_str());
-        else
-            LOGW("terminal host: %s was turned away", at->second.auth->PeerName().c_str());
-    }
-}
-
 void TerminalHost::CloseShell(uint32_t termId, int exitCode, bool tellClient) {
     const auto at = shells_.find(termId);
     if (at == shells_.end()) return;
     if (tellClient) {
         std::vector<uint8_t> out(deskhub::kMaxDatagram);
         out.resize(deskhub::BuildTermExit(out, termId, exitCode));
-        SendToStream(at->second.conn, at->second.stream, out);
+        SendToPeer(at->second.peer, out);
     }
     Audit(termId, "closed");
     shells_.erase(at);
     sessions_.Close(termId);
-    if (cb_.onSessionsChanged) cb_.onSessionsChanged();
-}
-
-void TerminalHost::OnConnectionClosed(QuicConnId conn, uint64_t nowUs) {
-    const std::lock_guard<std::mutex> lock(mutex_);
-    for (auto& [termId, shell] : shells_) {
-        if (shell.conn != conn) continue;
-        sessions_.Detach(termId, nowUs);
-        Audit(termId, "detached");
-    }
-    auth_.erase(conn);
-    authenticated_.erase(conn);
-    for (auto it = streams_.begin(); it != streams_.end();) {
-        if ((it->first ^ (it->first >> 48 << 48)) == conn)
-            it = streams_.erase(it);
-        else
-            ++it;
-    }
     if (cb_.onSessionsChanged) cb_.onSessionsChanged();
 }
 

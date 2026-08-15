@@ -1,30 +1,21 @@
 #pragma once
-#include "deskhub/protocol/RecordStream.h"
-#include "deskhub/session/AuthThrottle.h"
 #include "deskhub/session/TerminalSession.h"
-#include "deskhubp/net/QuicEndpoint.h"
-#include "deskhubp/system/HostIdentity.h"
-#include "deskhubp/session/AuthNegotiation.h"
+#include "deskhubp/net/SessionTransport.h"
 #include "deskhubp/system/Pty.h"
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <span>
 #include <string>
+#include <string_view>
 #include <thread>
-#include <utility>
 #include <vector>
 
 namespace deskhubp {
-
-struct TerminalHostConfig {
-    std::string bindIp{};
-    uint16_t port = deskhub::kDeskhubTerminalPort;
-    bool allowNewPairings = true;
-    std::string passcode{};
-    std::string shell{};
-};
 
 struct TerminalHostCallbacks {
     std::function<void(std::string_view auditLine)> onAudit;
@@ -38,68 +29,44 @@ public:
     TerminalHost(const TerminalHost&) = delete;
     TerminalHost& operator=(const TerminalHost&) = delete;
 
-    bool Start(const TerminalHostConfig& config, const HostIdentity& identity,
-        TerminalHostCallbacks callbacks);
+    bool Start(SessionTransport& sock, std::string shell, TerminalHostCallbacks callbacks);
     void Stop();
 
     bool Running() const {
         return running_.load(std::memory_order_acquire);
     }
-    bool LastPortInUse() const {
-        return endpoint_.LastBindAddrInUse();
-    }
-    void SetPasscode(std::string passcode);
+
+    void HandleMessage(const NetAddr& from, std::span<const uint8_t> message);
+    void OnPeerGone(const NetAddr& peer);
+
     void KickSession(uint32_t termId);
-    std::vector<PairingRequest> TakePairingRequests();
-    void AnswerPairing(uint64_t addrPacked, bool allowed);
     size_t SessionCount() const;
     std::vector<deskhub::TerminalRecord> Sessions() const;
-    uint16_t Port() const {
-        return config_.port;
-    }
-    const std::string& BoundIp() const {
-        return config_.bindIp;
-    }
 
 private:
     struct Shell {
         std::unique_ptr<Pty> pty{};
-        QuicConnId conn = 0;
-        uint64_t stream = 0;
-    };
-
-    struct PendingAuth {
-        std::unique_ptr<HostAuth> auth{};
-        uint64_t stream = 0;
+        NetAddr peer{};
     };
 
     void Loop();
-    void OnStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes);
-    void HandleMessage(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
-    bool AuthAllows(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
-    void OnConnectionClosed(QuicConnId conn, uint64_t nowUs);
-    void PumpShells(uint64_t nowUs);
+    void PumpShells();
     void DrainKicks();
-    void DrainApprovals();
-    void SendToStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
+    void DrainGone(uint64_t nowUs);
     void CloseShell(uint32_t termId, int exitCode, bool tellClient);
     void Audit(uint32_t termId, std::string_view what);
-    uint32_t TermIdFor(QuicConnId conn, uint64_t stream) const;
+    void SendToPeer(const NetAddr& peer, std::span<const uint8_t> message);
+    uint32_t TermIdFor(const NetAddr& peer) const;
 
-    TerminalHostConfig config_{};
-    HostIdentity identity_{};
+    SessionTransport* sock_ = nullptr;
+    std::string shell_{};
     TerminalHostCallbacks cb_{};
-    QuicEndpoint endpoint_{};
     deskhub::TerminalSessions sessions_{};
     std::map<uint32_t, Shell> shells_{};
     std::vector<uint32_t> kicks_{};
-    std::map<uint64_t, deskhub::RecordStream> streams_{};
-    std::map<uint64_t, PendingAuth> auth_{};
-    std::map<uint64_t, bool> authenticated_{};
-    std::vector<PairingRequest> pairingRequests_{};
-    std::vector<std::pair<uint64_t, bool>> approvalAnswers_{};
-    deskhub::AuthThrottle authThrottle_{};
+    std::vector<NetAddr> gone_{};
     mutable std::mutex mutex_{};
+    std::mutex goneMutex_{};
     std::thread thread_{};
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_{false};

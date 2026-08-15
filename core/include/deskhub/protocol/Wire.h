@@ -95,7 +95,6 @@ struct CommonHeader {
 };
 
 inline constexpr uint16_t kDeskhubPort = 47777;
-inline constexpr uint16_t kDeskhubTerminalPort = 47778;
 inline constexpr size_t kMaxSources = 8;
 inline constexpr size_t kMaxSourceNameBytes = 64;
 
@@ -187,6 +186,7 @@ enum class AuthResultCode : uint8_t {
 struct AuthStart {
     std::vector<uint8_t> publicKey{};
     std::string clientName{};
+    bool hasPasscode = false;
 };
 
 struct AuthChallenge {

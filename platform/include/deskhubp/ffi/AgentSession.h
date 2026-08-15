@@ -16,7 +16,9 @@ typedef struct {
 
 typedef struct {
     bool viewer;
+    bool terminal;
     uint8_t sourceId;
+    uint32_t termId;
     bool online;
     char viewerAddr[192];
     char source[256];
@@ -46,8 +48,24 @@ int dha_quality_presets(DHQualityPreset* out, int capacity);
 
 int dha_list_share_sources(DHShareSource* out, int capacity);
 
+typedef struct {
+    uint64_t addrPacked;
+    char shortKey[16];
+    char name[80];
+} DHPairingRequest;
+
 bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
-    uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode);
+    uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode, bool terminal);
+
+bool dha_terminal_active(void);
+
+void dha_kick_shell(uint32_t term_id);
+
+void dha_stop_terminal(void);
+
+int dha_take_pairing_requests(DHPairingRequest* out, int capacity);
+
+void dha_answer_pairing(uint64_t addr_packed, bool allowed);
 
 void dha_stop(void);
 

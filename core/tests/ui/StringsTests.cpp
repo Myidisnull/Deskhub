@@ -95,10 +95,14 @@ void TestThePortIsNeverHardcodedTwice() {
     const std::string port = std::to_string(kDeskhubPort);
     Check(Contains(ui::UdpPortLine(), port), "the port line quotes the protocol constant");
     Check(Contains(ui::UdpPortLine(50123), "50123"), "a custom port shows as configured");
-    Check(Contains(ui::ScreenShareLine(50123), "Screen on UDP port 50123"),
-        "the screen banner part names what is shared and where");
-    Check(Contains(ui::TerminalShareLine(47778), "Terminal on UDP port 47778"),
-        "and so does the terminal part");
+    Check(ui::ShareSummaryLine(true, false, 50123) == "Screen on UDP port 50123.",
+        "the banner names what is shared and where");
+    Check(ui::ShareSummaryLine(true, true, 50123) == "Screen \xC2\xB7 Terminal on UDP port 50123.",
+        "screen and terminal share the one port on one line");
+    Check(ui::ShareSummaryLine(false, true, 50123) == "Terminal on UDP port 50123.",
+        "a terminal-only share reads the same way");
+    Check(ui::ShareSummaryLine(false, false, 50123).empty(),
+        "and nothing shared is nothing said");
     Check(Contains(ui::SharingStatusLine(50123), "50123"),
         "the sharing banner quotes the port actually bound");
     Check(Contains(ui::InvalidAddressHint(), port), "so does the bad-address hint");
@@ -135,7 +139,7 @@ void TestThePortFieldFallsBackToTheDefault() {
     const char* bad[] = {"", "0", "65536", "999999", "47a77", "-1", " "};
     for (const char* s : bad) {
         Check(ui::PortOrDefault(s) == kDeskhubPort, "junk falls back to the default port");
-        Check(ui::PortOrDefault(s, kDeskhubTerminalPort) == kDeskhubTerminalPort,
+        Check(ui::PortOrDefault(s, 50124) == 50124,
             "and to the caller's own fallback when it names one");
     }
 }
@@ -239,14 +243,12 @@ void TestDeviceListNotesReadTheSameOnEveryClient() {
 }
 
 void TestTerminalRefusalsNameTheirOwnCause() {
-    std::printf("[strings] a terminal that cannot be shared says which of the two causes it is...\n");
-    Check(std::string(ui::kTerminalNoQuicLibrary) != std::string(ui::kTerminalNoHostIdentity),
+    std::printf("[strings] a share that cannot start says which of the two causes it is...\n");
+    Check(std::string(ui::kShareNoQuicLibrary) != std::string(ui::kShareNoHostIdentity),
         "a build without QUIC and a machine without a key are not the same failure");
-    Check(Contains(ui::kTerminalNoQuicLibrary, "build-quiche"),
+    Check(Contains(ui::kShareNoQuicLibrary, "build-quiche"),
         "a build without QUIC names the script that produces one");
-    Check(!Contains(ui::kTerminalNoQuicLibrary, "system cannot"),
-        "and does not blame the operating system for a missing build step");
-    Check(Contains(ui::kTerminalNoHostIdentity, "key"),
+    Check(Contains(ui::kShareNoHostIdentity, "key"),
         "a machine that cannot make an identity says what it failed to create");
 }
 

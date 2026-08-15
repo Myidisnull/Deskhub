@@ -172,7 +172,7 @@ void RunHostNetLoop(SessionTransport& sock, deskhub::Beacon& beacon,
     std::span<deskhub::SourcePipelineState* const> live, const HostNetLoopHooks& hooks) {
     const std::vector<deskhub::SourcePipelineState*> liveStates(live.begin(), live.end());
 
-    uint8_t buf[deskhub::kMaxDatagram];
+    uint8_t buf[deskhub::kMaxRecordSize];
     uint8_t beaconBuf[deskhub::kMaxDatagram];
     char line[deskhub::diag::SourceDiag::kStatusBufBytes];
 
@@ -185,7 +185,7 @@ void RunHostNetLoop(SessionTransport& sock, deskhub::Beacon& beacon,
         bool anyAlive = false;
         for (deskhub::SourcePipelineState* st : live)
             if (Alive(*st, hooks.source)) anyAlive = true;
-        if (!anyAlive) {
+        if (!anyAlive && !(hooks.keepAlive && hooks.keepAlive())) {
             LOGI("[Agent] No source left alive — session over.");
             break;
         }
@@ -201,7 +201,12 @@ void RunHostNetLoop(SessionTransport& sock, deskhub::Beacon& beacon,
 
         if (n > 0) {
             const auto pkt = std::span<const uint8_t>(buf, size_t(n));
-            if (const size_t rn = beacon.Reply(beaconBuf, pkt, sock.Authenticated(from)); rn) {
+            const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(pkt);
+            if (header && header->chan == deskhub::Chan::Terminal) {
+                if (hooks.onTerminal) hooks.onTerminal(from, pkt);
+            } else if (const size_t rn =
+                           beacon.Reply(beaconBuf, pkt, sock.Authenticated(from));
+                rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else {
                 deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);

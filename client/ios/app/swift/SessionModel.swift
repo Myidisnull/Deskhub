@@ -11,6 +11,7 @@ final class SessionModel {
     var screen: ClientRoute = .connect
     var sources: [Source] = []
     private(set) var stream: StreamModel?
+    private(set) var terminal: TerminalModel?
 
     func beginConnect(to address: String, passcode: String) {
         connect.address = address
@@ -66,6 +67,26 @@ final class SessionModel {
     func disconnect() {
         stream?.disconnect()
         stream = nil
+        screen = .connect
+    }
+
+    func openShell() {
+        guard let accepted = connect.acceptAddress() else { return }
+        connect.saveDeviceName()
+        let passcode = connect.acceptedPasscode
+        Task { await discovery.remember(address: accepted, passcode: passcode) }
+        let model = TerminalModel()
+        guard model.open(address: accepted, passcode: passcode) else {
+            connect.connectError = DeskhubClient.couldNotConnect(accepted)
+            return
+        }
+        terminal = model
+        screen = .terminal
+    }
+
+    func closeShell() {
+        terminal?.stop()
+        terminal = nil
         screen = .connect
     }
 

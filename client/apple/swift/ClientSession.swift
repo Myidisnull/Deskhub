@@ -159,6 +159,7 @@ struct SessionHandlers: Sendable {
     var onStatus: @Sendable (String) -> Void = { _ in }
     var onSize: @Sendable (UInt32, UInt32) -> Void = { _, _ in }
     var onClosed: @Sendable (String) -> Void = { _ in }
+    var onTrustAsked: @Sendable (Int32, String) -> Void = { _, _ in }
 }
 
 private final class HandlerBox {
@@ -199,6 +200,11 @@ final class ClientSession: @unchecked Sendable {
         callbacks.onClosed = { reason, user in
             HandlerBox.unwrap(user)?.onClosed(reason.map { String(cString: $0) } ?? "")
         }
+        callbacks.onTrustAsked = { verdict, fingerprint, user in
+            HandlerBox.unwrap(user)?.onTrustAsked(
+                verdict, fingerprint.map { String(cString: $0) } ?? ""
+            )
+        }
 
         guard let handle = dh_session_start(address, sourceId, nil, &callbacks, passcode) else {
             Unmanaged<HandlerBox>.fromOpaque(box).release()
@@ -210,6 +216,14 @@ final class ClientSession: @unchecked Sendable {
     func stop() {
         dh_session_stop(handle)
         Unmanaged<HandlerBox>.fromOpaque(handlerBox).release()
+    }
+
+    func acceptKey() {
+        dh_session_accept_key(handle)
+    }
+
+    func rejectKey() {
+        dh_session_reject_key(handle)
     }
 
     func setLayer(_ layer: AVSampleBufferDisplayLayer?) {

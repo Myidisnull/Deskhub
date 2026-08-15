@@ -3,6 +3,7 @@
 
 #include "deskhubp/session/HostEngine.h"
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -36,8 +37,26 @@ public:
         return engine_.LastError();
     }
 
+    std::vector<uint64_t> TakePairingRequests() {
+        const std::lock_guard<std::mutex> lock(pairMutex_);
+        std::vector<uint64_t> out;
+        out.swap(pairingAsks_);
+        return out;
+    }
+
+    void AnswerPairing(uint64_t addrPacked, bool allowed) {
+        engine_.AnswerPairingRequest(addrPacked, allowed);
+    }
+
+    void PushPairingRequest(uint64_t addrPacked) {
+        const std::lock_guard<std::mutex> lock(pairMutex_);
+        pairingAsks_.push_back(addrPacked);
+    }
+
 private:
     deskhubp::HostEngine engine_;
+    std::mutex pairMutex_;
+    std::vector<uint64_t> pairingAsks_;
 };
 
 }

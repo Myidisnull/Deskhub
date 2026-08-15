@@ -26,6 +26,14 @@ struct DeskhubApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1024, height: 634)
 
+        WindowGroup(id: "terminal", for: TerminalRequest.self) { $request in
+            if let request {
+                TerminalWindow(request: request)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 900, height: 560)
+
         MenuBarExtra(
             "Deskhub",
             systemImage: "rectangle.on.rectangle",
@@ -33,6 +41,28 @@ struct DeskhubApp: App {
         ) {
             TrayMenu(agent: agent)
         }
+    }
+}
+
+private struct TerminalWindow: View {
+    let request: TerminalRequest
+    @State private var model = TerminalModel()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        TerminalScreen(
+            model: model,
+            title: DeskhubClient.addressHost(request.address)
+        ) { dismiss() }
+            .navigationTitle(DeskhubClient.addressHost(request.address))
+            .frame(minWidth: 640, idealWidth: 900, maxWidth: .infinity,
+                   minHeight: 400, idealHeight: 560, maxHeight: .infinity)
+            .task {
+                if !model.open(address: request.address, passcode: request.passcode) {
+                    dismiss()
+                }
+            }
+            .onDisappear { model.stop() }
     }
 }
 

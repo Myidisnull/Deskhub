@@ -146,6 +146,39 @@ void TestAPairedMachineNeedsNoCode() {
         "and is let in with no passcode in the exchange at all");
 }
 
+void TestATypedCodeIsAlwaysChecked() {
+    std::printf("[authneg] a machine that types a code is held to it, paired or not...\n");
+    if (!deskhubp::QuicAvailable()) return;
+
+    const CleanSlate guard;
+    TwoMachines machines;
+    if (!machines.Make()) return;
+    deskhubp::RememberPairedDevice(machines.client.fingerprint, "manh laptop", 500);
+
+    deskhubp::HostAuth host;
+    deskhubp::ClientAuth client;
+    host.Configure(HostConfig(machines, kCode));
+    client.Configure(ClientConfig(machines, "9999"));
+
+    const std::optional<deskhub::AuthChallenge> challenge = host.Begin(client.Begin());
+    Check(challenge && challenge->mode == deskhub::AuthMode::Passcode,
+        "even a paired machine that offers a code is asked to prove it");
+    const std::optional<deskhub::AuthResponse> response = client.Answer(*challenge);
+    Check(response &&
+              host.Respond(*response, 600).code == deskhub::AuthResultCode::WrongPasscode,
+        "and a wrong code is refused instead of falling back to the key");
+
+    deskhubp::HostAuth again;
+    deskhubp::ClientAuth right;
+    again.Configure(HostConfig(machines, kCode));
+    right.Configure(ClientConfig(machines, kCode));
+    const std::optional<deskhub::AuthChallenge> retry = again.Begin(right.Begin());
+    Check(retry && retry->mode == deskhub::AuthMode::Passcode, "the right code is also checked");
+    const std::optional<deskhub::AuthResponse> proof = right.Answer(*retry);
+    Check(proof && again.Respond(*proof, 700).code == deskhub::AuthResultCode::Accepted,
+        "and lets the machine in as before");
+}
+
 void TestForgettingTurnsThatMachineAway() {
     std::printf("[authneg] forgetting a machine sends it back to proving itself...\n");
     if (!deskhubp::QuicAvailable()) return;
@@ -159,13 +192,16 @@ void TestForgettingTurnsThatMachineAway() {
     deskhubp::HostAuth host;
     deskhubp::ClientAuth client;
     host.Configure(HostConfig(machines, kCode));
-    client.Configure(ClientConfig(machines, ""));
+    client.Configure(ClientConfig(machines, "9999"));
 
     const std::optional<deskhub::AuthChallenge> challenge = host.Begin(client.Begin());
     Check(challenge && challenge->mode == deskhub::AuthMode::Passcode,
         "it is a stranger again and must prove the code");
-    Check(!client.Answer(*challenge).has_value(),
-        "and a client that no longer knows the code cannot answer");
+    const std::optional<deskhub::AuthResponse> response = client.Answer(*challenge);
+    Check(response.has_value(), "all it can offer is the code it thinks it knows");
+    Check(response &&
+              host.Respond(*response, 600).code == deskhub::AuthResultCode::WrongPasscode,
+        "and a code it no longer knows is refused");
 }
 
 void TestAWrongCodeIsRefused() {
@@ -256,6 +292,31 @@ void TestWithNoCodeSomeoneAtTheHostDecides() {
         "and pairs it, so it never has to ask again");
 }
 
+void TestACodelessMachineGoesToTheOwnerEvenWithACodeSet() {
+    std::printf("[authneg] offering no code against a passcode host asks the owner...\n");
+    if (!deskhubp::QuicAvailable()) return;
+
+    const CleanSlate guard;
+    TwoMachines machines;
+    if (!machines.Make()) return;
+
+    deskhubp::HostAuth host;
+    deskhubp::ClientAuth client;
+    host.Configure(HostConfig(machines, kCode));
+    client.Configure(ClientConfig(machines, ""));
+
+    const std::optional<deskhub::AuthChallenge> challenge = host.Begin(client.Begin());
+    Check(challenge && challenge->mode == deskhub::AuthMode::Approval,
+        "a machine that brings no code is put to the owner instead of being refused");
+    Check(host.State() == deskhubp::HostAuthState::AwaitingApproval, "and the host waits");
+
+    Check(host.Approve(true, 3000).code == deskhub::AuthResultCode::Accepted,
+        "saying yes lets it in without a code");
+    Check(deskhubp::CheckPairedDevice(machines.client.fingerprint) ==
+              deskhub::PairVerdict::Paired,
+        "and pairs it like any other approval");
+}
+
 void TestPairingCanBeClosedOff() {
     std::printf("[authneg] with new pairings off, even the right code is refused...\n");
     if (!deskhubp::QuicAvailable()) return;
@@ -275,9 +336,11 @@ void TestPairingCanBeClosedOff() {
     Check(!client.Answer(*challenge).has_value(), "so a leaked code buys nothing");
 
     deskhubp::RememberPairedDevice(machines.client.fingerprint, "manh laptop", 500);
+    deskhubp::ClientAuth keysOnly;
+    keysOnly.Configure(ClientConfig(machines, ""));
     deskhubp::HostAuth again;
     again.Configure(HostConfig(machines, kCode, false));
-    const std::optional<deskhub::AuthChallenge> forPaired = again.Begin(client.Begin());
+    const std::optional<deskhub::AuthChallenge> forPaired = again.Begin(keysOnly.Begin());
     Check(forPaired && forPaired->mode == deskhub::AuthMode::Signature,
         "while a machine already paired still gets in - closing the door keeps the keys");
 }
@@ -312,6 +375,8 @@ void RunAuthNegotiationTests() {
     TestAWrongCodeIsRefused();
     TestAMachineInTheMiddleCannotRelayTheProof();
     TestWithNoCodeSomeoneAtTheHostDecides();
+    TestACodelessMachineGoesToTheOwnerEvenWithACodeSet();
+    TestATypedCodeIsAlwaysChecked();
     TestPairingCanBeClosedOff();
     TestJunkNeverGetsAnywhere();
 }

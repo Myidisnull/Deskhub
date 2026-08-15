@@ -2,6 +2,7 @@
 
 #include <android/native_window_jni.h>
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -10,8 +11,10 @@
 
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/ffi/AgentSession.h"
+#include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/media/DisplayEnum.h"
+#include "deskhubp/net/UdpSocket.h"
 
 namespace {
 
@@ -90,7 +93,7 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* e
 
     const std::string code = deskhubj::FromJString(env, passcode);
     return dha_start(&source, 1, uint32_t(fps), uint32_t(bitrateMbps), uint32_t(maxDim),
-               uint16_t(port), false, code.c_str())
+               uint16_t(port), false, code.c_str(), false)
                ? JNI_TRUE
                : JNI_FALSE;
 }
@@ -221,6 +224,58 @@ JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeClipTake(JNIEnv*
     char buf[deskhub::kMaxClipboardTextBytes + 1];
     dha_clip_take(buf, int(sizeof(buf)));
     return NewString(env, buf);
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_deskhub_app_NativeHost_nativeTakePairingRequests(
+    JNIEnv* env, jobject) {
+    jclass cls = env->FindClass("com/deskhub/app/NativeHost$PairingRequest");
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(cls, "<init>", "(JLjava/lang/String;Ljava/lang/String;)V");
+    if (!ctor) return nullptr;
+
+    DHPairingRequest requests[16];
+    const int count =
+        dha_take_pairing_requests(requests, int(sizeof(requests) / sizeof(requests[0])));
+
+    DHPairedDevice paired[128];
+    const int pairedCount = dh_paired_devices(paired, int(sizeof(paired) / sizeof(paired[0])));
+    const auto alreadyPaired = [&paired, pairedCount](const char* shortKey) {
+        for (int p = 0; p < pairedCount; ++p)
+            if (std::strcmp(paired[p].shortKey, shortKey) == 0) return true;
+        return false;
+    };
+
+    std::vector<DHPairingRequest> ask;
+    for (int i = 0; i < count; ++i) {
+        if (alreadyPaired(requests[i].shortKey)) {
+            dha_answer_pairing(requests[i].addrPacked, true);
+        } else {
+            ask.push_back(requests[i]);
+        }
+    }
+
+    jobjectArray out = env->NewObjectArray(jsize(ask.size()), cls, nullptr);
+    for (size_t i = 0; i < ask.size() && out; ++i) {
+        const DHPairingRequest& request = ask[i];
+        const std::string addrText = NetAddr::Unpack(request.addrPacked).ToString();
+        char body[512];
+        dh_pairing_request_body(request.name, addrText.c_str(), request.shortKey, body,
+            int(sizeof(body)));
+        jstring shortKey = NewString(env, request.shortKey);
+        jstring bodyText = NewString(env, body);
+        jobject item =
+            env->NewObject(cls, ctor, jlong(request.addrPacked), shortKey, bodyText);
+        env->SetObjectArrayElement(out, jsize(i), item);
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(bodyText);
+        env->DeleteLocalRef(shortKey);
+    }
+    return out;
+}
+
+JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeAnswerPairing(JNIEnv*, jobject,
+    jlong addrPacked, jboolean allow) {
+    dha_answer_pairing(uint64_t(addrPacked), allow == JNI_TRUE);
 }
 
 JNIEXPORT jintArray JNICALL Java_com_deskhub_app_NativeHost_nativeShareDefaults(JNIEnv* env,

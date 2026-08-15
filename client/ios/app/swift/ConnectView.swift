@@ -61,6 +61,13 @@ struct ConnectView: View {
                 .tint(DeskhubPalette.accent)
                 .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
 
+                Button(action: model.openShell) {
+                    Text(DeskhubClient.string(DHStrOpenShellLabel)).deskhubPrimaryLabel()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
+
                 if model.connect.isConnecting {
                     HStack(spacing: 12) {
                         ProgressView()

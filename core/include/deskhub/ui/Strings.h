@@ -89,8 +89,8 @@ inline constexpr const char* kPasscodeHint =
     "wants in.";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
 inline constexpr const char* kClientPasscodeHint =
-    "Read the 4-digit code off the host. Leave it empty if that machine has no passcode "
-    "or already knows this one.";
+    "Read the 4-digit code off the host \xE2\x80\x94 or leave it empty to ask the person at "
+    "that machine to let you in.";
 inline constexpr const char* kDeviceNameLabel = "Your name";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
 inline constexpr const char* kUdpPortLabel = "UDP port";
@@ -208,7 +208,6 @@ inline constexpr const char* kTerminalHostHint =
     "Anyone who knows the passcode gets a shell on this machine, running as you.";
 inline constexpr const char* kTerminalShareButton = "Share terminal";
 inline constexpr const char* kTerminalStopSharing = "Stop sharing the terminal";
-inline constexpr const char* kTerminalSharingOn = "This machine is sharing a terminal.";
 inline constexpr const char* kTerminalSharingOff = "This machine is not sharing a terminal.";
 inline constexpr const char* kTerminalNetworkLabel = "Share the terminal on:";
 inline constexpr const char* kTerminalOpenSessionsHeading = "Shells open on this machine";
@@ -218,16 +217,6 @@ inline constexpr const char* kShareNoQuicLibrary =
     "scripts/build-quiche.sh, then build Deskhub again.";
 inline constexpr const char* kShareNoHostIdentity =
     "This machine could not create the key it identifies itself with, so it cannot share.";
-inline constexpr const char* kTerminalNoQuicLibrary =
-    "This build has no QUIC library, so it cannot offer a terminal. Build one with "
-    "scripts/build-quiche.sh, then build Deskhub again.";
-inline constexpr const char* kTerminalNoHostIdentity =
-    "This machine could not create the key a shared terminal identifies itself with.";
-inline constexpr const char* kTerminalPortLabel = "Terminal UDP port";
-inline constexpr const char* kTerminalPortInUse =
-    "That UDP port is already in use \xE2\x80\x94 screen sharing has its own port, so give the "
-    "terminal a different one.";
-
 inline constexpr const char* kOpenChoiceGroup = "What to open on that machine";
 inline constexpr const char* kOpenDesktopLabel = "Remote desktop \xE2\x80\x94 view its screen";
 inline constexpr const char* kOpenShellLabel = "Terminal \xE2\x80\x94 open a shell";
@@ -238,7 +227,6 @@ inline constexpr const char* kOpenChoiceHint =
 inline constexpr const char* kTerminalClientHeading = "Open a terminal on another machine";
 inline constexpr const char* kTerminalClientHint =
     "This is separate from viewing a screen \xE2\x80\x94 you can do either, or both.";
-inline constexpr const char* kTerminalOpenButton = "Open shell";
 inline constexpr const char* kTerminalCloseButton = "Close shell";
 inline constexpr const char* kTerminalConnecting = "Connecting\xE2\x80\xA6";
 inline constexpr const char* kTerminalConnected = "Connected.";
@@ -376,19 +364,19 @@ inline std::string SharingStatusLine(uint16_t port) {
            " - others can connect to this machine now.";
 }
 
-inline std::string ScreenShareLine(uint16_t port) {
-    return "Screen on UDP port " + std::to_string(port);
-}
-
-inline std::string TerminalShareLine(uint16_t port) {
-    return "Terminal on UDP port " + std::to_string(port);
+inline std::string ShareSummaryLine(bool screen, bool terminal, uint16_t port) {
+    if (!screen && !terminal) return {};
+    std::string what = screen ? "Screen" : "";
+    if (terminal) what += screen ? " \xC2\xB7 Terminal" : "Terminal";
+    return what + " on UDP port " + std::to_string(port) + ".";
 }
 
 inline std::string PasscodeNote(std::string_view passcode) {
     if (passcode.empty())
         return "No passcode set \xE2\x80\x94 you will be asked here before a new machine is "
                "let in.";
-    return "A machine pairing for the first time needs passcode " + std::string(passcode) + ".";
+    return "A machine pairing for the first time needs passcode " + std::string(passcode) +
+           " \xE2\x80\x94 or your approval here if it offers none.";
 }
 
 inline std::string CouldNotConnectTo(std::string_view address) {

@@ -81,6 +81,31 @@ object NativeClient {
     const val STR_SECTION_CONNECTION = 72
     const val STR_SECTION_SESSION = 74
     const val STR_KEEP_AWAKE_LABEL = 76
+    const val STR_PAIRING_REQUEST_TITLE = 77
+    const val STR_PAIRING_ALLOW = 78
+    const val STR_PAIRING_DENY = 79
+    const val STR_SIDEBAR_DEVICES = 80
+    const val STR_PAIRED_HEADING = 81
+    const val STR_PAIRED_HINT = 82
+    const val STR_PAIRED_EMPTY = 83
+    const val STR_PAIRED_FORGET = 84
+    const val STR_PAIRED_FORGET_ALL = 85
+    const val STR_PAIRED_FORGET_ALL_PROMPT = 86
+    const val STR_ALLOW_PAIRING_LABEL = 87
+    const val STR_ALLOW_PAIRING_HINT = 88
+    const val STR_THIS_MACHINE_HEADING = 89
+    const val STR_THIS_MACHINE_HINT = 90
+    const val STR_TRUST_NEW_HOST_TITLE = 95
+    const val STR_TRUST_NEW_HOST_BODY = 96
+    const val STR_TRUST_CHANGED_TITLE = 97
+    const val STR_TRUST_CHANGED_BODY = 98
+    const val STR_TRUST_FINGERPRINT_LABEL = 99
+    const val STR_TRUST_ACCEPT = 100
+    const val STR_TRUST_REJECT = 101
+    const val STR_OPEN_SHELL_LABEL = 106
+    const val STR_TERMINAL_EXTRA_KEYS_HINT = 108
+
+    const val TRUST_CHANGED = 2
 
     private external fun nativeString(id: Int): String
 
@@ -184,6 +209,38 @@ object NativeClient {
         val lastConnected: String,
         val online: Boolean,
     )
+
+    data class PairedDevice(
+        val name: String,
+        val shortKey: String,
+        val fingerprint: String,
+        val pairedUnix: Long,
+        val lastSeenUnix: Long,
+    )
+
+    private external fun nativePairedDevices(): Array<PairedDevice>?
+
+    private external fun nativePairedForget(fingerprint: String): Boolean
+
+    private external fun nativePairedForgetAll()
+
+    private external fun nativeAllowPairing(): Boolean
+
+    private external fun nativeSetAllowPairing(allow: Boolean)
+
+    private external fun nativeOwnFingerprint(): String
+
+    fun pairedDevices(): List<PairedDevice> = nativePairedDevices()?.toList() ?: emptyList()
+
+    fun pairedForget(fingerprint: String): Boolean = nativePairedForget(fingerprint)
+
+    fun pairedForgetAll() = nativePairedForgetAll()
+
+    fun allowPairing(): Boolean = nativeAllowPairing()
+
+    fun setAllowPairing(allow: Boolean) = nativeSetAllowPairing(allow)
+
+    fun ownFingerprint(): String = nativeOwnFingerprint()
 
     private external fun nativeDefaultPort(): Int
 
@@ -317,6 +374,11 @@ object NativeClient {
         )
 
         fun onEnded(reason: String)
+
+        fun onTrustAsked(
+            verdict: Int,
+            fingerprint: String,
+        )
     }
 
     @Volatile
@@ -347,6 +409,23 @@ object NativeClient {
     internal fun onSessionEnded(reason: String) {
         mainHandler.post { sessionListener?.onEnded(reason) }
     }
+
+    @JvmStatic
+    @JvmName("onSessionTrustAsked")
+    internal fun onSessionTrustAsked(
+        verdict: Int,
+        fingerprint: String,
+    ) {
+        mainHandler.post { sessionListener?.onTrustAsked(verdict, fingerprint) }
+    }
+
+    private external fun nativeAcceptKey()
+
+    private external fun nativeRejectKey()
+
+    fun acceptKey() = nativeAcceptKey()
+
+    fun rejectKey() = nativeRejectKey()
 
     external fun nativeSetSurface(surface: Surface?)
 

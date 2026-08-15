@@ -23,6 +23,7 @@ struct AgentOptions {
     std::string deviceName{};
     bool clipboardSync = false;
     bool allowNewPairings = true;
+    bool terminal = false;
 };
 
 struct AgentSourceStatus {

@@ -4,6 +4,7 @@ import SwiftUI
 enum DeskhubPage: Int, CaseIterable, Identifiable {
     case host
     case client
+    case devices
     case settings
 
     var id: Int { rawValue }
@@ -12,6 +13,7 @@ enum DeskhubPage: Int, CaseIterable, Identifiable {
         switch self {
         case .host: DeskhubClient.string(DHStrSidebarHost)
         case .client: DeskhubClient.string(DHStrSidebarClient)
+        case .devices: DeskhubClient.string(DHStrSidebarDevices)
         case .settings: DeskhubClient.string(DHStrSidebarSettings)
         }
     }
@@ -85,6 +87,29 @@ struct MainMenuView: View {
                 + "them until Deskhub has Accessibility permission. The other "
                 + "machine will see this Mac but not control it.")
         }
+        .alert(
+            DeskhubClient.string(DHStrPairingRequestTitle),
+            isPresented: pairingShown
+        ) {
+            Button(DeskhubClient.string(DHStrPairingAllow)) { answerPairing(true) }
+            Button(DeskhubClient.string(DHStrPairingDeny), role: .cancel) {
+                answerPairing(false)
+            }
+        } message: {
+            Text(agent.pairingAsks.first?.body ?? "")
+        }
+    }
+
+    private var pairingShown: Binding<Bool> {
+        Binding(
+            get: { !agent.pairingAsks.isEmpty },
+            set: { _ in }
+        )
+    }
+
+    private func answerPairing(_ allow: Bool) {
+        guard let ask = agent.pairingAsks.first else { return }
+        agent.answerPairing(ask, allow: allow)
     }
 
     @ViewBuilder
@@ -92,6 +117,7 @@ struct MainMenuView: View {
         switch page {
         case .host: HostPage(agent: agent) { Task { await share() } }
         case .client: clientPage
+        case .devices: DevicesPage()
         case .settings: SettingsPage(agent: agent)
         }
     }
@@ -146,6 +172,13 @@ struct MainMenuView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(DeskhubPalette.accent)
+            .disabled(connect.address.isEmpty || connect.isConnecting)
+
+            Button(action: openShell) {
+                Text(DeskhubClient.string(DHStrOpenShellLabel)).deskhubPrimaryLabel()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
             .disabled(connect.address.isEmpty || connect.isConnecting)
 
             Toggle(DeskhubClient.string(DHStrRequestControlLabel), isOn: $agent.clientControl)
@@ -235,6 +268,14 @@ struct MainMenuView: View {
         connect.port = promptPort
         connect.passcode = promptPasscode
         beginConnect()
+    }
+
+    private func openShell() {
+        guard let accepted = connect.acceptAddress() else { return }
+        connect.saveDeviceName()
+        let passcode = connect.acceptedPasscode
+        Task { await discovery.remember(address: accepted, passcode: passcode) }
+        openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
     }
 
     private func beginConnect() {

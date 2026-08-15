@@ -6,6 +6,7 @@
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Screen.h"
 #include "deskhubp/net/QuicEndpoint.h"
+#include "deskhubp/net/SessionTransport.h"
 #include "deskhubp/session/AuthNegotiation.h"
 #include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/session/TerminalViewer.h"
@@ -18,7 +19,10 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -51,7 +55,7 @@ struct Viewer {
         std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
         record.resize(deskhub::BuildRecord(record, message));
         if (connected)
-            endpoint.SendStream(conn, deskhubp::kQuicFirstTerminalStream, record);
+            endpoint.SendStream(conn, deskhubp::kQuicControlStream, record);
         else
             pending.insert(pending.end(), record.begin(), record.end());
     }
@@ -115,7 +119,7 @@ struct Viewer {
             std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
             record.resize(deskhub::BuildRecord(record, message));
             if (connected)
-                endpoint.SendStream(conn, deskhubp::kQuicFirstTerminalStream, record);
+                endpoint.SendStream(conn, deskhubp::kQuicControlStream, record);
             else
                 pending.insert(pending.end(), record.begin(), record.end());
         };
@@ -135,7 +139,7 @@ struct Viewer {
             conn = id;
             connected = true;
             if (!pending.empty()) {
-                endpoint.SendStream(id, deskhubp::kQuicFirstTerminalStream, pending);
+                endpoint.SendStream(id, deskhubp::kQuicControlStream, pending);
                 pending.clear();
             }
         };
@@ -170,6 +174,107 @@ struct Viewer {
     }
 };
 
+struct HostRig {
+    deskhubp::SessionTransport sock{};
+    deskhubp::TerminalHost term{};
+    std::thread pump{};
+    std::atomic<bool> stopFlag{false};
+    std::mutex mutex{};
+    std::vector<deskhubp::PairingRequest> asks{};
+    std::vector<std::pair<uint64_t, bool>> answers{};
+
+    ~HostRig() {
+        Stop();
+    }
+
+    bool Start(const deskhubp::HostIdentity& identity, uint16_t port,
+        const std::string& passcode, std::vector<std::string>* audit = nullptr) {
+        sock.SetRecvTimeout(1);
+        deskhubp::QuicSettings settings;
+        settings.certPemPath = identity.certPath;
+        settings.keyPemPath = identity.keyPath;
+        if (!sock.Listen(settings, port, "127.0.0.1")) return false;
+
+        deskhubp::HostAuthConfig auth;
+        auth.identity = identity;
+        auth.SetPasscode(deskhubp::LoadOrCreateAuthSalt(), passcode);
+        auth.allowNewPairings = true;
+        deskhubp::TransportAuthCallbacks hooks;
+        hooks.onApprovalNeeded = [this](const NetAddr& peer, const deskhub::Fingerprint& fp,
+                                     std::string_view name) {
+            const std::lock_guard<std::mutex> lock(mutex);
+            asks.push_back(deskhubp::PairingRequest{peer.Pack(),
+                deskhub::ShortFingerprint(fp), std::string(name)});
+        };
+        sock.SetHostAuth(std::move(auth), std::move(hooks));
+        sock.SetOnPeerGone([this](const NetAddr& peer) { term.OnPeerGone(peer); });
+
+        deskhubp::TerminalHostCallbacks termHooks;
+        if (audit != nullptr)
+            termHooks.onAudit = [audit](std::string_view line) { audit->emplace_back(line); };
+        if (!term.Start(sock, std::string(), std::move(termHooks))) return false;
+
+        stopFlag.store(false, std::memory_order_release);
+        pump = std::thread([this] { PumpLoop(); });
+        return true;
+    }
+
+    void PumpLoop() {
+        uint8_t buf[deskhub::kMaxRecordSize];
+        while (!stopFlag.load(std::memory_order_acquire)) {
+            std::vector<std::pair<uint64_t, bool>> pending;
+            {
+                const std::lock_guard<std::mutex> lock(mutex);
+                pending.swap(answers);
+            }
+            for (const auto& [addrPacked, allowed] : pending)
+                sock.ApproveConnection(NetAddr::Unpack(addrPacked), allowed);
+
+            NetAddr from;
+            const int n = sock.RecvFrom(buf, sizeof(buf), from);
+            if (n <= 0) continue;
+            const std::optional<deskhub::CommonHeader> header =
+                deskhub::ParseCommonHeader(std::span<const uint8_t>(buf, size_t(n)));
+            if (header && header->chan == deskhub::Chan::Terminal)
+                term.HandleMessage(from, std::span<const uint8_t>(buf, size_t(n)));
+        }
+    }
+
+    bool Running() const {
+        return term.Running();
+    }
+    size_t SessionCount() const {
+        return term.SessionCount();
+    }
+    std::vector<deskhub::TerminalRecord> Sessions() const {
+        return term.Sessions();
+    }
+    void KickSession(uint32_t termId) {
+        term.KickSession(termId);
+    }
+
+    std::vector<deskhubp::PairingRequest> TakePairingRequests() {
+        const std::lock_guard<std::mutex> lock(mutex);
+        std::vector<deskhubp::PairingRequest> out;
+        out.swap(asks);
+        return out;
+    }
+
+    void AnswerPairing(uint64_t addrPacked, bool allowed) {
+        const std::lock_guard<std::mutex> lock(mutex);
+        answers.emplace_back(addrPacked, allowed);
+    }
+
+    void Stop() {
+        if (pump.joinable()) {
+            stopFlag.store(true, std::memory_order_release);
+            pump.join();
+        }
+        term.Stop();
+        sock.Close();
+    }
+};
+
 void TestHostSharesAShell() {
     std::printf("[termhost] a client opens a real shell over QUIC and gets its output back...\n");
     if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
@@ -191,19 +296,11 @@ void TestHostSharesAShell() {
     if (!identity.Valid()) return;
 
     std::vector<std::string> audit;
-    deskhubp::TerminalHostConfig config;
-    config.bindIp = "127.0.0.1";
-    config.port = kTestPort;
-    config.passcode = kTestPasscode;
-
-    deskhubp::TerminalHostCallbacks hostHooks;
-    hostHooks.onAudit = [&audit](std::string_view line) { audit.emplace_back(line); };
-
-    deskhubp::TerminalHost host;
-    const bool started = host.Start(config, identity, std::move(hostHooks));
-    Check(started, "the terminal host binds its own listener");
+    HostRig host;
+    const bool started = host.Start(identity, kTestPort, kTestPasscode, &audit);
+    Check(started, "the terminal host attaches to the shared listener");
     if (!started) return;
-    Check(host.Running() && host.Port() == kTestPort, "and reports itself as sharing");
+    Check(host.Running(), "and reports itself as sharing");
 
     Viewer viewer;
     viewer.Start();
@@ -256,8 +353,10 @@ void TestHostSharesAShell() {
         "and where it came from");
     Check(!audit.empty() && audit[0].find("terminal opened") == 0,
         "the session is written to the audit log");
-    Check(!audit.empty() && audit[0].find("key=none") != std::string::npos,
-        "which says plainly that this client offered no certificate of its own");
+    Check(!audit.empty() &&
+              audit[0].find("key=" + deskhub::FormatFingerprint(clientIdentity.fingerprint)) !=
+                  std::string::npos,
+        "carrying the key the client proved during pairing");
 
     viewer.PumpUntil([] { return false; }, 400);
     viewer.Type("echo deskhub-remote-ok\n");
@@ -322,19 +421,14 @@ void TestViewerTrustsThenRunsAShell() {
     deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
 
     const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
-    deskhubp::TerminalHostConfig config;
-    config.bindIp = "127.0.0.1";
-    config.port = uint16_t(kTestPort + 1);
-    config.passcode = kTestPasscode;
-
-    deskhubp::TerminalHost host;
-    if (!host.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+    HostRig host;
+    if (!host.Start(identity, uint16_t(kTestPort + 1), kTestPasscode)) {
         Check(false, "the terminal host starts");
         return;
     }
 
     deskhubp::TerminalViewerConfig viewerConfig;
-    viewerConfig.host = NetAddr{0x7F000001u, config.port};
+    viewerConfig.host = NetAddr{0x7F000001u, uint16_t(kTestPort + 1)};
     viewerConfig.hostLabel = "deskhub-test";
     viewerConfig.passcode = kTestPasscode;
     viewerConfig.clientName = "shared-viewer";
@@ -415,12 +509,12 @@ void TestViewerTrustsThenRunsAShell() {
         deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, savedTrust);
 }
 
-void TestHostRefusesWithoutIdentity() {
-    std::printf("[termhost] a host with no key of its own never offers a shell...\n");
+void TestHostRefusesWithoutListener() {
+    std::printf("[termhost] a terminal never offers a shell without the shared listener...\n");
+    deskhubp::SessionTransport closed;
     deskhubp::TerminalHost host;
-    Check(!host.Start(deskhubp::TerminalHostConfig{}, deskhubp::HostIdentity{},
-              deskhubp::TerminalHostCallbacks{}),
-        "starting without an identity is refused");
+    Check(!host.Start(closed, std::string(), deskhubp::TerminalHostCallbacks{}),
+        "starting on a transport that is not listening is refused");
     Check(!host.Running() && host.SessionCount() == 0, "and nothing is left running");
     host.Stop();
     Check(true, "stopping one that never started is safe");
@@ -439,14 +533,10 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
     deskhubp::ForgetAllPairedDevices();
 
     const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
-    deskhubp::TerminalHostConfig config;
-    config.bindIp = "127.0.0.1";
-    config.port = uint16_t(kTestPort + 2);
-
-    deskhubp::TerminalHost host;
-    if (host.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+    HostRig host;
+    if (host.Start(identity, uint16_t(kTestPort + 2), std::string())) {
         deskhubp::TerminalViewerConfig open;
-        open.host = NetAddr{0x7F000001u, config.port};
+        open.host = NetAddr{0x7F000001u, uint16_t(kTestPort + 2)};
         open.hostLabel = "deskhub-test";
         open.clientName = "shared-viewer";
         open.size = deskhub::TermSize{80, 24};
@@ -513,17 +603,17 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
     // correct passcode must not be allowed to wave it through.
     deskhub::Fingerprint impostor = identity.fingerprint;
     impostor.bytes[0] = uint8_t(impostor.bytes[0] ^ 0xFF);
-    const std::string endpoint = NetAddr{0x7F000001u, config.port}.ToString();
+    const std::string endpoint = NetAddr{0x7F000001u, uint16_t(kTestPort + 2)}.ToString();
     Check(deskhubp::RememberTrustedHost(endpoint, "deskhub-test", impostor, 1),
         "the client has met this address before, holding a different key");
     Check(deskhubp::CheckTrustedHost(endpoint, identity.fingerprint) ==
               deskhub::TrustVerdict::Changed,
         "so the key the host now presents reads as changed, not as a first meeting");
 
-    deskhubp::TerminalHost second;
-    if (second.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+    HostRig second;
+    if (second.Start(identity, uint16_t(kTestPort + 2), kTestPasscode)) {
         deskhubp::TerminalViewerConfig withCode;
-        withCode.host = NetAddr{0x7F000001u, config.port};
+        withCode.host = NetAddr{0x7F000001u, uint16_t(kTestPort + 2)};
         withCode.hostLabel = "deskhub-test";
         withCode.passcode = kTestPasscode;
         withCode.clientName = "shared-viewer";
@@ -577,13 +667,8 @@ void TestWrongGuessesLockTheHost() {
     const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
     if (!identity.Valid() || !clientIdentity.Valid()) return;
 
-    deskhubp::TerminalHostConfig config;
-    config.bindIp = "127.0.0.1";
-    config.port = uint16_t(kTestPort + 3);
-    config.passcode = kTestPasscode;
-
-    deskhubp::TerminalHost host;
-    if (!host.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+    HostRig host;
+    if (!host.Start(identity, uint16_t(kTestPort + 3), kTestPasscode)) {
         Check(false, "the terminal host starts");
         return;
     }
@@ -591,8 +676,8 @@ void TestWrongGuessesLockTheHost() {
     for (int attempt = 0; attempt < 3; ++attempt) {
         Viewer stranger;
         stranger.Start();
-        stranger.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, config.port},
-            "deskhub-test", stranger.Hooks());
+        stranger.endpoint.Connect(deskhubp::QuicSettings{},
+            NetAddr{0x7F000001u, uint16_t(kTestPort + 3)}, "deskhub-test", stranger.Hooks());
         stranger.PumpUntil([&stranger] { return stranger.connected; }, kMaxRounds);
         stranger.BeginAuth(clientIdentity, identity.fingerprint, "0000");
         stranger.PumpUntil([&stranger] { return stranger.authSettled; }, kMaxRounds);
@@ -603,8 +688,8 @@ void TestWrongGuessesLockTheHost() {
 
     Viewer lockedOut;
     lockedOut.Start();
-    lockedOut.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, config.port},
-        "deskhub-test", lockedOut.Hooks());
+    lockedOut.endpoint.Connect(deskhubp::QuicSettings{},
+        NetAddr{0x7F000001u, uint16_t(kTestPort + 3)}, "deskhub-test", lockedOut.Hooks());
     lockedOut.PumpUntil([&lockedOut] { return lockedOut.connected; }, kMaxRounds);
     lockedOut.BeginAuth(clientIdentity, identity.fingerprint, kTestPasscode);
     lockedOut.PumpUntil([&lockedOut] { return lockedOut.authSettled; }, kMaxRounds);
@@ -625,7 +710,7 @@ void TestWrongGuessesLockTheHost() {
 }
 
 void RunTerminalHostTests() {
-    TestHostRefusesWithoutIdentity();
+    TestHostRefusesWithoutListener();
     TestHostSharesAShell();
     TestViewerTrustsThenRunsAShell();
     TestTheTwoCasesAPasscodeCannotSettle();

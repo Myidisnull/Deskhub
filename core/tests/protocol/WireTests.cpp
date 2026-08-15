@@ -723,12 +723,20 @@ void TestAuthWire() {
     AuthStart start;
     start.publicKey.assign(91, 0x31);
     start.clientName = "manh laptop";
+    start.hasPasscode = true;
     size_t n = BuildAuthStart(buf, start);
     Check(n > 0, "a machine announces the key it holds");
     std::optional<AuthStart> gotStart = ParseAuthStart(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(gotStart && gotStart->publicKey == start.publicKey,
         "and the key arrives byte for byte - the host hashes it to get the fingerprint");
     Check(gotStart && gotStart->clientName == "manh laptop", "so does the name it goes by");
+    Check(gotStart && gotStart->hasPasscode, "and whether it brought a passcode to prove");
+
+    start.hasPasscode = false;
+    n = BuildAuthStart(buf, start);
+    gotStart = ParseAuthStart(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(gotStart && !gotStart->hasPasscode,
+        "a machine with no code says so, and the host will ask its user instead");
 
     AuthStart keyless;
     keyless.clientName = "no key at all";

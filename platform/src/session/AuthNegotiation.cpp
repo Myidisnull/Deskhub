@@ -61,11 +61,13 @@ std::optional<deskhub::AuthChallenge> HostAuth::Begin(const deskhub::AuthStart& 
     deskhub::AuthChallenge challenge;
     challenge.nonce = impl_->nonce;
 
-    if (CheckPairedDevice(*peer) == deskhub::PairVerdict::Paired) {
+    const bool paired = CheckPairedDevice(*peer) == deskhub::PairVerdict::Paired;
+    const bool checkCode = impl_->config.hasPasscode && start.hasPasscode;
+    if (paired && !checkCode) {
         impl_->mode = deskhub::AuthMode::Signature;
-    } else if (!impl_->config.allowNewPairings) {
+    } else if (!paired && !impl_->config.allowNewPairings) {
         impl_->mode = deskhub::AuthMode::Denied;
-    } else if (impl_->config.hasPasscode) {
+    } else if (checkCode) {
         impl_->mode = deskhub::AuthMode::Passcode;
         impl_->salt = LoadOrCreateAuthSalt();
         challenge.salt = impl_->salt;
@@ -161,6 +163,7 @@ deskhub::AuthStart ClientAuth::Begin() const {
     deskhub::AuthStart start;
     start.publicKey = IdentityPublicKey(impl_->config.identity);
     start.clientName = impl_->config.clientName;
+    start.hasPasscode = !impl_->config.passcode.empty();
     return start;
 }
 

@@ -51,6 +51,10 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     policy.noSourceError = "No display to share.";
     policy.noUsableSourceError =
         "No usable source \xE2\x80\x94 the compositor sent no frame.";
+    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string shortKey,
+                                  std::string name) {
+        PushPairingRequest(PairingRequest{addrPacked, std::move(shortKey), std::move(name)});
+    };
 
     policy.preflight = [] {
         if (deskhubp::PortalScreenCast::Instance().isOpen()) return std::string();

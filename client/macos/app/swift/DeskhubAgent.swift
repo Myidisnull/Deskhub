@@ -16,11 +16,14 @@ struct ShareOptions: Sendable {
     let port: UInt16
     let allowInput: Bool
     let passcode: String
+    var terminal: Bool = false
 }
 
 struct HostRow: Identifiable, Hashable, Sendable {
     let viewer: Bool
+    let terminal: Bool
     let sourceId: UInt8
+    let termId: UInt32
     let online: Bool
     let viewerAddr: String
     let source: String
@@ -32,7 +35,7 @@ struct HostRow: Identifiable, Hashable, Sendable {
     let mbps: String
     let rtt: String
 
-    var id: String { "\(sourceId)/\(viewerAddr)" }
+    var id: String { "\(sourceId)/\(termId)/\(viewerAddr)" }
 }
 
 struct QualityPreset: Identifiable, Sendable {
@@ -80,7 +83,8 @@ nonisolated enum DeskhubAgent {
         return raw.withUnsafeMutableBufferPointer { ptr in
             dha_start(
                 ptr.baseAddress, Int32(ptr.count), options.fps, options.bitrateMbps,
-                options.maxDim, options.port, options.allowInput, options.passcode
+                options.maxDim, options.port, options.allowInput, options.passcode,
+                options.terminal
             )
         }
     }
@@ -103,7 +107,9 @@ nonisolated enum DeskhubAgent {
             { row in
                 HostRow(
                     viewer: row.viewer,
+                    terminal: row.terminal,
                     sourceId: row.sourceId,
+                    termId: row.termId,
                     online: row.online,
                     viewerAddr: cString(row.viewerAddr),
                     source: cString(row.source),

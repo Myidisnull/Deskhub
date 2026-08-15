@@ -52,6 +52,9 @@ bool Agent::Start(const std::vector<deskhub::media::ShareSource>& sources, uint1
     deskhubp::HostEnginePolicy policy;
     policy.source = deskhubp::MakeDefaultSourcePolicy<Pipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<Pipeline>();
+    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string, std::string) {
+        PushPairingRequest(addrPacked);
+    };
 
     policy.source.create = [engine](const deskhub::media::ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
