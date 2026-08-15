@@ -226,7 +226,9 @@ struct MainMenuView: View {
     private var showingShareAlert: Binding<Bool> {
         Binding(get: { !shareAlert.isEmpty }, set: { if !$0 { shareAlert = "" } })
     }
+}
 
+extension MainMenuView {
     private func share() async {
         if agent.isSharing {
             agent.stopSharing()

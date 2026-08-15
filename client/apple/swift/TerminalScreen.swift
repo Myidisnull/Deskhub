@@ -11,19 +11,20 @@ struct TerminalRequest: Codable, Hashable {
     var passcode: String
 }
 
-#if os(macOS)
-    private let termFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-#else
-    private let termFont = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-#endif
-
 private var termCellSize: CGSize {
-    let measured = ("M" as NSString).size(withAttributes: [.font: termFont])
+    #if os(macOS)
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    #else
+        let font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    #endif
+    let measured = ("M" as NSString).size(withAttributes: [.font: font])
     return CGSize(width: ceil(measured.width), height: ceil(measured.height))
 }
 
-private func termColor(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Color {
-    Color(red: Double(r) / 255.0, green: Double(g) / 255.0, blue: Double(b) / 255.0)
+private func termColor(_ red: UInt8, _ green: UInt8, _ blue: UInt8) -> Color {
+    Color(
+        red: Double(red) / 255.0, green: Double(green) / 255.0, blue: Double(blue) / 255.0
+    )
 }
 
 private let termBackground = termColor(0x10, 0x12, 0x18)
@@ -171,35 +172,26 @@ private struct TerminalGridView: View {
             }
         }
 
+        private static let specialKeys: [UInt16: Int32] = [
+            36: TermKeyCode.enter, 76: TermKeyCode.enter,
+            51: TermKeyCode.backspace,
+            48: TermKeyCode.tab,
+            53: TermKeyCode.escape,
+            126: TermKeyCode.up, 125: TermKeyCode.down,
+            124: TermKeyCode.right, 123: TermKeyCode.left,
+            115: TermKeyCode.home, 119: TermKeyCode.end,
+            116: TermKeyCode.pageUp, 121: TermKeyCode.pageDown,
+            117: TermKeyCode.delete,
+            122: TermKeyCode.f1, 120: TermKeyCode.f1 + 1,
+            99: TermKeyCode.f1 + 2, 118: TermKeyCode.f1 + 3,
+            96: TermKeyCode.f1 + 4, 97: TermKeyCode.f1 + 5,
+            98: TermKeyCode.f1 + 6, 100: TermKeyCode.f1 + 7,
+            101: TermKeyCode.f1 + 8, 109: TermKeyCode.f1 + 9,
+            103: TermKeyCode.f1 + 10, 111: TermKeyCode.f1 + 11,
+        ]
+
         private static func specialFor(_ keyCode: UInt16) -> Int32? {
-            switch keyCode {
-            case 36, 76: TermKeyCode.enter
-            case 51: TermKeyCode.backspace
-            case 48: TermKeyCode.tab
-            case 53: TermKeyCode.escape
-            case 126: TermKeyCode.up
-            case 125: TermKeyCode.down
-            case 124: TermKeyCode.right
-            case 123: TermKeyCode.left
-            case 115: TermKeyCode.home
-            case 119: TermKeyCode.end
-            case 116: TermKeyCode.pageUp
-            case 121: TermKeyCode.pageDown
-            case 117: TermKeyCode.delete
-            case 122: TermKeyCode.f1
-            case 120: TermKeyCode.f1 + 1
-            case 99: TermKeyCode.f1 + 2
-            case 118: TermKeyCode.f1 + 3
-            case 96: TermKeyCode.f1 + 4
-            case 97: TermKeyCode.f1 + 5
-            case 98: TermKeyCode.f1 + 6
-            case 100: TermKeyCode.f1 + 7
-            case 101: TermKeyCode.f1 + 8
-            case 109: TermKeyCode.f1 + 9
-            case 103: TermKeyCode.f1 + 10
-            case 111: TermKeyCode.f1 + 11
-            default: nil
-            }
+            specialKeys[keyCode]
         }
     }
 

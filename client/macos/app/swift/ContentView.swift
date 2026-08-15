@@ -8,7 +8,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             switch route {
-            case .connect, .stream, .sharing:
+            case .connect, .stream, .terminal, .sharing:
                 MainMenuView(route: $route, connect: connect, agent: agent)
                     .frame(minWidth: 720, minHeight: 620)
             case let .sourcePicker(sources):

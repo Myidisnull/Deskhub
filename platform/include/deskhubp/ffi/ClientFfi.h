@@ -182,6 +182,7 @@ typedef enum {
     DHStrOpenNothingTicked = 107,
     DHStrTerminalExtraKeysHint = 108,
     DHStrPickSourcesHint = 109,
+    DHStrPairedForgetNote = 110,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

@@ -28,15 +28,9 @@ struct DevicesPage: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(device.name.isEmpty ? "(unnamed)" : device.name)
                                 .foregroundStyle(DeskhubPalette.heading)
-                            Text(
-                                device.shortKey + "  ·  "
-                                    + DeskhubClient.string(DHStrPairedColumnPaired) + " "
-                                    + Self.dateText(device.pairedUnix) + "  ·  "
-                                    + DeskhubClient.string(DHStrPairedColumnLastSeen) + " "
-                                    + Self.dateText(device.lastSeenUnix)
-                            )
-                            .font(.caption)
-                            .foregroundStyle(DeskhubPalette.muted)
+                            Text(Self.subtitle(for: device))
+                                .font(.caption)
+                                .foregroundStyle(DeskhubPalette.muted)
                         }
                         Spacer(minLength: 0)
                         Button(DeskhubClient.string(DHStrPairedForget)) {
@@ -96,6 +90,19 @@ struct DevicesPage: View {
             }
         )
         allowPairing = dh_allow_pairing()
+    }
+
+    private static func subtitle(for device: PairedDeviceRow) -> String {
+        var line = device.shortKey
+        line += "  ·  "
+        line += DeskhubClient.string(DHStrPairedColumnPaired)
+        line += " "
+        line += Self.dateText(device.pairedUnix)
+        line += "  ·  "
+        line += DeskhubClient.string(DHStrPairedColumnLastSeen)
+        line += " "
+        line += Self.dateText(device.lastSeenUnix)
+        return line
     }
 
     private static func dateText(_ unix: Int64) -> String {

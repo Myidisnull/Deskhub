@@ -9,6 +9,7 @@
 #include "deskhubp/net/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/system/HostIdentity.h"
 #include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/TrustStoreFile.h"
 
@@ -690,6 +691,10 @@ struct SavedTrustFiles {
 }
 
 void RunSessionFlowTests() {
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[e2e] skipped: this build has no QUIC library - run 'make bootstrap'\n");
+        return;
+    }
     const SavedTrustFiles guard;
     TestAViewerConnectsAndSeesTheFramesTheHostEncoded();
     TestPasscodeGatesTheStream();

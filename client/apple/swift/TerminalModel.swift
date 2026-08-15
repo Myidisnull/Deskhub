@@ -128,8 +128,9 @@ final class TerminalModel {
     }
 
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) {
-            [weak self] _ in
+        pollTimer = Timer.scheduledTimer(
+            withTimeInterval: 0.033, repeats: true
+        ) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
     }

@@ -153,6 +153,7 @@ const char* dh_string(DHStringId id) {
         case DHStrOpenNothingTicked: return deskhub::ui::kOpenNothingTicked;
         case DHStrTerminalExtraKeysHint: return deskhub::ui::kTerminalExtraKeysHint;
         case DHStrPickSourcesHint: return deskhub::ui::kPickSourcesHint;
+        case DHStrPairedForgetNote: return deskhub::ui::kPairedForgetNote;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();

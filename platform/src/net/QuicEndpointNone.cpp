@@ -1,5 +1,7 @@
 #include "deskhubp/net/QuicEndpoint.h"
 
+#include <utility>
+
 #include "deskhubp/diag/Log.h"
 
 namespace deskhubp {
@@ -16,6 +18,7 @@ void WarnOnce() {
 }
 
 struct QuicEndpoint::Impl {
+    QuicCallbacks cb{};
 };
 
 QuicEndpoint::QuicEndpoint() : impl_(std::make_unique<Impl>()) {
@@ -23,12 +26,16 @@ QuicEndpoint::QuicEndpoint() : impl_(std::make_unique<Impl>()) {
 
 QuicEndpoint::~QuicEndpoint() = default;
 
-bool QuicEndpoint::Listen(const QuicSettings&, const std::string&, uint16_t, QuicCallbacks) {
+bool QuicEndpoint::Listen(const QuicSettings&, const std::string&, uint16_t,
+    QuicCallbacks callbacks) {
+    impl_->cb = std::move(callbacks);
     WarnOnce();
     return false;
 }
 
-bool QuicEndpoint::Connect(const QuicSettings&, const NetAddr&, std::string_view, QuicCallbacks) {
+bool QuicEndpoint::Connect(const QuicSettings&, const NetAddr&, std::string_view,
+    QuicCallbacks callbacks) {
+    impl_->cb = std::move(callbacks);
     WarnOnce();
     return false;
 }

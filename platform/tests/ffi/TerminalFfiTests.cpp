@@ -124,13 +124,19 @@ void RunTerminalFfiTests() {
         return;
     }
 
-    std::atomic<int> redraws{0};
-    std::atomic<int32_t> lastState{DHTermIdle};
+    struct CallbackSeen {
+        std::atomic<int32_t> lastState{DHTermIdle};
+        std::atomic<int> redraws{0};
+    };
+    CallbackSeen seen;
     DHTermCallbacks callbacks{};
     callbacks.onState = [](int32_t state, const char*, void* user) {
-        static_cast<std::atomic<int32_t>*>(user)->store(state);
+        static_cast<CallbackSeen*>(user)->lastState.store(state);
     };
-    callbacks.user = &lastState;
+    callbacks.onRedraw = [](void* user) {
+        static_cast<CallbackSeen*>(user)->redraws.fetch_add(1);
+    };
+    callbacks.user = &seen;
 
     const std::string address = "127.0.0.1:" + std::to_string(kFfiTestPort);
     DHTermSession* session = dh_term_open(address.c_str(), kTestPasscode, 80, 24, &callbacks);
@@ -142,7 +148,7 @@ void RunTerminalFfiTests() {
 
     Check(WaitForMs([session] { return dh_term_state(session) == DHTermLive; }, 20000),
         "and it reaches Live with the passcode proved, never sent");
-    Check(lastState.load() == DHTermLive, "the state callback saw the same journey");
+    Check(seen.lastState.load() == DHTermLive, "the state callback saw the same journey");
     Check(rig.term.SessionCount() == 1, "the host lists the shell");
 
     char fingerprint[64] = {};
@@ -153,6 +159,7 @@ void RunTerminalFfiTests() {
     dh_term_send_text(session, "echo dh-ffi-ok\n");
     Check(WaitForMs([session] { return GridContains(session, "dh-ffi-ok"); }, 30000),
         "typed text runs on the host and the grid comes back through the C ABI");
+    Check(seen.redraws.load() > 0, "the redraw callback fired as the grid changed");
 
     DHTermGrid grid{};
     Check(!dh_term_grid(session, 0, nullptr, 0, &grid),

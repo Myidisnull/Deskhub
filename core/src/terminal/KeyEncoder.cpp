@@ -67,7 +67,7 @@ std::string ControlChar(char32_t cp) {
         case U'\\': return "\x1C";
         case U']': return "\x1D";
         case U'^': return "\x1E";
-        case U'_': return "\x1F";
+        case U'_':
         case U'/': return "\x1F";
         case U'?': return std::string(1, kDel);
         default: return {};
@@ -138,7 +138,7 @@ std::string EncodeText(std::string_view text, const TerminalModes&) {
 }
 
 std::string EncodePaste(std::string_view text, const TerminalModes& modes) {
-    const std::string body = EncodeText(text, modes);
+    std::string body = EncodeText(text, modes);
     if (!modes.bracketedPaste) return body;
     return "\x1B[200~" + body + "\x1B[201~";
 }

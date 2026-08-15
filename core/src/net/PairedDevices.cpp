@@ -97,7 +97,7 @@ std::optional<PairedDevice> PairedDevices::Find(const Fingerprint& fp) const {
 
 std::string ShortFingerprint(const Fingerprint& fp) {
     if (IsZero(fp)) return {};
-    const std::string full = FormatFingerprint(fp);
+    std::string full = FormatFingerprint(fp);
     const size_t start = kFingerprintPrefix.size();
     if (full.size() <= start) return full;
     return full.substr(start, kShortFingerprintChars);
