@@ -16,8 +16,12 @@ public:
     bool Next(std::vector<uint8_t>& out);
     void Reset();
 
-    bool Failed() const { return failed_; }
-    size_t Buffered() const { return buffer_.size() - consumed_; }
+    bool Failed() const {
+        return failed_;
+    }
+    size_t Buffered() const {
+        return buffer_.size() - consumed_;
+    }
 
 private:
     void Compact();

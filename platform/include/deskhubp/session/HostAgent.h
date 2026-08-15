@@ -2,7 +2,7 @@
 #include "deskhub/media/AgentTypes.h"
 #include "deskhub/session/Beacon.h"
 #include "deskhub/session/SourcePipelineState.h"
-#include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/net/SessionTransport.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -15,12 +15,12 @@ namespace deskhubp {
 
 using SourcePredicate = std::function<bool(const deskhub::SourcePipelineState&)>;
 
-size_t SendToViewers(const deskhub::SourcePipelineState& st, UdpSocket& sock,
+size_t SendToViewers(const deskhub::SourcePipelineState& st, SessionTransport& sock,
     std::span<const uint8_t> datagram);
 
 std::string ViewerAddrList(const deskhub::SourcePipelineState& st);
 
-void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
+void SendEncodedFrame(deskhub::SourcePipelineState& st, SessionTransport& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe);
 
 void LogListeningAddresses(uint16_t port, const std::string& boundIp = {});
@@ -30,7 +30,7 @@ std::vector<deskhub::SourcePipelineState*> SelectLiveSources(
     const std::function<bool()>& aborted,
     const std::function<void(deskhub::SourcePipelineState&)>& shutdown);
 
-void EndHostSession(deskhub::SourcePipelineState& st, UdpSocket& sock);
+void EndHostSession(deskhub::SourcePipelineState& st, SessionTransport& sock);
 
 struct SourceStatusHooks {
     SourcePredicate closed;

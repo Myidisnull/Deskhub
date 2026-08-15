@@ -64,6 +64,63 @@ size_t BuildHello(std::span<uint8_t> out, const Hello& m) {
     return total;
 }
 
+size_t BuildAuthStart(std::span<uint8_t> out, const AuthStart& m) {
+    if (m.publicKey.empty() || m.publicKey.size() > kMaxAuthBlobBytes) return 0;
+    const size_t nameLen = Utf8TruncLen(m.clientName, kMaxClientNameBytes);
+    const size_t payload = 2 + m.publicKey.size() + 1 + nameLen;
+    const size_t total = WriteCommon(out, MsgType::AuthStart, 0, Chan::Control, 0, payload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU16(p, uint16_t(m.publicKey.size()));
+    p += 2;
+    std::memcpy(p, m.publicKey.data(), m.publicKey.size());
+    p += m.publicKey.size();
+    *p++ = uint8_t(nameLen);
+    if (nameLen) std::memcpy(p, m.clientName.data(), nameLen);
+    return total;
+}
+
+size_t BuildAuthChallenge(std::span<uint8_t> out, const AuthChallenge& m) {
+    if (m.spake.size() > kMaxAuthBlobBytes) return 0;
+    const size_t payload = 1 + kAuthNonceBytes + kAuthSaltBytes + 2 + m.spake.size();
+    const size_t total = WriteCommon(out, MsgType::AuthChallenge, 0, Chan::Control, 0, payload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    *p++ = uint8_t(m.mode);
+    std::memcpy(p, m.nonce.data(), kAuthNonceBytes);
+    p += kAuthNonceBytes;
+    std::memcpy(p, m.salt.data(), kAuthSaltBytes);
+    p += kAuthSaltBytes;
+    PutU16(p, uint16_t(m.spake.size()));
+    p += 2;
+    if (!m.spake.empty()) std::memcpy(p, m.spake.data(), m.spake.size());
+    return total;
+}
+
+size_t BuildAuthResponse(std::span<uint8_t> out, const AuthResponse& m) {
+    if (m.proof.size() > kMaxAuthBlobBytes) return 0;
+    const size_t payload = 2 + m.proof.size() + kAuthMacBytes;
+    const size_t total = WriteCommon(out, MsgType::AuthResponse, 0, Chan::Control, 0, payload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU16(p, uint16_t(m.proof.size()));
+    p += 2;
+    if (!m.proof.empty()) std::memcpy(p, m.proof.data(), m.proof.size());
+    p += m.proof.size();
+    std::memcpy(p, m.confirm.data(), kAuthMacBytes);
+    return total;
+}
+
+size_t BuildAuthResult(std::span<uint8_t> out, const AuthResult& m) {
+    const size_t payload = 1 + kAuthMacBytes;
+    const size_t total = WriteCommon(out, MsgType::AuthResult, 0, Chan::Control, 0, payload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    *p++ = uint8_t(m.code);
+    std::memcpy(p, m.confirm.data(), kAuthMacBytes);
+    return total;
+}
+
 size_t BuildListSources(std::span<uint8_t> out, std::string_view passcode) {
     const size_t total = WriteCommon(out, MsgType::ListSources, 0, Chan::Control, 0,
         kPasscodeDigits);
@@ -284,6 +341,65 @@ std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram)
 std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram) {
     if (datagram.size() < kCommonHeaderSize) return {};
     return datagram.subspan(kCommonHeaderSize);
+}
+
+std::optional<AuthStart> ParseAuthStart(std::span<const uint8_t> payload) {
+    if (payload.size() < 3) return std::nullopt;
+    const uint8_t* p = payload.data();
+    const size_t keyLen = GetU16(p);
+    if (keyLen == 0 || keyLen > kMaxAuthBlobBytes || payload.size() < 2 + keyLen + 1)
+        return std::nullopt;
+
+    AuthStart m;
+    m.publicKey.assign(p + 2, p + 2 + keyLen);
+    const size_t nameOff = 2 + keyLen;
+    size_t nameLen = p[nameOff];
+    if (nameLen > kMaxClientNameBytes) nameLen = 0;
+    if (nameLen && payload.size() >= nameOff + 1 + nameLen) {
+        m.clientName.reserve(nameLen);
+        for (size_t i = 0; i < nameLen; ++i) {
+            const uint8_t c = p[nameOff + 1 + i];
+            if (c >= 0x20 && c != 0x7F) m.clientName.push_back(char(c));
+        }
+    }
+    return m;
+}
+
+std::optional<AuthChallenge> ParseAuthChallenge(std::span<const uint8_t> payload) {
+    constexpr size_t kFixed = 1 + kAuthNonceBytes + kAuthSaltBytes + 2;
+    if (payload.size() < kFixed) return std::nullopt;
+    const uint8_t* p = payload.data();
+    AuthChallenge m;
+    if (p[0] > uint8_t(AuthMode::Approval)) return std::nullopt;
+    m.mode = AuthMode(p[0]);
+    std::memcpy(m.nonce.data(), p + 1, kAuthNonceBytes);
+    std::memcpy(m.salt.data(), p + 1 + kAuthNonceBytes, kAuthSaltBytes);
+    const size_t blob = GetU16(p + 1 + kAuthNonceBytes + kAuthSaltBytes);
+    if (blob > kMaxAuthBlobBytes || payload.size() < kFixed + blob) return std::nullopt;
+    m.spake.assign(p + kFixed, p + kFixed + blob);
+    return m;
+}
+
+std::optional<AuthResponse> ParseAuthResponse(std::span<const uint8_t> payload) {
+    if (payload.size() < 2 + kAuthMacBytes) return std::nullopt;
+    const uint8_t* p = payload.data();
+    const size_t blob = GetU16(p);
+    if (blob > kMaxAuthBlobBytes || payload.size() < 2 + blob + kAuthMacBytes)
+        return std::nullopt;
+    AuthResponse m;
+    m.proof.assign(p + 2, p + 2 + blob);
+    std::memcpy(m.confirm.data(), p + 2 + blob, kAuthMacBytes);
+    return m;
+}
+
+std::optional<AuthResult> ParseAuthResult(std::span<const uint8_t> payload) {
+    if (payload.size() < 1 + kAuthMacBytes) return std::nullopt;
+    const uint8_t* p = payload.data();
+    if (p[0] > uint8_t(AuthResultCode::TimedOut)) return std::nullopt;
+    AuthResult m;
+    m.code = AuthResultCode(p[0]);
+    std::memcpy(m.confirm.data(), p + 1, kAuthMacBytes);
+    return m;
 }
 
 std::optional<Hello> ParseHello(std::span<const uint8_t> payload) {

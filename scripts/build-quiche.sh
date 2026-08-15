@@ -103,6 +103,38 @@ prefer_msvc_tools() {
     export PATH
 }
 
+# NASM assembles BoringSSL, and its Windows installer does not touch PATH.
+# bootstrap.ps1 installs it here; pick it up so the build does not stop on it.
+prefer_nasm() {
+    command -v nasm >/dev/null 2>&1 && return 0
+    local nasm_dir="${LOCALAPPDATA:-}/bin/NASM"
+    [ -x "$nasm_dir/nasm.exe" ] || return 0
+    PATH="$nasm_dir:$PATH"
+    export PATH
+}
+
+# boring-sys drives BoringSSL through CMake, which picks the Visual Studio
+# generator by default. MSBuild's tracker writes a .tlog next to a path already
+# ~270 characters deep here, and without LongPathsEnabled that fails as
+# "MSB6003: CL.exe could not be run". Ninja writes no tracker log and keeps the
+# paths short. Both ship inside Visual Studio.
+prefer_ninja_generator() {
+    [ -n "${CMAKE_GENERATOR:-}" ] && return 0
+    local vs_cmake="${VSINSTALLDIR:-}/Common7/IDE/CommonExtensions/Microsoft/CMake"
+    [ -n "${VSINSTALLDIR:-}" ] && [ -d "$vs_cmake" ] &&
+        PATH="$vs_cmake/CMake/bin:$vs_cmake/Ninja:$PATH" && export PATH
+    command -v ninja >/dev/null 2>&1 || return 0
+    export CMAKE_GENERATOR=Ninja
+}
+
+# rustc links a staticlib against the static CRT on windows-msvc, so quiche
+# arrives as /MT while CMakeLists.txt builds every Deskhub target as /MD - the
+# link then ends in LNK2038 over libcpmt.lib. Ask for the DLL runtime instead,
+# which is what the CMake side already expects.
+prefer_dynamic_crt() {
+    export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=-crt-static"
+}
+
 is_android_target() {
     case "$1" in
         *-linux-android | *-linux-androideabi) return 0 ;;
@@ -144,6 +176,9 @@ build_target() {
     rustup target add "$target" >/dev/null 2>&1 || true
     if is_msvc_target "$target"; then
         prefer_msvc_tools
+        prefer_nasm
+        prefer_ninja_generator
+        prefer_dynamic_crt
     fi
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."

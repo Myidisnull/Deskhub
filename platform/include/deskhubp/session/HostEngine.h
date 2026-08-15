@@ -8,7 +8,7 @@
 #include "deskhub/session/SourcePipelineState.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
-#include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/net/SessionTransport.h"
 #include "deskhubp/session/HostAgent.h"
 #include "deskhubp/session/HostNetLoop.h"
 #include "deskhubp/system/Clock.h"
@@ -53,7 +53,10 @@ struct HostEnginePolicy {
     std::function<std::string()> preflight;
     std::function<std::string()> afterSocket;
     std::function<void()> onSharing;
-    std::function<std::string(const UdpSocket&)> portError;
+    std::function<std::string(const SessionTransport&)> portError;
+    std::function<void()> onPaired;
+    std::function<void(uint64_t addrPacked, std::string shortKey, std::string name)>
+        onApprovalNeeded;
 
     std::string noSourceError = "No source selected.";
     std::string noUsableSourceError = "No usable source \xE2\x80\x94 stopping.";
@@ -77,6 +80,7 @@ public:
 
     void RequestStopSource(uint8_t sourceId);
     void RequestKickViewer(uint8_t sourceId, uint64_t addrPacked);
+    void AnswerPairingRequest(uint64_t addrPacked, bool allowed);
 
     bool running() const {
         return running_.load(std::memory_order_acquire);
@@ -104,7 +108,7 @@ public:
     LocalInputMonitor& localInput() {
         return localInputMon_;
     }
-    UdpSocket& socket() {
+    SessionTransport& socket() {
         return sock_;
     }
 
@@ -122,7 +126,7 @@ private:
     deskhub::media::AgentOptions opt_;
     HostEnginePolicy policy_;
 
-    UdpSocket sock_;
+    SessionTransport sock_;
     std::thread recvThread_;
     std::atomic<bool> quit_{false};
     std::atomic<bool> running_{false};
@@ -138,6 +142,7 @@ private:
     std::mutex controlMutex_;
     std::vector<uint8_t> pendingSourceStops_;
     std::vector<std::pair<uint8_t, uint64_t>> pendingViewerKicks_;
+    std::vector<std::pair<uint64_t, bool>> pendingPairAnswers_;
 
     std::mutex clipMutex_;
     std::optional<std::string> pendingLocalClip_;

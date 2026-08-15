@@ -82,7 +82,11 @@ inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
 inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";
 inline constexpr const char* kStopDisplayAction = "Stop";
 inline constexpr const char* kDisconnectViewerAction = "Disconnect";
-inline constexpr const char* kPasscodeLabel = "Passcode (4 digits, required)";
+inline constexpr const char* kPasscodeLabel = "Pairing passcode (4 digits, optional)";
+inline constexpr const char* kPasscodeHint =
+    "A machine types this once, the first time it connects, and is remembered by its key "
+    "afterwards. Leave it empty and you will be asked here instead, each time a new machine "
+    "wants in.";
 inline constexpr const char* kClientPasscodePrompt = "Passcode (4 digits):";
 inline constexpr const char* kClientPasscodeHint = "Read the 4-digit code off the host.";
 inline constexpr const char* kDeviceNameLabel = "Your name";
@@ -115,6 +119,74 @@ inline constexpr const char* kLanDevicesNoneSharing =
     "check again.";
 inline constexpr const char* kScanRescanNote = "Checking again shortly.";
 inline constexpr const char* kRefreshNow = "Refresh now";
+inline constexpr const char* kAuthWrongPasscode =
+    "That passcode was not accepted \xE2\x80\x94 check the code on the machine you are "
+    "connecting to.";
+inline constexpr const char* kAuthNotPaired =
+    "That machine does not recognise this one. It may have been forgotten there.";
+inline constexpr const char* kAuthPairingDisabled =
+    "That machine is not letting new machines pair with it right now.";
+inline constexpr const char* kAuthRefused = "Somebody at that machine turned this one away.";
+inline constexpr const char* kAuthTimedOut = "Nobody at that machine answered in time.";
+
+inline const char* AuthRefusalText(AuthResultCode code) {
+    switch (code) {
+        case AuthResultCode::WrongPasscode: return kAuthWrongPasscode;
+        case AuthResultCode::PairingDisabled: return kAuthPairingDisabled;
+        case AuthResultCode::Refused: return kAuthRefused;
+        case AuthResultCode::TimedOut: return kAuthTimedOut;
+        case AuthResultCode::Accepted: return "Connected.";
+        case AuthResultCode::NotPaired: break;
+    }
+    return kAuthNotPaired;
+}
+
+inline constexpr const char* kPairingRequestTitle = "Let this machine in?";
+inline constexpr const char* kPairingAllow = "Allow";
+inline constexpr const char* kPairingDeny = "Turn it away";
+
+inline std::string PairingRequestBody(std::string_view name, std::string_view address,
+    std::string_view shortKey) {
+    std::string out(name.empty() ? std::string("A machine") : std::string(name));
+    out += " at ";
+    out += address;
+    out += " wants to connect to this one.\n\nIts key starts with ";
+    out += shortKey;
+    out +=
+        "\n\nAllowing it pairs the two machines: it will be recognised by that key from now "
+        "on and will not ask again. You can undo this on the Devices page.";
+    return out;
+}
+
+inline constexpr const char* kSidebarDevices = "Devices";
+inline constexpr const char* kPairedHeading = "Machines allowed to connect to this one";
+inline constexpr const char* kPairedHint =
+    "A machine gets on this list once, and after that it is recognised by its key \xE2\x80\x94 "
+    "no passcode is asked for again.";
+inline constexpr const char* kPairedEmpty = "(no machine has paired with this one yet)";
+inline constexpr const char* kPairedForget = "Forget";
+inline constexpr const char* kPairedForgetAll = "Forget every machine";
+inline constexpr const char* kPairedForgetAllPrompt =
+    "Every machine will have to pair again before it can connect. Continue?";
+inline constexpr const char* kPairedForgetNote =
+    "Changing the passcode does NOT turn these machines away \xE2\x80\x94 they no longer use it. "
+    "Forgetting them is what does.";
+inline constexpr const char* kAllowPairingLabel = "Let new machines pair with this one";
+inline constexpr const char* kAllowPairingHint =
+    "Turn this off once your own machines are paired: a passcode that leaks is then worth "
+    "nothing, and the machines already on the list keep working.";
+inline constexpr const char* kThisMachineHeading = "This machine's key";
+inline constexpr const char* kThisMachineHint =
+    "Read this out over the phone to whoever is connecting. It is the one thing a machine in "
+    "the middle cannot fake.";
+inline constexpr const char* kPairedColumnName = "Machine";
+inline constexpr const char* kPairedColumnKey = "Key";
+inline constexpr const char* kPairedColumnPaired = "Paired";
+inline constexpr const char* kPairedColumnLastSeen = "Last seen";
+inline constexpr const char* kDevicesHeading = "Devices";
+inline constexpr const char* kDeviceColumnWhere = "Where";
+inline constexpr const char* kDeviceOnThisNetwork = "On this network";
+inline constexpr const char* kDeviceRecent = "Recent";
 inline constexpr const char* kScanNoLocalNetwork =
     "This machine has no network address to scan from.";
 inline constexpr const char* kConnectPromptTitle = "Connect to this device";
@@ -135,8 +207,16 @@ inline constexpr const char* kTerminalSharingOff = "This machine is not sharing 
 inline constexpr const char* kTerminalNetworkLabel = "Share the terminal on:";
 inline constexpr const char* kTerminalOpenSessionsHeading = "Shells open on this machine";
 inline constexpr const char* kTerminalNoSessions = "(nobody has a shell open)";
-inline constexpr const char* kTerminalHostUnavailable =
-    "This system cannot offer a terminal to other machines.";
+inline constexpr const char* kShareNoQuicLibrary =
+    "This build has no QUIC library, so it cannot share anything. Build one with "
+    "scripts/build-quiche.sh, then build Deskhub again.";
+inline constexpr const char* kShareNoHostIdentity =
+    "This machine could not create the key it identifies itself with, so it cannot share.";
+inline constexpr const char* kTerminalNoQuicLibrary =
+    "This build has no QUIC library, so it cannot offer a terminal. Build one with "
+    "scripts/build-quiche.sh, then build Deskhub again.";
+inline constexpr const char* kTerminalNoHostIdentity =
+    "This machine could not create the key a shared terminal identifies itself with.";
 inline constexpr const char* kTerminalPortLabel = "Terminal UDP port";
 inline constexpr const char* kTerminalPortInUse =
     "That UDP port is already in use \xE2\x80\x94 screen sharing has its own port, so give the "
@@ -291,7 +371,10 @@ inline std::string SharingStatusLine(uint16_t port) {
 }
 
 inline std::string PasscodeNote(std::string_view passcode) {
-    return "Viewers need passcode " + std::string(passcode) + ".";
+    if (passcode.empty())
+        return "No passcode set \xE2\x80\x94 you will be asked here before a new machine is "
+               "let in.";
+    return "A machine pairing for the first time needs passcode " + std::string(passcode) + ".";
 }
 
 inline std::string CouldNotConnectTo(std::string_view address) {

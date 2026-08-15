@@ -20,7 +20,9 @@ struct AgentOptions {
     uint16_t port = kDeskhubPort;
     std::string passcode{};
     std::string bindIp{};
+    std::string deviceName{};
     bool clipboardSync = false;
+    bool allowNewPairings = true;
 };
 
 struct AgentSourceStatus {

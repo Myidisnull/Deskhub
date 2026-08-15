@@ -1,10 +1,14 @@
 #pragma once
+#include "deskhub/net/TrustStore.h"
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace deskhub {
 
@@ -69,6 +73,10 @@ enum class MsgType : uint8_t {
     TermResize = 0x53,
     TermClose = 0x54,
     TermExit = 0x55,
+    AuthStart = 0x60,
+    AuthChallenge = 0x61,
+    AuthResponse = 0x62,
+    AuthResult = 0x63,
 };
 
 inline constexpr uint8_t kVideoFlagIdr = 1u << 0;
@@ -149,6 +157,52 @@ struct HelloAck {
     uint32_t bitrateBps;
     uint64_t timebaseUs;
     RejectReason reason = RejectReason::None;
+};
+
+inline constexpr size_t kAuthNonceBytes = 32;
+inline constexpr size_t kAuthSaltBytes = 16;
+inline constexpr size_t kAuthMacBytes = 32;
+inline constexpr size_t kMaxAuthBlobBytes = 256;
+
+enum class AuthMode : uint8_t {
+    Denied = 0,
+    Signature = 1,
+    Passcode = 2,
+    Approval = 3,
+};
+
+enum class AuthResultCode : uint8_t {
+    Accepted = 0,
+    WrongPasscode = 1,
+    NotPaired = 2,
+    PairingDisabled = 3,
+    Refused = 4,
+    TimedOut = 5,
+};
+
+// The public key travels, not the fingerprint: the host has to hash it to get the
+// fingerprint it looks up, which is also what stops a machine claiming someone
+// else's identity - it would have to sign with a key it does not hold.
+struct AuthStart {
+    std::vector<uint8_t> publicKey{};
+    std::string clientName{};
+};
+
+struct AuthChallenge {
+    AuthMode mode = AuthMode::Denied;
+    std::array<uint8_t, kAuthNonceBytes> nonce{};
+    std::array<uint8_t, kAuthSaltBytes> salt{};
+    std::vector<uint8_t> spake{};
+};
+
+struct AuthResponse {
+    std::vector<uint8_t> proof{};
+    std::array<uint8_t, kAuthMacBytes> confirm{};
+};
+
+struct AuthResult {
+    AuthResultCode code = AuthResultCode::NotPaired;
+    std::array<uint8_t, kAuthMacBytes> confirm{};
 };
 
 struct PingPong {
@@ -234,6 +288,10 @@ struct ClipboardChunkView {
 
 size_t BuildHello(std::span<uint8_t> out, const Hello& m);
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m);
+size_t BuildAuthStart(std::span<uint8_t> out, const AuthStart& m);
+size_t BuildAuthChallenge(std::span<uint8_t> out, const AuthChallenge& m);
+size_t BuildAuthResponse(std::span<uint8_t> out, const AuthResponse& m);
+size_t BuildAuthResult(std::span<uint8_t> out, const AuthResult& m);
 size_t BuildStart(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildListSources(std::span<uint8_t> out, std::string_view passcode = {});
 size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources);
@@ -263,6 +321,10 @@ std::optional<Hello> ParseHello(std::span<const uint8_t> payload);
 std::string ParseListSourcesPasscode(std::span<const uint8_t> payload);
 size_t ParseSourceList(std::span<const uint8_t> payload, std::span<SourceInfo> out);
 std::optional<HelloAck> ParseHelloAck(std::span<const uint8_t> payload);
+std::optional<AuthStart> ParseAuthStart(std::span<const uint8_t> payload);
+std::optional<AuthChallenge> ParseAuthChallenge(std::span<const uint8_t> payload);
+std::optional<AuthResponse> ParseAuthResponse(std::span<const uint8_t> payload);
+std::optional<AuthResult> ParseAuthResult(std::span<const uint8_t> payload);
 std::optional<PingPong> ParsePingPong(std::span<const uint8_t> payload);
 std::optional<Feedback> ParseFeedback(std::span<const uint8_t> payload);
 std::optional<Reconfig> ParseReconfig(std::span<const uint8_t> payload);

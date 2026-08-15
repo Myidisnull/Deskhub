@@ -11,6 +11,7 @@ if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
     set(deskhub_platform_quic
         src/net/QuicEndpoint.cpp
         src/system/HostIdentity.cpp
+        src/system/AuthProof.cpp
     )
 else()
     message(STATUS
@@ -19,6 +20,7 @@ else()
     set(deskhub_platform_quic
         src/net/QuicEndpointNone.cpp
         src/system/HostIdentityNone.cpp
+        src/system/AuthProofNone.cpp
     )
 endif()
 
@@ -128,8 +130,11 @@ add_library(platform STATIC
     ${deskhub_platform_quic}
     ${deskhub_platform_pty}
     src/system/TrustStoreFile.cpp
+    src/system/PairedDevicesFile.cpp
+    src/session/AuthNegotiation.cpp
     src/session/TerminalHost.cpp
     src/session/TerminalViewer.cpp
+    src/net/SessionTransport.cpp
     src/net/SourceQuery.cpp
     src/net/HostProbe.cpp
     src/net/DeviceStatusPoller.cpp
@@ -213,9 +218,12 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/net/UdpSocketTests.cpp
         tests/system/AppDataFileTests.cpp
         tests/system/HostIdentityTests.cpp
+        tests/system/AuthProofTests.cpp
         tests/system/PtyTests.cpp
         tests/net/QuicEndpointTests.cpp
+        tests/net/SessionTransportTests.cpp
         tests/session/HostCallbackTests.cpp
+        tests/session/AuthNegotiationTests.cpp
         tests/session/TerminalHostTests.cpp
         tests/system/ClockTests.cpp
         tests/system/DeviceNameTests.cpp

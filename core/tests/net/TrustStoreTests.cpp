@@ -36,11 +36,11 @@ void TestFingerprintText() {
         "a truncated fingerprint is refused");
     Check(!ParseFingerprint(text + "A").has_value(), "an over-long one is refused");
     Check(!ParseFingerprint(std::string(kFingerprintPrefix) +
-              std::string(kFingerprintTextBytes, '!'))
+                            std::string(kFingerprintTextBytes, '!'))
               .has_value(),
         "characters outside the alphabet are refused");
     Check(!ParseFingerprint(std::string(kFingerprintPrefix) +
-              text.substr(kFingerprintPrefix.size(), kFingerprintTextBytes - 1) + "B")
+                            text.substr(kFingerprintPrefix.size(), kFingerprintTextBytes - 1) + "B")
               .has_value(),
         "a last character with stray low bits cannot decode to 32 bytes");
 
@@ -188,7 +188,7 @@ void TestParseJunk() {
         for (char& c : soup) c = char(Rnd() % 96 + 32);
         const TrustStore parsed = ParseTrustStore(soup);
         Check(SerializeTrustStore(ParseTrustStore(SerializeTrustStore(parsed))) ==
-                SerializeTrustStore(parsed),
+                  SerializeTrustStore(parsed),
             "parsing junk is stable under a second round trip");
     }
 }

@@ -94,19 +94,19 @@ void TestCsiParsing() {
     {
         const auto ev = ParseAll("\x1B[12;34H");
         Check(ev.size() == 1 && ev[0].paramCount == 2 && ev[0].Param(0, 0) == 12 &&
-                ev[0].Param(1, 0) == 34,
+                  ev[0].Param(1, 0) == 34,
             "two parameters are read in order");
     }
     {
         const auto ev = ParseAll("\x1B[;5H");
         Check(ev.size() == 1 && ev[0].paramCount == 2 && ev[0].Param(0, 7) == 7 &&
-                ev[0].Param(1, 0) == 5,
+                  ev[0].Param(1, 0) == 5,
             "an omitted leading parameter falls back to the default");
     }
     {
         const auto ev = ParseAll("\x1B[?25l");
         Check(ev.size() == 1 && ev[0].prefix == '?' && ev[0].final == 'l' &&
-                ev[0].Param(0, 0) == 25,
+                  ev[0].Param(0, 0) == 25,
             "a private mode keeps its marker");
     }
     {
@@ -154,7 +154,9 @@ void TestCsiParsing() {
 void TestEscParsing() {
     std::printf("[vt] two-byte and intermediate escapes...\n");
     {
-        const auto ev = ParseAll("\x1B""7");
+        const auto ev = ParseAll(
+            "\x1B"
+            "7");
         Check(ev.size() == 1 && ev[0].action == VtAction::Esc && ev[0].final == '7',
             "ESC 7 is an escape dispatch");
     }
@@ -181,11 +183,13 @@ void TestEscParsing() {
     {
         const auto ev = ParseAll("\x1B(\rB");
         Check(ev.size() == 2 && ev[0].action == VtAction::Execute &&
-                ev[1].action == VtAction::Esc,
+                  ev[1].action == VtAction::Esc,
             "and one inside an intermediate escape too");
     }
     {
-        const auto ev = ParseAll("\x1B\x7F""7");
+        const auto ev = ParseAll(
+            "\x1B\x7F"
+            "7");
         Check(ev.size() == 1 && ev[0].final == '7', "DEL inside an escape is ignored");
     }
 }
@@ -195,7 +199,7 @@ void TestOscParsing() {
     {
         const auto ev = ParseAll("\x1B]0;my title\x07");
         Check(ev.size() == 1 && ev[0].action == VtAction::Osc && ev[0].Param(0, -1) == 0 &&
-                ev[0].text == "my title",
+                  ev[0].text == "my title",
             "a BEL-terminated OSC carries its command and text");
     }
     {

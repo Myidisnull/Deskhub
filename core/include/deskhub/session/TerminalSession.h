@@ -38,6 +38,9 @@ class TerminalSessions {
 public:
     void SetSharing(bool on);
     void SetPasscode(std::string passcode);
+    void SetConnectionAuthenticated(bool authenticated) {
+        connectionAuthenticated_ = authenticated;
+    }
 
     TermOpenAck Open(const TerminalOpenRequest& request, uint64_t nowUs);
     bool Resize(uint32_t termId, TermSize size);
@@ -46,10 +49,16 @@ public:
     void CloseAll();
     std::vector<uint32_t> Expire(uint64_t nowUs);
 
-    bool Sharing() const { return sharing_; }
+    bool Sharing() const {
+        return sharing_;
+    }
     const TerminalRecord* Find(uint32_t termId) const;
-    const std::vector<TerminalRecord>& Records() const { return records_; }
-    size_t Count() const { return records_.size(); }
+    const std::vector<TerminalRecord>& Records() const {
+        return records_;
+    }
+    size_t Count() const {
+        return records_.size();
+    }
     size_t LiveCount() const;
     bool LockedOut(uint64_t nowUs) const;
 
@@ -60,6 +69,7 @@ private:
 
     bool sharing_ = false;
     std::string passcode_{};
+    bool connectionAuthenticated_ = false;
     uint32_t wrongPasscodes_ = 0;
     uint64_t lockUntilUs_ = 0;
     uint32_t nextId_ = 1;

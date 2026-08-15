@@ -6,10 +6,12 @@
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Screen.h"
 #include "deskhubp/net/QuicEndpoint.h"
+#include "deskhubp/session/AuthNegotiation.h"
 #include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/session/TerminalViewer.h"
 #include "deskhubp/system/TrustStoreFile.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/Clock.h"
 
 #include <atomic>
@@ -41,6 +43,71 @@ struct Viewer {
     bool resumed = false;
 
     std::unique_ptr<deskhub::TerminalClient> client{};
+    std::unique_ptr<deskhubp::ClientAuth> auth{};
+    deskhub::AuthResultCode authCode = deskhub::AuthResultCode::NotPaired;
+    bool authSettled = false;
+
+    void Send(std::span<const uint8_t> message) {
+        std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
+        record.resize(deskhub::BuildRecord(record, message));
+        if (connected)
+            endpoint.SendStream(conn, deskhubp::kQuicFirstTerminalStream, record);
+        else
+            pending.insert(pending.end(), record.begin(), record.end());
+    }
+
+    // The host now expects every connection to prove which machine it is before it
+    // will look at a TERM_OPEN, so the test client has to do what a real one does.
+    void BeginAuth(const deskhubp::HostIdentity& own, const deskhub::Fingerprint& hostKey,
+        std::string passcode) {
+        deskhubp::ClientAuthConfig config;
+        config.identity = own;
+        config.passcode = std::move(passcode);
+        config.hostFingerprint = hostKey;
+        config.clientName = "test-client";
+        auth = std::make_unique<deskhubp::ClientAuth>();
+        auth->Configure(std::move(config));
+
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+        out.resize(deskhub::BuildAuthStart(out, auth->Begin()));
+        Send(out);
+    }
+
+    bool HandleAuth(std::span<const uint8_t> message) {
+        if (!auth) return false;
+        const std::optional<deskhub::CommonHeader> header =
+            deskhub::ParseCommonHeader(message);
+        if (!header) return false;
+        const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
+
+        if (header->type == deskhub::MsgType::AuthChallenge) {
+            const std::optional<deskhub::AuthChallenge> challenge =
+                deskhub::ParseAuthChallenge(payload);
+            if (!challenge) return true;
+            const std::optional<deskhub::AuthResponse> response = auth->Answer(*challenge);
+            if (!response) {
+                authSettled = true;
+                authCode = deskhub::AuthResultCode::WrongPasscode;
+                return true;
+            }
+            std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+            out.resize(deskhub::BuildAuthResponse(out, *response));
+            Send(out);
+            return true;
+        }
+
+        if (header->type != deskhub::MsgType::AuthResult) return false;
+        if (const std::optional<deskhub::AuthResult> result =
+                deskhub::ParseAuthResult(payload)) {
+            authCode = result->code;
+            authSettled = true;
+        }
+        return true;
+    }
+
+    bool Allowed() const {
+        return authSettled && authCode == deskhub::AuthResultCode::Accepted;
+    }
 
     void Start() {
         deskhub::TerminalClientCallbacks cb;
@@ -76,7 +143,10 @@ struct Viewer {
                              bool) {
             framer.Append(bytes);
             std::vector<uint8_t> message;
-            while (framer.Next(message)) client->HandleMessage(message);
+            while (framer.Next(message)) {
+                if (HandleAuth(message)) continue;
+                client->HandleMessage(message);
+            }
         };
         return hooks;
     }
@@ -109,9 +179,15 @@ void TestHostSharesAShell() {
 
     const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
     const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    const std::string savedPaired =
+        deskhubp::ReadAppDataFile(deskhubp::kPairedDevicesFileName);
+    deskhubp::ForgetAllPairedDevices();
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity clientIdentity =
+        deskhubp::LoadOrCreateHostIdentity("deskhub-client");
     deskhubp::ForgetHostIdentity();
     const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
-    Check(identity.Valid(), "the host has an identity to present");
+    Check(identity.Valid() && clientIdentity.Valid(), "the host has an identity to present");
     if (!identity.Valid()) return;
 
     std::vector<std::string> audit;
@@ -141,16 +217,31 @@ void TestHostSharesAShell() {
         return;
     }
 
-    viewer.client->Open("9999", deskhub::TermSize{80, 24}, "test-client");
-    Check(viewer.PumpUntil([&viewer] { return !viewer.refusals.empty(); }, kMaxRounds),
-        "a wrong passcode is refused");
-    Check(!viewer.refusals.empty() && viewer.refusals[0] == deskhub::TermReason::WrongPasscode,
-        "and the client is told why");
-    Check(host.SessionCount() == 0, "no shell was started for it");
+    // A wrong code now fails while proving the machine, before a TERM_OPEN is even
+    // looked at - and asking for a shell anyway gets nowhere.
+    {
+        Viewer stranger;
+        stranger.Start();
+        stranger.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, kTestPort},
+            "deskhub-test", stranger.Hooks());
+        stranger.PumpUntil([&stranger] { return stranger.connected; }, kMaxRounds);
+        stranger.BeginAuth(clientIdentity, identity.fingerprint, "9999");
+        Check(stranger.PumpUntil([&stranger] { return stranger.authSettled; }, kMaxRounds),
+            "a wrong code is settled by the host");
+        Check(stranger.authCode == deskhub::AuthResultCode::WrongPasscode,
+            "and named as the reason");
+        stranger.client->Open(std::string(), deskhub::TermSize{80, 24}, "test-client");
+        stranger.Pump(200);
+        Check(host.SessionCount() == 0, "asking for a shell anyway starts nothing");
+    }
 
-    viewer.client->Open(kTestPasscode, deskhub::TermSize{80, 24}, "test-client");
+    viewer.BeginAuth(clientIdentity, identity.fingerprint, kTestPasscode);
+    Check(viewer.PumpUntil([&viewer] { return viewer.Allowed(); }, kMaxRounds),
+        "the right code proves the machine, without the code ever being sent");
+
+    viewer.client->Open(std::string(), deskhub::TermSize{80, 24}, "test-client");
     Check(viewer.PumpUntil([&viewer] { return viewer.opens == 1; }, kMaxRounds),
-        "the right passcode opens a shell");
+        "and the shell opens with no passcode in the request at all");
     if (viewer.opens != 1) {
         host.Stop();
         return;
@@ -214,7 +305,7 @@ bool WaitFor(const std::function<bool()>& done, int millis) {
 }
 
 void TestViewerTrustsThenRunsAShell() {
-    std::printf("[termhost] the shared viewer asks about a new key, then runs a shell...\n");
+    std::printf("[termhost] the passcode settles a new key, and the shell runs...\n");
     if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
         std::printf("[termhost] skipped: this build has no QUIC library or no shell to host\n");
         return;
@@ -253,18 +344,17 @@ void TestViewerTrustsThenRunsAShell() {
 
     deskhubp::TerminalViewer viewer;
     Check(viewer.Start(viewerConfig, std::move(hooks)), "the viewer starts");
-    Check(WaitFor([&viewer] { return viewer.State() == deskhubp::TerminalViewerState::Deciding; },
-              15000),
-        "a machine we have never met stops to ask about its key");
-    Check(trustAsks == 1, "and asks exactly once");
-    Check(viewer.Verdict() == deskhub::TrustVerdict::Unknown, "reporting it as a stranger");
-    Check(viewer.Fingerprint() == deskhub::FormatFingerprint(identity.fingerprint),
-        "and showing the fingerprint the host actually holds");
-
-    viewer.AcceptFingerprint();
     Check(WaitFor([&viewer] { return viewer.State() == deskhubp::TerminalViewerState::Live; },
               20000),
-        "trusting it opens the shell");
+        "a stranger guarded by a passcode opens without stopping to ask about its key");
+    Check(trustAsks == 0, "so the user is never shown a fingerprint they would only click past");
+    Check(viewer.Verdict() == deskhub::TrustVerdict::Trusted,
+        "the accepted passcode is what settled it");
+    Check(viewer.Fingerprint() == deskhub::FormatFingerprint(identity.fingerprint),
+        "and the key it settled on is the one the host actually holds");
+    Check(deskhubp::CheckTrustedHost(viewerConfig.host.ToString(), identity.fingerprint) ==
+              deskhub::TrustVerdict::Trusted,
+        "which is written down, so the next visit needs no passcode to recognise it");
 
     viewer.SendText("echo deskhub-viewer-ok\n");
     Check(WaitFor(
@@ -332,10 +422,100 @@ void TestHostRefusesWithoutIdentity() {
     Check(true, "stopping one that never started is safe");
 }
 
+void TestTheTwoCasesAPasscodeCannotSettle() {
+    std::printf("[termhost] no passcode, or a key that changed, still goes to the user...\n");
+    if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) return;
+
+    const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
+    const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    const std::string savedTrust = deskhubp::ReadAppDataFile(deskhubp::kTrustStoreFileName);
+    deskhubp::ForgetHostIdentity();
+    deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
+
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    deskhubp::TerminalHostConfig config;
+    config.bindIp = "127.0.0.1";
+    config.port = uint16_t(kTestPort + 2);
+
+    deskhubp::TerminalHost host;
+    if (host.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+        deskhubp::TerminalViewerConfig open;
+        open.host = NetAddr{0x7F000001u, config.port};
+        open.hostLabel = "deskhub-test";
+        open.clientName = "shared-viewer";
+        open.size = deskhub::TermSize{80, 24};
+
+        std::atomic<int> asks{0};
+        deskhubp::TerminalViewerCallbacks hooks;
+        hooks.onTrustAsked = [&asks](deskhub::TrustVerdict, std::string_view) { ++asks; };
+
+        // The question moved to the other end: with no code to prove anything by, the
+        // machine being dialled is the one that has to decide, so this side simply
+        // waits rather than showing its user a fingerprint to rubber-stamp.
+        deskhubp::TerminalViewer viewer;
+        Check(viewer.Start(open, std::move(hooks)), "a viewer with no passcode starts");
+        Check(!WaitFor([&viewer] {
+            return viewer.State() == deskhubp::TerminalViewerState::Live;
+        },
+                  3000),
+            "and never reaches a shell while nobody at the host has said yes");
+        Check(asks == 0, "its own user is not asked to vouch for a machine they cannot check");
+        Check(host.SessionCount() == 0, "and no shell was started for it");
+        viewer.Stop();
+        host.Stop();
+    }
+
+    // A machine whose key changed is the shape a machine in the middle has, so a
+    // correct passcode must not be allowed to wave it through.
+    deskhub::Fingerprint impostor = identity.fingerprint;
+    impostor.bytes[0] = uint8_t(impostor.bytes[0] ^ 0xFF);
+    const std::string endpoint = NetAddr{0x7F000001u, config.port}.ToString();
+    Check(deskhubp::RememberTrustedHost(endpoint, "deskhub-test", impostor, 1),
+        "the client has met this address before, holding a different key");
+    Check(deskhubp::CheckTrustedHost(endpoint, identity.fingerprint) ==
+              deskhub::TrustVerdict::Changed,
+        "so the key the host now presents reads as changed, not as a first meeting");
+
+    deskhubp::TerminalHost second;
+    if (second.Start(config, identity, deskhubp::TerminalHostCallbacks{})) {
+        deskhubp::TerminalViewerConfig withCode;
+        withCode.host = NetAddr{0x7F000001u, config.port};
+        withCode.hostLabel = "deskhub-test";
+        withCode.passcode = kTestPasscode;
+        withCode.clientName = "shared-viewer";
+        withCode.size = deskhub::TermSize{80, 24};
+
+        std::atomic<int> asks{0};
+        deskhubp::TerminalViewerCallbacks hooks;
+        hooks.onTrustAsked = [&asks](deskhub::TrustVerdict, std::string_view) { ++asks; };
+
+        deskhubp::TerminalViewer viewer;
+        Check(viewer.Start(withCode, std::move(hooks)), "a viewer that knows the passcode starts");
+        Check(WaitFor([&viewer] {
+            return viewer.State() == deskhubp::TerminalViewerState::Deciding;
+        },
+                  15000),
+            "and is still stopped, because a passcode cannot answer a changed key");
+        Check(asks == 1, "the warning is raised");
+        Check(viewer.Verdict() == deskhub::TrustVerdict::Changed, "as a change, not a stranger");
+        viewer.RejectFingerprint();
+        viewer.Stop();
+        second.Stop();
+    }
+
+    if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
+    if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+    if (savedTrust.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, savedTrust);
+}
+
 }
 
 void RunTerminalHostTests() {
     TestHostRefusesWithoutIdentity();
     TestHostSharesAShell();
     TestViewerTrustsThenRunsAShell();
+    TestTheTwoCasesAPasscodeCannotSettle();
 }

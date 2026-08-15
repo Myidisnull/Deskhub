@@ -38,11 +38,21 @@ public:
     void Close();
     void LinkLost();
 
-    TerminalClientState State() const { return state_; }
-    uint32_t TermId() const { return termId_; }
-    TermSize Size() const { return size_; }
-    TermReason LastReason() const { return reason_; }
-    bool CanReattach() const { return termId_ != 0 && state_ == TerminalClientState::Idle; }
+    TerminalClientState State() const {
+        return state_;
+    }
+    uint32_t TermId() const {
+        return termId_;
+    }
+    TermSize Size() const {
+        return size_;
+    }
+    TermReason LastReason() const {
+        return reason_;
+    }
+    bool CanReattach() const {
+        return termId_ != 0 && state_ == TerminalClientState::Idle;
+    }
 
 private:
     void SendOpen();

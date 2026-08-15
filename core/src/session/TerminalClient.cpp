@@ -67,46 +67,46 @@ void TerminalClient::HandleMessage(std::span<const uint8_t> message) {
     const std::span<const uint8_t> payload = PayloadOf(message);
 
     switch (header->type) {
-    case MsgType::TermOpenAck: {
-        const std::optional<TermOpenAck> ack = ParseTermOpenAck(payload);
-        if (!ack) return;
-        if (state_ != TerminalClientState::Opening &&
-            state_ != TerminalClientState::Reattaching)
-            return;
-        reason_ = ack->reason;
-        if (ack->reason != TermReason::Accepted || ack->termId == 0) {
-            termId_ = 0;
-            state_ = TerminalClientState::Refused;
-            if (cb_.onRefused) cb_.onRefused(reason_);
+        case MsgType::TermOpenAck: {
+            const std::optional<TermOpenAck> ack = ParseTermOpenAck(payload);
+            if (!ack) return;
+            if (state_ != TerminalClientState::Opening &&
+                state_ != TerminalClientState::Reattaching)
+                return;
+            reason_ = ack->reason;
+            if (ack->reason != TermReason::Accepted || ack->termId == 0) {
+                termId_ = 0;
+                state_ = TerminalClientState::Refused;
+                if (cb_.onRefused) cb_.onRefused(reason_);
+                return;
+            }
+            termId_ = ack->termId;
+            state_ = TerminalClientState::Open;
+            if (cb_.onOpened) cb_.onOpened(*ack);
             return;
         }
-        termId_ = ack->termId;
-        state_ = TerminalClientState::Open;
-        if (cb_.onOpened) cb_.onOpened(*ack);
-        return;
-    }
-    case MsgType::TermData:
-        if (state_ != TerminalClientState::Open) return;
-        if (header->sessionId != termId_) return;
-        if (payload.empty() || payload.size() > kMaxTermDataBytes) return;
-        if (cb_.onOutput) cb_.onOutput(payload);
-        return;
-    case MsgType::TermExit: {
-        if (header->sessionId != termId_) return;
-        const std::optional<int32_t> code = ParseTermExit(payload);
-        if (!code) return;
-        termId_ = 0;
-        state_ = TerminalClientState::Closed;
-        if (cb_.onExit) cb_.onExit(*code);
-        return;
-    }
-    case MsgType::TermClose:
-        if (header->sessionId != termId_) return;
-        termId_ = 0;
-        state_ = TerminalClientState::Closed;
-        if (cb_.onExit) cb_.onExit(0);
-        return;
-    default: return;
+        case MsgType::TermData:
+            if (state_ != TerminalClientState::Open) return;
+            if (header->sessionId != termId_) return;
+            if (payload.empty() || payload.size() > kMaxTermDataBytes) return;
+            if (cb_.onOutput) cb_.onOutput(payload);
+            return;
+        case MsgType::TermExit: {
+            if (header->sessionId != termId_) return;
+            const std::optional<int32_t> code = ParseTermExit(payload);
+            if (!code) return;
+            termId_ = 0;
+            state_ = TerminalClientState::Closed;
+            if (cb_.onExit) cb_.onExit(*code);
+            return;
+        }
+        case MsgType::TermClose:
+            if (header->sessionId != termId_) return;
+            termId_ = 0;
+            state_ = TerminalClientState::Closed;
+            if (cb_.onExit) cb_.onExit(0);
+            return;
+        default: return;
     }
 }
 

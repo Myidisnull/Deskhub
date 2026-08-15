@@ -69,8 +69,17 @@ int main() {
     std::printf("--- system: the host's own key pair and the machines it trusts ---\n");
     RunHostIdentityTests();
 
+    std::printf("--- system: proving which machine, and that it knows the code ---\n");
+    RunAuthProofTests();
+
+    std::printf("--- session: pairing a machine, and letting it back in later ---\n");
+    RunAuthNegotiationTests();
+
     std::printf("--- net: QUIC over loopback (handshake, stream, datagram) ---\n");
     RunQuicEndpointTests();
+
+    std::printf("--- net: the session transport the host and viewer loops speak through ---\n");
+    RunSessionTransportTests();
 
     std::printf("--- system: pseudo terminal running a real shell ---\n");
     RunPtyTests();

@@ -6,6 +6,7 @@
 #include "deskhub/net/BindAddress.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 
 namespace deskhubp {
 
@@ -35,7 +36,7 @@ bool TerminalHost::Start(const TerminalHostConfig& config, const HostIdentity& i
     config_ = config;
     identity_ = identity;
     cb_ = std::move(callbacks);
-    sessions_.SetPasscode(config_.passcode);
+    sessions_.SetConnectionAuthenticated(true);
     sessions_.SetSharing(true);
 
     QuicSettings settings;
@@ -139,8 +140,57 @@ uint32_t TerminalHost::TermIdFor(QuicConnId conn, uint64_t stream) const {
     return 0;
 }
 
+// Same gate the screen path uses: a machine proves itself once per connection, and
+// until it has, nothing it sends opens a shell.
+bool TerminalHost::AuthAllows(QuicConnId conn, uint64_t stream,
+    std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return false;
+    const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
+    const int64_t nowUnix = NowUnixSeconds();
+
+    if (header->type == deskhub::MsgType::AuthStart) {
+        const std::optional<deskhub::AuthStart> start = deskhub::ParseAuthStart(payload);
+        if (!start) return false;
+
+        HostAuthConfig config;
+        config.identity = identity_;
+        config.SetPasscode(LoadOrCreateAuthSalt(), config_.passcode);
+        config.allowNewPairings = config_.allowNewPairings;
+
+        auto auth = std::make_unique<HostAuth>();
+        auth->Configure(std::move(config));
+        const std::optional<deskhub::AuthChallenge> challenge = auth->Begin(*start);
+        if (!challenge) return false;
+
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+        out.resize(deskhub::BuildAuthChallenge(out, *challenge));
+        SendToStream(conn, stream, out);
+        auth_[conn] = std::move(auth);
+        return false;
+    }
+
+    if (header->type == deskhub::MsgType::AuthResponse) {
+        const auto at = auth_.find(conn);
+        if (at == auth_.end()) return false;
+        const std::optional<deskhub::AuthResponse> response = deskhub::ParseAuthResponse(payload);
+        if (!response) return false;
+
+        const deskhub::AuthResult result = at->second->Respond(*response, nowUnix);
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+        out.resize(deskhub::BuildAuthResult(out, result));
+        SendToStream(conn, stream, out);
+        authenticated_[conn] = result.code == deskhub::AuthResultCode::Accepted;
+        return false;
+    }
+
+    const auto settled = authenticated_.find(conn);
+    return settled != authenticated_.end() && settled->second;
+}
+
 void TerminalHost::HandleMessage(QuicConnId conn, uint64_t stream,
     std::span<const uint8_t> message) {
+    if (!AuthAllows(conn, stream, message)) return;
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
     if (!header || header->chan != deskhub::Chan::Terminal) return;
     const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
@@ -274,6 +324,8 @@ void TerminalHost::OnConnectionClosed(QuicConnId conn, uint64_t nowUs) {
         sessions_.Detach(termId, nowUs);
         Audit(termId, "detached");
     }
+    auth_.erase(conn);
+    authenticated_.erase(conn);
     for (auto it = streams_.begin(); it != streams_.end();) {
         if ((it->first ^ (it->first >> 48 << 48)) == conn)
             it = streams_.erase(it);

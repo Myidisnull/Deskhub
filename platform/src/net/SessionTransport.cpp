@@ -1,0 +1,373 @@
+#include "deskhubp/net/SessionTransport.h"
+
+#include <algorithm>
+#include <utility>
+
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/system/Clock.h"
+#include "deskhubp/system/PairedDevicesFile.h"
+
+namespace deskhubp {
+
+namespace {
+
+constexpr uint32_t kEstablishPollMs = 5;
+constexpr uint32_t kAuthPollMs = 2;
+
+uint64_t StreamKey(QuicConnId conn, uint64_t stream) {
+    return conn ^ (stream << 48);
+}
+
+int64_t NowUnix() {
+    return NowUnixSeconds();
+}
+
+bool IsAuthMessage(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return false;
+    switch (header->type) {
+        case deskhub::MsgType::AuthStart:
+        case deskhub::MsgType::AuthChallenge:
+        case deskhub::MsgType::AuthResponse:
+        case deskhub::MsgType::AuthResult: return true;
+        default: return false;
+    }
+}
+
+bool CarriesVideo(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    return header.has_value() && header->chan == deskhub::Chan::Video;
+}
+
+}
+
+SessionTransport::SessionTransport() = default;
+
+SessionTransport::~SessionTransport() {
+    Close();
+}
+
+QuicCallbacks SessionTransport::MakeCallbacks() {
+    QuicCallbacks hooks;
+    hooks.onStream = [this](QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes,
+                         bool) { OnStream(conn, stream, bytes); };
+    hooks.onDatagram = [this](QuicConnId conn, std::span<const uint8_t> bytes) {
+        Deliver(NetAddr::Unpack(conn), bytes, true);
+    };
+    // A plain datagram is the beacon: it belongs to nobody's connection, carries no
+    // secrets, and must keep answering strangers, so it never meets the auth gate.
+    hooks.onForeignDatagram = [this](const NetAddr& from, std::span<const uint8_t> bytes) {
+        Deliver(from, bytes, false);
+    };
+    hooks.onClosed = [this](QuicConnId conn, const NetAddr& peer) {
+        for (auto it = framers_.begin(); it != framers_.end();) {
+            if ((it->first ^ (it->first >> 48 << 48)) == conn)
+                it = framers_.erase(it);
+            else
+                ++it;
+        }
+        if (onPeerGone_) onPeerGone_(peer);
+    };
+    return hooks;
+}
+
+bool SessionTransport::Listen(const QuicSettings& settings, uint16_t port,
+    const std::string& bindIp) {
+    return endpoint_.Listen(settings, bindIp, port, MakeCallbacks());
+}
+
+bool SessionTransport::Connect(const QuicSettings& settings, const NetAddr& server,
+    std::string_view serverName) {
+    return endpoint_.Connect(settings, server, serverName, MakeCallbacks());
+}
+
+bool SessionTransport::WaitEstablished(const NetAddr& peer, uint32_t timeoutMs) {
+    const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
+    while (NowUs() < deadline) {
+        if (endpoint_.Established(peer.Pack())) return true;
+        endpoint_.Poll(NowUs(), kEstablishPollMs);
+    }
+    return endpoint_.Established(peer.Pack());
+}
+
+void SessionTransport::Close() {
+    endpoint_.Close();
+    framers_.clear();
+    inbox_.clear();
+    authInbox_.clear();
+    hostAuth_.clear();
+    authenticated_.clear();
+}
+
+bool SessionTransport::SetRecvTimeout(uint32_t ms) {
+    recvWaitMs_ = ms;
+    return true;
+}
+
+void SessionTransport::SetVideoPath(VideoPath path) {
+    videoPath_ = path;
+}
+
+VideoPath SessionTransport::videoPath() const {
+    return videoPath_;
+}
+
+void SessionTransport::SetOnPeerGone(std::function<void(const NetAddr&)> fn) {
+    onPeerGone_ = std::move(fn);
+}
+
+void SessionTransport::OnStream(QuicConnId conn, uint64_t stream,
+    std::span<const uint8_t> bytes) {
+    deskhub::RecordStream& framer = framers_[StreamKey(conn, stream)];
+    framer.Append(bytes);
+    std::vector<uint8_t> message;
+    while (framer.Next(message)) Deliver(NetAddr::Unpack(conn), message, true);
+    if (framer.Failed()) {
+        LOGW("transport: %s sent a malformed record stream, closing it",
+            NetAddr::Unpack(conn).ToString().c_str());
+        endpoint_.CloseConnection(conn, 1, "bad framing");
+    }
+}
+
+void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> message,
+    bool overQuic) {
+    if (message.empty()) return;
+
+    if (clientAuthOn_ && IsAuthMessage(message)) {
+        TransportMessage queued;
+        queued.from = from;
+        queued.bytes.assign(message.begin(), message.end());
+        authInbox_.push_back(std::move(queued));
+        return;
+    }
+
+    if (hostAuthOn_ && overQuic && !HandleHostAuth(from, message)) return;
+
+    TransportMessage queued;
+    queued.from = from;
+    queued.bytes.assign(message.begin(), message.end());
+    inbox_.push_back(std::move(queued));
+}
+
+// Returns true when the message should carry on upwards. Auth traffic is answered
+// here and never surfaces; everything else from a machine that has not settled its
+// auth is dropped on the floor.
+bool SessionTransport::HandleHostAuth(const NetAddr& from, std::span<const uint8_t> message) {
+    const uint64_t key = from.Pack();
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return false;
+    const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
+
+    if (header->type == deskhub::MsgType::AuthStart) {
+        const std::optional<deskhub::AuthStart> start = deskhub::ParseAuthStart(payload);
+        if (!start) return false;
+
+        auto auth = std::make_unique<HostAuth>();
+        auth->Configure(hostAuthConfig_);
+        const std::optional<deskhub::AuthChallenge> challenge = auth->Begin(*start);
+        if (!challenge) return false;
+
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+        out.resize(deskhub::BuildAuthChallenge(out, *challenge));
+        SendAuth(from, out);
+
+        if (challenge->mode == deskhub::AuthMode::Approval && authCallbacks_.onApprovalNeeded)
+            authCallbacks_.onApprovalNeeded(from, auth->PeerFingerprint(), auth->PeerName());
+        if (challenge->mode == deskhub::AuthMode::Denied && authCallbacks_.onRefused)
+            authCallbacks_.onRefused(from, deskhub::AuthResultCode::PairingDisabled);
+
+        hostAuth_[key] = std::move(auth);
+        return false;
+    }
+
+    if (header->type == deskhub::MsgType::AuthResponse) {
+        const auto at = hostAuth_.find(key);
+        if (at == hostAuth_.end()) return false;
+        const std::optional<deskhub::AuthResponse> response = deskhub::ParseAuthResponse(payload);
+        if (!response) return false;
+        SettleHostAuth(from, *at->second, at->second->Respond(*response, NowUnix()));
+        return false;
+    }
+
+    const auto settled = authenticated_.find(key);
+    return settled != authenticated_.end() && settled->second;
+}
+
+void SessionTransport::SettleHostAuth(const NetAddr& peer, HostAuth& auth,
+    const deskhub::AuthResult& result) {
+    std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+    out.resize(deskhub::BuildAuthResult(out, result));
+    SendAuth(peer, out);
+
+    const bool accepted = result.code == deskhub::AuthResultCode::Accepted;
+    authenticated_[peer.Pack()] = accepted;
+    if (accepted) {
+        LOGI("transport: %s is allowed in (%s)", peer.ToString().c_str(),
+            deskhub::ShortFingerprint(auth.PeerFingerprint()).c_str());
+        if (authCallbacks_.onPaired)
+            authCallbacks_.onPaired(peer, auth.PeerFingerprint(), auth.PeerName());
+        return;
+    }
+    LOGW("transport: %s was turned away", peer.ToString().c_str());
+    if (authCallbacks_.onRefused) authCallbacks_.onRefused(peer, result.code);
+}
+
+void SessionTransport::SendAuth(const NetAddr& to, std::span<const uint8_t> message) {
+    if (message.empty()) return;
+    SendReliable(to, message);
+}
+
+void SessionTransport::SetHostAuth(HostAuthConfig config, TransportAuthCallbacks callbacks) {
+    hostAuthConfig_ = std::move(config);
+    authCallbacks_ = std::move(callbacks);
+    hostAuthOn_ = true;
+}
+
+void SessionTransport::ApproveConnection(const NetAddr& peer, bool allowed) {
+    const auto at = hostAuth_.find(peer.Pack());
+    if (at == hostAuth_.end()) return;
+    SettleHostAuth(peer, *at->second, at->second->Approve(allowed, NowUnix()));
+}
+
+bool SessionTransport::Authenticated(const NetAddr& peer) const {
+    const auto at = authenticated_.find(peer.Pack());
+    return at != authenticated_.end() && at->second;
+}
+
+bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig config,
+    uint32_t timeoutMs, deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode) {
+    clientAuthOn_ = true;
+    outCode = deskhub::AuthResultCode::NotPaired;
+    outHostProvedPasscode = false;
+
+    ClientAuth client;
+    client.Configure(std::move(config));
+
+    std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+    out.resize(deskhub::BuildAuthStart(out, client.Begin()));
+    if (out.empty()) return false;
+    SendAuth(server, out);
+
+    const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
+    bool answered = false;
+    while (NowUs() < deadline) {
+        if (authInbox_.empty()) {
+            const std::lock_guard<std::mutex> lock(sendMutex_);
+            endpoint_.Poll(NowUs(), kAuthPollMs);
+            continue;
+        }
+
+        const TransportMessage message = std::move(authInbox_.front());
+        authInbox_.pop_front();
+        const std::optional<deskhub::CommonHeader> header =
+            deskhub::ParseCommonHeader(message.bytes);
+        if (!header) continue;
+        const std::span<const uint8_t> payload = deskhub::PayloadOf(message.bytes);
+
+        if (header->type == deskhub::MsgType::AuthChallenge && !answered) {
+            const std::optional<deskhub::AuthChallenge> challenge =
+                deskhub::ParseAuthChallenge(payload);
+            if (!challenge) continue;
+            if (challenge->mode == deskhub::AuthMode::Denied) {
+                outCode = deskhub::AuthResultCode::PairingDisabled;
+                clientAuthOn_ = false;
+                return false;
+            }
+            // Approval mode has nothing to answer with: the machine at the other end
+            // is waiting for a person, so we wait for the verdict too.
+            if (challenge->mode == deskhub::AuthMode::Approval) {
+                answered = true;
+                continue;
+            }
+            const std::optional<deskhub::AuthResponse> response = client.Answer(*challenge);
+            if (!response) {
+                outCode = deskhub::AuthResultCode::WrongPasscode;
+                clientAuthOn_ = false;
+                return false;
+            }
+            std::vector<uint8_t> reply(deskhub::kMaxRecordSize);
+            reply.resize(deskhub::BuildAuthResponse(reply, *response));
+            SendAuth(server, reply);
+            answered = true;
+            continue;
+        }
+
+        if (header->type == deskhub::MsgType::AuthResult) {
+            const std::optional<deskhub::AuthResult> result = deskhub::ParseAuthResult(payload);
+            if (!result) continue;
+            outCode = result->code;
+            outHostProvedPasscode = client.HostProvedThePasscode(*result);
+            clientAuthOn_ = false;
+            return result->code == deskhub::AuthResultCode::Accepted;
+        }
+    }
+
+    outCode = deskhub::AuthResultCode::TimedOut;
+    clientAuthOn_ = false;
+    return false;
+}
+
+bool SessionTransport::SendReliable(const NetAddr& to, std::span<const uint8_t> message) {
+    std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
+    const size_t written = deskhub::BuildRecord(record, message);
+    if (written == 0) return false;
+    return endpoint_.SendStream(to.Pack(), kQuicControlStream,
+        std::span<const uint8_t>(record.data(), written));
+}
+
+bool SessionTransport::SendTo(const NetAddr& to, const uint8_t* data, size_t len) {
+    const std::span<const uint8_t> message(data, len);
+
+    if (CarriesVideo(message)) {
+        if (videoPath_ == VideoPath::RawUdp) return endpoint_.SendRaw(to, message);
+        const std::lock_guard<std::mutex> lock(sendMutex_);
+        return endpoint_.SendDatagram(to.Pack(), message);
+    }
+
+    const std::lock_guard<std::mutex> lock(sendMutex_);
+    if (!endpoint_.Established(to.Pack())) return endpoint_.SendRaw(to, message);
+    return SendReliable(to, message);
+}
+
+int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
+    if (!endpoint_.IsOpen()) return -1;
+    if (inbox_.empty()) {
+        const std::lock_guard<std::mutex> lock(sendMutex_);
+        endpoint_.Poll(NowUs(), recvWaitMs_);
+    }
+    if (inbox_.empty()) return 0;
+
+    const TransportMessage message = std::move(inbox_.front());
+    inbox_.pop_front();
+    from = message.from;
+    const size_t take = std::min(cap, message.bytes.size());
+    std::copy_n(message.bytes.begin(), take, buf);
+    return int(take);
+}
+
+std::optional<deskhub::Fingerprint> SessionTransport::PeerFingerprint(
+    const NetAddr& peer) const {
+    return endpoint_.PeerFingerprint(peer.Pack());
+}
+
+bool SessionTransport::Established(const NetAddr& peer) const {
+    return endpoint_.Established(peer.Pack());
+}
+
+size_t SessionTransport::MaxDatagramSize(const NetAddr& peer) const {
+    return endpoint_.MaxDatagramSize(peer.Pack());
+}
+
+bool SessionTransport::IsOpen() const {
+    return endpoint_.IsOpen();
+}
+
+bool SessionTransport::lastBindAddrInUse() const {
+    return endpoint_.LastBindAddrInUse();
+}
+
+uint16_t SessionTransport::LocalPort() const {
+    return endpoint_.LocalPort();
+}
+
+}

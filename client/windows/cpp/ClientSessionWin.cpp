@@ -91,6 +91,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
             raw->callbacks.onStatus(compact, raw->callbacks.user);
     };
     raw->WireLifecycle(cfg);
+    cfg.hostLabel = address ? address : "";
     cfg.onDecodeThreadStart = [] { CoInitializeEx(nullptr, COINIT_MULTITHREADED); };
     cfg.onDecodeThreadExit = [] { CoUninitialize(); };
 
@@ -104,6 +105,14 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
 
 void dh_session_stop(DHSession* s) {
     deskhubp::StopFfiClientSession(s);
+}
+
+void dh_session_accept_key(DHSession* s) {
+    deskhubp::AcceptFfiClientKey(s);
+}
+
+void dh_session_reject_key(DHSession* s) {
+    deskhubp::RejectFfiClientKey(s);
 }
 
 void dh_session_set_layer(DHSession*, void*) {}

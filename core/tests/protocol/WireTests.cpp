@@ -716,6 +716,74 @@ void TestStateEventClassification() {
 
 }
 
+void TestAuthWire() {
+    std::printf("[wire] the pairing handshake survives the wire, and junk does not...\n");
+    uint8_t buf[kMaxDatagram];
+
+    AuthStart start;
+    start.publicKey.assign(91, 0x31);
+    start.clientName = "manh laptop";
+    size_t n = BuildAuthStart(buf, start);
+    Check(n > 0, "a machine announces the key it holds");
+    std::optional<AuthStart> gotStart = ParseAuthStart(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(gotStart && gotStart->publicKey == start.publicKey,
+        "and the key arrives byte for byte - the host hashes it to get the fingerprint");
+    Check(gotStart && gotStart->clientName == "manh laptop", "so does the name it goes by");
+
+    AuthStart keyless;
+    keyless.clientName = "no key at all";
+    Check(BuildAuthStart(buf, keyless) == 0, "a machine with no key cannot even ask");
+
+    AuthChallenge challenge;
+    challenge.mode = AuthMode::Passcode;
+    challenge.nonce.fill(0x5A);
+    challenge.salt.fill(0x11);
+    challenge.spake.assign(32, 0xAB);
+    n = BuildAuthChallenge(buf, challenge);
+    Check(n > 0, "the host answers with what it wants proved");
+    std::optional<AuthChallenge> gotChallenge =
+        ParseAuthChallenge(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(gotChallenge && gotChallenge->mode == AuthMode::Passcode, "the mode round-trips");
+    Check(gotChallenge && gotChallenge->nonce == challenge.nonce &&
+              gotChallenge->salt == challenge.salt,
+        "so do the nonce and the salt");
+    Check(gotChallenge && gotChallenge->spake == challenge.spake,
+        "and the SPAKE2 message it carries");
+
+    AuthChallenge tooBig = challenge;
+    tooBig.spake.assign(kMaxAuthBlobBytes + 1, 0);
+    Check(BuildAuthChallenge(buf, tooBig) == 0, "an oversized blob is refused at build time");
+
+    AuthResponse response;
+    response.proof.assign(64, 0xC3);
+    response.confirm.fill(0x77);
+    n = BuildAuthResponse(buf, response);
+    Check(n > 0, "the client answers with its proof");
+    std::optional<AuthResponse> gotResponse =
+        ParseAuthResponse(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(gotResponse && gotResponse->proof == response.proof &&
+              gotResponse->confirm == response.confirm,
+        "both the proof and the confirmation come back whole");
+
+    AuthResult result;
+    result.code = AuthResultCode::WrongPasscode;
+    result.confirm.fill(0x42);
+    n = BuildAuthResult(buf, result);
+    std::optional<AuthResult> gotResult =
+        ParseAuthResult(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(gotResult && gotResult->code == AuthResultCode::WrongPasscode,
+        "and the verdict says which of the refusals it was");
+
+    for (size_t cut = 0; cut < n; ++cut)
+        Check(!ParseAuthResult(std::span<const uint8_t>(buf, cut)).has_value() || cut >= 1 + kAuthMacBytes,
+            "a truncated verdict is refused rather than half-read");
+
+    const uint8_t badMode[1 + kAuthNonceBytes + kAuthSaltBytes + 2] = {0xFF};
+    Check(!ParseAuthChallenge(badMode).has_value(), "a mode we do not know is refused");
+    const uint8_t badCode[1 + kAuthMacBytes] = {0xFF};
+    Check(!ParseAuthResult(badCode).has_value(), "so is a verdict we do not know");
+}
+
 void RunWireTests() {
     TestWireRoundtrip();
     TestStateEventClassification();
@@ -732,4 +800,5 @@ void RunWireTests() {
     TestRecordFraming();
     TestPacketClassification();
     TestTerminalWire();
+    TestAuthWire();
 }

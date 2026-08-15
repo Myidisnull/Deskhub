@@ -28,7 +28,7 @@ bool AwaitingFirstFrame(const deskhub::SourcePipelineState& st, const SourcePred
 
 }
 
-size_t SendToViewers(const deskhub::SourcePipelineState& st, UdpSocket& sock,
+size_t SendToViewers(const deskhub::SourcePipelineState& st, SessionTransport& sock,
     std::span<const uint8_t> datagram) {
     uint64_t addrs[deskhub::kMaxViewersPerSource];
     const size_t viewers = deskhub::SnapshotViewerAddrs(st, addrs);
@@ -50,7 +50,7 @@ std::string ViewerAddrList(const deskhub::SourcePipelineState& st) {
     return joined;
 }
 
-void SendEncodedFrame(deskhub::SourcePipelineState& st, UdpSocket& sock,
+void SendEncodedFrame(deskhub::SourcePipelineState& st, SessionTransport& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe) {
     if (!st.session || st.session->state() != deskhub::HostSession::State::Streaming) return;
 
@@ -130,7 +130,7 @@ std::vector<deskhub::SourcePipelineState*> SelectLiveSources(
     return live;
 }
 
-void EndHostSession(deskhub::SourcePipelineState& st, UdpSocket& sock) {
+void EndHostSession(deskhub::SourcePipelineState& st, SessionTransport& sock) {
     if (!st.session || st.session->state() == deskhub::HostSession::State::Idle) return;
 
     uint8_t bye[deskhub::kCommonHeaderSize];

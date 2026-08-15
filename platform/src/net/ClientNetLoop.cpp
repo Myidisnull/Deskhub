@@ -26,7 +26,7 @@ uint32_t MakeClientId(uint8_t sourceId) {
     return uint32_t(NowUs()) ^ CurrentProcessId() ^ (uint32_t(sourceId) << 24);
 }
 
-void RunClientNetLoop(UdpSocket& sock, deskhub::ClientPump& pump,
+void RunClientNetLoop(SessionTransport& sock, deskhub::ClientPump& pump,
     const ClientNetLoopHooks& hooks) {
     uint8_t buf[deskhub::kMaxDatagram];
 

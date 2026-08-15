@@ -146,7 +146,9 @@ void TestEraseAndInsert() {
     s.Write("\x1B[2;1H\x1B[M");
     Check(s.RowText(1) == "two" && s.RowText(2) == "three", "DL takes it back out");
 
-    s.Write("\x1B[H\x1B[2J\x1B[4h""abc\x1B[1;1Hxy");
+    s.Write(
+        "\x1B[H\x1B[2J\x1B[4h"
+        "abc\x1B[1;1Hxy");
     Check(s.RowText(0) == "xyabc", "insert mode pushes the line right as you type");
     s.Write("\x1B[4l\x1B[1;1Hz");
     Check(s.RowText(0) == "zyabc", "and replace mode overwrites again");
@@ -184,7 +186,9 @@ void TestScrollingAndScrollback() {
     ri.Write("\x1B[1;1H\x1BM");
     Check(ri.RowText(0).empty() && ri.RowText(1) == "a",
         "reverse index at the top opens a line above");
-    ri.Write("\x1B[3;1H\x1B""E");
+    ri.Write(
+        "\x1B[3;1H\x1B"
+        "E");
     Check(ri.Cursor().col == 0, "NEL goes to the start of the next line");
 }
 
@@ -231,13 +235,19 @@ void TestSgr() {
 
     s.Write("\x1B[H\x1B[2;3;5;7;8;9md");
     const uint8_t all = kAttrDim | kAttrItalic | kAttrBlink | kAttrReverse | kAttrHidden |
-        kAttrStrike;
+                        kAttrStrike;
     Check(s.At(0, 0).pen.attrs == all, "every attribute we model can be switched on");
-    s.Write("\x1B[22;23;25;27;28;29m\x1B[H""e");
+    s.Write(
+        "\x1B[22;23;25;27;28;29m\x1B[H"
+        "e");
     Check(s.At(0, 0).pen.attrs == 0, "and every one of them switched off again");
-    s.Write("\x1B[1m\x1B[21m\x1B[H""f");
+    s.Write(
+        "\x1B[1m\x1B[21m\x1B[H"
+        "f");
     Check(s.At(0, 0).pen.attrs == 0, "21 clears bold the way most terminals treat it");
-    s.Write("\x1B[4m\x1B[24m\x1B[H""g");
+    s.Write(
+        "\x1B[4m\x1B[24m\x1B[H"
+        "g");
     Check(s.At(0, 0).pen.attrs == 0, "24 clears the underline");
     s.Write("\x1B[7m\x1B[H\x1B[K");
     Check(s.At(0, 3).pen.bg == Color{}, "erasing with only reverse set does not stain the row");
@@ -260,12 +270,16 @@ void TestAlternateScreen() {
         "leaving it puts the shell's output back exactly as it was");
     Check(s.Cursor().row == 1 && s.Cursor().col == 5, "and the cursor with it");
 
-    s.Write("\x1B[?47h""alt\x1B[?47l");
+    s.Write(
+        "\x1B[?47h"
+        "alt\x1B[?47l");
     Check(!s.AlternateScreen() && s.RowText(0) == "shell line",
         "the older 47 switch behaves the same way");
 
     Screen sb(TermSize{10, 2}, 10);
-    sb.Write("\x1B[?1049h""a\r\nb\r\nc\r\nd");
+    sb.Write(
+        "\x1B[?1049h"
+        "a\r\nb\r\nc\r\nd");
     Check(sb.ScrollbackRows() == 0, "nothing scrolled off the alternate screen is kept");
 }
 
@@ -282,7 +296,10 @@ void TestCharsetsAndReset() {
     Check(s.At(0, 1).ch == U'\u2500' && s.At(0, 2).ch == U'q',
         "shift-out selects G1 and shift-in comes back to G0");
 
-    s.Write("\x1B[3;5H\x1B[1m\x1B""7\x1B[1;1H\x1B[m\x1B""8");
+    s.Write(
+        "\x1B[3;5H\x1B[1m\x1B"
+        "7\x1B[1;1H\x1B[m\x1B"
+        "8");
     Check(s.Cursor().row == 2 && s.Cursor().col == 4, "ESC 8 restores where ESC 7 left the cursor");
     Check(s.CurrentPen().attrs == kAttrBold, "and the pen that was in force at the time");
 
@@ -293,7 +310,9 @@ void TestCharsetsAndReset() {
     s.Write("\x1B#8");
     Check(s.RowText(0) == "EEEEEEEEEE", "the alignment pattern fills the screen");
 
-    s.Write("\x1B[?25l\x1B[1;30m\x1B""c");
+    s.Write(
+        "\x1B[?25l\x1B[1;30m\x1B"
+        "c");
     Check(s.RowText(0).empty(), "a hard reset clears the screen");
     Check(s.Cursor() == CursorState{} && s.CurrentPen() == Pen{},
         "and puts the cursor, the pen and the cursor visibility back");
@@ -383,7 +402,9 @@ void TestResize() {
         "an impossible size is clamped rather than accepted");
 
     Screen alt(TermSize{10, 4}, 10);
-    alt.Write("\x1B[?1049h""a\r\nb\r\nc\r\nd");
+    alt.Write(
+        "\x1B[?1049h"
+        "a\r\nb\r\nc\r\nd");
     alt.Resize(TermSize{10, 2});
     Check(alt.ScrollbackRows() == 0, "shrinking the alternate screen never fills the scrollback");
     alt.Write("\x1B[?1049l");
@@ -417,7 +438,7 @@ void TestVimReplay() {
 
     s.Write("\x1B[?1049l\x1B[?1l\x1B>");
     Check(!s.AlternateScreen() && !s.Modes().applicationCursor &&
-            !s.Modes().applicationKeypad,
+              !s.Modes().applicationKeypad,
         "quitting vim puts every mode back the way it found them");
 }
 
@@ -432,7 +453,7 @@ void TestHtopReplay() {
     Check(s.RowText(5).find("htop") != std::string::npos, "the first process row is there");
     Check(s.RowText(6).find("bash") != std::string::npos, "and the second");
     Check(s.At(0, 0).pen.fg == PaletteColor(2) &&
-            (s.At(0, 0).pen.attrs & kAttrBold) != 0,
+              (s.At(0, 0).pen.attrs & kAttrBold) != 0,
         "the CPU number is bold green");
     Check(s.At(0, 5).pen.bg == PaletteColor(2), "the used part of the meter is green");
     Check(s.At(0, 9).pen.bg == PaletteColor(4), "and the rest of it blue");

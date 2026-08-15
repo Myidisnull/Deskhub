@@ -59,8 +59,11 @@ void AnswerOneQuery(UdpSocket& host) {
     }
 }
 
-void TestQueryGetsTheList() {
-    std::printf("[srcq] a LIST_SOURCES query returns what the host is sharing...\n");
+// Anyone can send a SOURCE_LIST over plain UDP. Before 5.0.0 that was enough to be
+// believed; now the list is only taken from a machine this one has shaken hands with
+// and proved itself to, so an impostor shouting the answer is simply not heard.
+void TestAPlainUdpImpostorIsNotBelieved() {
+    std::printf("[srcq] a display list shouted over plain UDP is not believed...\n");
     UdpSocket host;
     const uint16_t port = OpenOnAFreePort(host);
     Check(port != 0, "a loopback host socket could be opened");
@@ -69,16 +72,13 @@ void TestQueryGetsTheList() {
     std::thread responder(AnswerOneQuery, std::ref(host));
 
     std::vector<deskhub::SourceInfo> out;
-    const bool ok = QuerySources(NetAddr{kLoopbackIp, port}, out);
+    deskhub::AuthResultCode code = deskhub::AuthResultCode::Accepted;
+    const bool ok = QuerySources(NetAddr{kLoopbackIp, port}, out, std::string(), &code);
     responder.join();
 
-    Check(ok, "the query succeeded despite garbage and stray replies first");
-    Check(out.size() == 2, "both sources came back");
-    if (out.size() == 2) {
-        Check(out[0].sourceId == 1 && out[0].width == 1920 && out[0].height == 1080,
-            "the first source survives the round trip");
-        Check(out[1].name == "Screen 2", "so does the second source's name");
-    }
+    Check(!ok, "the query fails rather than trusting whatever answered");
+    Check(out.empty(), "and not one display name is taken from it");
+    host.Close();
 }
 
 void TestQueryTimesOutWithoutAHost() {
@@ -96,6 +96,6 @@ void TestQueryTimesOutWithoutAHost() {
 }
 
 void RunSourceQueryTests() {
-    TestQueryGetsTheList();
+    TestAPlainUdpImpostorIsNotBelieved();
     TestQueryTimesOutWithoutAHost();
 }

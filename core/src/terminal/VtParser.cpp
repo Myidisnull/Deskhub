@@ -207,181 +207,183 @@ void VtParser::ConsumeGround(uint8_t byte, std::vector<VtEvent>& out) {
 
 void VtParser::Consume(uint8_t byte, std::vector<VtEvent>& out) {
     switch (state_) {
-    case State::Ground:
-        if (byte == kEsc) {
-            if (utf8Left_ > 0) {
-                utf8Left_ = 0;
-                EmitPrint(kReplacement, out);
+        case State::Ground:
+            if (byte == kEsc) {
+                if (utf8Left_ > 0) {
+                    utf8Left_ = 0;
+                    EmitPrint(kReplacement, out);
+                }
+                StartSequence();
+                state_ = State::Escape;
+                return;
             }
-            StartSequence();
-            state_ = State::Escape;
-            return;
-        }
-        if (byte < 0x20 || byte == kDel) {
-            if (utf8Left_ > 0) {
-                utf8Left_ = 0;
-                EmitPrint(kReplacement, out);
+            if (byte < 0x20 || byte == kDel) {
+                if (utf8Left_ > 0) {
+                    utf8Left_ = 0;
+                    EmitPrint(kReplacement, out);
+                }
+                if (byte != kDel) EmitExecute(byte, out);
+                return;
             }
-            if (byte != kDel) EmitExecute(byte, out);
+            ConsumeGround(byte, out);
             return;
-        }
-        ConsumeGround(byte, out);
-        return;
 
-    case State::Escape:
-        if (byte == kEsc) {
-            StartSequence();
-            return;
-        }
-        if (byte == '[') {
-            state_ = State::CsiEntry;
-            return;
-        }
-        if (byte == ']') {
-            state_ = State::OscString;
-            return;
-        }
-        if (byte == 'P' || byte == 'X' || byte == '^' || byte == '_') {
-            state_ = State::StringIgnore;
-            return;
-        }
-        if (IsIntermediate(byte)) {
-            intermediate_ = byte;
-            state_ = State::EscapeIntermediate;
-            return;
-        }
-        if (IsEscFinal(byte)) {
-            EmitEsc(byte, out);
-            state_ = State::Ground;
-            return;
-        }
-        if (byte < 0x20) EmitExecute(byte, out);
-        return;
-
-    case State::EscapeIntermediate:
-        if (byte == kEsc) {
-            StartSequence();
-            state_ = State::Escape;
-            return;
-        }
-        if (IsIntermediate(byte)) {
-            intermediate_ = byte;
-            return;
-        }
-        if (IsEscFinal(byte)) {
-            EmitEsc(byte, out);
-            state_ = State::Ground;
-            return;
-        }
-        if (byte < 0x20) EmitExecute(byte, out);
-        return;
-
-    case State::CsiEntry:
-    case State::CsiParam:
-        if (IsParamByte(byte)) {
-            PushParamDigit(byte);
-            state_ = State::CsiParam;
-            return;
-        }
-        if (IsSeparator(byte)) {
-            PushParamSeparator();
-            state_ = State::CsiParam;
-            return;
-        }
-        if (IsPrivateMarker(byte)) {
-            if (state_ == State::CsiEntry) {
-                prefix_ = byte;
-                state_ = State::CsiParam;
-            } else {
-                state_ = State::CsiIgnore;
+        case State::Escape:
+            if (byte == kEsc) {
+                StartSequence();
+                return;
             }
-            return;
-        }
-        if (IsIntermediate(byte)) {
-            intermediate_ = byte;
-            state_ = State::CsiIntermediate;
-            return;
-        }
-        if (IsCsiFinal(byte)) {
-            EmitCsi(byte, out);
-            state_ = State::Ground;
-            return;
-        }
-        if (byte == kEsc) {
-            StartSequence();
-            state_ = State::Escape;
-            return;
-        }
-        if (byte < 0x20) EmitExecute(byte, out);
-        return;
-
-    case State::CsiIntermediate:
-        if (IsIntermediate(byte)) {
-            intermediate_ = byte;
-            return;
-        }
-        if (IsCsiFinal(byte)) {
-            EmitCsi(byte, out);
-            state_ = State::Ground;
-            return;
-        }
-        if (byte == kEsc) {
-            StartSequence();
-            state_ = State::Escape;
-            return;
-        }
-        if (byte < 0x20) EmitExecute(byte, out);
-        else state_ = State::CsiIgnore;
-        return;
-
-    case State::CsiIgnore:
-        if (IsCsiFinal(byte)) {
-            state_ = State::Ground;
-            return;
-        }
-        if (byte == kEsc) {
-            StartSequence();
-            state_ = State::Escape;
-            return;
-        }
-        if (byte < 0x20) EmitExecute(byte, out);
-        return;
-
-    case State::OscString:
-    case State::StringIgnore: {
-        const bool collecting = state_ == State::OscString;
-        if (escInString_) {
-            escInString_ = false;
-            if (byte == '\\') {
-                if (collecting) EmitOsc(out);
+            if (byte == '[') {
+                state_ = State::CsiEntry;
+                return;
+            }
+            if (byte == ']') {
+                state_ = State::OscString;
+                return;
+            }
+            if (byte == 'P' || byte == 'X' || byte == '^' || byte == '_') {
+                state_ = State::StringIgnore;
+                return;
+            }
+            if (IsIntermediate(byte)) {
+                intermediate_ = byte;
+                state_ = State::EscapeIntermediate;
+                return;
+            }
+            if (IsEscFinal(byte)) {
+                EmitEsc(byte, out);
                 state_ = State::Ground;
                 return;
             }
-            if (collecting) EmitOsc(out);
-            osc_.clear();
-            StartSequence();
-            state_ = State::Escape;
-            Consume(byte, out);
+            if (byte < 0x20) EmitExecute(byte, out);
+            return;
+
+        case State::EscapeIntermediate:
+            if (byte == kEsc) {
+                StartSequence();
+                state_ = State::Escape;
+                return;
+            }
+            if (IsIntermediate(byte)) {
+                intermediate_ = byte;
+                return;
+            }
+            if (IsEscFinal(byte)) {
+                EmitEsc(byte, out);
+                state_ = State::Ground;
+                return;
+            }
+            if (byte < 0x20) EmitExecute(byte, out);
+            return;
+
+        case State::CsiEntry:
+        case State::CsiParam:
+            if (IsParamByte(byte)) {
+                PushParamDigit(byte);
+                state_ = State::CsiParam;
+                return;
+            }
+            if (IsSeparator(byte)) {
+                PushParamSeparator();
+                state_ = State::CsiParam;
+                return;
+            }
+            if (IsPrivateMarker(byte)) {
+                if (state_ == State::CsiEntry) {
+                    prefix_ = byte;
+                    state_ = State::CsiParam;
+                } else {
+                    state_ = State::CsiIgnore;
+                }
+                return;
+            }
+            if (IsIntermediate(byte)) {
+                intermediate_ = byte;
+                state_ = State::CsiIntermediate;
+                return;
+            }
+            if (IsCsiFinal(byte)) {
+                EmitCsi(byte, out);
+                state_ = State::Ground;
+                return;
+            }
+            if (byte == kEsc) {
+                StartSequence();
+                state_ = State::Escape;
+                return;
+            }
+            if (byte < 0x20) EmitExecute(byte, out);
+            return;
+
+        case State::CsiIntermediate:
+            if (IsIntermediate(byte)) {
+                intermediate_ = byte;
+                return;
+            }
+            if (IsCsiFinal(byte)) {
+                EmitCsi(byte, out);
+                state_ = State::Ground;
+                return;
+            }
+            if (byte == kEsc) {
+                StartSequence();
+                state_ = State::Escape;
+                return;
+            }
+            if (byte < 0x20)
+                EmitExecute(byte, out);
+            else
+                state_ = State::CsiIgnore;
+            return;
+
+        case State::CsiIgnore:
+            if (IsCsiFinal(byte)) {
+                state_ = State::Ground;
+                return;
+            }
+            if (byte == kEsc) {
+                StartSequence();
+                state_ = State::Escape;
+                return;
+            }
+            if (byte < 0x20) EmitExecute(byte, out);
+            return;
+
+        case State::OscString:
+        case State::StringIgnore: {
+            const bool collecting = state_ == State::OscString;
+            if (escInString_) {
+                escInString_ = false;
+                if (byte == '\\') {
+                    if (collecting) EmitOsc(out);
+                    state_ = State::Ground;
+                    return;
+                }
+                if (collecting) EmitOsc(out);
+                osc_.clear();
+                StartSequence();
+                state_ = State::Escape;
+                Consume(byte, out);
+                return;
+            }
+            if (byte == kEsc) {
+                escInString_ = true;
+                return;
+            }
+            if (byte == kBel) {
+                if (collecting) EmitOsc(out);
+                osc_.clear();
+                state_ = State::Ground;
+                return;
+            }
+            if (byte == kCan || byte == kSub) {
+                osc_.clear();
+                state_ = State::Ground;
+                return;
+            }
+            if (collecting && osc_.size() < kMaxOscBytes) osc_.push_back(char(byte));
             return;
         }
-        if (byte == kEsc) {
-            escInString_ = true;
-            return;
-        }
-        if (byte == kBel) {
-            if (collecting) EmitOsc(out);
-            osc_.clear();
-            state_ = State::Ground;
-            return;
-        }
-        if (byte == kCan || byte == kSub) {
-            osc_.clear();
-            state_ = State::Ground;
-            return;
-        }
-        if (collecting && osc_.size() < kMaxOscBytes) osc_.push_back(char(byte));
-        return;
-    }
     }
 }
 

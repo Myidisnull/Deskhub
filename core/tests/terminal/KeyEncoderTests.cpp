@@ -48,7 +48,7 @@ void TestControlCombinations() {
     Check(Ch(U'_', {false, false, true}) == "\x1F" && Ch(U'/', {false, false, true}) == "\x1F",
         "Ctrl-underscore and Ctrl-slash both send unit separator");
     Check(Ch(U' ', {false, false, true}) == std::string(1, '\0') &&
-            Ch(U'@', {false, false, true}) == std::string(1, '\0'),
+              Ch(U'@', {false, false, true}) == std::string(1, '\0'),
         "Ctrl-space and Ctrl-@ send a null byte");
     Check(Ch(U'?', {false, false, true}) == "\x7F", "Ctrl-? sends delete");
     Check(Ch(U'1', {false, false, true}) == "1",
@@ -57,7 +57,10 @@ void TestControlCombinations() {
 
 void TestAltPrefix() {
     std::printf("[keys] Alt puts an escape in front of whatever the key sends...\n");
-    Check(Ch(U'b', {false, true, false}) == "\x1B""b", "Alt-b is escape then b");
+    Check(Ch(U'b', {false, true, false}) ==
+              "\x1B"
+              "b",
+        "Alt-b is escape then b");
     Check(Ch(U'c', {false, true, true}) == std::string("\x1B") + '\x03',
         "Alt-Ctrl-C keeps both");
     Check(Key(TermKey::Enter, {false, true, false}) == "\x1B\r", "Alt-Enter too");
@@ -92,11 +95,11 @@ void TestArrowsFollowTheMode() {
     Check(Key(TermKey::Up, {}, normal) == "\x1B[A", "in normal mode an arrow is a CSI");
     Check(Key(TermKey::Up, {}, application) == "\x1BOA", "in application mode it is an SS3");
     Check(Key(TermKey::Down, {}, application) == "\x1BOB" &&
-            Key(TermKey::Right, {}, application) == "\x1BOC" &&
-            Key(TermKey::Left, {}, application) == "\x1BOD",
+              Key(TermKey::Right, {}, application) == "\x1BOC" &&
+              Key(TermKey::Left, {}, application) == "\x1BOD",
         "all four arrows follow the same rule");
     Check(Key(TermKey::Home, {}, application) == "\x1BOH" &&
-            Key(TermKey::End, {}, application) == "\x1BOF",
+              Key(TermKey::End, {}, application) == "\x1BOF",
         "so do Home and End");
 
     Check(Key(TermKey::Up, {false, false, true}, application) == "\x1B[1;5A",
@@ -110,13 +113,13 @@ void TestArrowsFollowTheMode() {
 void TestFunctionKeys() {
     std::printf("[keys] the twelve function keys and their two shapes...\n");
     Check(Key(TermKey::F1) == "\x1BOP" && Key(TermKey::F2) == "\x1BOQ" &&
-            Key(TermKey::F3) == "\x1BOR" && Key(TermKey::F4) == "\x1BOS",
+              Key(TermKey::F3) == "\x1BOR" && Key(TermKey::F4) == "\x1BOS",
         "F1 to F4 are SS3 sequences");
     Check(Key(TermKey::F5) == "\x1B[15~" && Key(TermKey::F6) == "\x1B[17~" &&
-            Key(TermKey::F7) == "\x1B[18~" && Key(TermKey::F8) == "\x1B[19~",
+              Key(TermKey::F7) == "\x1B[18~" && Key(TermKey::F8) == "\x1B[19~",
         "F5 to F8 are numbered");
     Check(Key(TermKey::F9) == "\x1B[20~" && Key(TermKey::F10) == "\x1B[21~" &&
-            Key(TermKey::F11) == "\x1B[23~" && Key(TermKey::F12) == "\x1B[24~",
+              Key(TermKey::F11) == "\x1B[23~" && Key(TermKey::F12) == "\x1B[24~",
         "and so are F9 to F12, with the gaps the standard leaves");
     Check(Key(TermKey::F1, {true, false, false}) == "\x1B[1;2P",
         "a modified F1 switches to the CSI form");

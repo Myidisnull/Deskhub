@@ -9,9 +9,9 @@ using namespace deskhub;
 
 namespace {
 
-std::vector<uint8_t> Ask(const Beacon& b, std::span<const uint8_t> req) {
+std::vector<uint8_t> Ask(const Beacon& b, std::span<const uint8_t> req, bool trusted = false) {
     uint8_t out[kMaxDatagram];
-    const size_t n = b.Reply(out, req);
+    const size_t n = b.Reply(out, req, trusted);
     return std::vector<uint8_t>(out, out + n);
 }
 
@@ -28,7 +28,7 @@ void TestBeaconSourcesAndProbe() {
 
     uint8_t req[kMaxDatagram];
     size_t rn = BuildListSources(req, kTestPasscode);
-    const auto rep = Ask(b, std::span<const uint8_t>(req, rn));
+    const auto rep = Ask(b, std::span<const uint8_t>(req, rn), true);
     const auto h = ParseCommonHeader(rep);
     Check(h && h->type == MsgType::SourceList, "LIST_SOURCES -> SOURCE_LIST");
     SourceInfo got[kMaxSources];
@@ -82,18 +82,18 @@ void TestBeaconHidesSourcesBehindThePasscode() {
     Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
         "a wrong passcode learns nothing either");
 
+    // The passcode used to decide this, and the difference between a right guess and
+    // a wrong one was itself the answer - free to probe, ten thousand tries deep. Now
+    // only a machine that has proved itself on the encrypted connection is told.
     rn = BuildListSources(req, "4726");
-    rep = Ask(b, std::span<const uint8_t>(req, rn));
-    Check(ParseSourceList(PayloadOf(rep), got) == 1 && got[0].name == "DELL U2723QE",
-        "the right passcode gets the real list");
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
+        "and so does the RIGHT passcode, offered by a stranger over plain UDP");
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn), true)), got) == 1,
+        "the list comes back only once the asker is inside an authenticated connection");
 
-    b.SetPasscode("bad");
     rn = BuildListSources(req);
-    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
-        "a host left without a valid passcode shows nobody its displays");
-    rn = BuildListSources(req, "4726");
-    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
-        "not even the code it used to accept");
+    Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn), true)), got) == 1,
+        "at which point it no longer has to carry a passcode at all");
 }
 
 void TestBeaconIgnoresSessionTraffic() {

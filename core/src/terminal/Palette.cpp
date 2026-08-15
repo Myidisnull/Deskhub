@@ -47,9 +47,9 @@ Rgb PaletteRgb(uint8_t index) {
 
 Rgb ResolveColor(const Color& color, bool foreground) {
     switch (color.kind) {
-    case ColorKind::Palette: return PaletteRgb(color.r);
-    case ColorKind::Rgb: return Rgb{color.r, color.g, color.b};
-    case ColorKind::Default: break;
+        case ColorKind::Palette: return PaletteRgb(color.r);
+        case ColorKind::Rgb: return Rgb{color.r, color.g, color.b};
+        case ColorKind::Default: break;
     }
     return foreground ? kDefaultForeground : kDefaultBackground;
 }

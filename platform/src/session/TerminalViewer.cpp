@@ -69,7 +69,7 @@ TerminalSnapshot TerminalViewer::Snapshot(size_t scrollOffset) const {
         const size_t line = first + r;
         for (uint16_t c = 0; c < out.size.cols; ++c) {
             out.cells.push_back(line < history ? screen_.ScrollbackAt(line, c)
-                                              : screen_.At(uint16_t(line - history), c));
+                                               : screen_.At(uint16_t(line - history), c));
         }
     }
     if (out.scrollOffset != 0) out.cursor.visible = false;
@@ -114,6 +114,7 @@ bool TerminalViewer::Start(const TerminalViewerConfig& config, TerminalViewerCal
         if (cb_.onRedraw) cb_.onRedraw();
     };
     hooks.onOpened = [this](const deskhub::TermOpenAck& ack) {
+        RememberIfPasscodeProvedIt();
         SetState(TerminalViewerState::Live,
             ack.resumed ? deskhub::ui::kTerminalReattached : deskhub::ui::kTerminalConnected);
     };
@@ -213,16 +214,89 @@ void TerminalViewer::OnConnected(QuicConnId conn) {
         verdict_ = verdict;
     }
 
-    if (verdict != deskhub::TrustVerdict::Trusted) {
-        SetState(TerminalViewerState::Deciding,
-            verdict == deskhub::TrustVerdict::Changed ? deskhub::ui::kTrustChangedBody
-                                                      : deskhub::ui::kTrustNewHostBody);
+    // Same rule as the screen path: a key we have not seen before is settled by the
+    // pairing handshake, but a key that CHANGED is still put to the user.
+    if (verdict == deskhub::TrustVerdict::Changed) {
+        SetState(TerminalViewerState::Deciding, deskhub::ui::kTrustChangedBody);
         if (cb_.onTrustAsked) cb_.onTrustAsked(verdict, FormatFingerprint(*peer));
         return;
     }
+    autoTrustPending_.store(verdict == deskhub::TrustVerdict::Unknown,
+        std::memory_order_release);
 
     SetState(TerminalViewerState::Opening, deskhub::ui::kTerminalConnecting);
-    client_->Open(config_.passcode, config_.size, config_.clientName);
+    BeginAuth();
+}
+
+// The shell is only asked for after this machine has proved itself on the connection,
+// exactly as the screen path does. The passcode goes into SPAKE2 and never onto the
+// wire, and a machine already paired sends no passcode at all.
+void TerminalViewer::BeginAuth() {
+    ClientAuthConfig config;
+    config.identity = LoadOrCreateHostIdentity(config_.clientName);
+    config.passcode = config_.passcode;
+    config.hostFingerprint = fingerprint_;
+    config.clientName = config_.clientName;
+    auth_ = std::make_unique<ClientAuth>();
+    auth_->Configure(std::move(config));
+
+    std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+    out.resize(deskhub::BuildAuthStart(out, auth_->Begin()));
+    SendRecord(out);
+}
+
+// Returns true when the message was part of proving who we are, so the terminal
+// client above never sees it.
+bool TerminalViewer::HandleAuth(std::span<const uint8_t> message) {
+    if (!auth_) return false;
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return false;
+    const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
+
+    if (header->type == deskhub::MsgType::AuthChallenge) {
+        const std::optional<deskhub::AuthChallenge> challenge =
+            deskhub::ParseAuthChallenge(payload);
+        if (!challenge) return true;
+        if (challenge->mode == deskhub::AuthMode::Approval) return true;
+
+        const std::optional<deskhub::AuthResponse> response = auth_->Answer(*challenge);
+        if (!response) {
+            SetState(TerminalViewerState::Refused,
+                deskhub::ui::AuthRefusalText(challenge->mode == deskhub::AuthMode::Denied
+                                                 ? deskhub::AuthResultCode::PairingDisabled
+                                                 : deskhub::AuthResultCode::WrongPasscode));
+            return true;
+        }
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+        out.resize(deskhub::BuildAuthResponse(out, *response));
+        SendRecord(out);
+        return true;
+    }
+
+    if (header->type != deskhub::MsgType::AuthResult) return false;
+    const std::optional<deskhub::AuthResult> result = deskhub::ParseAuthResult(payload);
+    if (!result) return true;
+    if (result->code != deskhub::AuthResultCode::Accepted) {
+        SetState(TerminalViewerState::Refused, deskhub::ui::AuthRefusalText(result->code));
+        return true;
+    }
+    if (auth_->HostProvedThePasscode(*result)) RememberIfPasscodeProvedIt();
+    client_->Open(std::string(), config_.size, config_.clientName);
+    return true;
+}
+
+void TerminalViewer::RememberIfPasscodeProvedIt() {
+    if (!autoTrustPending_.exchange(false, std::memory_order_acq_rel)) return;
+    deskhub::Fingerprint peer;
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        peer = fingerprint_;
+        verdict_ = deskhub::TrustVerdict::Trusted;
+    }
+    if (deskhub::IsZero(peer)) return;
+    RememberTrustedHost(config_.host.ToString(), config_.hostLabel, peer, NowUnixSeconds());
+    LOGI("terminal: passcode accepted \xE2\x80\x94 remembering %s as %s",
+        config_.host.ToString().c_str(), FormatFingerprint(peer).c_str());
 }
 
 void TerminalViewer::AcceptFingerprint() {
@@ -232,10 +306,9 @@ void TerminalViewer::AcceptFingerprint() {
         const std::lock_guard<std::mutex> lock(mutex_);
         peer = fingerprint_;
     }
-    RememberTrustedHost(config_.host.ToString(), config_.hostLabel, peer,
-        int64_t(NowUs() / 1'000'000));
+    RememberTrustedHost(config_.host.ToString(), config_.hostLabel, peer, NowUnixSeconds());
     SetState(TerminalViewerState::Opening, deskhub::ui::kTerminalConnecting);
-    Post([this] { client_->Open(config_.passcode, config_.size, config_.clientName); });
+    Post([this] { BeginAuth(); });
 }
 
 void TerminalViewer::RejectFingerprint() {
@@ -246,7 +319,10 @@ void TerminalViewer::RejectFingerprint() {
 void TerminalViewer::OnStream(std::span<const uint8_t> bytes) {
     framer_.Append(bytes);
     std::vector<uint8_t> message;
-    while (framer_.Next(message)) client_->HandleMessage(message);
+    while (framer_.Next(message)) {
+        if (HandleAuth(message)) continue;
+        client_->HandleMessage(message);
+    }
     if (framer_.Failed()) SetState(TerminalViewerState::Failed, deskhub::ui::kTerminalUnreachable);
 }
 

@@ -5,6 +5,7 @@
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Screen.h"
 #include "deskhubp/net/QuicEndpoint.h"
+#include "deskhubp/session/AuthNegotiation.h"
 
 #include <atomic>
 #include <cstdint>
@@ -99,6 +100,9 @@ private:
     void SetState(TerminalViewerState state, std::string_view message);
     void Post(std::function<void()> command);
     void RunCommands();
+    void RememberIfPasscodeProvedIt();
+    void BeginAuth();
+    bool HandleAuth(std::span<const uint8_t> message);
     deskhub::term::TerminalModes CurrentModes() const;
 
     TerminalViewerConfig config_{};
@@ -107,6 +111,7 @@ private:
     QuicConnId conn_ = 0;
     deskhub::RecordStream framer_{};
     std::unique_ptr<deskhub::TerminalClient> client_{};
+    std::unique_ptr<ClientAuth> auth_{};
     deskhub::term::Screen screen_{};
     deskhub::Fingerprint fingerprint_{};
     deskhub::TrustVerdict verdict_ = deskhub::TrustVerdict::Unknown;
@@ -120,6 +125,7 @@ private:
     std::atomic<TerminalViewerState> state_{TerminalViewerState::Idle};
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_{false};
+    std::atomic<bool> autoTrustPending_{false};
 };
 
 }

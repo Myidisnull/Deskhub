@@ -18,10 +18,13 @@ COV_OUT    := out/coverage
 COV_SRC    := core/src core/include
 endif
 
-debug:
+quiche:
+	-@$(QUICHE)
+
+debug: quiche
 	@$(DEVCMD) cmake --preset x64-debug && cmake --build --preset x64-debug
 
-release:
+release: quiche
 	@$(DEVCMD) cmake --preset x64-release && cmake --build --preset x64-release
 
 test:
@@ -107,4 +110,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage
+.PHONY: quiche debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage

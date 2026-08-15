@@ -63,6 +63,14 @@ public:
         passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
     }
 
+    // Set when the connection this session runs on has already proved which machine
+    // is at the other end. From 5.0.0 that happens once per connection, before any
+    // HELLO arrives, so asking again here would turn away the very machines that
+    // earned their place - they no longer carry a passcode at all.
+    void SetConnectionAuthenticated(bool authenticated) {
+        connectionAuthenticated_ = authenticated;
+    }
+
     void SetClipboardEnabled(bool on) {
         clipboardEnabled_ = on;
     }
@@ -122,6 +130,7 @@ private:
     std::atomic<uint64_t> inputDenied_{0};
     uint64_t controllingAddr_ = 0;
     std::string passcode_;
+    bool connectionAuthenticated_ = false;
     bool clipboardEnabled_ = false;
     uint32_t wrongPasscodes_ = 0;
     uint64_t passcodeLockUntilUs_ = 0;

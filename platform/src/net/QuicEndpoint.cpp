@@ -30,6 +30,7 @@ constexpr size_t kStreamChunk = 8192;
 constexpr uint64_t kInitialMaxData = 4u << 20;
 constexpr uint64_t kInitialMaxStreamData = 1u << 20;
 constexpr uint64_t kMaxStreams = 64;
+constexpr uint64_t kDropLogIntervalUs = 1'000'000;
 constexpr size_t kDatagramQueue = 512;
 
 sockaddr_in ToSockAddr(const NetAddr& addr) {
@@ -231,8 +232,20 @@ struct QuicEndpoint::Impl {
 
         std::vector<uint8_t> copy(packet.begin(), packet.end());
         const ssize_t read = quiche_conn_recv(entry->conn, copy.data(), copy.size(), &info);
-        if (read < 0)
-            LOGW("quic: dropped a packet from %s (%zd)", from.ToString().c_str(), read);
+        if (read < 0) ReportDrop(from, read);
+    }
+
+    // Anyone can spray the shared port, and three quarters of random first bytes
+    // look like a QUIC header, so a line per rejected packet hands a stranger the
+    // host's log file. Count them instead and report the total once a second.
+    void ReportDrop(const NetAddr& from, ssize_t code) {
+        ++drops_;
+        const uint64_t nowUs = NowUs();
+        if (nowUs - lastDropLogUs_ < kDropLogIntervalUs) return;
+        lastDropLogUs_ = nowUs;
+        LOGW("quic: dropped %llu unusable packet(s), last from %s (%zd)",
+            static_cast<unsigned long long>(drops_), from.ToString().c_str(), code);
+        drops_ = 0;
     }
 
     void DrainStreams(QuicConnId id, Connection& entry) {
@@ -320,6 +333,8 @@ struct QuicEndpoint::Impl {
     bool bindAddrInUse_ = false;
     bool server_ = false;
     bool open_ = false;
+    uint64_t drops_ = 0;
+    uint64_t lastDropLogUs_ = 0;
 };
 
 QuicEndpoint::QuicEndpoint() : impl_(std::make_unique<Impl>()) {

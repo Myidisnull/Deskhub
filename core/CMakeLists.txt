@@ -56,6 +56,7 @@ add_library(core STATIC
     src/net/Ipv4.cpp
     src/net/BindAddress.cpp
     src/net/TrustStore.cpp
+    src/net/PairedDevices.cpp
 
     src/terminal/VtParser.cpp
     src/terminal/Screen.cpp
@@ -63,6 +64,7 @@ add_library(core STATIC
     src/terminal/Palette.cpp
 
     src/ui/HostRows.cpp
+    src/ui/DeviceRows.cpp
     src/ui/RecentDevices.cpp
     src/ui/SecretText.cpp
     src/ui/UiSettings.cpp
@@ -144,6 +146,7 @@ if(DESKHUB_CORE_TESTS)
         tests/net/Ipv4Tests.cpp
         tests/net/BindAddressTests.cpp
         tests/net/TrustStoreTests.cpp
+        tests/net/PairedDevicesTests.cpp
 
         tests/terminal/VtParserTests.cpp
         tests/terminal/ScreenTests.cpp
@@ -152,6 +155,7 @@ if(DESKHUB_CORE_TESTS)
 
         tests/ui/StringsTests.cpp
         tests/ui/HostRowsTests.cpp
+        tests/ui/DeviceRowsTests.cpp
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp
         tests/ui/UiSettingsTests.cpp

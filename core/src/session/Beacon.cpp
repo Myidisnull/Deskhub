@@ -2,15 +2,18 @@
 
 namespace deskhub {
 
-size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const {
+size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, bool trusted) const {
     const auto h = ParseCommonHeader(pkt);
     if (!h) return 0;
     const auto payload = PayloadOf(pkt);
 
     switch (h->type) {
+        // What is shared is only told to a machine that has already proved itself on an
+        // encrypted connection. A stranger gets an empty list whatever passcode it
+        // offers, so probing the beacon can no longer tell a right guess from a wrong
+        // one - that difference used to be a free oracle for guessing the code.
         case MsgType::ListSources: {
-            if (!IsValidPasscode(passcode_) || ParseListSourcesPasscode(payload) != passcode_)
-                return BuildSourceList(out, {});
+            if (!trusted) return BuildSourceList(out, {});
             return BuildSourceList(out, sources_);
         }
         case MsgType::Ping: {

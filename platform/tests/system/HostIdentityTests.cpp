@@ -23,12 +23,18 @@ struct SavedIdentity {
     }
 
     ~SavedIdentity() {
-        if (cert.empty()) deskhubp::RemoveAppDataFile(deskhubp::kHostCertFileName);
-        else deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, cert);
-        if (key.empty()) deskhubp::RemoveAppDataFile(deskhubp::kHostKeyFileName);
-        else deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, key);
-        if (trust.empty()) deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
-        else deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, trust);
+        if (cert.empty())
+            deskhubp::RemoveAppDataFile(deskhubp::kHostCertFileName);
+        else
+            deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, cert);
+        if (key.empty())
+            deskhubp::RemoveAppDataFile(deskhubp::kHostKeyFileName);
+        else
+            deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, key);
+        if (trust.empty())
+            deskhubp::RemoveAppDataFile(deskhubp::kTrustStoreFileName);
+        else
+            deskhubp::WriteAppDataFile(deskhubp::kTrustStoreFileName, trust);
     }
 };
 
@@ -58,7 +64,7 @@ void TestIdentityIsCreatedOnceAndKept() {
         "and a fresh load from disk agrees");
 
     Check(deskhub::FormatFingerprint(first.fingerprint).size() ==
-            deskhub::kFingerprintPrefix.size() + deskhub::kFingerprintTextBytes,
+              deskhub::kFingerprintPrefix.size() + deskhub::kFingerprintTextBytes,
         "the fingerprint is the fixed-width text a user can read out loud");
 
     const auto fromPem = deskhubp::FingerprintOfCertPem(first.certPem);

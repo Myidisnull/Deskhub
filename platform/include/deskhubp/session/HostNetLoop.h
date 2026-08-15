@@ -4,7 +4,7 @@
 #include "deskhub/session/Beacon.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/session/SourcePipelineState.h"
-#include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/net/SessionTransport.h"
 
 #include <cstdint>
 #include <functional>
@@ -51,7 +51,7 @@ struct HostNetLoopHooks {
     uint32_t fallbackFps = 60;
 };
 
-void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
+void RunHostNetLoop(SessionTransport& sock, deskhub::Beacon& beacon,
     std::span<deskhub::SourcePipelineState* const> live, const HostNetLoopHooks& hooks);
 
 }

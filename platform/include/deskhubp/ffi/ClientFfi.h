@@ -14,6 +14,7 @@ typedef enum {
     DHPhaseConnecting = 1,
     DHPhaseStreaming = 2,
     DHPhaseEnded = 3,
+    DHPhaseDeciding = 4,
 } DHPhase;
 
 typedef struct {

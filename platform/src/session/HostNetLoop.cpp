@@ -25,7 +25,7 @@ bool Alive(const deskhub::SourcePipelineState& st, const HostSourceHooks& hooks)
     return !(hooks.closed && hooks.closed(st));
 }
 
-void SendReconfig(UdpSocket& sock, deskhub::SourcePipelineState& st,
+void SendReconfig(SessionTransport& sock, deskhub::SourcePipelineState& st,
     const deskhub::Reconfig& reconfig) {
     uint8_t buf[deskhub::kMaxDatagram];
     const size_t n = deskhub::BuildReconfig(buf, st.session->sessionId(), reconfig);
@@ -168,7 +168,7 @@ deskhub::HostCallbacks MakeHostCallbacks(deskhub::SourcePipelineState& st,
     return cb;
 }
 
-void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
+void RunHostNetLoop(SessionTransport& sock, deskhub::Beacon& beacon,
     std::span<deskhub::SourcePipelineState* const> live, const HostNetLoopHooks& hooks) {
     const std::vector<deskhub::SourcePipelineState*> liveStates(live.begin(), live.end());
 
@@ -201,7 +201,7 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
 
         if (n > 0) {
             const auto pkt = std::span<const uint8_t>(buf, size_t(n));
-            if (const size_t rn = beacon.Reply(beaconBuf, pkt); rn) {
+            if (const size_t rn = beacon.Reply(beaconBuf, pkt, sock.Authenticated(from)); rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else {
                 deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);

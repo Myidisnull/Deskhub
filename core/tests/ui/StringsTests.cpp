@@ -232,6 +232,18 @@ void TestDeviceListNotesReadTheSameOnEveryClient() {
         "a populated history says it is clickable and how often status is rechecked");
 }
 
+void TestTerminalRefusalsNameTheirOwnCause() {
+    std::printf("[strings] a terminal that cannot be shared says which of the two causes it is...\n");
+    Check(std::string(ui::kTerminalNoQuicLibrary) != std::string(ui::kTerminalNoHostIdentity),
+        "a build without QUIC and a machine without a key are not the same failure");
+    Check(Contains(ui::kTerminalNoQuicLibrary, "build-quiche"),
+        "a build without QUIC names the script that produces one");
+    Check(!Contains(ui::kTerminalNoQuicLibrary, "system cannot"),
+        "and does not blame the operating system for a missing build step");
+    Check(Contains(ui::kTerminalNoHostIdentity, "key"),
+        "a machine that cannot make an identity says what it failed to create");
+}
+
 void TestClampWarningQuotesTheProtocolLimit() {
     std::printf("[strings] the too-many-displays warning quotes the real limit...\n");
     Check(Contains(ui::ShareClampWarning(), std::to_string(kMaxSources)),
@@ -256,6 +268,7 @@ void RunStringsTests() {
     TestScanStatusCountsWhatWasChecked();
     TestRecheckNotesQuoteTheRealInterval();
     TestDeviceListNotesReadTheSameOnEveryClient();
+    TestTerminalRefusalsNameTheirOwnCause();
     TestClampWarningQuotesTheProtocolLimit();
     TestBindFallbackNamesTheMissingNetwork();
 }

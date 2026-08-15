@@ -46,6 +46,12 @@
 # Shared CMake tree (core + platform + whatever client the current OS builds):
 #   make debug          configure + build the debug preset
 #   make release        configure + build the release preset
+#   make quiche         build the QUIC library into third_party/quiche (scripts/build-quiche.sh).
+#                       debug and release run it first — it is a no-op once built. Without it
+#                       platform/ falls back to the stub transport and the terminal cannot be
+#                       shared, so a failure here only warns and the build carries on.
+#                       Windows drives the script through Git Bash: override with
+#                       GIT_BASH=<path to bash.exe> if Git is installed elsewhere
 #
 # Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
 #   make setup-linux-permissions    udev rule + add the user to the `input` group

@@ -147,6 +147,9 @@ int main() {
     std::printf("--- net: which host keys we have decided to trust ---\n");
     RunTrustStoreTests();
 
+    std::printf("--- net: which machines this host has paired with ---\n");
+    RunPairedDevicesTests();
+
     std::printf("--- terminal: the VT escape-sequence parser ---\n");
     RunVtParserTests();
 
@@ -164,6 +167,7 @@ int main() {
 
     std::printf("--- ui: host table rows (displays, viewers, cells) ---\n");
     RunHostRowsTests();
+    RunDeviceRowsTests();
 
     std::printf("--- ui: recent devices list (parse, touch, cap) ---\n");
     RunRecentDevicesTests();

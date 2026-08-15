@@ -35,6 +35,8 @@
 #include "deskhub/net/BindAddress.h"
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/session/ShareFlow.h"
+#include "deskhub/net/PairedDevices.h"
+#include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/Strings.h"
@@ -53,6 +55,7 @@
 #include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/HostIdentity.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -71,11 +74,12 @@ constexpr int kHostListMinH = 150;
 
 enum Page { kPageHost = 0,
     kPageClient = 1,
-    kPageSettings = 2,
-    kPageCount = 3 };
+    kPageDevices = 2,
+    kPageSettings = 3,
+    kPageCount = 4 };
 
 const char* const kPageLabels[kPageCount] = {ui::kSidebarHost, ui::kSidebarClient,
-    ui::kSidebarSettings};
+    ui::kSidebarDevices, ui::kSidebarSettings};
 
 const wxColour kSidebarBg(31, 41, 55);
 const wxColour kSidebarHover(55, 65, 81);
@@ -310,13 +314,17 @@ private:
     wxWindow* BuildSidebar();
     wxWindow* BuildHostPage(wxWindow* parent);
     wxWindow* BuildClientPage(wxWindow* parent);
+    wxWindow* BuildDevicesPage(wxWindow* parent);
     wxWindow* BuildSettingsPage(wxWindow* parent);
+    void RefreshPairedDevices();
+    void DrainPairingRequests();
+    void ForgetSelectedDevice();
+    void ForgetEveryDevice();
     static wxTextCtrl* MakePasscodeCtrl(wxWindow* parent);
 
     void SelectPage(int page);
-    void RefreshRecentList();
-    void ApplyStatusToRow(long row, const std::string& addr);
-    void ApplyScanPingToRow(long row, const std::string& addr);
+    void RefreshDeviceList();
+    void ApplyRowStatus(long row, const std::string& addr);
     void ApplyProbeToRows(const std::string& addr);
     void RecordProbe(const std::string& addr, bool online, uint32_t rttMs);
     const ProbeResult* ProbeFor(const std::string& addr) const;
@@ -359,13 +367,13 @@ private:
     void StartScan();
     void RescanNow();
     void RefreshDeviceStatus();
+    void RefreshDevicesNow();
     void OnScanTimer(wxTimerEvent& event);
     void OnScanHit(const deskhubp::ScanHit& hit);
     void OnScanProgress(const deskhubp::ScanProgress& progress);
     void OnScanFinished(const deskhubp::ScanProgress& progress);
-    void RefreshScanList();
-    void OnListClick(wxListCtrl* list, wxMouseEvent& event, bool scanned);
-    void ConnectRow(long row, bool scanned);
+    void OnListClick(wxMouseEvent& event);
+    void ConnectRow(long row);
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
         const deskhubp::ConnectOutcome& outcome);
     void OpenViewerSession(const std::string& addr, const std::string& passcode,
@@ -387,11 +395,14 @@ private:
     wxCheckBox* shellCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
     wxStaticText* clientStatus_ = nullptr;
-    wxListCtrl* scanList_ = nullptr;
-    wxStaticText* scanStatus_ = nullptr;
     wxCheckBox* controlCtrl_ = nullptr;
-    wxListCtrl* list_ = nullptr;
-    wxStaticText* listHint_ = nullptr;
+    wxListCtrl* deviceList_ = nullptr;
+    wxStaticText* deviceHint_ = nullptr;
+    wxListCtrl* pairedList_ = nullptr;
+    wxStaticText* pairedHint_ = nullptr;
+    wxCheckBox* allowPairingCtrl_ = nullptr;
+    wxButton* forgetDeviceBtn_ = nullptr;
+    std::vector<deskhub::PairedDevice> pairedDevices_;
     wxPanel* hostAddrPanel_ = nullptr;
     wxPanel* hostBanner_ = nullptr;
     wxWindow* hostBannerBar_ = nullptr;
@@ -432,6 +443,7 @@ private:
     std::vector<ui::HostRow> hostRows_;
     std::vector<ui::RecentDevice> recent_;
     std::vector<deskhubp::ScanHit> scanned_;
+    std::vector<ui::DeviceRow> deviceRows_;
     std::vector<std::string> scannedThisRound_;
     std::map<uint64_t, ProbeResult> probes_;
     deskhubp::ConnectDriver connectDriver_;
@@ -459,6 +471,7 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     book_ = new wxSimplebook(this);
     book_->AddPage(BuildHostPage(book_), wxString());
     book_->AddPage(BuildClientPage(book_), wxString());
+    book_->AddPage(BuildDevicesPage(book_), wxString());
     book_->AddPage(BuildSettingsPage(book_), wxString());
     root->Add(book_, wxSizerFlags(1).Expand());
 
@@ -477,7 +490,7 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     Bind(wxEVT_TIMER, &MainFrame::OnClipboardTimer, this, kClipTimerId);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
-    RefreshRecentList();
+    RefreshDeviceList();
     StartPoller();
     StartScan();
     SelectPage(kPageClient);
@@ -811,44 +824,147 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     clientStatus_->SetForegroundColour(kMutedText);
     sizer->Add(clientStatus_, wxSizerFlags().Centre().Border(wxTOP, FromDIP(8)));
 
-    sizer->Add(MakeHeadingRow(panel, ui::kLanDevicesHeading, ToWx(ui::kRefreshNow),
-                   [this] { RescanNow(); }),
+    sizer->Add(MakeHeadingRow(panel, ui::kDevicesHeading, ToWx(ui::kRefreshNow),
+                   [this] { RefreshDevicesNow(); }),
         wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
-    scanList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+    deviceList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
         wxLC_REPORT | wxLC_SINGLE_SEL);
-    scanList_->InsertColumn(0, "Device", wxLIST_FORMAT_LEFT, FromDIP(170));
-    scanList_->InsertColumn(1, "Ping", wxLIST_FORMAT_RIGHT, FromDIP(70));
-    scanList_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
-    scanList_->Bind(wxEVT_LEFT_DOWN,
-        [this](wxMouseEvent& event) { OnListClick(scanList_, event, true); });
-    sizer->Add(scanList_,
+    deviceList_->InsertColumn(0, "Device", wxLIST_FORMAT_LEFT, FromDIP(170));
+    deviceList_->InsertColumn(1, ToWx(ui::kDeviceColumnWhere), wxLIST_FORMAT_LEFT, FromDIP(120));
+    deviceList_->InsertColumn(2, "Status", wxLIST_FORMAT_LEFT, FromDIP(100));
+    deviceList_->InsertColumn(3, "Ping", wxLIST_FORMAT_RIGHT, FromDIP(70));
+    deviceList_->InsertColumn(4, "Last connected", wxLIST_FORMAT_LEFT, FromDIP(150));
+    deviceList_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
+    deviceList_->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& event) { OnListClick(event); });
+    sizer->Add(deviceList_,
         wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
-    scanStatus_ = MakeHint(panel, ToWx(ui::kLanDevicesEmpty));
-    sizer->Add(scanStatus_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
-
-    sizer->Add(MakeHeadingRow(panel, ui::kRecentDevicesHeading, ToWx(ui::kRefreshNow),
-                   [this] { RefreshDeviceStatus(); }),
-        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
-
-    list_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-        wxLC_REPORT | wxLC_SINGLE_SEL);
-    list_->InsertColumn(0, "Device", wxLIST_FORMAT_LEFT, FromDIP(170));
-    list_->InsertColumn(1, "Status", wxLIST_FORMAT_LEFT, FromDIP(100));
-    list_->InsertColumn(2, "Ping", wxLIST_FORMAT_RIGHT, FromDIP(70));
-    list_->InsertColumn(3, "Last connected", wxLIST_FORMAT_LEFT, FromDIP(150));
-    list_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
-    list_->Bind(wxEVT_LEFT_DOWN,
-        [this](wxMouseEvent& event) { OnListClick(list_, event, false); });
-    sizer->Add(list_, wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
-
-    listHint_ = MakeHint(panel, ToWx(ui::kRecentDevicesEmpty));
-    sizer->Add(listHint_, wxSizerFlags().Border(wxALL, FromDIP(16)));
+    deviceHint_ = MakeHint(panel, ToWx(ui::kLanDevicesEmpty));
+    sizer->Add(deviceHint_, wxSizerFlags().Border(wxALL, FromDIP(16)));
 
     panel->SetSizer(sizer);
     panel->FitInside();
     return panel;
+}
+
+wxWindow* MainFrame::BuildDevicesPage(wxWindow* parent) {
+    auto* panel = new wxScrolledWindow(parent);
+    panel->SetBackgroundColour(*wxWHITE);
+    panel->SetScrollRate(0, FromDIP(10));
+    auto* sizer = new wxBoxSizer(wxVERTICAL);
+    const wxSizerFlags pad = wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+
+    sizer->Add(MakeHeading(panel, ui::kPairedHeading), pad);
+    sizer->Add(MakeHint(panel, ToWx(ui::kPairedHint)), pad);
+
+    pairedList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+        wxLC_REPORT | wxLC_SINGLE_SEL);
+    pairedList_->InsertColumn(0, ToWx(ui::kPairedColumnName), wxLIST_FORMAT_LEFT, FromDIP(200));
+    pairedList_->InsertColumn(1, ToWx(ui::kPairedColumnKey), wxLIST_FORMAT_LEFT, FromDIP(130));
+    pairedList_->InsertColumn(2, ToWx(ui::kPairedColumnPaired), wxLIST_FORMAT_LEFT, FromDIP(150));
+    pairedList_->InsertColumn(3, ToWx(ui::kPairedColumnLastSeen), wxLIST_FORMAT_LEFT,
+        FromDIP(150));
+    pairedList_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
+    sizer->Add(pairedList_, wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP,
+                                FromDIP(16)));
+
+    pairedHint_ = MakeHint(panel, ToWx(ui::kPairedEmpty));
+    sizer->Add(pairedHint_, pad);
+
+    auto* buttons = new wxBoxSizer(wxHORIZONTAL);
+    forgetDeviceBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kPairedForget));
+    forgetDeviceBtn_->SetName("forget-device");
+    forgetDeviceBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ForgetSelectedDevice(); });
+    buttons->Add(forgetDeviceBtn_);
+    auto* forgetAll = new wxButton(panel, wxID_ANY, ToWx(ui::kPairedForgetAll));
+    forgetAll->SetName("forget-all-devices");
+    forgetAll->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ForgetEveryDevice(); });
+    buttons->AddSpacer(FromDIP(8));
+    buttons->Add(forgetAll);
+    sizer->Add(buttons, pad);
+
+    sizer->Add(MakeHint(panel, ToWx(ui::kPairedForgetNote)), pad);
+
+    sizer->AddSpacer(FromDIP(12));
+    allowPairingCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAllowPairingLabel));
+    allowPairingCtrl_->SetName("allow-pairing");
+    allowPairingCtrl_->SetValue(settings_.allowNewPairings);
+    allowPairingCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        settings_.allowNewPairings = allowPairingCtrl_->GetValue();
+        deskhubp::SaveUiSettings(settings_);
+    });
+    sizer->Add(allowPairingCtrl_, pad);
+    sizer->Add(MakeHint(panel, ToWx(ui::kAllowPairingHint)), pad);
+
+    sizer->AddSpacer(FromDIP(12));
+    sizer->Add(MakeSection(panel, ui::kThisMachineHeading), pad);
+    const std::string name =
+        settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity(name);
+    auto* keyText = new wxStaticText(panel, wxID_ANY,
+        ToWx(identity.Valid() ? deskhub::FormatFingerprint(identity.fingerprint)
+                              : std::string(ui::kShareNoHostIdentity)));
+    keyText->SetName("own-fingerprint");
+    sizer->Add(keyText, pad);
+    sizer->Add(MakeHint(panel, ToWx(ui::kThisMachineHint)),
+        wxSizerFlags().Border(wxALL, FromDIP(16)));
+
+    panel->SetSizer(sizer);
+    panel->FitInside();
+    RefreshPairedDevices();
+    return panel;
+}
+
+void MainFrame::RefreshPairedDevices() {
+    if (pairedList_ == nullptr) return;
+    pairedDevices_ = deskhubp::LoadPairedDevices().Devices();
+
+    pairedList_->DeleteAllItems();
+    for (size_t i = 0; i < pairedDevices_.size(); ++i) {
+        const deskhub::PairedDevice& device = pairedDevices_[i];
+        const long row = pairedList_->InsertItem(long(i),
+            ToWx(device.name.empty() ? std::string("(unnamed)") : device.name));
+        pairedList_->SetItem(row, 1, ToWx(deskhub::ShortFingerprint(device.fingerprint)));
+        pairedList_->SetItem(row, 2, ToWx(FormatLastConnected(device.pairedUnix)));
+        pairedList_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastSeenUnix)));
+    }
+    SetHintLabel(pairedHint_, ToWx(ui::kPairedEmpty));
+    pairedHint_->Show(pairedDevices_.empty());
+    forgetDeviceBtn_->Enable(!pairedDevices_.empty());
+}
+
+// With no passcode set there is nothing for the far machine to prove, so the answer
+// has to come from whoever is sitting here. Saying yes pairs it for good, which is
+// why the key is shown rather than just the name it chose for itself.
+void MainFrame::DrainPairingRequests() {
+    const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
+    for (const PairingRequest& request : requests) {
+        wxString body = ToWx(ui::PairingRequestBody(request.name,
+            NetAddr::Unpack(request.addrPacked).ToString(), request.shortKey));
+        wxMessageDialog dialog(this, body, ToWx(ui::kPairingRequestTitle),
+            wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+        dialog.SetYesNoLabels(ToWx(ui::kPairingAllow), ToWx(ui::kPairingDeny));
+        const bool allowed = dialog.ShowModal() == wxID_YES;
+        agentLoop_.AnswerPairing(request.addrPacked, allowed);
+        if (allowed) RefreshPairedDevices();
+    }
+}
+
+void MainFrame::ForgetSelectedDevice() {
+    const long row = pairedList_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+    if (row < 0 || size_t(row) >= pairedDevices_.size()) return;
+    deskhubp::ForgetPairedDevice(pairedDevices_[size_t(row)].fingerprint);
+    RefreshPairedDevices();
+}
+
+void MainFrame::ForgetEveryDevice() {
+    if (pairedDevices_.empty()) return;
+    wxMessageDialog dialog(this, ToWx(ui::kPairedForgetAllPrompt), "Deskhub",
+        wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
+    if (dialog.ShowModal() != wxID_YES) return;
+    deskhubp::ForgetAllPairedDevices();
+    RefreshPairedDevices();
 }
 
 wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
@@ -914,6 +1030,8 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     passcodeCtrl_->SetValue(ToWx(settings_.passcode));
     securityGrid->Add(passcodeCtrl_);
     sizer->Add(securityGrid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    sizer->Add(MakeHint(panel, ToWx(ui::kPasscodeHint)),
+        wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     allowInputCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAllowControlLabel));
     allowInputCtrl_->SetValue(settings_.allowInput);
     sizer->Add(allowInputCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -964,6 +1082,7 @@ void MainFrame::SelectPage(int page) {
     for (int i = 0; i < kPageCount; ++i) pageButtons_[i]->SetSelected(i == page);
     book_->ChangeSelection(size_t(page));
     if (page == kPageHost && !Sharing()) RefreshDisplayChoices();
+    if (page == kPageDevices) RefreshPairedDevices();
 }
 
 void MainFrame::RefreshDisplayChoices() {
@@ -1121,16 +1240,22 @@ void MainFrame::ShowHostTable(bool sharing) {
     RelayoutHostPage();
 }
 
-void MainFrame::RefreshRecentList() {
-    list_->DeleteAllItems();
-    for (size_t i = 0; i < recent_.size(); ++i) {
-        const auto& device = recent_[i];
-        const long row = list_->InsertItem(long(i), ToWx(device.addr));
-        list_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastConnectedUnix)));
-        ApplyStatusToRow(row, device.addr);
+void MainFrame::RefreshDeviceList() {
+    std::vector<std::string> scannedAddrs;
+    scannedAddrs.reserve(scanned_.size());
+    for (const deskhubp::ScanHit& hit : scanned_) scannedAddrs.push_back(hit.addr);
+    deviceRows_ = ui::BuildDeviceRows(scannedAddrs, recent_);
+
+    deviceList_->DeleteAllItems();
+    for (size_t i = 0; i < deviceRows_.size(); ++i) {
+        const ui::DeviceRow& device = deviceRows_[i];
+        const long row = deviceList_->InsertItem(long(i), ToWx(device.addr));
+        deviceList_->SetItem(row, 1, ToWx(ui::DeviceOriginLabel(device.origin)));
+        deviceList_->SetItem(row, 4,
+            device.lastConnectedUnix != 0 ? ToWx(FormatLastConnected(device.lastConnectedUnix))
+                                          : wxString("-"));
+        ApplyRowStatus(row, device.addr);
     }
-    SetHintLabel(listHint_,
-        ToWx(ui::RecentDevicesNote(recent_.size(), deskhubp::kDeviceStatusRoundSecs)));
 }
 
 const ProbeResult* MainFrame::ProbeFor(const std::string& addr) const {
@@ -1146,33 +1271,24 @@ void MainFrame::RecordProbe(const std::string& addr, bool online, uint32_t rttMs
     probes_[key] = ProbeResult{online, rttMs};
 }
 
-void MainFrame::ApplyStatusToRow(long row, const std::string& addr) {
+void MainFrame::ApplyRowStatus(long row, const std::string& addr) {
     const ProbeResult* probe = ProbeFor(addr);
     if (!probe) {
-        list_->SetItem(row, 1, ToWx(ui::kStatusChecking));
-        list_->SetItem(row, 2, "-");
-        list_->SetItemTextColour(row, kMutedText);
+        deviceList_->SetItem(row, 2, ToWx(ui::kStatusChecking));
+        deviceList_->SetItem(row, 3, "-");
+        deviceList_->SetItemTextColour(row, kMutedText);
         return;
     }
-    list_->SetItem(row, 1, ToWx(probe->online ? ui::kStatusOnline : ui::kStatusOffline));
-    list_->SetItem(row, 2, probe->online ? ToWx(ui::PingMs(probe->rttMs)) : wxString("-"));
-    list_->SetItemTextColour(row, probe->online ? kOnline : kOffline);
-}
-
-void MainFrame::ApplyScanPingToRow(long row, const std::string& addr) {
-    const ProbeResult* probe = ProbeFor(addr);
-    const bool online = !probe || probe->online;
-    scanList_->SetItem(row, 1, online && probe ? ToWx(ui::PingMs(probe->rttMs)) : wxString("-"));
-    scanList_->SetItemTextColour(row, online ? kOnline : kOffline);
+    deviceList_->SetItem(row, 2, ToWx(probe->online ? ui::kStatusOnline : ui::kStatusOffline));
+    deviceList_->SetItem(row, 3, probe->online ? ToWx(ui::PingMs(probe->rttMs)) : wxString("-"));
+    deviceList_->SetItemTextColour(row, probe->online ? kOnline : kOffline);
 }
 
 void MainFrame::ApplyProbeToRows(const std::string& addr) {
     uint64_t key = 0;
     if (!HostKeyOf(addr, key)) return;
-    for (size_t i = 0; i < recent_.size(); ++i)
-        if (SameHost(recent_[i].addr, key)) ApplyStatusToRow(long(i), recent_[i].addr);
-    for (size_t i = 0; i < scanned_.size(); ++i)
-        if (SameHost(scanned_[i].addr, key)) ApplyScanPingToRow(long(i), scanned_[i].addr);
+    for (size_t i = 0; i < deviceRows_.size(); ++i)
+        if (SameHost(deviceRows_[i].addr, key)) ApplyRowStatus(long(i), deviceRows_[i].addr);
 }
 
 void MainFrame::StartPoller() {
@@ -1265,6 +1381,8 @@ void MainFrame::OnShare() {
     options.allowInput = settings_.allowInput;
     options.passcode = settings_.passcode;
     options.bindIp = settings_.bindIp;
+    options.deviceName = settings_.deviceName;
+    options.allowNewPairings = settings_.allowNewPairings;
     options.clipboardSync = settings_.clipboardSync;
 
     StartHosting(sources, options);
@@ -1273,14 +1391,14 @@ void MainFrame::OnShare() {
 void MainFrame::StartTerminalShare() {
     if (terminalHost_.Running()) return;
     if (!deskhubp::QuicAvailable()) {
-        wxMessageBox(ToWx(ui::kTerminalHostUnavailable), "Deskhub", wxOK | wxICON_WARNING, this);
+        wxMessageBox(ToWx(ui::kTerminalNoQuicLibrary), "Deskhub", wxOK | wxICON_WARNING, this);
         return;
     }
     const std::string name =
         settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
     const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity(name);
     if (!identity.Valid()) {
-        wxMessageBox(ToWx(ui::kTerminalHostUnavailable), "Deskhub", wxOK | wxICON_WARNING, this);
+        wxMessageBox(ToWx(ui::kTerminalNoHostIdentity), "Deskhub", wxOK | wxICON_WARNING, this);
         return;
     }
 
@@ -1292,6 +1410,7 @@ void MainFrame::StartTerminalShare() {
     config.bindIp = bind.ip;
     config.port = uint16_t(settings_.terminalPort);
     config.passcode = settings_.passcode;
+    config.allowNewPairings = settings_.allowNewPairings;
 
     deskhubp::TerminalHostCallbacks hooks;
     hooks.onSessionsChanged = [this] {
@@ -1393,7 +1512,7 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
 
     hosting_ = true;
     screenStatusLine_ = ui::SharingStatusLine(port);
-    if (!passcode.empty()) screenStatusLine_ += " " + ui::PasscodeNote(passcode);
+    screenStatusLine_ += " " + ui::PasscodeNote(passcode);
     if (!allowInput) screenStatusLine_ += std::string(" ") + ui::kViewOnlyNote;
     const std::string bindWarning = agentLoop_.BindWarning();
     if (!bindWarning.empty()) screenStatusLine_ += " " + bindWarning;
@@ -1440,6 +1559,7 @@ void MainFrame::StopHosting() {
 }
 
 void MainFrame::OnHostTimer(wxTimerEvent&) {
+    DrainPairingRequests();
     if (!Sharing()) {
         hostTimer_.Stop();
         return;
@@ -1592,7 +1712,7 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
         SaveRecentDevices();
         poller_.SetAddresses(AddressesOf(recent_));
-        RefreshRecentList();
+        RefreshDeviceList();
         DeselectAllRows();
         return;
     }
@@ -1634,7 +1754,7 @@ void MainFrame::StartScan() {
 
 void MainFrame::RescanNow() {
     scanTimer_.Stop();
-    SetHintLabel(scanStatus_, ToWx(ui::kLanDevicesEmpty));
+    SetHintLabel(deviceHint_, ToWx(ui::kLanDevicesEmpty));
     StartScan();
 }
 
@@ -1643,8 +1763,13 @@ void MainFrame::RefreshDeviceStatus() {
         uint64_t key = 0;
         if (HostKeyOf(device.addr, key)) probes_.erase(key);
     }
-    RefreshRecentList();
+    RefreshDeviceList();
     poller_.RefreshNow();
+}
+
+void MainFrame::RefreshDevicesNow() {
+    RefreshDeviceStatus();
+    RescanNow();
 }
 
 void MainFrame::OnScanTimer(wxTimerEvent&) {
@@ -1659,7 +1784,7 @@ void MainFrame::OnScanHit(const deskhubp::ScanHit& hit) {
         [&hit](const deskhubp::ScanHit& seen) { return seen.addr == hit.addr; });
     if (known == scanned_.end()) {
         scanned_.push_back(hit);
-        RefreshScanList();
+        RefreshDeviceList();
     } else {
         known->rttMs = hit.rttMs;
     }
@@ -1667,7 +1792,7 @@ void MainFrame::OnScanHit(const deskhubp::ScanHit& hit) {
 }
 
 void MainFrame::OnScanProgress(const deskhubp::ScanProgress& progress) {
-    SetHintLabel(scanStatus_,
+    SetHintLabel(deviceHint_,
         ToWx(ui::ScanningStatus(progress.probed, progress.total, uint16_t(settings_.port))));
 }
 
@@ -1677,48 +1802,32 @@ void MainFrame::OnScanFinished(const deskhubp::ScanProgress& progress) {
                scannedThisRound_.end();
     };
     scanned_.erase(std::remove_if(scanned_.begin(), scanned_.end(), gone), scanned_.end());
-    RefreshScanList();
+    RefreshDeviceList();
 
-    SetHintLabel(scanStatus_,
+    SetHintLabel(deviceHint_,
         ToWx(ui::LanDevicesNote(scanned_.size(), progress.total, deskhubp::kLanRescanSecs)));
     scanTimer_.StartOnce(kRescanDelayMs);
 }
 
-void MainFrame::RefreshScanList() {
-    scanList_->DeleteAllItems();
-    for (size_t i = 0; i < scanned_.size(); ++i) {
-        const long row = scanList_->InsertItem(long(i), ToWx(scanned_[i].addr));
-        ApplyScanPingToRow(row, scanned_[i].addr);
-    }
-}
-
-void MainFrame::OnListClick(wxListCtrl* list, wxMouseEvent& event, bool scanned) {
+void MainFrame::OnListClick(wxMouseEvent& event) {
     event.Skip();
     int flags = 0;
-    const long row = list->HitTest(event.GetPosition(), flags);
-    LOGI("[UI] %s list click: row %ld%s.", scanned ? "LAN" : "Recent", row,
-        prompting_ ? " (prompt already open)" : "");
+    const long row = deviceList_->HitTest(event.GetPosition(), flags);
+    LOGI("[UI] device list click: row %ld%s.", row, prompting_ ? " (prompt already open)" : "");
 
     if (row == wxNOT_FOUND || prompting_) return;
 
     prompting_ = true;
-    CallAfter([this, row, scanned] {
-        ConnectRow(row, scanned);
+    CallAfter([this, row] {
+        ConnectRow(row);
         prompting_ = false;
     });
 }
 
-void MainFrame::ConnectRow(long row, bool scanned) {
-    if (row < 0) return;
-    if (scanned) {
-        if (size_t(row) >= scanned_.size()) return;
-        const std::string addr = scanned_[size_t(row)].addr;
-        ConnectWithPrompt(addr, ui::PasscodeForDevice(recent_, addr));
-        return;
-    }
-    if (size_t(row) >= recent_.size()) return;
-    const ui::RecentDevice device = recent_[size_t(row)];
-    ConnectWithPrompt(device.addr, device.passcode);
+void MainFrame::ConnectRow(long row) {
+    if (row < 0 || size_t(row) >= deviceRows_.size()) return;
+    const std::string addr = deviceRows_[size_t(row)].addr;
+    ConnectWithPrompt(addr, ui::PasscodeForDevice(recent_, addr));
 }
 
 void MainFrame::ConnectWithPrompt(const std::string& addr, std::string passcode) {
@@ -1751,7 +1860,7 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
     SaveRecentDevices();
     poller_.SetAddresses(AddressesOf(recent_));
-    RefreshRecentList();
+    RefreshDeviceList();
 
     std::vector<deskhub::SourceInfo> picked;
     if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
@@ -1772,10 +1881,8 @@ void MainFrame::OpenViewerSession(const std::string& addr, const std::string& pa
 }
 
 void MainFrame::DeselectAllRows() {
-    for (long row = 0; row < list_->GetItemCount(); ++row)
-        list_->SetItemState(row, 0, wxLIST_STATE_SELECTED);
-    for (long row = 0; row < scanList_->GetItemCount(); ++row)
-        scanList_->SetItemState(row, 0, wxLIST_STATE_SELECTED);
+    for (long row = 0; row < deviceList_->GetItemCount(); ++row)
+        deviceList_->SetItemState(row, 0, wxLIST_STATE_SELECTED);
 }
 
 void MainFrame::SaveSettings() {
@@ -1788,7 +1895,10 @@ void MainFrame::SaveSettings() {
     settings_.clipboardSync = clipboardCtrl_->GetValue();
     settings_.keepAwake = keepAwakeCtrl_->GetValue();
     const std::string passcode(passcodeCtrl_->GetValue().utf8_str());
-    if (deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
+    // Empty is now a real choice, not a slip: it is what turns on being asked here
+    // before a new machine is let in. A half-typed code is still ignored, so the
+    // setting is not thrown away between keystrokes.
+    if (passcode.empty() || deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
     const int quality = qualityChoice_->GetSelection();
     if (quality != wxNOT_FOUND)
         settings_.maxDim = deskhub::media::QualityPresetMaxDim(size_t(quality),

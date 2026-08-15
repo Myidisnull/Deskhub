@@ -100,6 +100,11 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return std::string();
     };
 
+    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string shortKey,
+                                  std::string name) {
+        PushPairingRequest(PairingRequest{addrPacked, std::move(shortKey), std::move(name)});
+    };
+
     policy.onSharing = [] {
         const bool elevated = IsProcessElevated();
         LOGI("[Agent] Client control allowed (mouse + keyboard). Host elevated: %s%s",

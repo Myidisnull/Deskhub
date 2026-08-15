@@ -6,6 +6,9 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
+#include "deskhubp/system/DeviceName.h"
+#include "deskhubp/system/HostIdentity.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/KeepAwake.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -16,7 +19,7 @@
 namespace deskhubp {
 namespace {
 
-std::string DefaultPortError(const UdpSocket& sock, uint16_t port) {
+std::string DefaultPortError(const SessionTransport& sock, uint16_t port) {
     return sock.lastBindAddrInUse()
                ? "UDP port " + std::to_string(port) +
                      " is already in use \xE2\x80\x94 another Deskhub is probably still "
@@ -121,7 +124,7 @@ void HostEngine::AttachSession(HostSource& st) {
     const deskhub::HostCallbacks cb = MakeHostCallbacks(st, std::move(hooks));
 
     st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
-    st.session->SetPasscode(opt_.passcode);
+    st.session->SetConnectionAuthenticated(true);
     st.session->SetClipboardEnabled(opt_.clipboardSync);
     st.netReady.store(true, std::memory_order_release);
 }
@@ -173,10 +176,40 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     if (chosen.fellBack)
         LOGW("[Agent] %s", deskhub::ui::BindFallbackWarning(opt_.bindIp).c_str());
 
-    if (!sock_.Open(opt_.port, chosen.ip))
+    const std::string commonName =
+        opt_.deviceName.empty() ? LocalDeviceName() : opt_.deviceName;
+    const HostIdentity identity = LoadOrCreateHostIdentity(commonName);
+    if (!identity.Valid()) return Fail(std::string(deskhub::ui::kShareNoHostIdentity));
+
+    QuicSettings settings;
+    settings.certPemPath = identity.certPath;
+    settings.keyPemPath = identity.keyPath;
+    if (!sock_.Listen(settings, opt_.port, chosen.ip))
         return Fail(policy_.portError ? policy_.portError(sock_)
                                       : DefaultPortError(sock_, opt_.port));
     sock_.SetRecvTimeout(100);
+    LOGI("[Agent] Host identity %s", deskhub::FormatFingerprint(identity.fingerprint).c_str());
+
+    HostAuthConfig auth;
+    auth.identity = identity;
+    auth.SetPasscode(LoadOrCreateAuthSalt(), opt_.passcode);
+    auth.allowNewPairings = opt_.allowNewPairings;
+    TransportAuthCallbacks authHooks;
+    authHooks.onPaired = [this](const NetAddr&, const deskhub::Fingerprint&,
+                             std::string_view name) {
+        LOGI("[Agent] %s is paired with this machine.", std::string(name).c_str());
+        if (policy_.onPaired) policy_.onPaired();
+    };
+    authHooks.onApprovalNeeded = [this](const NetAddr& peer, const deskhub::Fingerprint& fp,
+                                     std::string_view name) {
+        if (policy_.onApprovalNeeded)
+            policy_.onApprovalNeeded(peer.Pack(), deskhub::ShortFingerprint(fp),
+                std::string(name));
+    };
+    authHooks.onRefused = [](const NetAddr& peer, deskhub::AuthResultCode) {
+        LOGW("[Agent] %s was refused.", peer.ToString().c_str());
+    };
+    sock_.SetHostAuth(std::move(auth), std::move(authHooks));
 
     if (policy_.afterSocket) {
         std::string err = policy_.afterSocket();
@@ -259,6 +292,12 @@ void HostEngine::RequestKickViewer(uint8_t sourceId, uint64_t addrPacked) {
     pendingViewerKicks_.emplace_back(sourceId, addrPacked);
 }
 
+void HostEngine::AnswerPairingRequest(uint64_t addrPacked, bool allowed) {
+    if (!addrPacked) return;
+    std::lock_guard<std::mutex> lk(controlMutex_);
+    pendingPairAnswers_.emplace_back(addrPacked, allowed);
+}
+
 HostSource* HostEngine::FindLiveSource(uint8_t sourceId) {
     for (HostSource* st : live_)
         if (st->sourceId == sourceId) return st;
@@ -295,11 +334,19 @@ void HostEngine::DrainLocalClipboard() {
 void HostEngine::DrainControlRequests() {
     std::vector<uint8_t> stops;
     std::vector<std::pair<uint8_t, uint64_t>> kicks;
+    std::vector<std::pair<uint64_t, bool>> pairAnswers;
     {
         std::lock_guard<std::mutex> lk(controlMutex_);
         stops.swap(pendingSourceStops_);
         kicks.swap(pendingViewerKicks_);
+        pairAnswers.swap(pendingPairAnswers_);
     }
+
+    // The person at this machine answered a pairing request. It has to happen on
+    // this thread because that is where the QUIC connection lives.
+    for (const auto& [addrPacked, allowed] : pairAnswers)
+        sock_.ApproveConnection(NetAddr::Unpack(addrPacked), allowed);
+
     if (stops.empty() && kicks.empty()) return;
 
     for (const auto& [sourceId, addrPacked] : kicks) {

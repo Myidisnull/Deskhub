@@ -7,6 +7,20 @@ set(wxBUILD_DEMOS OFF)
 set(wxBUILD_BENCHMARKS OFF)
 set(wxBUILD_INSTALL OFF)
 
+# wxWidgets derives wxBUILD_USE_STATIC_RUNTIME from CMAKE_MSVC_RUNTIME_LIBRARY, but
+# wx_option() caches it without FORCE, so it is decided by the FIRST configure and
+# never revisited. A tree configured before third_party/quiche existed therefore keeps
+# building wxWidgets against the static CRT after quiche flips the project to the DLL
+# one, and the link ends in LNK2038 over libcpmt.lib. Re-pin it on every configure.
+if(MSVC)
+    if(NOT CMAKE_MSVC_RUNTIME_LIBRARY OR CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+        set(deskhub_wx_static_runtime OFF)
+    else()
+        set(deskhub_wx_static_runtime ON)
+    endif()
+    set(wxBUILD_USE_STATIC_RUNTIME ${deskhub_wx_static_runtime} CACHE BOOL "" FORCE)
+endif()
+
 FetchContent_Declare(wxwidgets
     URL https://github.com/wxWidgets/wxWidgets/releases/download/v3.3.1/wxWidgets-3.3.1.tar.bz2
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE

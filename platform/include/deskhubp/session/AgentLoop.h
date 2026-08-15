@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhubp/session/HostEngine.h"
 
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -9,6 +10,15 @@
 using AgentSource = deskhub::media::ShareSource;
 using AgentOptions = deskhub::media::AgentOptions;
 using AgentSourceStatus = deskhub::media::AgentSourceStatus;
+
+// A machine asking to pair when no passcode is set. It waits until somebody here
+// answers, so the request is queued for the UI thread rather than blocking the net
+// loop on a dialog.
+struct PairingRequest {
+    uint64_t addrPacked = 0;
+    std::string shortKey{};
+    std::string name{};
+};
 
 class AgentLoop {
 public:
@@ -54,6 +64,24 @@ public:
         return engine_.TakeRemoteClipboard();
     }
 
+    void PushPairingRequest(PairingRequest request) {
+        const std::lock_guard<std::mutex> lock(pairingMutex_);
+        pairingRequests_.push_back(std::move(request));
+    }
+
+    std::vector<PairingRequest> TakePairingRequests() {
+        const std::lock_guard<std::mutex> lock(pairingMutex_);
+        std::vector<PairingRequest> out;
+        out.swap(pairingRequests_);
+        return out;
+    }
+
+    void AnswerPairing(uint64_t addrPacked, bool allowed) {
+        engine_.AnswerPairingRequest(addrPacked, allowed);
+    }
+
 private:
     deskhubp::HostEngine engine_;
+    std::mutex pairingMutex_;
+    std::vector<PairingRequest> pairingRequests_;
 };

@@ -51,6 +51,7 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
     if (key == "start_hidden") out.startHidden = *v != 0;
     if (key == "keep_awake") out.keepAwake = *v != 0;
+    if (key == "allow_new_pairings") out.allowNewPairings = *v != 0;
     if (key == "terminal_port" && *v >= 1 && *v <= kMaxSettingsPort) out.terminalPort = *v;
 }
 
@@ -111,6 +112,7 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("clipboard_sync=") + (settings.clipboardSync ? "1" : "0") + '\n';
     out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
     out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
+    out += std::string("allow_new_pairings=") + (settings.allowNewPairings ? "1" : "0") + '\n';
     out += "terminal_port=" + std::to_string(settings.terminalPort) + '\n';
     return out;
 }

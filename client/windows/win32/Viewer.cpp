@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "deskhub/input/PointerLockState.h"
+#include "deskhub/net/TrustStore.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/session/OpenViewers.h"
@@ -28,6 +29,7 @@ constexpr wchar_t kVideoClass[] = L"DeskhubViewerVideo";
 constexpr UINT WM_APP_STATS = WM_APP + 1;
 constexpr UINT WM_APP_SIZE = WM_APP + 2;
 constexpr UINT WM_APP_CLOSED = WM_APP + 3;
+constexpr UINT WM_APP_TRUST = WM_APP + 4;
 constexpr UINT kTimerHint = 1;
 constexpr UINT kTimerClipboard = 2;
 
@@ -75,6 +77,8 @@ struct ViewerFrame {
     std::mutex mu;
     std::string statsLine;
     std::string closedReason;
+    std::string fingerprint;
+    int32_t trustVerdict = 0;
     uint32_t videoW = 0, videoH = 0;
 
     void Relayout() {
@@ -169,6 +173,33 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 f->Relayout();
             }
             return 0;
+        case WM_APP_TRUST: {
+            if (!f) return 0;
+            std::string fingerprint;
+            bool changed = false;
+            {
+                std::lock_guard<std::mutex> lk(f->mu);
+                fingerprint = f->fingerprint;
+                changed = f->trustVerdict == int32_t(deskhub::TrustVerdict::Changed);
+            }
+            std::wstring body =
+                FromUtf8(changed ? deskhub::ui::kTrustChangedBody : deskhub::ui::kTrustNewHostBody);
+            body += L"\n\n";
+            body += FromUtf8(deskhub::ui::kTrustFingerprintLabel);
+            body += L" ";
+            body += FromUtf8(fingerprint);
+
+            const int answer = MessageBoxW(h, body.c_str(),
+                FromUtf8(changed ? deskhub::ui::kTrustChangedTitle
+                                 : deskhub::ui::kTrustNewHostTitle)
+                    .c_str(),
+                MB_YESNO | MB_DEFBUTTON2 | (changed ? MB_ICONWARNING : MB_ICONQUESTION));
+            if (answer == IDYES)
+                dh_session_accept_key(f->session);
+            else
+                dh_session_reject_key(f->session);
+            return 0;
+        }
         case WM_APP_CLOSED: {
             if (!f) return 0;
             std::string reason;
@@ -253,6 +284,15 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
             fr->videoH = h;
         }
         PostMessageW(fr->hwnd, WM_APP_SIZE, 0, 0);
+    };
+    callbacks.onTrustAsked = [](int32_t verdict, const char* fingerprint, void* user) {
+        auto* fr = (ViewerFrame*)user;
+        {
+            std::lock_guard<std::mutex> lk(fr->mu);
+            fr->trustVerdict = verdict;
+            fr->fingerprint = fingerprint ? fingerprint : "";
+        }
+        PostMessageW(fr->hwnd, WM_APP_TRUST, 0, 0);
     };
     callbacks.onClosed = [](const char* reason, void* user) {
         auto* fr = (ViewerFrame*)user;

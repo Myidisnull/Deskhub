@@ -19,7 +19,7 @@ public:
         passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
     }
 
-    size_t Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt) const;
+    size_t Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, bool trusted = false) const;
 
 private:
     std::vector<SourceInfo> sources_;

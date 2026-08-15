@@ -16,5 +16,8 @@ void RunLanScannerTests();
 void RunAppDataFileTests();
 void RunHostIdentityTests();
 void RunQuicEndpointTests();
+void RunSessionTransportTests();
+void RunAuthProofTests();
+void RunAuthNegotiationTests();
 void RunPtyTests();
 void RunTerminalHostTests();

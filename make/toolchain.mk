@@ -11,6 +11,8 @@ LLVMPATH := set "PATH=$(VSDIR)\VC\Tools\Llvm\x64\bin;%PATH%" &&
 LLVM     :=
 
 BOOTSTRAP := powershell -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
+GIT_BASH  ?= C:\Program Files\Git\bin\bash.exe
+QUICHE    := $(DEVCMD) "$(GIT_BASH)" scripts/build-quiche.sh windows
 NULDEV    := nul
 RMRF      := $(DEVCMD) cmake -E rm -rf
 HELPCAT   := type make\help.txt
@@ -22,6 +24,7 @@ LLVMPATH :=
 LLVM     := $(if $(filter Darwin,$(UNAME)),xcrun)
 
 BOOTSTRAP := scripts/bootstrap.sh
+QUICHE    := scripts/build-quiche.sh
 NULDEV    := /dev/null
 RMRF      := rm -rf
 HELPCAT   := cat make/help.txt

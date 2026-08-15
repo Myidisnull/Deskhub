@@ -1,6 +1,6 @@
 #pragma once
 #include "deskhub/session/ClientPump.h"
-#include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/net/SessionTransport.h"
 
 #include <cstdint>
 #include <functional>
@@ -17,7 +17,7 @@ struct ClientNetLoopHooks {
     std::function<void()> onSocketError;
 };
 
-void RunClientNetLoop(UdpSocket& sock, deskhub::ClientPump& pump,
+void RunClientNetLoop(SessionTransport& sock, deskhub::ClientPump& pump,
     const ClientNetLoopHooks& hooks);
 
 }

@@ -227,6 +227,7 @@ void HostSession::SendHelloAck(uint64_t nowUs) {
 }
 
 bool HostSession::PasscodeAllows(const Hello& m, uint64_t nowUs) {
+    if (connectionAuthenticated_) return true;
     if (!IsValidPasscode(passcode_)) {
         SendReject(RejectReason::WrongPasscode);
         return false;

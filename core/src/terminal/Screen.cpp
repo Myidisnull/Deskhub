@@ -49,38 +49,38 @@ Color ExtendedColor(const VtEvent& ev, size_t& at) {
 
 char32_t DecSpecialGraphic(char32_t cp) {
     switch (cp) {
-    case U'`': return U'\u25C6';
-    case U'a': return U'\u2592';
-    case U'b': return U'\u2409';
-    case U'c': return U'\u240C';
-    case U'd': return U'\u240D';
-    case U'e': return U'\u240A';
-    case U'f': return U'\u00B0';
-    case U'g': return U'\u00B1';
-    case U'h': return U'\u2424';
-    case U'i': return U'\u240B';
-    case U'j': return U'\u2518';
-    case U'k': return U'\u2510';
-    case U'l': return U'\u250C';
-    case U'm': return U'\u2514';
-    case U'n': return U'\u253C';
-    case U'o': return U'\u23BA';
-    case U'p': return U'\u23BB';
-    case U'q': return U'\u2500';
-    case U'r': return U'\u23BC';
-    case U's': return U'\u23BD';
-    case U't': return U'\u251C';
-    case U'u': return U'\u2524';
-    case U'v': return U'\u2534';
-    case U'w': return U'\u252C';
-    case U'x': return U'\u2502';
-    case U'y': return U'\u2264';
-    case U'z': return U'\u2265';
-    case U'{': return U'\u03C0';
-    case U'|': return U'\u2260';
-    case U'}': return U'\u00A3';
-    case U'~': return U'\u00B7';
-    default: return cp;
+        case U'`': return U'\u25C6';
+        case U'a': return U'\u2592';
+        case U'b': return U'\u2409';
+        case U'c': return U'\u240C';
+        case U'd': return U'\u240D';
+        case U'e': return U'\u240A';
+        case U'f': return U'\u00B0';
+        case U'g': return U'\u00B1';
+        case U'h': return U'\u2424';
+        case U'i': return U'\u240B';
+        case U'j': return U'\u2518';
+        case U'k': return U'\u2510';
+        case U'l': return U'\u250C';
+        case U'm': return U'\u2514';
+        case U'n': return U'\u253C';
+        case U'o': return U'\u23BA';
+        case U'p': return U'\u23BB';
+        case U'q': return U'\u2500';
+        case U'r': return U'\u23BC';
+        case U's': return U'\u23BD';
+        case U't': return U'\u251C';
+        case U'u': return U'\u2524';
+        case U'v': return U'\u2534';
+        case U'w': return U'\u252C';
+        case U'x': return U'\u2502';
+        case U'y': return U'\u2264';
+        case U'z': return U'\u2265';
+        case U'{': return U'\u03C0';
+        case U'|': return U'\u2260';
+        case U'}': return U'\u00A3';
+        case U'~': return U'\u00B7';
+        default: return cp;
     }
 }
 
@@ -169,11 +169,11 @@ void Screen::Write(std::span<const uint8_t> bytes) {
 
 void Screen::Apply(const VtEvent& ev) {
     switch (ev.action) {
-    case VtAction::Print: Print(ev.codepoint); return;
-    case VtAction::Execute: Execute(ev.final); return;
-    case VtAction::Csi: Csi(ev); return;
-    case VtAction::Esc: Esc(ev); return;
-    case VtAction::Osc: Osc(ev); return;
+        case VtAction::Print: Print(ev.codepoint); return;
+        case VtAction::Execute: Execute(ev.final); return;
+        case VtAction::Csi: Csi(ev); return;
+        case VtAction::Esc: Esc(ev); return;
+        case VtAction::Osc: Osc(ev); return;
     }
 }
 
@@ -208,16 +208,16 @@ void Screen::Print(char32_t cp) {
 
 void Screen::Execute(uint8_t control) {
     switch (control) {
-    case kBel: ++bells_; return;
-    case kBs: Backspace(); return;
-    case kHt: Tab(1); return;
-    case kLf:
-    case kVt:
-    case kFf: LineFeed(); return;
-    case kCr: CarriageReturn(); return;
-    case kSo: shiftedOut_ = true; return;
-    case kSi: shiftedOut_ = false; return;
-    default: return;
+        case kBel: ++bells_; return;
+        case kBs: Backspace(); return;
+        case kHt: Tab(1); return;
+        case kLf:
+        case kVt:
+        case kFf: LineFeed(); return;
+        case kCr: CarriageReturn(); return;
+        case kSo: shiftedOut_ = true; return;
+        case kSi: shiftedOut_ = false; return;
+        default: return;
     }
 }
 
@@ -422,55 +422,55 @@ void Screen::Csi(const VtEvent& ev) {
     if (ev.intermediate != 0) return;
 
     switch (ev.final) {
-    case 'A': MoveBy(-ClampCount(ev.Param(0, 1), Rows()), 0); return;
-    case 'B': MoveBy(ClampCount(ev.Param(0, 1), Rows()), 0); return;
-    case 'C': MoveBy(0, ClampCount(ev.Param(0, 1), Cols())); return;
-    case 'D': MoveBy(0, -ClampCount(ev.Param(0, 1), Cols())); return;
-    case 'E':
-        MoveBy(ClampCount(ev.Param(0, 1), Rows()), 0);
-        cursor_.col = 0;
-        return;
-    case 'F':
-        MoveBy(-ClampCount(ev.Param(0, 1), Rows()), 0);
-        cursor_.col = 0;
-        return;
-    case 'G':
-    case '`': MoveTo(cursor_.row - (modes_.origin ? scrollTop_ : 0), ev.Param(0, 1) - 1); return;
-    case 'H':
-    case 'f': MoveTo(ev.Param(0, 1) - 1, ev.Param(1, 1) - 1); return;
-    case 'I': Tab(ClampCount(ev.Param(0, 1), Cols())); return;
-    case 'J': EraseInDisplay(ev.Param(0, 0)); return;
-    case 'K': EraseInLine(ev.Param(0, 0)); return;
-    case 'L': InsertLines(ClampCount(ev.Param(0, 1), Rows())); return;
-    case 'M': DeleteLines(ClampCount(ev.Param(0, 1), Rows())); return;
-    case 'P': DeleteChars(ClampCount(ev.Param(0, 1), Cols())); return;
-    case 'S': ScrollUp(ClampCount(ev.Param(0, 1), Rows())); return;
-    case 'T': ScrollDown(ClampCount(ev.Param(0, 1), Rows())); return;
-    case 'X': EraseChars(ClampCount(ev.Param(0, 1), Cols())); return;
-    case 'Z': BackTab(ClampCount(ev.Param(0, 1), Cols())); return;
-    case '@': InsertChars(ClampCount(ev.Param(0, 1), Cols())); return;
-    case 'd': MoveTo(ev.Param(0, 1) - 1 - (modes_.origin ? scrollTop_ : 0), cursor_.col); return;
-    case 'c':
-        if (ev.Param(0, 0) == 0) Respond(kDeviceAttributes);
-        return;
-    case 'm': Sgr(ev); return;
-    case 'n':
-        if (ev.Param(0, 0) == 5) Respond("\x1B[0n");
-        if (ev.Param(0, 0) == 6) {
-            const int row = cursor_.row - (modes_.origin ? scrollTop_ : 0) + 1;
-            Respond("\x1B[" + std::to_string(row) + ";" + std::to_string(cursor_.col + 1) + "R");
+        case 'A': MoveBy(-ClampCount(ev.Param(0, 1), Rows()), 0); return;
+        case 'B': MoveBy(ClampCount(ev.Param(0, 1), Rows()), 0); return;
+        case 'C': MoveBy(0, ClampCount(ev.Param(0, 1), Cols())); return;
+        case 'D': MoveBy(0, -ClampCount(ev.Param(0, 1), Cols())); return;
+        case 'E':
+            MoveBy(ClampCount(ev.Param(0, 1), Rows()), 0);
+            cursor_.col = 0;
+            return;
+        case 'F':
+            MoveBy(-ClampCount(ev.Param(0, 1), Rows()), 0);
+            cursor_.col = 0;
+            return;
+        case 'G':
+        case '`': MoveTo(cursor_.row - (modes_.origin ? scrollTop_ : 0), ev.Param(0, 1) - 1); return;
+        case 'H':
+        case 'f': MoveTo(ev.Param(0, 1) - 1, ev.Param(1, 1) - 1); return;
+        case 'I': Tab(ClampCount(ev.Param(0, 1), Cols())); return;
+        case 'J': EraseInDisplay(ev.Param(0, 0)); return;
+        case 'K': EraseInLine(ev.Param(0, 0)); return;
+        case 'L': InsertLines(ClampCount(ev.Param(0, 1), Rows())); return;
+        case 'M': DeleteLines(ClampCount(ev.Param(0, 1), Rows())); return;
+        case 'P': DeleteChars(ClampCount(ev.Param(0, 1), Cols())); return;
+        case 'S': ScrollUp(ClampCount(ev.Param(0, 1), Rows())); return;
+        case 'T': ScrollDown(ClampCount(ev.Param(0, 1), Rows())); return;
+        case 'X': EraseChars(ClampCount(ev.Param(0, 1), Cols())); return;
+        case 'Z': BackTab(ClampCount(ev.Param(0, 1), Cols())); return;
+        case '@': InsertChars(ClampCount(ev.Param(0, 1), Cols())); return;
+        case 'd': MoveTo(ev.Param(0, 1) - 1 - (modes_.origin ? scrollTop_ : 0), cursor_.col); return;
+        case 'c':
+            if (ev.Param(0, 0) == 0) Respond(kDeviceAttributes);
+            return;
+        case 'm': Sgr(ev); return;
+        case 'n':
+            if (ev.Param(0, 0) == 5) Respond("\x1B[0n");
+            if (ev.Param(0, 0) == 6) {
+                const int row = cursor_.row - (modes_.origin ? scrollTop_ : 0) + 1;
+                Respond("\x1B[" + std::to_string(row) + ";" + std::to_string(cursor_.col + 1) + "R");
+            }
+            return;
+        case 'r': SetScrollRegion(ev.Param(0, 1), ev.Param(1, int32_t(Rows()))); return;
+        case 's': SaveCursor(); return;
+        case 'u': RestoreCursor(); return;
+        case 'h':
+        case 'l': {
+            const bool on = ev.final == 'h';
+            for (size_t i = 0; i < ev.paramCount; ++i) SetAnsiMode(ev.Param(i, 0), on);
+            return;
         }
-        return;
-    case 'r': SetScrollRegion(ev.Param(0, 1), ev.Param(1, int32_t(Rows()))); return;
-    case 's': SaveCursor(); return;
-    case 'u': RestoreCursor(); return;
-    case 'h':
-    case 'l': {
-        const bool on = ev.final == 'h';
-        for (size_t i = 0; i < ev.paramCount; ++i) SetAnsiMode(ev.Param(i, 0), on);
-        return;
-    }
-    default: return;
+        default: return;
     }
 }
 
@@ -482,69 +482,75 @@ void Screen::Sgr(const VtEvent& ev) {
     for (size_t i = 0; i < ev.paramCount; ++i) {
         const int32_t code = ev.Param(i, 0);
         switch (code) {
-        case 0: pen_ = Pen{}; break;
-        case 1: pen_.attrs |= kAttrBold; break;
-        case 2: pen_.attrs |= kAttrDim; break;
-        case 3: pen_.attrs |= kAttrItalic; break;
-        case 4: pen_.attrs |= kAttrUnderline; break;
-        case 5:
-        case 6: pen_.attrs |= kAttrBlink; break;
-        case 7: pen_.attrs |= kAttrReverse; break;
-        case 8: pen_.attrs |= kAttrHidden; break;
-        case 9: pen_.attrs |= kAttrStrike; break;
-        case 21:
-        case 22: pen_.attrs &= uint8_t(~(kAttrBold | kAttrDim)); break;
-        case 23: pen_.attrs &= uint8_t(~kAttrItalic); break;
-        case 24: pen_.attrs &= uint8_t(~kAttrUnderline); break;
-        case 25: pen_.attrs &= uint8_t(~kAttrBlink); break;
-        case 27: pen_.attrs &= uint8_t(~kAttrReverse); break;
-        case 28: pen_.attrs &= uint8_t(~kAttrHidden); break;
-        case 29: pen_.attrs &= uint8_t(~kAttrStrike); break;
-        case 38: pen_.fg = ExtendedColor(ev, i); break;
-        case 39: pen_.fg = Color{}; break;
-        case 48: pen_.bg = ExtendedColor(ev, i); break;
-        case 49: pen_.bg = Color{}; break;
-        default:
-            if (code >= 30 && code <= 37) pen_.fg = PaletteColor(uint8_t(code - 30));
-            else if (code >= 40 && code <= 47) pen_.bg = PaletteColor(uint8_t(code - 40));
-            else if (code >= 90 && code <= 97) pen_.fg = PaletteColor(uint8_t(code - 90 + 8));
-            else if (code >= 100 && code <= 107) pen_.bg = PaletteColor(uint8_t(code - 100 + 8));
-            break;
+            case 0: pen_ = Pen{}; break;
+            case 1: pen_.attrs |= kAttrBold; break;
+            case 2: pen_.attrs |= kAttrDim; break;
+            case 3: pen_.attrs |= kAttrItalic; break;
+            case 4: pen_.attrs |= kAttrUnderline; break;
+            case 5:
+            case 6: pen_.attrs |= kAttrBlink; break;
+            case 7: pen_.attrs |= kAttrReverse; break;
+            case 8: pen_.attrs |= kAttrHidden; break;
+            case 9: pen_.attrs |= kAttrStrike; break;
+            case 21:
+            case 22: pen_.attrs &= uint8_t(~(kAttrBold | kAttrDim)); break;
+            case 23: pen_.attrs &= uint8_t(~kAttrItalic); break;
+            case 24: pen_.attrs &= uint8_t(~kAttrUnderline); break;
+            case 25: pen_.attrs &= uint8_t(~kAttrBlink); break;
+            case 27: pen_.attrs &= uint8_t(~kAttrReverse); break;
+            case 28: pen_.attrs &= uint8_t(~kAttrHidden); break;
+            case 29: pen_.attrs &= uint8_t(~kAttrStrike); break;
+            case 38: pen_.fg = ExtendedColor(ev, i); break;
+            case 39: pen_.fg = Color{}; break;
+            case 48: pen_.bg = ExtendedColor(ev, i); break;
+            case 49: pen_.bg = Color{}; break;
+            default:
+                if (code >= 30 && code <= 37)
+                    pen_.fg = PaletteColor(uint8_t(code - 30));
+                else if (code >= 40 && code <= 47)
+                    pen_.bg = PaletteColor(uint8_t(code - 40));
+                else if (code >= 90 && code <= 97)
+                    pen_.fg = PaletteColor(uint8_t(code - 90 + 8));
+                else if (code >= 100 && code <= 107)
+                    pen_.bg = PaletteColor(uint8_t(code - 100 + 8));
+                break;
         }
     }
 }
 
 void Screen::SetPrivateMode(int32_t mode, bool on) {
     switch (mode) {
-    case 1: modes_.applicationCursor = on; return;
-    case 5: modes_.reverseVideo = on; return;
-    case 6:
-        modes_.origin = on;
-        MoveTo(0, 0);
-        return;
-    case 7: modes_.autoWrap = on; return;
-    case 25: cursor_.visible = on; return;
-    case 47: SwitchScreen(on, false); return;
-    case 1047:
-        if (!on && alternate_) EraseInDisplay(2);
-        SwitchScreen(on, false);
-        return;
-    case 1048:
-        if (on) SaveCursor();
-        else RestoreCursor();
-        return;
-    case 1049:
-        if (on) SaveCursor();
-        SwitchScreen(on, on);
-        if (!on) RestoreCursor();
-        return;
-    case 1000:
-    case 1002:
-    case 1003:
-    case 1006:
-    case 1015: modes_.mouseReporting = on; return;
-    case 2004: modes_.bracketedPaste = on; return;
-    default: return;
+        case 1: modes_.applicationCursor = on; return;
+        case 5: modes_.reverseVideo = on; return;
+        case 6:
+            modes_.origin = on;
+            MoveTo(0, 0);
+            return;
+        case 7: modes_.autoWrap = on; return;
+        case 25: cursor_.visible = on; return;
+        case 47: SwitchScreen(on, false); return;
+        case 1047:
+            if (!on && alternate_) EraseInDisplay(2);
+            SwitchScreen(on, false);
+            return;
+        case 1048:
+            if (on)
+                SaveCursor();
+            else
+                RestoreCursor();
+            return;
+        case 1049:
+            if (on) SaveCursor();
+            SwitchScreen(on, on);
+            if (!on) RestoreCursor();
+            return;
+        case 1000:
+        case 1002:
+        case 1003:
+        case 1006:
+        case 1015: modes_.mouseReporting = on; return;
+        case 2004: modes_.bracketedPaste = on; return;
+        default: return;
     }
 }
 
@@ -583,18 +589,18 @@ void Screen::Esc(const VtEvent& ev) {
     if (ev.intermediate != 0) return;
 
     switch (ev.final) {
-    case '7': SaveCursor(); return;
-    case '8': RestoreCursor(); return;
-    case '=': modes_.applicationKeypad = true; return;
-    case '>': modes_.applicationKeypad = false; return;
-    case 'D': LineFeed(); return;
-    case 'E':
-        LineFeed();
-        cursor_.col = 0;
-        return;
-    case 'M': ReverseIndex(); return;
-    case 'c': FullReset(); return;
-    default: return;
+        case '7': SaveCursor(); return;
+        case '8': RestoreCursor(); return;
+        case '=': modes_.applicationKeypad = true; return;
+        case '>': modes_.applicationKeypad = false; return;
+        case 'D': LineFeed(); return;
+        case 'E':
+            LineFeed();
+            cursor_.col = 0;
+            return;
+        case 'M': ReverseIndex(); return;
+        case 'c': FullReset(); return;
+        default: return;
     }
 }
 

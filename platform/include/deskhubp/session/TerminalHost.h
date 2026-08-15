@@ -3,6 +3,7 @@
 #include "deskhub/session/TerminalSession.h"
 #include "deskhubp/net/QuicEndpoint.h"
 #include "deskhubp/system/HostIdentity.h"
+#include "deskhubp/session/AuthNegotiation.h"
 #include "deskhubp/system/Pty.h"
 
 #include <atomic>
@@ -18,6 +19,7 @@ namespace deskhubp {
 struct TerminalHostConfig {
     std::string bindIp{};
     uint16_t port = deskhub::kDeskhubPort;
+    bool allowNewPairings = true;
     std::string passcode{};
     std::string shell{};
 };
@@ -65,6 +67,7 @@ private:
     void Loop();
     void OnStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes);
     void HandleMessage(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
+    bool AuthAllows(QuicConnId conn, uint64_t stream, std::span<const uint8_t> message);
     void OnConnectionClosed(QuicConnId conn, uint64_t nowUs);
     void PumpShells(uint64_t nowUs);
     void DrainKicks();
@@ -81,6 +84,8 @@ private:
     std::map<uint32_t, Shell> shells_{};
     std::vector<uint32_t> kicks_{};
     std::map<uint64_t, deskhub::RecordStream> streams_{};
+    std::map<uint64_t, std::unique_ptr<HostAuth>> auth_{};
+    std::map<uint64_t, bool> authenticated_{};
     mutable std::mutex mutex_{};
     std::thread thread_{};
     std::atomic<bool> running_{false};

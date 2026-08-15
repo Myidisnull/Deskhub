@@ -44,6 +44,16 @@ struct FfiClientSession {
         cfg.onFinished = [this](const char* reason) {
             if (!userStop.load()) NotifyClosed(reason);
         };
+        // Nothing reaches the far machine until the client answers this, so a client
+        // that wires no handler refuses rather than hanging on a question nobody asked.
+        cfg.onTrustAsked = [this](deskhub::TrustVerdict verdict, std::string_view fingerprint) {
+            if (!callbacks.onTrustAsked) {
+                engine.RejectFingerprint();
+                return;
+            }
+            const std::string copy(fingerprint);
+            callbacks.onTrustAsked(int32_t(verdict), copy.c_str(), callbacks.user);
+        };
     }
 
     void StopQuietly() {
@@ -82,6 +92,16 @@ Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surf
     if (surface) raw->engine.SetSurface(static_cast<Surface>(surface));
     if (!raw->engine.Start(cfg)) return nullptr;
     return session.release();
+}
+
+template <class Session>
+void AcceptFfiClientKey(Session* s) {
+    if (s) s->engine.AcceptFingerprint();
+}
+
+template <class Session>
+void RejectFfiClientKey(Session* s) {
+    if (s) s->engine.RejectFingerprint();
 }
 
 template <class Session>

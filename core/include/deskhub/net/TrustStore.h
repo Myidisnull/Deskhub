@@ -54,8 +54,12 @@ public:
 
     std::optional<TrustedHost> Find(std::string_view endpoint) const;
     std::vector<std::string> EndpointsFor(const Fingerprint& fp) const;
-    const std::vector<TrustedHost>& Hosts() const { return hosts_; }
-    size_t Size() const { return hosts_.size(); }
+    const std::vector<TrustedHost>& Hosts() const {
+        return hosts_;
+    }
+    size_t Size() const {
+        return hosts_.size();
+    }
 
 private:
     std::vector<TrustedHost> hosts_{};

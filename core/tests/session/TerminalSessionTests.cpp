@@ -319,7 +319,7 @@ void TestClientLifecycle() {
     exit.resize(BuildTermExit(exit, 9, 130));
     h->client.HandleMessage(exit);
     Check(h->client.State() == TerminalClientState::Closed && h->exits.size() == 1 &&
-            h->exits[0] == 130,
+              h->exits[0] == 130,
         "when the shell exits the client is told the code");
     Check(h->client.TermId() == 0, "and no longer holds a session");
 }
@@ -350,8 +350,8 @@ void TestClientReattachAndRefusal() {
     refused->client.Open("9999", TermSize{80, 24}, "Pixel 9");
     refused->client.HandleMessage(AckMessage(0, TermReason::WrongPasscode, false));
     Check(refused->client.State() == TerminalClientState::Refused &&
-            refused->refusals.size() == 1 &&
-            refused->refusals[0] == TermReason::WrongPasscode,
+              refused->refusals.size() == 1 &&
+              refused->refusals[0] == TermReason::WrongPasscode,
         "a refusal is reported with its reason");
     Check(refused->client.TermId() == 0 && !refused->client.CanReattach(),
         "and leaves nothing to come back to");

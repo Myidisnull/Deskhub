@@ -95,23 +95,41 @@ public:
     void Resize(TermSize size);
     void Reset();
 
-    TermSize Size() const { return size_; }
+    TermSize Size() const {
+        return size_;
+    }
     const Cell& At(uint16_t row, uint16_t col) const;
     std::string RowText(uint16_t row) const;
     std::string Text() const;
 
-    CursorState Cursor() const { return cursor_; }
-    const TerminalModes& Modes() const { return modes_; }
-    const Pen& CurrentPen() const { return pen_; }
-    std::string_view Title() const { return title_; }
-    bool AlternateScreen() const { return alternate_; }
+    CursorState Cursor() const {
+        return cursor_;
+    }
+    const TerminalModes& Modes() const {
+        return modes_;
+    }
+    const Pen& CurrentPen() const {
+        return pen_;
+    }
+    std::string_view Title() const {
+        return title_;
+    }
+    bool AlternateScreen() const {
+        return alternate_;
+    }
 
-    size_t ScrollbackRows() const { return scrollback_.size(); }
+    size_t ScrollbackRows() const {
+        return scrollback_.size();
+    }
     const Cell& ScrollbackAt(size_t row, uint16_t col) const;
     std::string ScrollbackText(size_t row) const;
 
-    uint64_t Revision() const { return revision_; }
-    uint32_t BellCount() const { return bells_; }
+    uint64_t Revision() const {
+        return revision_;
+    }
+    uint32_t BellCount() const {
+        return bells_;
+    }
     std::string TakeResponse();
 
 private:
@@ -152,8 +170,12 @@ private:
     void Respond(std::string_view text);
     void PushScrollback(Row&& row);
     void FullReset();
-    uint16_t Cols() const { return size_.cols; }
-    uint16_t Rows() const { return size_.rows; }
+    uint16_t Cols() const {
+        return size_.cols;
+    }
+    uint16_t Rows() const {
+        return size_.rows;
+    }
 
     TermSize size_{};
     size_t scrollbackLimit_ = kDefaultScrollback;

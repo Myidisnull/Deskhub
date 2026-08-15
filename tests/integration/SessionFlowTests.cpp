@@ -5,9 +5,11 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/input/VirtualKeys.h"
+#include "deskhubp/net/HostProbe.h"
 #include "deskhubp/net/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 
 #include <cstdio>
 #include <string>
@@ -40,9 +42,23 @@ deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, uint8_t sourceId) {
     return cfg;
 }
 
+// A viewer refuses to send anything to a machine whose key it has not seen before,
+// so every test has to answer the question a person would answer once. Accepting
+// here is the same as clicking "yes, this is the right machine".
+bool StartViewer(Viewer& viewer, deskhubp::ClientEngineConfig cfg) {
+    cfg.onTrustAsked = [&viewer](deskhub::TrustVerdict, std::string_view) {
+        viewer.AcceptFingerprint();
+    };
+    return viewer.Start(cfg);
+}
+
+// Every test starts from a machine that has paired with nobody. Without this the
+// first successful pairing would let every later viewer in by key alone, and the
+// passcode tests below would be testing nothing.
 void ResetObservations() {
     fake::Host().Reset();
     fake::Decoded().Reset();
+    deskhubp::ForgetAllPairedDevices();
 }
 
 bool Streaming(Viewer& v) {
@@ -69,7 +85,7 @@ void TestAViewerConnectsAndSeesTheFramesTheHostEncoded() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    Check(viewer.Start(ViewerConfig(port, 0)), "the viewer opened its socket");
+    Check(StartViewer(viewer, ViewerConfig(port, 0)), "the viewer opened its socket");
 
     Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
         "HELLO / HELLO_ACK / START completed and the session reached Streaming");
@@ -115,7 +131,7 @@ void TestKeystrokesReachTheHostInjector() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    viewer.Start(ViewerConfig(port, 0));
+    StartViewer(viewer, ViewerConfig(port, 0));
     if (!WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs)) {
         Check(false, "the session never reached Streaming");
         viewer.Stop();
@@ -162,7 +178,7 @@ void TestPauseArrivesWithoutAScancode() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    viewer.Start(ViewerConfig(port, 0));
+    StartViewer(viewer, ViewerConfig(port, 0));
     if (!WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs)) {
         Check(false, "the session never reached Streaming");
         viewer.Stop();
@@ -205,7 +221,7 @@ void TestTheHostReportsWhoIsWatching() {
     viewer.SetSurface(kDummySurface);
     deskhubp::ClientEngineConfig named = ViewerConfig(port, 0);
     named.displayName = "Anh's laptop";
-    viewer.Start(named);
+    StartViewer(viewer, named);
 
     Check(WaitFor(
               [&] {
@@ -254,7 +270,7 @@ void TestTwoSourcesStayApart() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    viewer.Start(ViewerConfig(port, 1));
+    StartViewer(viewer, ViewerConfig(port, 1));
 
     Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
         "the viewer negotiated with source 1");
@@ -292,13 +308,13 @@ void TestOneMachineWatchesBothDisplaysAtOnce() {
 
     Viewer firstDisplay;
     firstDisplay.SetSurface(kDummySurface);
-    Check(firstDisplay.Start(ViewerConfig(port, 0)), "the first window opened its socket");
+    Check(StartViewer(firstDisplay, ViewerConfig(port, 0)), "the first window opened its socket");
     Check(WaitFor([&] { return Streaming(firstDisplay); }, kConnectTimeoutMs),
         "the window watching Display 1 reaches Streaming");
 
     Viewer secondDisplay;
     secondDisplay.SetSurface(kDummySurface);
-    Check(secondDisplay.Start(ViewerConfig(port, 1)), "the second window opened its socket");
+    Check(StartViewer(secondDisplay, ViewerConfig(port, 1)), "the second window opened its socket");
     Check(WaitFor([&] { return Streaming(secondDisplay); }, kConnectTimeoutMs),
         "the window watching Display 2 reaches Streaming too, instead of being turned away");
 
@@ -368,7 +384,7 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
 
     Viewer first;
     first.SetSurface(kDummySurface);
-    first.Start(ViewerConfig(port, 0));
+    StartViewer(first, ViewerConfig(port, 0));
     if (!WaitFor([&] { return Streaming(first); }, kConnectTimeoutMs)) {
         Check(false, "the first viewer never reached Streaming");
         first.Stop();
@@ -378,7 +394,7 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
 
     Viewer second;
     second.SetSurface(kDummySurface);
-    second.Start(ViewerConfig(port, 0));
+    StartViewer(second, ViewerConfig(port, 0));
     Check(WaitFor([&] { return Streaming(second); }, kConnectTimeoutMs),
         "the second viewer is let in rather than turned away as busy");
 
@@ -447,7 +463,7 @@ void TestTheHostSurvivesAViewerThatVanishes() {
     {
         Viewer viewer;
         viewer.SetSurface(kDummySurface);
-        viewer.Start(ViewerConfig(port, 0));
+        StartViewer(viewer, ViewerConfig(port, 0));
         Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
             "the first viewer streams");
         viewer.Stop();
@@ -455,7 +471,7 @@ void TestTheHostSurvivesAViewerThatVanishes() {
 
     Viewer second;
     second.SetSurface(kDummySurface);
-    second.Start(ViewerConfig(port, 0));
+    StartViewer(second, ViewerConfig(port, 0));
     Check(WaitFor([&] { return Streaming(second); }, kConnectTimeoutMs),
         "a second viewer can take over the same source afterwards");
     Check(WaitFor([&] { return fake::Decoded().frameCount() >= 2; }, kStreamTimeoutMs),
@@ -483,7 +499,7 @@ void TestPasscodeGatesTheStream() {
         wrong.SetSurface(kDummySurface);
         deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
         cfg.passcode = "1111";
-        wrong.Start(cfg);
+        StartViewer(wrong, cfg);
 
         Check(WaitFor([&] { return wrong.phase() == deskhubp::ClientPhase::Ended; },
                   kConnectTimeoutMs),
@@ -499,7 +515,7 @@ void TestPasscodeGatesTheStream() {
         blank.SetSurface(kDummySurface);
         deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
         cfg.passcode.clear();
-        blank.Start(cfg);
+        StartViewer(blank, cfg);
         Check(WaitFor([&] { return blank.phase() == deskhubp::ClientPhase::Ended; },
                   kConnectTimeoutMs),
             "so is a viewer that sends no passcode at all");
@@ -512,7 +528,7 @@ void TestPasscodeGatesTheStream() {
     right.SetSurface(kDummySurface);
     deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
     cfg.passcode = "4726";
-    right.Start(cfg);
+    StartViewer(right, cfg);
 
     Check(WaitFor([&] { return Streaming(right); }, kConnectTimeoutMs),
         "the viewer with the right passcode is let in");
@@ -534,12 +550,18 @@ void TestDiscoveryIsGatedByThePasscode() {
         return;
     }
 
-    std::vector<deskhub::SourceInfo> sources;
-    Check(QuerySources(HostAddr(port), sources),
-        "the host still replies, so it shows as online in the device list");
-    Check(sources.empty(), "but a viewer without the passcode sees no display names or sizes");
+    // Being reachable and being told what is shared are now two different questions.
+    // The beacon answers the first to anyone, which is what the device list needs; the
+    // second is only answered inside a connection this machine has proved itself on.
+    Check(deskhubp::ProbeHostRttMs(HostAddr(port), 1000).has_value(),
+        "the host still answers a probe, so it shows as online in the device list");
 
-    Check(QuerySources(HostAddr(port), sources, "1111") && sources.empty(),
+    std::vector<deskhub::SourceInfo> sources;
+    Check(!QuerySources(HostAddr(port), sources),
+        "but a viewer with no passcode is not let far enough to ask what is shared");
+    Check(sources.empty(), "and sees no display names or sizes");
+
+    Check(!QuerySources(HostAddr(port), sources, "1111") && sources.empty(),
         "a wrong passcode learns nothing either");
 
     Check(QuerySources(HostAddr(port), sources, "4726"), "the right passcode is answered");
@@ -550,7 +572,7 @@ void TestDiscoveryIsGatedByThePasscode() {
 }
 
 void TestAHostWithoutAPasscodeServesNobody() {
-    std::printf("[e2e] a host left without a passcode turns every viewer away...\n");
+    std::printf("[e2e] a host left without a passcode waits for its owner to say yes...\n");
     ResetObservations();
     const uint16_t port = NextTestPort();
 
@@ -564,16 +586,18 @@ void TestAHostWithoutAPasscodeServesNobody() {
     viewer.SetSurface(kDummySurface);
     deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
     cfg.passcode = "0000";
-    viewer.Start(cfg);
+    StartViewer(viewer, cfg);
 
-    Check(WaitFor([&] { return viewer.phase() == deskhubp::ClientPhase::Ended; },
-              kConnectTimeoutMs),
-        "no passcode on the host means no stream, whatever the viewer sends");
+    // With no passcode there is nothing for the viewer to prove, so the machine it is
+    // dialling holds the request for a person to accept. Nobody accepts here, and the
+    // point of the test is that waiting is not the same as being let in.
+    Check(!WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
+        "a viewer nobody approved never reaches the stream, whatever it sends");
     Check(fake::Decoded().frameCount() == 0, "and nothing of the screen leaves the machine");
 
     std::vector<deskhub::SourceInfo> sources;
-    Check(QuerySources(HostAddr(port), sources, "0000") && sources.empty(),
-        "discovery gives up nothing either");
+    Check(!QuerySources(HostAddr(port), sources, "0000") && sources.empty(),
+        "and discovery gives up nothing either while the request is unanswered");
 
     viewer.Stop();
     agent.Stop();
@@ -592,7 +616,7 @@ void TestJunkDatagramsDoNotDisturbTheStream() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    Check(viewer.Start(ViewerConfig(port, 0)), "the viewer opened its socket");
+    Check(StartViewer(viewer, ViewerConfig(port, 0)), "the viewer opened its socket");
     Check(WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
         "the session reached Streaming");
     Check(WaitFor([&] { return fake::Decoded().frameCount() >= 2; }, kStreamTimeoutMs),
