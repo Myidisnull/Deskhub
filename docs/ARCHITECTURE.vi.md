@@ -212,8 +212,9 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
   chúng — nên một bước `libtool` gộp platform + quiche thành đúng một archive mà
   `.pbxproj` link.
 - **Bãi mìn toolchain Windows đã được dọn — giữ nguyên như vậy**: quiche build với
-  CRT tĩnh mặc định của msvc (đừng bao giờ ép `crt-static` qua `RUSTFLAGS`; nó ngấm
-  vào proc-macro và giết cargo), cả cây pin `MultiThreaded` cho khớp, và wxWidgets
+  CRT tĩnh qua `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS` (mặc định của msvc là
+  runtime DLL, còn ép flag qua `RUSTFLAGS` chung thì cargo build hỏng thẳng), cả cây
+  pin `MultiThreaded` cho khớp để exe không cần VC++ Redistributable, và wxWidgets
   re-pin `wxBUILD_USE_STATIC_RUNTIME` mỗi lần configure vì `wx_option()` cache vĩnh
   viễn. `link.exe` của Git Bash trong `/usr/bin` che mất linker MSVC (đặt thư mục
   của `cl.exe` lên trước), cơ chế rewrite path của nó bóp méo tham số kiểu `/...`

@@ -112,16 +112,8 @@ prefer_ninja_generator() {
     export CMAKE_GENERATOR=Ninja
 }
 
-refuse_crt_rustflags() {
-    case "${RUSTFLAGS:-}" in
-        *crt-static*)
-            echo "build-quiche.sh: RUSTFLAGS overrides crt-static; unset it." >&2
-            echo "                 The msvc default is already the static CRT the CMake" >&2
-            echo "                 tree links against, and forcing it through RUSTFLAGS" >&2
-            echo "                 leaks into proc-macros and kills cargo with exit 101." >&2
-            exit 1
-            ;;
-    esac
+prefer_static_crt() {
+    export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static"
 }
 
 is_android_target() {
@@ -166,7 +158,7 @@ build_target() {
         prefer_msvc_tools
         prefer_nasm
         prefer_ninja_generator
-        refuse_crt_rustflags
+        prefer_static_crt
     fi
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."

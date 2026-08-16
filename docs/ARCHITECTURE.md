@@ -213,10 +213,12 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
   link line — so a `libtool` step fuses platform + quiche into the one archive the
   `.pbxproj` links.
 - **The Windows toolchain traps are already cleared — keep them cleared**: quiche
-  builds with the msvc default static CRT (never force `crt-static` through
-  `RUSTFLAGS`; it leaks into proc-macros and kills cargo), the whole tree pins
-  `MultiThreaded` to match, and wxWidgets re-pins `wxBUILD_USE_STATIC_RUNTIME` on
-  every configure because `wx_option()` caches it forever. Git Bash's
+  builds against the static CRT via `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS`
+  (the msvc default is the DLL runtime, and forcing the flag through a blanket
+  `RUSTFLAGS` broke the cargo build outright), the whole tree pins `MultiThreaded`
+  to match so the exe ships without the VC++ Redistributable, and wxWidgets re-pins
+  `wxBUILD_USE_STATIC_RUNTIME` on every configure because `wx_option()` caches it
+  forever. Git Bash's
   `/usr/bin/link.exe` shadows the MSVC linker (put `cl.exe`'s directory first), its
   path rewriting mangles `/`-style arguments (`MSYS2_ARG_CONV_EXCL`), NASM's
   installer does not touch PATH, and boring-sys must drive BoringSSL with Ninja —

@@ -39,13 +39,19 @@ jobs:
 
       - name: Build quiche (static QUIC + TLS)
         shell: bash
-        run: scripts/build-quiche.sh windows
+        run: |
+          scripts/build-quiche.sh windows 2>&1 | tee quiche-build.log ||
+            { tail -60 quiche-build.log | sed 's/^/::error::/' || true; exit 1; }
 
       - name: Configure
         run: cmake --preset x64-release
 
       - name: Build the Windows app
-        run: cmake --build --preset x64-release
+        shell: bash
+        run: |
+          cmake --build --preset x64-release 2>&1 | tee app-build.log ||
+            { grep -iE "error|LNK[0-9]" app-build.log | tail -40 | sed 's/^/::error::/' || true
+              exit 1; }
 
       - name: Assert no Visual C++ Redistributable dependency
         shell: pwsh
