@@ -31,7 +31,7 @@ final class SharingModel {
             return DeskhubClient.buffered(160) { dh_idle_host_status(port, $0, $1) }
         }
         return DeskhubClient.buffered(320) {
-            dh_sharing_status(port, acceptedPasscode, false, $0, $1)
+            dh_sharing_status(port, acceptedPasscode, false, true, false, $0, $1)
         }
     }
 

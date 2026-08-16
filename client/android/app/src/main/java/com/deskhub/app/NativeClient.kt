@@ -50,6 +50,7 @@ object NativeClient {
     const val STR_REQUEST_CONTROL_LABEL = 39
     const val STR_LAN_DEVICES_HEADING = 25
     const val STR_RECENT_DEVICES_HEADING = 26
+    const val STR_DEVICES_HEADING = 113
     const val STR_RECENT_DEVICES_HINT = 27
     const val STR_RECENT_DEVICES_EMPTY = 28
     const val STR_SIDEBAR_CLIENT = 30
@@ -196,17 +197,14 @@ object NativeClient {
 
     fun passcodeDigits(): Int = nativePasscodeDigits()
 
-    data class ScanHit(
-        val addr: String,
-        val ping: String,
-    )
-
-    data class RecentDevice(
+    data class DeviceRow(
         val addr: String,
         val passcode: String,
+        val origin: String,
         val status: String,
         val ping: String,
         val lastConnected: String,
+        val known: Boolean,
         val online: Boolean,
     )
 
@@ -302,17 +300,13 @@ object NativeClient {
 
     private external fun nativeStatusRefreshNow()
 
-    private external fun nativeRecentNote(): String
-
     private external fun nativeScanCancel()
 
     private external fun nativeScanRunning(): Boolean
 
     private external fun nativeScanStatusText(port: Int): String
 
-    private external fun nativeScanHits(): Array<ScanHit>
-
-    private external fun nativeRecentDevices(): Array<RecentDevice>
+    private external fun nativeDeviceRows(): Array<DeviceRow>
 
     private external fun nativeRecentTouch(
         addr: String,
@@ -331,17 +325,13 @@ object NativeClient {
 
     suspend fun statusRefreshNow() = withContext(Dispatchers.IO) { nativeStatusRefreshNow() }
 
-    fun recentNote(): String = nativeRecentNote()
-
     fun scanCancel() = nativeScanCancel()
 
     fun scanRunning(): Boolean = nativeScanRunning()
 
     fun scanStatusText(port: Int): String = nativeScanStatusText(port)
 
-    fun scanHits(): List<ScanHit> = nativeScanHits().toList()
-
-    suspend fun recentDevices(): List<RecentDevice> = withContext(Dispatchers.IO) { nativeRecentDevices().toList() }
+    suspend fun deviceRows(): List<DeviceRow> = withContext(Dispatchers.IO) { nativeDeviceRows().toList() }
 
     suspend fun recentTouch(
         addr: String,

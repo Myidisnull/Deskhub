@@ -188,6 +188,12 @@ typedef enum {
     DHStrDevicesHeading = 113,
     DHStrDeviceColumnWhere = 114,
     DHStrDeviceNameLabel = 115,
+    DHStrConnectButton = 116,
+    DHStrCopyButton = 117,
+    DHStrFpsLabel = 118,
+    DHStrBitrateLabel = 119,
+    DHStrQualityLabel = 120,
+    DHStrTerminalCloseButton = 121,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -277,6 +283,10 @@ DHPointerLockEffect dh_pointer_escape(DHPointerLock* state);
 DHPointerLockEffect dh_pointer_focus_lost(DHPointerLock* state);
 
 int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, int capacity);
+
+int dh_view_only_subtitle(const char* statusLine, char* out, int capacity);
+
+int dh_invalid_address_line(const char* address, char* out, int capacity);
 
 void dh_set_data_dir(const char* dir);
 

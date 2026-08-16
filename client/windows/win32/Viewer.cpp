@@ -3,6 +3,9 @@
 #include "Viewer.h"
 
 #include <windows.h>
+
+#include <commctrl.h>
+#pragma comment(lib, "comctl32.lib")
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -189,11 +192,27 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             body += L" ";
             body += FromUtf8(fingerprint);
 
-            const int answer = MessageBoxW(h, body.c_str(),
-                FromUtf8(changed ? deskhub::ui::kTrustChangedTitle
-                                 : deskhub::ui::kTrustNewHostTitle)
-                    .c_str(),
-                MB_YESNO | MB_DEFBUTTON2 | (changed ? MB_ICONWARNING : MB_ICONQUESTION));
+            const std::wstring title = FromUtf8(
+                changed ? deskhub::ui::kTrustChangedTitle : deskhub::ui::kTrustNewHostTitle);
+            const std::wstring accept = FromUtf8(deskhub::ui::kTrustAccept);
+            const std::wstring reject = FromUtf8(deskhub::ui::kTrustReject);
+            const TASKDIALOG_BUTTON choices[] = {{IDYES, accept.c_str()},
+                {IDNO, reject.c_str()}};
+            TASKDIALOGCONFIG dialog{};
+            dialog.cbSize = sizeof(dialog);
+            dialog.hwndParent = h;
+            dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+            dialog.pszWindowTitle = L"Deskhub";
+            dialog.pszMainIcon = changed ? TD_WARNING_ICON : TD_INFORMATION_ICON;
+            dialog.pszMainInstruction = title.c_str();
+            dialog.pszContent = body.c_str();
+            dialog.pButtons = choices;
+            dialog.cButtons = 2;
+            dialog.nDefaultButton = IDNO;
+            int answer = IDNO;
+            if (FAILED(TaskDialogIndirect(&dialog, &answer, nullptr, nullptr)))
+                answer = MessageBoxW(h, body.c_str(), title.c_str(),
+                    MB_YESNO | MB_DEFBUTTON2 | (changed ? MB_ICONWARNING : MB_ICONQUESTION));
             if (answer == IDYES)
                 dh_session_accept_key(f->session);
             else

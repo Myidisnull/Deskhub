@@ -72,6 +72,10 @@ nonisolated enum DeskhubClient {
         buffered(320) { dh_pointer_subtitle(DHPointerLock(locked: locked), statusLine, $0, $1) }
     }
 
+    static func viewOnlySubtitle(statusLine: String) -> String {
+        buffered(320) { dh_view_only_subtitle(statusLine, $0, $1) }
+    }
+
     static func ffiList<Raw, Item>(
         _ capacity: Int, _ empty: Raw,
         _ fill: (UnsafeMutablePointer<Raw>?, Int32) -> Int32,

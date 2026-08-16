@@ -99,10 +99,7 @@ struct DevicesPage: View {
             deskhubHint(DeskhubClient.string(DHStrThisMachineHint))
         }
         .onAppear(perform: refresh)
-        .alert(
-            DeskhubClient.string(DHStrPairedForgetAll),
-            isPresented: $confirmForgetAll
-        ) {
+        .alert("Deskhub", isPresented: $confirmForgetAll) {
             Button(DeskhubClient.string(DHStrPairedForgetAll), role: .destructive) {
                 dh_paired_forget_all()
                 refresh()

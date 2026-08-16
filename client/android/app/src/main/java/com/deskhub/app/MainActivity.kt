@@ -256,10 +256,8 @@ private fun MainScreen(
     }
     var connectError by remember { mutableStateOf("") }
     var querySeq by remember { mutableStateOf(0L) }
-    var scanHits by remember { mutableStateOf(emptyList<NativeClient.ScanHit>()) }
-    var recentDevices by remember { mutableStateOf(emptyList<NativeClient.RecentDevice>()) }
+    var deviceRows by remember { mutableStateOf(emptyList<NativeClient.DeviceRow>()) }
     var scanStatus by remember { mutableStateOf("") }
-    var recentNote by remember { mutableStateOf("") }
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
     var section by remember { mutableStateOf(Section.CLIENT) }
     var port by remember { mutableStateOf(NativeClient.settingsPort()) }
@@ -277,10 +275,8 @@ private fun MainScreen(
         NativeClient.scanRestart(port)
         var idleTicks = 0
         while (true) {
-            scanHits = NativeClient.scanHits()
-            recentDevices = NativeClient.recentDevices()
+            deviceRows = NativeClient.deviceRows()
             scanStatus = NativeClient.scanStatusText(port)
-            recentNote = NativeClient.recentNote()
             if (NativeClient.scanRunning()) {
                 idleTicks = 0
             } else {
@@ -326,7 +322,7 @@ private fun MainScreen(
             onRemember(addr, code)
             NativeClient.recentTouch(addr, code)
             NativeClient.watchRecent()
-            recentDevices = NativeClient.recentDevices()
+            deviceRows = NativeClient.deviceRows()
             if (step == mine) {
                 val decision = NativeClient.connectDecision(queried)
                 if (decision >= 0) {
@@ -356,7 +352,7 @@ private fun MainScreen(
         scope.launch {
             NativeClient.recentTouch(addr, code)
             NativeClient.watchRecent()
-            recentDevices = NativeClient.recentDevices()
+            deviceRows = NativeClient.deviceRows()
         }
         onOpenShell(addr, code)
     }
@@ -383,10 +379,8 @@ private fun MainScreen(
                 error = connectError,
                 onConnect = connect,
                 onOpenShell = openShell,
-                scanHits = scanHits,
-                recentDevices = recentDevices,
+                deviceRows = deviceRows,
                 scanStatus = scanStatus,
-                recentNote = recentNote,
                 onPickDevice = pickDevice,
                 onRescan = { scope.launch { NativeClient.scanRestart(port) } },
                 onRefreshStatus = { scope.launch { NativeClient.statusRefreshNow() } },
@@ -520,10 +514,8 @@ private fun HomeScreen(
     error: String,
     onConnect: (String) -> Unit,
     onOpenShell: (String) -> Unit,
-    scanHits: List<NativeClient.ScanHit>,
-    recentDevices: List<NativeClient.RecentDevice>,
+    deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
-    recentNote: String,
     onPickDevice: (String, String) -> Unit,
     onRescan: () -> Unit,
     onRefreshStatus: () -> Unit,
@@ -572,10 +564,8 @@ private fun HomeScreen(
                         error = error,
                         onConnect = onConnect,
                         onOpenShell = onOpenShell,
-                        scanHits = scanHits,
-                        recentDevices = recentDevices,
+                        deviceRows = deviceRows,
                         scanStatus = scanStatus,
-                        recentNote = recentNote,
                         onPickDevice = onPickDevice,
                         onRescan = onRescan,
                         onRefreshStatus = onRefreshStatus,
@@ -1092,10 +1082,8 @@ private fun AddressScreen(
     error: String,
     onConnect: (String) -> Unit,
     onOpenShell: (String) -> Unit,
-    scanHits: List<NativeClient.ScanHit>,
-    recentDevices: List<NativeClient.RecentDevice>,
+    deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
-    recentNote: String,
     onPickDevice: (String, String) -> Unit,
     onRescan: () -> Unit,
     onRefreshStatus: () -> Unit,
@@ -1219,26 +1207,27 @@ private fun AddressScreen(
         }
 
         DeviceSection(
-            heading = NativeClient.string(NativeClient.STR_LAN_DEVICES_HEADING),
+            heading = NativeClient.string(NativeClient.STR_DEVICES_HEADING),
             note = scanStatus,
-            rows = scanHits.map { DeviceRow(it.addr, it.ping, "", null) },
-            enabled = !busy,
-            onRefresh = onRescan,
-            onPick = { addr -> onPickDevice(addr, NativeClient.recentPasscode(addr)) },
-        )
-
-        DeviceSection(
-            heading = NativeClient.string(NativeClient.STR_RECENT_DEVICES_HEADING),
-            note = recentNote,
             rows =
-                recentDevices.map {
-                    DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
+                deviceRows.map { row ->
+                    DeviceRow(
+                        row.addr,
+                        row.ping,
+                        listOf(row.origin, row.status, row.lastConnected)
+                            .filter { it.isNotEmpty() }
+                            .joinToString("  "),
+                        if (row.known) row.online else null,
+                    )
                 },
             enabled = !busy,
-            onRefresh = onRefreshStatus,
+            onRefresh = {
+                onRefreshStatus()
+                onRescan()
+            },
             onPick = { addr ->
-                val known = recentDevices.firstOrNull { it.addr == addr }?.passcode
-                onPickDevice(addr, known ?: NativeClient.recentPasscode(addr))
+                val known = deviceRows.firstOrNull { it.addr == addr }?.passcode.orEmpty()
+                onPickDevice(addr, known.ifEmpty { NativeClient.recentPasscode(addr) })
             },
         )
 

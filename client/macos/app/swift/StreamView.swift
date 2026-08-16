@@ -7,6 +7,7 @@ struct ViewerRequest: Codable, Hashable {
     var passcode: String
     var sourceId: UInt8
     var name: String
+    var control: Bool
 }
 
 struct ViewerWindow: View {
@@ -19,7 +20,8 @@ struct ViewerWindow: View {
             address: request.address,
             passcode: request.passcode,
             sourceId: request.sourceId,
-            sourceName: request.name
+            sourceName: request.name,
+            control: request.control
         ))
     }
 
@@ -73,7 +75,10 @@ struct ViewerWindow: View {
     }
 
     private var subtitle: String {
-        DeskhubClient.pointerSubtitle(locked: model.mouseLocked, statusLine: model.statusLine)
+        model.control
+            ? DeskhubClient.pointerSubtitle(locked: model.mouseLocked,
+                                            statusLine: model.statusLine)
+            : DeskhubClient.viewOnlySubtitle(statusLine: model.statusLine)
     }
 
     private var failedShown: Binding<Bool> {

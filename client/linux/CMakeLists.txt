@@ -82,3 +82,10 @@ if(DESKHUB_TRAY_FOUND)
 endif()
 target_compile_features(deskhub_app PRIVATE cxx_std_20)
 deskhub_target_warnings(deskhub_app)
+
+# Uninstalled builds have no hicolor icon, so keep a copy of the window icon
+# next to the binary for gtk/main.cpp to fall back on.
+add_custom_command(TARGET deskhub_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/icons/deskhub-256.png
+        $<TARGET_FILE_DIR:deskhub_app>/deskhub-256.png)

@@ -513,15 +513,14 @@ const char* dh_local_addresses(void) {
 }
 
 int dh_idle_host_status(uint16_t port, char* out, int capacity) {
-    const std::string text = std::string(ui::kNotSharing) + " " + ui::UdpPortLine(port) + ".";
-    return FillText(out, capacity, text);
+    return FillText(out, capacity, ui::UdpPortLine(port) + ".");
 }
 
-int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, char* out,
-    int capacity) {
-    std::string text = ui::SharingStatusLine(port);
-    if (passcode && *passcode) text += " " + ui::PasscodeNote(passcode);
-    if (!allow_input) text += std::string(" ") + ui::kViewOnlyNote;
+int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, bool screen,
+    bool terminal, char* out, int capacity) {
+    std::string text = ui::ShareSummaryLine(screen, terminal, port);
+    text += "\n" + ui::PasscodeNote(passcode ? passcode : "");
+    if (screen && !allow_input) text += std::string("\n") + ui::kViewOnlyNote;
     return FillText(out, capacity, text);
 }
 

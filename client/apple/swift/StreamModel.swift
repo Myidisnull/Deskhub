@@ -6,6 +6,7 @@ import Observation
 final class StreamModel {
     let address: String
     let passcode: String
+    let control: Bool
     private(set) var sourceId: UInt8
     private(set) var sourceName: String
 
@@ -25,9 +26,12 @@ final class StreamModel {
     private var session: ClientSession?
     private var layer: AVSampleBufferDisplayLayer?
 
-    init(address: String, passcode: String, sourceId: UInt8, sourceName: String) {
+    init(address: String, passcode: String, sourceId: UInt8, sourceName: String,
+         control: Bool = true)
+    {
         self.address = address
         self.passcode = passcode
+        self.control = control
         self.sourceId = sourceId
         self.sourceName = sourceName
     }
@@ -80,14 +84,17 @@ final class StreamModel {
     }
 
     func key(vk: Int32, scan: Int32, down: Bool) {
+        guard control else { return }
         session?.key(vk: vk, scan: scan, down: down)
     }
 
     func hotkey(_ hotkey: Hotkey) {
+        guard control else { return }
         session?.hotkey(hotkey)
     }
 
     func charTap(_ codepoint: UInt32) {
+        guard control else { return }
         session?.charTap(codepoint)
     }
 
@@ -96,18 +103,22 @@ final class StreamModel {
     }
 
     func mouseMove(nx: Int32, ny: Int32) {
+        guard control else { return }
         session?.mouseMove(nx: nx, ny: ny)
     }
 
     func mouseMoveRel(dx: Int32, dy: Int32) {
+        guard control else { return }
         session?.mouseMoveRel(dx: dx, dy: dy)
     }
 
     func mouseButton(_ button: MouseButton, down: Bool) {
+        guard control else { return }
         session?.mouseButton(button, down: down)
     }
 
     func mouseWheelNotches(_ notches: Int32) {
+        guard control else { return }
         session?.mouseWheelNotches(notches)
     }
 

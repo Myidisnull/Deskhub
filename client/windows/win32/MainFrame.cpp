@@ -808,7 +808,7 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
         wxSizerFlags().Border(wxALL, FromDIP(8)));
     sizer->Add(openSizer, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
-    connectBtn_ = new wxButton(panel, wxID_ANY, "Connect");
+    connectBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kConnectButton));
     connectBtn_->SetName("connect-button");
     connectBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
     PaintButton(connectBtn_, kAccent);
@@ -994,18 +994,19 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(MakeSection(panel, ui::kSettingsSectionVideo), pad);
     auto* videoGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
 
-    videoGrid->Add(new wxStaticText(panel, wxID_ANY, "FPS"), wxSizerFlags().CentreVertical());
+    videoGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kFpsLabel)),
+        wxSizerFlags().CentreVertical());
     fpsCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition, wxDefaultSize,
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsFps), int(settings_.fps));
     videoGrid->Add(fpsCtrl_);
 
-    videoGrid->Add(new wxStaticText(panel, wxID_ANY, "Bitrate (Mbps)"),
+    videoGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kBitrateLabel)),
         wxSizerFlags().CentreVertical());
     bitrateCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition, wxDefaultSize,
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsBitrateMbps), int(settings_.bitrateMbps));
     videoGrid->Add(bitrateCtrl_);
 
-    videoGrid->Add(new wxStaticText(panel, wxID_ANY, "Quality"),
+    videoGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kQualityLabel)),
         wxSizerFlags().CentreVertical());
     qualityChoice_ = new wxChoice(panel, wxID_ANY);
     for (const auto& preset : deskhub::media::kQualityPresets)
@@ -1019,7 +1020,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(MakeSection(panel, ui::kSettingsSectionConnection), pad);
     auto* netGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
 
-    netGrid->Add(new wxStaticText(panel, wxID_ANY, "UDP port"),
+    netGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kUdpPortLabel)),
         wxSizerFlags().CentreVertical());
     portCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition, wxDefaultSize,
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsPort), int(settings_.port));
@@ -1133,7 +1134,7 @@ wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
     auto* headerRow = new wxBoxSizer(wxHORIZONTAL);
     headerRow->AddSpacer(FromDIP(kHostRowBarWidth + kHostCellGap));
     for (const HostColumn& column : kHostColumns) {
-        auto* title = new wxStaticText(header, wxID_ANY, ToWx(column.title).Upper(),
+        auto* title = new wxStaticText(header, wxID_ANY, ToWx(column.title),
             wxDefaultPosition, FromDIP(wxSize(column.width, -1)), column.align);
         title->SetForegroundColour(kMutedText);
         title->SetFont(title->GetFont().Bold().Scaled(0.85f));
@@ -1331,7 +1332,8 @@ void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
 }
 
 void MainFrame::ShowIdleHostState() {
-    ApplyHostState(HostShareState::kIdle, wxString());
+    ApplyHostState(HostShareState::kIdle,
+        ToWx(ui::UdpPortLine(uint16_t(settings_.port)) + "."));
 }
 
 void MainFrame::OnShare() {
@@ -1344,8 +1346,8 @@ void MainFrame::OnShare() {
     const bool terminal = TerminalTicked();
     if (availableDisplays_.empty() && !terminal) {
         const std::string err = deskhubp::ListDisplaysError();
-        wxMessageBox(err.empty() ? wxString("No display found to share.") : ToWx(err),
-            "Deskhub", wxOK | wxICON_WARNING, this);
+        wxMessageBox(err.empty() ? ToWx(ui::kNoDisplayFound) : ToWx(err),
+            ToWx(ui::kCaptureUnavailableTitle), wxOK | wxICON_WARNING, this);
         return;
     }
 
@@ -1658,7 +1660,7 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) {
-        wxMessageBox(ToWx("Invalid address: \"" + addr + "\"\n" + ui::InvalidAddressHint()),
+        wxMessageBox(ToWx(ui::InvalidAddressLine(addr) + "\n" + ui::InvalidAddressHint()),
             "Deskhub", wxOK | wxICON_ERROR, this);
         return;
     }

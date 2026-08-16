@@ -71,12 +71,32 @@ private struct TrayMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button(DeskhubClient.string(DHStrTrayShowWindow)) { showMainWindow() }
+        Button(
+            DeskhubClient.string(mainWindowShown ? DHStrTrayHideWindow : DHStrTrayShowWindow)
+        ) {
+            if mainWindowShown {
+                hideMainWindow()
+            } else {
+                showMainWindow()
+            }
+        }
         Button(DeskhubClient.string(agent.isSharing ? DHStrStopSharing : DHStrStartSharing)) {
             toggleSharing()
         }
         Divider()
         Button(DeskhubClient.string(DHStrTrayQuit)) { NSApp.terminate(nil) }
+    }
+
+    private var mainWindow: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }
+    }
+
+    private var mainWindowShown: Bool {
+        mainWindow?.isVisible == true
+    }
+
+    private func hideMainWindow() {
+        mainWindow?.close()
     }
 
     private func showMainWindow() {

@@ -159,6 +159,12 @@ const char* dh_string(DHStringId id) {
         case DHStrDevicesHeading: return deskhub::ui::kDevicesHeading;
         case DHStrDeviceColumnWhere: return deskhub::ui::kDeviceColumnWhere;
         case DHStrDeviceNameLabel: return deskhub::ui::kDeviceNameLabel;
+        case DHStrConnectButton: return deskhub::ui::kConnectButton;
+        case DHStrCopyButton: return deskhub::ui::kCopyButton;
+        case DHStrFpsLabel: return deskhub::ui::kFpsLabel;
+        case DHStrBitrateLabel: return deskhub::ui::kBitrateLabel;
+        case DHStrQualityLabel: return deskhub::ui::kQualityLabel;
+        case DHStrTerminalCloseButton: return deskhub::ui::kTerminalCloseButton;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();
@@ -452,6 +458,20 @@ int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, 
     if (!out || capacity <= 0) return 0;
     const deskhub::PointerLockState s(state.locked);
     deskhubp::CopyToBuf(out, size_t(capacity), s.SubtitleFor(statusLine ? statusLine : ""));
+    return int(std::strlen(out));
+}
+
+int dh_view_only_subtitle(const char* statusLine, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ViewerViewOnlySubtitle(statusLine ? statusLine : ""));
+    return int(std::strlen(out));
+}
+
+int dh_invalid_address_line(const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ui::InvalidAddressLine(address ? address : ""));
     return int(std::strlen(out));
 }
 

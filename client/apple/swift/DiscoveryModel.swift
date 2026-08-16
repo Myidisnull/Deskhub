@@ -1,22 +1,6 @@
 import Foundation
 import Observation
 
-struct ScanHit: Identifiable, Sendable, Hashable {
-    let addr: String
-    let ping: String
-    var id: String { addr }
-}
-
-struct RecentDevice: Identifiable, Sendable, Hashable {
-    let addr: String
-    let passcode: String
-    let status: String
-    let ping: String
-    let lastConnected: String
-    let online: Bool
-    var id: String { addr }
-}
-
 nonisolated enum DeskhubDiscovery {
     static var defaultPort: UInt16 { dh_default_port() }
 
@@ -43,27 +27,10 @@ nonisolated enum DeskhubDiscovery {
         dh_status_refresh_now()
     }
 
-    static func recentNote() -> String {
-        DeskhubClient.buffered(256) { dh_recent_note($0, $1) }
-    }
-
     static var isScanning: Bool { dh_scan_state().running }
 
     static func scanStatus(port: UInt16) -> String {
         DeskhubClient.buffered(256) { dh_scan_status_text(port, $0, $1) }
-    }
-
-    static func scanHits() -> [ScanHit] {
-        DeskhubClient.ffiList(
-            64, DHScanHit(),
-            { dh_scan_hits($0, $1) },
-            { hit in
-                ScanHit(
-                    addr: DeskhubClient.cString(hit.addr),
-                    ping: DeskhubClient.buffered(32) { dh_ping_text(hit.rttMs, $0, $1) }
-                )
-            }
-        )
     }
 
     static func deviceRows() -> [DeviceListRow] {
@@ -79,23 +46,6 @@ nonisolated enum DeskhubDiscovery {
                     ping: DeskhubClient.cString(row.ping),
                     lastConnected: DeskhubClient.cString(row.lastConnected),
                     online: row.known ? row.online : nil
-                )
-            }
-        )
-    }
-
-    static func recentDevices() -> [RecentDevice] {
-        DeskhubClient.ffiList(
-            16, DHRecentRow(),
-            { dh_recent_rows($0, $1) },
-            { row in
-                RecentDevice(
-                    addr: DeskhubClient.cString(row.addr),
-                    passcode: DeskhubClient.cString(row.passcode),
-                    status: DeskhubClient.cString(row.status),
-                    ping: DeskhubClient.cString(row.ping),
-                    lastConnected: DeskhubClient.cString(row.lastConnected),
-                    online: row.online
                 )
             }
         )
@@ -124,11 +74,8 @@ final class DiscoveryModel {
     private static let pollInterval = Duration.seconds(1)
     private static let rescanTicks = DeskhubDiscovery.rescanSeconds
 
-    var scanHits: [ScanHit] = []
-    var recent: [RecentDevice] = []
     var devices: [DeviceListRow] = []
     var scanStatus = ""
-    var recentNote = DeskhubDiscovery.recentNote()
 
     private var pump: Task<Void, Never>?
     private var port = DeskhubDiscovery.configuredPort
@@ -160,20 +107,14 @@ final class DiscoveryModel {
             while !Task.isCancelled {
                 let snapshot = await Task.detached { [port] in
                     (
-                        hits: DeskhubDiscovery.scanHits(),
-                        recent: DeskhubDiscovery.recentDevices(),
                         devices: DeskhubDiscovery.deviceRows(),
                         status: DeskhubDiscovery.scanStatus(port: port),
-                        note: DeskhubDiscovery.recentNote(),
                         scanning: DeskhubDiscovery.isScanning
                     )
                 }.value
 
-                scanHits = snapshot.hits
-                recent = snapshot.recent
                 devices = snapshot.devices
                 scanStatus = snapshot.status
-                recentNote = snapshot.note
 
                 if snapshot.scanning {
                     idleTicks = 0
@@ -201,15 +142,6 @@ final class DiscoveryModel {
     func remember(address: String, passcode: String) async {
         await Task.detached { DeskhubDiscovery.remember(address: address, passcode: passcode) }
             .value
-        let snapshot = await Task.detached {
-            (
-                rows: DeskhubDiscovery.recentDevices(),
-                devices: DeskhubDiscovery.deviceRows(),
-                note: DeskhubDiscovery.recentNote()
-            )
-        }.value
-        recent = snapshot.rows
-        devices = snapshot.devices
-        recentNote = snapshot.note
+        devices = await Task.detached { DeskhubDiscovery.deviceRows() }.value
     }
 }

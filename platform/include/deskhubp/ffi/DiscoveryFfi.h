@@ -111,7 +111,8 @@ void dh_set_keep_awake(bool on);
 int dh_version_line(char* out, int capacity);
 const char* dh_local_addresses(void);
 int dh_idle_host_status(uint16_t port, char* out, int capacity);
-int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, char* out,
+int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, bool screen,
+    bool terminal, char* out,
     int capacity);
 
 typedef struct {

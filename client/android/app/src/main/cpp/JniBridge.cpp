@@ -80,8 +80,7 @@ void NotifySessionTrustAsked(int32_t verdict, const char* fingerprintUtf8, void*
 using deskhubj::FromJString;
 
 constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
-constexpr const char* kScanHitClass = "com/deskhub/app/NativeClient$ScanHit";
-constexpr const char* kRecentDeviceClass = "com/deskhub/app/NativeClient$RecentDevice";
+constexpr const char* kDeviceRowClass = "com/deskhub/app/NativeClient$DeviceRow";
 constexpr const char* kHotkeyClass = "com/deskhub/app/NativeClient$Hotkey";
 constexpr const char* kPairedDeviceClass = "com/deskhub/app/NativeClient$PairedDevice";
 
@@ -363,56 +362,33 @@ Java_com_deskhub_app_NativeClient_nativeAddressPort(JNIEnv* env, jobject, jstrin
 }
 
 JNIEXPORT jobjectArray JNICALL
-Java_com_deskhub_app_NativeClient_nativeScanHits(JNIEnv* env, jobject) {
-    jclass cls = env->FindClass(kScanHitClass);
-    if (!cls) return nullptr;
-    jmethodID ctor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
-    if (!ctor) return nullptr;
-
-    DHScanHit hits[64];
-    const int count = dh_scan_hits(hits, int(sizeof(hits) / sizeof(hits[0])));
-
-    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
-    for (int i = 0; i < count && arr; ++i) {
-        char ping[32];
-        dh_ping_text(hits[i].rttMs, ping, int(sizeof(ping)));
-        jstring addr = env->NewStringUTF(hits[i].addr);
-        jstring pingText = env->NewStringUTF(ping);
-        jobject item = env->NewObject(cls, ctor, addr, pingText);
-        env->SetObjectArrayElement(arr, jsize(i), item);
-        env->DeleteLocalRef(item);
-        env->DeleteLocalRef(pingText);
-        env->DeleteLocalRef(addr);
-    }
-    return arr;
-}
-
-JNIEXPORT jobjectArray JNICALL
-Java_com_deskhub_app_NativeClient_nativeRecentDevices(JNIEnv* env, jobject) {
-    jclass cls = env->FindClass(kRecentDeviceClass);
+Java_com_deskhub_app_NativeClient_nativeDeviceRows(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass(kDeviceRowClass);
     if (!cls) return nullptr;
     jmethodID ctor = env->GetMethodID(cls, "<init>",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;"
-        "Ljava/lang/String;Z)V");
+        "Ljava/lang/String;Ljava/lang/String;ZZ)V");
     if (!ctor) return nullptr;
 
-    DHRecentRow rows[16];
-    const int count = dh_recent_rows(rows, int(sizeof(rows) / sizeof(rows[0])));
+    DHDeviceRow rows[64];
+    const int count = dh_device_rows(rows, int(sizeof(rows) / sizeof(rows[0])));
 
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
     for (int i = 0; i < count && arr; ++i) {
         jstring addr = env->NewStringUTF(rows[i].addr);
         jstring passcode = env->NewStringUTF(rows[i].passcode);
+        jstring origin = env->NewStringUTF(rows[i].origin);
         jstring status = env->NewStringUTF(rows[i].status);
         jstring ping = env->NewStringUTF(rows[i].ping);
         jstring last = env->NewStringUTF(rows[i].lastConnected);
-        jobject item = env->NewObject(cls, ctor, addr, passcode, status, ping, last,
-            rows[i].online ? JNI_TRUE : JNI_FALSE);
+        jobject item = env->NewObject(cls, ctor, addr, passcode, origin, status, ping, last,
+            rows[i].known ? JNI_TRUE : JNI_FALSE, rows[i].online ? JNI_TRUE : JNI_FALSE);
         env->SetObjectArrayElement(arr, jsize(i), item);
         env->DeleteLocalRef(item);
         env->DeleteLocalRef(last);
         env->DeleteLocalRef(ping);
         env->DeleteLocalRef(status);
+        env->DeleteLocalRef(origin);
         env->DeleteLocalRef(passcode);
         env->DeleteLocalRef(addr);
     }
@@ -435,13 +411,6 @@ Java_com_deskhub_app_NativeClient_nativeWatchRecent(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeStatusRefreshNow(JNIEnv*, jobject) {
     dh_status_refresh_now();
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_deskhub_app_NativeClient_nativeRecentNote(JNIEnv* env, jobject) {
-    char buf[256];
-    dh_recent_note(buf, int(sizeof(buf)));
-    return env->NewStringUTF(buf);
 }
 
 JNIEXPORT jstring JNICALL

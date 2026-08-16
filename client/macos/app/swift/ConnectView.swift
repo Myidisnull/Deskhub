@@ -198,7 +198,7 @@ struct MainMenuView: View {
             }
 
             Button(action: beginConnect) {
-                Text("Connect").deskhubPrimaryLabel()
+                Text(DeskhubClient.string(DHStrConnectButton)).deskhubPrimaryLabel()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -324,14 +324,16 @@ extension MainMenuView {
 func openViewers(_ picked: [Source], address: String, passcode: String,
                  openWindow: OpenWindowAction)
 {
+    let control = dh_settings_load().clientControl
     if picked.isEmpty {
         openWindow(value: ViewerRequest(
-            address: address, passcode: passcode, sourceId: 0, name: ""
+            address: address, passcode: passcode, sourceId: 0, name: "", control: control
         ))
     } else {
         for source in picked {
             openWindow(value: ViewerRequest(
-                address: address, passcode: passcode, sourceId: source.id, name: source.name
+                address: address, passcode: passcode, sourceId: source.id, name: source.name,
+                control: control
             ))
         }
     }

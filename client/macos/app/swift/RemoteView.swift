@@ -129,6 +129,7 @@ final class RemoteVideoView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if isLockToggle(event.keyCode) {
+            guard model?.control != false else { return }
             apply(dh_pointer_toggle_lock(&pointer))
             return
         }

@@ -10,6 +10,7 @@
 
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/system/AppDataFile.h"
 
 namespace deskhubp {
@@ -117,7 +118,7 @@ GVariant* PortalRequest(GDBusConnection* conn, GMainContext* ctx, const char* me
         if (wait.results) g_variant_unref(wait.results);
         if (cancelled) *cancelled = wait.code == 1;
         if (err)
-            *err = wait.code == 1 ? "cancelled by the user"
+            *err = wait.code == 1 ? deskhubp::kListDisplaysCancelled
                                   : std::string(method) + ": portal ended the request";
         return nullptr;
     }

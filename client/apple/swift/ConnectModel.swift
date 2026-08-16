@@ -53,8 +53,8 @@ final class ConnectModel {
         guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let composed = DeskhubClient.composeAddress(address, portText: port)
         guard let accepted = DeskhubClient.normalizedAddress(composed) else {
-            connectError = "Invalid address: \"\(composed)\". "
-                + DeskhubClient.string(DHStrInvalidAddressHint)
+            connectError = DeskhubClient.buffered(192) { dh_invalid_address_line(composed, $0, $1) }
+                + " " + DeskhubClient.string(DHStrInvalidAddressHint)
             return nil
         }
         guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {

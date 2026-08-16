@@ -49,7 +49,7 @@ struct TerminalScreen: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Button("Close") { onClose() }
+                Button(DeskhubClient.string(DHStrTerminalCloseButton)) { onClose() }
             }
             .padding(8)
         }

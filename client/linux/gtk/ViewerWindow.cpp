@@ -62,11 +62,11 @@ void LargestScreenPixels(GtkWidget* w, uint32_t& outW, uint32_t& outH) {
 }
 
 ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
-    const std::string& sourceName, const std::string& passcode,
+    const std::string& sourceName, const std::string& passcode, bool control,
     std::function<void()> onClosed) {
     auto* v = new ViewerWindow();
     v->onClosed_ = std::move(onClosed);
-    if (!v->Build(server, sourceId, sourceName, passcode)) {
+    if (!v->Build(server, sourceId, sourceName, passcode, control)) {
         delete v;
         return nullptr;
     }
@@ -85,7 +85,8 @@ void ViewerWindow::PostToMain(std::function<void(ViewerWindow&)> fn) {
 }
 
 bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::string& sourceName,
-    const std::string& passcode) {
+    const std::string& passcode, bool control) {
+    control_ = control;
     baseTitle_ = deskhub::ViewerBaseTitle(sourceName);
     alive_ = std::make_shared<ViewerWindow*>(this);
 
@@ -268,7 +269,10 @@ gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer) {
 }
 
 void ViewerWindow::UpdateTitle() {
-    std::string title = pointer_.TitleFor(baseTitle_, statusLine_);
+    std::string title =
+        control_ ? pointer_.TitleFor(baseTitle_, statusLine_)
+                 : deskhub::ComposeViewerTitle(baseTitle_, statusLine_,
+                       deskhub::kViewerViewOnlyHint);
     if (title == shownTitle_) return;
     shownTitle_ = std::move(title);
     gtk_window_set_title(GTK_WINDOW(window_), shownTitle_.c_str());
@@ -295,8 +299,9 @@ void ViewerWindow::EndSession() {
     const std::string why = loop_.EndReason();
     gtk_widget_destroy(window_);
     RunOnMain([why] {
-        ShowInfo(nullptr, deskhub::ui::kConnectionEndedTitle,
-            why.empty() ? std::string(deskhub::ui::kDisconnected) : why);
+        ShowInfo(nullptr, "Deskhub",
+            std::string(deskhub::ui::kConnectionEndedTitle) + ": " +
+                (why.empty() ? std::string(deskhub::ui::kDisconnected) : why));
     });
 }
 
@@ -327,6 +332,7 @@ void ViewerWindow::ApplyLockEffect(const deskhub::PointerLockEffect& effect) {
 
 gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (!self->control_) return FALSE;
     const bool down = e->type == GDK_KEY_PRESS;
 
     if (down && e->keyval == GDK_KEY_Escape && self->pointer_.locked()) {
@@ -346,6 +352,7 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
 
 gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (!self->control_) return FALSE;
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
 
     if (!self->pointer_.locked()) {
@@ -380,6 +387,7 @@ gboolean ViewerWindow::OnMotion(GtkWidget*, GdkEventMotion* e, gpointer user) {
 
 gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (!self->control_) return FALSE;
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
     if (e->type != GDK_BUTTON_PRESS && e->type != GDK_BUTTON_RELEASE) return TRUE;
 
@@ -396,6 +404,7 @@ gboolean ViewerWindow::OnButton(GtkWidget*, GdkEventButton* e, gpointer user) {
 
 gboolean ViewerWindow::OnScroll(GtkWidget*, GdkEventScroll* e, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
+    if (!self->control_) return FALSE;
     if (!self->pointer_.locked() && !self->InContent(e->x, e->y)) return FALSE;
 
     int32_t delta = 0;

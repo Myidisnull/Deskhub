@@ -180,7 +180,7 @@ JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeSharingStatus(JN
     jint port, jstring passcode) {
     char buf[320];
     const std::string code = deskhubj::FromJString(env, passcode);
-    dh_sharing_status(uint16_t(port), code.c_str(), false, buf, int(sizeof(buf)));
+    dh_sharing_status(uint16_t(port), code.c_str(), false, true, false, buf, int(sizeof(buf)));
     return NewString(env, buf);
 }
 

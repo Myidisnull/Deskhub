@@ -59,8 +59,11 @@ public:
         hint->SetForegroundColour(wxColour(107, 114, 128));
         sizer->Add(hint, pad);
 
-        if (auto* buttons = CreateStdDialogButtonSizer(wxOK | wxCANCEL))
+        if (auto* buttons = CreateStdDialogButtonSizer(wxOK | wxCANCEL)) {
+            if (auto* ok = wxDynamicCast(FindWindow(wxID_OK), wxButton))
+                ok->SetLabel(ToWx(ui::kConnectButton));
             sizer->Add(buttons, wxSizerFlags().Expand().Border(wxALL, FromDIP(16)));
+        }
 
         SetSizerAndFit(sizer);
         CentreOnParent();

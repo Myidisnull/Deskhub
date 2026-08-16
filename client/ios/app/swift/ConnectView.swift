@@ -88,26 +88,14 @@ struct ConnectView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                deskhubHeadingRow(DeskhubClient.string(DHStrLanDevicesHeading)) {
+                deskhubHeadingRow(DeskhubClient.string(DHStrDevicesHeading)) {
+                    model.discovery.refreshStatus()
                     model.discovery.rescanNow()
                 }
                 DeviceListView(
                     heading: "",
                     note: model.discovery.scanStatus,
-                    rows: model.discovery.scanHits.map {
-                        DeviceListRow($0, passcode: DeskhubDiscovery.passcode(for: $0.addr))
-                    },
-                    enabled: !model.connect.isConnecting,
-                    onPick: pick
-                )
-
-                deskhubHeadingRow(DeskhubClient.string(DHStrRecentDevicesHeading)) {
-                    model.discovery.refreshStatus()
-                }
-                DeviceListView(
-                    heading: "",
-                    note: model.discovery.recentNote,
-                    rows: model.discovery.recent.map { DeviceListRow($0) },
+                    rows: model.discovery.devices,
                     enabled: !model.connect.isConnecting,
                     onPick: pick
                 )

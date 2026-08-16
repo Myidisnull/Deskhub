@@ -13,6 +13,7 @@
 #include "deskhub/net/PairedDevices.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/session/TerminalSession.h"
+#include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/UiSettings.h"
@@ -43,6 +44,14 @@ private:
     struct HostRowWidgets {
         GtkWidget* cells[kHostColumnCount] = {};
         GtkWidget* action = nullptr;
+    };
+
+    struct HostMonitor {
+        std::string name;
+        int x = 0;
+        int y = 0;
+        uint32_t width = 0;
+        uint32_t height = 0;
     };
 
     MainWindow() = default;
@@ -85,13 +94,12 @@ private:
     void OnScanHit(const deskhubp::ScanHit& hit);
     void OnScanProgress(const deskhubp::ScanProgress& progress);
     void OnScanFinished(const deskhubp::ScanProgress& progress);
-    void RefreshScanList();
 
     void StartPoller();
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
     void RecordProbe(const std::string& addr, bool online, uint32_t rttMs);
     const deskhubp::DeviceStatus* ProbeFor(const std::string& addr) const;
-    void RefreshRecentList();
+    void RefreshDeviceList();
     void RefreshDeviceStatus();
 
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
@@ -113,9 +121,19 @@ private:
     std::string HostPortDetail() const;
     void ApplyHostState(HostShareState state, const std::string& detail);
     void ShowIdleHostState();
+    void RefreshDisplayChoices();
+    void ShowHostTable(bool sharing);
+    bool TerminalTicked() const;
+    std::vector<HostMonitor> TickedMonitors() const;
+    static std::vector<HostMonitor> ListMonitors();
+    static bool MatchesTickedMonitor(const AgentSource& source,
+        const std::vector<HostMonitor>& ticked);
+    static std::vector<AgentSource> FilterToTickedMonitors(std::vector<AgentSource> sources,
+        const std::vector<HostMonitor>& ticked);
 
     void ShowAfterSession();
     void SetBusy(bool busy, const char* what);
+    void SetClientStatus(const std::string& text, bool isError);
 
     void ApplyTrayMode();
     bool EnsureTrayAttached();
@@ -127,22 +145,17 @@ private:
 
     static void OnNavClicked(GtkButton* b, gpointer user);
     static void OnShareClicked(GtkButton* b, gpointer user);
-    static void OnRechooseClicked(GtkButton* b, gpointer user);
-    void RefreshRechooseButton();
     static void OnHostRowActionClicked(GtkButton* b, gpointer user);
     static void OnConnectClicked(GtkButton* b, gpointer user);
     static void OnAddressActivate(GtkEntry* e, gpointer user);
     static void OnCopyClicked(GtkButton* b, gpointer user);
     static void OnSettingChanged(GtkWidget* w, gpointer user);
     static void OnBindChanged(GtkWidget* w, gpointer user);
-    static void OnRescanClicked(GtkButton* b, gpointer user);
-    static void OnRefreshStatusClicked(GtkButton* b, gpointer user);
+    static void OnRefreshDevicesClicked(GtkButton* b, gpointer user);
     static void OnForgetDeviceClicked(GtkButton* b, gpointer user);
     static void OnForgetAllClicked(GtkButton* b, gpointer user);
-    static void OnScanRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
-        gpointer user);
-    static void OnRecentRowActivated(GtkTreeView* view, GtkTreePath* path, GtkTreeViewColumn* col,
-        gpointer user);
+    static void OnDeviceRowActivated(GtkTreeView* view, GtkTreePath* path,
+        GtkTreeViewColumn* col, gpointer user);
     static gboolean OnRescanTimer(gpointer user);
     static gboolean OnHostTimer(gpointer user);
     static gboolean OnDeleteEvent(GtkWidget* w, GdkEvent* e, gpointer user);
@@ -157,10 +170,15 @@ private:
     GtkWidget* hostStateLabel_ = nullptr;
     GtkWidget* hostStatusLabel_ = nullptr;
     GtkWidget* hostHintLabel_ = nullptr;
+    GtkWidget* hostPortalNote_ = nullptr;
     GtkWidget* hostGrid_ = nullptr;
+    GtkWidget* hostGridFrame_ = nullptr;
+    GtkWidget* hostPickerFrame_ = nullptr;
+    GtkWidget* displayChecksBox_ = nullptr;
+    std::vector<GtkWidget*> displayChecks_;
+    std::vector<HostMonitor> availableDisplays_;
     std::vector<HostRowWidgets> hostRowWidgets_;
     GtkWidget* shareButton_ = nullptr;
-    GtkWidget* rechooseButton_ = nullptr;
 
     GtkWidget* hostTerminalCheck_ = nullptr;
 
@@ -169,6 +187,7 @@ private:
     GtkWidget* passcodeEntry_ = nullptr;
     GtkWidget* deviceNameEntry_ = nullptr;
     GtkWidget* connectButton_ = nullptr;
+    GtkWidget* clientStatusLabel_ = nullptr;
     GtkWidget* controlCheck_ = nullptr;
     GtkWidget* desktopCheck_ = nullptr;
     GtkWidget* shellCheck_ = nullptr;
@@ -179,10 +198,9 @@ private:
     GtkWidget* forgetDeviceButton_ = nullptr;
     GtkWidget* allowPairingCheck_ = nullptr;
     std::vector<deskhub::PairedDevice> pairedDevices_;
-    GtkWidget* scanStatusLabel_ = nullptr;
-    GtkWidget* recentHintLabel_ = nullptr;
-    GtkListStore* scanStore_ = nullptr;
-    GtkListStore* recentStore_ = nullptr;
+    GtkWidget* deviceHintLabel_ = nullptr;
+    GtkListStore* deviceStore_ = nullptr;
+    std::vector<deskhub::ui::DeviceRow> deviceRows_;
 
     GtkWidget* fpsSpin_ = nullptr;
     GtkWidget* bitrateSpin_ = nullptr;

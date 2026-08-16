@@ -58,6 +58,8 @@ final class AgentModel {
     var clipboardSync = dh_clipboard_sync()
     var keepAwake = dh_keep_awake()
     var didAutoShare = false
+    private var sharingScreen = false
+    private var sharingTerminal = false
     private var lastPasteboardChange = NSPasteboard.general.changeCount
 
     func applyAutostart() {
@@ -71,10 +73,12 @@ final class AgentModel {
             return DeskhubClient.buffered(128) { dh_idle_host_status(portNum, $0, $1) }
         }
         var line = DeskhubClient.buffered(320) {
-            dh_sharing_status(portNum, acceptedPasscode, allowInput, $0, $1)
+            dh_sharing_status(
+                portNum, acceptedPasscode, allowInput, sharingScreen, sharingTerminal, $0, $1
+            )
         }
         let bindWarning = DeskhubClient.buffered(256) { dha_bind_warning($0, $1) }
-        if !bindWarning.isEmpty { line += " " + bindWarning }
+        if !bindWarning.isEmpty { line += "\n" + bindWarning }
         return line
     }
 
@@ -142,6 +146,7 @@ final class AgentModel {
                 dha_kick_shell(row.termId)
             } else {
                 dha_stop_terminal()
+                sharingTerminal = false
                 if !rows.contains(where: { !$0.terminal }) { stopSharing() }
             }
             return
@@ -235,6 +240,8 @@ final class AgentModel {
         isStarting = false
         isSharing = ok
         if ok {
+            sharingScreen = !picked.isEmpty
+            sharingTerminal = terminal
             startPolling()
         } else {
             clampWarning = ""
@@ -249,6 +256,8 @@ final class AgentModel {
         stopPolling()
         DeskhubAgent.stop()
         isSharing = false
+        sharingScreen = false
+        sharingTerminal = false
         rows = []
         Task { await refreshShareSources() }
     }

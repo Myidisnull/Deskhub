@@ -73,10 +73,12 @@ inline constexpr const char* kPickDisplaysHint = "Tick the displays to share, th
 inline constexpr const char* kPickSourcesHint =
     "Tick what to share \xE2\x80\x94 displays, the terminal, or both \xE2\x80\x94 then press "
     "Share.";
-inline constexpr const char* kPickDisplaysPortalHint =
-    "Press Share, then pick the displays in your desktop's screen-sharing dialog. Your "
-    "choice is remembered, so the dialog only appears the first time.";
-inline constexpr const char* kChooseScreensAgain = "Choose screens again\xE2\x80\xA6";
+inline constexpr const char* kPortalConfirmNote =
+    "The desktop confirms the screen capture in its own dialog the first time; that choice "
+    "is remembered, so the dialog does not appear again.";
+inline constexpr const char* kWaitingForShareDialog =
+    "Waiting for the screen-sharing dialog\xE2\x80\xA6";
+inline constexpr const char* kCaptureUnavailableTitle = "Screen capture is not available";
 inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
 inline constexpr const char* kStopSelectedDisplay = "Stop selected display";
 inline constexpr const char* kDisconnectSelectedViewer = "Disconnect selected viewer";
@@ -92,6 +94,12 @@ inline constexpr const char* kClientPasscodeHint =
     "Read the 4-digit code off the host \xE2\x80\x94 or leave it empty to ask the person at "
     "that machine to let you in.";
 inline constexpr const char* kDeviceNameLabel = "Your name";
+inline constexpr const char* kConnectButton = "Connect";
+inline constexpr const char* kCopyButton = "Copy";
+inline constexpr const char* kFpsLabel = "FPS";
+inline constexpr const char* kBitrateLabel = "Bitrate (Mbps)";
+inline constexpr const char* kQualityLabel = "Quality";
+inline constexpr const char* kNoDisplayFound = "No display found to share.";
 inline constexpr const char* kClientIpPlaceholder = "192.168.1.10";
 inline constexpr const char* kUdpPortLabel = "UDP port";
 inline constexpr const char* kBindInterfaceLabel = "Share on network";
@@ -454,6 +462,10 @@ inline uint16_t AddressPort(std::string_view address) {
     uint16_t port = 0;
     SplitHostPort(TrimAscii(address), host, port);
     return port;
+}
+
+inline std::string InvalidAddressLine(std::string_view address) {
+    return "Invalid address: \"" + std::string(address) + "\".";
 }
 
 inline std::string InvalidAddressHint() {

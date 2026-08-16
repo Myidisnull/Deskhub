@@ -118,7 +118,7 @@ struct DeviceListRow: Identifiable, Hashable, Sendable {
     var id: String { addr }
 
     var detail: String {
-        status.isEmpty && lastConnected.isEmpty ? "" : "\(status)  \(lastConnected)"
+        [origin, status, lastConnected].filter { !$0.isEmpty }.joined(separator: "  ")
     }
 
     init(addr: String, passcode: String, origin: String, status: String, ping: String,
@@ -131,25 +131,5 @@ struct DeviceListRow: Identifiable, Hashable, Sendable {
         self.ping = ping
         self.lastConnected = lastConnected
         self.online = online
-    }
-
-    init(_ hit: ScanHit, passcode: String) {
-        addr = hit.addr
-        self.passcode = passcode
-        origin = ""
-        ping = hit.ping
-        status = ""
-        lastConnected = ""
-        online = nil
-    }
-
-    init(_ device: RecentDevice) {
-        addr = device.addr
-        passcode = device.passcode
-        origin = ""
-        ping = device.ping
-        status = device.status
-        lastConnected = device.lastConnected
-        online = device.online
     }
 }

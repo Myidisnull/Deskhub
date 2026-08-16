@@ -40,7 +40,7 @@ struct PasscodePromptSheet: View {
                 Spacer(minLength: 0)
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Connect", action: submit)
+                Button(DeskhubClient.string(DHStrConnectButton), action: submit)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!ready)
             }
