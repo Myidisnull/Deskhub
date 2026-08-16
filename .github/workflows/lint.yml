@@ -53,6 +53,17 @@ jobs:
           pipx install clang-tidy==22.1.8
           sudo apt-get update -qq && sudo apt-get install -y ninja-build
 
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche
+            !third_party/quiche/src
+          key: quiche-host-ubuntu-latest-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: scripts/build-quiche.sh host
+
       - name: Generate the compile database
         run: cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
 

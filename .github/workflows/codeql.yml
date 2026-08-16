@@ -58,6 +58,54 @@ jobs:
         if: matrix.language == 'java-kotlin'
         run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
 
+      - name: Cache quiche
+        if: matrix.language == 'c-cpp'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche
+            !third_party/quiche/src
+          key: quiche-host-ubuntu-latest-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        if: matrix.language == 'c-cpp'
+        run: scripts/build-quiche.sh host
+
+      - name: Cache quiche for Android
+        if: matrix.language == 'java-kotlin'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-linux-android
+            third_party/quiche/armv7-linux-androideabi
+            third_party/quiche/x86_64-linux-android
+          key: quiche-android-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche for every ABI (static QUIC + TLS)
+        if: matrix.language == 'java-kotlin'
+        run: |
+          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+          scripts/build-quiche.sh android
+
+      - name: Cache quiche for macOS
+        if: matrix.language == 'swift'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-darwin
+            third_party/quiche/x86_64-apple-darwin
+            third_party/quiche/macos-universal
+          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS, macOS)
+        if: matrix.language == 'swift'
+        run: |
+          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/quiche/macos-universal/libquiche.a
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:

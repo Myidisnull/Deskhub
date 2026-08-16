@@ -136,10 +136,18 @@ prefer_ninja_generator() {
 # rustc links a staticlib against the static CRT on windows-msvc by default,
 # and the CMake tree pins MultiThreaded to match whenever quiche is present
 # (root CMakeLists.txt), so the release exe stays a single self-contained file
-# with no VC++ Redistributable. Pin it explicitly so a stray RUSTFLAGS cannot
-# flip the runtime underneath the link.
-prefer_static_crt() {
-    export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static"
+# with no VC++ Redistributable. Do NOT force this through RUSTFLAGS: that flag
+# leaks into proc-macros and build scripts (host == target here) and cargo dies
+# with exit 101. A stray RUSTFLAGS from the environment would break the CRT
+# match the same way, so refuse it rather than build a lib that cannot link.
+refuse_crt_rustflags() {
+    case "${RUSTFLAGS:-}" in
+        *crt-static*)
+            echo "build-quiche.sh: RUSTFLAGS overrides crt-static; unset it - the" >&2
+            echo "                 msvc default already matches the CMake tree." >&2
+            exit 1
+            ;;
+    esac
 }
 
 is_android_target() {
@@ -187,7 +195,7 @@ build_target() {
         prefer_msvc_tools
         prefer_nasm
         prefer_ninja_generator
-        prefer_static_crt
+        refuse_crt_rustflags
     fi
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."
