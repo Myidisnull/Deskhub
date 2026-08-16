@@ -133,12 +133,13 @@ prefer_ninja_generator() {
     export CMAKE_GENERATOR=Ninja
 }
 
-# rustc links a staticlib against the static CRT on windows-msvc, so quiche
-# arrives as /MT while CMakeLists.txt builds every Deskhub target as /MD - the
-# link then ends in LNK2038 over libcpmt.lib. Ask for the DLL runtime instead,
-# which is what the CMake side already expects.
-prefer_dynamic_crt() {
-    export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=-crt-static"
+# rustc links a staticlib against the static CRT on windows-msvc by default,
+# and the CMake tree pins MultiThreaded to match whenever quiche is present
+# (root CMakeLists.txt), so the release exe stays a single self-contained file
+# with no VC++ Redistributable. Pin it explicitly so a stray RUSTFLAGS cannot
+# flip the runtime underneath the link.
+prefer_static_crt() {
+    export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static"
 }
 
 is_android_target() {
@@ -171,10 +172,12 @@ build_target() {
     local target=$1
     local out="$PREFIX/$target"
     local stamp="$out/.stamp"
-    local artifact
+    local artifact want
     artifact=$(artifact_of "$target")
+    want="$QUICHE_COMMIT"
+    is_msvc_target "$target" && want="$QUICHE_COMMIT+crt-static"
 
-    if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$QUICHE_COMMIT" ] && [ -f "$out/$artifact" ]; then
+    if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ] && [ -f "$out/$artifact" ]; then
         echo "[ok]      quiche $QUICHE_VERSION ($target)"
         return 0
     fi
@@ -184,7 +187,7 @@ build_target() {
         prefer_msvc_tools
         prefer_nasm
         prefer_ninja_generator
-        prefer_dynamic_crt
+        prefer_static_crt
     fi
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."
@@ -226,7 +229,7 @@ build_target() {
 
     mkdir -p "$out"
     cp "$built" "$out/$artifact"
-    echo "$QUICHE_COMMIT" >"$stamp"
+    echo "$want" >"$stamp"
     echo "[ok]      quiche $QUICHE_VERSION ($target) → third_party/quiche/$target/$artifact"
 }
 
