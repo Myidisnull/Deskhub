@@ -41,7 +41,9 @@ jobs:
         shell: bash
         run: |
           scripts/build-quiche.sh windows 2>&1 | tee quiche-build.log ||
-            { tail -60 quiche-build.log | sed 's/^/::error::/' || true; exit 1; }
+            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
+              tail -15 quiche-build.log | sed 's/^/::error::/' || true
+              exit 1; }
 
       - name: Configure
         run: cmake --preset x64-release

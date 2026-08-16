@@ -214,15 +214,18 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
   `.pbxproj` links.
 - **The Windows toolchain traps are already cleared — keep them cleared**: quiche
   builds against the static CRT via `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS`
-  (the msvc default is the DLL runtime, and forcing the flag through a blanket
-  `RUSTFLAGS` broke the cargo build outright), the whole tree pins `MultiThreaded`
-  to match so the exe ships without the VC++ Redistributable, and wxWidgets re-pins
-  `wxBUILD_USE_STATIC_RUNTIME` on every configure because `wx_option()` caches it
-  forever. Git Bash's
-  `/usr/bin/link.exe` shadows the MSVC linker (put `cl.exe`'s directory first), its
-  path rewriting mangles `/`-style arguments (`MSYS2_ARG_CONV_EXCL`), NASM's
-  installer does not touch PATH, and boring-sys must drive BoringSSL with Ninja —
-  MSBuild's tracker dies on long paths as MSB6003.
+  for the Rust objects plus `/MT` in `CFLAGS_x86_64_pc_windows_msvc` for the
+  BoringSSL objects (the msvc default is the DLL runtime, and forcing the flag
+  through a blanket `RUSTFLAGS` broke the cargo build outright), and the whole tree
+  pins `MultiThreaded` to match so the exe ships without the VC++ Redistributable;
+  wxWidgets re-pins `wxBUILD_USE_STATIC_RUNTIME` on every configure because
+  `wx_option()` caches it forever. BoringSSL must build under the default Visual
+  Studio generator — the cmake crate only communicates /MT through per-config flags
+  there, so forcing `CMAKE_GENERATOR=Ninja` silently reverts BoringSSL to /MD and
+  the final link dies in LNK2038; if MSBuild trips MSB6003 on long paths, enable
+  Windows long paths instead. Git Bash's `/usr/bin/link.exe` shadows the MSVC
+  linker (put `cl.exe`'s directory first), its path rewriting mangles `/`-style
+  arguments (`MSYS2_ARG_CONV_EXCL`), and NASM's installer does not touch PATH.
 - **iOS quiche pins `IPHONEOS_DEPLOYMENT_TARGET=17.0`**: boring-sys's clang floats
   to the SDK default while rustc links for its own minimum, and the mismatch
   surfaces as an undefined `___chkstk_darwin` at link time.

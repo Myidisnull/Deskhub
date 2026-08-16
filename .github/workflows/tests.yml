@@ -53,7 +53,11 @@ jobs:
 
       - name: Build quiche (static QUIC + TLS)
         shell: bash
-        run: scripts/build-quiche.sh host
+        run: |
+          scripts/build-quiche.sh host 2>&1 | tee quiche-build.log ||
+            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
+              tail -15 quiche-build.log | sed 's/^/::error::/' || true
+              exit 1; }
 
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF

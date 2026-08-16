@@ -103,17 +103,21 @@ prefer_nasm() {
     export PATH
 }
 
-prefer_ninja_generator() {
-    [ -n "${CMAKE_GENERATOR:-}" ] && return 0
-    local vs_cmake="${VSINSTALLDIR:-}/Common7/IDE/CommonExtensions/Microsoft/CMake"
-    [ -n "${VSINSTALLDIR:-}" ] && [ -d "$vs_cmake" ] &&
-        PATH="$vs_cmake/CMake/bin:$vs_cmake/Ninja:$PATH" && export PATH
-    command -v ninja >/dev/null 2>&1 || return 0
-    export CMAKE_GENERATOR=Ninja
+refuse_ninja_generator() {
+    [ "${CMAKE_GENERATOR:-}" = "Ninja" ] || return 0
+    echo "build-quiche.sh: unset CMAKE_GENERATOR=Ninja for this build." >&2
+    echo "                 The cmake crate only communicates the static CRT through" >&2
+    echo "                 per-config flags under the default Visual Studio generator;" >&2
+    echo "                 with Ninja, BoringSSL silently builds /MD and the final link" >&2
+    echo "                 fails with LNK2038. If MSBuild trips MSB6003 on long paths," >&2
+    echo "                 enable Windows long paths instead of switching generators." >&2
+    exit 1
 }
 
 prefer_static_crt() {
     export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static"
+    export CFLAGS_x86_64_pc_windows_msvc="/MT"
+    export CXXFLAGS_x86_64_pc_windows_msvc="/MT"
 }
 
 is_android_target() {
@@ -157,7 +161,7 @@ build_target() {
     if is_msvc_target "$target"; then
         prefer_msvc_tools
         prefer_nasm
-        prefer_ninja_generator
+        refuse_ninja_generator
         prefer_static_crt
     fi
 

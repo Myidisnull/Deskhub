@@ -212,15 +212,18 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
   chúng — nên một bước `libtool` gộp platform + quiche thành đúng một archive mà
   `.pbxproj` link.
 - **Bãi mìn toolchain Windows đã được dọn — giữ nguyên như vậy**: quiche build với
-  CRT tĩnh qua `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS` (mặc định của msvc là
-  runtime DLL, còn ép flag qua `RUSTFLAGS` chung thì cargo build hỏng thẳng), cả cây
-  pin `MultiThreaded` cho khớp để exe không cần VC++ Redistributable, và wxWidgets
+  CRT tĩnh qua `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS` cho phần Rust cộng
+  `/MT` trong `CFLAGS_x86_64_pc_windows_msvc` cho phần BoringSSL (mặc định của msvc
+  là runtime DLL, còn ép flag qua `RUSTFLAGS` chung thì cargo build hỏng thẳng), cả
+  cây pin `MultiThreaded` cho khớp để exe không cần VC++ Redistributable; wxWidgets
   re-pin `wxBUILD_USE_STATIC_RUNTIME` mỗi lần configure vì `wx_option()` cache vĩnh
-  viễn. `link.exe` của Git Bash trong `/usr/bin` che mất linker MSVC (đặt thư mục
-  của `cl.exe` lên trước), cơ chế rewrite path của nó bóp méo tham số kiểu `/...`
-  (`MSYS2_ARG_CONV_EXCL`), installer của NASM không đụng vào PATH, và boring-sys
-  phải build BoringSSL bằng Ninja — tracker của MSBuild chết vì path dài với
-  MSB6003.
+  viễn. BoringSSL phải build dưới generator Visual Studio mặc định — crate cmake chỉ
+  truyền được /MT qua flag per-config ở đó, nên ép `CMAKE_GENERATOR=Ninja` là
+  BoringSSL âm thầm quay về /MD và bước link cuối chết với LNK2038; nếu MSBuild dính
+  MSB6003 vì path dài thì bật Windows long paths thay vì đổi generator. `link.exe`
+  của Git Bash trong `/usr/bin` che mất linker MSVC (đặt thư mục của `cl.exe` lên
+  trước), cơ chế rewrite path của nó bóp méo tham số kiểu `/...`
+  (`MSYS2_ARG_CONV_EXCL`), và installer của NASM không đụng vào PATH.
 - **quiche cho iOS pin `IPHONEOS_DEPLOYMENT_TARGET=17.0`**: clang của boring-sys
   trôi theo mặc định SDK trong khi rustc link theo minimum của riêng nó, và độ lệch
   hiện ra thành `___chkstk_darwin` undefined lúc link.
