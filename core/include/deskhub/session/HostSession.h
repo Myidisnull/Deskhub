@@ -63,10 +63,6 @@ public:
         passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
     }
 
-    // Set when the connection this session runs on has already proved which machine
-    // is at the other end. From 5.0.0 that happens once per connection, before any
-    // HELLO arrives, so asking again here would turn away the very machines that
-    // earned their place - they no longer carry a passcode at all.
     void SetConnectionAuthenticated(bool authenticated) {
         connectionAuthenticated_ = authenticated;
     }

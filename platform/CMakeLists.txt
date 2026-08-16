@@ -163,10 +163,6 @@ if(DESKHUB_QUIC)
     target_link_libraries(platform PRIVATE deskhub::quiche)
 endif()
 
-# The Xcode apps consume libplatform.a from outside this build, so CMake's
-# PRIVATE link to quiche never reaches their link line. Hand them a single
-# archive that already contains quiche (or a plain copy when quiche is absent,
-# so the stub fallback keeps linking) and let the .pbxproj link -lplatform_bundled.
 if(APPLE)
     if(DESKHUB_QUIC)
         add_custom_command(TARGET platform POST_BUILD

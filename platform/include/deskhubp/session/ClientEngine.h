@@ -376,9 +376,6 @@ private:
         return cfg_.hostLabel.empty() ? cfg_.server.ToString() : cfg_.hostLabel;
     }
 
-    // Nothing is sent until the far end has proved which machine it is: the
-    // handshake finishes, the fingerprint is checked against known_hosts, and a
-    // key we have not seen before stops here until the user says yes.
     bool AwaitTrustedHost() {
         if (!sock_.WaitEstablished(cfg_.server, kHandshakeTimeoutMs)) {
             std::lock_guard<std::mutex> lk(textMutex_);
@@ -402,11 +399,6 @@ private:
         }
         if (verdict == deskhub::TrustVerdict::Trusted) return true;
 
-        // The passcode is never sent: SPAKE2 proves it to a host that proves it back,
-        // and the proof is bound to the key this machine was actually shown. A host that
-        // completes it therefore IS the machine that knows the code, so its key is
-        // written down without asking. A key that CHANGED is a different question - that
-        // is the shape a machine in the middle has - so that one still goes to the user.
         if (verdict == deskhub::TrustVerdict::Unknown) {
             autoTrustPending_.store(true, std::memory_order_release);
             return true;
@@ -429,8 +421,6 @@ private:
         return false;
     }
 
-    // The host only negotiates once it has accepted the passcode, so reaching here is
-    // the answer to the question the fingerprint prompt would have asked.
     void RememberIfPasscodeProvedIt() {
         if (!autoTrustPending_.exchange(false, std::memory_order_acq_rel)) return;
         deskhub::Fingerprint peer;
@@ -504,9 +494,6 @@ private:
         return cb;
     }
 
-    // Runs the pairing handshake before a single byte of the session goes out. The
-    // passcode is only needed the first time; after that this machine is recognised
-    // by its key and nothing is typed at all.
     bool ProveWhoWeAre() {
         ClientAuthConfig auth;
         auth.identity = LoadOrCreateHostIdentity(

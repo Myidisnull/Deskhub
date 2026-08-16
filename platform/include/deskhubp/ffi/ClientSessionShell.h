@@ -44,8 +44,6 @@ struct FfiClientSession {
         cfg.onFinished = [this](const char* reason) {
             if (!userStop.load()) NotifyClosed(reason);
         };
-        // Nothing reaches the far machine until the client answers this, so a client
-        // that wires no handler refuses rather than hanging on a question nobody asked.
         cfg.onTrustAsked = [this](deskhub::TrustVerdict verdict, std::string_view fingerprint) {
             if (!callbacks.onTrustAsked) {
                 engine.RejectFingerprint();

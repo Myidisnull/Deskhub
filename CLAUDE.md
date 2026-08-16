@@ -4,31 +4,28 @@ Guidance for Claude Code when working in this repository.
 
 ## Rules
 
-### 1. Do not write comments in code
+### 1. Do not write comments — anywhere
 
-Write no comments in source files — no explanatory comments, no section banners, no
-docstrings, no `TODO`/`FIXME` notes. The existing C++ sources are comment-free; keep it
-that way.
+Write no comments in any file — no explanatory comments, no section banners, no
+docstrings, no `TODO`/`FIXME` notes. This covers C++, `make/*.mk`, `CMakeLists.txt`,
+`CMakePresets.json`, `scripts/*`, `.github/workflows/*` and config files alike.
 
-Make the code self-explanatory instead: descriptive names, small functions, early
+Make the content self-explanatory instead: descriptive names, small functions, early
 returns, named constants instead of magic numbers. If a block seems to need a comment,
-extract it into a well-named function.
+extract it into a well-named function. Knowledge that must not be lost goes into the
+error message of the path that fails without it, or into `docs/ARCHITECTURE.md`
+§"Decisions worth remembering" (mirrored in the `.vi.md`) — never into a comment.
 
-This covers `make/*.mk` too — the per-platform make modules are deliberately
-comment-free. Do not reintroduce comments there.
+The single exception is the root `Makefile`: its header block is the one place where
+every target is documented. Keep it in sync when you add or rename a target, and
+mirror the change in `make/help.txt` (what a bare `make` prints).
 
-Exceptions — these are not "code" and keep their existing commented style:
+Not comments, so they stay: shebang lines, preprocessor directives and include
+guards, license headers, and the `# vX.Y.Z` tag after a pinned action SHA in the
+workflows. Markdown documents are prose, not code.
 
-- The root `Makefile`: its header block is the single place where every target is
-  documented. Keep it in sync when you add or rename a target, and mirror the change in
-  `make/help.txt` (what a bare `make` prints).
-- `CMakeLists.txt`, `scripts/*`, `.github/workflows/*`
-- Config files where a comment is the only way to document a value
-- License headers and `#pragma once` / include guards
-- Markdown docs
-
-Never strip existing comments from the exempt files above while editing them for another
-reason. The rule governs what you add.
+Comments still present in older files are legacy: when you edit next to one, move
+anything load-bearing into the documentation above and delete it.
 
 ### 2. Prefer `core/` and `platform/` — reuse before you add
 

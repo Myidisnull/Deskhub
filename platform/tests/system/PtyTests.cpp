@@ -14,9 +14,6 @@ constexpr uint32_t kReadWaitMs = 100;
 constexpr int kMaxReads = 150;
 constexpr int kSettleReads = 12;
 
-// A shell drives the terminal, so the only honest way to look at its output is
-// through the same emulator every client uses: the bytes are full of cursor
-// moves and repaints, and the text only exists once they have been applied.
 bool DrainUntil(deskhubp::Pty& pty, deskhub::term::Screen& screen, std::string_view wanted,
     int rounds) {
     std::vector<uint8_t> chunk(deskhubp::kPtyReadChunk);

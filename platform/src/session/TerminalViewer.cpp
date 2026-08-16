@@ -49,9 +49,6 @@ void TerminalViewer::SetState(TerminalViewerState state, std::string_view messag
     if (cb_.onState) cb_.onState(state, message);
 }
 
-// A scroll offset of 0 is the live screen; anything higher walks back into the
-// scrollback, one row at a time, exactly as a wheel scroll does. A program on the
-// alternate screen has no scrollback of its own, so there is nothing to walk into.
 TerminalSnapshot TerminalViewer::Snapshot(size_t scrollOffset) const {
     const std::lock_guard<std::mutex> lock(mutex_);
     TerminalSnapshot out;
@@ -167,9 +164,6 @@ void TerminalViewer::Stop() {
     commands_.clear();
 }
 
-// Every call that touches the QUIC endpoint or the protocol client happens on
-// this thread. The UI posts intents instead of reaching in, because a quiche
-// connection is not safe to use from two threads at once.
 void TerminalViewer::Post(std::function<void()> command) {
     const std::lock_guard<std::mutex> lock(commandMutex_);
     commands_.push_back(std::move(command));
@@ -217,8 +211,6 @@ void TerminalViewer::OnConnected(QuicConnId conn) {
         verdict_ = verdict;
     }
 
-    // Same rule as the screen path: a key we have not seen before is settled by the
-    // pairing handshake, but a key that CHANGED is still put to the user.
     if (verdict == deskhub::TrustVerdict::Changed) {
         SetState(TerminalViewerState::Deciding, deskhub::ui::kTrustChangedBody);
         if (cb_.onTrustAsked) cb_.onTrustAsked(verdict, FormatFingerprint(*peer));
@@ -231,9 +223,6 @@ void TerminalViewer::OnConnected(QuicConnId conn) {
     BeginAuth();
 }
 
-// The shell is only asked for after this machine has proved itself on the connection,
-// exactly as the screen path does. The passcode goes into SPAKE2 and never onto the
-// wire, and a machine already paired sends no passcode at all.
 void TerminalViewer::BeginAuth() {
     ClientAuthConfig config;
     config.identity = LoadOrCreateHostIdentity(config_.clientName);
@@ -248,8 +237,6 @@ void TerminalViewer::BeginAuth() {
     SendRecord(out);
 }
 
-// Returns true when the message was part of proving who we are, so the terminal
-// client above never sees it.
 bool TerminalViewer::HandleAuth(std::span<const uint8_t> message) {
     if (!auth_) return false;
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);

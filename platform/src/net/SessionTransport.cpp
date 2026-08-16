@@ -66,8 +66,6 @@ QuicCallbacks SessionTransport::MakeCallbacks() {
     hooks.onDatagram = [this](QuicConnId conn, std::span<const uint8_t> bytes) {
         Deliver(NetAddr::Unpack(conn), bytes, true);
     };
-    // A plain datagram is the beacon: it belongs to nobody's connection, carries no
-    // secrets, and must keep answering strangers, so it never meets the auth gate.
     hooks.onForeignDatagram = [this](const NetAddr& from, std::span<const uint8_t> bytes) {
         Deliver(from, bytes, false);
     };
@@ -168,9 +166,6 @@ void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> mes
     inbox_.push_back(std::move(queued));
 }
 
-// Returns true when the message should carry on upwards. Auth traffic is answered
-// here and never surfaces; everything else from a machine that has not settled its
-// auth is dropped on the floor.
 bool SessionTransport::HandleHostAuth(const NetAddr& from, std::span<const uint8_t> message) {
     const uint64_t key = from.Pack();
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
@@ -327,8 +322,6 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
                 clientAuthOn_ = false;
                 return false;
             }
-            // Approval mode has nothing to answer with: the machine at the other end
-            // is waiting for a person, so we wait for the verdict too.
             if (challenge->mode == deskhub::AuthMode::Approval) {
                 answered = true;
                 continue;

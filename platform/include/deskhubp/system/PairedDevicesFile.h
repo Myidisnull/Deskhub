@@ -7,9 +7,6 @@ namespace deskhubp {
 inline constexpr const char* kPairedDevicesFileName = "paired_devices";
 inline constexpr const char* kAuthSaltFileName = "auth_salt";
 
-// Fixed for the life of the machine, because the verifier the host keeps is derived
-// from it. It is not a secret - it goes to every machine that asks - it just stops
-// one stored verifier from being the same as another machine's.
 AuthSalt LoadOrCreateAuthSalt();
 
 deskhub::PairedDevices LoadPairedDevices();

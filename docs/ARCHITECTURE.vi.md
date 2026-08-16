@@ -107,6 +107,12 @@ Phía client, `known_hosts` (`TrustStore`) ghim khoá host. Khoá **đổi** th�
 nối sau một cảnh báo lớn; khoá chưa gặp được chính cuộc bắt tay phân xử (host chứng
 minh được passcode thì được ghi nhớ mà không cần hỏi).
 
+Trên wire là chính public key, không bao giờ là fingerprint trần — host tự hash thứ
+nó nhận được, nên muốn khoác danh tính máy khác thì phải ký được bằng khoá mà kẻ mạo
+danh không nắm. Và vì quyền vào chốt một lần cho mỗi kết nối, không tầng nào phía
+trên transport hỏi lại: máy đã chứng minh mình không mang passcode trong bất kỳ
+message nào về sau, và code phiên coi cả kết nối là đã xác thực.
+
 ## 4. Phía host
 
 ```
@@ -188,7 +194,57 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
   phía client. Kết-nối-lại-và-gắn-lại (kiểu tmux, vốn đã bắt buộc cho mobile chạy
   nền) là đủ.
 - **ECDSA P-256, không phải Ed25519**: phía server của BoringSSL không ký bắt tay
-  TLS bằng Ed25519 qua quiche. Đừng đổi lại.
+  TLS bằng Ed25519 qua quiche. Đừng đổi lại. Khoá Ed25519 còn lưu trên đĩa được
+  thay ngay khi nạp — để nguyên thì mọi bắt tay chết với `QUICHE_ERR_TLS_FAIL` mà
+  màn hình không hiện gì.
+- **Verifier của passcode là một lần SHA-256, không phải KDF đắt tiền**: SPAKE2 đã
+  giới hạn kẻ tấn công còn đúng một lần đoán online mỗi kết nối và không để lại
+  transcript nào đáng mang về crack offline — đó chính là việc mà độ nặng của KDF
+  sinh ra để làm.
+- **quiche là thư viện build sẵn, không phải FetchContent**: `scripts/build-quiche.sh`
+  ghi mỗi rust target một thư mục dưới `third_party/quiche/` cộng một `include/`
+  dùng chung — quiche.h và bộ header BoringSSL mà boring-sys vendor, được chép ra vì
+  Deskhub gọi thẳng BoringSSL cho danh tính host và muốn một đường include duy nhất,
+  không thư viện TLS thứ hai. `DeskhubQuiche.cmake` biến chỗ đó thành
+  `deskhub::quiche`; thiếu thư viện là configure lỗi.
+- **Apple link `libplatform_bundled.a`**: app Xcode tiêu thụ archive platform từ
+  ngoài CMake, nơi link PRIVATE tới quiche không bao giờ tới được dòng link của
+  chúng — nên một bước `libtool` gộp platform + quiche thành đúng một archive mà
+  `.pbxproj` link.
+- **Bãi mìn toolchain Windows đã được dọn — giữ nguyên như vậy**: quiche build với
+  CRT tĩnh mặc định của msvc (đừng bao giờ ép `crt-static` qua `RUSTFLAGS`; nó ngấm
+  vào proc-macro và giết cargo), cả cây pin `MultiThreaded` cho khớp, và wxWidgets
+  re-pin `wxBUILD_USE_STATIC_RUNTIME` mỗi lần configure vì `wx_option()` cache vĩnh
+  viễn. `link.exe` của Git Bash trong `/usr/bin` che mất linker MSVC (đặt thư mục
+  của `cl.exe` lên trước), cơ chế rewrite path của nó bóp méo tham số kiểu `/...`
+  (`MSYS2_ARG_CONV_EXCL`), installer của NASM không đụng vào PATH, và boring-sys
+  phải build BoringSSL bằng Ninja — tracker của MSBuild chết vì path dài với
+  MSB6003.
+- **quiche cho iOS pin `IPHONEOS_DEPLOYMENT_TARGET=17.0`**: clang của boring-sys
+  trôi theo mặc định SDK trong khi rustc link theo minimum của riêng nó, và độ lệch
+  hiện ra thành `___chkstk_darwin` undefined lúc link.
+- **Hai đồng hồ, có chủ đích**: `NowUs()` là monotonic (giây uptime) cho khoảng
+  thời gian; `NowUnixSeconds()` là cái duy nhất hiện ra thành ngày tháng. Trộn lẫn
+  không kêu — một mốc monotonic đem lưu sẽ hiện thành một thời điểm nào đó trong
+  ngày 1 tháng 1 năm 1970.
+- **Tiến trình con của PTY Windows không nhận handle chuẩn nào**: khi stdout của
+  chính host bị redirect, Windows truyền redirect đó xuống con bất chấp thuộc tính
+  pseudo-console và shell nói chuyện với pipe; không đưa handle nào thì nó quay về
+  console — chính là ConPTY vừa gắn.
+- **`wxWANTS_CHARS` trên lưới terminal Windows**: thiếu nó thì điều hướng dialog
+  của frame nuốt Enter, Tab và các phím mũi tên trước khi terminal kịp thấy.
+- **TCC của macOS gắn quyền với chữ ký code**: app.app build tay (ký ad-hoc, đổi
+  chữ ký mỗi lần build) và bản dmg ký Developer ID giành nhau đúng một dòng
+  `com.deskhub.macos` — System Settings hiện đã cấp quyền trong khi bản vừa chạy bị
+  từ chối, âm thầm với Accessibility. `make reset-macos-permissions` xoá mọi quyền
+  để lần chạy sau hỏi lại.
+- **Một CRT release tĩnh trên Windows, cho mọi cấu hình**: cargo build quiche với
+  CRT release tĩnh (mặc định của msvc — đừng bao giờ ép qua `RUSTFLAGS`, flag đó
+  ngấm vào proc-macro và giết cargo), và cả cây CMake pin `MultiThreaded` cho khớp
+  — cũng chính là thứ giữ app là một exe duy nhất không cần VC++ Redistributable.
+  Rust không có bản debug-CRT nên Debug cũng phải khớp: `_ITERATOR_DEBUG_LEVEL=0`,
+  `/U_DEBUG`, bỏ `/RTC1` — CRT release không có `_CrtDbgReport` lẫn hỗ trợ
+  run-time check. Lệch bất kỳ chỗ nào là dính một tràng LNK2038.
 - **Passcode = cửa tự phục vụ, approval = đường lui**: mã đã gõ luôn được kiểm;
   không mã thì người quyết. Passcode không bao giờ qua mạng dưới bất kỳ dạng nào kẻ
   tấn công mang về được.

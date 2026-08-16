@@ -57,9 +57,6 @@ struct TerminalSnapshot {
     const deskhub::term::Cell& At(uint16_t row, uint16_t col) const;
 };
 
-// The whole client half of a remote terminal, minus the drawing: QUIC,
-// trust-on-first-use, the protocol, the emulator and the key encoder. Every
-// client drives this and only has to paint a grid and hand back key presses.
 class TerminalViewer {
 public:
     TerminalViewer() = default;

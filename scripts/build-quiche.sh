@@ -7,14 +7,6 @@ QUICHE_COMMIT=55886df3be579579207104c8e645825b6347a209
 PREFIX="$PWD/third_party/quiche"
 SRC="$PREFIX/src"
 
-# Usage: build-quiche.sh [group ...]
-#   host     native target of this machine (default)
-#   android  arm64-v8a, armeabi-v7a, x86_64  (needs ANDROID_NDK_HOME + cargo-ndk)
-#   apple    macOS arm64/x64, iOS device, iOS simulator  (macOS host only)
-#   windows  x86_64-pc-windows-msvc  (Windows host only)
-# Each target lands in third_party/quiche/<rust-target>/libquiche.a,
-# the shared header in third_party/quiche/include/quiche.h.
-
 ANDROID_TARGETS=(aarch64-linux-android armv7-linux-androideabi x86_64-linux-android)
 APPLE_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim)
 WINDOWS_TARGETS=(x86_64-pc-windows-msvc)
@@ -59,11 +51,6 @@ fetch_source() {
     echo "$QUICHE_COMMIT" >"$SRC/.commit"
 }
 
-# quiche links BoringSSL through the boring-sys crate, so every Deskhub binary
-# already contains it. Deskhub calls it directly for the host's self-signed
-# identity (platform/src/system/HostIdentity.cpp), which needs the headers -
-# and boring-sys only vendors them into the cargo registry. Copy them out next
-# to quiche.h so there is one include path and no second TLS library.
 export_boringssl_headers() {
     local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
     local found=""
@@ -95,10 +82,6 @@ is_msvc_target() {
     esac
 }
 
-# Git Bash ships a coreutils 'link.exe' in /usr/bin, and it comes before the MSVC
-# tools on PATH, so rustc picks it up as the linker and every build script fails
-# with "extra operand". cl.exe only ever comes from MSVC, so put its directory in
-# front and the right link.exe wins.
 prefer_msvc_tools() {
     local cl
     cl=$(command -v cl 2>/dev/null) || cl=""
@@ -112,8 +95,6 @@ prefer_msvc_tools() {
     export PATH
 }
 
-# NASM assembles BoringSSL, and its Windows installer does not touch PATH.
-# bootstrap.ps1 installs it here; pick it up so the build does not stop on it.
 prefer_nasm() {
     command -v nasm >/dev/null 2>&1 && return 0
     local nasm_dir="${LOCALAPPDATA:-}/bin/NASM"
@@ -122,11 +103,6 @@ prefer_nasm() {
     export PATH
 }
 
-# boring-sys drives BoringSSL through CMake, which picks the Visual Studio
-# generator by default. MSBuild's tracker writes a .tlog next to a path already
-# ~270 characters deep here, and without LongPathsEnabled that fails as
-# "MSB6003: CL.exe could not be run". Ninja writes no tracker log and keeps the
-# paths short. Both ship inside Visual Studio.
 prefer_ninja_generator() {
     [ -n "${CMAKE_GENERATOR:-}" ] && return 0
     local vs_cmake="${VSINSTALLDIR:-}/Common7/IDE/CommonExtensions/Microsoft/CMake"
@@ -136,18 +112,13 @@ prefer_ninja_generator() {
     export CMAKE_GENERATOR=Ninja
 }
 
-# rustc links a staticlib against the static CRT on windows-msvc by default,
-# and the CMake tree pins MultiThreaded to match whenever quiche is present
-# (root CMakeLists.txt), so the release exe stays a single self-contained file
-# with no VC++ Redistributable. Do NOT force this through RUSTFLAGS: that flag
-# leaks into proc-macros and build scripts (host == target here) and cargo dies
-# with exit 101. A stray RUSTFLAGS from the environment would break the CRT
-# match the same way, so refuse it rather than build a lib that cannot link.
 refuse_crt_rustflags() {
     case "${RUSTFLAGS:-}" in
         *crt-static*)
-            echo "build-quiche.sh: RUSTFLAGS overrides crt-static; unset it - the" >&2
-            echo "                 msvc default already matches the CMake tree." >&2
+            echo "build-quiche.sh: RUSTFLAGS overrides crt-static; unset it." >&2
+            echo "                 The msvc default is already the static CRT the CMake" >&2
+            echo "                 tree links against, and forcing it through RUSTFLAGS" >&2
+            echo "                 leaks into proc-macros and kills cargo with exit 101." >&2
             exit 1
             ;;
     esac
@@ -169,9 +140,6 @@ android_abi_of() {
     esac
 }
 
-# Rust names a staticlib after the platform's own convention: libquiche.a
-# everywhere, but quiche.lib on MSVC. Keep the native name so the linker on
-# each platform sees what it expects.
 artifact_of() {
     case "$1" in
         *-windows-msvc) echo quiche.lib ;;
@@ -219,10 +187,6 @@ build_target() {
             cd "$SRC"
             case "$target" in
             *-apple-ios*)
-                # Pin the minimum iOS version for both compilers. Without this,
-                # boring-sys's clang floats to the SDK default while rustc links
-                # for its own minimum, and the mismatch surfaces as an undefined
-                # ___chkstk_darwin at link time. 17.0 matches the iOS app.
                 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
                 ;;
             esac
@@ -260,9 +224,6 @@ for target in "${TARGETS[@]}"; do
     build_target "$target"
 done
 
-# The macOS app builds universal (arm64 + x86_64) in Release and links a single
-# archive, so whenever both darwin slices exist they are fused with lipo.
-# DeskhubQuiche.cmake prefers this directory over the thin per-arch ones.
 make_macos_universal() {
     [ "$(uname -s)" = "Darwin" ] || return 0
     local arm="$PREFIX/aarch64-apple-darwin/libquiche.a"

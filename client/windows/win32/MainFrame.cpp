@@ -931,9 +931,6 @@ void MainFrame::RefreshPairedDevices() {
     forgetDeviceBtn_->Enable(!pairedDevices_.empty());
 }
 
-// With no passcode set there is nothing for the far machine to prove, so the answer
-// has to come from whoever is sitting here. Saying yes pairs it for good, which is
-// why the key is shown rather than just the name it chose for itself.
 void MainFrame::DrainPairingRequests() {
     if (askingPairing_) return;
     const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
@@ -1861,9 +1858,6 @@ void MainFrame::SaveSettings() {
     settings_.clipboardSync = clipboardCtrl_->GetValue();
     settings_.keepAwake = keepAwakeCtrl_->GetValue();
     const std::string passcode(passcodeCtrl_->GetValue().utf8_str());
-    // Empty is now a real choice, not a slip: it is what turns on being asked here
-    // before a new machine is let in. A half-typed code is still ignored, so the
-    // setting is not thrown away between keystrokes.
     if (passcode.empty() || deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
     const int quality = qualityChoice_->GetSelection();
     if (quality != wxNOT_FOUND)

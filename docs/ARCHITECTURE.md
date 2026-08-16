@@ -104,6 +104,13 @@ Client side, `known_hosts` (`TrustStore`) pins host keys. A **changed** key bloc
 connection behind a loud warning; an unknown key is settled by the handshake itself
 (a host that proved the passcode is remembered without a prompt).
 
+The wire carries the public key itself, never a bare fingerprint — the host hashes
+what it receives, so wearing someone else's identity would mean signing with a key
+the impostor does not hold. And because admission settles once per connection,
+nothing above the transport ever asks again: a machine that proved itself carries no
+passcode in any later message, and session code treats the whole connection as
+authenticated.
+
 ## 4. Host side
 
 ```
@@ -189,7 +196,56 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
   library. Reconnect-and-reattach (tmux-style, already required for mobile
   backgrounding) covers it.
 - **ECDSA P-256, not Ed25519**: BoringSSL's server side will not sign a TLS
-  handshake with Ed25519 through quiche. Do not switch back.
+  handshake with Ed25519 through quiche. Do not switch back. A stored Ed25519
+  identity is replaced on load — it would fail every handshake as
+  `QUICHE_ERR_TLS_FAIL` with nothing on screen to explain it.
+- **The passcode verifier is one SHA-256, not an expensive KDF**: SPAKE2 already
+  limits an attacker to one online guess per connection and leaves no transcript
+  worth cracking offline, which is the whole job KDF hardness exists to do.
+- **quiche is prebuilt, not FetchContent**: `scripts/build-quiche.sh` writes one
+  directory per rust target under `third_party/quiche/` plus a shared `include/` —
+  quiche.h and the BoringSSL headers boring-sys vendors, copied out because Deskhub
+  calls BoringSSL directly for the host identity and wants one include path and no
+  second TLS library. `DeskhubQuiche.cmake` turns that into `deskhub::quiche`; a
+  missing library fails the configure.
+- **Apple links `libplatform_bundled.a`**: the Xcode apps consume the platform
+  archive from outside CMake, where a PRIVATE link to quiche never reaches their
+  link line — so a `libtool` step fuses platform + quiche into the one archive the
+  `.pbxproj` links.
+- **The Windows toolchain traps are already cleared — keep them cleared**: quiche
+  builds with the msvc default static CRT (never force `crt-static` through
+  `RUSTFLAGS`; it leaks into proc-macros and kills cargo), the whole tree pins
+  `MultiThreaded` to match, and wxWidgets re-pins `wxBUILD_USE_STATIC_RUNTIME` on
+  every configure because `wx_option()` caches it forever. Git Bash's
+  `/usr/bin/link.exe` shadows the MSVC linker (put `cl.exe`'s directory first), its
+  path rewriting mangles `/`-style arguments (`MSYS2_ARG_CONV_EXCL`), NASM's
+  installer does not touch PATH, and boring-sys must drive BoringSSL with Ninja —
+  MSBuild's tracker dies on long paths as MSB6003.
+- **iOS quiche pins `IPHONEOS_DEPLOYMENT_TARGET=17.0`**: boring-sys's clang floats
+  to the SDK default while rustc links for its own minimum, and the mismatch
+  surfaces as an undefined `___chkstk_darwin` at link time.
+- **Two clocks, deliberately**: `NowUs()` is monotonic (seconds of uptime) for
+  intervals; `NowUnixSeconds()` is the only one that renders as a date. Mixing them
+  is not loud — a stored monotonic stamp shows up as some time on 1 January 1970.
+- **A Windows PTY child gets no standard handles**: with the host's own stdout
+  redirected, Windows hands that redirection down past the pseudo-console attribute
+  and the shell talks to the pipe; no handles at all sends it back to the attached
+  ConPTY.
+- **`wxWANTS_CHARS` on the Windows terminal grid**: without it the frame's dialog
+  navigation eats Enter, Tab and the arrow keys before the terminal sees them.
+- **macOS TCC pairs a grant with the code signature**: a locally built app.app
+  (ad-hoc, re-signed every build) and the Developer ID dmg fight over the same
+  `com.deskhub.macos` row — System Settings shows the permission granted while the
+  copy just launched is denied, silently for Accessibility.
+  `make reset-macos-permissions` clears every grant so the next launch asks again.
+- **One static release CRT on Windows, every configuration**: cargo builds quiche
+  against the static release CRT (the msvc default — never force it through
+  `RUSTFLAGS`, that leaks into proc-macros and kills cargo), and the whole CMake
+  tree pins `MultiThreaded` to match, which is also what keeps the app a single
+  exe with no VC++ Redistributable. Rust offers no debug-CRT build, so Debug
+  matches too: `_ITERATOR_DEBUG_LEVEL=0`, `/U_DEBUG`, `/RTC1` stripped — the
+  release CRT has no `_CrtDbgReport` and no run-time check support. Any mismatch
+  ends in a wall of LNK2038.
 - **Passcode = self-service admission, approval = the fallback**: a typed code is
   always verified; no code means a human decides. The passcode never crosses the
   network in any form an attacker can take home.

@@ -83,9 +83,6 @@ void TestIdentityIsCreatedOnceAndKept() {
         "a new one is genuinely new - this is the change every client must warn about");
 }
 
-// The key Deskhub briefly used before switching to P-256. BoringSSL's server
-// side will not sign a handshake with it, so leaving it on disk turned every
-// connection into QUICHE_ERR_TLS_FAIL with nothing on screen to explain it.
 const char* const kEd25519Cert =
     "-----BEGIN CERTIFICATE-----\n"
     "MIHhMIGUoAMCAQICCCBRfTZ1RuD+MAUGAytlcDAXMRUwEwYDVQQDDAxkZXNraHVi\n"

@@ -27,11 +27,6 @@ std::vector<wchar_t> ToWide(const std::string& text) {
     return out;
 }
 
-// When the host's own stdout is redirected - a service, a log file, a build
-// pipeline - Windows hands that redirection down to the child even though the
-// pseudo console attribute is set, and the shell then talks to the pipe instead
-// of the terminal. Handing the child no standard handles at all sends it back
-// to its console, which is the pseudo console we just attached.
 bool StandardHandlesAreConsole() {
     const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
     if (out == nullptr || out == INVALID_HANDLE_VALUE) return false;

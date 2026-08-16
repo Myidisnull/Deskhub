@@ -50,8 +50,6 @@ private:
 PairedDevices ParsePairedDevices(std::string_view text);
 std::string SerializePairedDevices(const PairedDevices& devices);
 
-// Enough of the key to tell two machines apart at a glance in a table. The whole
-// fingerprint is what gets compared by eye; this is only for the list.
 inline constexpr size_t kShortFingerprintChars = 12;
 std::string ShortFingerprint(const Fingerprint& fp);
 

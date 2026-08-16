@@ -82,9 +82,6 @@ void TestBeaconHidesSourcesBehindThePasscode() {
     Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
         "a wrong passcode learns nothing either");
 
-    // The passcode used to decide this, and the difference between a right guess and
-    // a wrong one was itself the answer - free to probe, ten thousand tries deep. Now
-    // only a machine that has proved itself on the encrypted connection is told.
     rn = BuildListSources(req, "4726");
     Check(ParseSourceList(PayloadOf(Ask(b, std::span<const uint8_t>(req, rn))), got) == 0,
         "and so does the RIGHT passcode, offered by a stranger over plain UDP");

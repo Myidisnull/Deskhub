@@ -31,9 +31,6 @@ constexpr uint16_t kTestPort = 47793;
 constexpr int kMaxRounds = 2000;
 constexpr uint32_t kPollWaitMs = 2;
 
-// One terminal client speaking the real protocol over a real QUIC connection:
-// records on a stream, a TerminalClient driving them, and a Screen showing what
-// the shell drew. This is the whole M7 path with nothing stubbed out.
 struct Viewer {
     deskhubp::QuicEndpoint endpoint{};
     deskhub::RecordStream framer{};
@@ -60,8 +57,6 @@ struct Viewer {
             pending.insert(pending.end(), record.begin(), record.end());
     }
 
-    // The host now expects every connection to prove which machine it is before it
-    // will look at a TERM_OPEN, so the test client has to do what a real one does.
     void BeginAuth(const deskhubp::HostIdentity& own, const deskhub::Fingerprint& hostKey,
         std::string passcode) {
         deskhubp::ClientAuthConfig config;
@@ -314,8 +309,6 @@ void TestHostSharesAShell() {
         return;
     }
 
-    // A wrong code now fails while proving the machine, before a TERM_OPEN is even
-    // looked at - and asking for a shell anyway gets nowhere.
     {
         Viewer stranger;
         stranger.Start();
@@ -558,9 +551,6 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
         deskhubp::TerminalViewerCallbacks hooks;
         hooks.onTrustAsked = [&asks](deskhub::TrustVerdict, std::string_view) { ++asks; };
 
-        // The question moved to the other end: with no code to prove anything by, the
-        // machine being dialled is the one that has to decide, so this side simply
-        // waits rather than showing its user a fingerprint to rubber-stamp.
         deskhubp::TerminalViewer viewer;
         Check(viewer.Start(open, std::move(hooks)), "a viewer with no passcode starts");
         Check(!WaitFor([&viewer] {
@@ -612,8 +602,6 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
         host.Stop();
     }
 
-    // A machine whose key changed is the shape a machine in the middle has, so a
-    // correct passcode must not be allowed to wave it through.
     deskhub::Fingerprint impostor = identity.fingerprint;
     impostor.bytes[0] = uint8_t(impostor.bytes[0] ^ 0xFF);
     const std::string endpoint = NetAddr{0x7F000001u, uint16_t(kTestPort + 2)}.ToString();

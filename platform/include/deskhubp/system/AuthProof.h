@@ -29,18 +29,11 @@ bool VerifySignature(std::span<const uint8_t> spkiDer, std::span<const uint8_t> 
 AuthSalt NewAuthSalt();
 AuthNonce NewAuthNonce();
 
-// The only form of the passcode a host keeps. One pass of SHA-256 is enough here
-// because SPAKE2 already denies an attacker the offline guessing that expensive
-// KDFs exist to slow down - it gets one guess per connection, and no transcript
-// worth taking home.
 PasscodeVerifier MakePasscodeVerifier(const AuthSalt& salt, std::string_view passcode);
 
 AuthMac ComputeAuthMac(std::span<const uint8_t> key, std::span<const uint8_t> data);
 bool MacsMatch(const AuthMac& a, const AuthMac& b);
 
-// What both sides sign or MAC over. Binding in the fingerprint the CLIENT sees is
-// what stops a machine in the middle relaying a proof: it must show the client its
-// own key, and a proof bound to that key is not one the real host will accept.
 std::vector<uint8_t> AuthTranscript(std::string_view label, const AuthNonce& nonce,
     const deskhub::Fingerprint& hostFingerprint, std::span<const uint8_t> extra = {});
 

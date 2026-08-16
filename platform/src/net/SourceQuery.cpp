@@ -15,9 +15,6 @@ constexpr uint64_t kListTimeoutUs = 5'000'000;
 constexpr uint32_t kPollWaitMs = 2;
 }
 
-// What a machine is sharing is no longer told to anyone who asks: the list now comes
-// back only inside an encrypted connection this machine has proved itself on. The
-// beacon still answers strangers, but with nothing in it.
 bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
     const std::string& passcode, deskhub::AuthResultCode* outCode) {
     out.clear();

@@ -347,8 +347,6 @@ void HostEngine::DrainControlRequests() {
         pairAnswers.swap(pendingPairAnswers_);
     }
 
-    // The person at this machine answered a pairing request. It has to happen on
-    // this thread because that is where the QUIC connection lives.
     for (const auto& [addrPacked, allowed] : pairAnswers)
         sock_.ApproveConnection(NetAddr::Unpack(addrPacked), allowed);
 

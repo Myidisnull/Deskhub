@@ -44,9 +44,6 @@ deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, uint8_t sourceId) {
     return cfg;
 }
 
-// A viewer refuses to send anything to a machine whose key it has not seen before,
-// so every test has to answer the question a person would answer once. Accepting
-// here is the same as clicking "yes, this is the right machine".
 bool StartViewer(Viewer& viewer, deskhubp::ClientEngineConfig cfg) {
     cfg.onTrustAsked = [&viewer](deskhub::TrustVerdict, std::string_view) {
         viewer.AcceptFingerprint();
@@ -54,9 +51,6 @@ bool StartViewer(Viewer& viewer, deskhubp::ClientEngineConfig cfg) {
     return viewer.Start(cfg);
 }
 
-// Every test starts from a machine that has paired with nobody. Without this the
-// first successful pairing would let every later viewer in by key alone, and the
-// passcode tests below would be testing nothing.
 void ResetObservations() {
     fake::Host().Reset();
     fake::Decoded().Reset();
@@ -563,9 +557,6 @@ void TestDiscoveryIsGatedByThePasscode() {
         return;
     }
 
-    // Being reachable and being told what is shared are now two different questions.
-    // The beacon answers the first to anyone, which is what the device list needs; the
-    // second is only answered inside a connection this machine has proved itself on.
     Check(deskhubp::ProbeHostRttMs(HostAddr(port), 1000).has_value(),
         "the host still answers a probe, so it shows as online in the device list");
 
@@ -601,9 +592,6 @@ void TestAHostWithoutAPasscodeServesNobody() {
     cfg.passcode = "0000";
     StartViewer(viewer, cfg);
 
-    // With no passcode there is nothing for the viewer to prove, so the machine it is
-    // dialling holds the request for a person to accept. Nobody accepts here, and the
-    // point of the test is that waiting is not the same as being let in.
     Check(!WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs),
         "a viewer nobody approved never reaches the stream, whatever it sends");
     Check(fake::Decoded().frameCount() == 0, "and nothing of the screen leaves the machine");

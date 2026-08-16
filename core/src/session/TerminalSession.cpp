@@ -28,9 +28,6 @@ TermOpenAck TerminalSessions::Refuse(TermReason reason) const {
 }
 
 bool TerminalSessions::PasscodeAllows(std::string_view offered, uint64_t nowUs) {
-    // The connection this request arrived on has already proved which machine sent it,
-    // once, before any TERM_OPEN could be framed. Asking again would turn away exactly
-    // the machines that earned their place, because they carry no passcode any more.
     if (connectionAuthenticated_) return true;
     if (passcode_.empty()) return true;
     if (LockedOut(nowUs)) return false;

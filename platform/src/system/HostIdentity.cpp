@@ -63,10 +63,6 @@ std::string BioToString(BIO* bio) {
     return std::string(reinterpret_cast<const char*>(data), len);
 }
 
-// An identity we cannot sign a handshake with is worse than no identity at all:
-// the host binds, the client dials, and the handshake dies with a TLS error that
-// says nothing. Deskhub used Ed25519 briefly, which BoringSSL's server side will
-// not sign with, so any stored key that is not P-256 has to be replaced.
 bool UsableForTls(X509* cert) {
     PkeyPtr key(X509_get_pubkey(cert));
     if (!key || EVP_PKEY_id(key.get()) != EVP_PKEY_EC) return false;
@@ -88,10 +84,6 @@ std::optional<deskhub::Fingerprint> FingerprintOfCert(X509* cert) {
     return fp;
 }
 
-// P-256 rather than Ed25519: BoringSSL's TLS server will not sign a handshake
-// with an Ed25519 certificate under its default signing preferences, and quiche
-// gives no way to widen them, so an Ed25519 identity fails the handshake with
-// QUICHE_ERR_TLS_FAIL. ECDSA-P256-SHA256 is accepted everywhere.
 PkeyPtr GenerateKey() {
     PkeyCtxPtr ctx(EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr));
     if (!ctx) return nullptr;

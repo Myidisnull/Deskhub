@@ -1,9 +1,3 @@
-# Locates the quiche static library that scripts/build-quiche.sh produced and
-# exposes it as the imported target deskhub::quiche. Sets DESKHUB_QUICHE_FOUND.
-#
-# scripts/build-quiche.sh writes one directory per rust target under
-# third_party/quiche/, plus a shared include/ holding quiche.h and the BoringSSL
-# headers that come with it.
 
 set(DESKHUB_QUICHE_ROOT ${CMAKE_CURRENT_LIST_DIR}/../third_party/quiche)
 

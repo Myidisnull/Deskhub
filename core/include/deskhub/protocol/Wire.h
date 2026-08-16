@@ -180,9 +180,6 @@ enum class AuthResultCode : uint8_t {
     Locked = 6,
 };
 
-// The public key travels, not the fingerprint: the host has to hash it to get the
-// fingerprint it looks up, which is also what stops a machine claiming someone
-// else's identity - it would have to sign with a key it does not hold.
 struct AuthStart {
     std::vector<uint8_t> publicKey{};
     std::string clientName{};

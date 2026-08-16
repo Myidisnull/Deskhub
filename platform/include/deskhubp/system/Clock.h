@@ -67,13 +67,6 @@ inline void SleepUs(uint64_t us) {
 
 #endif
 
-// Seconds since 1970, for anything a person will read as a date.
-//
-// NowUs() is deliberately MONOTONIC on both platforms - QueryPerformanceCounter and
-// CLOCK_MONOTONIC - so it counts from an arbitrary point, usually boot. Dividing it
-// by a million gives seconds of uptime, not a date, and every such value renders as
-// some time on 1 January 1970. Use this instead whenever the number is stored or
-// shown rather than used to measure an interval.
 inline int64_t NowUnixSeconds() {
     return int64_t(std::time(nullptr));
 }

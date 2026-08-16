@@ -72,12 +72,8 @@ bool NamedKeyOf(int code, term::TermKey& out) {
     }
 }
 
-// Paints the grid core/terminal/ hands over. It knows nothing about escape
-// sequences: every client draws the same cells and sends the same key bytes.
 class TerminalGrid final : public wxWindow {
 public:
-    // wxWANTS_CHARS is what stops the frame's dialog navigation from eating
-    // Enter, Tab and the arrow keys before the terminal ever sees them.
     explicit TerminalGrid(wxWindow* parent)
         : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS) {
         snapshot_.size = deskhub::TermSize{0, 0};

@@ -30,9 +30,6 @@ void TestTheClockActuallyAdvances() {
         "and as well under two seconds, so the unit really is microseconds");
 }
 
-// The two clocks are not interchangeable, and mixing them up is not loud: a paired
-// device or a trusted host simply gets written down as a date in 1970, because the
-// monotonic reading is seconds of uptime, not seconds since the epoch.
 void TestTheWallClockIsNotTheMonotonicOne() {
     std::printf("[clock] the wall clock reads a real date, not seconds since boot...\n");
     constexpr int64_t kStartOf2020 = 1'577'836'800;

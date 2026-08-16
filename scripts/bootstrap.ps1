@@ -60,8 +60,6 @@ if ($rustHost -and $rustHost -ne 'x86_64-pc-windows-msvc') {
     Write-Host "          rustup default stable-x86_64-pc-windows-msvc"
 }
 
-# boring-sys builds BoringSSL, which assembles with nasm on Windows. winget does not
-# put it on PATH, so add it here and tell the user to make it permanent.
 $nasmDir = Join-Path $env:LOCALAPPDATA 'bin\NASM'
 if (Install-IfMissing 'nasm' 'NASM.NASM' 'NASM (assembles BoringSSL)') { $restartNote = $true }
 if (-not (Get-Command nasm -ErrorAction SilentlyContinue)) {

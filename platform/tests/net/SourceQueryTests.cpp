@@ -59,9 +59,6 @@ void AnswerOneQuery(UdpSocket& host) {
     }
 }
 
-// Anyone can send a SOURCE_LIST over plain UDP. Before 5.0.0 that was enough to be
-// believed; now the list is only taken from a machine this one has shaken hands with
-// and proved itself to, so an impostor shouting the answer is simply not heard.
 void TestAPlainUdpImpostorIsNotBelieved() {
     std::printf("[srcq] a display list shouted over plain UDP is not believed...\n");
     UdpSocket host;

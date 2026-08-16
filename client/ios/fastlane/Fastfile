@@ -36,8 +36,6 @@ platform :ios do
 
     build_number = ENV["BUILD_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
 
-    # The app and its broadcast extension are separate bundle ids with separate
-    # profiles, so signing has to be set per target rather than through xcargs.
     SIGNED_TARGETS.each do |target, (bundle_id, profile)|
       update_code_signing_settings(
         path: "Deskhub.xcodeproj",

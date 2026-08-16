@@ -235,9 +235,6 @@ struct QuicEndpoint::Impl {
         if (read < 0) ReportDrop(from, read);
     }
 
-    // Anyone can spray the shared port, and three quarters of random first bytes
-    // look like a QUIC header, so a line per rejected packet hands a stranger the
-    // host's log file. Count them instead and report the total once a second.
     void ReportDrop(const NetAddr& from, ssize_t code) {
         ++drops_;
         const uint64_t nowUs = NowUs();

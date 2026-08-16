@@ -53,8 +53,6 @@ public:
     bool SendTo(const NetAddr& to, const uint8_t* data, size_t len);
     int RecvFrom(uint8_t* buf, size_t cap, NetAddr& from);
 
-    // A machine that has not proved itself gets nothing through: until its auth
-    // settles, everything else it sends is dropped rather than handed upwards.
     void SetHostAuth(HostAuthConfig config, TransportAuthCallbacks callbacks);
     bool RunClientAuth(const NetAddr& server, ClientAuthConfig config, uint32_t timeoutMs,
         deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode);

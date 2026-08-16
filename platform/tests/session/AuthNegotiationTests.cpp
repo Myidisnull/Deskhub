@@ -34,8 +34,6 @@ struct CleanSlate {
     }
 };
 
-// The host and the client each need their own key, but a machine only ever has one
-// on disk, so the client's is made first and kept while the host makes its own.
 struct TwoMachines {
     deskhubp::HostIdentity host{};
     deskhubp::HostIdentity client{};
@@ -235,9 +233,6 @@ void TestAMachineInTheMiddleCannotRelayTheProof() {
     TwoMachines machines;
     if (!machines.Make()) return;
 
-    // The client is talking to something that showed it a different certificate -
-    // exactly what a machine in the middle looks like - so its proof is bound to that
-    // key, not to the real host's.
     deskhub::Fingerprint impostor = machines.host.fingerprint;
     impostor.bytes[0] = uint8_t(impostor.bytes[0] ^ 0xFF);
 
