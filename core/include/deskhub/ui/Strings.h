@@ -211,6 +211,11 @@ inline constexpr const char* kTerminalSourceName = "Terminal";
 inline constexpr const char* kTerminalPickerLabel =
     "Terminal \xE2\x80\x94 a shell on this machine";
 inline constexpr const char* kTerminalDetached = "(detached)";
+inline constexpr const char* kTerminalLocalClient = "attached on this machine";
+inline constexpr const char* kAttachShellAction = "Stop & attach";
+inline constexpr const char* kTerminalLocalWindowTitle = "Terminal \xE2\x80\x94 this machine";
+inline constexpr const char* kTerminalAttachedHere =
+    "Attached to the shell on this machine.";
 inline constexpr const char* kTerminalHostHeading = "Share this machine's terminal";
 inline constexpr const char* kTerminalHostHint =
     "Anyone who knows the passcode gets a shell on this machine, running as you.";

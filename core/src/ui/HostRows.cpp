@@ -51,6 +51,7 @@ std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& 
         row.viewerName = shell.clientName;
         row.terminal = true;
         row.termId = shell.termId;
+        row.shellState = shell.state;
         rows.push_back(row);
     }
     return rows;
@@ -74,19 +75,23 @@ HostRowCells TerminalRowText(const HostRow& row, uint16_t port,
     HostRowCells cells;
     if (row.viewer) {
         const TerminalRecord* shell = FindShell(shells, row.termId);
-        const bool live = shell != nullptr && shell->state == TerminalState::Live;
         cells.source = kShellRowLabel;
-        cells.client = ViewerLabel(row.viewerName, row.viewerAddr);
-        if (shell != nullptr && !live) cells.client += std::string(" ") + kTerminalDetached;
+        if (shell != nullptr && shell->state == TerminalState::Local) {
+            cells.client = kTerminalLocalClient;
+        } else {
+            cells.client = ViewerLabel(row.viewerName, row.viewerAddr);
+            if (shell != nullptr && shell->state == TerminalState::Detached)
+                cells.client += std::string(" ") + kTerminalDetached;
+        }
         if (shell != nullptr) cells.size = media::SourceSizeLabel(shell->size.cols,
                                   shell->size.rows);
-        cells.online = live;
+        cells.online = shell != nullptr && shell->state != TerminalState::Detached;
         return cells;
     }
 
     size_t live = 0;
     for (const TerminalRecord& shell : shells)
-        if (shell.state == TerminalState::Live) ++live;
+        if (shell.state != TerminalState::Detached) ++live;
 
     cells.source = kTerminalSourceName;
     cells.size = PortCell(port);

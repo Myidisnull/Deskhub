@@ -159,6 +159,9 @@ int main() {
     std::printf("--- terminal: the character grid every client draws ---\n");
     RunScreenTests();
 
+    std::printf("--- terminal: the cell snapshot every window renders from ---\n");
+    RunSnapshotTests();
+
     std::printf("--- terminal: keys and modifiers to bytes ---\n");
     RunKeyEncoderTests();
 

@@ -124,7 +124,8 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
  │    frame → encoder (mutex theo nguồn) → Packetizer → FEC → SendTo (datagram)
  └─ TerminalHost (khách thuê, khi terminal được chia sẻ)
       ├─ HandleMessage trên luồng net-loop: TERM_OPEN/DATA/RESIZE/CLOSE → PTY
-      └─ luồng bơm: đầu ra PTY → record TERM_DATA, hết hạn, kick
+      └─ luồng bơm: đầu ra PTY → Screen mirror phía host + record TERM_DATA,
+           hết hạn, kick
 ```
 
 - Engine chạy khi bất kỳ thứ gì được chia sẻ. Không có nguồn màn hình mà terminal
@@ -141,6 +142,10 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 - Shell: mỗi shell một PTY (`ConPTY` trên Windows, `forkpty` nơi khác), tối đa 8;
   kết nối rớt thì shell được tách và PTY sống thêm 2 phút để đúng máy đó gắn lại.
   Mọi lần mở/đóng/tách/gắn lại đều ghi audit kèm địa chỉ, tên và khoá.
+- Đầu ra của mỗi shell còn nuôi một Screen `core/terminal` phía host ngay từ lúc
+  shell khởi động. *Stop & attach* ngắt client từ xa và mở mirror đó — scrollback
+  còn nguyên — trong một cửa sổ terminal trên máy host; shell bị tiếp quản kiểu này
+  thuộc về host, không bao giờ hết hạn, và kết thúc khi cửa sổ của host đóng.
 
 ## 5. Phía client
 
@@ -255,6 +260,12 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
 - **Bộ giả lập VT là của dự án**: không widget terminal nào có mặt trên cả năm
   client với giấy phép dùng được, và tự sở hữu nó làm hành vi terminal test được
   offline và giống hệt nhau mọi nơi.
+- **Mirror shell phía host được nuôi từ byte đầu tiên**: đầu ra PTY là luồng
+  một-người-đọc và huỷ khi đọc — byte đã đọc và gửi cho viewer không phát lại được —
+  nên lưới mà *Stop & attach* mở ra phải được dựng ngay khi byte đi qua, không phải
+  lúc bấm nút. Khi viewer từ xa còn gắn, phản hồi truy vấn terminal của chính mirror
+  bị vứt bỏ: màn hình của viewer đã trả lời rồi, và shell không được nghe hai câu
+  trả lời.
 - **Một cổng**: beacon, màn hình và terminal dùng chung một listener; QUIC ghép kênh
   kết nối và stream. Cổng thứ hai ngày trước tồn tại chỉ vì đường màn hình tiền-QUIC
   chiếm trọn socket.

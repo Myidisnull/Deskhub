@@ -15,15 +15,6 @@ namespace {
 constexpr uint32_t kPollWaitMs = 5;
 constexpr uint64_t kConnectTimeoutUs = 10'000'000;
 
-const deskhub::term::Cell kBlankCell{};
-
-}
-
-const deskhub::term::Cell& TerminalSnapshot::At(uint16_t row, uint16_t col) const {
-    if (row >= size.rows || col >= size.cols) return kBlankCell;
-    const size_t at = size_t(row) * size.cols + col;
-    if (at >= cells.size()) return kBlankCell;
-    return cells[at];
 }
 
 TerminalViewer::~TerminalViewer() {
@@ -51,26 +42,7 @@ void TerminalViewer::SetState(TerminalViewerState state, std::string_view messag
 
 TerminalSnapshot TerminalViewer::Snapshot(size_t scrollOffset) const {
     const std::lock_guard<std::mutex> lock(mutex_);
-    TerminalSnapshot out;
-    out.size = screen_.Size();
-    out.cursor = screen_.Cursor();
-    out.title = screen_.Title();
-    out.revision = screen_.Revision();
-    out.scrollbackRows = screen_.AlternateScreen() ? 0 : screen_.ScrollbackRows();
-    out.scrollOffset = std::min(scrollOffset, out.scrollbackRows);
-
-    const size_t history = out.scrollbackRows;
-    const size_t first = history - out.scrollOffset;
-    out.cells.reserve(size_t(out.size.rows) * out.size.cols);
-    for (uint16_t r = 0; r < out.size.rows; ++r) {
-        const size_t line = first + r;
-        for (uint16_t c = 0; c < out.size.cols; ++c) {
-            out.cells.push_back(line < history ? screen_.ScrollbackAt(line, c)
-                                               : screen_.At(uint16_t(line - history), c));
-        }
-    }
-    if (out.scrollOffset != 0) out.cursor.visible = false;
-    return out;
+    return deskhub::term::SnapshotScreen(screen_, scrollOffset);
 }
 
 bool TerminalViewer::Start(const TerminalViewerConfig& config, TerminalViewerCallbacks callbacks) {

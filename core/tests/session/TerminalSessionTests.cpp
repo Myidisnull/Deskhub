@@ -168,6 +168,34 @@ void TestReattach() {
         "reattaching still needs the passcode");
 }
 
+void TestAttachLocal() {
+    std::printf("[term] the host can take a shell for itself, and keeps it for good...\n");
+    TerminalSessions host;
+    host.SetSharing(true);
+    host.SetPasscode(kTestPasscode);
+    const uint32_t id = host.Open(MakeRequest(), 0).termId;
+
+    Check(host.AttachLocal(id), "a live shell can be taken over at the host");
+    Check(host.Find(id)->state == TerminalState::Local, "which is a state we can see");
+    Check(host.LiveCount() == 0 && host.Count() == 1,
+        "it no longer counts as a remote session, but it still holds its slot");
+    Check(!host.AttachLocal(9999), "taking over a stranger does nothing");
+
+    Check(host.Expire(1'000'000'000'000).empty(),
+        "a locally attached shell is never given up, however long it runs");
+    Check(!host.Detach(id, 1000), "losing an old link cannot detach it");
+    Check(host.Open(MakeRequest(kTestPasscode, id), 2000).reason == TermReason::NoSuchSession,
+        "and the old client cannot reattach to a shell the host took");
+
+    const uint32_t dropped = host.Open(MakeRequest(kTestPasscode), 3000).termId;
+    host.Detach(dropped, 4000);
+    Check(host.AttachLocal(dropped), "a detached shell can be taken over too");
+    Check(host.Find(dropped)->detachedUs == 0, "and stops waiting for its old client");
+
+    Check(host.Close(id), "closing a local shell frees its slot");
+    Check(host.Find(id) == nullptr, "and forgets it");
+}
+
 void TestExpiry() {
     std::printf("[term] a detached shell is kept for a while, then given up...\n");
     TerminalSessions host;
@@ -417,6 +445,7 @@ void RunTerminalSessionTests() {
     TestIdentityIsRecorded();
     TestResizeAndDetach();
     TestReattach();
+    TestAttachLocal();
     TestExpiry();
     TestRecordStream();
     TestClientLifecycle();

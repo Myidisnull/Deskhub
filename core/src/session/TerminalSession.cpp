@@ -109,9 +109,17 @@ bool TerminalSessions::Resize(uint32_t termId, TermSize size) {
 
 bool TerminalSessions::Detach(uint32_t termId, uint64_t nowUs) {
     TerminalRecord* found = Mutable(termId);
-    if (!found || found->state == TerminalState::Detached) return false;
+    if (!found || found->state != TerminalState::Live) return false;
     found->state = TerminalState::Detached;
     found->detachedUs = nowUs;
+    return true;
+}
+
+bool TerminalSessions::AttachLocal(uint32_t termId) {
+    TerminalRecord* found = Mutable(termId);
+    if (!found) return false;
+    found->state = TerminalState::Local;
+    found->detachedUs = 0;
     return true;
 }
 

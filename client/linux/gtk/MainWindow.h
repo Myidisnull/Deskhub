@@ -44,6 +44,7 @@ private:
     struct HostRowWidgets {
         GtkWidget* cells[kHostColumnCount] = {};
         GtkWidget* action = nullptr;
+        GtkWidget* attach = nullptr;
     };
 
     struct HostMonitor {
@@ -79,6 +80,7 @@ private:
     void StopTerminalRow();
     void RefreshShells();
     void KickShell(uint32_t termId);
+    void StopAndAttachShell(uint32_t termId);
     void ApplySharingBanner();
     void OpenShell(const NetAddr& server, const std::string& passcode);
 
@@ -146,6 +148,7 @@ private:
     static void OnNavClicked(GtkButton* b, gpointer user);
     static void OnShareClicked(GtkButton* b, gpointer user);
     static void OnHostRowActionClicked(GtkButton* b, gpointer user);
+    static void OnHostRowAttachClicked(GtkButton* b, gpointer user);
     static void OnConnectClicked(GtkButton* b, gpointer user);
     static void OnAddressActivate(GtkEntry* e, gpointer user);
     static void OnCopyClicked(GtkButton* b, gpointer user);

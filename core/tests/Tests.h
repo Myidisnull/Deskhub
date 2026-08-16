@@ -50,6 +50,7 @@ void RunTrustStoreTests();
 void RunPairedDevicesTests();
 void RunVtParserTests();
 void RunScreenTests();
+void RunSnapshotTests();
 void RunKeyEncoderTests();
 void RunPaletteTests();
 void RunStringsTests();

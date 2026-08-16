@@ -127,6 +127,8 @@ void TerminalHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> m
             Shell shell;
             shell.pty = std::make_unique<Pty>();
             shell.peer = from;
+            shell.mirror =
+                std::make_unique<deskhub::term::Screen>(deskhub::ClampTermSize(request->size));
             if (!shell.pty->Start(shell_, request->size)) {
                 sessions_.Close(ack.termId);
                 ack = deskhub::TermOpenAck{};
@@ -144,6 +146,7 @@ void TerminalHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> m
             } else {
                 at->second.peer = from;
                 at->second.pty->Resize(request->size);
+                at->second.mirror->Resize(deskhub::ClampTermSize(request->size));
                 Audit(ack.termId, "reattached");
             }
         }
@@ -167,6 +170,7 @@ void TerminalHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> m
             if (const std::optional<deskhub::TermSize> size = deskhub::ParseTermResize(payload)) {
                 sessions_.Resize(termId, *size);
                 shell->second.pty->Resize(*size);
+                shell->second.mirror->Resize(deskhub::ClampTermSize(*size));
             }
             return;
         case deskhub::MsgType::TermClose:
@@ -213,6 +217,14 @@ void TerminalHost::PumpShells() {
                 break;
             }
             if (got == 0) break;
+            shell.mirror->Write(std::span<const uint8_t>(chunk.data(), size_t(got)));
+            const std::string reply = shell.mirror->TakeResponse();
+            if (shell.local) {
+                if (!reply.empty())
+                    shell.pty->Write(std::span<const uint8_t>(
+                        reinterpret_cast<const uint8_t*>(reply.data()), reply.size()));
+                continue;
+            }
             size_t at = 0;
             while (at < size_t(got)) {
                 const size_t take = std::min<size_t>(deskhub::kMaxTermDataBytes, size_t(got) - at);
@@ -242,7 +254,7 @@ void TerminalHost::DrainKicks() {
 void TerminalHost::CloseShell(uint32_t termId, int exitCode, bool tellClient) {
     const auto at = shells_.find(termId);
     if (at == shells_.end()) return;
-    if (tellClient) {
+    if (tellClient && !at->second.local) {
         std::vector<uint8_t> out(deskhub::kMaxDatagram);
         out.resize(deskhub::BuildTermExit(out, termId, exitCode));
         SendToPeer(at->second.peer, out);
@@ -251,6 +263,85 @@ void TerminalHost::CloseShell(uint32_t termId, int exitCode, bool tellClient) {
     shells_.erase(at);
     sessions_.Close(termId);
     if (cb_.onSessionsChanged) cb_.onSessionsChanged();
+}
+
+bool TerminalHost::AttachLocal(uint32_t termId) {
+    if (!Running()) return false;
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    if (at == shells_.end()) return false;
+    if (at->second.local) return true;
+
+    const deskhub::TerminalRecord* record = sessions_.Find(termId);
+    const bool peerListening =
+        record != nullptr && record->state == deskhub::TerminalState::Live;
+    if (!sessions_.AttachLocal(termId)) return false;
+    if (peerListening) {
+        std::vector<uint8_t> out(deskhub::kMaxDatagram);
+        out.resize(deskhub::BuildTermExit(out, termId, 0));
+        SendToPeer(at->second.peer, out);
+    }
+    at->second.local = true;
+    at->second.peer = NetAddr{};
+    Audit(termId, "attached locally");
+    if (cb_.onSessionsChanged) cb_.onSessionsChanged();
+    return true;
+}
+
+void TerminalHost::CloseLocal(uint32_t termId) {
+    if (!Running()) return;
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    if (at == shells_.end() || !at->second.local) return;
+    CloseShell(termId, 0, false);
+}
+
+bool TerminalHost::LocalAlive(uint32_t termId) const {
+    if (!Running()) return false;
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    return at != shells_.end() && at->second.local;
+}
+
+deskhub::term::TerminalSnapshot TerminalHost::LocalSnapshot(uint32_t termId,
+    size_t scrollOffset) const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    if (at == shells_.end() || !at->second.local) return {};
+    return deskhub::term::SnapshotScreen(*at->second.mirror, scrollOffset);
+}
+
+void TerminalHost::WriteLocalBytes(uint32_t termId, const std::string& bytes) {
+    if (bytes.empty()) return;
+    const auto at = shells_.find(termId);
+    if (at == shells_.end() || !at->second.local) return;
+    at->second.pty->Write(std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size()));
+}
+
+void TerminalHost::SendLocalKey(uint32_t termId, const deskhub::term::TermKeyEvent& key) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    if (at == shells_.end() || !at->second.local) return;
+    WriteLocalBytes(termId, deskhub::term::EncodeKey(key, at->second.mirror->Modes()));
+}
+
+void TerminalHost::SendLocalText(uint32_t termId, std::string_view text) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    if (at == shells_.end() || !at->second.local) return;
+    WriteLocalBytes(termId, deskhub::term::EncodeText(text, at->second.mirror->Modes()));
+}
+
+void TerminalHost::ResizeLocal(uint32_t termId, deskhub::TermSize size) {
+    const deskhub::TermSize clamped = deskhub::ClampTermSize(size);
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto at = shells_.find(termId);
+    if (at == shells_.end() || !at->second.local) return;
+    if (at->second.mirror->Size() == clamped) return;
+    sessions_.Resize(termId, clamped);
+    at->second.mirror->Resize(clamped);
+    at->second.pty->Resize(clamped);
 }
 
 void TerminalHost::Audit(uint32_t termId, std::string_view what) {

@@ -122,7 +122,8 @@ HostEngine (one per app, owns SessionTransport)
  │    frame → encoder (per-source mutex) → Packetizer → FEC → SendTo (datagrams)
  └─ TerminalHost (tenant, when the terminal is shared)
       ├─ HandleMessage on the net-loop thread: TERM_OPEN/DATA/RESIZE/CLOSE → PTY
-      └─ pump thread: PTY output → TERM_DATA records, expiry, kicks
+      └─ pump thread: PTY output → host-side Screen mirror + TERM_DATA records,
+           expiry, kicks
 ```
 
 - The engine runs whenever anything is shared. With zero screen sources and the
@@ -141,6 +142,10 @@ HostEngine (one per app, owns SessionTransport)
   dropped connection detaches the shell and keeps the PTY alive for 2 minutes so the
   same machine can reattach. Every open/close/detach/reattach is audit-logged with
   address, name and key.
+- Every shell's output also feeds a host-side `core/terminal` Screen from the moment
+  it starts. *Stop & attach* disconnects the remote client and opens that mirror —
+  scrollback intact — in a terminal window on the host; a shell taken over this way
+  belongs to the host, never expires, and ends when the host's window closes.
 
 ## 5. Client side
 
@@ -257,6 +262,12 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
 - **The VT emulator is ours**: no platform terminal widget is available on all five
   clients under a usable licence, and owning it makes terminal behaviour testable
   offline and identical everywhere.
+- **The host's shell mirror is fed from byte one**: PTY output is a destructive
+  single-consumer stream — bytes read and shipped to the viewer cannot be replayed
+  later — so the grid *Stop & attach* opens must be built as the bytes pass, not
+  when the button is pressed. While a remote viewer is attached the mirror's own
+  terminal-query responses are discarded: the viewer's screen already answers them,
+  and the shell must not hear two answers.
 - **One port**: beacon, screen and terminal share a single listener; QUIC
   multiplexes connections and streams. The old second port existed only because the
   pre-QUIC screen path monopolised the socket.

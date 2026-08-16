@@ -15,6 +15,7 @@ inline constexpr uint64_t kTerminalReattachGraceUs = 120'000'000;
 enum class TerminalState : uint8_t {
     Live = 0,
     Detached = 1,
+    Local = 2,
 };
 
 struct TerminalRecord {
@@ -45,6 +46,7 @@ public:
     TermOpenAck Open(const TerminalOpenRequest& request, uint64_t nowUs);
     bool Resize(uint32_t termId, TermSize size);
     bool Detach(uint32_t termId, uint64_t nowUs);
+    bool AttachLocal(uint32_t termId);
     bool Close(uint32_t termId);
     void CloseAll();
     std::vector<uint32_t> Expire(uint64_t nowUs);

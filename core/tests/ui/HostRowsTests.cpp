@@ -202,6 +202,27 @@ void TestTerminalCellsReadLikeTheTable() {
         "and the terminal row counts none");
 }
 
+void TestLocallyAttachedShellReadsAsTheHostsOwn() {
+    std::printf("[hostrows] a shell the host took over says so instead of naming a client...\n");
+    const std::vector<TerminalRecord> shells{
+        MakeShell(4, "192.168.1.9:51000", "Anh's laptop", TerminalState::Local),
+    };
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows({}, true, shells);
+
+    Check(rows.size() == 2 && rows[1].shellState == TerminalState::Local,
+        "the row carries the state, so the table rebuilds when it changes");
+    const ui::HostRowCells cells = ui::TerminalRowText(rows[1], 47778, shells);
+    Check(cells.client == ui::kTerminalLocalClient,
+        "the client cell says the shell lives on this machine now");
+    Check(cells.online, "and it reads as online");
+    Check(ui::TerminalRowText(rows[0], 47778, shells).online,
+        "a local shell keeps the terminal row tinted as online");
+
+    const std::vector<TerminalRecord> before{MakeShell(4, "192.168.1.9:51000", "Anh's laptop")};
+    Check(!(ui::BuildHostRows({}, true, shells) == ui::BuildHostRows({}, true, before)),
+        "taking a shell over is a different row list");
+}
+
 void TestShellLookupByTermId() {
     std::printf("[hostrows] a shell row finds its session by id...\n");
     const std::vector<TerminalRecord> shells{MakeShell(7, "10.0.0.4:51000", "")};
@@ -230,6 +251,7 @@ void RunHostRowsTests() {
     TestViewerRowShowsTheClientName();
     TestTerminalIsARowInTheSameTable();
     TestTerminalCellsReadLikeTheTable();
+    TestLocallyAttachedShellReadsAsTheHostsOwn();
     TestShellLookupByTermId();
     TestSourceLookupByIdIgnoresOrder();
 }

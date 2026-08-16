@@ -19,6 +19,7 @@ struct HostRow {
     std::string viewerName{};
     bool terminal = false;
     uint32_t termId = 0;
+    TerminalState shellState = TerminalState::Live;
 
     bool operator==(const HostRow&) const = default;
 };

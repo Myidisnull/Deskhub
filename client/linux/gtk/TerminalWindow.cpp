@@ -15,6 +15,7 @@
 #include "deskhub/terminal/VtParser.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/session/TerminalViewer.h"
 
 namespace {
@@ -74,11 +75,77 @@ term::TermMods ModsOf(guint state) {
     return mods;
 }
 
+class TerminalFeed {
+public:
+    virtual ~TerminalFeed() = default;
+    virtual bool Alive() const = 0;
+    virtual deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const = 0;
+    virtual void SendKey(const term::TermKeyEvent& key) = 0;
+    virtual void Resize(deskhub::TermSize size) = 0;
+    virtual void Shutdown() = 0;
+};
+
+class RemoteFeed final : public TerminalFeed {
+public:
+    deskhubp::TerminalViewer viewer{};
+
+    bool Alive() const override {
+        return viewer.Running();
+    }
+    deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const override {
+        return viewer.Snapshot(scrollOffset);
+    }
+    void SendKey(const term::TermKeyEvent& key) override {
+        viewer.SendKey(key);
+    }
+    void Resize(deskhub::TermSize size) override {
+        viewer.Resize(size);
+    }
+    void Shutdown() override {
+        viewer.Stop();
+    }
+};
+
+class LocalShellFeed final : public TerminalFeed {
+public:
+    LocalShellFeed(deskhubp::TerminalHost& host, uint32_t termId)
+        : host_(&host), termId_(termId) {}
+
+    bool Alive() const override {
+        return host_->LocalAlive(termId_);
+    }
+    deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const override {
+        return host_->LocalSnapshot(termId_, scrollOffset);
+    }
+    void SendKey(const term::TermKeyEvent& key) override {
+        host_->SendLocalKey(termId_, key);
+    }
+    void Resize(deskhub::TermSize size) override {
+        host_->ResizeLocal(termId_, size);
+    }
+    void Shutdown() override {
+        host_->CloseLocal(termId_);
+    }
+
+private:
+    deskhubp::TerminalHost* host_;
+    uint32_t termId_;
+};
+
 class TerminalWindow {
 public:
     static bool Open(GtkWindow* parent, const TerminalLaunch& launch) {
         auto* w = new TerminalWindow();
-        if (!w->Build(parent, launch)) {
+        if (!w->BuildRemote(parent, launch)) {
+            delete w;
+            return false;
+        }
+        return true;
+    }
+
+    static bool OpenLocal(GtkWindow* parent, deskhubp::TerminalHost& host, uint32_t termId) {
+        auto* w = new TerminalWindow();
+        if (!w->BuildLocal(parent, host, termId)) {
             delete w;
             return false;
         }
@@ -91,14 +158,11 @@ private:
     TerminalWindow(const TerminalWindow&) = delete;
     TerminalWindow& operator=(const TerminalWindow&) = delete;
 
-    bool Build(GtkWindow* parent, const TerminalLaunch& launch) {
-        NetAddr host{};
-        if (!ParseNetAddr(launch.address, host)) return false;
-
+    void BuildShell(GtkWindow* parent, const std::string& title) {
         alive_ = std::make_shared<TerminalWindow*>(this);
 
         window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        gtk_window_set_title(GTK_WINDOW(window_), ui::AddressHost(launch.address).c_str());
+        gtk_window_set_title(GTK_WINDOW(window_), title.c_str());
         if (parent) gtk_window_set_transient_for(GTK_WINDOW(window_), parent);
         gtk_window_set_default_size(GTK_WINDOW(window_), kInitialGridW, kInitialGridH);
 
@@ -130,6 +194,22 @@ private:
         g_signal_connect(window_, "destroy", G_CALLBACK(OnDestroy), this);
 
         MeasureCell();
+    }
+
+    void ShowBuilt() {
+        redrawTimerId_ = g_timeout_add(kRedrawMs, OnRedrawTimer, this);
+        gtk_widget_show_all(window_);
+        gtk_widget_grab_focus(grid_);
+    }
+
+    bool BuildRemote(GtkWindow* parent, const TerminalLaunch& launch) {
+        NetAddr host{};
+        if (!ParseNetAddr(launch.address, host)) return false;
+
+        BuildShell(parent, ui::AddressHost(launch.address));
+
+        auto feed = std::make_unique<RemoteFeed>();
+        remote_ = feed.get();
 
         deskhubp::TerminalViewerConfig config;
         config.host = host;
@@ -152,14 +232,32 @@ private:
             });
         };
 
-        if (!viewer_.Start(config, std::move(hooks))) {
+        if (!remote_->viewer.Start(config, std::move(hooks))) {
+            remote_ = nullptr;
+            *alive_ = nullptr;
+            g_signal_handlers_disconnect_by_func(window_,
+                reinterpret_cast<gpointer>(G_CALLBACK(OnDestroy)), this);
             gtk_widget_destroy(window_);
+            if (font_) {
+                pango_font_description_free(font_);
+                font_ = nullptr;
+            }
             return false;
         }
+        feed_ = std::move(feed);
 
-        redrawTimerId_ = g_timeout_add(kRedrawMs, OnRedrawTimer, this);
-        gtk_widget_show_all(window_);
-        gtk_widget_grab_focus(grid_);
+        ShowBuilt();
+        return true;
+    }
+
+    bool BuildLocal(GtkWindow* parent, deskhubp::TerminalHost& host, uint32_t termId) {
+        if (!host.LocalAlive(termId)) return false;
+
+        BuildShell(parent, ui::kTerminalLocalWindowTitle);
+        gtk_label_set_text(GTK_LABEL(statusLabel_), ui::kTerminalAttachedHere);
+        feed_ = std::make_unique<LocalShellFeed>(host, termId);
+
+        ShowBuilt();
         return true;
     }
 
@@ -188,20 +286,28 @@ private:
     }
 
     void PullSnapshot() {
-        if (viewer_.Running()) {
+        if (feed_->Alive()) {
             const size_t was = snapshot_.scrollbackRows;
-            snapshot_ = viewer_.Snapshot(scrollOffset_);
+            snapshot_ = feed_->Snapshot(scrollOffset_);
             if (scrollOffset_ > 0 && snapshot_.scrollbackRows > was) {
                 scrollOffset_ += snapshot_.scrollbackRows - was;
-                snapshot_ = viewer_.Snapshot(scrollOffset_);
+                snapshot_ = feed_->Snapshot(scrollOffset_);
             }
             scrollOffset_ = snapshot_.scrollOffset;
         } else {
             snapshot_ = deskhubp::TerminalSnapshot{};
             snapshot_.size = deskhub::TermSize{0, 0};
             scrollOffset_ = 0;
+            if (remote_ == nullptr) ShowLocalShellEnded();
         }
         gtk_widget_queue_draw(grid_);
+    }
+
+    void ShowLocalShellEnded() {
+        if (localEndShown_) return;
+        localEndShown_ = true;
+        gtk_label_set_text(GTK_LABEL(statusLabel_), ui::kTerminalClosed);
+        StopRedrawTimer();
     }
 
     void ScrollBy(int rows) {
@@ -290,7 +396,7 @@ private:
             term::TermKeyEvent key;
             key.key = named;
             key.mods = ModsOf(event->state);
-            viewer_.SendKey(key);
+            feed_->SendKey(key);
             return TRUE;
         }
         const guint32 unicode = gdk_keyval_to_unicode(event->keyval);
@@ -303,13 +409,13 @@ private:
         } else {
             key.mods.alt = (event->state & GDK_MOD1_MASK) != 0;
         }
-        viewer_.SendKey(key);
+        feed_->SendKey(key);
         return TRUE;
     }
 
     void ResizeToGrid() {
-        if (!viewer_.Running()) return;
-        viewer_.Resize(CellsThatFit());
+        if (!feed_->Alive()) return;
+        feed_->Resize(CellsThatFit());
     }
 
     void OnViewerState(deskhubp::TerminalViewerState state, const std::string& message) {
@@ -340,10 +446,11 @@ private:
         gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_NO);
         const bool accepted = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_YES;
         gtk_widget_destroy(dlg);
+        if (remote_ == nullptr) return;
         if (accepted)
-            viewer_.AcceptFingerprint();
+            remote_->viewer.AcceptFingerprint();
         else
-            viewer_.RejectFingerprint();
+            remote_->viewer.RejectFingerprint();
     }
 
     void StopRedrawTimer() {
@@ -396,7 +503,7 @@ private:
         auto* self = static_cast<TerminalWindow*>(user);
         *self->alive_ = nullptr;
         self->StopRedrawTimer();
-        self->viewer_.Stop();
+        if (self->feed_) self->feed_->Shutdown();
         if (self->font_) pango_font_description_free(self->font_);
         delete self;
     }
@@ -409,7 +516,9 @@ private:
     int cellWidth_ = 8;
     int cellHeight_ = 16;
 
-    deskhubp::TerminalViewer viewer_{};
+    std::unique_ptr<TerminalFeed> feed_{};
+    RemoteFeed* remote_ = nullptr;
+    bool localEndShown_ = false;
     deskhubp::TerminalSnapshot snapshot_{};
     size_t scrollOffset_ = 0;
 
@@ -420,4 +529,8 @@ private:
 
 bool OpenTerminalWindow(GtkWindow* parent, const TerminalLaunch& launch) {
     return TerminalWindow::Open(parent, launch);
+}
+
+bool OpenHostTerminalWindow(GtkWindow* parent, deskhubp::TerminalHost& host, uint32_t termId) {
+    return TerminalWindow::OpenLocal(parent, host, termId);
 }

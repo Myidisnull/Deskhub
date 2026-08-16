@@ -1670,6 +1670,14 @@ void MainWindow::KickShell(uint32_t termId) {
     terminalHost_.KickSession(termId);
 }
 
+void MainWindow::StopAndAttachShell(uint32_t termId) {
+    if (!terminalHost_.AttachLocal(termId)) return;
+    RefreshShells();
+    UpdateHostRows(hostStatus_);
+    if (!OpenHostTerminalWindow(GTK_WINDOW(window_), terminalHost_, termId))
+        KickShell(termId);
+}
+
 void MainWindow::StopHosting() {
     if (hostTimerId_) {
         g_source_remove(hostTimerId_);
@@ -1746,16 +1754,31 @@ MainWindow::HostRowWidgets MainWindow::MakeHostRowWidgets(const ui::HostRow& ref
             kHostColumns[i].align);
     }
 
+    const bool localShell =
+        ref.terminal && ref.viewer && ref.shellState == deskhub::TerminalState::Local;
+    const bool remoteRow = ref.viewer && !localShell;
     widgets.action = gtk_button_new_with_label(
-        ref.viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction);
+        remoteRow ? ui::kDisconnectViewerAction : ui::kStopDisplayAction);
     AddClass(widgets.action, "deskhub-row-action");
-    AddClass(widgets.action, ref.viewer ? "deskhub-row-action-kick" : "deskhub-row-action-stop");
+    AddClass(widgets.action, remoteRow ? "deskhub-row-action-kick" : "deskhub-row-action-stop");
     gtk_widget_set_size_request(widgets.action, kHostActionWidth, kHostActionHeight);
     gtk_widget_set_valign(widgets.action, GTK_ALIGN_CENTER);
     gtk_widget_set_halign(widgets.action, GTK_ALIGN_END);
     g_object_set_data(G_OBJECT(widgets.action), "deskhub-host-row",
         GINT_TO_POINTER(gint(index)));
     g_signal_connect(widgets.action, "clicked", G_CALLBACK(OnHostRowActionClicked), this);
+
+    if (ref.terminal && ref.viewer && !localShell) {
+        widgets.attach = gtk_button_new_with_label(ui::kAttachShellAction);
+        AddClass(widgets.attach, "deskhub-row-action");
+        AddClass(widgets.attach, "deskhub-row-action-stop");
+        gtk_widget_set_size_request(widgets.attach, kHostActionWidth, kHostActionHeight);
+        gtk_widget_set_valign(widgets.attach, GTK_ALIGN_CENTER);
+        gtk_widget_set_halign(widgets.attach, GTK_ALIGN_END);
+        g_object_set_data(G_OBJECT(widgets.attach), "deskhub-host-row",
+            GINT_TO_POINTER(gint(index)));
+        g_signal_connect(widgets.attach, "clicked", G_CALLBACK(OnHostRowAttachClicked), this);
+    }
     return widgets;
 }
 
@@ -1783,6 +1806,9 @@ void MainWindow::RebuildHostRowWidgets() {
             gtk_grid_attach(GTK_GRID(hostGrid_), widgets.cells[c], c, row, 1, 1);
         }
         gtk_grid_attach(GTK_GRID(hostGrid_), widgets.action, kHostColumnCount, row, 1, 1);
+        if (widgets.attach)
+            gtk_grid_attach(GTK_GRID(hostGrid_), widgets.attach, kHostColumnCount + 1, row, 1,
+                1);
     }
     gtk_widget_show_all(hostGrid_);
 }
@@ -1847,6 +1873,14 @@ void MainWindow::OnHostRowActionClicked(GtkButton* b, gpointer user) {
     const gint index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "deskhub-host-row"));
     if (index < 0 || size_t(index) >= self->hostRows_.size()) return;
     self->RunRowAction(self->hostRows_[size_t(index)]);
+}
+
+void MainWindow::OnHostRowAttachClicked(GtkButton* b, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    const gint index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "deskhub-host-row"));
+    if (index < 0 || size_t(index) >= self->hostRows_.size()) return;
+    const deskhub::ui::HostRow& row = self->hostRows_[size_t(index)];
+    if (row.terminal && row.viewer) self->StopAndAttachShell(row.termId);
 }
 
 gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {

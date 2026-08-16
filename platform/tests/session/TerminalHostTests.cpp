@@ -412,6 +412,114 @@ bool WaitFor(const std::function<bool()>& done, int millis) {
     return done();
 }
 
+bool LocalSnapshotContains(deskhubp::TerminalHost& term, uint32_t termId,
+    const std::string& needle) {
+    const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
+    for (uint16_t r = 0; r < shot.size.rows; ++r) {
+        std::string line;
+        for (uint16_t c = 0; c < shot.size.cols; ++c)
+            line += deskhub::term::EncodeUtf8(shot.At(r, c).ch);
+        if (line.find(needle) != std::string::npos) return true;
+    }
+    return false;
+}
+
+void TestHostStopsAndAttachesShell() {
+    std::printf("[termhost] the host takes a shell over and carries on where it stood...\n");
+    if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
+        std::printf("[termhost] skipped: this build has no QUIC library or no shell to host\n");
+        return;
+    }
+
+    const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
+    const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    const std::string savedPaired =
+        deskhubp::ReadAppDataFile(deskhubp::kPairedDevicesFileName);
+    deskhubp::ForgetAllPairedDevices();
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity clientIdentity =
+        deskhubp::LoadOrCreateHostIdentity("deskhub-client");
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid() || !clientIdentity.Valid()) return;
+
+    HostRig host;
+    if (!host.Start(identity, uint16_t(kTestPort + 4), kTestPasscode)) {
+        Check(false, "the terminal host starts");
+        return;
+    }
+
+    Viewer viewer;
+    viewer.Start();
+    viewer.endpoint.Connect(deskhubp::QuicSettings{},
+        NetAddr{0x7F000001u, uint16_t(kTestPort + 4)}, "deskhub-test", viewer.Hooks());
+    viewer.PumpUntil([&viewer] { return viewer.connected; }, kMaxRounds);
+    viewer.BeginAuth(clientIdentity, identity.fingerprint, kTestPasscode);
+    viewer.PumpUntil([&viewer] { return viewer.Allowed(); }, kMaxRounds);
+    viewer.client->Open(std::string(), deskhub::TermSize{80, 24}, "test-client");
+    if (!viewer.PumpUntil([&viewer] { return viewer.opens == 1; }, kMaxRounds)) {
+        Check(false, "the shell opens for the remote client");
+        host.Stop();
+        return;
+    }
+    const uint32_t termId = host.Sessions()[0].termId;
+
+    viewer.PumpUntil([] { return false; }, 400);
+    viewer.Type("echo deskhub-before-take\n");
+    viewer.PumpUntil(
+        [&viewer] {
+            return viewer.screen.Text().find("deskhub-before-take") != std::string::npos;
+        },
+        kMaxRounds * 3);
+
+    Check(host.term.AttachLocal(termId), "the host takes the shell for itself");
+    Check(host.term.LocalAlive(termId), "and now holds it locally");
+    Check(viewer.PumpUntil([&viewer] { return !viewer.exits.empty(); }, kMaxRounds),
+        "the remote client is told its shell ended");
+    Check(host.SessionCount() == 1 &&
+              host.Sessions()[0].state == deskhub::TerminalState::Local,
+        "the session stays in the table, marked as the host's own");
+    Check(WaitFor(
+              [&host, termId] {
+                  return LocalSnapshotContains(host.term, termId, "deskhub-before-take");
+              },
+              5000),
+        "what the shell printed before the takeover is already on the host's grid");
+
+    viewer.Type("echo deskhub-intruder\n");
+    viewer.Pump(400);
+
+    host.term.SendLocalText(termId, "echo deskhub-after-take\n");
+    Check(WaitFor(
+              [&host, termId] {
+                  return LocalSnapshotContains(host.term, termId, "deskhub-after-take");
+              },
+              30000),
+        "a command typed at the host runs in the very same shell");
+    Check(!LocalSnapshotContains(host.term, termId, "deskhub-intruder"),
+        "while the kicked client can no longer type into it");
+
+    host.term.ResizeLocal(termId, deskhub::TermSize{100, 30});
+    Check(host.Sessions()[0].size == deskhub::TermSize{100, 30},
+        "the host window now owns the shell's size");
+
+    host.term.CloseLocal(termId);
+    Check(host.SessionCount() == 0, "closing the host window ends the shell");
+    Check(!host.term.LocalAlive(termId), "which is gone for good");
+    Check(host.term.LocalSnapshot(termId, 0).cells.empty(),
+        "and has nothing left to draw");
+
+    host.Stop();
+    viewer.endpoint.Close();
+
+    if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
+    if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+    if (savedPaired.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kPairedDevicesFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kPairedDevicesFileName, savedPaired);
+}
+
 void TestViewerTrustsThenRunsAShell() {
     std::printf("[termhost] the passcode settles a new key, and the shell runs...\n");
     if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
@@ -713,6 +821,7 @@ void TestWrongGuessesLockTheHost() {
 void RunTerminalHostTests() {
     TestHostRefusesWithoutListener();
     TestHostSharesAShell();
+    TestHostStopsAndAttachesShell();
     TestViewerTrustsThenRunsAShell();
     TestTheTwoCasesAPasscodeCannotSettle();
     TestWrongGuessesLockTheHost();

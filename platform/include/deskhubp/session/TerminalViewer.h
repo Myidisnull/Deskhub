@@ -4,6 +4,7 @@
 #include "deskhub/session/TerminalClient.h"
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Screen.h"
+#include "deskhub/terminal/Snapshot.h"
 #include "deskhubp/net/QuicEndpoint.h"
 #include "deskhubp/session/AuthNegotiation.h"
 
@@ -45,17 +46,7 @@ struct TerminalViewerCallbacks {
     std::function<void(deskhub::TrustVerdict, std::string_view fingerprint)> onTrustAsked;
 };
 
-struct TerminalSnapshot {
-    deskhub::TermSize size{};
-    std::vector<deskhub::term::Cell> cells{};
-    deskhub::term::CursorState cursor{};
-    std::string title{};
-    uint64_t revision = 0;
-    size_t scrollbackRows = 0;
-    size_t scrollOffset = 0;
-
-    const deskhub::term::Cell& At(uint16_t row, uint16_t col) const;
-};
+using TerminalSnapshot = deskhub::term::TerminalSnapshot;
 
 class TerminalViewer {
 public:

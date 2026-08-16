@@ -1,5 +1,8 @@
 #pragma once
 #include "deskhub/session/TerminalSession.h"
+#include "deskhub/terminal/KeyEncoder.h"
+#include "deskhub/terminal/Screen.h"
+#include "deskhub/terminal/Snapshot.h"
 #include "deskhubp/net/SessionTransport.h"
 #include "deskhubp/system/Pty.h"
 
@@ -43,10 +46,20 @@ public:
     size_t SessionCount() const;
     std::vector<deskhub::TerminalRecord> Sessions() const;
 
+    bool AttachLocal(uint32_t termId);
+    void CloseLocal(uint32_t termId);
+    bool LocalAlive(uint32_t termId) const;
+    deskhub::term::TerminalSnapshot LocalSnapshot(uint32_t termId, size_t scrollOffset) const;
+    void SendLocalKey(uint32_t termId, const deskhub::term::TermKeyEvent& key);
+    void SendLocalText(uint32_t termId, std::string_view text);
+    void ResizeLocal(uint32_t termId, deskhub::TermSize size);
+
 private:
     struct Shell {
         std::unique_ptr<Pty> pty{};
         NetAddr peer{};
+        std::unique_ptr<deskhub::term::Screen> mirror{};
+        bool local = false;
     };
 
     void Loop();
@@ -54,6 +67,7 @@ private:
     void DrainKicks();
     void DrainGone(uint64_t nowUs);
     void CloseShell(uint32_t termId, int exitCode, bool tellClient);
+    void WriteLocalBytes(uint32_t termId, const std::string& bytes);
     void Audit(uint32_t termId, std::string_view what);
     void SendToPeer(const NetAddr& peer, std::span<const uint8_t> message);
     uint32_t TermIdFor(const NetAddr& peer) const;
