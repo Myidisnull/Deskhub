@@ -116,8 +116,8 @@ refuse_ninja_generator() {
 
 prefer_static_crt() {
     export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static"
-    export CFLAGS_x86_64_pc_windows_msvc="/MT"
-    export CXXFLAGS_x86_64_pc_windows_msvc="/MT"
+    export CFLAGS_x86_64_pc_windows_msvc="-MT"
+    export CXXFLAGS_x86_64_pc_windows_msvc="-MT"
 }
 
 is_android_target() {
