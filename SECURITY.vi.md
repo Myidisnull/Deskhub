@@ -67,7 +67,10 @@ tại:
 - **Beacon dò tìm vẫn trả lời bất kỳ ai.** Gói `LIST_SOURCES` hay `PING` nhận được phản
   hồi từ bất kỳ địa chỉ nguồn nào — người lạ nhận danh sách rỗng, và không gói dò nào
   còn xác nhận được passcode, nhưng máy vẫn bị phát hiện bằng cách quét và cổng vẫn dùng
-  được như một bộ phản xạ UDP nhỏ.
+  được như một bộ phản xạ UDP nhỏ. Một ngoại lệ: địa chỉ nguồn đang giữ một kết nối mã
+  hoá sẽ không bao giờ được trả lời bằng bản rõ — máy đã chứng minh mình rồi thì mọi thứ
+  nó nói phải tới qua kênh mã hoá, nên một gói `SOURCE_LIST` hay `PONG` bản rõ giả mạo
+  không thể mạo danh máy đang kết nối.
 - **Tên thiết bị được hiển thị và ghi lại.** Tên trong ô *Your name* nay đã được mã hoá
   trên đường truyền, nhưng vẫn hiện trên màn hình host, ghi vào nhật ký host và lưu trong
   danh sách máy đã ghép của host. Mặc định nó là hostname của máy — thường chứa tên thật
@@ -80,9 +83,10 @@ tại:
   lên và cửa sổ trên màn hình đó. Xem [`PRIVACY.vi.md` §3.4](PRIVACY.vi.md).
 - **Điện thoại hay máy tính bảng làm host là phơi nguyên cái máy.** Android và iOS nay
   cũng chia sẻ được, và thứ chúng phát là toàn bộ màn hình — ứng dụng ngân hàng, mã một
-  lần, tin nhắn, mọi mật khẩu bạn gõ trong lúc chia sẻ. Vẫn là UDP không mã hoá chở đi,
-  nên ai bắt được gói trong mạng là thấy hết. Host di động luôn ở chế độ chỉ xem, điều đó
-  loại bỏ rủi ro bị điều khiển từ xa nhưng không loại bỏ chút nào rủi ro lộ nội dung.
+  lần, tin nhắn, mọi mật khẩu bạn gõ trong lúc chia sẻ. Luồng hình được mã hoá như mọi
+  phiên khác, nhưng người xem nào bạn đã cho vào thì thấy hết. Host di động luôn ở chế độ
+  chỉ xem, điều đó loại bỏ rủi ro bị điều khiển từ xa nhưng không loại bỏ chút nào rủi ro
+  lộ nội dung.
 
 ## Chạy ở đâu thì an toàn
 

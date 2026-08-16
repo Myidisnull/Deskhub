@@ -38,6 +38,32 @@ void TestTheCountRestartsAfterALockout() {
     throttle.RecordFailure(reopenedUs);
     Check(!throttle.Locked(reopenedUs + 1),
         "and one more wrong guess after it is only the first of a new count");
+
+    throttle.RecordFailure(reopenedUs + 1);
+    throttle.RecordFailure(reopenedUs + 2);
+    Check(throttle.Locked(reopenedUs + 3), "but a full run of wrong guesses locks it again");
+}
+
+void TestGuessingWhileLockedPushesTheReopeningOut() {
+    std::printf("[throttle] guessing into a locked door only extends the lockout...\n");
+    AuthThrottle throttle;
+    for (uint32_t i = 0; i < kMaxPasscodeAttempts; ++i) throttle.RecordFailure(kStartUs);
+    const uint64_t midLockUs = kStartUs + kPasscodeLockoutUs / 2;
+    for (uint32_t i = 0; i < kMaxPasscodeAttempts; ++i) throttle.RecordFailure(midLockUs);
+    Check(throttle.Locked(kStartUs + kPasscodeLockoutUs),
+        "the door does not reopen at the original time");
+    Check(!throttle.Locked(midLockUs + kPasscodeLockoutUs),
+        "it reopens a full window after the last run of guesses");
+}
+
+void TestALockoutOutlivesASuccess() {
+    std::printf("[throttle] a lockout in force is not cut short by a success...\n");
+    AuthThrottle throttle;
+    for (uint32_t i = 0; i < kMaxPasscodeAttempts; ++i) throttle.RecordFailure(kStartUs);
+    throttle.RecordSuccess();
+    Check(throttle.Locked(kStartUs + kPasscodeLockoutUs - 1),
+        "the window still has to be served in full");
+    Check(!throttle.Locked(kStartUs + kPasscodeLockoutUs), "and still ends on time");
 }
 
 void TestSuccessResetsTheCount() {
@@ -60,5 +86,7 @@ void TestSuccessResetsTheCount() {
 void RunAuthThrottleTests() {
     TestThreeFailuresLockTheDoor();
     TestTheCountRestartsAfterALockout();
+    TestGuessingWhileLockedPushesTheReopeningOut();
+    TestALockoutOutlivesASuccess();
     TestSuccessResetsTheCount();
 }

@@ -64,6 +64,20 @@ bool ExerciseWireParsers(std::span<const uint8_t> d) {
     ParseSetFocus(pl);
     ParseInvalidateRef(pl);
 
+    if (const auto authStart = ParseAuthStart(pl)) {
+        ok = ok && !authStart->publicKey.empty() &&
+             authStart->publicKey.size() <= kMaxAuthBlobBytes;
+        ok = ok && authStart->clientName.size() <= kMaxClientNameBytes;
+    }
+    if (const auto authChallenge = ParseAuthChallenge(pl)) {
+        ok = ok && uint8_t(authChallenge->mode) <= uint8_t(AuthMode::Approval);
+        ok = ok && authChallenge->spake.size() <= kMaxAuthBlobBytes;
+    }
+    if (const auto authResponse = ParseAuthResponse(pl))
+        ok = ok && authResponse->proof.size() <= kMaxAuthBlobBytes;
+    if (const auto authResult = ParseAuthResult(pl))
+        ok = ok && uint8_t(authResult->code) <= uint8_t(AuthResultCode::Locked);
+
     if (h) {
         if (const auto v = ParseVideoPacket(*h, pl)) {
             ok = ok && v->payload.size() <= kMaxVideoPayload;
@@ -100,7 +114,7 @@ std::vector<SourceInfo> RandomSources() {
 Datagram BuildRandomValidDatagram() {
     uint8_t buf[kMaxDatagram];
     size_t n = 0;
-    switch (Rnd() % 17) {
+    switch (Rnd() % 21) {
         case 0: {
             Hello m{Rnd(), uint16_t(Rnd()), uint16_t(Rnd()), uint16_t(Rnd()),
                 uint8_t(Rnd()), uint16_t(Rnd()), uint8_t(Rnd()), PasscodeFromRandom(Rnd())};
@@ -178,6 +192,39 @@ Datagram BuildRandomValidDatagram() {
             vh.pktIndex = uint16_t(Rnd() % vh.pktCount);
             const Datagram payload = RandomJunk(kMaxVideoPayload);
             n = BuildVideoPacket(buf, Rnd(), vh, Rnd() % 2 != 0, Rnd() % 2 != 0, payload);
+            break;
+        }
+        case 16: {
+            AuthStart m;
+            m.publicKey = RandomJunk(kMaxAuthBlobBytes);
+            if (m.publicKey.empty()) m.publicKey.push_back(uint8_t(Rnd()));
+            m.clientName.assign(Rnd() % 40, ' ');
+            for (auto& c : m.clientName) c = char('a' + Rnd() % 26);
+            m.hasPasscode = Rnd() % 2 != 0;
+            n = BuildAuthStart(buf, m);
+            break;
+        }
+        case 17: {
+            AuthChallenge m;
+            m.mode = AuthMode(Rnd() % (uint8_t(AuthMode::Approval) + 1));
+            for (auto& b : m.nonce) b = uint8_t(Rnd());
+            for (auto& b : m.salt) b = uint8_t(Rnd());
+            m.spake = RandomJunk(kMaxAuthBlobBytes);
+            n = BuildAuthChallenge(buf, m);
+            break;
+        }
+        case 18: {
+            AuthResponse m;
+            m.proof = RandomJunk(kMaxAuthBlobBytes);
+            for (auto& b : m.confirm) b = uint8_t(Rnd());
+            n = BuildAuthResponse(buf, m);
+            break;
+        }
+        case 19: {
+            AuthResult m;
+            m.code = AuthResultCode(Rnd() % (uint8_t(AuthResultCode::Locked) + 1));
+            for (auto& b : m.confirm) b = uint8_t(Rnd());
+            n = BuildAuthResult(buf, m);
             break;
         }
         default: {

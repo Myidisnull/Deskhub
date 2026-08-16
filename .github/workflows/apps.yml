@@ -26,11 +26,23 @@ jobs:
         with:
           arch: x64
 
-      - name: Install Ninja
-        run: choco install ninja -y
+      - name: Install Ninja + NASM
+        run: choco install ninja nasm -y
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/x86_64-pc-windows-msvc
+          key: quiche-windows-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        shell: bash
+        run: scripts/build-quiche.sh windows
 
       - name: Configure
-        run: cmake --preset x64-release
+        run: cmake --preset x64-release -DDESKHUB_REQUIRE_QUIC=ON
 
       - name: Build the Windows app
         run: cmake --build --preset x64-release
@@ -84,6 +96,17 @@ jobs:
       - name: Build minimal FFmpeg (static, h264 decode only)
         run: scripts/build-ffmpeg.sh
 
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/x86_64-unknown-linux-gnu
+          key: quiche-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: scripts/build-quiche.sh host
+
       - name: Check CMake version
         run: |
           have=$(cmake --version | head -1 | awk '{print $3}')
@@ -93,7 +116,7 @@ jobs:
             || { echo "::error::CMake $have is too old — the root CMakeLists needs $need"; exit 1; }
 
       - name: Turn a missing dependency into a build failure
-        run: cmake --preset x64-release -DDESKHUB_REQUIRE_LINUX_APP=ON
+        run: cmake --preset x64-release -DDESKHUB_REQUIRE_LINUX_APP=ON -DDESKHUB_REQUIRE_QUIC=ON
 
       - name: Build the Ubuntu app (make release-linux)
         run: make release-linux
@@ -176,6 +199,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-darwin
+            third_party/quiche/x86_64-apple-darwin
+            third_party/quiche/macos-universal
+          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/quiche/macos-universal/libquiche.a
+
       - name: Build macOS app (make release-macos, ad-hoc signing)
         run: make release-macos MACOS_SIGN=adhoc
 
@@ -216,6 +254,22 @@ jobs:
       - name: Install NDK + CMake
         run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
 
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-linux-android
+            third_party/quiche/armv7-linux-androideabi
+            third_party/quiche/x86_64-linux-android
+          key: quiche-android-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche for every ABI (static QUIC + TLS)
+        run: |
+          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+          scripts/build-quiche.sh android
+
       - name: Build debug APK (make build-android)
         run: make build-android
 
@@ -233,6 +287,19 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-ios-sim
+          key: quiche-ios-sim-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-ios-sim
+          test -f third_party/quiche/aarch64-apple-ios-sim/libquiche.a
 
       - name: Build iOS app for Simulator (make build-ios)
         run: make build-ios

@@ -148,7 +148,7 @@ int dha_take_pairing_requests(DHPairingRequest* out, int capacity) {
     {
         std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
         if (!lk.owns_lock() || !g_agent) return 0;
-        requests = g_agent->TakePairingRequests();
+        requests = g_agent->TakePairingRequests(size_t(capacity));
     }
     const int count = int(requests.size()) < capacity ? int(requests.size()) : capacity;
     for (int i = 0; i < count; ++i) {

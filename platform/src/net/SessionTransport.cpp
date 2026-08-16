@@ -145,9 +145,12 @@ void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> mes
     bool overQuic) {
     if (message.empty()) return;
 
-    if (!overQuic && !IsBeaconMessage(message) &&
-        !(videoPath_ == VideoPath::RawUdp && CarriesVideo(message)))
-        return;
+    if (!overQuic) {
+        const bool rawVideo = videoPath_ == VideoPath::RawUdp && CarriesVideo(message);
+        const bool beaconFromStranger =
+            IsBeaconMessage(message) && !endpoint_.Established(from.Pack());
+        if (!rawVideo && !beaconFromStranger) return;
+    }
 
     if (clientAuthOn_ && IsAuthMessage(message)) {
         TransportMessage queued;

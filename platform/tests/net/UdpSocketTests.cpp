@@ -163,6 +163,35 @@ void TestATimedOutReceiveIsNotAnError() {
         "and the call actually waited, so the net loop does not spin at 100% CPU");
 }
 
+void TestWaitReadableTellsTheLoopWhenToRead() {
+    std::printf("[udp] the loop is told when there is something to read, and only then...\n");
+    UdpSocket closed;
+    Check(!closed.WaitReadable(1), "a closed socket never reports anything to read");
+
+    UdpSocket sock;
+    const uint16_t port = OpenOnAFreePort(sock);
+    if (!port) {
+        Check(false, "no free test port");
+        return;
+    }
+
+    const uint64_t t0 = NowUs();
+    Check(!sock.WaitReadable(20), "an idle socket reports nothing");
+    Check(NowUs() - t0 >= 10'000,
+        "and the wait actually waited, so the net loop does not spin at 100% CPU");
+
+    UdpSocket sender;
+    Check(sender.Open(0), "a sender opens");
+    const uint8_t byte = 42;
+    Check(sender.SendTo(NetAddr{kLoopbackIp, port}, &byte, 1), "and sends one datagram");
+    Check(sock.WaitReadable(1000), "which makes the socket readable");
+
+    uint8_t buf[8];
+    NetAddr from{};
+    Check(sock.RecvFrom(buf, sizeof(buf), from) == 1 && buf[0] == 42,
+        "and the read that follows gets exactly it");
+}
+
 void TestLocalAddressesLookLikeAddresses() {
     std::printf("[netinfo] the addresses shown to the user are ones they can type back...\n");
     const std::vector<AdapterAddr> addrs = ListLocalIPv4();
@@ -187,5 +216,6 @@ void RunUdpSocketTests() {
     TestALoopbackDatagramArrivesIntact();
     TestABoundAddressStillReceives();
     TestATimedOutReceiveIsNotAnError();
+    TestWaitReadableTellsTheLoopWhenToRead();
     TestLocalAddressesLookLikeAddresses();
 }

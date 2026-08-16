@@ -79,7 +79,7 @@ bool UdpSocket::SetRecvTimeout(uint32_t ms) {
 bool UdpSocket::WaitReadable(uint32_t ms) {
     if (!IsOpen()) return false;
     pollfd entry{fd_, POLLIN, 0};
-    return ::poll(&entry, 1, int(ms)) > 0;
+    return ::poll(&entry, 1, int(ms)) > 0 && (entry.revents & POLLIN) != 0;
 }
 
 bool UdpSocket::SendTo(const NetAddr& to, const uint8_t* data, size_t len) {

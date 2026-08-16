@@ -22,3 +22,5 @@ void RunAuthNegotiationTests();
 void RunPtyTests();
 void RunTerminalHostTests();
 void RunTerminalFfiTests();
+void RunAgentLoopTests();
+void RunDiscoveryFfiTests();

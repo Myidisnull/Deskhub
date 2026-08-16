@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhubp/session/HostEngine.h"
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -62,10 +63,16 @@ public:
         pairingRequests_.push_back(std::move(request));
     }
 
-    std::vector<PairingRequest> TakePairingRequests() {
+    std::vector<PairingRequest> TakePairingRequests(size_t maxCount = SIZE_MAX) {
         const std::lock_guard<std::mutex> lock(pairingMutex_);
         std::vector<PairingRequest> out;
-        out.swap(pairingRequests_);
+        if (maxCount >= pairingRequests_.size()) {
+            out.swap(pairingRequests_);
+            return out;
+        }
+        const auto split = pairingRequests_.begin() + ptrdiff_t(maxCount);
+        out.assign(pairingRequests_.begin(), split);
+        pairingRequests_.erase(pairingRequests_.begin(), split);
         return out;
     }
 

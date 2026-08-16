@@ -1,6 +1,8 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/protocol/ByteOrder.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -492,6 +494,10 @@ void TestParseGarbage() {
         ParseReconfig(pl);
         ParseSetFocus(pl);
         ParseInvalidateRef(pl);
+        ParseAuthStart(pl);
+        ParseAuthChallenge(pl);
+        ParseAuthResponse(pl);
+        ParseAuthResult(pl);
         SourceInfo so[kMaxSources];
         ParseSourceList(pl, so);
         uint32_t fid = 0;
@@ -737,6 +743,27 @@ void TestAuthWire() {
     gotStart = ParseAuthStart(PayloadOf(std::span<const uint8_t>(buf, n)));
     Check(gotStart && !gotStart->hasPasscode,
         "a machine with no code says so, and the host will ask its user instead");
+
+    Check(buf[kCommonHeaderSize] == 0 && GetU16(buf + kCommonHeaderSize + 1) == 91,
+        "the flag leads the payload and the key length follows it");
+    buf[kCommonHeaderSize] = 2;
+    Check(!ParseAuthStart(PayloadOf(std::span<const uint8_t>(buf, n))).has_value(),
+        "a flag value we never defined is refused, keeping the byte reserved");
+    buf[kCommonHeaderSize] = 0;
+
+    const size_t startPayload = n - kCommonHeaderSize;
+    for (size_t cut = 0; cut < startPayload; ++cut)
+        Check(!ParseAuthStart(std::span<const uint8_t>(buf + kCommonHeaderSize, cut))
+                      .has_value() ||
+                  cut >= 1 + 2 + start.publicKey.size() + 1,
+            "a truncated key offer is refused rather than half-read");
+
+    std::vector<uint8_t> legacy(2 + start.publicKey.size() + 1);
+    PutU16(legacy.data(), uint16_t(start.publicKey.size()));
+    std::memcpy(legacy.data() + 2, start.publicKey.data(), start.publicKey.size());
+    legacy[2 + start.publicKey.size()] = 0;
+    Check(!ParseAuthStart(legacy).has_value(),
+        "the old layout without the flag byte cannot be mistaken for the new one");
 
     AuthStart keyless;
     keyless.clientName = "no key at all";

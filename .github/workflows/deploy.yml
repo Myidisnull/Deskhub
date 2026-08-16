@@ -141,10 +141,11 @@ jobs:
 
             ## 🔒 Before you share a screen
 
-            **Deskhub has no password and no encryption of its own. Anyone who can reach UDP 47777 on a sharing
-            machine gets full mouse and keyboard control of it.** Run it on a network you trust, or over a VPN —
-            install [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z` address.
-            **Never port-forward UDP 47777.** Full threat model in
+            **Sessions are encrypted (QUIC/TLS) and admission is a pairing handshake: a new machine must prove
+            the host's 4-digit passcode — the code itself never travels — or be approved by the person at the
+            host.** That is still a small secret on an open port, so run Deskhub on a network you trust, or over
+            a VPN — install [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z`
+            address. **Never port-forward UDP 47777.** Full threat model in
             [SECURITY.md](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
 
   ios:
@@ -160,6 +161,19 @@ jobs:
         with:
           ruby-version: '3.3'
       - run: gem install fastlane -v "$FASTLANE_VERSION" --no-document
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-ios
+          key: quiche-ios-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-ios
+          test -f third_party/quiche/aarch64-apple-ios/libquiche.a
 
       - name: Fastlane release (build + TestFlight)
         working-directory: client/ios
@@ -196,6 +210,21 @@ jobs:
         with:
           ruby-version: '3.3'
       - run: gem install fastlane -v "$FASTLANE_VERSION" --no-document
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-darwin
+            third_party/quiche/x86_64-apple-darwin
+            third_party/quiche/macos-universal
+          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/quiche/macos-universal/libquiche.a
 
       - name: Fastlane release (build + notarize + dmg)
         working-directory: client/macos
@@ -255,6 +284,25 @@ jobs:
 
       - name: Install NDK + CMake
         run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-linux-android
+            third_party/quiche/armv7-linux-androideabi
+            third_party/quiche/x86_64-linux-android
+          key: quiche-android-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche for every ABI (static QUIC + TLS)
+        run: |
+          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+          scripts/build-quiche.sh android
+          for target in aarch64-linux-android armv7-linux-androideabi x86_64-linux-android; do
+            test -f "third_party/quiche/$target/libquiche.a"
+          done
 
       - name: Setup Ruby + fastlane
         uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0

@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace deskhub;
 
@@ -40,10 +41,17 @@ void TestEveryLabelSaysSomething() {
         ui::kAutoShareLabel, ui::kClipboardSyncLabel, ui::kCloseToTrayLabel,
         ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit,
         ui::kSettingsSectionVideo, ui::kSettingsSectionConnection, ui::kSettingsSectionSecurity,
-        ui::kSettingsSectionSession, ui::kSettingsSectionLaunch};
+        ui::kSettingsSectionSession, ui::kSettingsSectionLaunch,
+        ui::kPairingRequestTitle, ui::kPairingAllow, ui::kPairingDeny, ui::kAuthLocked};
     for (const char* s : labels) Check(s && *s, "every shared UI string is non-empty");
     Check(Contains(ui::PasscodeNote("0417"), "0417"),
         "the sharing status quotes the passcode viewers must enter");
+    Check(Contains(ui::PasscodeNote("0417"), "approval"),
+        "and says a machine offering no code falls back to the owner's approval");
+    Check(Contains(ui::PasscodeNote(""), "asked here"),
+        "with no code set, it promises the owner will be asked instead");
+    Check(Contains(ui::kClientPasscodeHint, "empty"),
+        "the client hint says the field may be left empty");
 }
 
 void TestBindFallbackNamesTheMissingNetwork() {
@@ -250,6 +258,22 @@ void TestTerminalRefusalsNameTheirOwnCause() {
         "a build without QUIC names the script that produces one");
     Check(Contains(ui::kShareNoHostIdentity, "key"),
         "a machine that cannot make an identity says what it failed to create");
+    Check(!Contains(ui::kShareNoQuicLibrary, "system cannot"),
+        "does not blame the operating system for a missing build step");
+}
+
+void TestEveryAuthVerdictReadsAsItsOwnMessage() {
+    std::printf("[strings] each auth verdict has its own words, and lockout names itself...\n");
+    std::vector<std::string> seen;
+    for (uint8_t c = 0; c <= uint8_t(AuthResultCode::Locked); ++c) {
+        const std::string text = ui::AuthRefusalText(AuthResultCode(c));
+        Check(!text.empty(), "every verdict has words to show");
+        for (const std::string& other : seen)
+            Check(text != other, "and no two verdicts share them");
+        seen.push_back(text);
+    }
+    Check(ui::AuthRefusalText(AuthResultCode::Locked) == std::string(ui::kAuthLocked),
+        "a lockout shows the lockout text, not the generic refusal");
 }
 
 void TestClampWarningQuotesTheProtocolLimit() {
@@ -277,6 +301,7 @@ void RunStringsTests() {
     TestRecheckNotesQuoteTheRealInterval();
     TestDeviceListNotesReadTheSameOnEveryClient();
     TestTerminalRefusalsNameTheirOwnCause();
+    TestEveryAuthVerdictReadsAsItsOwnMessage();
     TestClampWarningQuotesTheProtocolLimit();
     TestBindFallbackNamesTheMissingNetwork();
 }

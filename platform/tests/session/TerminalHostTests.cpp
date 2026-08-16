@@ -332,6 +332,18 @@ void TestHostSharesAShell() {
         Check(host.SessionCount() == 0, "asking for a shell anyway starts nothing");
     }
 
+    {
+        Viewer silent;
+        silent.Start();
+        silent.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, kTestPort},
+            "deskhub-test", silent.Hooks());
+        silent.PumpUntil([&silent] { return silent.connected; }, kMaxRounds);
+        silent.client->Open(std::string(), deskhub::TermSize{80, 24}, "test-client");
+        silent.Pump(200);
+        Check(host.SessionCount() == 0,
+            "a connection that never proved itself gets no shell, however it asks");
+    }
+
     viewer.BeginAuth(clientIdentity, identity.fingerprint, kTestPasscode);
     Check(viewer.PumpUntil([&viewer] { return viewer.Allowed(); }, kMaxRounds),
         "the right code proves the machine, without the code ever being sent");
@@ -376,7 +388,7 @@ void TestHostSharesAShell() {
     Check(viewer.PumpUntil([&host] { return host.SessionCount() == 0; }, kMaxRounds),
         "closing the shell from the client ends the session on the host");
 
-    viewer.client->Open(kTestPasscode, deskhub::TermSize{80, 24}, "test-client");
+    viewer.client->Open(std::string(), deskhub::TermSize{80, 24}, "test-client");
     if (viewer.PumpUntil([&viewer] { return viewer.opens == 2; }, kMaxRounds)) {
         const std::vector<deskhub::TerminalRecord> open = host.Sessions();
         Check(open.size() == 1, "a second shell opens after the first one ended");
@@ -489,7 +501,8 @@ void TestViewerTrustsThenRunsAShell() {
     Check(back.size == shot.size && back.cells.size() == shot.cells.size(),
         "a scrolled view is the same shape as the live one");
     Check(!back.cursor.visible, "with no cursor drawn, because it is not on this screen");
-    Check(viewer.Snapshot(999999).scrollOffset == back.scrollOffset,
+    const deskhubp::TerminalSnapshot clamped = viewer.Snapshot(999999);
+    Check(clamped.scrollOffset == clamped.scrollbackRows,
         "scrolling past the oldest line stops there instead of running off the end");
 
     viewer.Stop();

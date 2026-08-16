@@ -88,6 +88,9 @@ int main() {
     RunTerminalHostTests();
     RunTerminalFfiTests();
 
+    RunAgentLoopTests();
+    RunDiscoveryFfiTests();
+
     std::printf("--- ffi: string handover to the managed clients ---\n");
     RunFfiTextTests();
 

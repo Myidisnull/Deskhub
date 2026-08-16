@@ -70,6 +70,10 @@ export_boringssl_headers() {
     found=$(find "$cargo_home/registry/src" -maxdepth 6 -type d \
         -path '*/boring-sys-*/deps/boringssl/src/include' 2>/dev/null | sort | tail -1)
     if [ -z "$found" ]; then
+        if [ -d "$PREFIX/include/openssl" ]; then
+            echo "[ok]      BoringSSL headers already exported"
+            return 0
+        fi
         echo "build-quiche.sh: BoringSSL headers not found under $cargo_home/registry/src." >&2
         echo "                 Without include/openssl the CMake build silently falls back to" >&2
         echo "                 the no-QUIC stubs and the apps cannot share. They appear once" >&2
@@ -241,5 +245,19 @@ cp "$SRC/quiche/include/quiche.h" "$PREFIX/include/quiche.h"
 for target in "${TARGETS[@]}"; do
     build_target "$target"
 done
+
+# The macOS app builds universal (arm64 + x86_64) in Release and links a single
+# archive, so whenever both darwin slices exist they are fused with lipo.
+# DeskhubQuiche.cmake prefers this directory over the thin per-arch ones.
+make_macos_universal() {
+    [ "$(uname -s)" = "Darwin" ] || return 0
+    local arm="$PREFIX/aarch64-apple-darwin/libquiche.a"
+    local x64="$PREFIX/x86_64-apple-darwin/libquiche.a"
+    [ -f "$arm" ] && [ -f "$x64" ] || return 0
+    mkdir -p "$PREFIX/macos-universal"
+    lipo -create "$arm" "$x64" -output "$PREFIX/macos-universal/libquiche.a"
+    echo "[ok]      quiche $QUICHE_VERSION (macos-universal) = arm64 + x86_64"
+}
+make_macos_universal
 
 export_boringssl_headers

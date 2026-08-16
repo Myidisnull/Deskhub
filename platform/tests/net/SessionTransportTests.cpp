@@ -229,8 +229,47 @@ void TestAnUnopenedTransportIsHarmless() {
     Check(!idle.Established(NetAddr{}), "nothing is established");
     Check(!idle.PeerFingerprint(NetAddr{}).has_value(), "and there is no peer to fingerprint");
     Check(idle.MaxDatagramSize(NetAddr{}) == 0, "no datagram budget either");
+    const uint8_t byte = 1;
+    Check(!idle.SendRecord(NetAddr{0x7F000001u, 9}, std::span<const uint8_t>(&byte, 1)),
+        "a record to a peer that never connected is refused");
     idle.Close();
     Check(!idle.IsOpen(), "closing an unopened transport is a no-op");
+}
+
+void TestAnIdleTransportWaitsInsteadOfSpinning() {
+    std::printf("[transport] an idle transport serves its timeout instead of spinning...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[transport] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const SavedIdentity guard;
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    deskhubp::SessionTransport host;
+    deskhubp::QuicSettings settings;
+    settings.certPemPath = identity.certPath;
+    settings.keyPemPath = identity.keyPath;
+    const bool listening = host.Listen(settings, kTestPort, "127.0.0.1");
+    Check(listening, "the host binds the shared port");
+    if (!listening) return;
+    host.SetRecvTimeout(50);
+
+    uint8_t buf[deskhub::kMaxDatagram];
+    NetAddr from;
+    const uint64_t t0 = NowUs();
+    const int got = host.RecvFrom(buf, sizeof(buf), from);
+    const uint64_t elapsedUs = NowUs() - t0;
+    Check(got <= 0, "with nobody connected there is nothing to read");
+    Check(elapsedUs >= 25'000,
+        "and the call actually waited, so the net loop does not spin at 100% CPU");
+
+    const uint8_t byte = 1;
+    Check(!host.SendRecord(NetAddr{0x7F000001u, 9}, std::span<const uint8_t>(&byte, 1)),
+        "an open transport still refuses a record to a peer that never connected");
+    host.Close();
 }
 
 }
@@ -240,4 +279,5 @@ void RunSessionTransportTests() {
     TestVideoRidesEncryptedDatagrams();
     TestAStrangerIsStillAnsweredInThePlain();
     TestAnUnopenedTransportIsHarmless();
+    TestAnIdleTransportWaitsInsteadOfSpinning();
 }

@@ -86,7 +86,7 @@ std::string LocalTimeText(int64_t unixTime) {
 }
 
 int FillText(char* out, int capacity, const std::string& text) {
-    if (!out || capacity <= 0) return 0;
+    if (!out || capacity <= 0) return int(text.size());
     deskhubp::CopyToBuf(out, size_t(capacity), text);
     return int(std::strlen(out));
 }

@@ -62,7 +62,10 @@ This is the honest list. Nothing below is solved today:
 - **The discovery beacon still answers anyone.** A `LIST_SOURCES` probe or a `PING` gets
   a reply from any source address — a stranger's reply is an empty list, and no probe can
   confirm a passcode any more, but the machine is still discoverable by scanning and the
-  port is still usable as a small UDP reflector.
+  port is still usable as a small UDP reflector. One exception: a source address that
+  currently holds an encrypted connection is never answered in the plain — once a machine
+  has proved itself, everything it says must arrive encrypted, so a forged plaintext
+  `SOURCE_LIST` or `PONG` cannot impersonate a connected peer.
 - **The device name is shown and logged.** The *Your name* a viewer sends is encrypted in
   transit now, but it is still shown on the host's screen, written into the host's logs
   and stored in the host's paired-devices list. It defaults to the machine's own
@@ -76,9 +79,9 @@ This is the honest list. Nothing below is solved today:
   window on that monitor. See [`PRIVACY.md` §3.4](PRIVACY.md).
 - **A phone or tablet host exposes the whole phone.** Android and iOS can host too, and
   what they stream is the entire screen — banking apps, one-time codes, messages, every
-  password you type while sharing. The same plaintext UDP carries it, so anyone who can
-  sniff the network sees all of it. Mobile hosts are always view-only, which removes the
-  remote-control risk but none of the exposure risk.
+  password you type while sharing. The stream is encrypted like any other session, but
+  every viewer you admit sees all of it. Mobile hosts are always view-only, which removes
+  the remote-control risk but none of the exposure risk.
 
 ## Where it is safe to run
 

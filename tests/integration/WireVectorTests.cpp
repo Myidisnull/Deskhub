@@ -136,6 +136,13 @@ std::vector<Vector> AllVectors() {
                  },
         "0230000011223344000000070000000000000000"});
 
+    v.push_back({"PONG", [](std::span<uint8_t> out) {
+                     PingPong p{};
+                     p.pingId = 7;
+                     return BuildPong(out, 0x11223344, p);
+                 },
+        "0231000011223344000000070000000000000000"});
+
     v.push_back({"FEEDBACK", [](std::span<uint8_t> out) {
                      Feedback f{};
                      f.lostFrames = 12;
@@ -243,6 +250,54 @@ std::vector<Vector> AllVectors() {
                      return BuildTermExit(out, 0x11223344, -1);
                  },
         "0255000411223344ffffffff"});
+
+    v.push_back({"AUTH_START", [](std::span<uint8_t> out) {
+                     AuthStart m;
+                     m.publicKey = {0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8};
+                     m.clientName = "Tablet 01";
+                     m.hasPasscode = true;
+                     return BuildAuthStart(out, m);
+                 },
+        "0260000000000000010008a1a2a3a4a5a6a7a8095461626c6574203031"});
+
+    v.push_back({"AUTH_CHALLENGE", [](std::span<uint8_t> out) {
+                     AuthChallenge m;
+                     m.mode = AuthMode::Passcode;
+                     m.nonce.fill(0xAA);
+                     m.salt.fill(0xBB);
+                     m.spake = {0xC1, 0xC2, 0xC3, 0xC4};
+                     return BuildAuthChallenge(out, m);
+                 },
+        "026100000000000002"
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "0004c1c2c3c4"});
+
+    v.push_back({"AUTH_RESPONSE", [](std::span<uint8_t> out) {
+                     AuthResponse m;
+                     m.proof = {0xD1, 0xD2, 0xD3, 0xD4, 0xD5};
+                     m.confirm.fill(0xEE);
+                     return BuildAuthResponse(out, m);
+                 },
+        "02620000000000000005d1d2d3d4d5"
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"});
+
+    v.push_back({"AUTH_RESULT", [](std::span<uint8_t> out) {
+                     AuthResult m;
+                     m.code = AuthResultCode::WrongPasscode;
+                     m.confirm.fill(0xEE);
+                     return BuildAuthResult(out, m);
+                 },
+        "026300000000000001"
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"});
+
+    v.push_back({"RECORD", [](std::span<uint8_t> out) {
+                     uint8_t inner[kMaxDatagram];
+                     const size_t n =
+                         BuildBye(std::span<uint8_t>(inner, sizeof(inner)), 0x11223344);
+                     return BuildRecord(out, std::span<const uint8_t>(inner, n));
+                 },
+        "00080204000011223344"});
 
     return v;
 }

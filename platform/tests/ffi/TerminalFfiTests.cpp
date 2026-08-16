@@ -99,10 +99,40 @@ bool GridContains(DHTermSession* session, const std::string& needle) {
     return text.find(needle) != std::string::npos;
 }
 
+void TestNullHandlesAndBadAddressesAreHarmless() {
+    std::printf("[termffi] a null handle or a bad address never turns into a crash...\n");
+    DHTermCallbacks callbacks{};
+    Check(dh_term_open(nullptr, "", 80, 24, &callbacks) == nullptr, "no address opens nothing");
+    Check(dh_term_open("not-an-address", "", 80, 24, &callbacks) == nullptr,
+        "an address that does not parse opens nothing");
+
+    Check(dh_term_state(nullptr) == DHTermIdle, "a null session is idle, not undefined");
+    Check(dh_term_verdict(nullptr) == int32_t(deskhub::TrustVerdict::Unknown),
+        "and has no verdict to report");
+
+    char text[32] = {'x'};
+    Check(dh_term_message(nullptr, text, sizeof(text)) == 0 && text[0] == '\0',
+        "a null session has no message, and the buffer is still terminated");
+    Check(dh_term_fingerprint(nullptr, text, sizeof(text)) == 0, "and no fingerprint");
+
+    DHTermGrid grid{};
+    Check(!dh_term_grid(nullptr, 0, nullptr, 0, &grid), "a null session draws no grid");
+
+    dh_term_send_text(nullptr, "echo hi\n");
+    dh_term_paste(nullptr, "clip");
+    dh_term_send_key(nullptr, DHTermKeyEnter, 0, false, false, false);
+    dh_term_resize(nullptr, 80, 24);
+    dh_term_accept_key(nullptr);
+    dh_term_reject_key(nullptr);
+    dh_term_stop(nullptr);
+    Check(true, "every other call on a null session is a quiet no-op");
+}
+
 }
 
 void RunTerminalFfiTests() {
     std::printf("--- ffi: the terminal surface every mobile client drives ---\n");
+    TestNullHandlesAndBadAddressesAreHarmless();
     std::printf("[termffi] a shell opens, echoes and resizes through the C ABI...\n");
     if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
         std::printf("[termffi] skipped: this build has no QUIC library or no shell to host\n");

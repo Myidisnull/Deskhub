@@ -146,6 +146,7 @@ void TestUnstartedEndpointIsHarmless() {
     Check(!idle.SendDatagram(0, std::span<const uint8_t>(&byte, 1)), "a datagram write fails");
     Check(!idle.Established(0) && idle.MaxDatagramSize(0) == 0, "nothing is established");
     Check(!idle.PeerFingerprint(0).has_value(), "and there is no peer to fingerprint");
+    Check(!idle.WaitReadable(1), "and there is nothing to wait on");
     idle.CloseConnection(0);
     idle.Poll(NowUs(), 1);
     idle.Close();

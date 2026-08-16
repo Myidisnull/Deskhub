@@ -7,6 +7,8 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubQuiche.cmake)
 
 option(DESKHUB_QUIC "Build the QUIC transport (needs third_party/quiche)" ON)
+option(DESKHUB_REQUIRE_QUIC
+    "Fail the configure when quiche is missing instead of building the stub transport" OFF)
 if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
     set(deskhub_platform_quic
         src/net/QuicEndpoint.cpp
@@ -14,6 +16,12 @@ if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
         src/system/AuthProof.cpp
     )
 else()
+    if(DESKHUB_REQUIRE_QUIC)
+        message(FATAL_ERROR
+            "Deskhub: third_party/quiche/${DESKHUB_QUICHE_TARGET} is missing and this build "
+            "requires the real QUIC transport — a stub build cannot share or connect. "
+            "Run scripts/build-quiche.sh first (make bootstrap does).")
+    endif()
     message(STATUS
         "Deskhub: platform falls back to a stub QUIC transport — "
         "third_party/quiche/${DESKHUB_QUICHE_TARGET} is missing. Run 'make bootstrap'.")
@@ -228,6 +236,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/support/TestSupport.cpp
 
         tests/diag/LogFileTests.cpp
+        tests/ffi/DiscoveryFfiTests.cpp
         tests/ffi/FfiTextTests.cpp
         tests/ffi/TerminalFfiTests.cpp
         tests/input/LocalInputGateTests.cpp
@@ -242,6 +251,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/system/PtyTests.cpp
         tests/net/QuicEndpointTests.cpp
         tests/net/SessionTransportTests.cpp
+        tests/session/AgentLoopTests.cpp
         tests/session/HostCallbackTests.cpp
         tests/session/AuthNegotiationTests.cpp
         tests/session/TerminalHostTests.cpp
