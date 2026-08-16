@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: fuzz-nightly
+  cancel-in-progress: true
+
 jobs:
   fuzz:
     runs-on: ubuntu-latest
