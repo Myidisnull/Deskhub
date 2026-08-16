@@ -71,8 +71,9 @@ Everything a host offers rides **one UDP port** (default 47777) through one
   QUIC, and probes it did not invite get an empty source list. Inbound raw packets
   that are not discovery types are discarded before they reach any session code.
 
-`QuicEndpoint` hides quiche completely (pimpl; `QuicEndpointNone.cpp` stubs it out
-when the library is absent). Connections are identified by peer address; there is no
+`QuicEndpoint` hides quiche completely (pimpl; `QuicEndpointNone.cpp` stubs it out,
+but only when a build opts out with `-DDESKHUB_QUIC=OFF` — a missing quiche fails the
+configure, because a stub binary cannot share or connect). Connections are identified by peer address; there is no
 connection migration. A quiche connection is single-threaded by contract, so every
 touch of the endpoint happens under the transport's send mutex — and the transport
 never holds that mutex across a blocking socket wait (`WaitReadable` first, unlocked;

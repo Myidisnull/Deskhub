@@ -40,8 +40,20 @@ jobs:
           case "$RUNNER_OS" in
             Linux)   sudo apt-get update -qq && sudo apt-get install -y ninja-build ;;
             macOS)   brew install ninja ;;
-            Windows) choco install ninja -y ;;
+            Windows) choco install ninja nasm -y ;;
           esac
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche
+            !third_party/quiche/src
+          key: quiche-host-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        shell: bash
+        run: scripts/build-quiche.sh host
 
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
@@ -74,6 +86,17 @@ jobs:
       - name: Install ninja
         if: runner.os == 'macOS'
         run: brew install ninja
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche
+            !third_party/quiche/src
+          key: quiche-host-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: scripts/build-quiche.sh host
 
       - name: Configure (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
@@ -125,8 +148,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, abi: x86_64,    emulator: true }
-          - { os: ubuntu-latest, abi: arm64-v8a, emulator: false }
+          - { os: ubuntu-latest, abi: x86_64,    rust_target: x86_64-linux-android,  emulator: true }
+          - { os: ubuntu-latest, abi: arm64-v8a, rust_target: aarch64-linux-android, emulator: false }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -143,6 +166,20 @@ jobs:
 
       - name: Install Ninja
         run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche
+            !third_party/quiche/src
+          key: quiche-${{ matrix.rust_target }}-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          scripts/build-quiche.sh ${{ matrix.rust_target }}
 
       - name: Cross-compile the test binaries for android-${{ matrix.abi }}
         run: |
@@ -185,6 +222,19 @@ jobs:
 
       - name: Install Ninja
         run: brew install ninja
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-ios-sim
+          key: quiche-ios-sim-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-ios-sim
+          test -f third_party/quiche/aarch64-apple-ios-sim/libquiche.a
 
       - name: Build the test binaries for the iOS Simulator
         run: |

@@ -74,8 +74,10 @@ Mọi thứ host cung cấp đi trên **một cổng UDP** (mặc định 47777)
   không mời nhận danh sách rỗng. Gói thô đến mà không phải loại dò tìm bị loại trước
   khi chạm tới bất kỳ mã phiên nào.
 
-`QuicEndpoint` giấu kín quiche (pimpl; `QuicEndpointNone.cpp` thế chỗ khi thiếu thư
-viện). Kết nối được định danh bằng địa chỉ peer; không có connection migration. Một
+`QuicEndpoint` giấu kín quiche (pimpl; `QuicEndpointNone.cpp` thế chỗ, nhưng chỉ khi
+build chủ động tắt bằng `-DDESKHUB_QUIC=OFF` — thiếu quiche thì configure lỗi ngay,
+vì binary dùng stub không chia sẻ hay kết nối được). Kết nối được định danh bằng địa
+chỉ peer; không có connection migration. Một
 kết nối quiche chỉ dùng được từ một luồng, nên mọi lần chạm endpoint đều nằm dưới
 mutex gửi của transport — và transport không bao giờ giữ mutex đó xuyên qua một lần
 chờ socket (`WaitReadable` trước, không khoá; rồi `Poll` ngắn có khoá). Giữ khoá

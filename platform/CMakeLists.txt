@@ -6,25 +6,24 @@ endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubQuiche.cmake)
 
-option(DESKHUB_QUIC "Build the QUIC transport (needs third_party/quiche)" ON)
-option(DESKHUB_REQUIRE_QUIC
-    "Fail the configure when quiche is missing instead of building the stub transport" OFF)
-if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
+option(DESKHUB_QUIC "Build the QUIC transport (requires third_party/quiche)" ON)
+if(DESKHUB_QUIC AND NOT DESKHUB_QUICHE_FOUND)
+    message(FATAL_ERROR
+        "Deskhub: third_party/quiche/${DESKHUB_QUICHE_TARGET} is missing. A build without "
+        "it cannot share or connect, so it fails here instead of shipping broken. Run "
+        "scripts/build-quiche.sh (make bootstrap does), or pass -DDESKHUB_QUIC=OFF to "
+        "build the offline stub on purpose.")
+endif()
+if(DESKHUB_QUIC)
     set(deskhub_platform_quic
         src/net/QuicEndpoint.cpp
         src/system/HostIdentity.cpp
         src/system/AuthProof.cpp
     )
 else()
-    if(DESKHUB_REQUIRE_QUIC)
-        message(FATAL_ERROR
-            "Deskhub: third_party/quiche/${DESKHUB_QUICHE_TARGET} is missing and this build "
-            "requires the real QUIC transport — a stub build cannot share or connect. "
-            "Run scripts/build-quiche.sh first (make bootstrap does).")
-    endif()
     message(STATUS
-        "Deskhub: platform falls back to a stub QUIC transport — "
-        "third_party/quiche/${DESKHUB_QUICHE_TARGET} is missing. Run 'make bootstrap'.")
+        "Deskhub: DESKHUB_QUIC=OFF — building the stub transport; this binary cannot "
+        "share or connect.")
     set(deskhub_platform_quic
         src/net/QuicEndpointNone.cpp
         src/system/HostIdentityNone.cpp
@@ -160,7 +159,7 @@ target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)
 target_link_libraries(platform PUBLIC core)
 
-if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
+if(DESKHUB_QUIC)
     target_link_libraries(platform PRIVATE deskhub::quiche)
 endif()
 
@@ -169,7 +168,7 @@ endif()
 # archive that already contains quiche (or a plain copy when quiche is absent,
 # so the stub fallback keeps linking) and let the .pbxproj link -lplatform_bundled.
 if(APPLE)
-    if(DESKHUB_QUIC AND DESKHUB_QUICHE_FOUND)
+    if(DESKHUB_QUIC)
         add_custom_command(TARGET platform POST_BUILD
             COMMAND libtool -static -no_warning_for_no_symbols
                 -o $<TARGET_FILE_DIR:platform>/libplatform_bundled.a

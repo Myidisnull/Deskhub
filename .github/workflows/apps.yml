@@ -42,7 +42,7 @@ jobs:
         run: scripts/build-quiche.sh windows
 
       - name: Configure
-        run: cmake --preset x64-release -DDESKHUB_REQUIRE_QUIC=ON
+        run: cmake --preset x64-release
 
       - name: Build the Windows app
         run: cmake --build --preset x64-release
@@ -116,7 +116,7 @@ jobs:
             || { echo "::error::CMake $have is too old — the root CMakeLists needs $need"; exit 1; }
 
       - name: Turn a missing dependency into a build failure
-        run: cmake --preset x64-release -DDESKHUB_REQUIRE_LINUX_APP=ON -DDESKHUB_REQUIRE_QUIC=ON
+        run: cmake --preset x64-release -DDESKHUB_REQUIRE_LINUX_APP=ON
 
       - name: Build the Ubuntu app (make release-linux)
         run: make release-linux
