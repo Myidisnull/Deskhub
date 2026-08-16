@@ -67,8 +67,11 @@ fetch_source() {
 export_boringssl_headers() {
     local cargo_home="${CARGO_HOME:-$HOME/.cargo}"
     local found=""
-    found=$(find "$cargo_home/registry/src" -maxdepth 6 -type d \
-        -path '*/boring-sys-*/deps/boringssl/src/include' 2>/dev/null | sort | tail -1)
+    if [ -d "$cargo_home/registry/src" ]; then
+        found=$(find "$cargo_home/registry/src" -maxdepth 6 -type d \
+            -path '*/boring-sys-*/deps/boringssl/src/include' 2>/dev/null | sort | tail -1) ||
+            true
+    fi
     if [ -z "$found" ]; then
         if [ -d "$PREFIX/include/openssl" ]; then
             echo "[ok]      BoringSSL headers already exported"
