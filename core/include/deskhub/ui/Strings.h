@@ -124,6 +124,7 @@ inline constexpr LStr kSettingsSectionLaunch{"Launch & background"};
 inline constexpr LStr kAutostartLabel{"Start {app} when you log in"};
 inline constexpr LStr kAutoShareLabel = kShareOnLaunchLabel;
 inline constexpr LStr kClipboardSyncLabel{"Sync clipboard text with connected devices"};
+inline constexpr LStr kKeepAwakeLabel{"Keep this device awake while a session is active"};
 inline constexpr LStr kEncryptSessionLabel{"Encrypt session traffic"};
 inline constexpr LStr kEncryptSessionHint{
     "When on, session video, input and clipboard are encrypted. Discovery stays cleartext. "

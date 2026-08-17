@@ -78,6 +78,7 @@ object NativeClient {
     const val STR_BIND_INTERFACE_LABEL = 76
     const val STR_BIND_ALL_INTERFACES = 77
     const val STR_CLIPBOARD_SYNC_LABEL = 80
+    const val STR_KEEP_AWAKE_LABEL = 124
     const val STR_BIND_NOT_CONNECTED = 85
     const val STR_SECTION_CONNECTION = 87
     const val STR_SECTION_SESSION = 89
@@ -224,6 +225,14 @@ object NativeClient {
     fun clipboardSync(): Boolean = nativeClipboardSync()
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
+
+    private external fun nativeKeepAwake(): Boolean
+
+    private external fun nativeSetKeepAwake(on: Boolean)
+
+    fun keepAwake(): Boolean = nativeKeepAwake()
+
+    fun setKeepAwake(on: Boolean) = nativeSetKeepAwake(on)
 
     private external fun nativeLanguage(): String
 

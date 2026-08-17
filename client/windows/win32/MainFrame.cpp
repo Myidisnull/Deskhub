@@ -543,6 +543,7 @@ private:
     wxCheckBox* autoShareCtrl_ = nullptr;
     wxCheckBox* autostartCtrl_ = nullptr;
     wxCheckBox* clipboardCtrl_ = nullptr;
+    wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* encryptSessionCtrl_ = nullptr;
     wxCheckBox* escrowSessionKeyCtrl_ = nullptr;
     wxChoice* sessionKeyLifetimeCtrl_ = nullptr;
@@ -1065,6 +1066,9 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     clipboardCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kClipboardSyncLabel));
     clipboardCtrl_->SetValue(settings_.clipboardSync);
     sizer->Add(clipboardCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    keepAwakeCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kKeepAwakeLabel));
+    keepAwakeCtrl_->SetValue(settings_.keepAwake);
+    sizer->Add(keepAwakeCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     encryptSessionCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kEncryptSessionLabel));
     encryptSessionCtrl_->SetValue(settings_.encryptSession);
     sizer->Add(encryptSessionCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1206,6 +1210,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     languageChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    keepAwakeCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     encryptSessionCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
         SaveSettings();
         SyncSessionCryptoControls();
@@ -2054,6 +2059,7 @@ void MainFrame::SaveSettings() {
     settings_.hideTrayIcon =
         settings_.runInBackground && hideTrayIconCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();
+    settings_.keepAwake = keepAwakeCtrl_->GetValue();
     settings_.encryptSession = encryptSessionCtrl_->GetValue();
     settings_.escrowSessionKey =
         settings_.encryptSession && escrowSessionKeyCtrl_->GetValue();

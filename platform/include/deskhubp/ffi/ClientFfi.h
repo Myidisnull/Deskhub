@@ -157,6 +157,7 @@ typedef enum {
     DHStrAutostartLabel = 78,
     DHStrAutoShareLabel = 79,
     DHStrClipboardSyncLabel = 80,
+    DHStrKeepAwakeLabel = 124,
     DHStrEncryptSessionLabel = 106,
     DHStrEncryptSessionHint = 107,
     DHStrSessionKeyLabel = 108,

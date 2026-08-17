@@ -116,6 +116,9 @@ void dh_set_auto_share(bool on);
 bool dh_clipboard_sync(void);
 void dh_set_clipboard_sync(bool on);
 
+bool dh_keep_awake(void);
+void dh_set_keep_awake(bool on);
+
 bool dh_encrypt_session(void);
 void dh_set_encrypt_session(bool on);
 

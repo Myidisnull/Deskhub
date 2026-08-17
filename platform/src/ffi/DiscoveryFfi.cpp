@@ -506,6 +506,16 @@ void dh_set_clipboard_sync(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+bool dh_keep_awake(void) {
+    return deskhubp::LoadUiSettings().keepAwake;
+}
+
+void dh_set_keep_awake(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.keepAwake = on;
+    deskhubp::SaveUiSettings(out);
+}
+
 bool dh_encrypt_session(void) {
     return deskhubp::LoadUiSettings().encryptSession;
 }

@@ -87,6 +87,8 @@ struct SettingsPage: View {
             deskhubSection(DeskhubClient.string(DHStrSettingsSectionSession))
             Toggle(DeskhubClient.string(DHStrClipboardSyncLabel), isOn: $agent.clipboardSync)
                 .toggleStyle(.checkbox)
+            Toggle(DeskhubClient.string(DHStrKeepAwakeLabel), isOn: $agent.keepAwake)
+                .toggleStyle(.checkbox)
             Toggle(DeskhubClient.string(DHStrEncryptSessionLabel), isOn: $agent.encryptSession)
                 .toggleStyle(.checkbox)
                 .onChange(of: agent.encryptSession) { _, _ in agent.save() }
@@ -219,6 +221,7 @@ struct SettingsPage: View {
         .onChange(of: agent.autoShare) { _, _ in agent.save() }
         .onChange(of: agent.autostart) { _, _ in agent.applyAutostart() }
         .onChange(of: agent.clipboardSync) { _, _ in agent.save() }
+        .onChange(of: agent.keepAwake) { _, _ in agent.save() }
         .onChange(of: agent.encryptSession) { _, _ in agent.save() }
         .onChange(of: agent.logDir) { _, _ in saveLogDir() }
         .onChange(of: agent.logMaxFileMb) { _, _ in agent.save() }

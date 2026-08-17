@@ -937,6 +937,10 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     clipboardCheck_ = gtk_check_button_new_with_label(ui::kClipboardSyncLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(clipboardCheck_), settings_.clipboardSync);
     gtk_box_pack_start(GTK_BOX(box), clipboardCheck_, FALSE, FALSE, 0);
+
+    keepAwakeCheck_ = gtk_check_button_new_with_label(ui::kKeepAwakeLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_), settings_.keepAwake);
+    gtk_box_pack_start(GTK_BOX(box), keepAwakeCheck_, FALSE, FALSE, 0);
     encryptSessionCheck_ = gtk_check_button_new_with_label(ui::kEncryptSessionLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(encryptSessionCheck_), settings_.encryptSession);
     gtk_box_pack_start(GTK_BOX(box), encryptSessionCheck_, FALSE, FALSE, 0);
@@ -1067,6 +1071,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(hostPasscodeEntry_, "changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(allowInputCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(keepAwakeCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(encryptSessionCheck_, "toggled", G_CALLBACK(OnEncryptToggled), this);
     g_signal_connect(escrowSessionKeyCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(sessionKeyLifetimeCombo_, "changed", G_CALLBACK(OnSettingChanged), this);
@@ -1157,6 +1162,7 @@ void MainWindow::SaveSettings() {
     settings_.allowInput = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowInputCheck_));
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
+    settings_.keepAwake = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_));
     settings_.encryptSession =
         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(encryptSessionCheck_));
     settings_.escrowSessionKey = settings_.encryptSession &&

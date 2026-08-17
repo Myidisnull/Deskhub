@@ -15,6 +15,7 @@ if(WIN32)
         src/system/DeviceNameWin.cpp
         src/system/AutostartWin.cpp
         src/system/LanguageWin.cpp
+        src/system/KeepAwakeWin.cpp
     )
 else()
     set(deskhub_platform_os
@@ -38,10 +39,13 @@ else()
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND deskhub_platform_os src/system/AutostartLinux.cpp)
+        list(APPEND deskhub_platform_os src/system/KeepAwakeLinux.cpp)
     elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         list(APPEND deskhub_platform_os src/system/AutostartMac.mm)
+        list(APPEND deskhub_platform_os src/system/KeepAwakeMac.cpp)
     else()
         list(APPEND deskhub_platform_os src/system/AutostartNone.cpp)
+        list(APPEND deskhub_platform_os src/system/KeepAwakeNone.cpp)
     endif()
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

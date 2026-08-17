@@ -1,0 +1,11 @@
+---
+description: Inventory of develop customize features; keep in sync when product surfaces change
+alwaysApply: true
+---
+
+# Customize features inventory
+
+Canonical list: **`.cursor/customize-features.md`** (branding, i18n, encrypt session, background/tray, settings, per-platform UI, and what must not return from `main`).
+
+When adding/removing customize product behavior, update that file in the same change set.
+When porting from `main`, treat listed removals (terminal, pairing/trust, Devices page, `clientShell` / `clientDesktop` / `startHidden` / `allowNewPairings`) as hard skips unless the user explicitly asks otherwise. `keepAwake` is already on `develop` — do not treat it as a main-only skip.

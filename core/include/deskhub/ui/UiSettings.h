@@ -31,6 +31,7 @@ struct UiSettings {
     bool autostart = false;
     bool autoShare = false;
     bool clipboardSync = false;
+    bool keepAwake = true;
     bool encryptSession = false;
     bool escrowSessionKey = false;
     SessionKeyLifetime sessionKeyLifetime = SessionKeyLifetime::PerShare;

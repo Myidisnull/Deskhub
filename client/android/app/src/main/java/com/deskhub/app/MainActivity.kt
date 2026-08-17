@@ -951,6 +951,21 @@ private fun SettingsScreen(
             )
             Text(NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL))
         }
+        var keepAwake by remember { mutableStateOf(NativeClient.keepAwake()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = keepAwake,
+                onCheckedChange = {
+                    keepAwake = it
+                    NativeClient.setKeepAwake(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_KEEP_AWAKE_LABEL))
+        }
         var encryptSession by remember { mutableStateOf(NativeClient.encryptSession()) }
         var escrowSessionKey by remember { mutableStateOf(NativeClient.escrowSessionKey()) }
         var sessionKeyLifetime by remember { mutableIntStateOf(NativeClient.sessionKeyLifetime()) }

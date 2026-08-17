@@ -32,6 +32,7 @@ void TestRoundTrip() {
     s.autostart = true;
     s.autoShare = true;
     s.clipboardSync = true;
+    s.keepAwake = false;
     s.language = "zh-Hans";
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
@@ -135,11 +136,16 @@ void TestDefaultsMatchShareDefaults() {
     Check(!defaults.runInBackgroundChoiceMade, "the first close still asks about the tray");
     Check(!defaults.hideTrayIcon, "the tray icon is shown unless the user hides it");
     Check(!defaults.autoShare, "sharing still waits for an explicit start by default");
+    Check(defaults.keepAwake, "keep awake defaults on");
     Check(defaults.logMaxFileMb == 10 && defaults.logCompressAfterDays == 7 &&
               defaults.logDeleteAfterDays == 30,
         "log retention defaults match common desktop logging practice");
     Check(defaults.logDir.empty(), "log directory defaults to the built-in Deskhub folder");
     Check(ui::ParseUiSettings("") == defaults, "empty text is all defaults");
+    Check(!ui::ParseUiSettings("keep_awake=0").keepAwake, "keep awake round-trips off");
+    Check(ui::ParseUiSettings("keep_awake=1").keepAwake, "and on");
+    Check(ui::ParseUiSettings("keep_awake=x").keepAwake,
+        "junk leaves the keep-awake default alone");
 }
 
 void TestNativeQualityIsPreserved() {

@@ -181,6 +181,7 @@ private:
     GtkWidget* autostartCheck_ = nullptr;
     GtkWidget* runInBackgroundCheck_ = nullptr;
     GtkWidget* clipboardCheck_ = nullptr;
+    GtkWidget* keepAwakeCheck_ = nullptr;
     GtkWidget* encryptSessionCheck_ = nullptr;
     GtkWidget* escrowSessionKeyCheck_ = nullptr;
     GtkWidget* sessionKeyLifetimeCombo_ = nullptr;

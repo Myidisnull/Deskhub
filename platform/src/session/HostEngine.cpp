@@ -9,6 +9,8 @@
 #include "deskhubp/diag/StallLog.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/system/Clock.h"
+#include "deskhubp/system/KeepAwake.h"
+#include "deskhubp/system/UiSettingsStore.h"
 
 #include <cstdio>
 #include <cstring>
@@ -236,6 +238,10 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     for (HostSource* st : live_) AttachSession(*st);
 
     localInputMon_.Start();
+    if (LoadUiSettings().keepAwake) {
+        AcquireKeepAwake();
+        keepAwakeHeld_ = true;
+    }
     if (policy_.onSharing) policy_.onSharing();
     LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live_.size());
 
@@ -278,6 +284,11 @@ void HostEngine::StopLocked() {
         const uint64_t t0 = NowUs();
         localInputMon_.Stop();
         LogStopPhase("agent", "local_input", t0);
+    }
+
+    if (keepAwakeHeld_) {
+        ReleaseKeepAwake();
+        keepAwakeHeld_ = false;
     }
 
     for (auto& up : pipes_) {

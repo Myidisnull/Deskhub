@@ -229,6 +229,16 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
     dh_set_clipboard_sync(on == JNI_TRUE);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeKeepAwake(JNIEnv*, jobject) {
+    return dh_keep_awake() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetKeepAwake(JNIEnv*, jobject, jboolean on) {
+    dh_set_keep_awake(on == JNI_TRUE);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeLanguage(JNIEnv* env, jobject) {
     char buf[32];

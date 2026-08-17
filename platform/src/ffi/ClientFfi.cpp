@@ -140,6 +140,7 @@ const char* dh_string(DHStringId id) {
         case DHStrAutostartLabel: return deskhub::ui::kAutostartLabel;
         case DHStrAutoShareLabel: return deskhub::ui::kAutoShareLabel;
         case DHStrClipboardSyncLabel: return deskhub::ui::kClipboardSyncLabel;
+        case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;
         case DHStrEncryptSessionLabel: return deskhub::ui::kEncryptSessionLabel;
         case DHStrEncryptSessionHint: return deskhub::ui::kEncryptSessionHint;
         case DHStrSessionKeyLabel: return deskhub::ui::kSessionKeyLabel;

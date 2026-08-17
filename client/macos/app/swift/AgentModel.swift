@@ -50,6 +50,7 @@ final class AgentModel {
     var autoShare = dh_auto_share()
     var autostart = dh_autostart_enabled()
     var clipboardSync = dh_clipboard_sync()
+    var keepAwake = dh_keep_awake()
     var encryptSession = dh_encrypt_session()
     var escrowSessionKey = dh_escrow_session_key()
     var sessionKeyLifetime = dh_session_key_lifetime()
@@ -103,6 +104,7 @@ final class AgentModel {
         )
         dh_set_bind_ip(bindIp)
         dh_set_clipboard_sync(clipboardSync)
+        dh_set_keep_awake(keepAwake)
         dh_set_encrypt_session(encryptSession)
         if !encryptSession { escrowSessionKey = false }
         dh_set_escrow_session_key(escrowSessionKey)

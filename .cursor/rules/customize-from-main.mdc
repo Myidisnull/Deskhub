@@ -7,9 +7,11 @@ alwaysApply: true
 
 `develop` is a **customized** parallel line of `main`. Product behavior and UI stay customize-first. Shared fixes may be ported from `main` without merging branches (see `develop-main-parallel` and `main-sync-pin`).
 
+The authoritative inventory of customize features, settings, layout, and UI is **`.cursor/customize-features.md`**. Read it before changing product surfaces or porting from `main`.
+
 ## Priority
 
-1. **Feature / UI / layout / settings / product copy**: keep `develop` when it conflicts with `main`.
+1. **Feature / UI / layout / settings / product copy**: keep `develop` when it conflicts with `main` (see `customize-features.md`).
 2. **Infrastructure / build / security / protocol / bugfix from `main`**: may port from `main`, then re-apply customize on top if needed — only if it does not change customize product surfaces.
 3. Do not replace customize screens, flows, branding, or layout with stock `main` UI just because `main` moved.
 
@@ -18,4 +20,5 @@ alwaysApply: true
 - Merge `main` ↔ `develop` (forbidden; use selective port)
 - Force `main`'s UX over customize without an explicit user request
 - Drop customize-only files or submodule pins while porting
-- Leave `.cursor/customize-main-base.md` stale after a sync (see pin rule)
+- Leave `.cursor/customize-main-base.md` or `.cursor/customize-features.md` stale after a claimed sync / customize change
+- Restore terminal, pairing/trust, or Devices UI from `main` unless the user explicitly requests it
