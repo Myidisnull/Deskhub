@@ -36,6 +36,7 @@
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/session/ShareFlow.h"
 #include "deskhub/net/PairedDevices.h"
+#include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
@@ -67,6 +68,7 @@ constexpr const char* kRecentDevicesFile = "recent-devices.txt";
 constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
 constexpr int kClipTimerId = 3;
+constexpr int kAutoShareTimerId = 4;
 constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
 constexpr int kPrimaryButtonH = 46;
 constexpr int kListMinH = 130;
@@ -99,6 +101,9 @@ const wxColour kBannerBusyBg(235, 243, 255);
 enum class HostShareState { kIdle,
     kStarting,
     kSharing };
+
+enum class ShareTrigger { kUser,
+    kAutomatic };
 
 struct HostStateStyle {
     const char* label;
@@ -335,7 +340,10 @@ private:
     void StartPoller();
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
 
-    void OnShare();
+    void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
+    void BeginAutoShare();
+    void OnAutoShareTimer(wxTimerEvent& event);
+    void ReportShareProblem(const wxString& text, const wxString& title);
     bool Sharing() const;
     bool TerminalTicked() const;
     void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
@@ -352,6 +360,7 @@ private:
     void OnHostTimer(wxTimerEvent& event);
     void OnClipboardTimer(wxTimerEvent& event);
     void RefreshDisplayChoices();
+    void OnDisplayChanged(wxDisplayChangedEvent& event);
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
     wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
@@ -468,6 +477,9 @@ private:
     wxTimer hostTimer_;
     wxTimer scanTimer_;
     wxTimer clipTimer_;
+    wxTimer autoShareTimer_;
+    ui::AutoShareGate autoShareGate_;
+    ShareTrigger shareTrigger_ = ShareTrigger::kUser;
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool prompting_ = false;
@@ -498,9 +510,12 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     hostTimer_.SetOwner(this, kHostTimerId);
     scanTimer_.SetOwner(this, kScanTimerId);
     clipTimer_.SetOwner(this, kClipTimerId);
+    autoShareTimer_.SetOwner(this, kAutoShareTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnHostTimer, this, kHostTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnScanTimer, this, kScanTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnClipboardTimer, this, kClipTimerId);
+    Bind(wxEVT_TIMER, &MainFrame::OnAutoShareTimer, this, kAutoShareTimerId);
+    Bind(wxEVT_DISPLAY_CHANGED, &MainFrame::OnDisplayChanged, this);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
     agentLoop_.SetTerminal(&terminalHost_);
@@ -512,7 +527,7 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
 
     if (settings_.autoShare) {
         SelectPage(kPageHost);
-        CallAfter([this] { OnShare(); });
+        CallAfter([this] { BeginAutoShare(); });
     }
 }
 
@@ -1102,6 +1117,13 @@ void MainFrame::SelectPage(int page) {
 }
 
 void MainFrame::RefreshDisplayChoices() {
+    std::map<std::string, bool> previousTicks;
+    for (size_t i = 0; i < availableDisplays_.size(); ++i) {
+        if (long(i) >= hostPicker_->GetItemCount()) break;
+        previousTicks[availableDisplays_[i].name] = hostPicker_->IsItemChecked(long(i));
+    }
+    const bool terminalWasTicked = hostPicker_->GetItemCount() == 0 || TerminalTicked();
+
     availableDisplays_ = deskhubp::ListDisplays();
     hostRows_.clear();
     RebuildHostTable();
@@ -1112,11 +1134,12 @@ void MainFrame::RefreshDisplayChoices() {
         const long row = hostPicker_->InsertItem(long(i),
             ToWx(deskhub::media::SourcePickerLabel(source.name, uint8_t(i), source.width,
                 source.height)));
-        hostPicker_->CheckItem(row, true);
+        const auto seen = previousTicks.find(source.name);
+        hostPicker_->CheckItem(row, seen == previousTicks.end() || seen->second);
     }
     const long terminalRow = hostPicker_->InsertItem(long(availableDisplays_.size()),
         ToWx(ui::kTerminalPickerLabel));
-    hostPicker_->CheckItem(terminalRow, true);
+    hostPicker_->CheckItem(terminalRow, terminalWasTicked);
     ShowHostTable(false);
 }
 
@@ -1371,18 +1394,59 @@ void MainFrame::ShowIdleHostState() {
         ToWx(ui::UdpPortLine(uint16_t(settings_.port)) + "."));
 }
 
-void MainFrame::OnShare() {
+void MainFrame::BeginAutoShare() {
+    if (Sharing() || autoShareGate_.Decided()) {
+        autoShareTimer_.Stop();
+        return;
+    }
+
+    RefreshDisplayChoices();
+    const ui::AutoShareStep step = autoShareGate_.Advance(!availableDisplays_.empty());
+    if (step == ui::AutoShareStep::KeepWaiting) {
+        ApplyHostState(HostShareState::kIdle, ToWx(ui::kWaitingForDisplays));
+        if (!autoShareTimer_.IsRunning()) autoShareTimer_.Start(int(autoShareGate_.ProbeMs()));
+        return;
+    }
+
+    autoShareTimer_.Stop();
+    if (step == ui::AutoShareStep::GiveUpWaiting)
+        LOGW("[Share] No display showed up in the %u ms after launch; sharing without one.",
+            autoShareGate_.WaitedMs());
+    OnShare(ShareTrigger::kAutomatic);
+}
+
+void MainFrame::OnAutoShareTimer(wxTimerEvent&) {
+    BeginAutoShare();
+}
+
+void MainFrame::ReportShareProblem(const wxString& text, const wxString& title) {
+    if (shareTrigger_ == ShareTrigger::kAutomatic) {
+        LOGW("[Share] %s", std::string(text.utf8_str()).c_str());
+        ApplyHostState(HostShareState::kIdle, text);
+        return;
+    }
+    wxMessageBox(text, title, wxOK | wxICON_WARNING, this);
+}
+
+void MainFrame::OnDisplayChanged(wxDisplayChangedEvent& event) {
+    event.Skip();
+    if (Sharing()) return;
+    RefreshDisplayChoices();
+}
+
+void MainFrame::OnShare(ShareTrigger trigger) {
     if (hostStarting_) return;
     if (Sharing()) {
         StopHosting();
         return;
     }
+    shareTrigger_ = trigger;
 
     const bool terminal = TerminalTicked();
     if (availableDisplays_.empty() && !terminal) {
         const std::string err = deskhubp::ListDisplaysError();
-        wxMessageBox(err.empty() ? ToWx(ui::kNoDisplayFound) : ToWx(err),
-            ToWx(ui::kCaptureUnavailableTitle), wxOK | wxICON_WARNING, this);
+        ReportShareProblem(err.empty() ? ToWx(ui::kNoDisplayFound) : ToWx(err),
+            ToWx(ui::kCaptureUnavailableTitle));
         return;
     }
 
@@ -1392,13 +1456,12 @@ void MainFrame::OnShare() {
         if (hostPicker_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
     }
     if (chosen.empty() && !terminal) {
-        wxMessageBox(ToWx(ui::kNoDisplayTicked), "Deskhub", wxOK | wxICON_WARNING, this);
+        ReportShareProblem(ToWx(ui::kNoDisplayTicked), "Deskhub");
         return;
     }
 
     const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(chosen);
-    if (clamp.clamped)
-        wxMessageBox(ToWx(ui::ShareClampWarning()), "Deskhub", wxOK | wxICON_WARNING, this);
+    if (clamp.clamped) ReportShareProblem(ToWx(ui::ShareClampWarning()), "Deskhub");
 
     const std::vector<AgentSource>& sources = clamp.sources;
 
@@ -1509,11 +1572,10 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     shareBtn_->Enable();
 
     if (!started) {
-        wxMessageBox(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), "Deskhub",
-            wxOK | wxICON_ERROR, this);
         terminalRequested_ = false;
         ShowIdleHostState();
         RefreshDisplayChoices();
+        ReportShareProblem(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), "Deskhub");
         return;
     }
 
@@ -1948,6 +2010,7 @@ void MainFrame::OnClose(wxCloseEvent& event) {
     hostTimer_.Stop();
     clipTimer_.Stop();
     scanTimer_.Stop();
+    autoShareTimer_.Stop();
     scanner_.Cancel();
     agentLoop_.Stop();
     agentDriver_.Join();

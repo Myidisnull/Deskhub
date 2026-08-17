@@ -386,6 +386,14 @@ bool QuicEndpoint::SendDatagram(QuicConnId conn, std::span<const uint8_t> bytes)
     return sent > 0;
 }
 
+bool QuicEndpoint::SendKeepalive(QuicConnId conn) {
+    Impl::Connection* entry = impl_->Lookup(conn);
+    if (entry == nullptr || !quiche_conn_is_established(entry->conn)) return false;
+    const ssize_t queued = quiche_conn_send_ack_eliciting(entry->conn);
+    impl_->Flush(*entry);
+    return queued >= 0;
+}
+
 bool QuicEndpoint::SendRaw(const NetAddr& to, std::span<const uint8_t> bytes) {
     return impl_->socket_.SendTo(to, bytes.data(), bytes.size());
 }

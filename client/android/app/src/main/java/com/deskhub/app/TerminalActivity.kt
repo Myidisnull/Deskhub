@@ -72,13 +72,19 @@ class TerminalActivity : ComponentActivity() {
 
         val addr = intent.getStringExtra("addr").orEmpty()
         val passcode = intent.getStringExtra("passcode").orEmpty()
-        val opened = NativeTerminal.open(addr, passcode, DEFAULT_COLS, DEFAULT_ROWS)
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
+                var attempt by remember { mutableIntStateOf(0) }
+                val opened =
+                    remember(attempt) {
+                        NativeTerminal.open(addr, passcode, DEFAULT_COLS, DEFAULT_ROWS)
+                    }
                 TerminalScreen(
                     address = addr,
                     opened = opened,
+                    attempt = attempt,
+                    onRetry = { attempt += 1 },
                     onDismiss = { finish() },
                 )
             }
@@ -173,6 +179,8 @@ private class TermInputView(
 private fun TerminalScreen(
     address: String,
     opened: Boolean,
+    attempt: Int,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var grid by remember { mutableStateOf<NativeTerminal.Grid?>(null) }
@@ -214,7 +222,7 @@ private fun TerminalScreen(
         latchAlt = false
     }
 
-    LaunchedEffect(opened) {
+    LaunchedEffect(opened, attempt) {
         if (!opened) {
             termState = NativeTerminal.STATE_FAILED
             message = NativeClient.couldNotConnect(address)
@@ -340,6 +348,23 @@ private fun TerminalScreen(
                 modifier = Modifier.size(1.dp),
             )
 
+            if (termState == NativeTerminal.STATE_REATTACHING) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Text(
+                        message,
+                        color = Color.White,
+                        modifier =
+                            Modifier
+                                .padding(12.dp)
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+            }
+
             if (termState >= NativeTerminal.STATE_REFUSED) {
                 Box(
                     modifier =
@@ -355,6 +380,9 @@ private fun TerminalScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text(message, color = Color.White)
+                        if (termState == NativeTerminal.STATE_FAILED) {
+                            TextButton(onClick = onRetry) { Text("Retry") }
+                        }
                         TextButton(onClick = onDismiss) { Text("Back") }
                     }
                 }

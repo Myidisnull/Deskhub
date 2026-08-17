@@ -58,6 +58,7 @@ final class AgentModel {
     var clipboardSync = dh_clipboard_sync()
     var keepAwake = dh_keep_awake()
     var didAutoShare = false
+    var autoShareWaitNote = ""
     private var sharingScreen = false
     private var sharingTerminal = false
     private var lastPasteboardChange = NSPasteboard.general.changeCount
@@ -70,6 +71,7 @@ final class AgentModel {
     var statusLine: String {
         let portNum = UInt16(max(1, min(65535, port)))
         guard isSharing else {
+            if !autoShareWaitNote.isEmpty { return autoShareWaitNote }
             return DeskhubClient.buffered(128) { dh_idle_host_status(portNum, $0, $1) }
         }
         var line = DeskhubClient.buffered(320) {
@@ -135,6 +137,26 @@ final class AgentModel {
         sourcesRefresh = nil
     }
 
+    func waitForShareSources() async -> Bool {
+        let probeMs = dh_auto_share_probe_ms()
+        var waitedMs: UInt32 = 0
+        while true {
+            await refreshShareSources()
+            switch dh_auto_share_step(!shareSources.isEmpty, waitedMs) {
+            case DHAutoShareShareNow:
+                autoShareWaitNote = ""
+                return true
+            case DHAutoShareGiveUpWaiting:
+                autoShareWaitNote = DeskhubClient.string(DHStrNoDisplayFound)
+                return false
+            default:
+                autoShareWaitNote = DeskhubClient.string(DHStrWaitingForDisplays)
+                try? await Task.sleep(for: .milliseconds(Int(probeMs)))
+                waitedMs += probeMs
+            }
+        }
+    }
+
     var pickedSources: [ShareSource] {
         shareSources.filter { tickedSources.contains($0.id) }
     }
@@ -172,6 +194,7 @@ final class AgentModel {
 
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
+        autoShareWaitNote = ""
         guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {
             startError = DeskhubClient.string(DHStrPasscodeInvalid)
             return false

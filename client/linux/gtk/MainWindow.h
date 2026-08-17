@@ -13,6 +13,7 @@
 #include "deskhub/net/PairedDevices.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/session/TerminalSession.h"
+#include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
@@ -38,6 +39,9 @@ private:
     enum class HostShareState { kIdle,
         kStarting,
         kSharing };
+
+    enum class ShareTrigger { kUser,
+        kAutomatic };
 
     static constexpr int kHostColumnCount = 8;
 
@@ -115,7 +119,11 @@ private:
         const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
     bool ReadPasscode(GtkWidget* entry, std::string& out);
 
-    void OnShare();
+    void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
+    void BeginAutoShare();
+    static gboolean OnAutoShareTimer(gpointer user);
+    void ReportShareProblem(const char* title, const std::string& text);
+    static void OnMonitorsChanged(GdkScreen* screen, gpointer user);
     void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
     void OnHostStarted(bool started, const std::string& error, const AgentOptions& options);
     void StopHosting();
@@ -245,6 +253,9 @@ private:
 
     guint rescanTimerId_ = 0;
     guint hostTimerId_ = 0;
+    guint autoShareTimerId_ = 0;
+    deskhub::ui::AutoShareGate autoShareGate_;
+    ShareTrigger shareTrigger_ = ShareTrigger::kUser;
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool loadingSettings_ = false;

@@ -81,6 +81,11 @@ public:
 
 private:
     void Loop();
+    bool Dial();
+    void KeepLinkAlive(uint64_t nowUs);
+    void RecoverLink(uint64_t nowUs);
+    void OnLinkLost();
+    bool Recovering() const;
     void OnConnected(QuicConnId conn);
     void OnStream(std::span<const uint8_t> bytes);
     void SendRecord(std::span<const uint8_t> message);
@@ -114,6 +119,14 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_{false};
     std::atomic<bool> autoTrustPending_{false};
+
+    uint64_t keepaliveIntervalUs_ = 0;
+    uint64_t lastKeepaliveUs_ = 0;
+    uint64_t dialStartedUs_ = 0;
+    uint64_t linkLostAtUs_ = 0;
+    uint64_t redialAtUs_ = 0;
+    uint32_t redialAttempts_ = 0;
+    bool dialTimedOut_ = false;
 };
 
 }

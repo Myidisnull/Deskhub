@@ -28,6 +28,7 @@ add_library(core STATIC
     src/session/ClipboardSync.cpp
     src/session/TerminalSession.cpp
     src/session/TerminalClient.cpp
+    src/session/LinkRecovery.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
@@ -70,6 +71,7 @@ add_library(core STATIC
     src/ui/SecretText.cpp
     src/ui/UiSettings.cpp
     src/ui/AutostartConfig.cpp
+    src/ui/AutoShareGate.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -111,6 +113,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
         tests/session/TerminalSessionTests.cpp
+        tests/session/LinkRecoveryTests.cpp
         tests/session/AuthThrottleTests.cpp
 
         tests/input/InputTests.cpp
@@ -163,6 +166,7 @@ if(DESKHUB_CORE_TESTS)
         tests/ui/SecretTextTests.cpp
         tests/ui/UiSettingsTests.cpp
         tests/ui/AutostartConfigTests.cpp
+        tests/ui/AutoShareGateTests.cpp
 
         tests/fuzz/FuzzTests.cpp
     )

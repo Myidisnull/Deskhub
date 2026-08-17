@@ -374,6 +374,30 @@ void TestClientReattachAndRefusal() {
     Check(h->client.State() == TerminalClientState::Open && h->lastResumed,
         "and the host confirms it was resumed rather than started again");
 
+    auto racing = MakeClient();
+    racing->client.Open(kTestPasscode, TermSize{80, 24}, "Pixel 9");
+    racing->client.HandleMessage(AckMessage(7, TermReason::Accepted, false));
+    racing->client.LinkLost();
+    racing->client.Reattach();
+    racing->client.HandleMessage(AckMessage(0, TermReason::NoSuchSession, false));
+    Check(racing->refusals.size() == 1 && racing->refusals[0] == TermReason::NoSuchSession,
+        "a host that has not noticed the drop yet says there is no such session");
+    Check(racing->client.CanReattach() && racing->client.TermId() == 7,
+        "which is not final, so the shell is still there to ask for again");
+    racing->client.Reattach();
+    racing->client.HandleMessage(AckMessage(7, TermReason::Accepted, true));
+    Check(racing->client.State() == TerminalClientState::Open && racing->lastResumed,
+        "and asking once more gets the same shell back");
+
+    auto gone = MakeClient();
+    gone->client.Open(kTestPasscode, TermSize{80, 24}, "Pixel 9");
+    gone->client.HandleMessage(AckMessage(8, TermReason::Accepted, false));
+    gone->client.LinkLost();
+    gone->client.Reattach();
+    gone->client.HandleMessage(AckMessage(0, TermReason::TooManySessions, false));
+    Check(gone->client.State() == TerminalClientState::Refused && !gone->client.CanReattach(),
+        "any other refusal of a reattach is final, and drops the session");
+
     auto refused = MakeClient();
     refused->client.Open("9999", TermSize{80, 24}, "Pixel 9");
     refused->client.HandleMessage(AckMessage(0, TermReason::WrongPasscode, false));

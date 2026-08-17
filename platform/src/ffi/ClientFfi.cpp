@@ -11,6 +11,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ConnectFlow.h"
 #include "deskhub/session/OpenViewers.h"
+#include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
@@ -157,6 +158,8 @@ const char* dh_string(DHStringId id) {
         case DHStrOpenChoiceHint: return deskhub::ui::kOpenChoiceHint;
         case DHStrMobileHostNote: return deskhub::ui::kMobileHostNote;
         case DHStrHostHasNoTerminal: return deskhub::ui::kHostHasNoTerminal;
+        case DHStrWaitingForDisplays: return deskhub::ui::kWaitingForDisplays;
+        case DHStrNoDisplayFound: return deskhub::ui::kNoDisplayFound;
         case DHStrPasscodeHint: return deskhub::ui::kPasscodeHint;
         case DHStrDevicesHeading: return deskhub::ui::kDevicesHeading;
         case DHStrDeviceColumnWhere: return deskhub::ui::kDeviceColumnWhere;
@@ -305,6 +308,20 @@ int dh_passcode_digits(void) {
 
 int dh_max_sources(void) {
     return int(deskhub::kMaxSources);
+}
+
+uint32_t dh_auto_share_probe_ms(void) {
+    return deskhub::ui::kAutoShareProbeMs;
+}
+
+DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms) {
+    switch (deskhub::ui::NextAutoShareStep(displays_ready, waited_ms,
+        deskhub::ui::kAutoShareProbeMs, deskhub::ui::kAutoShareGiveUpMs)) {
+        case deskhub::ui::AutoShareStep::ShareNow: return DHAutoShareShareNow;
+        case deskhub::ui::AutoShareStep::GiveUpWaiting: return DHAutoShareGiveUpWaiting;
+        case deskhub::ui::AutoShareStep::KeepWaiting: break;
+    }
+    return DHAutoShareKeepWaiting;
 }
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,

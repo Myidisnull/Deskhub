@@ -75,8 +75,15 @@ void TerminalClient::HandleMessage(std::span<const uint8_t> message) {
                 return;
             reason_ = ack->reason;
             if (ack->reason != TermReason::Accepted || ack->termId == 0) {
-                termId_ = 0;
-                state_ = TerminalClientState::Refused;
+                const bool hostMayNotHaveNoticedTheDropYet =
+                    state_ == TerminalClientState::Reattaching &&
+                    ack->reason == TermReason::NoSuchSession;
+                if (hostMayNotHaveNoticedTheDropYet) {
+                    state_ = TerminalClientState::Idle;
+                } else {
+                    termId_ = 0;
+                    state_ = TerminalClientState::Refused;
+                }
                 if (cb_.onRefused) cb_.onRefused(reason_);
                 return;
             }

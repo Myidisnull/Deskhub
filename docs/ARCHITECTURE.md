@@ -197,6 +197,32 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
 
 ## 9. Decisions worth remembering
 
+- **The terminal link keeps itself alive and dials itself back**: a terminal viewer
+  owns a QUIC connection of its own, separate from the video session, so none of the
+  video path's keepalives reach it. Left alone at a prompt it carried no traffic at
+  all and died on the 30 s QUIC idle timeout, and the viewer then stopped its thread
+  in `Reattaching` without ever redialling — the shell was still waiting on the host
+  for the full 2 minutes, and nothing went back for it. `TerminalViewer` now sends an
+  ack-eliciting packet on a timer and redials with backoff, reusing
+  `TerminalClient::Reattach()` (which was already written and tested in core, and
+  simply never called) so the same shell comes back with its scrollback.
+  `deskhub::KeepaliveIntervalUs` / `ReconnectDelayUs` hold the timings in core: the
+  keepalive is at most half the idle timeout so one lost packet is survivable, and
+  retrying stops exactly at `kTerminalReattachGraceUs`, because past that the host
+  has already dropped the shell and reconnecting would silently open a new one.
+- **An automatic share waits for the desktop instead of enumerating it once**:
+  Windows registers autostart as a `ONLOGON` scheduled task, which fires before the
+  session has a monitor to enumerate, so a single `ListDisplays()` at construction
+  used to come back empty and the app reported that there was nothing to share.
+  `deskhub::ui::AutoShareGate` (core, unit-tested) owns the retry rule — probe every
+  `kAutoShareProbeMs`, give up after `kAutoShareGiveUpMs` — and every client drives it
+  from its own timer, so the policy exists once. `NextAutoShareStep` is the same rule
+  without the state, which is what the Swift client reaches through
+  `dh_auto_share_step`. An automatic share never opens a modal: at login the window
+  may be hidden in the tray, where a dialog is invisible and blocks the share
+  forever, so refusals go to the Host banner and the log. The desktop clients also
+  refresh their picker on the OS display-change signal, which is what keeps the list
+  right when a monitor is plugged in later.
 - **quiche over msquic/ngtcp2**: the only QUIC library with production evidence on
   both Android and iOS. It brings BoringSSL, which also serves SPAKE2 and the host
   identity — no second crypto library.
