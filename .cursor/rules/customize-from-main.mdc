@@ -1,0 +1,32 @@
+---
+description: develop is customized main; sync main updates, keep customize feature/UI priority, pin main base
+alwaysApply: true
+---
+
+# Customize branch vs main
+
+`develop` is a **customized** line of `main`. Upstream fixes and features from `main` must land here; product behavior and UI stay customize-first.
+
+## Priority
+
+1. **Feature / UI / product copy**: keep customize behavior when it conflicts with `main`.
+2. **Infrastructure / build / security / protocol / bugfix from `main`**: take `main`, then re-apply customize on top if needed.
+3. Do not replace customize screens, flows, or branding with stock `main` UI just because `main` moved.
+
+## Sync workflow
+
+When bringing `main` into this branch:
+
+```text
+git fetch origin
+git merge origin/main
+# resolve conflicts: customize wins for feature/UI; take main for shared infra unless customize intentionally differs
+```
+
+After a successful sync, update the pin in `.cursor/customize-main-base.md` to the merged `origin/main` commit (`%H`, date, subject).
+
+## Do not
+
+- Force `main`'s UX over customize without an explicit user request
+- Drop customize-only files or submodule pins while merging
+- Leave `.cursor/customize-main-base.md` stale after a sync
