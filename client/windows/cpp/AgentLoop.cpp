@@ -21,6 +21,7 @@
 #include "gpu/GpuSelect.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/system/Clock.h"
 #include "encode/IVideoEncoder.h"
@@ -221,10 +222,20 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.stopCapture = [](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
-        p.capture.Stop();
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        if (p.encoder) p.encoder->Finish();
-        p.ReleaseCached();
+        {
+            const uint64_t t0 = NowUs();
+            deskhubp::StopAnrWatch watch("agent", "capture_stop");
+            p.capture.Stop();
+            deskhubp::LogStopPhase("agent", "capture_stop", t0);
+        }
+        {
+            const uint64_t t0 = NowUs();
+            deskhubp::StopAnrWatch watch("agent", "encoder_finish");
+            std::lock_guard<std::mutex> lk(p.encMutex);
+            if (p.encoder) p.encoder->Finish();
+            p.ReleaseCached();
+            deskhubp::LogStopPhase("agent", "encoder_finish", t0);
+        }
     };
 
     policy.source.attachInput = [engine](deskhubp::HostSource& st) {

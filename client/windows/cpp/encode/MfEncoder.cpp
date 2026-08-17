@@ -571,10 +571,20 @@ struct MfEncoder::Impl {
     void Finish() {
         if (!streaming) return;
         mft->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
+        const ULONGLONG deadline = GetTickCount64() + 2000;
         for (int i = 0; i < 256; ++i) {
+            if (GetTickCount64() >= deadline) {
+                LOGW("[MfEncoder] Finish drain timed out after 2000 ms.");
+                break;
+            }
             if (isAsync) {
                 ComPtr<IMFMediaEvent> ev;
-                if (FAILED(events->GetEvent(0, &ev))) break;
+                const HRESULT hr = events->GetEvent(MF_EVENT_FLAG_NO_WAIT, &ev);
+                if (hr == MF_E_NO_EVENTS_AVAILABLE) {
+                    Sleep(1);
+                    continue;
+                }
+                if (FAILED(hr)) break;
                 MediaEventType met = MEUnknown;
                 ev->GetType(&met);
                 if (met == METransformHaveOutput) {

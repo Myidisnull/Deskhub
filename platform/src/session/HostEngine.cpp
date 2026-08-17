@@ -148,11 +148,21 @@ void HostEngine::AttachSession(HostSource& st) {
 void HostEngine::ShutdownSource(HostSource& st) {
     if (st.shutdownDone) return;
     st.shutdownDone = true;
-    if (policy_.source.releaseInput) policy_.source.releaseInput(st);
-    EndHostSession(st, sock_);
-    if (policy_.source.stopCapture) policy_.source.stopCapture(st);
     st.netReady.store(false);
     st.failed.store(true);
+    {
+        const uint64_t t0 = NowUs();
+        StopAnrWatch watch("agent", "release_input");
+        if (policy_.source.releaseInput) policy_.source.releaseInput(st);
+        LogStopPhase("agent", "release_input", t0);
+    }
+    EndHostSession(st, sock_);
+    {
+        const uint64_t t0 = NowUs();
+        StopAnrWatch watch("agent", "stop_capture");
+        if (policy_.source.stopCapture) policy_.source.stopCapture(st);
+        LogStopPhase("agent", "stop_capture", t0);
+    }
 }
 
 bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
