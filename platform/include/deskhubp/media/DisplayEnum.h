@@ -7,6 +7,8 @@
 
 namespace deskhubp {
 
+inline constexpr const char* kListDisplaysCancelled = "cancelled by the user";
+
 std::vector<deskhub::media::ShareSource> ListDisplays();
 
 std::string ListDisplaysError();

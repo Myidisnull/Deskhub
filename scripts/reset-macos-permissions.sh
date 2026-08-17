@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Clear the macOS privacy grants for the Deskhub bundle id.
-#
-# TCC keys a grant by bundle id AND code signature. A locally built app.app is
-# ad-hoc signed (its designated requirement changes on every rebuild) while the
-# CI/DMG build is signed with Developer ID, so the two fight over the same
-# com.deskhub.macos row: System Settings shows the permission as granted, yet the
-# copy you just launched is denied - silently, for Accessibility.
-#
-# This drops every grant so the next launch asks again, and reports which copies
-# of the app exist and how each one is signed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -54,9 +44,6 @@ if [ "$(uname)" != Darwin ]; then
     exit 1
 fi
 
-# The Xcode target is called `app`, so the executable inside the bundle is
-# literally Contents/MacOS/app whatever the bundle got renamed to - match on the
-# bundle path, never on the bare process name.
 echo "==> quitting $BUNDLE_ID"
 osascript -e "quit app id \"$BUNDLE_ID\"" 2>/dev/null || true
 pkill -f '/(app|Deskhub)\.app/Contents/MacOS/' 2>/dev/null || true

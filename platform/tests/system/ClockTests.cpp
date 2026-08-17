@@ -30,6 +30,21 @@ void TestTheClockActuallyAdvances() {
         "and as well under two seconds, so the unit really is microseconds");
 }
 
+void TestTheWallClockIsNotTheMonotonicOne() {
+    std::printf("[clock] the wall clock reads a real date, not seconds since boot...\n");
+    constexpr int64_t kStartOf2020 = 1'577'836'800;
+    constexpr int64_t kStartOf2100 = 4'102'444'800;
+
+    const int64_t now = NowUnixSeconds();
+    Check(now > kStartOf2020, "it is well past 2020, so this is not an uptime counter");
+    Check(now < kStartOf2100, "and not so far ahead that the units are wrong");
+
+    const int64_t asIfMonotonic = int64_t(NowUs() / 1'000'000);
+    Check(asIfMonotonic < kStartOf2020,
+        "while the monotonic clock, read the same way, is nowhere near a real date - "
+        "which is exactly how it renders as 1970 when stored by mistake");
+}
+
 void TestSleepingWaits() {
     std::printf("[sleep] a pacing sleep waits instead of returning straight away...\n");
     const uint64_t t0 = NowUs();
@@ -49,6 +64,7 @@ void TestSleepingForNothingReturnsAtOnce() {
 void RunClockTests() {
     TestTheClockNeverGoesBackwards();
     TestTheClockActuallyAdvances();
+    TestTheWallClockIsNotTheMonotonicOne();
     TestSleepingWaits();
     TestSleepingForNothingReturnsAtOnce();
 }

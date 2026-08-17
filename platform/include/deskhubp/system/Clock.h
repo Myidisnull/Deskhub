@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <ctime>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -65,3 +66,7 @@ inline void SleepUs(uint64_t us) {
 }
 
 #endif
+
+inline int64_t NowUnixSeconds() {
+    return int64_t(std::time(nullptr));
+}

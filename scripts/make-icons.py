@@ -47,12 +47,8 @@ ANDROID_LAUNCHER_SIZES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "x
 ANDROID_FOREGROUND_SIZES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
 PLAY_STORE_ICON_SIZE = 512
 
-# Corner radius as a fraction of the icon edge. 0.225 is the ratio Apple uses for the
-# macOS/iOS icon shape, so the result sits next to native icons without looking off.
 CORNER_RADIUS_FRACTION = 0.225
-# Subsamples per axis used to antialias the mask edge.
 MASK_SUPERSAMPLE = 4
-
 
 def read_png(path):
     data = path.read_bytes()
@@ -112,7 +108,6 @@ def read_png(path):
         previous = line
     return width, height, channels, rows
 
-
 def write_png(width, height, rgba_rows):
     def chunk(tag, payload):
         return (
@@ -131,7 +126,6 @@ def write_png(width, height, rgba_rows):
         + chunk(b"IEND", b"")
     )
 
-
 def corner_coverage(size, x, y):
     radius = CORNER_RADIUS_FRACTION * size
     step = 1.0 / MASK_SUPERSAMPLE
@@ -147,7 +141,6 @@ def corner_coverage(size, x, y):
             if dx * dx + dy * dy <= radius * radius:
                 inside += 1
     return inside / float(MASK_SUPERSAMPLE * MASK_SUPERSAMPLE)
-
 
 def resample(source, size, rounded=True):
     src_w, src_h, channels, rows = source
@@ -175,7 +168,6 @@ def resample(source, size, rounded=True):
         rows_out.append(bytes(line))
     return rows_out
 
-
 def write_ico(path, frames):
     header = struct.pack("<HHH", 0, 1, len(frames))
     offset = len(header) + 16 * len(frames)
@@ -189,7 +181,6 @@ def write_ico(path, frames):
         offset += len(png)
     path.write_bytes(header + entries + payloads)
 
-
 def write_android_background_color(source):
     _, _, _, rows = source
     r, g, b = rows[0][0], rows[0][1], rows[0][2]
@@ -201,7 +192,6 @@ def write_android_background_color(source):
         "</resources>\n"
     )
     print(f"wrote {out.relative_to(ROOT)}")
-
 
 def main():
     if not MASTER.exists():
@@ -257,7 +247,6 @@ def main():
     print(f"wrote {PLAY_STORE_ICON.relative_to(ROOT)}")
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

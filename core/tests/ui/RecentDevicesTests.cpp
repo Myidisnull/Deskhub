@@ -38,8 +38,14 @@ void TestPasscodePerDevice() {
         "an address we have never seen has no code");
 
     ui::TouchRecentDevice(devices, "192.168.1.10", 200, "");
-    Check(ui::PasscodeForDevice(devices, "192.168.1.10").empty(),
-        "reconnecting without a code clears the stored one");
+    Check(ui::PasscodeForDevice(devices, "192.168.1.10") == "0417",
+        "reconnecting without a code keeps the remembered one");
+    ui::TouchRecentDevice(devices, "192.168.1.10", 300, "5150");
+    Check(ui::PasscodeForDevice(devices, "192.168.1.10") == "5150",
+        "and a newly typed code replaces it");
+    ui::TouchRecentDevice(devices, "192.168.1.10", 400, "12ab");
+    Check(ui::PasscodeForDevice(devices, "192.168.1.10") == "5150",
+        "a mistyped code does not wipe the remembered one");
 
     const std::vector<ui::RecentDevice> saved{{"192.168.1.50", 1754300000, "0417"}};
     const std::string text = ui::SerializeRecentDevices(saved);
@@ -133,6 +139,12 @@ void TestRemove() {
     Check(devices.size() == 1 && devices[0].addr == "192.168.1.20", "the other entry stays");
     ui::RemoveRecentDevice(devices, "192.168.1.99");
     Check(devices.size() == 1, "removing an unknown address is a no-op");
+
+    std::vector<ui::RecentDevice> forgotten{{"192.168.1.10", 100, "0417"}};
+    ui::RemoveRecentDevice(forgotten, "192.168.1.10");
+    ui::TouchRecentDevice(forgotten, "192.168.1.10", 110, "");
+    Check(ui::PasscodeForDevice(forgotten, "192.168.1.10").empty(),
+        "a forgotten device does not come back with its old code");
 }
 
 }

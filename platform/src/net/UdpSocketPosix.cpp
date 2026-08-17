@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -73,6 +74,12 @@ bool UdpSocket::SetRecvTimeout(uint32_t ms) {
     tv.tv_sec = decltype(tv.tv_sec)(ms / 1000);
     tv.tv_usec = decltype(tv.tv_usec)((ms % 1000) * 1000);
     return setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == 0;
+}
+
+bool UdpSocket::WaitReadable(uint32_t ms) {
+    if (!IsOpen()) return false;
+    pollfd entry{fd_, POLLIN, 0};
+    return ::poll(&entry, 1, int(ms)) > 0 && (entry.revents & POLLIN) != 0;
 }
 
 bool UdpSocket::SendTo(const NetAddr& to, const uint8_t* data, size_t len) {

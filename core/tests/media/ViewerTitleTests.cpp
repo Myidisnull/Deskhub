@@ -51,6 +51,17 @@ void TestStatusFallsBackToConnecting() {
         "a real status is never mixed with the placeholder");
 }
 
+void TestViewOnlySubtitleDropsTheLockHint() {
+    std::printf("[title] a view-only session never promises a mouse lock...\n");
+    const std::string viewOnly = ViewerViewOnlySubtitle("60fps  12ms");
+    Check(Contains(viewOnly, "60fps  12ms"), "the status line is kept");
+    Check(Contains(viewOnly, kViewerViewOnlyHint), "the subtitle says the session is view-only");
+    Check(!Contains(viewOnly, kViewerLockHint) && !Contains(viewOnly, kViewerLockedHint),
+        "neither F9 hint appears, since input is never sent");
+    Check(Contains(ViewerViewOnlySubtitle(""), kViewerConnectingStatus),
+        "an empty status still reads as connecting");
+}
+
 void TestComposedTitleKeepsAllThreeParts() {
     std::printf("[title] base, status and hint all survive into the final title...\n");
     const std::string title =
@@ -79,5 +90,6 @@ void RunViewerTitleTests() {
     TestLockHintFollowsTheLockState();
     TestBaseTitleNamesTheSource();
     TestStatusFallsBackToConnecting();
+    TestViewOnlySubtitleDropsTheLockHint();
     TestComposedTitleKeepsAllThreeParts();
 }

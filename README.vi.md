@@ -48,7 +48,7 @@ nó.
     </td>
     <td align="center" width="50%">
       <img src="docs/imgs/macos_3.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng, mã 4 chữ số, công tắc chỉ xem và trạng thái quyền hệ thống">
-      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã 4 chữ số bắt buộc, công tắc chỉ-xem, và (trên macOS) trạng thái cấp quyền theo thời gian thực.</sub>
+      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã ghép đôi 4 chữ số tuỳ chọn, công tắc chỉ-xem, và (trên macOS) trạng thái cấp quyền theo thời gian thực.</sub>
     </td>
   </tr>
 </table>

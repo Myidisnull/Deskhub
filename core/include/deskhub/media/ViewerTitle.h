@@ -24,11 +24,19 @@ inline std::string ViewerBaseTitle(std::string_view sourceName) {
     return base;
 }
 
-inline std::string ViewerStatusWithHint(std::string_view statusLine, bool mouseLocked) {
+inline std::string ViewerStatusWith(std::string_view statusLine, std::string_view hint) {
     std::string s(statusLine.empty() ? kViewerConnectingStatus : statusLine);
     s += " \xC2\xB7 ";
-    s += ViewerLockHintText(mouseLocked);
+    s += hint;
     return s;
+}
+
+inline std::string ViewerStatusWithHint(std::string_view statusLine, bool mouseLocked) {
+    return ViewerStatusWith(statusLine, ViewerLockHintText(mouseLocked));
+}
+
+inline std::string ViewerViewOnlySubtitle(std::string_view statusLine) {
+    return ViewerStatusWith(statusLine, kViewerViewOnlyHint);
 }
 
 inline std::string ComposeViewerTitle(std::string_view base, std::string_view statusLine,
