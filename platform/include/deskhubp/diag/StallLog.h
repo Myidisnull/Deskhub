@@ -3,8 +3,11 @@
 #include "deskhubp/system/Clock.h"
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <thread>
 #include <utility>
 
@@ -41,6 +44,15 @@ inline void LogStopPhaseNamed(const char* scope, const char* phase, const char* 
         LOGI("[DIAG][%s] evt=stop_ok phase=%s name=%s ms=%u", scope, phase, name, ms);
 }
 
+inline bool TimedTryLock(std::unique_lock<std::mutex>& lk, uint32_t timeoutMs) {
+    const uint64_t t0 = NowUs();
+    while (!lk.try_lock()) {
+        if (ElapsedMsSince(t0) >= timeoutMs) return false;
+        SleepUs(1000);
+    }
+    return true;
+}
+
 class StopAnrWatch {
 public:
     using SnapshotFn = std::function<void(uint32_t waitedMs)>;
@@ -50,7 +62,11 @@ public:
         thr_ = std::thread([this] { Run(); });
     }
     ~StopAnrWatch() {
-        done_.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            done_ = true;
+        }
+        cv_.notify_all();
         if (thr_.joinable()) thr_.join();
     }
     StopAnrWatch(const StopAnrWatch&) = delete;
@@ -58,21 +74,26 @@ public:
 
 private:
     void Run() {
+        std::unique_lock<std::mutex> lk(mu_);
         uint32_t waited = 0;
         bool logged = false;
-        while (!done_.load(std::memory_order_acquire)) {
-            SleepUs(100'000);
-            if (done_.load(std::memory_order_acquire)) return;
-            waited += 100;
+        while (!done_) {
+            if (cv_.wait_for(lk, std::chrono::milliseconds(50), [this] { return done_; }))
+                return;
+            waited += 50;
             if (!logged && waited >= kStopAnrMs) {
+                lk.unlock();
                 LOGE("[DIAG][%s] evt=stop_anr phase=%s ms=%u state=blocked", scope_, phase_,
                     waited);
                 if (snapshot_) snapshot_(waited);
+                lk.lock();
                 logged = true;
             } else if (logged && waited % 5000u == 0u) {
+                lk.unlock();
                 LOGE("[DIAG][%s] evt=stop_anr phase=%s ms=%u state=still_blocked", scope_,
                     phase_, waited);
                 if (snapshot_) snapshot_(waited);
+                lk.lock();
             }
         }
     }
@@ -80,7 +101,9 @@ private:
     const char* scope_;
     const char* phase_;
     SnapshotFn snapshot_;
-    std::atomic<bool> done_{false};
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool done_ = false;
     std::thread thr_;
 };
 

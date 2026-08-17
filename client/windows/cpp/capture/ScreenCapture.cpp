@@ -202,19 +202,22 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
 void ScreenCapture::Stop() {
     if (!impl_) return;
     const uint64_t tAll = NowUs();
-    auto snap = [impl = impl_.get()](const char* step, uint32_t waitedMs = 0) {
-        LOGI("[DIAG][agent] evt=wgc_step step=%s waited_ms=%u arrived_depth=%u has_pool=%d "
+    deskhubp::StopAnrWatch watch("agent", "wgc_stop", [impl = impl_.get()](uint32_t ms) {
+        LOGI("[DIAG][agent] evt=wgc_step step=blocked waited_ms=%u arrived_depth=%u has_pool=%d "
              "has_session=%d tid=%lu",
-            step, waitedMs, impl->arrivedDepth.load(std::memory_order_relaxed),
-            impl->framePool ? 1 : 0, impl->session ? 1 : 0,
-            (unsigned long)GetCurrentThreadId());
+            ms, impl->arrivedDepth.load(std::memory_order_relaxed), impl->framePool ? 1 : 0,
+            impl->session ? 1 : 0, (unsigned long)GetCurrentThreadId());
+    });
+    auto snap = [impl = impl_.get()](const char* step) {
+        LOGI("[DIAG][agent] evt=wgc_step step=%s arrived_depth=%u has_pool=%d has_session=%d "
+             "tid=%lu",
+            step, impl->arrivedDepth.load(std::memory_order_relaxed), impl->framePool ? 1 : 0,
+            impl->session ? 1 : 0, (unsigned long)GetCurrentThreadId());
     };
     snap("enter");
 
     {
         const uint64_t t0 = NowUs();
-        deskhubp::StopAnrWatch watch("agent", "wgc_revoke",
-            [&](uint32_t ms) { snap("revoke_blocked", ms); });
         if (impl_->framePool && impl_->frameArrivedToken.value) {
             impl_->framePool.FrameArrived(impl_->frameArrivedToken);
             impl_->frameArrivedToken = {};
@@ -229,8 +232,20 @@ void ScreenCapture::Stop() {
 
     {
         const uint64_t t0 = NowUs();
-        deskhubp::StopAnrWatch watch("agent", "wgc_release_session",
-            [&](uint32_t ms) { snap("session_blocked", ms); });
+        while (impl_->arrivedDepth.load(std::memory_order_acquire) != 0) {
+            if (deskhubp::ElapsedMsSince(t0) >= 2000) {
+                LOGW("[DIAG][agent] evt=wgc_step step=arrived_wait_timeout depth=%u",
+                    impl_->arrivedDepth.load(std::memory_order_relaxed));
+                break;
+            }
+            SleepUs(1000);
+        }
+        deskhubp::LogStopPhase("agent", "wgc_arrived_wait", t0);
+    }
+    snap("after_arrived_wait");
+
+    {
+        const uint64_t t0 = NowUs();
         impl_->session = nullptr;
         deskhubp::LogStopPhase("agent", "wgc_release_session", t0);
     }
@@ -238,8 +253,6 @@ void ScreenCapture::Stop() {
 
     {
         const uint64_t t0 = NowUs();
-        deskhubp::StopAnrWatch watch("agent", "wgc_release_pool",
-            [&](uint32_t ms) { snap("pool_blocked", ms); });
         impl_->framePool = nullptr;
         deskhubp::LogStopPhase("agent", "wgc_release_pool", t0);
     }

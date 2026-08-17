@@ -85,11 +85,24 @@ void LocalInputMonitor::Stop() {
     const uint64_t t0 = NowUs();
     deskhubp::StopAnrWatch watch("agent", "local_input_join");
     impl_->quit.store(true, std::memory_order_release);
-    const DWORD tid = impl_->threadId.load(std::memory_order_acquire);
+    DWORD tid = impl_->threadId.load(std::memory_order_acquire);
+    for (uint32_t waited = 0; !tid && impl_->thread.joinable() && waited < 500; waited += 10) {
+        SleepUs(10'000);
+        tid = impl_->threadId.load(std::memory_order_acquire);
+    }
     if (tid) {
-        if (!PostThreadMessageW(tid, WM_QUIT, 0, 0)) {
-            LOGW("[DIAG][agent] evt=local_input_quit_fail tid=%lu err=%lu",
-                (unsigned long)tid, (unsigned long)GetLastError());
+        bool posted = false;
+        for (int attempt = 0; attempt < 50 && !posted; ++attempt) {
+            if (PostThreadMessageW(tid, WM_QUIT, 0, 0)) {
+                posted = true;
+                break;
+            }
+            const DWORD err = GetLastError();
+            if (attempt == 0 || attempt == 49) {
+                LOGW("[DIAG][agent] evt=local_input_quit_fail tid=%lu err=%lu attempt=%d",
+                    (unsigned long)tid, (unsigned long)err, attempt);
+            }
+            SleepUs(10'000);
         }
     } else if (impl_->thread.joinable()) {
         LOGW("[DIAG][agent] evt=local_input_quit_no_tid");

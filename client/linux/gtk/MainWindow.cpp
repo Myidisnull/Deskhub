@@ -1785,7 +1785,7 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
 }
 
 void MainWindow::OnShare() {
-    if (hostStarting_) return;
+    if (hostStarting_ || hostStopping_) return;
     if (hosting_) {
         LOGI("[UI] Share stop requested.");
         StopHosting();
@@ -1838,6 +1838,7 @@ void MainWindow::OnShare() {
 
 void MainWindow::StartHosting(const std::vector<AgentSource>& sources,
     const AgentOptions& options) {
+    if (stopWorker_.joinable()) stopWorker_.join();
     LOGI("[UI] Share start: %zu source(s), %u fps, %u Mbps, port %u.", sources.size(), options.fps,
         options.bitrateMbps, unsigned(options.port));
     hostStarting_ = true;
@@ -1887,6 +1888,8 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
 }
 
 void MainWindow::StopHosting() {
+    if (hostStopping_) return;
+    hostStopping_ = true;
     if (hostTimerId_) {
         g_source_remove(hostTimerId_);
         hostTimerId_ = 0;
@@ -1895,13 +1898,25 @@ void MainWindow::StopHosting() {
         g_source_remove(clipTimerId_);
         clipTimerId_ = 0;
     }
-    agentLoop_.Stop();
+    gtk_widget_set_sensitive(shareButton_, FALSE);
+    ApplyHostState(HostShareState::kStarting, HostPortDetail());
+
     agentDriver_.Join();
-    hosting_ = false;
-    tray_.SetSharing(false);
-    ShowIdleHostState();
-    if (gtk_widget_get_visible(window_)) gtk_widget_show(hostHintLabel_);
-    ClearHostRows();
+    if (stopWorker_.joinable()) stopWorker_.join();
+    stopWorker_ = std::thread([this, alive = alive_] {
+        LOGI("[DIAG][ui] evt=stop_begin phase=stop_hosting");
+        agentLoop_.Stop();
+        RunOnMain([this, alive] {
+            if (!alive->load()) return;
+            hosting_ = false;
+            hostStopping_ = false;
+            gtk_widget_set_sensitive(shareButton_, TRUE);
+            tray_.SetSharing(false);
+            ShowIdleHostState();
+            if (gtk_widget_get_visible(window_)) gtk_widget_show(hostHintLabel_);
+            ClearHostRows();
+        });
+    });
 }
 
 gboolean MainWindow::OnClipboardTimer(gpointer user) {
@@ -1922,7 +1937,7 @@ gboolean MainWindow::OnClipboardTimer(gpointer user) {
 
 gboolean MainWindow::OnHostTimer(gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    if (!self->hosting_) {
+    if (!self->hosting_ || self->hostStopping_) {
         self->hostTimerId_ = 0;
         return G_SOURCE_REMOVE;
     }
@@ -2059,9 +2074,11 @@ void MainWindow::OnDestroy(GtkWidget*, gpointer user) {
     self->tray_.Detach();
     if (self->rescanTimerId_) g_source_remove(self->rescanTimerId_);
     if (self->hostTimerId_) g_source_remove(self->hostTimerId_);
+    if (self->clipTimerId_) g_source_remove(self->clipTimerId_);
     self->scanner_.Cancel();
-    self->agentLoop_.Stop();
     self->agentDriver_.Join();
+    if (self->stopWorker_.joinable()) self->stopWorker_.join();
+    self->agentLoop_.Stop();
     self->poller_.Stop();
     delete self;
 }

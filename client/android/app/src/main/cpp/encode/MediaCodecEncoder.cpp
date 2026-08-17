@@ -183,11 +183,11 @@ void MediaCodecEncoder::DrainLoop() {
 }
 
 void MediaCodecEncoder::Finish() {
+    if (codec_ && inputWindow_) AMediaCodec_signalEndOfInputStream(codec_);
     draining_.store(false, std::memory_order_release);
     if (drainThread_.joinable()) drainThread_.join();
 
     if (codec_) {
-        if (inputWindow_) AMediaCodec_signalEndOfInputStream(codec_);
         AMediaCodec_stop(codec_);
         AMediaCodec_delete(codec_);
         codec_ = nullptr;

@@ -147,10 +147,14 @@ private:
     std::string lastError_;
     std::string bindWarning_;
 
+    std::recursive_mutex lifeMutex_;
+
     LocalInputMonitor localInputMon_;
     deskhub::Beacon beacon_;
 
     uint32_t startBitrateBps_ = 0;
+
+    void StopLocked();
 };
 
 template <class Capture, class Injector, class Encoder>

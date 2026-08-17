@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "TrayIcon.h"
@@ -223,6 +224,8 @@ private:
     guint hostTimerId_ = 0;
     bool hosting_ = false;
     bool hostStarting_ = false;
+    bool hostStopping_ = false;
+    std::thread stopWorker_;
     bool loadingSettings_ = false;
 
     deskhub::OpenViewerCount openViewers_;

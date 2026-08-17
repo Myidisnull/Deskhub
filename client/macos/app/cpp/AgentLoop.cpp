@@ -11,6 +11,7 @@
 #include "Permissions.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/media/VtEncoder.h"
 #include "deskhubp/system/Clock.h"
@@ -151,8 +152,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     policy.source.stopCapture = [](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
         p.capture.Stop();
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        if (p.encoder) p.encoder->Finish();
+        std::unique_lock<std::mutex> lk(p.encMutex, std::defer_lock);
+        if (!deskhubp::TimedTryLock(lk, 3000)) {
+            LOGE("[DIAG][agent] evt=stop_anr phase=encoder_lock state=timeout_force_wait");
+            while (!lk.try_lock()) SleepUs(1000);
+        }
+        p.encoder.reset();
         p.ReleaseCached();
     };
 

@@ -137,11 +137,19 @@ void TouchRecentDevice(std::vector<RecentDevice>& devices, std::string_view addr
     const std::string trimmed = TrimAscii(addr);
     if (trimmed.empty()) return;
 
+    std::string keptPasscode;
+    for (const RecentDevice& d : devices) {
+        if (d.addr == trimmed) {
+            keptPasscode = d.passcode;
+            break;
+        }
+    }
+
     RemoveRecentDevice(devices, trimmed);
     RecentDevice row;
     row.addr = trimmed;
     row.lastConnectedUnix = nowUnix;
-    row.passcode = IsValidPasscode(passcode) ? std::string(passcode) : std::string();
+    row.passcode = IsValidPasscode(passcode) ? std::string(passcode) : std::move(keptPasscode);
     row.encrypted = encrypted;
     uint8_t key[crypto::kKeySize];
     if (encrypted && crypto::KeyFromHex(sessionKey, std::span<uint8_t>(key, crypto::kKeySize)))

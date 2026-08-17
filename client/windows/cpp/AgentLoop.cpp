@@ -268,7 +268,14 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             const uint64_t t0 = NowUs();
             deskhubp::StopAnrWatch watch("agent", "encoder_lock",
                 [&p](uint32_t ms) { p.LogStopSnapshot("encoder_lock_blocked", ms); });
-            while (!lk.try_lock()) SleepUs(1000);
+            if (!deskhubp::TimedTryLock(lk, 3000)) {
+                LOGE(
+                    "[DIAG][agent] evt=stop_anr phase=encoder_lock ms=%u "
+                    "state=timeout_force_continue",
+                    deskhubp::ElapsedMsSince(t0));
+                p.LogStopSnapshot("encoder_lock_timeout", deskhubp::ElapsedMsSince(t0));
+                while (!lk.try_lock()) SleepUs(1000);
+            }
             deskhubp::LogStopPhase("agent", "encoder_lock", t0);
         }
         p.LogStopSnapshot("encoder_lock_held");

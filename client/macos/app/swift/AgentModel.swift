@@ -30,6 +30,7 @@ final class AgentModel {
 
     var isSharing = false
     var isStarting = false
+    var isStopping = false
     var startError = ""
     var clampWarning = ""
     var rows: [HostRow] = []
@@ -155,7 +156,7 @@ final class AgentModel {
     }
 
     func refreshShareSources() async {
-        guard !isSharing, !isStarting else { return }
+        guard !isSharing, !isStarting, !isStopping else { return }
         let found = await Task.detached { DeskhubAgent.listShareSources() }.value
         shareSources = found
         tickedSources = Set(found.map(\.id))
@@ -175,7 +176,7 @@ final class AgentModel {
     }
 
     func startSharing() async -> Bool {
-        guard !isStarting, !isSharing else { return false }
+        guard !isStarting, !isSharing, !isStopping else { return false }
         guard DeskhubClient.isValidPasscode(passcode) else {
             startError = DeskhubClient.string(DHStrPasscodeInvalid)
             return false
@@ -225,11 +226,19 @@ final class AgentModel {
     }
 
     func stopSharing() {
+        guard !isStopping else { return }
+        isStopping = true
         stopPolling()
-        DeskhubAgent.stop()
-        isSharing = false
-        rows = []
-        Task { await refreshShareSources() }
+        Task.detached { [weak self] in
+            DeskhubAgent.stop()
+            await MainActor.run {
+                guard let self else { return }
+                self.isSharing = false
+                self.isStopping = false
+                self.rows = []
+                Task { await self.refreshShareSources() }
+            }
+        }
     }
 
     private func startPolling() {
@@ -246,6 +255,7 @@ final class AgentModel {
     }
 
     private func poll() {
+        guard !isStopping else { return }
         rows = DeskhubAgent.hostRows()
         if !DeskhubAgent.isRunning {
             stopSharing()

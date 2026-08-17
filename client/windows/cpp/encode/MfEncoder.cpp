@@ -11,8 +11,10 @@
 #include <icodecapi.h>
 #include <d3d11.h>
 #include <d3d11_1.h>
+#include <dxgi.h>
 #include <wrl/client.h>
 #include <cstdio>
+#include <cwchar>
 #include <span>
 #include <utility>
 #include <vector>
@@ -88,7 +90,33 @@ struct MfEncoder::Impl {
             LOGE("[MfEncoder] No encoder MFT found.");
             return false;
         }
-        for (UINT32 i = 0; i < count && !activate; ++i) {
+
+        UINT vendorId = 0;
+        {
+            ComPtr<IDXGIDevice> dxgiDevice;
+            ComPtr<IDXGIAdapter> adapter;
+            if (SUCCEEDED(device.As(&dxgiDevice)) &&
+                SUCCEEDED(dxgiDevice->GetAdapter(&adapter))) {
+                DXGI_ADAPTER_DESC desc{};
+                if (SUCCEEDED(adapter->GetDesc(&desc))) vendorId = desc.VendorId;
+            }
+        }
+        auto vendorScore = [vendorId](const wchar_t* name) -> int {
+            if (!name) return 0;
+            const bool nvidia = wcsstr(name, L"NVIDIA") || wcsstr(name, L"Nvidia");
+            const bool intel = wcsstr(name, L"Intel") || wcsstr(name, L"Quick Sync");
+            const bool amd = wcsstr(name, L"AMD") || wcsstr(name, L"VCE") || wcsstr(name, L"AMF");
+            if (vendorId == 0x10DE && nvidia) return 3;
+            if (vendorId == 0x8086 && intel) return 3;
+            if (vendorId == 0x1002 && amd) return 3;
+            if (nvidia || intel || amd) return 1;
+            return 0;
+        };
+
+        int bestScore = -1;
+        UINT32 bestIndex = UINT32_MAX;
+        ComPtr<IMFTransform> bestMft;
+        for (UINT32 i = 0; i < count; ++i) {
             wchar_t name[256] = L"?";
             UINT32 nameLen = 0;
             activates[i]->GetString(MFT_FRIENDLY_NAME_Attribute, name, 256, &nameLen);
@@ -102,13 +130,25 @@ struct MfEncoder::Impl {
             }
             UINT32 aware = 0;
             candidateAttrs->GetUINT32(MF_SA_D3D11_AWARE, &aware);
-            std::wprintf(L"[MfEncoder] Found MFT: %ls (D3D11-aware=%u)\n", name, aware);
+            const int score = aware ? vendorScore(name) : -1;
+            std::wprintf(L"[MfEncoder] Found MFT: %ls (D3D11-aware=%u score=%d)\n", name, aware,
+                score);
             if (!aware) {
                 activates[i]->ShutdownObject();
                 continue;
             }
-            activate = activates[i];
-            mft = candidate;
+            if (score > bestScore) {
+                if (bestIndex != UINT32_MAX) activates[bestIndex]->ShutdownObject();
+                bestScore = score;
+                bestIndex = i;
+                bestMft = candidate;
+            } else {
+                activates[i]->ShutdownObject();
+            }
+        }
+        if (bestIndex != UINT32_MAX) {
+            activate = activates[bestIndex];
+            mft = bestMft;
         }
         for (UINT32 i = 0; i < count; ++i) activates[i]->Release();
         CoTaskMemFree(activates);

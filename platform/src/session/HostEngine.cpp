@@ -167,7 +167,8 @@ void HostEngine::ShutdownSource(HostSource& st) {
 
 bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     const deskhub::media::AgentOptions& opt, HostEnginePolicy policy) {
-    Stop();
+    std::lock_guard<std::recursive_mutex> life(lifeMutex_);
+    StopLocked();
 
     opt_ = opt;
     policy_ = std::move(policy);
@@ -252,6 +253,11 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 }
 
 void HostEngine::Stop() {
+    std::lock_guard<std::recursive_mutex> life(lifeMutex_);
+    StopLocked();
+}
+
+void HostEngine::StopLocked() {
     if (pipes_.empty() && !recvThread_.joinable()) return;
 
     const uint64_t tAll = NowUs();

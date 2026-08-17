@@ -378,19 +378,19 @@ struct NvencEncoder::Impl {
             registered.size(), (unsigned long long)frameCount,
             apiPhase.load(std::memory_order_acquire), apiDepth.load(std::memory_order_relaxed));
 
-        TimedApi("UnregisterResources", true, [&] {
+        TimedApi("UnregisterResources", false, [&] {
             for (auto& kv : registered) nv.nvEncUnregisterResource(enc, kv.second);
             registered.clear();
         });
 
         if (bitstream) {
-            TimedApi("DestroyBitstreamBuffer", true, [&] {
+            TimedApi("DestroyBitstreamBuffer", false, [&] {
                 nv.nvEncDestroyBitstreamBuffer(enc, bitstream);
                 bitstream = nullptr;
             });
         }
 
-        TimedApi("DestroyEncoder", true, [&] {
+        TimedApi("DestroyEncoder", false, [&] {
             nv.nvEncDestroyEncoder(enc);
             enc = nullptr;
         });

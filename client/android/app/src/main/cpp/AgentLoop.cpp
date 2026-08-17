@@ -15,7 +15,9 @@
 #include "deskhub/media/H264Encode.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/input/NullInputInjector.h"
+#include "deskhubp/system/Clock.h"
 
 namespace {
 
@@ -149,8 +151,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.stopCapture = [](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
+        p.failed.store(true);
         p.capture.Stop();
-        std::lock_guard<std::mutex> lk(p.encMutex);
+        std::unique_lock<std::mutex> lk(p.encMutex, std::defer_lock);
+        if (!deskhubp::TimedTryLock(lk, 3000)) {
+            LOGE("[DIAG][agent] evt=stop_anr phase=encoder_lock state=timeout_force_wait");
+            while (!lk.try_lock()) SleepUs(1000);
+        }
         p.encoder.reset();
     };
 

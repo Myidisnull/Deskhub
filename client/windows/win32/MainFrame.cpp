@@ -576,8 +576,10 @@ private:
     wxTimer copyKeyFeedbackTimer_;
     wxButton* copyFeedbackBtn_ = nullptr;
     const char* copyFeedbackRestore_ = ui::kCopySessionKey;
-    bool hosting_ = false;
     bool hostStarting_ = false;
+    bool hostStopping_ = false;
+    std::thread stopWorker_;
+    bool hosting_ = false;
     bool prompting_ = false;
     bool quitting_ = false;
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
@@ -1503,7 +1505,7 @@ void MainFrame::ShowIdleHostState() {
 }
 
 void MainFrame::OnShare() {
-    if (hostStarting_) return;
+    if (hostStarting_ || hostStopping_) return;
     if (hosting_) {
         LOGI("[UI] Share stop requested.");
         StopHosting();
@@ -1555,6 +1557,7 @@ void MainFrame::OnShare() {
 
 void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
     const AgentOptions& options) {
+    if (stopWorker_.joinable()) stopWorker_.join();
     hostStarting_ = true;
     shareBtn_->Disable();
     ApplyHostState(HostShareState::kStarting, ToWx(HostPortDetail()));
@@ -1639,21 +1642,35 @@ void MainFrame::OnCopyKeyFeedbackTimer(wxTimerEvent&) {
 }
 
 void MainFrame::StopHosting() {
+    if (hostStopping_) return;
+    hostStopping_ = true;
     hostTimer_.Stop();
     clipTimer_.Stop();
-    const uint64_t t0 = NowUs();
-    deskhubp::StopAnrWatch watch("ui", "stop_hosting");
-    LOGI("[DIAG][ui] evt=stop_begin phase=stop_hosting");
-    agentLoop_.Stop();
+    shareBtn_->Disable();
+    ApplyHostState(HostShareState::kStarting, ToWx(HostPortDetail()));
+
     agentDriver_.Join();
-    deskhubp::LogStopPhase("ui", "stop_hosting", t0);
-    hosting_ = false;
-    ShowIdleHostState();
-    RefreshDisplayChoices();
+    if (stopWorker_.joinable()) stopWorker_.join();
+    stopWorker_ = std::thread([this, alive = alive_] {
+        const uint64_t t0 = NowUs();
+        deskhubp::StopAnrWatch watch("ui", "stop_hosting");
+        LOGI("[DIAG][ui] evt=stop_begin phase=stop_hosting");
+        agentLoop_.Stop();
+        deskhubp::LogStopPhase("ui", "stop_hosting", t0);
+        if (!wxTheApp) return;
+        wxTheApp->CallAfter([this, alive] {
+            if (!*alive) return;
+            hosting_ = false;
+            hostStopping_ = false;
+            shareBtn_->Enable();
+            ShowIdleHostState();
+            RefreshDisplayChoices();
+        });
+    });
 }
 
 void MainFrame::OnHostTimer(wxTimerEvent&) {
-    if (!hosting_) return;
+    if (!hosting_ || hostStopping_) return;
 
     std::vector<AgentSourceStatus> rows;
     const deskhubp::AgentDriveState state = agentDriver_.Poll(agentLoop_, rows);
@@ -2161,8 +2178,8 @@ void MainFrame::ApplyBackgroundSetting() {
 }
 
 HostShareState MainFrame::CurrentHostShareState() const {
+    if (hostStopping_ || hostStarting_) return HostShareState::kStarting;
     if (hosting_) return HostShareState::kSharing;
-    if (hostStarting_) return HostShareState::kStarting;
     return HostShareState::kIdle;
 }
 
@@ -2250,13 +2267,14 @@ void MainFrame::Teardown() {
     clipTimer_.Stop();
     scanTimer_.Stop();
     scanner_.Cancel();
-    agentLoop_.Stop();
     agentDriver_.Join();
+    if (stopWorker_.joinable()) stopWorker_.join();
+    agentLoop_.Stop();
     poller_.Stop();
 }
 
 bool MainFrame::HasActiveSession() const {
-    return hosting_ || hostStarting_ || dh_viewers_open();
+    return hosting_ || hostStarting_ || hostStopping_ || dh_viewers_open();
 }
 
 bool MainFrame::ConfirmQuitIfBusy() {
