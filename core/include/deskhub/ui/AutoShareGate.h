@@ -22,10 +22,18 @@ public:
 
     AutoShareStep Advance(bool displaysReady);
 
-    uint32_t ProbeMs() const { return probeMs_; }
-    uint32_t WaitedMs() const { return waitedMs_; }
-    bool Decided() const { return decided_; }
-    AutoShareStep Decision() const { return decision_; }
+    uint32_t ProbeMs() const {
+        return probeMs_;
+    }
+    uint32_t WaitedMs() const {
+        return waitedMs_;
+    }
+    bool Decided() const {
+        return decided_;
+    }
+    AutoShareStep Decision() const {
+        return decision_;
+    }
 
 private:
     AutoShareStep Decide(AutoShareStep step);
