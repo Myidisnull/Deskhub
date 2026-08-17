@@ -1,4 +1,4 @@
-# Customize ↔ main base pin
+# Customize / main base pin
 
 English governs this file. Update it every time `develop` successfully absorbs `origin/main`.
 
