@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 @MainActor @Observable
 final class SharingModel {
@@ -88,7 +89,12 @@ final class SharingModel {
         while !Task.isCancelled {
             status = BroadcastStatus.load()
             addresses = LocalAddress.all()
+            applyHostKeepAwake()
             try? await Task.sleep(for: SharingModel.pollInterval)
         }
+    }
+
+    private func applyHostKeepAwake() {
+        UIApplication.shared.isIdleTimerDisabled = status.sharing && dh_keep_awake()
     }
 }

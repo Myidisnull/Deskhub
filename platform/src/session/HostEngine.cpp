@@ -238,10 +238,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     for (HostSource* st : live_) AttachSession(*st);
 
     localInputMon_.Start();
-    if (LoadUiSettings().keepAwake) {
-        AcquireKeepAwake();
-        keepAwakeHeld_ = true;
-    }
+    SyncKeepAwakeHeld(true);
     if (policy_.onSharing) policy_.onSharing();
     LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live_.size());
 
@@ -286,10 +283,7 @@ void HostEngine::StopLocked() {
         LogStopPhase("agent", "local_input", t0);
     }
 
-    if (keepAwakeHeld_) {
-        ReleaseKeepAwake();
-        keepAwakeHeld_ = false;
-    }
+    SyncKeepAwakeHeld(false);
 
     for (auto& up : pipes_) {
         StopAnrWatch watch("agent", "source_shutdown");
@@ -378,6 +372,16 @@ void HostEngine::DrainControlRequests() {
     PublishStatus();
 }
 
+void HostEngine::SyncKeepAwakeHeld(bool sessionActive) {
+    const bool want = sessionActive && ReadUiSettings().keepAwake;
+    if (want == keepAwakeHeld_) return;
+    if (want)
+        AcquireKeepAwake();
+    else
+        ReleaseKeepAwake();
+    keepAwakeHeld_ = want;
+}
+
 void HostEngine::RecvLoop() {
     beacon_.SetPasscode(opt_.passcode);
     beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false});
@@ -389,6 +393,7 @@ void HostEngine::RecvLoop() {
         beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false});
         DrainControlRequests();
         DrainLocalClipboard();
+        SyncKeepAwakeHeld(true);
     };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.source.closed = policy_.status.closed;

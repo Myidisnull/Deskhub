@@ -25,5 +25,6 @@ struct HomeView: View {
                 Label(DeskhubClient.string(DHStrSidebarSettings), systemImage: "gearshape")
             }
         }
+        .task { await model.sharing.poll() }
     }
 }

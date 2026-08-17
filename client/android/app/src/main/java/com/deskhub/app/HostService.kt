@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -30,6 +31,7 @@ class HostService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob())
     private var clipboardJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val projectionCallback =
         object : MediaProjection.Callback() {
@@ -75,7 +77,11 @@ class HostService : Service() {
         val options = ShareRequest.from(intent)
         scope.launch {
             val ok = NativeHost.start(options)
-            if (!ok) mainHandler.post { failWith(NativeHost.lastError()) }
+            if (!ok) {
+                mainHandler.post { failWith(NativeHost.lastError()) }
+                return@launch
+            }
+            mainHandler.post { acquireWakeLockIfNeeded() }
         }
         clipboardJob?.cancel()
         if (NativeClient.clipboardSync()) {
@@ -107,12 +113,31 @@ class HostService : Service() {
     }
 
     private fun stopSharing() {
+        releaseWakeLock()
         NativeHost.stop()
         projection?.unregisterCallback(projectionCallback)
         projection = null
         NativeHost.releaseProjection()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun acquireWakeLockIfNeeded() {
+        if (!NativeClient.keepAwake()) return
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock =
+            pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SystemRuntime:Host").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { lock ->
+            if (lock.isHeld) lock.release()
+        }
+        wakeLock = null
     }
 
     private fun foregroundType(): Int =

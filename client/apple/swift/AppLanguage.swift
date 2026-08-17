@@ -2,14 +2,14 @@ import Foundation
 
 enum AppLanguage: String, CaseIterable, Identifiable {
     case system = ""
-    case en = "en"
+    case en
     case zhHans = "zh-Hans"
-    case fr = "fr"
-    case de = "de"
-    case ru = "ru"
-    case ja = "ja"
-    case ko = "ko"
-    case ar = "ar"
+    case fr
+    case de
+    case ru
+    case ja
+    case ko
+    case ar
 
     var id: String { rawValue }
 

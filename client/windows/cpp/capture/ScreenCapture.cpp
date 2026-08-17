@@ -203,14 +203,16 @@ void ScreenCapture::Stop() {
     if (!impl_) return;
     const uint64_t tAll = NowUs();
     deskhubp::StopAnrWatch watch("agent", "wgc_stop", [impl = impl_.get()](uint32_t ms) {
-        LOGI("[DIAG][agent] evt=wgc_step step=blocked waited_ms=%u arrived_depth=%u has_pool=%d "
-             "has_session=%d tid=%lu",
+        LOGI(
+            "[DIAG][agent] evt=wgc_step step=blocked waited_ms=%u arrived_depth=%u has_pool=%d "
+            "has_session=%d tid=%lu",
             ms, impl->arrivedDepth.load(std::memory_order_relaxed), impl->framePool ? 1 : 0,
             impl->session ? 1 : 0, (unsigned long)GetCurrentThreadId());
     });
     auto snap = [impl = impl_.get()](const char* step) {
-        LOGI("[DIAG][agent] evt=wgc_step step=%s arrived_depth=%u has_pool=%d has_session=%d "
-             "tid=%lu",
+        LOGI(
+            "[DIAG][agent] evt=wgc_step step=%s arrived_depth=%u has_pool=%d has_session=%d "
+            "tid=%lu",
             step, impl->arrivedDepth.load(std::memory_order_relaxed), impl->framePool ? 1 : 0,
             impl->session ? 1 : 0, (unsigned long)GetCurrentThreadId());
     };

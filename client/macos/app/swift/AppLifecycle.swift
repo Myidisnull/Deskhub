@@ -26,12 +26,12 @@ final class AppLifecycle {
 
     func applyBackgroundSetting() {
         guard let agent else { return }
-        if agent.runInBackground && !agent.hideTrayIcon {
+        if agent.runInBackground, !agent.hideTrayIcon {
             tray.show()
             return
         }
         tray.hide()
-        if !agent.runInBackground && isInBackground {
+        if !agent.runInBackground, isInBackground {
             isInBackground = false
             if let window = mainWindow {
                 window.makeKeyAndOrderFront(nil)
@@ -192,7 +192,7 @@ struct WindowCloseHook: NSViewRepresentable {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         _ = dh_settings_load()
         _ = dh_log_start_process()
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
@@ -203,11 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
         false
     }
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows flag: Bool)
         -> Bool
     {
         if !flag {

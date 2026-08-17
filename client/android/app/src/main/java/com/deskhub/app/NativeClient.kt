@@ -383,10 +383,11 @@ object NativeClient {
 
     fun recentEncrypted(addr: String): Boolean = nativeRecentEncrypted(addr)
 
-    suspend fun recentRemove(addr: String) = withContext(Dispatchers.IO) {
-        nativeRecentRemove(addr)
-        nativeWatchRecent()
-    }
+    suspend fun recentRemove(addr: String) =
+        withContext(Dispatchers.IO) {
+            nativeRecentRemove(addr)
+            nativeWatchRecent()
+        }
 
     suspend fun watchRecent() = withContext(Dispatchers.IO) { nativeWatchRecent() }
 

@@ -67,10 +67,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
-import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
     private var pendingShare: HostService.ShareRequest? = null
@@ -154,9 +154,12 @@ class MainActivity : ComponentActivity() {
         sessionKey: String = "",
     ) {
         startActivity(
-            Intent(this, StreamActivity::class.java).putExtra("addr", addr).putExtra("passcode", passcode)
+            Intent(this, StreamActivity::class.java)
+                .putExtra("addr", addr)
+                .putExtra("passcode", passcode)
                 .putExtra("sessionKey", sessionKey)
-                .putExtra("source", sourceId).putExtra("srcIds", sources.map { it.id }.toIntArray())
+                .putExtra("source", sourceId)
+                .putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
                 .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
         )
@@ -389,14 +392,15 @@ private fun MainScreen(
                 onStopSharing = onStopSharing,
             )
 
-        is Step.Picking -> SourcePickerScreen(
-            address = address,
-            sources = s.sources,
-            onPick = { source ->
-                step = Step.Address
-                onOpenStream(address, passcode.trim(), source.id, s.sources, sessionKey.trim())
-            },
-        )
+        is Step.Picking ->
+            SourcePickerScreen(
+                address = address,
+                sources = s.sources,
+                onPick = { source ->
+                    step = Step.Address
+                    onOpenStream(address, passcode.trim(), source.id, s.sources, sessionKey.trim())
+                },
+            )
     }
 
     pendingPick?.let { pick ->
@@ -435,11 +439,12 @@ private fun copyToClipboard(
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.app_name), text))
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        Toast.makeText(
-            context,
-            NativeClient.string(NativeClient.STR_COPIED),
-            Toast.LENGTH_SHORT,
-        ).show()
+        Toast
+            .makeText(
+                context,
+                NativeClient.string(NativeClient.STR_COPIED),
+                Toast.LENGTH_SHORT,
+            ).show()
     }
 }
 
@@ -501,10 +506,11 @@ private fun PasscodeDialog(
                         Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_HINT))
                     },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.NumberPassword,
-                        imeAction = ImeAction.Go,
-                    ),
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = KeyboardType.NumberPassword,
+                            imeAction = ImeAction.Go,
+                        ),
                     keyboardActions = KeyboardActions(onGo = { confirm() }),
                 )
             }
@@ -568,29 +574,30 @@ private fun HomeScreen(
 
         Column(modifier = Modifier.weight(1f)) {
             when (section) {
-                Section.CLIENT -> AddressScreen(
-                    address = address,
-                    onAddressChange = onAddressChange,
-                    connectPort = connectPort,
-                    onConnectPortChange = onConnectPortChange,
-                    passcode = passcode,
-                    onPasscodeChange = onPasscodeChange,
-                    sessionKey = sessionKey,
-                    onSessionKeyChange = onSessionKeyChange,
-                    deviceName = deviceName,
-                    onDeviceNameChange = onDeviceNameChange,
-                    busy = busy,
-                    error = error,
-                    onConnect = onConnect,
-                    scanHits = scanHits,
-                    recentDevices = recentDevices,
-                    scanStatus = scanStatus,
-                    recentNote = recentNote,
-                    onPickDevice = onPickDevice,
-                    onRescan = onRescan,
-                    onRefreshStatus = onRefreshStatus,
-                    onForgetDevice = onForgetDevice,
-                )
+                Section.CLIENT ->
+                    AddressScreen(
+                        address = address,
+                        onAddressChange = onAddressChange,
+                        connectPort = connectPort,
+                        onConnectPortChange = onConnectPortChange,
+                        passcode = passcode,
+                        onPasscodeChange = onPasscodeChange,
+                        sessionKey = sessionKey,
+                        onSessionKeyChange = onSessionKeyChange,
+                        deviceName = deviceName,
+                        onDeviceNameChange = onDeviceNameChange,
+                        busy = busy,
+                        error = error,
+                        onConnect = onConnect,
+                        scanHits = scanHits,
+                        recentDevices = recentDevices,
+                        scanStatus = scanStatus,
+                        recentNote = recentNote,
+                        onPickDevice = onPickDevice,
+                        onRescan = onRescan,
+                        onRefreshStatus = onRefreshStatus,
+                        onForgetDevice = onForgetDevice,
+                    )
 
                 Section.HOST ->
                     HostScreen(
@@ -867,10 +874,11 @@ private fun SettingsScreen(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Heading(NativeClient.string(NativeClient.STR_CLIENT_SETTINGS_HEADING))
@@ -1106,10 +1114,11 @@ private fun AddressScreen(
     val go = { if (ready) onConnect(NativeClient.composeAddress(trimmed, connectPort)) }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Heading(NativeClient.string(NativeClient.STR_CLIENT_HEADING))
@@ -1138,10 +1147,11 @@ private fun AddressScreen(
                 singleLine = true,
                 enabled = !busy,
                 modifier = Modifier.width(110.dp),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Go,
-                ),
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Go,
+                    ),
                 keyboardActions = KeyboardActions(onGo = { go() }),
             )
         }
@@ -1156,10 +1166,11 @@ private fun AddressScreen(
             singleLine = true,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.NumberPassword,
-                imeAction = ImeAction.Next,
-            ),
+            keyboardOptions =
+                KeyboardOptions(
+                    keyboardType = KeyboardType.NumberPassword,
+                    imeAction = ImeAction.Next,
+                ),
         )
 
         OutlinedTextField(
@@ -1172,10 +1183,11 @@ private fun AddressScreen(
             singleLine = true,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Ascii,
-                imeAction = ImeAction.Go,
-            ),
+            keyboardOptions =
+                KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Go,
+                ),
             keyboardActions = KeyboardActions(onGo = { go() }),
         )
 
@@ -1236,9 +1248,10 @@ private fun AddressScreen(
         DeviceSection(
             heading = NativeClient.string(NativeClient.STR_RECENT_DEVICES_HEADING),
             note = recentNote,
-            rows = recentDevices.map {
-                DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
-            },
+            rows =
+                recentDevices.map {
+                    DeviceRow(it.addr, it.ping, "${it.status}  ${it.lastConnected}", it.online)
+                },
             enabled = !busy,
             onRefresh = onRefreshStatus,
             onPick = { addr ->
@@ -1298,16 +1311,18 @@ private fun DeviceSection(
         HeadingRow(heading, onRefresh)
 
         for (row in rows) {
-            val tint = when (row.online) {
-                true -> OnlineColor
-                false -> OfflineColor
-                null -> HeadingColor
-            }
+            val tint =
+                when (row.online) {
+                    true -> OnlineColor
+                    false -> OfflineColor
+                    null -> HeadingColor
+                }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = enabled) { onPick(row.addr) }
-                    .padding(vertical = 6.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = enabled) { onPick(row.addr) }
+                        .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1349,19 +1364,21 @@ private fun SourcePickerScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(text = address, style = MaterialTheme.typography.titleMedium)
             sources.forEach { source ->
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { pickedId = source.id }
-                        .padding(vertical = 8.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { pickedId = source.id }
+                            .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -1385,9 +1402,10 @@ private fun SourcePickerScreen(
 
         Button(
             onClick = { sources.firstOrNull { it.id == pickedId }?.let(onPick) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
         ) { Text("Start viewing") }
     }
 }

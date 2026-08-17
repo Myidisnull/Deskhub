@@ -45,7 +45,7 @@
 - 设置：`runInBackground`、`runInBackgroundChoiceMade`、`hideTrayIcon`
 - Windows：`BackgroundPrompt`、`QuitBusyPrompt`
 - macOS：`AppLifecycle`、`BackgroundPromptSheet`、`TrayController`
-- Linux：后台开关 + `ApplyTrayMode` / 托盘
+- Linux：后台开关、`hideTrayIcon`、首次关窗 `BackgroundPrompt` + `ApplyTrayMode` / 托盘
 
 ### 2.5 日志策略 UI
 
@@ -66,8 +66,10 @@
 
 - 设置：`UiSettings.keepAwake`（默认开），键名 `keep_awake`
 - 平台：`deskhubp/system/KeepAwake.h` + Win/Mac/Linux/None
-- 引擎：`HostEngine` / `ClientEngine` 在会话起止时 Acquire/Release
+- 引擎：`HostEngine` / `ClientEngine` 在会话起止时 Acquire/Release；会话中改开关会在 tick 中同步
 - 各端设置开关；Android / iOS 观看页按设置控制屏幕常亮
+- Android Host：`HostService` 在分享成功后按设置持有 `PARTIAL_WAKE_LOCK`
+- iOS Host：主 App 在 Broadcast 分享中按设置禁用 idle timer（`SharingModel.poll`）
 - 与品牌/加密/托盘/三页导航无冲突；相对 main 为误砍后补回
 
 ---
@@ -123,12 +125,12 @@
 
 ### Linux GTK
 
-- 保留：语言、加密、后台+托盘、近期设备/LAN 列表
+- 保留：语言、加密、后台+`hideTrayIcon`+首次关窗提示、近期设备/LAN 列表
 - 禁止默认加回：`TerminalWindow`、配对/Devices 流程
 
 ### Android / iOS
 
-- 保留：System Runtime 品牌、语言、口令 + session key 连接/分享设置
+- 保留：System Runtime 品牌、语言、口令 + session key 连接/分享设置、keepAwake（观看页常亮；Android Host WakeLock；iOS 分享中 idle timer）
 - 禁止默认加回：Terminal Activity / NativeTerminal、iOS Devices 页、TrustPrompt、Terminal 屏
 
 ---

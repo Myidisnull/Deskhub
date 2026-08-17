@@ -105,8 +105,13 @@ private:
     void SetBusy(bool busy, const char* what);
 
     void ApplyTrayMode();
+    void SyncHideTrayControl();
     void ToggleWindowFromTray();
     void ShowMainWindow();
+    bool HasActiveSession() const;
+    bool ConfirmQuitIfBusy();
+    bool PromptBackgroundChoice();
+    void HideToBackground();
 
     static gboolean OnCopyFeedbackTimer(gpointer user);
     void FlashCopyFeedback(GtkWidget* button, const char* restoreLabel);
@@ -180,6 +185,7 @@ private:
     GtkWidget* autoShareCheck_ = nullptr;
     GtkWidget* autostartCheck_ = nullptr;
     GtkWidget* runInBackgroundCheck_ = nullptr;
+    GtkWidget* hideTrayIconCheck_ = nullptr;
     GtkWidget* clipboardCheck_ = nullptr;
     GtkWidget* keepAwakeCheck_ = nullptr;
     GtkWidget* encryptSessionCheck_ = nullptr;

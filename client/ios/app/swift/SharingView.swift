@@ -141,7 +141,6 @@ struct SharingView: View {
             }
             .padding()
         }
-        .task { await model.poll() }
         .task(id: copiedIp) {
             guard copiedIp != nil else { return }
             try? await Task.sleep(for: .seconds(1.5))

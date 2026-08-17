@@ -239,7 +239,7 @@ struct SettingsPage: View {
 
     private func saveLogDir() {
         let trimmed = agent.logDir.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && !dh_log_dir_usable(trimmed) {
+        if !trimmed.isEmpty, !dh_log_dir_usable(trimmed) {
             showLogDirError = true
             agent.logDir = DeskhubClient.cString(dh_settings_load().logDir)
             return

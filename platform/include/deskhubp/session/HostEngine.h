@@ -155,6 +155,7 @@ private:
     uint32_t startBitrateBps_ = 0;
     bool keepAwakeHeld_ = false;
 
+    void SyncKeepAwakeHeld(bool sessionActive);
     void StopLocked();
 };
 

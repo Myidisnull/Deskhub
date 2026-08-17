@@ -25,9 +25,9 @@ struct SettingsView: View {
                     .frame(width: 160)
                 }
                 deskhubHint(DeskhubClient.string(DHStrLanguageRestartHint))
-                .onChange(of: settings.language) { _, _ in
-                    settings.save()
-                }
+                    .onChange(of: settings.language) { _, _ in
+                        settings.save()
+                    }
 
                 deskhubSection(DeskhubClient.string(DHStrSettingsSectionConnection))
                 HStack(spacing: 12) {

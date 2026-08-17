@@ -69,7 +69,7 @@ final class ConnectModel {
             return nil
         }
         let key = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !key.isEmpty && !dh_is_valid_session_key(key) {
+        if !key.isEmpty, !dh_is_valid_session_key(key) {
             connectError = DeskhubClient.string(DHStrSessionKeyInvalid)
             return nil
         }

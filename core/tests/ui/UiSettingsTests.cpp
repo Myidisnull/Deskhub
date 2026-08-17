@@ -33,9 +33,67 @@ void TestRoundTrip() {
     s.autoShare = true;
     s.clipboardSync = true;
     s.keepAwake = false;
+    s.encryptSession = true;
+    s.escrowSessionKey = true;
+    s.sessionKeyLifetime = ui::SessionKeyLifetime::Persistent;
+    s.sessionKeyHex = std::string(64, 'a');
+    s.hostStaticSkHex = std::string(64, 'b');
     s.language = "zh-Hans";
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
+}
+
+void TestEncryptSessionPersistence() {
+    std::printf("[settings] encrypt-session fields round-trip and gate correctly...\n");
+    const ui::UiSettings defaults;
+    Check(!defaults.encryptSession && !defaults.escrowSessionKey, "encrypt defaults off");
+    Check(defaults.sessionKeyLifetime == ui::SessionKeyLifetime::PerShare,
+        "lifetime defaults to per-share");
+    Check(defaults.sessionKeyHex.empty() && defaults.hostStaticSkHex.empty(),
+        "no keys by default");
+
+    Check(ui::ParseUiSettings("encrypt_session=1").encryptSession, "encrypt round-trips on");
+    Check(!ui::ParseUiSettings("encrypt_session=0").encryptSession, "and off");
+    Check(ui::ParseUiSettings("escrow_session_key=1").escrowSessionKey, "escrow parses on");
+    Check(ui::ParseUiSettings("session_key_lifetime=1").sessionKeyLifetime ==
+              ui::SessionKeyLifetime::Persistent,
+        "persistent lifetime round-trips");
+    Check(ui::ParseUiSettings("session_key_lifetime=0").sessionKeyLifetime ==
+              ui::SessionKeyLifetime::PerShare,
+        "per-share lifetime round-trips");
+    Check(ui::ParseUiSettings("session_key_lifetime=9").sessionKeyLifetime ==
+              ui::SessionKeyLifetime::PerShare,
+        "unknown lifetime falls back to per-share");
+
+    const std::string keyA(64, 'c');
+    const std::string keyB(64, 'd');
+    ui::UiSettings on;
+    on.encryptSession = true;
+    on.escrowSessionKey = true;
+    on.sessionKeyLifetime = ui::SessionKeyLifetime::Persistent;
+    on.sessionKeyHex = keyA;
+    on.hostStaticSkHex = keyB;
+    const ui::UiSettings back = ui::ParseUiSettings(ui::SerializeUiSettings(on));
+    Check(back.encryptSession && back.escrowSessionKey, "encrypt+escrow survive serialize");
+    Check(back.sessionKeyLifetime == ui::SessionKeyLifetime::Persistent, "lifetime survives");
+    Check(back.sessionKeyHex == keyA && back.hostStaticSkHex == keyB, "keys survive");
+
+    ui::UiSettings off = on;
+    off.encryptSession = false;
+    const std::string offText = ui::SerializeUiSettings(off);
+    const ui::UiSettings offBack = ui::ParseUiSettings(offText);
+    Check(!offBack.encryptSession, "turning encrypt off persists");
+    Check(!offBack.escrowSessionKey, "escrow is cleared when encrypt is off");
+    Check(offBack.sessionKeyLifetime == ui::SessionKeyLifetime::PerShare,
+        "lifetime resets when encrypt is off");
+    Check(offBack.sessionKeyHex.empty(), "session key is not written when encrypt is off");
+    Check(offBack.hostStaticSkHex == keyB, "host static key still persists");
+    Check(offText.find("escrow_session_key=0") != std::string::npos, "escrow writes as off");
+
+    Check(ui::ParseUiSettings("session_key=short").sessionKeyHex.empty(),
+        "short session keys are dropped");
+    Check(ui::ParseUiSettings("host_static_sk=short").hostStaticSkHex.empty(),
+        "short host keys are dropped");
 }
 
 void TestBindIpPersistence() {
@@ -219,6 +277,7 @@ void TestBoundsAreEnforced() {
 
 void RunUiSettingsTests() {
     TestRoundTrip();
+    TestEncryptSessionPersistence();
     TestBindIpPersistence();
     TestBehaviorTogglesPersist();
     TestDeviceNamePersistence();

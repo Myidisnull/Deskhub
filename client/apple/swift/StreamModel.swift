@@ -23,7 +23,8 @@ final class StreamModel {
     private var layer: AVSampleBufferDisplayLayer?
 
     init(address: String, passcode: String, sourceId: UInt8, sourceName: String,
-        sessionKey: String = "") {
+         sessionKey: String = "")
+    {
         self.address = address
         self.passcode = passcode
         self.sessionKey = sessionKey
@@ -39,7 +40,7 @@ final class StreamModel {
         let handlers = makeHandlers()
         let opened = await Task.detached {
             ClientSession.start(address: addr, sourceId: sid, passcode: code, sessionKey: key,
-                handlers: handlers)
+                                handlers: handlers)
         }.value
         guard let opened else {
             failedToStart = true

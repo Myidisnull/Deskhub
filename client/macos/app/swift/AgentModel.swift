@@ -80,7 +80,7 @@ final class AgentModel {
     func save() {
         if !runInBackground { hideTrayIcon = false }
         let trimmedDir = logDir.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedDir.isEmpty && !dh_log_dir_usable(trimmedDir) {
+        if !trimmedDir.isEmpty, !dh_log_dir_usable(trimmedDir) {
             logDir = DeskhubClient.cString(dh_settings_load().logDir)
             return
         }

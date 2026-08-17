@@ -103,10 +103,7 @@ public:
             decodeRunning_ = true;
             surfaceAckGen_ = surfaceGen_;
         }
-        if (LoadUiSettings().keepAwake) {
-            AcquireKeepAwake();
-            keepAwakeHeld_ = true;
-        }
+        SyncKeepAwakeHeld(true);
         decodeThread_ = std::thread([this] { DecodeThread(); });
         netThread_ = std::thread([this] { NetThread(); });
         LOGI("[Client] Connecting to %s (source %u) ...", cfg_.server.ToString().c_str(),
@@ -144,10 +141,7 @@ public:
             LogStopPhase("client", "decode_join", t0);
         }
         sock_.Close();
-        if (keepAwakeHeld_) {
-            ReleaseKeepAwake();
-            keepAwakeHeld_ = false;
-        }
+        SyncKeepAwakeHeld(false);
         LogStopPhase("client", "stop_total", tAll);
     }
 
@@ -531,6 +525,7 @@ private:
                     p.RequestKeyframe("q_overflow", now);
             };
             hooks.beforeTick = [this, &batch](deskhub::ClientPump& p, uint64_t now) {
+                SyncKeepAwakeHeld(true);
                 input_.Drain(now, batch);
                 for (const auto& e : batch) p.QueueInput(e);
                 if (cfg_.alwaysFocused || input_.wantsFocus()) p.SetFocused(true);
@@ -652,6 +647,16 @@ private:
     deskhub::diag::ClientDiag diag_;
 
     bool keepAwakeHeld_ = false;
+
+    void SyncKeepAwakeHeld(bool sessionActive) {
+        const bool want = sessionActive && ReadUiSettings().keepAwake;
+        if (want == keepAwakeHeld_) return;
+        if (want)
+            AcquireKeepAwake();
+        else
+            ReleaseKeepAwake();
+        keepAwakeHeld_ = want;
+    }
 
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;

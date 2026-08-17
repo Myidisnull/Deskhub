@@ -1002,6 +1002,10 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(runInBackgroundCheck_), settings_.runInBackground);
     gtk_box_pack_start(GTK_BOX(box), runInBackgroundCheck_, FALSE, FALSE, 0);
+    hideTrayIconCheck_ = gtk_check_button_new_with_label(ui::kHideTrayIconLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(hideTrayIconCheck_), settings_.hideTrayIcon);
+    gtk_box_pack_start(GTK_BOX(box), hideTrayIconCheck_, FALSE, FALSE, 0);
+    SyncHideTrayControl();
 
     gtk_box_pack_start(GTK_BOX(box), Section("Logs"), FALSE, FALSE, 0);
     GtkWidget* logGrid = gtk_grid_new();
@@ -1080,6 +1084,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(autostartCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(autoShareCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(runInBackgroundCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(hideTrayIconCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(logDirEntry_, "activate", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(logDirEntry_, "focus-out-event", G_CALLBACK(OnLogDirFocusOut), this);
     g_signal_connect(browseLogDir, "clicked", G_CALLBACK(OnLogDirBrowseClicked), this);
@@ -1193,6 +1198,9 @@ void MainWindow::SaveSettings() {
     settings_.runInBackground =
         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(runInBackgroundCheck_));
     if (settings_.runInBackground) settings_.runInBackgroundChoiceMade = true;
+    settings_.hideTrayIcon = settings_.runInBackground &&
+                             gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(hideTrayIconCheck_));
+    SyncHideTrayControl();
     ApplyTrayMode();
     settings_.logMaxFileMb =
         uint32_t(gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(logMaxFileMbSpin_)));
@@ -1298,21 +1306,101 @@ void MainWindow::SaveRecentDevices() {
 }
 
 void MainWindow::ApplyTrayMode() {
-    if (settings_.runInBackground && !tray_.Attached()) {
+    const bool wantTray = settings_.runInBackground && !settings_.hideTrayIcon;
+    if (wantTray && !tray_.Attached()) {
         TrayIcon::Actions actions;
         actions.onToggleWindow = [this] { ToggleWindowFromTray(); };
         actions.onToggleShare = [this] { OnShare(); };
-        actions.onQuit = [this] { gtk_widget_destroy(window_); };
+        actions.onQuit = [this] {
+            if (!ConfirmQuitIfBusy()) return;
+            gtk_widget_destroy(window_);
+        };
         if (tray_.Attach(actions)) {
             tray_.SetSharing(hosting_);
             tray_.SetWindowVisible(gtk_widget_get_visible(window_));
         }
         return;
     }
-    if (!settings_.runInBackground && tray_.Attached()) {
+    if (!wantTray && tray_.Attached()) {
         tray_.Detach();
-        ShowMainWindow();
+        if (!settings_.runInBackground) ShowMainWindow();
     }
+}
+
+void MainWindow::SyncHideTrayControl() {
+    if (!hideTrayIconCheck_ || !runInBackgroundCheck_) return;
+    const bool allow = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(runInBackgroundCheck_));
+    gtk_widget_set_sensitive(hideTrayIconCheck_, allow);
+    gtk_widget_set_visible(hideTrayIconCheck_, allow);
+    if (!allow) {
+        const bool wasLoading = loadingSettings_;
+        loadingSettings_ = true;
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(hideTrayIconCheck_), FALSE);
+        loadingSettings_ = wasLoading;
+        settings_.hideTrayIcon = false;
+    }
+}
+
+void MainWindow::HideToBackground() {
+    gtk_widget_hide(window_);
+    tray_.SetWindowVisible(false);
+    ApplyTrayMode();
+}
+
+bool MainWindow::HasActiveSession() const {
+    return hosting_ || hostStarting_ || hostStopping_ || !openViewers_.none();
+}
+
+bool MainWindow::ConfirmQuitIfBusy() {
+    if (!HasActiveSession()) return true;
+    GtkWidget* dlg = gtk_message_dialog_new(GTK_WINDOW(window_), GTK_DIALOG_MODAL,
+        GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, "%s", ui::kAppTitle.get());
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s",
+        ui::kQuitWhileBusyMessage.get());
+    gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kQuitWhileBusyCancel, GTK_RESPONSE_CANCEL);
+    gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kQuitWhileBusyQuit, GTK_RESPONSE_ACCEPT);
+    const gint response = gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    return response == GTK_RESPONSE_ACCEPT;
+}
+
+bool MainWindow::PromptBackgroundChoice() {
+    GtkWidget* dlg = gtk_dialog_new_with_buttons(ui::kBackgroundPromptTitle, GTK_WINDOW(window_),
+        GTK_DIALOG_MODAL, ui::kBackgroundPromptClose, GTK_RESPONSE_CANCEL,
+        ui::kBackgroundPromptConfirm, GTK_RESPONSE_ACCEPT, nullptr);
+    GtkWidget* content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    gtk_container_set_border_width(GTK_CONTAINER(content), 16);
+    GtkWidget* message = gtk_label_new(ui::kBackgroundPromptMessage);
+    gtk_label_set_line_wrap(GTK_LABEL(message), TRUE);
+    gtk_widget_set_halign(message, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(content), message, FALSE, FALSE, 0);
+
+    GtkWidget* yes = gtk_radio_button_new_with_label(nullptr, ui::kBackgroundPromptYes);
+    GtkWidget* no = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(yes),
+        ui::kBackgroundPromptNo);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(yes), TRUE);
+    GtkWidget* choices = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 28);
+    gtk_box_pack_start(GTK_BOX(choices), yes, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(choices), no, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), choices, FALSE, FALSE, 12);
+    gtk_widget_show_all(dlg);
+
+    const gint response = gtk_dialog_run(GTK_DIALOG(dlg));
+    const bool runInBackground = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(yes));
+    gtk_widget_destroy(dlg);
+    if (response != GTK_RESPONSE_ACCEPT) return false;
+
+    settings_.runInBackground = runInBackground;
+    settings_.runInBackgroundChoiceMade = true;
+    if (!runInBackground) settings_.hideTrayIcon = false;
+    loadingSettings_ = true;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(runInBackgroundCheck_), runInBackground);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(hideTrayIconCheck_), FALSE);
+    loadingSettings_ = false;
+    SyncHideTrayControl();
+    deskhubp::SaveUiSettings(settings_);
+    ApplyTrayMode();
+    return true;
 }
 
 void MainWindow::ToggleWindowFromTray() {
@@ -2065,11 +2153,20 @@ void MainWindow::OnHostRowActionClicked(GtkButton* b, gpointer user) {
 
 gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    if (self->settings_.runInBackground && self->tray_.Attached()) {
-        gtk_widget_hide(self->window_);
-        self->tray_.SetWindowVisible(false);
+    if (!self->settings_.runInBackgroundChoiceMade) {
+        if (!self->PromptBackgroundChoice()) return TRUE;
+        if (self->settings_.runInBackground) {
+            self->HideToBackground();
+            return TRUE;
+        }
+        if (!self->ConfirmQuitIfBusy()) return TRUE;
+        return FALSE;
+    }
+    if (self->settings_.runInBackground) {
+        self->HideToBackground();
         return TRUE;
     }
+    if (!self->ConfirmQuitIfBusy()) return TRUE;
     return FALSE;
 }
 
