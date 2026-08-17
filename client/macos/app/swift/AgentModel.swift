@@ -158,6 +158,13 @@ final class AgentModel {
         }
     }
 
+    func stopAndAttachShell(_ row: HostRow) -> Bool {
+        guard isSharing, row.canAttachLocally else { return false }
+        guard DeskhubAgent.attachShell(row.termId) else { return false }
+        rows = DeskhubAgent.hostRows()
+        return true
+    }
+
     func answerPairing(_ ask: PairingAsk, allow: Bool) {
         dha_answer_pairing(ask.addrPacked, allow)
         pairingAsks.removeAll { $0.addrPacked == ask.addrPacked }

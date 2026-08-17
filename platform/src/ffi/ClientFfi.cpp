@@ -165,6 +165,10 @@ const char* dh_string(DHStringId id) {
         case DHStrBitrateLabel: return deskhub::ui::kBitrateLabel;
         case DHStrQualityLabel: return deskhub::ui::kQualityLabel;
         case DHStrTerminalCloseButton: return deskhub::ui::kTerminalCloseButton;
+        case DHStrAttachShellAction: return deskhub::ui::kAttachShellAction;
+        case DHStrTerminalLocalWindowTitle: return deskhub::ui::kTerminalLocalWindowTitle;
+        case DHStrTerminalAttachedHere: return deskhub::ui::kTerminalAttachedHere;
+        case DHStrTerminalClosed: return deskhub::ui::kTerminalClosed;
         case DHStrShareClampWarning: {
             static const std::string warning = deskhub::ui::ShareClampWarning();
             return warning.c_str();

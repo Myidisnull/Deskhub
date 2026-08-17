@@ -115,10 +115,12 @@ struct HostColumn {
 };
 
 constexpr int kHostColumnCount = 8;
+constexpr int kHostCellGap = 8;
 constexpr int kHostActionWidth = 104;
+constexpr int kHostAttachWidth = 104;
+constexpr int kHostActionsWidth = kHostActionWidth + kHostCellGap + kHostAttachWidth;
 constexpr int kHostRowHeight = 32;
 constexpr int kHostRowBarWidth = 3;
-constexpr int kHostCellGap = 8;
 
 const HostColumn kHostColumns[kHostColumnCount] = {{"Source", 168, wxALIGN_LEFT, false},
     {"Size", 88, wxALIGN_LEFT, false}, {"Viewers", 58, wxALIGN_RIGHT, true},
@@ -345,6 +347,7 @@ private:
     void StopTerminalRow();
     void RefreshShells();
     void KickShell(uint32_t termId);
+    void StopAndAttachShell(uint32_t termId);
     void ApplySharingBanner();
     void OnHostTimer(wxTimerEvent& event);
     void OnClipboardTimer(wxTimerEvent& event);
@@ -352,6 +355,7 @@ private:
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
     wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
+    wxButton* MakeRowAttach(wxWindow* parent, const ui::HostRow& ref);
     void RebuildHostTable();
     void ShowHostTable(bool sharing);
     void RelayoutHostPage();
@@ -483,7 +487,7 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
 
     SetSizer(root);
     SetMinClientSize(FromDIP(wxSize(1000, 640)));
-    SetClientSize(FromDIP(wxSize(1140, 780)));
+    SetClientSize(FromDIP(wxSize(1240, 780)));
     Centre();
 
     hostTimer_.SetOwner(this, kHostTimerId);
@@ -1141,7 +1145,7 @@ wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
         headerRow->Add(title, wxSizerFlags().CentreVertical().Border(wxRIGHT,
                                   FromDIP(kHostCellGap)));
     }
-    headerRow->AddSpacer(FromDIP(kHostActionWidth));
+    headerRow->AddSpacer(FromDIP(kHostActionsWidth));
     header->SetSizer(headerRow);
     sizer->Add(header, wxSizerFlags().Expand());
 
@@ -1161,12 +1165,21 @@ wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
     return card;
 }
 
+bool IsAttachedLocally(const ui::HostRow& ref) {
+    return ref.terminal && ref.viewer && ref.shellState == deskhub::TerminalState::Local;
+}
+
+bool CanAttachLocally(const ui::HostRow& ref) {
+    return ref.terminal && ref.viewer && ref.shellState != deskhub::TerminalState::Local;
+}
+
 wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
     const bool viewer = ref.viewer;
+    const bool remoteRow = viewer && !IsAttachedLocally(ref);
     auto* button = new wxButton(parent, wxID_ANY,
-        ToWx(viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
+        ToWx(remoteRow ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
     button->SetMinSize(FromDIP(wxSize(kHostActionWidth, 26)));
-    PaintButton(button, viewer ? kWarning : kOffline);
+    PaintButton(button, remoteRow ? kWarning : kOffline);
 
     if (ref.terminal) {
         const uint32_t termId = ref.termId;
@@ -1189,6 +1202,15 @@ wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
             StopDisplay(sourceId);
         }
     });
+    return button;
+}
+
+wxButton* MainFrame::MakeRowAttach(wxWindow* parent, const ui::HostRow& ref) {
+    auto* button = new wxButton(parent, wxID_ANY, ToWx(ui::kAttachShellAction));
+    button->SetMinSize(FromDIP(wxSize(kHostAttachWidth, 26)));
+    PaintButton(button, kOffline);
+    const uint32_t termId = ref.termId;
+    button->Bind(wxEVT_BUTTON, [this, termId](wxCommandEvent&) { StopAndAttachShell(termId); });
     return button;
 }
 
@@ -1227,6 +1249,12 @@ void MainFrame::RebuildHostTable() {
                                         FromDIP(kHostCellGap)));
         }
         row->Add(MakeRowAction(view.panel, ref), wxSizerFlags().CentreVertical());
+        row->AddSpacer(FromDIP(kHostCellGap));
+        if (CanAttachLocally(ref)) {
+            row->Add(MakeRowAttach(view.panel, ref), wxSizerFlags().CentreVertical());
+        } else {
+            row->AddSpacer(FromDIP(kHostAttachWidth));
+        }
         row->AddSpacer(FromDIP(kHostCellGap));
         view.panel->SetSizer(row);
 
@@ -1426,6 +1454,13 @@ void MainFrame::RefreshShells() {
 void MainFrame::KickShell(uint32_t termId) {
     if (!terminalHost_.Running()) return;
     terminalHost_.KickSession(termId);
+}
+
+void MainFrame::StopAndAttachShell(uint32_t termId) {
+    if (!terminalHost_.AttachLocal(termId)) return;
+    RefreshShells();
+    UpdateHostRows(hostStatus_);
+    if (!OpenHostTerminalWindow(this, terminalHost_, termId)) KickShell(termId);
 }
 
 void MainFrame::ApplySharingBanner() {

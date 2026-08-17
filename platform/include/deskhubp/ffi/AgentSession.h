@@ -3,9 +3,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "deskhubp/ffi/TerminalFfi.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef enum {
+    DHShellLive = 0,
+    DHShellDetached = 1,
+    DHShellLocal = 2,
+} DHShellState;
 
 typedef struct {
     uint32_t id;
@@ -19,6 +27,7 @@ typedef struct {
     bool terminal;
     uint8_t sourceId;
     uint32_t termId;
+    uint8_t shellState;
     bool online;
     char viewerAddr[192];
     char source[256];
@@ -62,6 +71,22 @@ bool dha_terminal_active(void);
 void dha_kick_shell(uint32_t term_id);
 
 void dha_stop_terminal(void);
+
+bool dha_attach_shell(uint32_t term_id);
+
+bool dha_local_shell_alive(uint32_t term_id);
+
+void dha_close_local_shell(uint32_t term_id);
+
+bool dha_local_grid(uint32_t term_id, uint32_t scrollOffset, DHTermCell* cells,
+    uint32_t cellCapacity, DHTermGrid* outGrid);
+
+void dha_local_send_key(uint32_t term_id, int32_t key, uint32_t codepoint, bool shift, bool alt,
+    bool ctrl);
+
+void dha_local_send_text(uint32_t term_id, const char* utf8);
+
+void dha_local_resize(uint32_t term_id, uint16_t cols, uint16_t rows);
 
 int dha_take_pairing_requests(DHPairingRequest* out, int capacity);
 

@@ -4,8 +4,8 @@
 #include <cstring>
 #include <string>
 
-#include "deskhub/terminal/Palette.h"
 #include "deskhub/ui/Strings.h"
+#include "deskhubp/ffi/TermGridFill.h"
 #include "deskhubp/session/TerminalViewer.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -100,47 +100,15 @@ void dh_term_reject_key(DHTermSession* s) {
 
 bool dh_term_grid(DHTermSession* s, uint32_t scrollOffset, DHTermCell* cells,
     uint32_t cellCapacity, DHTermGrid* outGrid) {
-    if (s == nullptr || outGrid == nullptr) return false;
-    const deskhubp::TerminalSnapshot shot = s->viewer.Snapshot(scrollOffset);
-
-    outGrid->rows = shot.size.rows;
-    outGrid->cols = shot.size.cols;
-    outGrid->cursorRow = shot.cursor.row;
-    outGrid->cursorCol = shot.cursor.col;
-    outGrid->cursorVisible = shot.cursor.visible;
-    outGrid->scrollbackRows = uint32_t(shot.scrollbackRows);
-    outGrid->scrollOffset = uint32_t(shot.scrollOffset);
-    outGrid->revision = shot.revision;
-
-    const uint32_t needed = uint32_t(shot.size.rows) * shot.size.cols;
-    if (cells == nullptr || cellCapacity < needed) return false;
-
-    for (uint32_t i = 0; i < needed && i < shot.cells.size(); ++i) {
-        const deskhub::term::Cell& cell = shot.cells[i];
-        const deskhub::term::CellColors colors = deskhub::term::ResolveCell(cell.pen, false);
-        DHTermCell& out = cells[i];
-        out.codepoint = uint32_t(cell.ch);
-        out.fgR = colors.fg.r;
-        out.fgG = colors.fg.g;
-        out.fgB = colors.fg.b;
-        out.bgR = colors.bg.r;
-        out.bgG = colors.bg.g;
-        out.bgB = colors.bg.b;
-        out.attrs = cell.pen.attrs;
-    }
-    return true;
+    if (s == nullptr) return false;
+    return deskhubp::FillTermGrid(s->viewer.Snapshot(scrollOffset), cells, cellCapacity, outGrid);
 }
 
 void dh_term_send_key(DHTermSession* s, int32_t key, uint32_t codepoint, bool shift, bool alt,
     bool ctrl) {
     if (s == nullptr) return;
-    if (key < DHTermKeyChar || key > DHTermKeyF12) return;
     deskhub::term::TermKeyEvent event;
-    event.key = deskhub::term::TermKey(key);
-    event.codepoint = char32_t(codepoint);
-    event.mods.shift = shift;
-    event.mods.alt = alt;
-    event.mods.ctrl = ctrl;
+    if (!deskhubp::DecodeTermKey(key, codepoint, shift, alt, ctrl, event)) return;
     s->viewer.SendKey(event);
 }
 

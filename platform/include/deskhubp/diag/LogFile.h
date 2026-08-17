@@ -117,8 +117,9 @@ inline bool StartProcessLog(std::wstring* outPath = nullptr) {
 
     const std::wstring full = dir + L"\\" + name;
 
-    std::FILE* redirected = nullptr;
-    if (_wfreopen_s(&redirected, full.c_str(), L"w", stdout) != 0 || !redirected) return false;
+#pragma warning(suppress : 4996)
+    std::FILE* redirected = _wfreopen(full.c_str(), L"w", stdout);
+    if (!redirected) return false;
     std::setvbuf(stdout, buffer, _IOFBF, sizeof(buffer));
 
     _dup2(_fileno(stdout), _fileno(stderr));

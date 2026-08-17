@@ -34,6 +34,14 @@ struct DeskhubApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 900, height: 560)
 
+        WindowGroup(id: "localShell", for: UInt32.self) { $termId in
+            if let termId {
+                LocalShellWindow(termId: termId)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 900, height: 560)
+
         MenuBarExtra(
             "Deskhub",
             systemImage: "rectangle.on.rectangle",
@@ -61,6 +69,29 @@ private struct TerminalWindow: View {
                 if !model.open(address: request.address, passcode: request.passcode) {
                     dismiss()
                 }
+            }
+            .onDisappear { model.stop() }
+    }
+}
+
+private struct LocalShellWindow: View {
+    let termId: UInt32
+    @State private var model = TerminalModel()
+    @Environment(\.dismiss) private var dismiss
+
+    private var title: String { DeskhubClient.string(DHStrTerminalLocalWindowTitle) }
+
+    var body: some View {
+        TerminalScreen(model: model, title: title) { dismiss() }
+            .navigationTitle(title)
+            .frame(minWidth: 640, idealWidth: 900, maxWidth: .infinity,
+                   minHeight: 400, idealHeight: 560, maxHeight: .infinity)
+            .task {
+                guard dha_local_shell_alive(termId) else {
+                    dismiss()
+                    return
+                }
+                model.attach(LocalShellFeed(termId: termId))
             }
             .onDisappear { model.stop() }
     }

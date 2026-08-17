@@ -424,6 +424,21 @@ bool LocalSnapshotContains(deskhubp::TerminalHost& term, uint32_t termId,
     return false;
 }
 
+size_t CountInLocalSnapshot(deskhubp::TerminalHost& term, uint32_t termId, char32_t ch) {
+    const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
+    size_t found = 0;
+    for (const deskhub::term::Cell& cell : shot.cells)
+        if (cell.ch == ch) ++found;
+    return found;
+}
+
+void TypeLocalChar(deskhubp::TerminalHost& term, uint32_t termId, char32_t ch) {
+    deskhub::term::TermKeyEvent key;
+    key.key = deskhub::term::TermKey::Char;
+    key.codepoint = ch;
+    term.SendLocalKey(termId, key);
+}
+
 void TestHostStopsAndAttachesShell() {
     std::printf("[termhost] the host takes a shell over and carries on where it stood...\n");
     if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
@@ -498,6 +513,23 @@ void TestHostStopsAndAttachesShell() {
         "a command typed at the host runs in the very same shell");
     Check(!LocalSnapshotContains(host.term, termId, "deskhub-intruder"),
         "while the kicked client can no longer type into it");
+
+    const std::string typed = "zqx";
+    bool everyKeyLandedOnce = true;
+    for (size_t i = 0; i < typed.size(); ++i) {
+        TypeLocalChar(host.term, termId, char32_t(typed[i]));
+        const std::string sofar = typed.substr(0, i + 1);
+        everyKeyLandedOnce &= WaitFor(
+            [&host, termId, sofar] { return LocalSnapshotContains(host.term, termId, sofar); },
+            10000);
+        SleepUs(150'000);
+    }
+    Check(everyKeyLandedOnce,
+        "keys typed one at a time, with a human's pause between them, arrive in order");
+    bool eachKeyOnce = true;
+    for (const char marker : typed)
+        eachKeyOnce &= CountInLocalSnapshot(host.term, termId, char32_t(marker)) == 1;
+    Check(eachKeyOnce, "and one key press puts exactly one character on the grid");
 
     host.term.ResizeLocal(termId, deskhub::TermSize{100, 30});
     Check(host.Sessions()[0].size == deskhub::TermSize{100, 30},

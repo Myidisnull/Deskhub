@@ -3,6 +3,7 @@ import SwiftUI
 struct HostPage: View {
     @Bindable var agent: AgentModel
     let onShare: () -> Void
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -33,8 +34,12 @@ struct HostPage: View {
             HostStatusBanner(state: shareState, detail: agent.statusLine)
 
             if agent.isSharing {
-                HostSourceTable(rows: agent.rows) { agent.runRowAction($0) }
-                    .frame(minHeight: 170)
+                HostSourceTable(
+                    rows: agent.rows,
+                    onAction: { agent.runRowAction($0) },
+                    onAttach: { attachShell($0) }
+                )
+                .frame(minHeight: 170)
             } else {
                 SharePickerTable(
                     sources: agent.shareSources,
@@ -64,6 +69,11 @@ struct HostPage: View {
         .task { await agent.refreshShareSources() }
         .onAppear { agent.loadAddresses() }
         .onChange(of: agent.bindIp) { _, _ in agent.save() }
+    }
+
+    private func attachShell(_ row: HostRow) {
+        guard agent.stopAndAttachShell(row) else { return }
+        openWindow(id: "localShell", value: row.termId)
     }
 
     private var shareState: HostShareState {
@@ -148,6 +158,7 @@ struct HostStatusBanner: View {
 struct HostSourceTable: View {
     let rows: [HostRow]
     let onAction: (HostRow) -> Void
+    let onAttach: (HostRow) -> Void
 
     var body: some View {
         Table(rows) {
@@ -160,6 +171,7 @@ struct HostSourceTable: View {
             TableColumn("Mbps") { cell($0, $0.mbps) }.width(min: 44, ideal: 48)
             TableColumn("RTT") { cell($0, $0.rtt) }.width(min: 42, ideal: 48)
             TableColumn("") { action($0) }.width(92)
+            TableColumn("") { attach($0) }.width(110)
         }
     }
 
@@ -168,16 +180,27 @@ struct HostSourceTable: View {
     }
 
     private func action(_ row: HostRow) -> some View {
-        Button(
+        let remoteRow = row.viewer && !row.attachedLocally
+        return Button(
             DeskhubClient.string(
-                row.viewer ? DHStrDisconnectViewerAction : DHStrStopDisplayAction
+                remoteRow ? DHStrDisconnectViewerAction : DHStrStopDisplayAction
             )
         ) {
             onAction(row)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
-        .tint(row.viewer ? DeskhubPalette.warning : DeskhubPalette.offline)
+        .tint(remoteRow ? DeskhubPalette.warning : DeskhubPalette.offline)
+    }
+
+    @ViewBuilder
+    private func attach(_ row: HostRow) -> some View {
+        if row.canAttachLocally {
+            Button(DeskhubClient.string(DHStrAttachShellAction)) { onAttach(row) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(DeskhubPalette.offline)
+        }
     }
 }
 

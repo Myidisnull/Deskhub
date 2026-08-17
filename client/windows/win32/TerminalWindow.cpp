@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -11,7 +12,9 @@
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Palette.h"
 #include "deskhub/ui/Strings.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhubp/net/UdpSocket.h"
+#include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/session/TerminalViewer.h"
 
 namespace {
@@ -72,6 +75,63 @@ bool NamedKeyOf(int code, term::TermKey& out) {
     }
 }
 
+class TerminalFeed {
+public:
+    virtual ~TerminalFeed() = default;
+    virtual bool Alive() const = 0;
+    virtual deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const = 0;
+    virtual void SendKey(const term::TermKeyEvent& key) = 0;
+    virtual void Resize(deskhub::TermSize size) = 0;
+    virtual void Shutdown() = 0;
+};
+
+class RemoteFeed final : public TerminalFeed {
+public:
+    deskhubp::TerminalViewer viewer{};
+
+    bool Alive() const override {
+        return viewer.Running();
+    }
+    deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const override {
+        return viewer.Snapshot(scrollOffset);
+    }
+    void SendKey(const term::TermKeyEvent& key) override {
+        viewer.SendKey(key);
+    }
+    void Resize(deskhub::TermSize size) override {
+        viewer.Resize(size);
+    }
+    void Shutdown() override {
+        viewer.Stop();
+    }
+};
+
+class LocalShellFeed final : public TerminalFeed {
+public:
+    LocalShellFeed(deskhubp::TerminalHost& host, uint32_t termId)
+        : host_(&host), termId_(termId) {}
+
+    bool Alive() const override {
+        return host_->LocalAlive(termId_);
+    }
+    deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const override {
+        return host_->LocalSnapshot(termId_, scrollOffset);
+    }
+    void SendKey(const term::TermKeyEvent& key) override {
+        host_->SendLocalKey(termId_, key);
+    }
+    void Resize(deskhub::TermSize size) override {
+        host_->ResizeLocal(termId_, size);
+    }
+    void Shutdown() override {
+        host_->CloseLocal(termId_);
+    }
+
+private:
+    deskhubp::TerminalHost* host_;
+    uint32_t termId_;
+};
+
 class TerminalGrid final : public wxWindow {
 public:
     explicit TerminalGrid(wxWindow* parent)
@@ -99,18 +159,18 @@ public:
         return true;
     }
 
-    void Attach(deskhubp::TerminalViewer* viewer) {
-        viewer_ = viewer;
+    void Attach(TerminalFeed* feed) {
+        feed_ = feed;
         PullSnapshot();
     }
 
     void PullSnapshot() {
-        if (viewer_ != nullptr && viewer_->Running()) {
+        if (feed_ != nullptr && feed_->Alive()) {
             const size_t was = snapshot_.scrollbackRows;
-            snapshot_ = viewer_->Snapshot(scrollOffset_);
+            snapshot_ = feed_->Snapshot(scrollOffset_);
             if (scrollOffset_ > 0 && snapshot_.scrollbackRows > was) {
                 scrollOffset_ += snapshot_.scrollbackRows - was;
-                snapshot_ = viewer_->Snapshot(scrollOffset_);
+                snapshot_ = feed_->Snapshot(scrollOffset_);
             }
             scrollOffset_ = snapshot_.scrollOffset;
         } else {
@@ -174,21 +234,21 @@ private:
             return;
         }
         ScrollToBottom();
-        if (viewer_ != nullptr && NamedKeyOf(event.GetKeyCode(), named)) {
+        if (feed_ != nullptr && NamedKeyOf(event.GetKeyCode(), named)) {
             term::TermKeyEvent key;
             key.key = named;
             key.mods = ModsOf(event);
-            viewer_->SendKey(key);
+            feed_->SendKey(key);
             return;
         }
-        if (viewer_ != nullptr && event.ControlDown() && !event.AltDown()) {
+        if (feed_ != nullptr && event.ControlDown() && !event.AltDown()) {
             const int unicode = event.GetUnicodeKey();
             if (unicode != WXK_NONE && unicode > 0) {
                 term::TermKeyEvent key;
                 key.key = term::TermKey::Char;
                 key.codepoint = char32_t(unicode);
                 key.mods = ModsOf(event);
-                viewer_->SendKey(key);
+                feed_->SendKey(key);
                 return;
             }
         }
@@ -198,16 +258,17 @@ private:
     void OnChar(wxKeyEvent& event) {
         ScrollToBottom();
         const int code = event.GetUnicodeKey();
-        if (viewer_ == nullptr || code == WXK_NONE || !IsPrintableKey(code)) {
+        if (feed_ == nullptr || code == WXK_NONE || !IsPrintableKey(code)) {
             event.Skip();
             return;
         }
         if (event.ControlDown()) return;
+        LOGI("[TermKey] char cp=%d", code);
         term::TermKeyEvent key;
         key.key = term::TermKey::Char;
         key.codepoint = char32_t(code);
         key.mods.alt = event.AltDown();
-        viewer_->SendKey(key);
+        feed_->SendKey(key);
     }
 
     void OnPaint(wxPaintEvent&) {
@@ -252,7 +313,7 @@ public:
     std::function<void()> onResize_{};
 
 private:
-    deskhubp::TerminalViewer* viewer_ = nullptr;
+    TerminalFeed* feed_ = nullptr;
     deskhubp::TerminalSnapshot snapshot_{};
     size_t scrollOffset_ = 0;
     int cellWidth_ = 8;
@@ -261,8 +322,8 @@ private:
 
 class TerminalFrame final : public wxFrame {
 public:
-    TerminalFrame(wxWindow* parent, const TerminalLaunch& launch)
-        : wxFrame(parent, wxID_ANY, ToWx(ui::AddressHost(launch.address))), launch_(launch) {
+    TerminalFrame(wxWindow* parent, const wxString& title)
+        : wxFrame(parent, wxID_ANY, title) {
         CreateStatusBar();
         grid_ = new TerminalGrid(this);
         grid_->onResize_ = [this] { ResizeToGrid(); };
@@ -271,23 +332,26 @@ public:
         SetSizerAndFit(sizer);
         Bind(wxEVT_CLOSE_WINDOW, &TerminalFrame::OnClose, this);
         redrawTimer_.SetOwner(this, kRedrawTimerId);
-        Bind(wxEVT_TIMER, [this](wxTimerEvent&) { grid_->PullSnapshot(); }, kRedrawTimerId);
+        Bind(wxEVT_TIMER, [this](wxTimerEvent&) { OnRedrawTick(); }, kRedrawTimerId);
     }
 
     ~TerminalFrame() override {
         redrawTimer_.Stop();
-        viewer_.Stop();
+        if (feed_) feed_->Shutdown();
     }
 
-    bool Start() {
+    bool StartRemote(const TerminalLaunch& launch) {
         NetAddr host{};
-        if (!ParseNetAddr(launch_.address, host)) return false;
+        if (!ParseNetAddr(launch.address, host)) return false;
+
+        auto feed = std::make_unique<RemoteFeed>();
+        remote_ = feed.get();
 
         deskhubp::TerminalViewerConfig config;
         config.host = host;
-        config.hostLabel = ui::AddressHost(launch_.address);
-        config.passcode = launch_.passcode;
-        config.clientName = launch_.clientName;
+        config.hostLabel = ui::AddressHost(launch.address);
+        config.passcode = launch.passcode;
+        config.clientName = launch.clientName;
         config.size = grid_->CellsThatFit();
 
         deskhubp::TerminalViewerCallbacks hooks;
@@ -300,25 +364,52 @@ public:
             CallAfter([this, verdict, copy] { AskAboutKey(verdict, copy); });
         };
 
-        if (!viewer_.Start(config, std::move(hooks))) return false;
-        grid_->Attach(&viewer_);
-        grid_->SetFocus();
-        redrawTimer_.Start(kRedrawMs);
-        SetStatusText(ToWx(ui::kTerminalConnecting));
+        if (!remote_->viewer.Start(config, std::move(hooks))) {
+            remote_ = nullptr;
+            return false;
+        }
+        feed_ = std::move(feed);
+        StartFeeding(ui::kTerminalConnecting);
+        return true;
+    }
+
+    bool StartLocal(deskhubp::TerminalHost& host, uint32_t termId) {
+        if (!host.LocalAlive(termId)) return false;
+        feed_ = std::make_unique<LocalShellFeed>(host, termId);
+        StartFeeding(ui::kTerminalAttachedHere);
         return true;
     }
 
 private:
+    void StartFeeding(const char* status) {
+        grid_->Attach(feed_.get());
+        grid_->SetFocus();
+        redrawTimer_.Start(kRedrawMs);
+        SetStatusText(ToWx(status));
+    }
+
+    void OnRedrawTick() {
+        grid_->PullSnapshot();
+        if (remote_ == nullptr && !feed_->Alive()) ShowLocalShellEnded();
+    }
+
+    void ShowLocalShellEnded() {
+        if (localEndShown_) return;
+        localEndShown_ = true;
+        SetStatusText(ToWx(ui::kTerminalClosed));
+        redrawTimer_.Stop();
+    }
+
     void OnClose(wxCloseEvent& event) {
         redrawTimer_.Stop();
-        viewer_.Stop();
+        if (feed_) feed_->Shutdown();
         grid_->Attach(nullptr);
         event.Skip();
     }
 
     void ResizeToGrid() {
-        if (!viewer_.Running()) return;
-        viewer_.Resize(grid_->CellsThatFit());
+        if (!feed_ || !feed_->Alive()) return;
+        feed_->Resize(grid_->CellsThatFit());
     }
 
     void OnViewerState(deskhubp::TerminalViewerState state, const std::string& message) {
@@ -332,6 +423,7 @@ private:
     }
 
     void AskAboutKey(deskhub::TrustVerdict verdict, const std::string& fingerprint) {
+        if (remote_ == nullptr) return;
         const bool changed = verdict == deskhub::TrustVerdict::Changed;
         wxString body = ToWx(changed ? ui::kTrustChangedBody : ui::kTrustNewHostBody);
         body += "\n\n";
@@ -344,13 +436,14 @@ private:
             wxYES_NO | wxNO_DEFAULT | (changed ? wxICON_WARNING : wxICON_QUESTION));
         dialog.SetYesNoLabels(ToWx(ui::kTrustAccept), ToWx(ui::kTrustReject));
         if (dialog.ShowModal() == wxID_YES)
-            viewer_.AcceptFingerprint();
+            remote_->viewer.AcceptFingerprint();
         else
-            viewer_.RejectFingerprint();
+            remote_->viewer.RejectFingerprint();
     }
 
-    TerminalLaunch launch_;
-    deskhubp::TerminalViewer viewer_{};
+    std::unique_ptr<TerminalFeed> feed_{};
+    RemoteFeed* remote_ = nullptr;
+    bool localEndShown_ = false;
     TerminalGrid* grid_ = nullptr;
     wxTimer redrawTimer_{};
 };
@@ -358,8 +451,19 @@ private:
 }
 
 bool OpenTerminalWindow(wxWindow* parent, const TerminalLaunch& launch) {
-    auto* frame = new TerminalFrame(parent, launch);
-    if (!frame->Start()) {
+    auto* frame = new TerminalFrame(parent, ToWx(ui::AddressHost(launch.address)));
+    if (!frame->StartRemote(launch)) {
+        frame->Destroy();
+        return false;
+    }
+    frame->Show();
+    frame->Raise();
+    return true;
+}
+
+bool OpenHostTerminalWindow(wxWindow* parent, deskhubp::TerminalHost& host, uint32_t termId) {
+    auto* frame = new TerminalFrame(parent, ToWx(ui::kTerminalLocalWindowTitle));
+    if (!frame->StartLocal(host, termId)) {
         frame->Destroy();
         return false;
     }

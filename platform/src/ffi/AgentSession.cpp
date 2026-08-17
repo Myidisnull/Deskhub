@@ -12,6 +12,7 @@
 #include "deskhub/ui/HostRows.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/FfiText.h"
+#include "deskhubp/ffi/TermGridFill.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
@@ -142,6 +143,51 @@ void dha_stop_terminal(void) {
     if (g_terminal) g_terminal->Stop();
 }
 
+bool dha_attach_shell(uint32_t term_id) {
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    return g_terminal && g_terminal->AttachLocal(term_id);
+}
+
+bool dha_local_shell_alive(uint32_t term_id) {
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    return lk.owns_lock() && g_terminal && g_terminal->LocalAlive(term_id);
+}
+
+void dha_close_local_shell(uint32_t term_id) {
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_terminal) g_terminal->CloseLocal(term_id);
+}
+
+bool dha_local_grid(uint32_t term_id, uint32_t scrollOffset, DHTermCell* cells,
+    uint32_t cellCapacity, DHTermGrid* outGrid) {
+    deskhub::term::TerminalSnapshot shot;
+    {
+        std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+        if (!lk.owns_lock() || !g_terminal) return false;
+        shot = g_terminal->LocalSnapshot(term_id, scrollOffset);
+    }
+    return deskhubp::FillTermGrid(shot, cells, cellCapacity, outGrid);
+}
+
+void dha_local_send_key(uint32_t term_id, int32_t key, uint32_t codepoint, bool shift, bool alt,
+    bool ctrl) {
+    deskhub::term::TermKeyEvent event;
+    if (!deskhubp::DecodeTermKey(key, codepoint, shift, alt, ctrl, event)) return;
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_terminal) g_terminal->SendLocalKey(term_id, event);
+}
+
+void dha_local_send_text(uint32_t term_id, const char* utf8) {
+    if (utf8 == nullptr || *utf8 == '\0') return;
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_terminal) g_terminal->SendLocalText(term_id, utf8);
+}
+
+void dha_local_resize(uint32_t term_id, uint16_t cols, uint16_t rows) {
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_terminal) g_terminal->ResizeLocal(term_id, deskhub::TermSize{cols, rows});
+}
+
 int dha_take_pairing_requests(DHPairingRequest* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     std::vector<deskhubp::PairingRequest> requests;
@@ -217,6 +263,7 @@ int dha_host_rows(DHHostRow* out, int capacity) {
         slot.terminal = row.terminal;
         slot.sourceId = row.sourceId;
         slot.termId = row.termId;
+        slot.shellState = uint8_t(row.shellState);
         slot.online = cells.online;
         deskhubp::CopyToBuf(slot.viewerAddr, sizeof(slot.viewerAddr), row.viewerAddr);
         deskhubp::CopyToBuf(slot.source, sizeof(slot.source), cells.source);

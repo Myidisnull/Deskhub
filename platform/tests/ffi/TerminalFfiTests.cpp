@@ -84,6 +84,16 @@ bool WaitForMs(const std::function<bool()>& done, int millis) {
     return done();
 }
 
+size_t GridCount(DHTermSession* session, char wanted) {
+    DHTermGrid grid{};
+    std::vector<DHTermCell> cells(size_t(200) * 100);
+    if (!dh_term_grid(session, 0, cells.data(), uint32_t(cells.size()), &grid)) return 0;
+    size_t found = 0;
+    for (uint32_t i = 0; i < uint32_t(grid.rows) * grid.cols; ++i)
+        if (cells[i].codepoint == uint32_t(wanted)) ++found;
+    return found;
+}
+
 bool GridContains(DHTermSession* session, const std::string& needle) {
     DHTermGrid grid{};
     std::vector<DHTermCell> cells(size_t(200) * 100);
@@ -190,6 +200,21 @@ void RunTerminalFfiTests() {
     Check(WaitForMs([session] { return GridContains(session, "dh-ffi-ok"); }, 30000),
         "typed text runs on the host and the grid comes back through the C ABI");
     Check(seen.redraws.load() > 0, "the redraw callback fired as the grid changed");
+
+    const std::string typed = "zqx";
+    bool everyKeyLandedOnce = true;
+    for (size_t i = 0; i < typed.size(); ++i) {
+        dh_term_send_key(session, DHTermKeyChar, uint32_t(typed[i]), false, false, false);
+        const std::string sofar = typed.substr(0, i + 1);
+        everyKeyLandedOnce &=
+            WaitForMs([session, sofar] { return GridContains(session, sofar); }, 10000);
+        SleepUs(150'000);
+    }
+    Check(everyKeyLandedOnce,
+        "keys sent one at a time, at a human's pace, come back in order");
+    bool eachKeyOnce = true;
+    for (const char marker : typed) eachKeyOnce &= GridCount(session, marker) == 1;
+    Check(eachKeyOnce, "and one key press puts exactly one character on the viewer's grid");
 
     DHTermGrid grid{};
     Check(!dh_term_grid(session, 0, nullptr, 0, &grid),

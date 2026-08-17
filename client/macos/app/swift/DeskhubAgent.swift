@@ -24,6 +24,7 @@ struct HostRow: Identifiable, Hashable, Sendable {
     let terminal: Bool
     let sourceId: UInt8
     let termId: UInt32
+    let shellState: UInt8
     let online: Bool
     let viewerAddr: String
     let source: String
@@ -36,6 +37,14 @@ struct HostRow: Identifiable, Hashable, Sendable {
     let rtt: String
 
     var id: String { "\(sourceId)/\(termId)/\(viewerAddr)" }
+
+    var attachedLocally: Bool {
+        terminal && viewer && shellState == UInt8(DHShellLocal.rawValue)
+    }
+
+    var canAttachLocally: Bool {
+        terminal && viewer && shellState != UInt8(DHShellLocal.rawValue)
+    }
 }
 
 struct QualityPreset: Identifiable, Sendable {
@@ -98,6 +107,8 @@ nonisolated enum DeskhubAgent {
         dha_kick_viewer(sourceId, address)
     }
 
+    static func attachShell(_ termId: UInt32) -> Bool { dha_attach_shell(termId) }
+
     static var maxSources: Int { Int(dh_max_sources()) }
 
     static func hostRows() -> [HostRow] {
@@ -110,6 +121,7 @@ nonisolated enum DeskhubAgent {
                     terminal: row.terminal,
                     sourceId: row.sourceId,
                     termId: row.termId,
+                    shellState: row.shellState,
                     online: row.online,
                     viewerAddr: cString(row.viewerAddr),
                     source: cString(row.source),
