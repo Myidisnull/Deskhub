@@ -44,6 +44,9 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhub/ui/UiSettings.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/LogFile.h"
+#include "deskhubp/diag/StallLog.h"
+#include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/DeviceStatusPoller.h"
 #include "deskhubp/net/LanScanner.h"
@@ -55,14 +58,12 @@
 #include "deskhub/crypto/KeyCodec.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Autostart.h"
+#include "deskhubp/system/Clock.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/Language.h"
 #include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
 #include "deskhubp/system/Random.h"
-#include "deskhubp/diag/LogFile.h"
-#include "deskhubp/diag/Log.h"
-#include "deskhubp/ffi/ClientFfi.h"
 
 namespace {
 
@@ -1640,8 +1641,12 @@ void MainFrame::OnCopyKeyFeedbackTimer(wxTimerEvent&) {
 void MainFrame::StopHosting() {
     hostTimer_.Stop();
     clipTimer_.Stop();
+    const uint64_t t0 = NowUs();
+    deskhubp::StopAnrWatch watch("ui", "stop_hosting");
+    LOGI("[DIAG][ui] evt=stop_begin phase=stop_hosting");
     agentLoop_.Stop();
     agentDriver_.Join();
+    deskhubp::LogStopPhase("ui", "stop_hosting", t0);
     hosting_ = false;
     ShowIdleHostState();
     RefreshDisplayChoices();

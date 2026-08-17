@@ -6,7 +6,9 @@
 #include "deskhub/ui/Brand.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/net/NetInfo.h"
+#include "deskhubp/system/Clock.h"
 
 #include <cstdio>
 #include <cstring>
@@ -242,18 +244,39 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 void HostEngine::Stop() {
     if (pipes_.empty() && !recvThread_.joinable()) return;
 
+    const uint64_t tAll = NowUs();
+    LOGI("[DIAG][agent] evt=stop_begin sources=%zu recv_joinable=%d", pipes_.size(),
+        recvThread_.joinable() ? 1 : 0);
+
     quit_.store(true);
-    if (recvThread_.joinable()) recvThread_.join();
+    {
+        StopAnrWatch watch("agent", "recv_join");
+        const uint64_t t0 = NowUs();
+        if (recvThread_.joinable()) recvThread_.join();
+        LogStopPhase("agent", "recv_join", t0);
+    }
     running_.store(false, std::memory_order_release);
 
-    localInputMon_.Stop();
+    {
+        StopAnrWatch watch("agent", "local_input");
+        const uint64_t t0 = NowUs();
+        localInputMon_.Stop();
+        LogStopPhase("agent", "local_input", t0);
+    }
 
-    for (auto& up : pipes_) ShutdownSource(*up);
+    for (auto& up : pipes_) {
+        StopAnrWatch watch("agent", "source_shutdown");
+        const uint64_t t0 = NowUs();
+        const std::string name = up->name;
+        ShutdownSource(*up);
+        LogStopPhaseNamed("agent", "source_shutdown", name.c_str(), t0);
+    }
     LogTransferTotals(AllSources());
     sock_.Close();
 
     live_.clear();
     pipes_.clear();
+    LogStopPhase("agent", "stop_total", tAll);
 }
 
 void HostEngine::RequestStopSource(uint8_t sourceId) {

@@ -12,12 +12,14 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/system/Clock.h"
 #include "deskhubp/system/Random.h"
 #include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
@@ -112,11 +114,14 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
 
 void dha_stop(void) {
     LOGI("[UI] Share stop requested.");
+    const uint64_t t0 = NowUs();
+    deskhubp::StopAnrWatch watch("ui", "dha_stop");
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
         g_agent->Stop();
         g_agent.reset();
     }
+    deskhubp::LogStopPhase("ui", "dha_stop", t0);
 }
 
 void dha_stop_source(uint8_t source_id) {

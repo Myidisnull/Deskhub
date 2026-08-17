@@ -10,6 +10,7 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/net/ClientNetLoop.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/Clock.h"
@@ -117,14 +118,27 @@ public:
     }
 
     void Stop() {
+        const uint64_t tAll = NowUs();
+        LOGI("[DIAG][client] evt=stop_begin");
         userStop_.store(true);
         sessionDone_.store(true);
         quit_.store(true);
         decCv_.notify_all();
         surfaceCv_.notify_all();
-        if (netThread_.joinable()) netThread_.join();
-        if (decodeThread_.joinable()) decodeThread_.join();
+        {
+            StopAnrWatch watch("client", "net_join");
+            const uint64_t t0 = NowUs();
+            if (netThread_.joinable()) netThread_.join();
+            LogStopPhase("client", "net_join", t0);
+        }
+        {
+            StopAnrWatch watch("client", "decode_join");
+            const uint64_t t0 = NowUs();
+            if (decodeThread_.joinable()) decodeThread_.join();
+            LogStopPhase("client", "decode_join", t0);
+        }
         sock_.Close();
+        LogStopPhase("client", "stop_total", tAll);
     }
 
     void SetSurface(Surface surface) {

@@ -22,6 +22,8 @@
 #include <cstdio>
 
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
+#include "deskhubp/system/Clock.h"
 
 #pragma comment(lib, "windowsapp.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -190,6 +192,8 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
 
 void ScreenCapture::Stop() {
     if (!impl_) return;
+    const uint64_t t0 = NowUs();
+    deskhubp::StopAnrWatch watch("agent", "wgc_stop");
     if (impl_->framePool && impl_->frameArrivedToken.value) {
         impl_->framePool.FrameArrived(impl_->frameArrivedToken);
         impl_->frameArrivedToken = {};
@@ -205,6 +209,7 @@ void ScreenCapture::Stop() {
     impl_->d3dContext = nullptr;
     impl_->d3dDevice = nullptr;
     impl_->onFrame = nullptr;
+    deskhubp::LogStopPhase("agent", "wgc_stop", t0);
 }
 
 bool ScreenCapture::Closed() const {

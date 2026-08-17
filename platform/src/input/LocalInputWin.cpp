@@ -11,6 +11,8 @@
 #include <atomic>
 #include <thread>
 
+#include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
 #include "deskhubp/system/Clock.h"
 
 namespace {
@@ -43,11 +45,14 @@ struct LocalInputMonitor::Impl {
     std::atomic<DWORD> threadId{0};
 
     void Run() {
+        MSG warm{};
+        PeekMessageW(&warm, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+        threadId.store(GetCurrentThreadId(), std::memory_order_release);
+
         const HHOOK kb = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHook,
             GetModuleHandleW(nullptr), 0);
         const HHOOK ms = SetWindowsHookExW(WH_MOUSE_LL, MouseHook,
             GetModuleHandleW(nullptr), 0);
-        threadId.store(GetCurrentThreadId(), std::memory_order_release);
 
         if ((kb || ms) && !quit.load(std::memory_order_acquire)) {
             MSG msg;
@@ -59,6 +64,7 @@ struct LocalInputMonitor::Impl {
 
         if (kb) UnhookWindowsHookEx(kb);
         if (ms) UnhookWindowsHookEx(ms);
+        threadId.store(0, std::memory_order_release);
     }
 };
 
@@ -76,11 +82,21 @@ void LocalInputMonitor::Start() {
 }
 
 void LocalInputMonitor::Stop() {
+    const uint64_t t0 = NowUs();
+    deskhubp::StopAnrWatch watch("agent", "local_input_join");
     impl_->quit.store(true, std::memory_order_release);
-    if (const DWORD tid = impl_->threadId.load(std::memory_order_acquire))
-        PostThreadMessageW(tid, WM_QUIT, 0, 0);
+    const DWORD tid = impl_->threadId.load(std::memory_order_acquire);
+    if (tid) {
+        if (!PostThreadMessageW(tid, WM_QUIT, 0, 0)) {
+            LOGW("[DIAG][agent] evt=local_input_quit_fail tid=%lu err=%lu",
+                (unsigned long)tid, (unsigned long)GetLastError());
+        }
+    } else if (impl_->thread.joinable()) {
+        LOGW("[DIAG][agent] evt=local_input_quit_no_tid");
+    }
     if (impl_->thread.joinable()) impl_->thread.join();
     impl_->threadId.store(0, std::memory_order_release);
+    deskhubp::LogStopPhase("agent", "local_input_join", t0);
 }
 
 uint64_t LocalInputMonitor::lastLocalUs() const {
