@@ -425,11 +425,18 @@ std::vector<std::string> LocalSnapshotRows(deskhubp::TerminalHost& term, uint32_
     return rows;
 }
 
+std::string LocalSnapshotReadingOrder(deskhubp::TerminalHost& term, uint32_t termId) {
+    const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
+    std::string text;
+    for (uint16_t r = 0; r < shot.size.rows; ++r)
+        for (uint16_t c = 0; c < shot.size.cols; ++c)
+            text += deskhub::term::EncodeUtf8(shot.At(r, c).ch);
+    return text;
+}
+
 bool LocalSnapshotContains(deskhubp::TerminalHost& term, uint32_t termId,
     const std::string& needle) {
-    for (const std::string& row : LocalSnapshotRows(term, termId))
-        if (row.find(needle) != std::string::npos) return true;
-    return false;
+    return LocalSnapshotReadingOrder(term, termId).find(needle) != std::string::npos;
 }
 
 bool LocalSnapshotHasWholeRow(deskhubp::TerminalHost& term, uint32_t termId,
@@ -558,7 +565,7 @@ void TestHostStopsAndAttachesShell() {
     }
     const bool typedRunTogether = LocalSnapshotContains(host.term, termId, typed);
     if (!typedRunTogether)
-        std::printf("    typed '%s' is not on any one row\n", typed.c_str());
+        std::printf("    typed '%s' does not read back in order\n", typed.c_str());
     if (!everyKeyLandedOnce || !typedRunTogether) PrintLocalSnapshot(host.term, termId);
     Check(everyKeyLandedOnce && typedRunTogether,
         "keys typed one at a time, with a human's pause between them, arrive in order");

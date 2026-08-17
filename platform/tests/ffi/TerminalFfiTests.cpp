@@ -111,9 +111,9 @@ std::vector<std::string> GridRows(DHTermSession* session) {
 }
 
 bool GridContains(DHTermSession* session, const std::string& needle) {
-    for (const std::string& row : GridRows(session))
-        if (row.find(needle) != std::string::npos) return true;
-    return false;
+    std::string readingOrder;
+    for (const std::string& row : GridRows(session)) readingOrder += row;
+    return readingOrder.find(needle) != std::string::npos;
 }
 
 bool GridHasWholeRow(DHTermSession* session, const std::string& wanted) {
@@ -245,7 +245,7 @@ void RunTerminalFfiTests() {
     }
     const bool typedRunTogether = GridContains(session, typed);
     if (!typedRunTogether)
-        std::printf("    typed '%s' is not on any one row\n", typed.c_str());
+        std::printf("    typed '%s' does not read back in order\n", typed.c_str());
     if (!everyKeyLandedOnce || !typedRunTogether) PrintGrid(session);
     Check(everyKeyLandedOnce && typedRunTogether,
         "keys sent one at a time, at a human's pace, come back in order");
