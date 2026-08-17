@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -434,9 +435,31 @@ private fun copyToClipboard(
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.app_name), text))
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            context,
+            NativeClient.string(NativeClient.STR_COPIED),
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 }
+
+private data class LanguageOption(
+    val code: String,
+    val label: String,
+)
+
+private fun languageOptions(): List<LanguageOption> =
+    listOf(
+        LanguageOption("", NativeClient.string(NativeClient.STR_LANGUAGE_SYSTEM)),
+        LanguageOption("en", "English"),
+        LanguageOption("zh-Hans", "简体中文"),
+        LanguageOption("fr", "Français"),
+        LanguageOption("de", "Deutsch"),
+        LanguageOption("ru", "Русский"),
+        LanguageOption("ja", "日本語"),
+        LanguageOption("ko", "한국어"),
+        LanguageOption("ar", "العربية"),
+    )
 
 @Composable
 private fun PasscodeDialog(
@@ -771,7 +794,7 @@ private fun HostScreen(
                     Text(address.name, modifier = Modifier.weight(1f), color = MutedColor)
                     Text(address.ip, fontWeight = FontWeight.Bold, color = HeadingColor)
                     TextButton(onClick = { copyToClipboard(context, address.ip) }) {
-                        Text("Copy")
+                        Text(NativeClient.string(NativeClient.STR_COPY))
                     }
                 }
             }
@@ -854,6 +877,50 @@ private fun SettingsScreen(
         Text(
             NativeClient.string(NativeClient.STR_CLIENT_SETTINGS_HINT),
             style = MaterialTheme.typography.bodyMedium,
+            color = MutedColor,
+        )
+
+        SectionLabel(NativeClient.string(NativeClient.STR_SECTION_LANGUAGE))
+        var language by remember { mutableStateOf(NativeClient.language()) }
+        var languageMenuOpen by remember { mutableStateOf(false) }
+        val languages = remember { languageOptions() }
+        val languageLabel =
+            languages.firstOrNull { it.code == language }?.label
+                ?: NativeClient.string(NativeClient.STR_LANGUAGE_SYSTEM)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = languageLabel,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(NativeClient.string(NativeClient.STR_LANGUAGE_LABEL)) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = false,
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .clickable { languageMenuOpen = true },
+            )
+            DropdownMenu(
+                expanded = languageMenuOpen,
+                onDismissRequest = { languageMenuOpen = false },
+            ) {
+                languages.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        onClick = {
+                            language = option.code
+                            NativeClient.setLanguage(option.code)
+                            languageMenuOpen = false
+                        },
+                    )
+                }
+            }
+        }
+        Text(
+            NativeClient.string(NativeClient.STR_LANGUAGE_RESTART_HINT),
+            style = MaterialTheme.typography.bodySmall,
             color = MutedColor,
         )
 

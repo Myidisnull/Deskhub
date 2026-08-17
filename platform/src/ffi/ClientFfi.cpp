@@ -145,6 +145,8 @@ const char* dh_string(DHStringId id) {
         case DHStrSessionKeyLabel: return deskhub::ui::kSessionKeyLabel;
         case DHStrSessionKeyHint: return deskhub::ui::kSessionKeyHint;
         case DHStrCopySessionKey: return deskhub::ui::kCopySessionKey;
+        case DHStrCopied: return deskhub::ui::kCopied;
+        case DHStrCopy: return deskhub::ui::kCopy;
         case DHStrRefreshSessionKey: return deskhub::ui::kRefreshSessionKey;
         case DHStrEscrowSessionKeyLabel: return deskhub::ui::kEscrowSessionKeyLabel;
         case DHStrEscrowSessionKeyHint: return deskhub::ui::kEscrowSessionKeyHint;

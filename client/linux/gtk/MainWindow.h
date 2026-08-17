@@ -107,6 +107,9 @@ private:
     void ToggleWindowFromTray();
     void ShowMainWindow();
 
+    static gboolean OnCopyFeedbackTimer(gpointer user);
+    void FlashCopyFeedback(GtkWidget* button, const char* restoreLabel);
+
     uint16_t Port() const;
     void PostToUi(std::function<void()> fn);
 
@@ -183,6 +186,9 @@ private:
     GtkWidget* hostSessionKeyEntry_ = nullptr;
     GtkWidget* copySessionKeyBtn_ = nullptr;
     GtkWidget* refreshSessionKeyBtn_ = nullptr;
+    GtkWidget* copyFeedbackBtn_ = nullptr;
+    const char* copyFeedbackRestore_ = nullptr;
+    guint copyFeedbackTimerId_ = 0;
     GtkWidget* escrowHint_ = nullptr;
     GtkWidget* sessionKeyHint_ = nullptr;
     GtkWidget* lifetimeLabel_ = nullptr;

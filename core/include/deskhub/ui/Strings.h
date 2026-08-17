@@ -131,6 +131,8 @@ inline constexpr LStr kEncryptSessionHint{
 inline constexpr LStr kSessionKeyLabel{"Session key"};
 inline constexpr LStr kSessionKeyHint{"Copy this key to viewers when escrow is off."};
 inline constexpr LStr kCopySessionKey{"Copy key"};
+inline constexpr LStr kCopy{"Copy"};
+inline constexpr LStr kCopied{"Copied"};
 inline constexpr LStr kRefreshSessionKey{"Refresh key"};
 inline constexpr LStr kEscrowSessionKeyLabel{"Escrow key to viewers"};
 inline constexpr LStr kEscrowSessionKeyHint{

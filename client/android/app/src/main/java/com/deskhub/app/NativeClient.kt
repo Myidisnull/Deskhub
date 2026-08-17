@@ -95,6 +95,12 @@ object NativeClient {
     const val STR_CLIENT_SESSION_KEY_PROMPT = 117
     const val STR_CLIENT_SESSION_KEY_HINT = 118
     const val STR_SESSION_KEY_INVALID = 119
+    const val STR_SECTION_LANGUAGE = 105
+    const val STR_LANGUAGE_LABEL = 103
+    const val STR_LANGUAGE_SYSTEM = 104
+    const val STR_LANGUAGE_RESTART_HINT = 120
+    const val STR_COPIED = 122
+    const val STR_COPY = 123
 
     private external fun nativeString(id: Int): String
 
@@ -218,6 +224,14 @@ object NativeClient {
     fun clipboardSync(): Boolean = nativeClipboardSync()
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
+
+    private external fun nativeLanguage(): String
+
+    private external fun nativeSetLanguage(code: String)
+
+    fun language(): String = nativeLanguage()
+
+    fun setLanguage(code: String) = nativeSetLanguage(code)
 
     private external fun nativeEncryptSession(): Boolean
 

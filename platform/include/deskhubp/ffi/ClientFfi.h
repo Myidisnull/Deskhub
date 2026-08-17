@@ -193,6 +193,8 @@ typedef enum {
     DHStrSettingsSectionLanguage = 105,
     DHStrLanguageRestartHint = 120,
     DHStrForgetDevice = 121,
+    DHStrCopied = 122,
+    DHStrCopy = 123,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

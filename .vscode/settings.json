@@ -1,5 +1,6 @@
 {
-  "cmake.useCMakePresets": "always",
-  "cmake.preferredGenerators": ["Ninja"],
+  "cmake.preferredGenerators": [
+    "Ninja"
+  ],
   "cmake.useVsDeveloperEnvironment": "always"
 }

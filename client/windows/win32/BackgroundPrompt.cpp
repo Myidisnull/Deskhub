@@ -61,7 +61,7 @@ public:
         message->SetFont(messageFont);
         sizer->Add(message, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, edge));
 
-        auto* choices = new wxBoxSizer(wxVERTICAL);
+        auto* choices = new wxBoxSizer(wxHORIZONTAL);
         yes_ = new wxRadioButton(this, wxID_ANY, ToWx(ui::kBackgroundPromptYes),
             wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
         no_ = new wxRadioButton(this, wxID_ANY, ToWx(ui::kBackgroundPromptNo));
@@ -70,8 +70,8 @@ public:
         no_->SetForegroundColour(theme.headingText);
         yes_->SetBackgroundColour(theme.dialogBg);
         no_->SetBackgroundColour(theme.dialogBg);
-        choices->Add(yes_, wxSizerFlags().Border(wxBOTTOM, FromDIP(8)));
-        choices->Add(no_);
+        choices->Add(yes_);
+        choices->Add(no_, wxSizerFlags().Border(wxLEFT, FromDIP(28)));
         sizer->Add(choices, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, edge));
 
         auto* buttons = new wxBoxSizer(wxHORIZONTAL);

@@ -16,6 +16,7 @@ struct SettingsPage: View {
     @State private var logContent = ""
     @State private var showLogDirError = false
     @State private var defaultLogDirHint = ""
+    @State private var copiedSessionKey = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -106,20 +107,30 @@ struct SettingsPage: View {
                     .textSelection(.enabled)
                 deskhubHint(DeskhubClient.string(DHStrSessionKeyHint))
                 HStack {
-                    Button(DeskhubClient.string(DHStrCopySessionKey)) {
+                    Button(
+                        copiedSessionKey
+                            ? DeskhubClient.string(DHStrCopied)
+                            : DeskhubClient.string(DHStrCopySessionKey)
+                    ) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(agent.sessionKeyHex, forType: .string)
+                        copiedSessionKey = true
                     }
                     .disabled(agent.sessionKeyHex.isEmpty)
                     Button(DeskhubClient.string(DHStrRefreshSessionKey)) {
                         agent.refreshSessionKey()
                     }
                 }
+                .task(id: copiedSessionKey) {
+                    guard copiedSessionKey else { return }
+                    try? await Task.sleep(for: .seconds(1.5))
+                    copiedSessionKey = false
+                }
             }
 
             PermissionsSection(agent: agent)
 
-            deskhubSection("Application")
+            deskhubSection(DeskhubClient.string(DHStrSettingsSectionLaunch))
             Toggle(DeskhubClient.string(DHStrShareOnLaunchLabel), isOn: $agent.autoShare)
                 .toggleStyle(.checkbox)
             Toggle(DeskhubClient.string(DHStrAutostartLabel), isOn: $agent.autostart)

@@ -78,7 +78,11 @@ struct SharingView: View {
                         .textSelection(.enabled)
                     deskhubHint(DeskhubClient.string(DHStrSessionKeyHint))
                     HStack {
-                        Button(DeskhubClient.string(DHStrCopySessionKey)) {
+                        Button(
+                            copiedSessionKey
+                                ? DeskhubClient.string(DHStrCopied)
+                                : DeskhubClient.string(DHStrCopySessionKey)
+                        ) {
                             UIPasteboard.general.string = model.sessionKeyHex
                             copiedSessionKey = true
                         }
@@ -127,7 +131,7 @@ struct SharingView: View {
                                 )
                             }
                             .buttonStyle(.borderless)
-                            .accessibilityLabel("Copy address")
+                            .accessibilityLabel(DeskhubClient.string(DHStrCopy))
                         }
                     }
                 }

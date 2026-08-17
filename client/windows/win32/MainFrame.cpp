@@ -74,7 +74,9 @@ constexpr const char* kRecentDevicesFile = "recent-devices.txt";
 constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
 constexpr int kClipTimerId = 3;
+constexpr int kCopyKeyFeedbackTimerId = 4;
 constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
+constexpr int kCopyKeyFeedbackMs = 1500;
 constexpr int kHintWrapDip = 620;
 constexpr int kPrimaryButtonH = 46;
 constexpr int kConnectFieldW = 260;
@@ -319,9 +321,9 @@ wxStaticText* MakeSection(wxWindow* parent, const char* text) {
     return section;
 }
 
-void CopyTextToClipboard(HWND owner, const wxString& text) {
+bool CopyTextToClipboard(HWND owner, const wxString& text) {
     const std::wstring wide = text.ToStdWstring();
-    if (wide.empty() || !OpenClipboard(owner)) return;
+    if (wide.empty() || !OpenClipboard(owner)) return false;
     EmptyClipboard();
     const size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
     if (HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
@@ -333,6 +335,7 @@ void CopyTextToClipboard(HWND owner, const wxString& text) {
         if (handle) GlobalFree(handle);
     }
     CloseClipboard();
+    return true;
 }
 
 class NavItem final : public wxWindow {
@@ -431,6 +434,8 @@ private:
     void StopHosting();
     void OnHostTimer(wxTimerEvent& event);
     void OnClipboardTimer(wxTimerEvent& event);
+    void OnCopyKeyFeedbackTimer(wxTimerEvent& event);
+    void FlashCopyFeedback(wxButton* button, const char* restoreLabel);
     void RefreshDisplayChoices();
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
@@ -567,6 +572,9 @@ private:
     wxTimer hostTimer_;
     wxTimer scanTimer_;
     wxTimer clipTimer_;
+    wxTimer copyKeyFeedbackTimer_;
+    wxButton* copyFeedbackBtn_ = nullptr;
+    const char* copyFeedbackRestore_ = ui::kCopySessionKey;
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool prompting_ = false;
@@ -623,9 +631,11 @@ MainFrame::MainFrame()
     hostTimer_.SetOwner(this, kHostTimerId);
     scanTimer_.SetOwner(this, kScanTimerId);
     clipTimer_.SetOwner(this, kClipTimerId);
+    copyKeyFeedbackTimer_.SetOwner(this, kCopyKeyFeedbackTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnHostTimer, this, kHostTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnScanTimer, this, kScanTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnClipboardTimer, this, kClipTimerId);
+    Bind(wxEVT_TIMER, &MainFrame::OnCopyKeyFeedbackTimer, this, kCopyKeyFeedbackTimerId);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
     Bind(wxEVT_SYS_COLOUR_CHANGED, &MainFrame::OnSysColourChanged, this);
 
@@ -787,6 +797,10 @@ void MainFrame::PopulateBindChoice() {
 }
 
 void MainFrame::RebuildHostAddressRows() {
+    if (copyFeedbackBtn_ && copyFeedbackBtn_->GetParent() == hostAddrPanel_) {
+        copyKeyFeedbackTimer_.Stop();
+        copyFeedbackBtn_ = nullptr;
+    }
     hostAddrPanel_->DestroyChildren();
     auto* holder = new wxBoxSizer(wxVERTICAL);
     std::vector<AdapterAddr> shown;
@@ -806,11 +820,12 @@ void MainFrame::RebuildHostAddressRows() {
             auto* ipText = new wxStaticText(hostAddrPanel_, wxID_ANY, ToWx(a.ip));
             ipText->SetFont(ipText->GetFont().Bold());
             grid->Add(ipText, wxSizerFlags().CentreVertical());
-            auto* copy = new wxButton(hostAddrPanel_, wxID_ANY, "Copy");
+            auto* copy = new wxButton(hostAddrPanel_, wxID_ANY, ToWx(ui::kCopy));
             copy->SetMinSize(FromDIP(wxSize(84, 32)));
             const wxString ip = ToWx(a.ip);
-            copy->Bind(wxEVT_BUTTON, [this, ip](wxCommandEvent&) {
-                CopyTextToClipboard(HWND(GetHandle()), ip);
+            copy->Bind(wxEVT_BUTTON, [this, ip, copy](wxCommandEvent&) {
+                if (!CopyTextToClipboard(HWND(GetHandle()), ip)) return;
+                FlashCopyFeedback(copy, ui::kCopy);
             });
             grid->Add(copy);
         }
@@ -1195,8 +1210,9 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     escrowSessionKeyCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     sessionKeyLifetimeCtrl_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     copySessionKeyBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-        if (!sessionKeyCtrl_) return;
-        CopyTextToClipboard(HWND(GetHandle()), sessionKeyCtrl_->GetValue());
+        if (!sessionKeyCtrl_ || !copySessionKeyBtn_) return;
+        if (!CopyTextToClipboard(HWND(GetHandle()), sessionKeyCtrl_->GetValue())) return;
+        FlashCopyFeedback(copySessionKeyBtn_, ui::kCopySessionKey);
     });
     refreshSessionKeyBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         if (!deskhubp::EnsureSessionKeyMaterial(settings_, true)) return;
@@ -1602,6 +1618,23 @@ void MainFrame::OnClipboardTimer(wxTimerEvent&) {
         if (!text.empty()) agentLoop_.OfferLocalClipboard(text);
     }
     wxTheClipboard->Close();
+}
+
+void MainFrame::FlashCopyFeedback(wxButton* button, const char* restoreLabel) {
+    if (!button || !restoreLabel) return;
+    if (copyFeedbackBtn_ && copyFeedbackBtn_ != button) {
+        copyFeedbackBtn_->SetLabel(ToWx(copyFeedbackRestore_));
+    }
+    copyFeedbackBtn_ = button;
+    copyFeedbackRestore_ = restoreLabel;
+    button->SetLabel(ToWx(ui::kCopied));
+    copyKeyFeedbackTimer_.StartOnce(kCopyKeyFeedbackMs);
+}
+
+void MainFrame::OnCopyKeyFeedbackTimer(wxTimerEvent&) {
+    if (!copyFeedbackBtn_) return;
+    copyFeedbackBtn_->SetLabel(ToWx(copyFeedbackRestore_));
+    copyFeedbackBtn_ = nullptr;
 }
 
 void MainFrame::StopHosting() {

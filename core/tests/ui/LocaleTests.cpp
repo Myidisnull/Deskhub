@@ -50,6 +50,11 @@ void TestTranslateSwitchesCatalog() {
     ui::SetUiLanguage(ui::UiLanguage::ZhHans);
     Check(std::strcmp(ui::kAppTitle, brand::kProductName) == 0, "Chinese title stays English");
     Check(std::strcmp(ui::kBackgroundPromptYes, "是") == 0, "Chinese yes");
+    Check(std::strcmp(ui::kCopied, "已复制") == 0, "Chinese copied toast");
+    Check(std::strcmp(ui::kCopy, "复制") == 0, "Chinese copy button");
+    Check(std::strcmp(ui::kLogDirBrowse, "浏览…") == 0, "Chinese browse");
+    Check(std::strcmp(ui::kLanDevicesEmpty, "正在查找正在共享的设备…") == 0,
+        "Chinese lan empty uses catalog not English fallback");
     ui::SetUiLanguage(previous);
 }
 

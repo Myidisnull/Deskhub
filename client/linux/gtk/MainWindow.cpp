@@ -710,6 +710,14 @@ void MainWindow::PopulateBindCombo() {
 }
 
 void MainWindow::RebuildHostAddressRows() {
+    if (copyFeedbackBtn_) {
+        if (copyFeedbackTimerId_) {
+            g_source_remove(copyFeedbackTimerId_);
+            copyFeedbackTimerId_ = 0;
+        }
+        copyFeedbackBtn_ = nullptr;
+        copyFeedbackRestore_ = nullptr;
+    }
     gtk_container_foreach(GTK_CONTAINER(hostAddrBox_), [](GtkWidget* child, gpointer) { gtk_widget_destroy(child); }, nullptr);
 
     std::vector<AdapterAddr> shown;
@@ -735,7 +743,7 @@ void MainWindow::RebuildHostAddressRows() {
             gtk_widget_set_hexpand(ip, TRUE);
             gtk_grid_attach(GTK_GRID(grid), ip, 1, row, 1, 1);
 
-            GtkWidget* copy = gtk_button_new_with_label("Copy");
+            GtkWidget* copy = gtk_button_new_with_label(ui::kCopy);
             gtk_widget_set_size_request(copy, 84, 32);
             g_object_set_data_full(G_OBJECT(copy), "deskhub-ip", g_strdup(a.ip.c_str()), g_free);
             g_signal_connect(copy, "clicked", G_CALLBACK(OnCopyClicked), this);
@@ -1361,9 +1369,10 @@ void MainWindow::OnEncryptToggled(GtkWidget*, gpointer user) {
 
 void MainWindow::OnCopySessionKey(GtkButton*, gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    if (self->settings_.sessionKeyHex.empty()) return;
+    if (self->settings_.sessionKeyHex.empty() || !self->copySessionKeyBtn_) return;
     GtkClipboard* clip = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
     gtk_clipboard_set_text(clip, self->settings_.sessionKeyHex.c_str(), -1);
+    self->FlashCopyFeedback(self->copySessionKeyBtn_, ui::kCopySessionKey);
 }
 
 void MainWindow::OnRefreshSessionKey(GtkButton*, gpointer user) {
@@ -1737,10 +1746,38 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
     }
 }
 
-void MainWindow::OnCopyClicked(GtkButton* b, gpointer) {
+void MainWindow::OnCopyClicked(GtkButton* b, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
     const char* ip = static_cast<const char*>(g_object_get_data(G_OBJECT(b), "deskhub-ip"));
     if (!ip) return;
     gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), ip, -1);
+    self->FlashCopyFeedback(GTK_WIDGET(b), ui::kCopy);
+}
+
+void MainWindow::FlashCopyFeedback(GtkWidget* button, const char* restoreLabel) {
+    if (!button || !restoreLabel) return;
+    if (copyFeedbackTimerId_) {
+        g_source_remove(copyFeedbackTimerId_);
+        copyFeedbackTimerId_ = 0;
+    }
+    if (copyFeedbackBtn_ && copyFeedbackBtn_ != button && copyFeedbackRestore_) {
+        gtk_button_set_label(GTK_BUTTON(copyFeedbackBtn_), copyFeedbackRestore_);
+    }
+    copyFeedbackBtn_ = button;
+    copyFeedbackRestore_ = restoreLabel;
+    gtk_button_set_label(GTK_BUTTON(button), ui::kCopied);
+    copyFeedbackTimerId_ = g_timeout_add(1500, OnCopyFeedbackTimer, this);
+}
+
+gboolean MainWindow::OnCopyFeedbackTimer(gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    self->copyFeedbackTimerId_ = 0;
+    if (self->copyFeedbackBtn_ && self->copyFeedbackRestore_) {
+        gtk_button_set_label(GTK_BUTTON(self->copyFeedbackBtn_), self->copyFeedbackRestore_);
+    }
+    self->copyFeedbackBtn_ = nullptr;
+    self->copyFeedbackRestore_ = nullptr;
+    return G_SOURCE_REMOVE;
 }
 
 void MainWindow::OnShareClicked(GtkButton*, gpointer user) {

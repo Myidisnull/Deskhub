@@ -16,6 +16,7 @@ struct BackgroundPromptSheet: View {
                 Text(DeskhubClient.string(DHStrBackgroundPromptNo)).tag(false)
             }
             .pickerStyle(.radioGroup)
+            .horizontalRadioGroupLayout()
             .labelsHidden()
 
             HStack {

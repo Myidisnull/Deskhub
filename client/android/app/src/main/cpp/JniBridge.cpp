@@ -228,6 +228,18 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
     dh_set_clipboard_sync(on == JNI_TRUE);
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeLanguage(JNIEnv* env, jobject) {
+    char buf[32];
+    dh_language(buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetLanguage(JNIEnv* env, jobject, jstring codeStr) {
+    dh_set_language(FromJString(env, codeStr).c_str());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeEncryptSession(JNIEnv*, jobject) {
     return dh_encrypt_session() ? JNI_TRUE : JNI_FALSE;
