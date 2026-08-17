@@ -20,12 +20,17 @@ public:
         passcode_ = IsValidPasscode(passcode) ? std::move(passcode) : std::string();
     }
 
+    void SetCaps(HostCaps caps) {
+        caps_ = caps;
+    }
+
     size_t Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, uint64_t nowUs = 0,
         uint64_t fromPacked = 0);
 
 private:
     std::vector<SourceInfo> sources_;
     std::string passcode_;
+    HostCaps caps_{};
     AuthRateLimit authLimit_;
 };
 

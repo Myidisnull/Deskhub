@@ -1,32 +1,21 @@
 ---
-description: develop is customized main; sync main updates, keep customize feature/UI priority, pin main base
+description: develop is customize-first vs main; product/UI win on develop; shared infra may be ported selectively
 alwaysApply: true
 ---
 
-# Customize branch vs main
+# Customize priority vs main
 
-`develop` is a **customized** line of `main`. Upstream fixes and features from `main` must land here; product behavior and UI stay customize-first.
+`develop` is a **customized** parallel line of `main`. Product behavior and UI stay customize-first. Shared fixes may be ported from `main` without merging branches (see `develop-main-parallel` and `main-sync-pin`).
 
 ## Priority
 
-1. **Feature / UI / product copy**: keep customize behavior when it conflicts with `main`.
-2. **Infrastructure / build / security / protocol / bugfix from `main`**: take `main`, then re-apply customize on top if needed.
-3. Do not replace customize screens, flows, or branding with stock `main` UI just because `main` moved.
-
-## Sync workflow
-
-When bringing `main` into this branch:
-
-```text
-git fetch origin
-git merge origin/main
-# resolve conflicts: customize wins for feature/UI; take main for shared infra unless customize intentionally differs
-```
-
-After a successful sync, update the pin in `.cursor/customize-main-base.md` to the merged `origin/main` commit (`%H`, date, subject).
+1. **Feature / UI / layout / settings / product copy**: keep `develop` when it conflicts with `main`.
+2. **Infrastructure / build / security / protocol / bugfix from `main`**: may port from `main`, then re-apply customize on top if needed — only if it does not change customize product surfaces.
+3. Do not replace customize screens, flows, branding, or layout with stock `main` UI just because `main` moved.
 
 ## Do not
 
+- Merge `main` ↔ `develop` (forbidden; use selective port)
 - Force `main`'s UX over customize without an explicit user request
-- Drop customize-only files or submodule pins while merging
-- Leave `.cursor/customize-main-base.md` stale after a sync
+- Drop customize-only files or submodule pins while porting
+- Leave `.cursor/customize-main-base.md` stale after a sync (see pin rule)

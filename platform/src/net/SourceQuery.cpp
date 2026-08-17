@@ -11,8 +11,9 @@ constexpr uint64_t kResendUs = 500'000;
 }
 
 bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
-    const std::string& passcode) {
+    const std::string& passcode, deskhub::HostCaps* outCaps) {
     out.clear();
+    if (outCaps) *outCaps = deskhub::HostCaps{};
     LOGI("[Sources] Querying %s ...", server.ToString().c_str());
 
     UdpSocket sock;
@@ -59,6 +60,7 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
         deskhub::SourceInfo tmp[deskhub::kMaxSources];
         const size_t cnt = deskhub::ParseSourceList(deskhub::PayloadOf(span), tmp);
         for (size_t i = 0; i < cnt; ++i) out.push_back(std::move(tmp[i]));
+        if (outCaps) *outCaps = deskhub::HostCapsOfFlags(h->flags);
         LOGI("[Sources] Host is sharing %zu source(s).", out.size());
         return true;
     }

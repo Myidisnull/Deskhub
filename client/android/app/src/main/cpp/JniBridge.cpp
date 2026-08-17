@@ -186,7 +186,8 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     const std::string passcode = FromJString(env, passcodeStr);
     DHSourceInfo sources[deskhub::kMaxSources];
     const int count =
-        dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources), passcode.c_str());
+        dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources), passcode.c_str(),
+            nullptr);
     if (count == DH_SOURCE_QUERY_FAILED) return nullptr;
 
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);

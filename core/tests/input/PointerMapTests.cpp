@@ -124,10 +124,12 @@ struct FakeInjector : InputApplier<FakeInjector, uint16_t> {
     void ReleaseAll() {
         calls.push_back("release");
     }
-    void SendKey(int32_t vk, int32_t, bool down) {
+    void SendKey(int32_t vk, int32_t native, bool down) {
+        held_.SetKey(vk, uint16_t(native), down);
         calls.push_back(std::string("key:") + std::to_string(vk) + (down ? ":down" : ":up"));
     }
-    void SendButton(MouseButton, bool down) {
+    void SendButton(MouseButton button, bool down) {
+        held_.SetButton(button, down);
         calls.push_back(down ? "btn:down" : "btn:up");
     }
     void SendMoveAbsolute(int32_t, int32_t) {
@@ -217,6 +219,32 @@ void TestHostWinsReleasesHeldInput() {
         "the resume is reported once, then the event goes through");
 }
 
+void TestTakeoverNeverStrandsAHeldKey() {
+    std::printf("[applier] letting go is never suppressed, so no key is left stuck down...\n");
+    FakeInjector inj;
+    Check(inj.Apply(Key('A', true)), "remote presses a key while it may");
+    Check(inj.Apply(Button(true)), "and holds a mouse button too");
+
+    inj.localActive = true;
+    inj.calls.clear();
+    Check(inj.Apply(Key('A', false)),
+        "the release still goes through the moment the local user takes over");
+    Check(inj.calls == std::vector<std::string>({"suppress", "release", "key:65:up"}),
+        "the takeover is reported, then the key is actually let go");
+
+    inj.calls.clear();
+    Check(!inj.Apply(Key('B', true)), "a fresh press stays refused: the host still wins");
+    Check(inj.calls.empty(), "and nothing reaches the machine");
+
+    inj.calls.clear();
+    Check(inj.Apply(Button(false)), "a button the remote still holds is released as well");
+    Check(inj.calls == std::vector<std::string>({"btn:up"}), "with no takeover noise repeated");
+
+    inj.calls.clear();
+    Check(!inj.Apply(Key('Z', false)), "a release for a key nobody holds does nothing");
+    Check(inj.calls.empty(), "so a stray release never fabricates input");
+}
+
 }
 
 namespace {
@@ -241,5 +269,6 @@ void RunPointerMapTests() {
     TestTouchScrollAccumulates();
     TestDispatch();
     TestHostWinsReleasesHeldInput();
+    TestTakeoverNeverStrandsAHeldKey();
     TestLineScrollAlwaysMovesAtLeastOneNotch();
 }

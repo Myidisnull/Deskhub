@@ -28,7 +28,7 @@ protected:
                 backend().OnLocalUserTookOver();
                 backend().ReleaseAll();
             }
-            return false;
+            return ReleaseEvenWhileSuppressed(e);
         }
         if (gate.justResumed) backend().OnLocalUserIdle();
 
@@ -54,6 +54,22 @@ protected:
 
         held_.CountApplied();
         return true;
+    }
+
+    bool ReleaseEvenWhileSuppressed(const InputEvent& e) {
+        if (e.state != 0) return false;
+        if (e.type == InputType::Key) {
+            if (held_.FindKey(e.a) == nullptr) return false;
+            backend().SendKey(e.a, e.b, false);
+            return true;
+        }
+        if (e.type == InputType::MouseButton) {
+            const MouseButton button = MouseButton(e.a);
+            if (!held_.ButtonIsDown(button)) return false;
+            backend().SendButton(button, false);
+            return true;
+        }
+        return false;
     }
 
     void ReleaseAllHeld() {

@@ -294,7 +294,9 @@ int dh_max_sources(void) {
     return int(deskhub::kMaxSources);
 }
 
-int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode) {
+int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,
+    DHHostCaps* out_caps) {
+    if (out_caps) *out_caps = DHHostCaps{false, false};
     if (!address || !out || capacity <= 0) return DH_SOURCE_QUERY_FAILED;
 
     NetAddr server;
@@ -306,8 +308,10 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
     LOGI("[Connect] Query sources for \"%s\".", address);
 
     std::vector<deskhub::SourceInfo> sources;
-    if (!QuerySources(server, sources, passcode ? passcode : ""))
+    deskhub::HostCaps caps{};
+    if (!QuerySources(server, sources, passcode ? passcode : "", &caps))
         return DH_SOURCE_QUERY_FAILED;
+    if (out_caps) *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal};
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {

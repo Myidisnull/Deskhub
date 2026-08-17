@@ -129,6 +129,19 @@ void TestSourceListWire() {
                out[i].height == in[i].height && out[i].name == in[i].name;
     Check(same, "SOURCE_LIST entries survive round-trip (including UTF-8 names)");
 
+    n = BuildSourceList(buf, in, HostCaps{true, true});
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && HostCapsOfFlags(ch->flags).acceptsInput && HostCapsOfFlags(ch->flags).terminal,
+        "SOURCE_LIST carries what the host can do");
+    n = BuildSourceList(buf, in, HostCaps{false, true});
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput && HostCapsOfFlags(ch->flags).terminal,
+        "a host that takes no input says so while still offering a terminal");
+    n = BuildSourceList(buf, in);
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput && !HostCapsOfFlags(ch->flags).terminal,
+        "a host that says nothing promises nothing");
+
     std::vector<SourceInfo> longName;
     std::string vn;
     while (vn.size() < kMaxSourceNameBytes + 20) vn += "\xE1\xBA\xA1";

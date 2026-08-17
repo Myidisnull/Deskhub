@@ -75,13 +75,15 @@ size_t BuildListSources(std::span<uint8_t> out, std::string_view passcode) {
     return total;
 }
 
-size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources) {
+size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources,
+    HostCaps caps) {
     const size_t n = sources.size() < kMaxSources ? sources.size() : kMaxSources;
     size_t payload = 1;
     for (size_t i = 0; i < n; ++i) {
         payload += 6 + Utf8TruncLen(sources[i].name, kMaxSourceNameBytes);
     }
-    const size_t total = WriteCommon(out, MsgType::SourceList, 0, Chan::Control, 0, payload);
+    const size_t total =
+        WriteCommon(out, MsgType::SourceList, HostCapFlags(caps), Chan::Control, 0, payload);
     if (!total) return 0;
 
     uint8_t* p = out.data() + kCommonHeaderSize;

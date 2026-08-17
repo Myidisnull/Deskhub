@@ -16,6 +16,7 @@ namespace deskhubp {
 struct ConnectOutcome {
     bool ok = false;
     std::vector<deskhub::SourceInfo> sources;
+    deskhub::HostCaps caps{};
 };
 
 class ConnectDriver {
@@ -36,7 +37,7 @@ public:
             } guard{pending};
 
             auto outcome = std::make_shared<ConnectOutcome>();
-            outcome->ok = QuerySources(server, outcome->sources, passcode);
+            outcome->ok = QuerySources(server, outcome->sources, passcode, &outcome->caps);
             if (postToUi)
                 postToUi([outcome, onDone = std::move(onDone)] {
                     if (onDone) onDone(*outcome);

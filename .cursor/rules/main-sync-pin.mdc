@@ -1,0 +1,42 @@
+---
+description: Every main→develop port must record and verify the absorbed origin/main commit pin
+alwaysApply: true
+---
+
+# Main sync pin & verify
+
+Every time updates from `main` are applied onto `develop`, record the exact `origin/main` commit and verify before calling the sync done.
+
+## Before porting
+
+1. Read `.cursor/customize-main-base.md` — note **Last absorbed `main` commit**
+2. `git fetch origin`
+3. List candidates: `git log --oneline <pin>..origin/main`
+4. Confirm working tree is clean (or only intentional WIP) before starting
+
+## After a successful port
+
+Update `.cursor/customize-main-base.md` in the **same change set** as the port:
+
+| Field | Source |
+| --- | --- |
+| Last absorbed `main` commit | `git rev-parse origin/main` (or the exact tip actually absorbed) |
+| Short | first 7 of that hash |
+| Date / Subject | `git log -1 --format="%ci%n%s" <that-commit>` |
+| Pin updated | today’s date |
+
+If only a **subset** of commits was ported, pin the **highest** `main` commit that was fully absorbed; leave unported commits documented in the sync notes / commit message so the next pass starts from the right gap.
+
+## Verify checklist (required)
+
+- [ ] Pin hash equals the absorbed `main` tip (or documented subset tip)
+- [ ] `git log <old-pin>..<new-pin>` was reviewed; skipped items noted
+- [ ] No unintended change to `develop` UI / layout / settings / branding
+- [ ] `make test` (and `make lint` when touching shared C++ / scripts) still pass for what was ported
+- [ ] No stale pin left after a claimed sync
+
+## Do not
+
+- Claim “synced with main” without updating the pin
+- Advance the pin past commits that were not actually applied
+- Leave `.cursor/customize-main-base.md` stale after a successful port

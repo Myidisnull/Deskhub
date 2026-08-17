@@ -97,6 +97,23 @@ struct SourceInfo {
     std::string name{};
 };
 
+inline constexpr uint8_t kHostAcceptsInput = 1u << 0;
+inline constexpr uint8_t kHostSharesTerminal = 1u << 1;
+
+struct HostCaps {
+    bool acceptsInput = false;
+    bool terminal = false;
+};
+
+inline constexpr uint8_t HostCapFlags(const HostCaps& caps) {
+    return uint8_t((caps.acceptsInput ? kHostAcceptsInput : 0) |
+                   (caps.terminal ? kHostSharesTerminal : 0));
+}
+
+inline constexpr HostCaps HostCapsOfFlags(uint8_t flags) {
+    return HostCaps{(flags & kHostAcceptsInput) != 0, (flags & kHostSharesTerminal) != 0};
+}
+
 inline constexpr size_t kMaxClientNameBytes = 64;
 
 inline constexpr size_t kPasscodeDigits = 4;
@@ -237,7 +254,8 @@ size_t BuildHello(std::span<uint8_t> out, const Hello& m);
 size_t BuildHelloAck(std::span<uint8_t> out, const HelloAck& m);
 size_t BuildStart(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildListSources(std::span<uint8_t> out, std::string_view passcode = {});
-size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources);
+size_t BuildSourceList(std::span<uint8_t> out, std::span<const SourceInfo> sources,
+    HostCaps caps = {});
 size_t BuildBye(std::span<uint8_t> out, uint32_t sessionId);
 size_t BuildPing(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);
 size_t BuildPong(std::span<uint8_t> out, uint32_t sessionId, const PingPong& m);

@@ -1,0 +1,41 @@
+---
+description: develop and main stay parallel; never merge; selectively apply main without changing develop product/UI
+alwaysApply: true
+---
+
+# develop ↔ main: parallel, no merge
+
+`develop` and `main` are **parallel lines**. They must not be merged into each other.
+
+## Hard bans
+
+- Do **not** `git merge` / `git pull` between `develop` and `main` (either direction).
+- Do **not** open a PR that merges `main` → `develop` or `develop` → `main`.
+- Do **not** rewrite `develop` history to “look like” `main`.
+
+## How to take updates from `main`
+
+Prefer **selective port** (cherry-pick, patch, or manual copy of specific commits/files):
+
+1. Fetch: `git fetch origin`
+2. Diff only what landed on `main` since the pin in `.cursor/customize-main-base.md`
+3. Port **safe shared layers** first: `core/`, `platform/` (non-UI), tests, build/CI scripts, fuzz seeds, protocol/security fixes
+4. For anything that touches product behavior, settings, screens, layout, branding, or copy: **keep `develop`**. Supplement from `main` only when it does not change those surfaces and does not force a conflict into customize code
+
+## Conflict / risk gate
+
+If applying a `main` change would:
+
+- alter `develop`-only features, settings, UI, or layout, **or**
+- create merge/content conflicts in customize-owned files
+
+→ **skip or adapt**: extract the underlying fix into a `develop`-shaped change; do not force `main`’s UX or file layout.
+
+## Ownership reminder
+
+| Area | Winner |
+| --- | --- |
+| Feature / UI / layout / settings / branding / product copy | `develop` |
+| Shared infra, protocol, security, offline tests, build tooling (no product surface change) | may take from `main` after review |
+
+After every successful port, follow the pin + verify rule (main version must be recorded and checked).

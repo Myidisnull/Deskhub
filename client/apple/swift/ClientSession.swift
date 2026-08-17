@@ -140,7 +140,7 @@ nonisolated enum DeskhubClient {
     static func listSources(address: String, passcode: String) -> [Source]? {
         var buf = [DHSourceInfo](repeating: DHSourceInfo(), count: Int(dh_max_sources()))
         let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode)
+            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode, nil)
         }
         guard count >= 0 else { return nil }
         return buf.prefix(Int(count)).map { info in

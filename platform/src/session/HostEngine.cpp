@@ -369,11 +369,13 @@ void HostEngine::DrainControlRequests() {
 
 void HostEngine::RecvLoop() {
     beacon_.SetPasscode(opt_.passcode);
+    beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false});
 
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
+        beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false});
         DrainControlRequests();
         DrainLocalClipboard();
     };

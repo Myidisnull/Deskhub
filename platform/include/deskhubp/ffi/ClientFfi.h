@@ -27,6 +27,11 @@ typedef struct {
 } DHSourceInfo;
 
 typedef struct {
+    bool acceptsInput;
+    bool terminal;
+} DHHostCaps;
+
+typedef struct {
     double x;
     double y;
     double width;
@@ -211,7 +216,8 @@ bool dh_is_escape_vk(int32_t vk);
 
 bool dh_parse_address(const char* address);
 
-int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode);
+int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,
+    DHHostCaps* out_caps);
 
 bool dh_is_valid_passcode(const char* passcode);
 

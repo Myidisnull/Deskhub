@@ -16,7 +16,7 @@ size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, uint6
                 return BuildSourceList(out, {});
             }
             if (fromPacked) authLimit_.NoteSuccess(fromPacked);
-            return BuildSourceList(out, sources_);
+            return BuildSourceList(out, sources_, caps_);
         }
         case MsgType::Ping: {
             if (h->sessionId != 0) return 0;
