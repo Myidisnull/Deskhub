@@ -170,41 +170,6 @@ final class AgentModel {
         pairingAsks.removeAll { $0.addrPacked == ask.addrPacked }
     }
 
-    private func drainPairingRequests() {
-        let requests = DeskhubClient.ffiList(
-            16, DHPairingRequest(),
-            { dha_take_pairing_requests($0, $1) },
-            { $0 }
-        )
-        guard !requests.isEmpty else { return }
-
-        let paired = Set(DeskhubClient.ffiList(
-            128, DHPairedDevice(),
-            { dh_paired_devices($0, $1) },
-            { DeskhubClient.cString($0.shortKey) }
-        ))
-
-        for request in requests {
-            let shortKey = DeskhubClient.cString(request.shortKey)
-            if paired.contains(shortKey) {
-                dha_answer_pairing(request.addrPacked, true)
-                continue
-            }
-            guard !pairingAsks.contains(where: { $0.addrPacked == request.addrPacked })
-            else { continue }
-            let address = DeskhubClient.buffered(64) {
-                dh_format_address(request.addrPacked, $0, $1)
-            }
-            let name = DeskhubClient.cString(request.name)
-            let body = DeskhubClient.buffered(512) {
-                dh_pairing_request_body(name, address, shortKey, $0, $1)
-            }
-            pairingAsks.append(
-                PairingAsk(addrPacked: request.addrPacked, shortKey: shortKey, body: body)
-            )
-        }
-    }
-
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
         guard passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) else {
@@ -294,6 +259,41 @@ final class AgentModel {
 }
 
 extension AgentModel {
+    private func drainPairingRequests() {
+        let requests = DeskhubClient.ffiList(
+            16, DHPairingRequest(),
+            { dha_take_pairing_requests($0, $1) },
+            { $0 }
+        )
+        guard !requests.isEmpty else { return }
+
+        let paired = Set(DeskhubClient.ffiList(
+            128, DHPairedDevice(),
+            { dh_paired_devices($0, $1) },
+            { DeskhubClient.cString($0.shortKey) }
+        ))
+
+        for request in requests {
+            let shortKey = DeskhubClient.cString(request.shortKey)
+            if paired.contains(shortKey) {
+                dha_answer_pairing(request.addrPacked, true)
+                continue
+            }
+            guard !pairingAsks.contains(where: { $0.addrPacked == request.addrPacked })
+            else { continue }
+            let address = DeskhubClient.buffered(64) {
+                dh_format_address(request.addrPacked, $0, $1)
+            }
+            let name = DeskhubClient.cString(request.name)
+            let body = DeskhubClient.buffered(512) {
+                dh_pairing_request_body(name, address, shortKey, $0, $1)
+            }
+            pairingAsks.append(
+                PairingAsk(addrPacked: request.addrPacked, shortKey: shortKey, body: body)
+            )
+        }
+    }
+
     private func loadShareSources() async {
         guard !isSharing, !isStarting else { return }
         refreshPermissions()

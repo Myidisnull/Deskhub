@@ -424,6 +424,19 @@ bool LocalSnapshotContains(deskhubp::TerminalHost& term, uint32_t termId,
     return false;
 }
 
+bool LocalSnapshotHasWholeRow(deskhubp::TerminalHost& term, uint32_t termId,
+    const std::string& wanted) {
+    const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
+    for (uint16_t r = 0; r < shot.size.rows; ++r) {
+        std::string line;
+        for (uint16_t c = 0; c < shot.size.cols; ++c)
+            line += deskhub::term::EncodeUtf8(shot.At(r, c).ch);
+        while (!line.empty() && line.back() == ' ') line.pop_back();
+        if (line == wanted) return true;
+    }
+    return false;
+}
+
 size_t CountInLocalSnapshot(deskhubp::TerminalHost& term, uint32_t termId, char32_t ch) {
     const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
     size_t found = 0;
@@ -507,28 +520,37 @@ void TestHostStopsAndAttachesShell() {
     host.term.SendLocalText(termId, "echo deskhub-after-take\n");
     Check(WaitFor(
               [&host, termId] {
-                  return LocalSnapshotContains(host.term, termId, "deskhub-after-take");
+                  return LocalSnapshotHasWholeRow(host.term, termId, "deskhub-after-take");
               },
               30000),
         "a command typed at the host runs in the very same shell");
+    SleepUs(400'000);
     Check(!LocalSnapshotContains(host.term, termId, "deskhub-intruder"),
         "while the kicked client can no longer type into it");
 
     const std::string typed = "zqx";
+    std::vector<size_t> already;
+    for (const char marker : typed)
+        already.push_back(CountInLocalSnapshot(host.term, termId, char32_t(marker)));
     bool everyKeyLandedOnce = true;
     for (size_t i = 0; i < typed.size(); ++i) {
         TypeLocalChar(host.term, termId, char32_t(typed[i]));
-        const std::string sofar = typed.substr(0, i + 1);
+        const char32_t marker = char32_t(typed[i]);
+        const size_t want = already[i] + 1;
         everyKeyLandedOnce &= WaitFor(
-            [&host, termId, sofar] { return LocalSnapshotContains(host.term, termId, sofar); },
+            [&host, termId, marker, want] {
+                return CountInLocalSnapshot(host.term, termId, marker) == want;
+            },
             10000);
         SleepUs(150'000);
     }
+    everyKeyLandedOnce &= LocalSnapshotContains(host.term, termId, typed);
     Check(everyKeyLandedOnce,
         "keys typed one at a time, with a human's pause between them, arrive in order");
     bool eachKeyOnce = true;
-    for (const char marker : typed)
-        eachKeyOnce &= CountInLocalSnapshot(host.term, termId, char32_t(marker)) == 1;
+    for (size_t i = 0; i < typed.size(); ++i)
+        eachKeyOnce &=
+            CountInLocalSnapshot(host.term, termId, char32_t(typed[i])) == already[i] + 1;
     Check(eachKeyOnce, "and one key press puts exactly one character on the grid");
 
     host.term.ResizeLocal(termId, deskhub::TermSize{100, 30});
