@@ -124,6 +124,15 @@ bool GridHasWholeRow(DHTermSession* session, const std::string& wanted) {
     return false;
 }
 
+void PrintGrid(DHTermSession* session) {
+    const std::vector<std::string> rows = GridRows(session);
+    for (size_t r = 0; r < rows.size(); ++r) {
+        std::string row = rows[r];
+        while (!row.empty() && row.back() == ' ') row.pop_back();
+        if (!row.empty()) std::printf("    row %02zu |%s|\n", r, row.c_str());
+    }
+}
+
 void TestNullHandlesAndBadAddressesAreHarmless() {
     std::printf("[termffi] a null handle or a bad address never turns into a crash...\n");
     DHTermCallbacks callbacks{};
@@ -225,13 +234,20 @@ void RunTerminalFfiTests() {
         dh_term_send_key(session, DHTermKeyChar, uint32_t(typed[i]), false, false, false);
         const char marker = typed[i];
         const size_t want = already[i] + 1;
-        everyKeyLandedOnce &=
+        const bool landed =
             WaitForMs([session, marker, want] { return GridCount(session, marker) == want; },
                 10000);
+        if (!landed)
+            std::printf("    key '%c' wanted count %zu, got %zu\n", marker, want,
+                GridCount(session, marker));
+        everyKeyLandedOnce &= landed;
         SleepUs(150'000);
     }
-    everyKeyLandedOnce &= GridContains(session, typed);
-    Check(everyKeyLandedOnce,
+    const bool typedRunTogether = GridContains(session, typed);
+    if (!typedRunTogether)
+        std::printf("    typed '%s' is not on any one row\n", typed.c_str());
+    if (!everyKeyLandedOnce || !typedRunTogether) PrintGrid(session);
+    Check(everyKeyLandedOnce && typedRunTogether,
         "keys sent one at a time, at a human's pace, come back in order");
     bool eachKeyOnce = true;
     for (size_t i = 0; i < typed.size(); ++i)

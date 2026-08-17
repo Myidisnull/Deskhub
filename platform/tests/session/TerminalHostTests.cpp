@@ -412,29 +412,37 @@ bool WaitFor(const std::function<bool()>& done, int millis) {
     return done();
 }
 
-bool LocalSnapshotContains(deskhubp::TerminalHost& term, uint32_t termId,
-    const std::string& needle) {
+std::vector<std::string> LocalSnapshotRows(deskhubp::TerminalHost& term, uint32_t termId) {
     const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
-    for (uint16_t r = 0; r < shot.size.rows; ++r) {
-        std::string line;
-        for (uint16_t c = 0; c < shot.size.cols; ++c)
-            line += deskhub::term::EncodeUtf8(shot.At(r, c).ch);
-        if (line.find(needle) != std::string::npos) return true;
-    }
-    return false;
-}
-
-bool LocalSnapshotHasWholeRow(deskhubp::TerminalHost& term, uint32_t termId,
-    const std::string& wanted) {
-    const deskhub::term::TerminalSnapshot shot = term.LocalSnapshot(termId, 0);
+    std::vector<std::string> rows;
     for (uint16_t r = 0; r < shot.size.rows; ++r) {
         std::string line;
         for (uint16_t c = 0; c < shot.size.cols; ++c)
             line += deskhub::term::EncodeUtf8(shot.At(r, c).ch);
         while (!line.empty() && line.back() == ' ') line.pop_back();
-        if (line == wanted) return true;
+        rows.push_back(line);
     }
+    return rows;
+}
+
+bool LocalSnapshotContains(deskhubp::TerminalHost& term, uint32_t termId,
+    const std::string& needle) {
+    for (const std::string& row : LocalSnapshotRows(term, termId))
+        if (row.find(needle) != std::string::npos) return true;
     return false;
+}
+
+bool LocalSnapshotHasWholeRow(deskhubp::TerminalHost& term, uint32_t termId,
+    const std::string& wanted) {
+    for (const std::string& row : LocalSnapshotRows(term, termId))
+        if (row == wanted) return true;
+    return false;
+}
+
+void PrintLocalSnapshot(deskhubp::TerminalHost& term, uint32_t termId) {
+    const std::vector<std::string> rows = LocalSnapshotRows(term, termId);
+    for (size_t r = 0; r < rows.size(); ++r)
+        if (!rows[r].empty()) std::printf("    row %02zu |%s|\n", r, rows[r].c_str());
 }
 
 size_t CountInLocalSnapshot(deskhubp::TerminalHost& term, uint32_t termId, char32_t ch) {
@@ -537,15 +545,22 @@ void TestHostStopsAndAttachesShell() {
         TypeLocalChar(host.term, termId, char32_t(typed[i]));
         const char32_t marker = char32_t(typed[i]);
         const size_t want = already[i] + 1;
-        everyKeyLandedOnce &= WaitFor(
+        const bool landed = WaitFor(
             [&host, termId, marker, want] {
                 return CountInLocalSnapshot(host.term, termId, marker) == want;
             },
             10000);
+        if (!landed)
+            std::printf("    key '%c' wanted count %zu, got %zu\n", typed[i], want,
+                CountInLocalSnapshot(host.term, termId, marker));
+        everyKeyLandedOnce &= landed;
         SleepUs(150'000);
     }
-    everyKeyLandedOnce &= LocalSnapshotContains(host.term, termId, typed);
-    Check(everyKeyLandedOnce,
+    const bool typedRunTogether = LocalSnapshotContains(host.term, termId, typed);
+    if (!typedRunTogether)
+        std::printf("    typed '%s' is not on any one row\n", typed.c_str());
+    if (!everyKeyLandedOnce || !typedRunTogether) PrintLocalSnapshot(host.term, termId);
+    Check(everyKeyLandedOnce && typedRunTogether,
         "keys typed one at a time, with a human's pause between them, arrive in order");
     bool eachKeyOnce = true;
     for (size_t i = 0; i < typed.size(); ++i)
