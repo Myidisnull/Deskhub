@@ -17,6 +17,12 @@
 #include "deskhub/media/H264Sps.h"
 #include "deskhub/media/RatePlan.h"
 #include "deskhubp/diag/Log.h"
+#include "deskhubp/diag/StallLog.h"
+#include "deskhubp/system/Clock.h"
+
+#include <atomic>
+#include <optional>
+#include <type_traits>
 
 using PFN_CreateInstance = NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*);
 using PFN_MaxVersion = NVENCSTATUS(NVENCAPI*)(uint32_t*);
@@ -34,8 +40,54 @@ struct NvencEncoder::Impl {
     bool loggedZeroReorder = false;
     uint64_t frameCount = 0;
     uint64_t totalBytes = 0;
+    std::atomic<const char*> apiPhase{"idle"};
+    std::atomic<uint32_t> apiDepth{0};
 
     std::map<ID3D11Texture2D*, NV_ENC_REGISTERED_PTR> registered;
+
+    template <class Fn>
+    auto TimedApi(const char* name, bool watchAnr, Fn&& fn) -> decltype(fn()) {
+        apiPhase.store(name, std::memory_order_release);
+        apiDepth.fetch_add(1, std::memory_order_acq_rel);
+        const uint64_t t0 = NowUs();
+        std::optional<deskhubp::StopAnrWatch> watch;
+        if (watchAnr) {
+            watch.emplace("nvenc", name, [this](uint32_t ms) {
+                LOGI(
+                    "[DIAG][nvenc] evt=api_snap phase=%s depth=%u waited_ms=%u frames=%llu "
+                    "tid=%lu",
+                    apiPhase.load(std::memory_order_acquire),
+                    apiDepth.load(std::memory_order_relaxed), ms, (unsigned long long)frameCount,
+                    (unsigned long)GetCurrentThreadId());
+            });
+        }
+        using R = decltype(fn());
+        if constexpr (std::is_void_v<R>) {
+            std::forward<Fn>(fn)();
+            const uint32_t ms = deskhubp::ElapsedMsSince(t0);
+            if (ms >= deskhubp::kStopAnrMs)
+                LOGE("[DIAG][nvenc] evt=api_anr phase=%s ms=%u", name, ms);
+            else if (ms >= 50)
+                LOGW("[DIAG][nvenc] evt=api_slow phase=%s ms=%u", name, ms);
+            else if (watchAnr)
+                LOGI("[DIAG][nvenc] evt=api_ok phase=%s ms=%u", name, ms);
+            apiDepth.fetch_sub(1, std::memory_order_acq_rel);
+            apiPhase.store("idle", std::memory_order_release);
+            return;
+        } else {
+            R r = std::forward<Fn>(fn)();
+            const uint32_t ms = deskhubp::ElapsedMsSince(t0);
+            if (ms >= deskhubp::kStopAnrMs)
+                LOGE("[DIAG][nvenc] evt=api_anr phase=%s ms=%u", name, ms);
+            else if (ms >= 50)
+                LOGW("[DIAG][nvenc] evt=api_slow phase=%s ms=%u", name, ms);
+            else if (watchAnr)
+                LOGI("[DIAG][nvenc] evt=api_ok phase=%s ms=%u", name, ms);
+            apiDepth.fetch_sub(1, std::memory_order_acq_rel);
+            apiPhase.store("idle", std::memory_order_release);
+            return r;
+        }
+    }
 
     ~Impl() {
         Cleanup();
@@ -227,7 +279,8 @@ struct NvencEncoder::Impl {
         NV_ENC_MAP_INPUT_RESOURCE mp{};
         mp.version = NV_ENC_MAP_INPUT_RESOURCE_VER;
         mp.registeredResource = reg;
-        NVENCSTATUS s = nv.nvEncMapInputResource(enc, &mp);
+        NVENCSTATUS s = TimedApi("MapInputResource", false,
+            [&] { return nv.nvEncMapInputResource(enc, &mp); });
         if (s != NV_ENC_SUCCESS) return Fail("MapInputResource", s);
 
         NV_ENC_PIC_PARAMS pp{};
@@ -242,7 +295,7 @@ struct NvencEncoder::Impl {
         pp.inputTimeStamp = timestampUs;
         if (forceKeyframe) pp.encodePicFlags |= NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
 
-        s = nv.nvEncEncodePicture(enc, &pp);
+        s = TimedApi("EncodePicture", false, [&] { return nv.nvEncEncodePicture(enc, &pp); });
         bool ok = true;
         if (s == NV_ENC_SUCCESS) {
             ok = WriteOutput();
@@ -250,7 +303,8 @@ struct NvencEncoder::Impl {
             ok = Fail("EncodePicture", s);
         }
 
-        nv.nvEncUnmapInputResource(enc, mp.mappedResource);
+        TimedApi("UnmapInputResource", false,
+            [&] { return nv.nvEncUnmapInputResource(enc, mp.mappedResource); });
         return ok;
     }
 
@@ -258,7 +312,8 @@ struct NvencEncoder::Impl {
         NV_ENC_LOCK_BITSTREAM lb{};
         lb.version = NV_ENC_LOCK_BITSTREAM_VER;
         lb.outputBitstream = bitstream;
-        NVENCSTATUS s = nv.nvEncLockBitstream(enc, &lb);
+        NVENCSTATUS s =
+            TimedApi("LockBitstream", false, [&] { return nv.nvEncLockBitstream(enc, &lb); });
         if (s != NV_ENC_SUCCESS) return Fail("LockBitstream", s);
 
         const bool keyframe = (lb.pictureType == NV_ENC_PIC_TYPE_IDR);
@@ -282,39 +337,64 @@ struct NvencEncoder::Impl {
         }
 
         if (out) std::fwrite(data, 1, len, out);
-        if (cfg.onPacket && len > 0) cfg.onPacket(data, len, lb.outputTimeStamp, keyframe);
+        if (cfg.onPacket && len > 0) {
+            const uint64_t tPacket = NowUs();
+            cfg.onPacket(data, len, lb.outputTimeStamp, keyframe);
+            const uint32_t packetMs = deskhubp::ElapsedMsSince(tPacket);
+            if (packetMs >= 50)
+                LOGW("[DIAG][nvenc] evt=api_slow phase=onPacket ms=%u", packetMs);
+        }
         totalBytes += len;
         ++frameCount;
         if (frameCount <= 5 || frameCount % 60 == 0) {
             LOGI("[NVENC] frame %llu: %u byte%s", (unsigned long long)frameCount,
                 lb.bitstreamSizeInBytes, keyframe ? " (IDR)" : "");
         }
-        nv.nvEncUnlockBitstream(enc, bitstream);
+        TimedApi("UnlockBitstream", false, [&] { return nv.nvEncUnlockBitstream(enc, bitstream); });
         return true;
     }
 
     void Finish() {
         if (!enc) return;
-        NV_ENC_PIC_PARAMS eos{};
-        eos.version = NV_ENC_PIC_PARAMS_VER;
-        eos.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
-        if (nv.nvEncEncodePicture(enc, &eos) == NV_ENC_SUCCESS) WriteOutput();
         if (out) std::fflush(out);
-        LOGI("[NVENC] Encoded %llu frame, %.2f MB.",
+        LOGI("[NVENC] Encoded %llu frame, %.2f MB (no EOS drain).",
             (unsigned long long)frameCount, totalBytes / 1e6);
     }
 
     void Cleanup() {
-        if (enc) {
+        if (!enc) {
+            if (out) {
+                std::fclose(out);
+                out = nullptr;
+            }
+            if (dll) {
+                FreeLibrary(dll);
+                dll = nullptr;
+            }
+            return;
+        }
+
+        LOGI("[DIAG][nvenc] evt=cleanup_begin registered=%zu frames=%llu api=%s depth=%u",
+            registered.size(), (unsigned long long)frameCount,
+            apiPhase.load(std::memory_order_acquire), apiDepth.load(std::memory_order_relaxed));
+
+        TimedApi("UnregisterResources", true, [&] {
             for (auto& kv : registered) nv.nvEncUnregisterResource(enc, kv.second);
             registered.clear();
-            if (bitstream) {
+        });
+
+        if (bitstream) {
+            TimedApi("DestroyBitstreamBuffer", true, [&] {
                 nv.nvEncDestroyBitstreamBuffer(enc, bitstream);
                 bitstream = nullptr;
-            }
+            });
+        }
+
+        TimedApi("DestroyEncoder", true, [&] {
             nv.nvEncDestroyEncoder(enc);
             enc = nullptr;
-        }
+        });
+
         if (out) {
             std::fclose(out);
             out = nullptr;
@@ -323,6 +403,7 @@ struct NvencEncoder::Impl {
             FreeLibrary(dll);
             dll = nullptr;
         }
+        LOGI("[DIAG][nvenc] evt=cleanup_done");
     }
 };
 

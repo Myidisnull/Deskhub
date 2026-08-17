@@ -64,6 +64,7 @@ struct ScreenCapture::Impl {
     FrameHandler onFrame;
     std::atomic<bool> closed{false};
     std::atomic<uint64_t> frameId{0};
+    std::atomic<uint32_t> arrivedDepth{0};
 
     bool CreateDevice() {
         const D3D_FEATURE_LEVEL levels[] = {
@@ -81,6 +82,14 @@ struct ScreenCapture::Impl {
     }
 
     void OnFrameArrived() {
+        arrivedDepth.fetch_add(1, std::memory_order_acq_rel);
+        struct DepthGuard {
+            std::atomic<uint32_t>& depth;
+            ~DepthGuard() {
+                depth.fetch_sub(1, std::memory_order_acq_rel);
+            }
+        } guard{arrivedDepth};
+
         if (!framePool) return;
 
         while (auto frame = framePool.TryGetNextFrame()) {
@@ -192,24 +201,56 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
 
 void ScreenCapture::Stop() {
     if (!impl_) return;
-    const uint64_t t0 = NowUs();
-    deskhubp::StopAnrWatch watch("agent", "wgc_stop");
-    if (impl_->framePool && impl_->frameArrivedToken.value) {
-        impl_->framePool.FrameArrived(impl_->frameArrivedToken);
-        impl_->frameArrivedToken = {};
+    const uint64_t tAll = NowUs();
+    auto snap = [impl = impl_.get()](const char* step, uint32_t waitedMs = 0) {
+        LOGI("[DIAG][agent] evt=wgc_step step=%s waited_ms=%u arrived_depth=%u has_pool=%d "
+             "has_session=%d tid=%lu",
+            step, waitedMs, impl->arrivedDepth.load(std::memory_order_relaxed),
+            impl->framePool ? 1 : 0, impl->session ? 1 : 0,
+            (unsigned long)GetCurrentThreadId());
+    };
+    snap("enter");
+
+    {
+        const uint64_t t0 = NowUs();
+        deskhubp::StopAnrWatch watch("agent", "wgc_revoke",
+            [&](uint32_t ms) { snap("revoke_blocked", ms); });
+        if (impl_->framePool && impl_->frameArrivedToken.value) {
+            impl_->framePool.FrameArrived(impl_->frameArrivedToken);
+            impl_->frameArrivedToken = {};
+        }
+        if (impl_->item && impl_->closedToken.value) {
+            impl_->item.Closed(impl_->closedToken);
+            impl_->closedToken = {};
+        }
+        deskhubp::LogStopPhase("agent", "wgc_revoke", t0);
     }
-    if (impl_->item && impl_->closedToken.value) {
-        impl_->item.Closed(impl_->closedToken);
-        impl_->closedToken = {};
+    snap("after_revoke");
+
+    {
+        const uint64_t t0 = NowUs();
+        deskhubp::StopAnrWatch watch("agent", "wgc_release_session",
+            [&](uint32_t ms) { snap("session_blocked", ms); });
+        impl_->session = nullptr;
+        deskhubp::LogStopPhase("agent", "wgc_release_session", t0);
     }
-    impl_->session = nullptr;
-    impl_->framePool = nullptr;
+    snap("after_session");
+
+    {
+        const uint64_t t0 = NowUs();
+        deskhubp::StopAnrWatch watch("agent", "wgc_release_pool",
+            [&](uint32_t ms) { snap("pool_blocked", ms); });
+        impl_->framePool = nullptr;
+        deskhubp::LogStopPhase("agent", "wgc_release_pool", t0);
+    }
+    snap("after_pool");
+
     impl_->item = nullptr;
     impl_->winrtDevice = nullptr;
     impl_->d3dContext = nullptr;
     impl_->d3dDevice = nullptr;
     impl_->onFrame = nullptr;
-    deskhubp::LogStopPhase("agent", "wgc_stop", t0);
+    deskhubp::LogStopPhase("agent", "wgc_stop", tAll);
 }
 
 bool ScreenCapture::Closed() const {

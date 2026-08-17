@@ -46,6 +46,9 @@ struct SourcePipeline : WinSourceBase {
     GpuChoice gpu;
 
     std::atomic<uint32_t> srcTexW{0}, srcTexH{0};
+    std::atomic<uint32_t> frameCbDepth{0};
+    std::atomic<uint32_t> encHoldDepth{0};
+    std::atomic<uint32_t> encodeDepth{0};
     deskhub::FrameGate frameGate;
 
     Downscaler scaler;
@@ -59,9 +62,23 @@ struct SourcePipeline : WinSourceBase {
         SetCachedFrame(false);
     }
 
+    void LogStopSnapshot(const char* where, uint32_t waitedMs = 0) const {
+        LOGI(
+            "[DIAG][agent] evt=stop_snap where=%s waited_ms=%u name=%s frame_cb=%u enc_hold=%u "
+            "encode=%u failed=%d net=%d has_encoder=%d tid=%lu",
+            where, waitedMs, name.c_str(), frameCbDepth.load(std::memory_order_relaxed),
+            encHoldDepth.load(std::memory_order_relaxed),
+            encodeDepth.load(std::memory_order_relaxed),
+            failed.load(std::memory_order_relaxed) ? 1 : 0,
+            netReady.load(std::memory_order_relaxed) ? 1 : 0, encoder ? 1 : 0,
+            (unsigned long)GetCurrentThreadId());
+    }
+
     void EncodeTimed(ID3D11Texture2D* tex, bool idr) {
+        encodeDepth.fetch_add(1, std::memory_order_acq_rel);
         const bool ok = deskhubp::DiagEncode(*this, idr,
             [this, tex, idr] { return encoder->Encode(tex, NowUs(), idr); });
+        encodeDepth.fetch_sub(1, std::memory_order_acq_rel);
         if (ok) return;
         encoder.reset();
         forceIdr.store(true);
@@ -157,10 +174,25 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         };
 
         auto onFrame = [p, maxDim](const FrameInfo& fi) {
+            p->frameCbDepth.fetch_add(1, std::memory_order_acq_rel);
+            struct DepthGuard {
+                std::atomic<uint32_t>& depth;
+                ~DepthGuard() {
+                    depth.fetch_sub(1, std::memory_order_acq_rel);
+                }
+            } frameGuard{p->frameCbDepth};
+
             p->captured.fetch_add(1, std::memory_order_relaxed);
             if (p->failed.load()) return;
 
+            p->encHoldDepth.fetch_add(1, std::memory_order_acq_rel);
             std::lock_guard<std::mutex> lk(p->encMutex);
+            struct HoldGuard {
+                std::atomic<uint32_t>& depth;
+                ~HoldGuard() {
+                    depth.fetch_sub(1, std::memory_order_acq_rel);
+                }
+            } holdGuard{p->encHoldDepth};
 
             const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
                 fi.meta.height, maxDim);
@@ -222,20 +254,35 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.stopCapture = [](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
+        p.LogStopSnapshot("stop_capture_enter");
         {
             const uint64_t t0 = NowUs();
-            deskhubp::StopAnrWatch watch("agent", "capture_stop");
+            deskhubp::StopAnrWatch watch("agent", "capture_stop",
+                [&p](uint32_t ms) { p.LogStopSnapshot("capture_stop_blocked", ms); });
             p.capture.Stop();
             deskhubp::LogStopPhase("agent", "capture_stop", t0);
         }
+        p.LogStopSnapshot("after_capture_stop");
+        std::unique_lock<std::mutex> lk(p.encMutex, std::defer_lock);
         {
             const uint64_t t0 = NowUs();
-            deskhubp::StopAnrWatch watch("agent", "encoder_finish");
-            std::lock_guard<std::mutex> lk(p.encMutex);
-            if (p.encoder) p.encoder->Finish();
-            p.ReleaseCached();
-            deskhubp::LogStopPhase("agent", "encoder_finish", t0);
+            deskhubp::StopAnrWatch watch("agent", "encoder_lock",
+                [&p](uint32_t ms) { p.LogStopSnapshot("encoder_lock_blocked", ms); });
+            while (!lk.try_lock()) SleepUs(1000);
+            deskhubp::LogStopPhase("agent", "encoder_lock", t0);
         }
+        p.LogStopSnapshot("encoder_lock_held");
+        {
+            const uint64_t t0 = NowUs();
+            LOGI("[DIAG][agent] evt=encoder_drop_begin has_encoder=%d policy=skip_eos",
+                p.encoder ? 1 : 0);
+            deskhubp::StopAnrWatch watch("agent", "encoder_drop",
+                [&p](uint32_t ms) { p.LogStopSnapshot("encoder_drop_blocked", ms); });
+            p.encoder.reset();
+            p.ReleaseCached();
+            deskhubp::LogStopPhase("agent", "encoder_drop", t0);
+        }
+        p.LogStopSnapshot("stop_capture_done");
     };
 
     policy.source.attachInput = [engine](deskhubp::HostSource& st) {
