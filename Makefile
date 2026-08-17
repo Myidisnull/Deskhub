@@ -46,12 +46,18 @@
 # Shared CMake tree (core + platform + whatever client the current OS builds):
 #   make debug          configure + build the debug preset
 #   make release        configure + build the release preset
-#   make quiche         build the QUIC library into third_party/quiche (scripts/build-quiche.sh).
-#                       debug and release run it first — it is a no-op once built. Without it
-#                       platform/ falls back to the stub transport and the terminal cannot be
-#                       shared, so a failure here only warns and the build carries on.
-#                       Windows drives the script through Git Bash: override with
+#   make quiche         build the QUIC library into third_party/quiche (scripts/build-quiche.sh)
+#                       for the host target. debug and release run it first — it is a no-op once
+#                       built. Windows drives the script through Git Bash: override with
 #                       GIT_BASH=<path to bash.exe> if Git is installed elsewhere
+#
+# quiche is per-ABI, so every cross-compiled app builds its own before the app itself —
+# without them CMake stops with an error instead of producing a binary that cannot connect:
+#   make quiche-android  arm64-v8a + x86_64 static libs (build/release/run-android run it first).
+#                        Needs the NDK (plus cargo-ndk outside Windows, which drives the NDK
+#                        toolchain itself); ANDROID_NDK_VERSION=<v> picks another NDK
+#   make quiche-ios      iOS device + Simulator (build/release-ios run it first)
+#   make quiche-macos    arm64 + x86_64, lipo'd into macos-universal (build/release-macos run it)
 #
 # Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
 #   make setup-linux-permissions    udev rule + add the user to the `input` group

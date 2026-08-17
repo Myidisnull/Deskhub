@@ -379,8 +379,13 @@ private:
     void OnScanFinished(const deskhubp::ScanProgress& progress);
     void OnListClick(wxMouseEvent& event);
     void ConnectRow(long row);
+    struct OpenChoice {
+        bool desktop = false;
+        bool shell = false;
+    };
+
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const deskhubp::ConnectOutcome& outcome);
+        const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
     void OpenViewerSession(const std::string& addr, const std::string& passcode,
         std::vector<deskhub::SourceInfo> picked);
     void DeselectAllRows();
@@ -808,6 +813,8 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     shellCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
     openSizer->Add(shellCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
 
+    openSizer->Add(MakeHint(openBox, ToWx(ui::kMobileHostNote)),
+        wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
     openSizer->Add(MakeHint(openBox, ToWx(ui::kOpenChoiceHint)),
         wxSizerFlags().Border(wxALL, FromDIP(8)));
     sizer->Add(openSizer, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1708,16 +1715,7 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         return;
     }
 
-    if (shellCtrl_->GetValue()) OpenShell(server, passcode);
-    if (!desktopCtrl_->GetValue()) {
-        ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
-        SaveRecentDevices();
-        poller_.SetAddresses(AddressesOf(recent_));
-        RefreshDeviceList();
-        DeselectAllRows();
-        return;
-    }
-
+    const OpenChoice choice{desktopCtrl_->GetValue(), shellCtrl_->GetValue()};
     const bool started = connectDriver_.QueryAsync(
         server, passcode,
         [alive = alive_](std::function<void()> fn) {
@@ -1726,8 +1724,8 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
                 if (*alive) fn();
             });
         },
-        [this, addr, passcode](const deskhubp::ConnectOutcome& outcome) {
-            OnSourcesReady(addr, passcode, outcome);
+        [this, addr, passcode, choice](const deskhubp::ConnectOutcome& outcome) {
+            OnSourcesReady(addr, passcode, choice, outcome);
         });
     if (!started) {
         SetClientStatus(ToWx(ui::kQueryingSources), kMutedText);
@@ -1843,16 +1841,11 @@ void MainFrame::ConnectWithPrompt(const std::string& addr, std::string passcode)
 }
 
 void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passcode,
-    const deskhubp::ConnectOutcome& outcome) {
+    const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
     connectBtn_->Enable();
 
     if (!outcome.ok) {
         SetClientStatus(ToWx(ui::SourceQueryFailed(addr)), kOffline);
-        DeselectAllRows();
-        return;
-    }
-    if (outcome.sources.empty()) {
-        SetClientStatus(ToWx(ui::SourceQueryEmpty(addr)), kOffline);
         DeselectAllRows();
         return;
     }
@@ -1862,6 +1855,24 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     SaveRecentDevices();
     poller_.SetAddresses(AddressesOf(recent_));
     RefreshDeviceList();
+
+    if (choice.shell) {
+        NetAddr server{};
+        if (!outcome.caps.terminal)
+            SetClientStatus(ToWx(ui::kHostHasNoTerminal), kOffline);
+        else if (ParseNetAddr(addr, server))
+            OpenShell(server, passcode);
+    }
+
+    if (!choice.desktop) {
+        DeselectAllRows();
+        return;
+    }
+    if (outcome.sources.empty()) {
+        SetClientStatus(ToWx(ui::SourceQueryEmpty(addr)), kOffline);
+        DeselectAllRows();
+        return;
+    }
 
     std::vector<deskhub::SourceInfo> picked;
     if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {

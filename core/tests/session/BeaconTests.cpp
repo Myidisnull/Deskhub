@@ -93,6 +93,34 @@ void TestBeaconHidesSourcesBehindThePasscode() {
         "at which point it no longer has to carry a passcode at all");
 }
 
+void TestBeaconTellsAuthenticatedAskersWhatTheHostCanDo() {
+    std::printf("[disc] Beacon: what the host can do travels with the source list...\n");
+    Beacon b;
+    SourceInfo s;
+    s.sourceId = 0;
+    s.width = 1080;
+    s.height = 2400;
+    s.name = "Pixel";
+    b.SetSources(std::span<const SourceInfo>(&s, 1));
+    b.SetCaps(HostCaps{false, false});
+
+    uint8_t req[kMaxDatagram];
+    const size_t rn = BuildListSources(req);
+
+    auto h = ParseCommonHeader(Ask(b, std::span<const uint8_t>(req, rn), true));
+    Check(h && !HostCapsOfFlags(h->flags).acceptsInput && !HostCapsOfFlags(h->flags).terminal,
+        "a phone answers that it takes no input and has no shell");
+
+    b.SetCaps(HostCaps{true, true});
+    h = ParseCommonHeader(Ask(b, std::span<const uint8_t>(req, rn), true));
+    Check(h && HostCapsOfFlags(h->flags).acceptsInput && HostCapsOfFlags(h->flags).terminal,
+        "a desktop that shares both says so");
+
+    h = ParseCommonHeader(Ask(b, std::span<const uint8_t>(req, rn)));
+    Check(h && !HostCapsOfFlags(h->flags).acceptsInput && !HostCapsOfFlags(h->flags).terminal,
+        "a stranger over plain UDP is told nothing about either");
+}
+
 void TestBeaconIgnoresSessionTraffic() {
     std::printf("[disc] Beacon: leaves session traffic alone...\n");
     const Beacon b;
@@ -117,5 +145,6 @@ void TestBeaconIgnoresSessionTraffic() {
 void RunBeaconTests() {
     TestBeaconSourcesAndProbe();
     TestBeaconHidesSourcesBehindThePasscode();
+    TestBeaconTellsAuthenticatedAskersWhatTheHostCanDo();
     TestBeaconIgnoresSessionTraffic();
 }

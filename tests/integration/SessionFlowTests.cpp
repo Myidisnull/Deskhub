@@ -367,6 +367,45 @@ void TestSourceDiscoveryBeforeAnySession() {
     agent.Stop();
 }
 
+void TestAViewerLearnsWhatTheHostCannotDo() {
+    std::printf("[e2e] a viewer is told, before it opens anything, what the host cannot do...\n");
+    ResetObservations();
+    const uint16_t port = NextTestPort();
+
+    fake::Agent agent;
+    if (!agent.Start({fake::Source("Pixel", 1080, 2400, 1)}, port, 30, 1920, kTestPasscode,
+            false)) {
+        Check(false, "the host could not start");
+        return;
+    }
+
+    std::vector<deskhub::SourceInfo> sources;
+    deskhub::HostCaps caps{};
+    Check(QuerySources(HostAddr(port), sources, kTestPasscode, nullptr, &caps),
+        "the phone answers the query");
+    Check(!caps.acceptsInput,
+        "a host that injects no input says so, so the control tick can be called out");
+    Check(!caps.terminal,
+        "and it offers no shell, so no terminal window is opened against it");
+
+    agent.Stop();
+
+    const uint16_t deskPort = NextTestPort();
+    fake::Agent desktop;
+    if (!desktop.Start({fake::Source("Display 1", 1280, 720, 1)}, deskPort, 30, 1920,
+            kTestPasscode, true)) {
+        Check(false, "the desktop host could not start");
+        return;
+    }
+    sources.clear();
+    caps = deskhub::HostCaps{};
+    Check(QuerySources(HostAddr(deskPort), sources, kTestPasscode, nullptr, &caps),
+        "a desktop answers the same query");
+    Check(caps.acceptsInput, "and a host that does take input is not mistaken for a phone");
+
+    desktop.Stop();
+}
+
 void TestTwoViewersShareOneSourceAndOneEncoder() {
     std::printf("[e2e] two viewers watch the same source off a single encode...\n");
     ResetObservations();
@@ -695,6 +734,7 @@ void RunSessionFlowTests() {
     TestOneMachineWatchesBothDisplaysAtOnce();
     TestTwoViewersShareOneSourceAndOneEncoder();
     TestSourceDiscoveryBeforeAnySession();
+    TestAViewerLearnsWhatTheHostCannotDo();
     TestTheHostSurvivesAViewerThatVanishes();
     TestJunkDatagramsDoNotDisturbTheStream();
 }

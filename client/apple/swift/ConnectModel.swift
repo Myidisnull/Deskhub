@@ -69,8 +69,8 @@ final class ConnectModel {
         return accepted
     }
 
-    func listSources() async -> [Source] {
-        guard let accepted = acceptAddress() else { return [] }
+    func queryHost() async -> HostQuery? {
+        guard let accepted = acceptAddress() else { return nil }
         let code = acceptedPasscode
         isConnecting = true
         defer { isConnecting = false }
@@ -79,12 +79,17 @@ final class ConnectModel {
         }.value
         guard let found else {
             connectError = DeskhubClient.sourceQueryFailed(accepted)
-            return []
-        }
-        guard !found.isEmpty else {
-            connectError = DeskhubClient.sourceQueryEmpty(accepted)
-            return []
+            return nil
         }
         return found
+    }
+
+    func listSources() async -> [Source] {
+        guard let found = await queryHost() else { return [] }
+        guard !found.sources.isEmpty else {
+            connectError = DeskhubClient.sourceQueryEmpty(acceptedAddress)
+            return []
+        }
+        return found.sources
     }
 }

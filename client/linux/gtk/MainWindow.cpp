@@ -767,6 +767,7 @@ GtkWidget* MainWindow::BuildClientPage() {
     g_signal_connect(shellCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     gtk_box_pack_start(GTK_BOX(box), shellCheck_, FALSE, FALSE, 0);
 
+    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kMobileHostNote), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), Hint(ui::kOpenChoiceHint), FALSE, FALSE, 0);
 
     connectButton_ = gtk_button_new_with_label(ui::kConnectButton);
@@ -1408,19 +1409,11 @@ void MainWindow::StartConnect(const std::string& addr, const std::string& passco
         return;
     }
 
-    if (shell) OpenShell(server, passcode);
-    if (!desktop) {
-        ui::TouchRecentDevice(recent_, addr, int64_t(std::time(nullptr)), passcode);
-        SaveRecentDevices();
-        poller_.SetAddresses(AddressesOf(recent_));
-        RefreshDeviceList();
-        return;
-    }
-
+    const OpenChoice choice{desktop, shell};
     const bool started = connectDriver_.QueryAsync(
         server, passcode, [this](const std::function<void()>& fn) { PostToUi(fn); },
-        [this, addr, passcode](const deskhubp::ConnectOutcome& outcome) {
-            OnSourcesReady(addr, passcode, outcome);
+        [this, addr, passcode, choice](const deskhubp::ConnectOutcome& outcome) {
+            OnSourcesReady(addr, passcode, choice, outcome);
         });
     if (started) SetBusy(true, ui::kQueryingSources);
 }
@@ -1438,15 +1431,11 @@ void MainWindow::OpenShell(const NetAddr& server, const std::string& passcode) {
 }
 
 void MainWindow::OnSourcesReady(const std::string& addr, const std::string& passcode,
-    const deskhubp::ConnectOutcome& outcome) {
+    const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
     SetBusy(false, nullptr);
 
     if (!outcome.ok) {
         SetClientStatus(ui::SourceQueryFailed(addr), true);
-        return;
-    }
-    if (outcome.sources.empty()) {
-        SetClientStatus(ui::SourceQueryEmpty(addr), true);
         return;
     }
 
@@ -1457,6 +1446,19 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) return;
+
+    if (choice.shell) {
+        if (outcome.caps.terminal)
+            OpenShell(server, passcode);
+        else
+            SetClientStatus(ui::kHostHasNoTerminal, true);
+    }
+
+    if (!choice.desktop) return;
+    if (outcome.sources.empty()) {
+        SetClientStatus(ui::SourceQueryEmpty(addr), true);
+        return;
+    }
 
     std::vector<deskhub::SourceInfo> picked;
     if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) return;

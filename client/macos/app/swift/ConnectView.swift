@@ -191,6 +191,7 @@ struct MainMenuView: View {
                     Toggle(DeskhubClient.string(DHStrOpenShellLabel), isOn: $openShell)
                         .toggleStyle(.checkbox)
                         .onChange(of: openShell) { _, on in dh_set_client_shell(on) }
+                    deskhubHint(DeskhubClient.string(DHStrMobileHostNote))
                     deskhubHint(DeskhubClient.string(DHStrOpenChoiceHint))
                 }
                 .padding(8)
@@ -294,27 +295,32 @@ extension MainMenuView {
             connectAlert = DeskhubClient.string(DHStrOpenNothingTicked)
             return
         }
-        guard let accepted = connect.acceptAddress() else { return }
+        guard connect.acceptAddress() != nil else { return }
         connect.saveDeviceName()
-        let passcode = connect.acceptedPasscode
-        if openShell {
-            openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
-        }
-        guard openDesktop else {
-            Task { await discovery.remember(address: accepted, passcode: passcode) }
-            return
-        }
         Task {
-            let sources = await connect.listSources()
-            guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
-            await discovery.remember(
-                address: connect.acceptedAddress, passcode: connect.acceptedPasscode
-            )
-            if DeskhubClient.connectDecision(sources).showPicker {
-                route = .sourcePicker(sources)
+            guard let found = await connect.queryHost() else { return }
+            let accepted = connect.acceptedAddress
+            let passcode = connect.acceptedPasscode
+            guard !accepted.isEmpty else { return }
+            await discovery.remember(address: accepted, passcode: passcode)
+
+            if openShell {
+                if found.caps.terminal {
+                    openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
+                } else {
+                    connect.connectError = DeskhubClient.string(DHStrHostHasNoTerminal)
+                }
+            }
+            guard openDesktop else { return }
+            guard !found.sources.isEmpty else {
+                connect.connectError = DeskhubClient.sourceQueryEmpty(accepted)
+                return
+            }
+            if DeskhubClient.connectDecision(found.sources).showPicker {
+                route = .sourcePicker(found.sources)
             } else {
-                openViewers(sources, address: connect.acceptedAddress,
-                            passcode: connect.acceptedPasscode, openWindow: openWindow)
+                openViewers(found.sources, address: accepted, passcode: passcode,
+                            openWindow: openWindow)
             }
         }
     }

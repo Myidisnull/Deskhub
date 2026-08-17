@@ -16,9 +16,11 @@ constexpr uint32_t kPollWaitMs = 2;
 }
 
 bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
-    const std::string& passcode, deskhub::AuthResultCode* outCode) {
+    const std::string& passcode, deskhub::AuthResultCode* outCode,
+    deskhub::HostCaps* outCaps) {
     out.clear();
     if (outCode) *outCode = deskhub::AuthResultCode::NotPaired;
+    if (outCaps) *outCaps = deskhub::HostCaps{};
 
     if (!deskhubp::QuicAvailable()) {
         LOGE("[Sources] This build has no QUIC library.");
@@ -74,6 +76,7 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
         deskhub::SourceInfo tmp[deskhub::kMaxSources];
         const size_t cnt = deskhub::ParseSourceList(deskhub::PayloadOf(span), tmp);
         for (size_t i = 0; i < cnt; ++i) out.push_back(std::move(tmp[i]));
+        if (outCaps) *outCaps = deskhub::HostCapsOfFlags(h->flags);
         LOGI("[Sources] Host is sharing %zu source(s).", out.size());
         return true;
     }

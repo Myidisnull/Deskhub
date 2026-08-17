@@ -348,13 +348,21 @@ private fun MainScreen(
         connectError = ""
         deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
         NativeClient.setDeviceName(deviceName)
-        onRemember(addr, code)
+        val mine = Step.Querying(++querySeq)
+        step = mine
         scope.launch {
+            val shared = NativeClient.hostHasTerminal(addr, code)
+            if (step == mine) step = Step.Address
+            if (!shared) {
+                connectError = NativeClient.string(NativeClient.STR_HOST_HAS_NO_TERMINAL)
+                return@launch
+            }
+            onRemember(addr, code)
             NativeClient.recentTouch(addr, code)
             NativeClient.watchRecent()
             deviceRows = NativeClient.deviceRows()
+            onOpenShell(addr, code)
         }
-        onOpenShell(addr, code)
     }
 
     val pickDevice: (String, String) -> Unit = { addr, code ->

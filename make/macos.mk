@@ -20,6 +20,7 @@ MACOS_SIGN_FLAGS := CODE_SIGN_IDENTITY="Developer ID Application" CODE_SIGN_STYL
 endif
 
 MACOS_XCARGS ?=
+MACOS_QUICHE_TARGETS := aarch64-apple-darwin x86_64-apple-darwin
 
 NOTARY_CREDS := --key "$(ASC_KEY_P8)" --key-id "$(ASC_KEY_ID)" --issuer "$(ASC_ISSUER_ID)"
 
@@ -31,10 +32,13 @@ define notarize
 	  xcrun notarytool log "$$sub_id" $(NOTARY_CREDS); exit 1; }
 endef
 
-build-macos:
+quiche-macos:
+	-@$(QUICHE_FOR) $(MACOS_QUICHE_TARGETS)
+
+build-macos: quiche-macos
 	xcodebuild -project $(MACOS_PROJ) -target app -configuration Debug SYMROOT=$(MACOS_OUT) $(MACOS_SIGN_FLAGS) $(MACOS_XCARGS) build
 
-release-macos:
+release-macos: quiche-macos
 	xcodebuild -project $(MACOS_PROJ) -target app -configuration Release SYMROOT=$(MACOS_OUT) $(MACOS_SIGN_FLAGS) $(MACOS_XCARGS) build
 
 run-macos: build-macos
@@ -66,8 +70,8 @@ verify-macos:
 reset-macos-permissions:
 	@scripts/reset-macos-permissions.sh $(ARGS)
 else
-build-macos release-macos run-macos dist-macos verify-macos reset-macos-permissions:
+quiche-macos build-macos release-macos run-macos dist-macos verify-macos reset-macos-permissions:
 	@echo "make $@: needs macOS + Xcode"; exit 1
 endif
 
-.PHONY: build-macos release-macos run-macos dist-macos verify-macos reset-macos-permissions
+.PHONY: quiche-macos build-macos release-macos run-macos dist-macos verify-macos reset-macos-permissions

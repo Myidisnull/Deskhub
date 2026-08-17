@@ -74,14 +74,25 @@ final class SessionModel {
         guard let accepted = connect.acceptAddress() else { return }
         connect.saveDeviceName()
         let passcode = connect.acceptedPasscode
-        Task { await discovery.remember(address: accepted, passcode: passcode) }
-        let model = TerminalModel()
-        guard model.open(address: accepted, passcode: passcode) else {
-            connect.connectError = DeskhubClient.couldNotConnect(accepted)
-            return
+        Task {
+            connect.isConnecting = true
+            let shared = await Task.detached {
+                DeskhubClient.hostHasTerminal(address: accepted, passcode: passcode)
+            }.value
+            connect.isConnecting = false
+            guard shared else {
+                connect.connectError = DeskhubClient.string(DHStrHostHasNoTerminal)
+                return
+            }
+            await discovery.remember(address: accepted, passcode: passcode)
+            let model = TerminalModel()
+            guard model.open(address: accepted, passcode: passcode) else {
+                connect.connectError = DeskhubClient.couldNotConnect(accepted)
+                return
+            }
+            terminal = model
+            screen = .terminal
         }
-        terminal = model
-        screen = .terminal
     }
 
     func closeShell() {

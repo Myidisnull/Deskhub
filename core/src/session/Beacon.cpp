@@ -10,7 +10,7 @@ size_t Beacon::Reply(std::span<uint8_t> out, std::span<const uint8_t> pkt, bool 
     switch (h->type) {
         case MsgType::ListSources: {
             if (!trusted) return BuildSourceList(out, {});
-            return BuildSourceList(out, sources_);
+            return BuildSourceList(out, sources_, caps_);
         }
         case MsgType::Ping: {
             if (h->sessionId != 0) return 0;

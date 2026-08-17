@@ -106,8 +106,13 @@ private:
 
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartConnect(const std::string& addr, const std::string& passcode);
+    struct OpenChoice {
+        bool desktop = false;
+        bool shell = false;
+    };
+
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const deskhubp::ConnectOutcome& outcome);
+        const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
     bool ReadPasscode(GtkWidget* entry, std::string& out);
 
     void OnShare();

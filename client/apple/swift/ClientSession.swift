@@ -141,13 +141,14 @@ nonisolated enum DeskhubClient {
         String(typed.filter(\.isASCII).filter(\.isNumber).prefix(passcodeDigits))
     }
 
-    static func listSources(address: String, passcode: String) -> [Source]? {
+    static func listSources(address: String, passcode: String) -> HostQuery? {
         var buf = [DHSourceInfo](repeating: DHSourceInfo(), count: Int(dh_max_sources()))
+        var caps = DHHostCaps()
         let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode)
+            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode, &caps)
         }
         guard count >= 0 else { return nil }
-        return buf.prefix(Int(count)).map { info in
+        let sources = buf.prefix(Int(count)).map { info in
             Source(
                 id: info.sourceId,
                 name: cString(info.name),
@@ -156,7 +157,25 @@ nonisolated enum DeskhubClient {
                 pickerLabel: cString(info.pickerLabel)
             )
         }
+        return HostQuery(
+            sources: sources,
+            caps: HostCaps(acceptsInput: caps.acceptsInput, terminal: caps.terminal)
+        )
     }
+
+    static func hostHasTerminal(address: String, passcode: String) -> Bool {
+        dh_host_has_terminal(address, passcode)
+    }
+}
+
+struct HostCaps: Sendable {
+    var acceptsInput = false
+    var terminal = false
+}
+
+struct HostQuery: Sendable {
+    var sources: [Source] = []
+    var caps = HostCaps()
 }
 
 struct SessionHandlers: Sendable {

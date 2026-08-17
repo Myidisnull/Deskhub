@@ -377,6 +377,8 @@ void HostEngine::RecvLoop() {
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
+        beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput,
+            terminal_ != nullptr && terminal_->Running()});
         DrainControlRequests();
         DrainLocalClipboard();
     };

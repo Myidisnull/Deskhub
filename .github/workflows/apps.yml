@@ -302,11 +302,12 @@ jobs:
           path: |
             third_party/quiche/include
             third_party/quiche/aarch64-apple-ios-sim
-          key: quiche-ios-sim-${{ hashFiles('scripts/build-quiche.sh') }}
+            third_party/quiche/aarch64-apple-ios
+          key: quiche-ios-app-${{ hashFiles('scripts/build-quiche.sh') }}
 
       - name: Build quiche (static QUIC + TLS)
         run: |
-          scripts/build-quiche.sh aarch64-apple-ios-sim
+          scripts/build-quiche.sh aarch64-apple-ios-sim aarch64-apple-ios
           test -f third_party/quiche/aarch64-apple-ios-sim/libquiche.a
 
       - name: Build iOS app for Simulator (make build-ios)

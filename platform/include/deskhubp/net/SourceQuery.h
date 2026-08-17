@@ -8,4 +8,4 @@
 
 bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
     const std::string& passcode = std::string(),
-    deskhub::AuthResultCode* outCode = nullptr);
+    deskhub::AuthResultCode* outCode = nullptr, deskhub::HostCaps* outCaps = nullptr);

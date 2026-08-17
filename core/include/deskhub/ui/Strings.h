@@ -237,6 +237,10 @@ inline constexpr const char* kOpenNothingTicked =
     "Tick the remote desktop, a terminal, or both before connecting.";
 inline constexpr const char* kOpenChoiceHint =
     "This applies to the Connect button and to the devices listed below.";
+inline constexpr const char* kMobileHostNote =
+    "A phone or tablet can only be watched: control and terminal do nothing on one.";
+inline constexpr const char* kHostHasNoTerminal =
+    "That machine is not sharing a terminal \xE2\x80\x94 a phone or tablet cannot.";
 inline constexpr const char* kTerminalClientHeading = "Open a terminal on another machine";
 inline constexpr const char* kTerminalClientHint =
     "This is separate from viewing a screen \xE2\x80\x94 you can do either, or both.";

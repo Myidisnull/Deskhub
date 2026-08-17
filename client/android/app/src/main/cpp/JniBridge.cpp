@@ -198,8 +198,8 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     const std::string addr = FromJString(env, addrStr);
     const std::string passcode = FromJString(env, passcodeStr);
     DHSourceInfo sources[deskhub::kMaxSources];
-    const int count =
-        dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources), passcode.c_str());
+    const int count = dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources),
+        passcode.c_str(), nullptr);
     if (count == DH_SOURCE_QUERY_FAILED) return nullptr;
 
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
@@ -214,6 +214,14 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
         env->DeleteLocalRef(displayName);
     }
     return arr;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeHostHasTerminal(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    return dh_host_has_terminal(addr.c_str(), passcode.c_str()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jint JNICALL

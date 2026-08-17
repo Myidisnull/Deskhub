@@ -104,6 +104,7 @@ object NativeClient {
     const val STR_TRUST_ACCEPT = 100
     const val STR_TRUST_REJECT = 101
     const val STR_OPEN_SHELL_LABEL = 106
+    const val STR_HOST_HAS_NO_TERMINAL = 127
     const val STR_TERMINAL_EXTRA_KEYS_HINT = 108
 
     const val TRUST_CHANGED = 2
@@ -188,6 +189,11 @@ object NativeClient {
         addr: String,
         passcode: String,
     ): Array<Source>?
+
+    private external fun nativeHostHasTerminal(
+        addr: String,
+        passcode: String,
+    ): Boolean
 
     private external fun nativeIsValidPasscode(passcode: String): Boolean
 
@@ -713,4 +719,9 @@ object NativeClient {
         addr: String,
         passcode: String,
     ): List<Source>? = withContext(Dispatchers.IO) { nativeListSources(addr, passcode)?.toList() }
+
+    suspend fun hostHasTerminal(
+        addr: String,
+        passcode: String,
+    ): Boolean = withContext(Dispatchers.IO) { nativeHostHasTerminal(addr, passcode) }
 }

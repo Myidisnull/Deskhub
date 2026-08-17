@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 
 QUICHE_VERSION=0.29.3
 QUICHE_COMMIT=55886df3be579579207104c8e645825b6347a209
+ANDROID_API=24
 PREFIX="$PWD/third_party/quiche"
 SRC="$PREFIX/src"
 
@@ -136,11 +137,80 @@ android_abi_of() {
     esac
 }
 
+android_clang_target_of() {
+    case "$1" in
+        armv7-linux-androideabi) echo "armv7a-linux-androideabi$ANDROID_API" ;;
+        *) echo "$1$ANDROID_API" ;;
+    esac
+}
+
 artifact_of() {
     case "$1" in
         *-windows-msvc) echo quiche.lib ;;
         *) echo libquiche.a ;;
     esac
+}
+
+on_windows_host() {
+    case "$(uname -s)" in
+        MINGW* | MSYS* | CYGWIN*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+prefer_android_sdk_cmake() {
+    local sdk="${ANDROID_HOME:-${LOCALAPPDATA:-}/Android/Sdk}"
+    local bin
+    bin=$(ls -d "$sdk"/cmake/*/bin 2>/dev/null | sort | tail -1) || bin=""
+    [ -n "$bin" ] || {
+        echo "build-quiche.sh: no cmake under $sdk/cmake." >&2
+        echo "                 BoringSSL cross-compiles for the NDK with Ninja; MSVC's cmake" >&2
+        echo "                 defaults to the Visual Studio generator, which cannot target" >&2
+        echo "                 Android and fails on VCTargetsPath.vcxproj." >&2
+        echo "                 Install it: sdkmanager \"cmake;3.22.1\" (bootstrap does)." >&2
+        exit 1
+    }
+    PATH="$bin:$PATH"
+    export PATH
+    export CMAKE_GENERATOR=Ninja
+}
+
+build_android_with_ndk_clang() {
+    local target=$1
+    local triple_u triple_upper ndk prebuilt bin resource clang_target
+    triple_u=${target//-/_}
+    triple_upper=$(printf '%s' "$triple_u" | tr '[:lower:]' '[:upper:]')
+    ndk=$(cygpath -m "$ANDROID_NDK_HOME")
+    prebuilt="$ndk/toolchains/llvm/prebuilt/windows-x86_64"
+    bin="$prebuilt/bin"
+    [ -x "$bin/clang.exe" ] || {
+        echo "build-quiche.sh: $bin/clang.exe is missing." >&2
+        echo "                 Windows drives the NDK toolchain directly instead of through" >&2
+        echo "                 cargo-ndk: cargo-ndk hands BoringSSL an extension-less compiler" >&2
+        echo "                 path and CMake refuses it on this host." >&2
+        exit 1
+    }
+    resource=$(ls -d "$prebuilt"/lib/clang/*/include 2>/dev/null | sort | tail -1) || resource=""
+    [ -n "$resource" ] || {
+        echo "build-quiche.sh: no clang resource headers under $prebuilt/lib/clang." >&2
+        echo "                 bindgen loads Visual Studio's libclang here, which looks for" >&2
+        echo "                 stddef.h next to its own binary, so the NDK's copy has to be" >&2
+        echo "                 pointed at explicitly." >&2
+        exit 1
+    }
+    clang_target=$(android_clang_target_of "$target")
+
+    export ANDROID_NDK_HOME="$ndk"
+    export "CC_$triple_u=$bin/clang.exe"
+    export "CXX_$triple_u=$bin/clang++.exe"
+    export "AR_$triple_u=$bin/llvm-ar.exe"
+    export "CFLAGS_$triple_u=--target=$clang_target"
+    export "CXXFLAGS_$triple_u=--target=$clang_target"
+    export "CARGO_TARGET_${triple_upper}_LINKER=$bin/clang.exe"
+    export "CARGO_TARGET_${triple_upper}_RUSTFLAGS=-Clink-arg=--target=$clang_target"
+    export BINDGEN_EXTRA_CLANG_ARGS="--target=$clang_target -isystem$resource"
+
+    cargo build --release --target "$target" -p quiche --features ffi >/dev/null
 }
 
 build_target() {
@@ -167,17 +237,29 @@ build_target() {
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."
     if is_android_target "$target"; then
-        command -v cargo-ndk >/dev/null 2>&1 || {
-            echo "build-quiche.sh: 'cargo-ndk' is required for Android targets." >&2
-            echo "                 cargo install cargo-ndk" >&2
-            exit 1
-        }
         [ -n "${ANDROID_NDK_HOME:-}" ] || {
             echo "build-quiche.sh: ANDROID_NDK_HOME is not set." >&2
             exit 1
         }
-        (cd "$SRC" && cargo ndk --target "$(android_abi_of "$target")" --platform 24 \
-            -- build --release -p quiche --features ffi >/dev/null)
+        if on_windows_host; then
+            (
+                cd "$SRC"
+                prefer_msvc_tools
+                prefer_android_sdk_cmake
+                build_android_with_ndk_clang "$target"
+            )
+        else
+            command -v cargo-ndk >/dev/null 2>&1 || {
+                echo "build-quiche.sh: 'cargo-ndk' is required for Android targets." >&2
+                echo "                 cargo install cargo-ndk" >&2
+                exit 1
+            }
+            (
+                cd "$SRC"
+                cargo ndk --target "$(android_abi_of "$target")" --platform "$ANDROID_API" \
+                    -- build --release -p quiche --features ffi >/dev/null
+            )
+        fi
     else
         (
             cd "$SRC"

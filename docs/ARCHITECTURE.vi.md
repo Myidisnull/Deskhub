@@ -166,7 +166,10 @@ sổ chỉ vẽ ô và chuyển tiếp sự kiện phím.
 
 Beacon trả lời `LIST_SOURCES` và `PING` bằng UDP thuần để máy quét quét được cả dải
 mạng mà không tốn 254 lần bắt tay TLS. Máy lạ nhận danh sách rỗng; danh sách nguồn
-thật chỉ lộ qua kết nối đã được cho vào. Thiết bị gần đây, trạng thái online
+thật chỉ lộ qua kết nối đã được cho vào. Câu trả lời đó còn mang theo những gì host
+làm được — có nhận thao tác không, có chia sẻ terminal không — trong các cờ ở header
+`SOURCE_LIST`, nên client biết trước khi mở bất kỳ cửa sổ nào rằng một chiếc điện
+thoại chỉ có thể xem. Host bản cũ, có từ trước khi có các cờ này, không bật cờ nào. Thiết bị gần đây, trạng thái online
 (ping/pong) và kết quả quét LAN đổ vào một danh sách thiết bị gộp trên Windows.
 
 ## 7. Dữ liệu trên đĩa
@@ -229,6 +232,20 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
   của Git Bash trong `/usr/bin` che mất linker MSVC (đặt thư mục của `cl.exe` lên
   trước), cơ chế rewrite path của nó bóp méo tham số kiểu `/...`
   (`MSYS2_ARG_CONV_EXCL`), và installer của NASM không đụng vào PATH.
+- **quiche cho Android bỏ qua cargo-ndk trên máy Windows**: cargo-ndk đưa cho
+  boring-sys đường dẫn `clang` không có phần mở rộng, CMake trên Windows từ chối nó,
+  nên `build-quiche.sh` tự đặt `CC_*`/`CXX_*`/`AR_*`, linker của cargo và `--target=`
+  cho từng ABI rồi gọi cargo thuần. BoringSSL ở đó vẫn cần Ninja (generator Visual
+  Studio không nhắm được NDK), còn bindgen lấy libclang của Visual Studio — nó tìm
+  `stddef.h` cạnh binary của chính nó — nên `BINDGEN_EXTRA_CLANG_ARGS` trỏ sang
+  resource header của NDK bằng dấu gạch chéo xuôi, vì bindgen tách biến đó theo luật
+  shell và nuốt mất dấu gạch chéo ngược.
+- **Mỗi app cross-compile tự build quiche của mình trước**: `build-android`,
+  `build-ios`, `build-macos` và `build-linux` phụ thuộc vào một target quiche cho ABI
+  của chúng, giống như `debug`/`release` làm cho host. quiche là per-ABI và bước
+  configure của CMake thất bại nếu thiếu, nên một bản build bỏ qua bước này trông như
+  hỏng toolchain chứ không như thiếu thư viện — và một app kẹt lại ở lần build thành
+  công cuối cùng sẽ nói thứ giao thức mà các máy khác không còn trả lời.
 - **quiche cho iOS pin `IPHONEOS_DEPLOYMENT_TARGET=17.0`**: clang của boring-sys
   trôi theo mặc định SDK trong khi rustc link theo minimum của riêng nó, và độ lệch
   hiện ra thành `___chkstk_darwin` undefined lúc link.

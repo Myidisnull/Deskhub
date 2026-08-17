@@ -144,6 +144,22 @@ void TestSourceListWire() {
         Check(vn.compare(0, out[0].name.size(), out[0].name) == 0, "truncated name is a prefix");
     }
 
+    n = BuildSourceList(buf, in, HostCaps{true, true});
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && HostCapsOfFlags(ch->flags).acceptsInput &&
+              HostCapsOfFlags(ch->flags).terminal,
+        "SOURCE_LIST carries what the host can do");
+    n = BuildSourceList(buf, in, HostCaps{false, true});
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput &&
+              HostCapsOfFlags(ch->flags).terminal,
+        "a host that takes no input says so while still offering a terminal");
+    n = BuildSourceList(buf, in);
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput &&
+              !HostCapsOfFlags(ch->flags).terminal,
+        "a host that says nothing promises nothing");
+
     Hello h{0xDEADBEEF, kCodecMaskH264, 2560, 1440, 120, 0, 5};
     n = BuildHello(buf, h);
     auto hp = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));

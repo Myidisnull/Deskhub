@@ -166,7 +166,10 @@ stream into a cell grid, and the window only draws cells and forwards key events
 
 The beacon answers `LIST_SOURCES` and `PING` as plain UDP so a scanner can sweep a
 subnet without 254 TLS handshakes. A stranger's reply is an empty list; the real
-source list is revealed only over an admitted connection. Recent devices, their
+source list is revealed only over an admitted connection. That answer also carries
+what the host can do — whether it takes input, whether it shares a terminal — in the
+`SOURCE_LIST` header flags, so a client knows before it opens any window that a phone
+can only be watched. A host from before the flags existed sets none of them. Recent devices, their
 online state (ping/pong probes) and the LAN scan feed one merged device list on
 Windows.
 
@@ -231,6 +234,20 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
   Windows long paths instead. Git Bash's `/usr/bin/link.exe` shadows the MSVC
   linker (put `cl.exe`'s directory first), its path rewriting mangles `/`-style
   arguments (`MSYS2_ARG_CONV_EXCL`), and NASM's installer does not touch PATH.
+- **Android quiche skips cargo-ndk on Windows hosts**: cargo-ndk hands boring-sys an
+  extension-less `clang` path, which CMake refuses on Windows, so `build-quiche.sh`
+  sets `CC_*`/`CXX_*`/`AR_*`, the cargo linker and `--target=` for the ABI itself and
+  calls plain cargo. BoringSSL still needs Ninja there (the Visual Studio generator
+  cannot target the NDK), and bindgen picks up Visual Studio's libclang, which looks
+  for `stddef.h` beside its own binary — `BINDGEN_EXTRA_CLANG_ARGS` points it at the
+  NDK's resource headers with forward slashes, because bindgen splits that variable
+  with shell rules and eats backslashes.
+- **Every cross-compiled app builds its own quiche first**: `build-android`,
+  `build-ios`, `build-macos` and `build-linux` depend on a quiche target for their
+  ABIs, the way `debug`/`release` do for the host. quiche is per-ABI and the CMake
+  configure fails without it, so a build that skipped this step looks like a broken
+  toolchain rather than a missing library — and an app left behind at the last
+  successful build speaks a protocol its peers no longer answer.
 - **iOS quiche pins `IPHONEOS_DEPLOYMENT_TARGET=17.0`**: boring-sys's clang floats
   to the SDK default while rustc links for its own minimum, and the mismatch
   surfaces as an undefined `___chkstk_darwin` at link time.

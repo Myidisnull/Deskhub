@@ -12,8 +12,13 @@ Deskhub - no platform is built by default, name the one you want:
   Shared CMake tree - core + platform + the current OS client:
     make debug           configure + build the debug preset
     make release         configure + build the release preset
-    make quiche          build the QUIC library (third_party/quiche) - debug/release run it
-                         first; without it the terminal cannot be shared
+    make quiche          build the QUIC library (third_party/quiche) for the host target -
+                         debug/release run it first; without it nothing can share or connect
+
+  QUIC library for the cross-compiled apps - each build-* target runs its own first:
+    make quiche-android  arm64-v8a + x86_64 (needs the NDK; cargo-ndk outside Windows)
+    make quiche-ios      iOS device + Simulator
+    make quiche-macos    arm64 + x86_64, lipo'd into macos-universal
 
   Tests:
     make test              build core_tests and run it offline
