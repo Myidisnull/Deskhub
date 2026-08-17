@@ -126,7 +126,8 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             if (!noise_.BuildMsg3(std::span<uint8_t>(msg3, sizeof(msg3)), msg3N,
                     PayloadOf(std::span<const uint8_t>(buf_, helloN))))
                 return false;
-            const size_t n = BuildNoise3(buf_, std::span<const uint8_t>(msg3, msg3N));
+            const size_t n =
+                BuildNoise3(buf_, std::span<const uint8_t>(msg3, msg3N), hello_.sourceId);
             if (!n) return false;
             noise3Len_ = n;
             std::memcpy(encBuf_, buf_, n);
@@ -322,7 +323,8 @@ void ClientSession::SendNoise1() {
         return;
     }
     if (!noise_.BuildMsg1(body, bodyN)) return;
-    const size_t n = BuildNoise1(buf_, std::span<const uint8_t>(body, bodyN));
+    const size_t n =
+        BuildNoise1(buf_, std::span<const uint8_t>(body, bodyN), hello_.sourceId);
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }
 

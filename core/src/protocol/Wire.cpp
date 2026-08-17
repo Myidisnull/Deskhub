@@ -278,8 +278,9 @@ void WriteCommonHeader(std::span<uint8_t> out, const CommonHeader& h) {
     PutU32(out.data() + 4, h.sessionId);
 }
 
-size_t BuildNoise1(std::span<uint8_t> out, std::span<const uint8_t> body) {
-    const size_t total = WriteCommon(out, MsgType::Noise1, 0, Chan::Control, 0, body.size());
+size_t BuildNoise1(std::span<uint8_t> out, std::span<const uint8_t> body, uint8_t sourceId) {
+    const size_t total =
+        WriteCommon(out, MsgType::Noise1, 0, Chan::Control, sourceId, body.size());
     if (!total) return 0;
     if (!body.empty()) std::memcpy(out.data() + kCommonHeaderSize, body.data(), body.size());
     return total;
@@ -292,8 +293,9 @@ size_t BuildNoise2(std::span<uint8_t> out, std::span<const uint8_t> body) {
     return total;
 }
 
-size_t BuildNoise3(std::span<uint8_t> out, std::span<const uint8_t> body) {
-    const size_t total = WriteCommon(out, MsgType::Noise3, 0, Chan::Control, 0, body.size());
+size_t BuildNoise3(std::span<uint8_t> out, std::span<const uint8_t> body, uint8_t sourceId) {
+    const size_t total =
+        WriteCommon(out, MsgType::Noise3, 0, Chan::Control, sourceId, body.size());
     if (!total) return 0;
     if (!body.empty()) std::memcpy(out.data() + kCommonHeaderSize, body.data(), body.size());
     return total;

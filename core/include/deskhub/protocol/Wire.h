@@ -260,9 +260,9 @@ size_t BuildClipboardChunk(std::span<uint8_t> out, uint32_t sessionId,
 void WriteCommonHeader(std::span<uint8_t> out, const CommonHeader& h);
 std::optional<CommonHeader> ParseCommonHeader(std::span<const uint8_t> datagram);
 std::span<const uint8_t> PayloadOf(std::span<const uint8_t> datagram);
-size_t BuildNoise1(std::span<uint8_t> out, std::span<const uint8_t> body);
+size_t BuildNoise1(std::span<uint8_t> out, std::span<const uint8_t> body, uint8_t sourceId = 0);
 size_t BuildNoise2(std::span<uint8_t> out, std::span<const uint8_t> body);
-size_t BuildNoise3(std::span<uint8_t> out, std::span<const uint8_t> body);
+size_t BuildNoise3(std::span<uint8_t> out, std::span<const uint8_t> body, uint8_t sourceId = 0);
 size_t BuildNoiseDecline(std::span<uint8_t> out);
 
 std::optional<Hello> ParseHello(std::span<const uint8_t> payload);

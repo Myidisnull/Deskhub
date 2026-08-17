@@ -14,6 +14,14 @@ SourcePipelineState* RouteDatagram(std::span<SourcePipelineState* const> live,
         return nullptr;
     }
 
+    if (header.type == MsgType::Noise1 || header.type == MsgType::Noise3) {
+        const uint8_t sourceId = uint8_t(header.sessionId);
+        if (header.sessionId != sourceId) return nullptr;
+        for (SourcePipelineState* p : live)
+            if (p && p->sourceId == sourceId) return p;
+        return nullptr;
+    }
+
     if (!header.sessionId) return nullptr;
     for (SourcePipelineState* p : live)
         if (p && p->session && p->session->sessionId() == header.sessionId) return p;

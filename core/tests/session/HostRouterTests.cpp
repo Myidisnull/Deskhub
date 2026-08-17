@@ -74,6 +74,34 @@ void TestHelloRoutesBySourceId() {
     Check(RouteDatagram(live, *h3, absent) == nullptr, "a HELLO for no source is dropped");
 }
 
+void TestNoiseRoutesBySourceId() {
+    std::printf("[router] Noise1 / Noise3 use the source id carried in sessionId...\n");
+    auto a = MakePipe(0), b = MakePipe(1);
+    SourcePipelineState* live[] = {a.get(), b.get()};
+
+    uint8_t body[8]{};
+    uint8_t buf[kMaxDatagram];
+    const size_t n1 = BuildNoise1(buf, body, 1);
+    const Datagram noise1(buf, buf + n1);
+    const auto h1 = ParseCommonHeader(noise1);
+    Check(h1 && RouteDatagram(live, *h1, noise1) == b.get(), "Noise1 reaches source 1");
+
+    const size_t n0 = BuildNoise1(buf, body, 0);
+    const Datagram noise0(buf, buf + n0);
+    const auto h0 = ParseCommonHeader(noise0);
+    Check(h0 && RouteDatagram(live, *h0, noise0) == a.get(), "Noise1 source 0 still routes");
+
+    const size_t n3 = BuildNoise3(buf, body, 1);
+    const Datagram noise3(buf, buf + n3);
+    const auto h3 = ParseCommonHeader(noise3);
+    Check(h3 && RouteDatagram(live, *h3, noise3) == b.get(), "Noise3 follows the same source");
+
+    const size_t missing = BuildNoise1(buf, body, 9);
+    const Datagram absent(buf, buf + missing);
+    const auto hm = ParseCommonHeader(absent);
+    Check(hm && RouteDatagram(live, *hm, absent) == nullptr, "Noise for a missing source is dropped");
+}
+
 void TestSessionTrafficRoutesBySessionId() {
     std::printf("[router] everything else is routed by session id...\n");
     auto a = MakePipe(0), b = MakePipe(1);
@@ -453,6 +481,7 @@ void TestStatusProjection() {
 
 void RunHostRouterTests() {
     TestHelloRoutesBySourceId();
+    TestNoiseRoutesBySourceId();
     TestSessionTrafficRoutesBySessionId();
     TestAcceptDatagramDoesTheWholeIntake();
     TestReplyAddressIsStampedBeforeTheSessionReplies();
