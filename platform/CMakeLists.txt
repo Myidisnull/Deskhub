@@ -133,6 +133,8 @@ endif()
 deskhub_target_warnings(platform)
 if(WIN32)
     target_link_libraries(platform PUBLIC ws2_32 psapi shell32)
+endif()
+if(MSVC)
     target_compile_options(platform PRIVATE /sdl)
 endif()
 
