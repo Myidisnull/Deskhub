@@ -36,7 +36,7 @@ jobs:
 
       - name: Install Ninja
         if: matrix.language == 'c-cpp'
-        run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
+        run: scripts/apt-install.sh ninja-build
 
       - name: Validate the Gradle wrapper
         if: matrix.language == 'java-kotlin'
