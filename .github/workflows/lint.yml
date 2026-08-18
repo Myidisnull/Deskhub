@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  codestyle:
+  format:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -39,7 +39,7 @@ jobs:
           mv tools/swiftformat_linux tools/swiftformat
           chmod +x tools/swiftformat
 
-      - name: codestyle check (cpp + kotlin + swift)
+      - name: Check formatting (cpp + kotlin + swift)
         run: scripts/codestyle.sh --check
 
   clang-tidy:
@@ -87,7 +87,7 @@ jobs:
       - name: SwiftLint check
         run: swiftlint lint --strict client/apple/swift client/ios/app/swift client/macos/app/swift
 
-  android-lint:
+  android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -124,7 +124,7 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  workflows-and-shell:
+  actionlint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -133,10 +133,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install shellcheck
-        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
-
-      - name: Install actionlint
+      - name: Install actionlint ${{ env.ACTIONLINT_VERSION }} (pinned)
         run: |
           curl -fsSL -o /tmp/actionlint.tar.gz \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -146,6 +143,15 @@ jobs:
 
       - name: Lint the workflows
         run: /tmp/actionlint -color
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
 
       - name: Lint the shell scripts
         run: shellcheck --severity=warning scripts/*.sh

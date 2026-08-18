@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  version-check:
+  verify-tag:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -31,14 +31,14 @@ jobs:
       - name: Tag must match VERSION
         run: scripts/check-version.sh
 
-  apps:
-    needs: version-check
-    uses: ./.github/workflows/apps.yml
+  build:
+    needs: verify-tag
+    uses: ./.github/workflows/build.yml
     with:
       for_release: true
 
   github-release:
-    needs: apps
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -144,8 +144,8 @@ jobs:
             address. **Never port-forward UDP 47777.** Full threat model in
             [SECURITY.md](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
 
-  ios:
-    needs: apps
+  release-ios:
+    needs: verify-tag
     runs-on: macos-latest
     timeout-minutes: 60
     environment: stg
@@ -191,8 +191,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  macos:
-    needs: apps
+  release-macos:
+    needs: verify-tag
     runs-on: macos-latest
     timeout-minutes: 60
     environment: stg
@@ -255,8 +255,8 @@ jobs:
         with:
           files: out/dist/macos/deskhub-${{ github.ref_name }}-macos.dmg
 
-  android:
-    needs: apps
+  release-android:
+    needs: verify-tag
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: stg

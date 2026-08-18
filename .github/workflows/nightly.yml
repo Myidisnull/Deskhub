@@ -1,4 +1,4 @@
-name: fuzz-nightly
+name: nightly
 
 on:
   schedule:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fuzz-nightly
+  group: nightly
   cancel-in-progress: true
 
 jobs:

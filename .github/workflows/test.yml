@@ -1,4 +1,4 @@
-name: tests
+name: test
 
 on:
   workflow_call:
@@ -150,7 +150,7 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  android-tests:
+  android:
     name: android · ${{ matrix.abi }}
     strategy:
       fail-fast: false
@@ -222,7 +222,7 @@ jobs:
           disable-animations: true
           script: scripts/run-android-tests.sh ${{ matrix.abi }}
 
-  ios-tests:
+  ios:
     runs-on: macos-latest
     timeout-minutes: 45
     steps:

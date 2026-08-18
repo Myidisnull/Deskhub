@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ios:
+  app-store:
     runs-on: macos-latest
     timeout-minutes: 30
     environment: stg
@@ -35,7 +35,7 @@ jobs:
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
         run: fastlane ios metadata
 
-  android:
+  play:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: stg
