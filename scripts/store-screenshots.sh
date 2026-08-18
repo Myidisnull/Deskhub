@@ -288,8 +288,6 @@ run_readme() {
         cp "$MACOS_OUT/macos_${pages[$index]}.png" "$README_IMGS/macos_$n.png"
         echo "$README_IMGS/ios_$n.png $README_IMGS/android_$n.png $README_IMGS/macos_$n.png"
     done
-    cp "$MACOS_OUT/macos_host.png" "$README_IMGS/macos_live.png"
-    echo "$README_IMGS/macos_live.png"
 }
 
 main() {
