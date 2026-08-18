@@ -94,7 +94,9 @@ class MainActivity : ComponentActivity() {
         val lastAddress = prefs.getString("addr", "").orEmpty()
 
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        var startSection = Section.CLIENT
         if (debuggable) {
+            startSection = sectionExtra(intent)
             intent?.getStringExtra("addr")?.let { addr ->
                 val passcode = intent.getStringExtra("passcode").orEmpty()
                 intent.removeExtra("addr")
@@ -107,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
                     Column(modifier = Modifier.safeDrawingPadding()) {
                         MainScreen(
+                            initialSection = startSection,
                             initialAddress = lastAddress,
                             initialPasscode = NativeClient.recentPasscode(lastAddress),
                             onRemember = { addr, _ ->
@@ -225,6 +228,11 @@ private enum class Section {
     SETTINGS,
 }
 
+private fun sectionExtra(intent: Intent?): Section {
+    val name = intent?.getStringExtra("section") ?: return Section.CLIENT
+    return Section.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: Section.CLIENT
+}
+
 private sealed interface Step {
     data object Address : Step
 
@@ -239,6 +247,7 @@ private sealed interface Step {
 
 @Composable
 private fun MainScreen(
+    initialSection: Section,
     initialAddress: String,
     initialPasscode: String,
     onRemember: (String, String) -> Unit,
@@ -259,7 +268,7 @@ private fun MainScreen(
     var deviceRows by remember { mutableStateOf(emptyList<NativeClient.DeviceRow>()) }
     var scanStatus by remember { mutableStateOf("") }
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
-    var section by remember { mutableStateOf(Section.CLIENT) }
+    var section by remember { mutableStateOf(initialSection) }
     var port by remember { mutableStateOf(NativeClient.settingsPort()) }
     val scope = rememberCoroutineScope()
     val rescanTicks = remember { NativeClient.rescanSeconds() }

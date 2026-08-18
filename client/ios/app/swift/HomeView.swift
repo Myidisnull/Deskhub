@@ -2,13 +2,15 @@ import SwiftUI
 
 struct HomeView: View {
     @Bindable var model: SessionModel
+    @State private var page = StartPage.index() ?? 0
 
     var body: some View {
-        TabView {
+        TabView(selection: $page) {
             ConnectView(model: model)
                 .tabItem {
                     Label(DeskhubClient.string(DHStrSidebarClient), systemImage: "display")
                 }
+                .tag(0)
 
             SharingView(model: model.sharing)
                 .tabItem {
@@ -17,6 +19,7 @@ struct HomeView: View {
                         systemImage: "rectangle.on.rectangle"
                     )
                 }
+                .tag(1)
 
             ScrollView {
                 DevicesPage()
@@ -29,6 +32,7 @@ struct HomeView: View {
                     systemImage: "checkmark.shield"
                 )
             }
+            .tag(2)
 
             SettingsView(settings: model.settings) { port in
                 model.discovery.usePort(port)
@@ -36,6 +40,7 @@ struct HomeView: View {
             .tabItem {
                 Label(DeskhubClient.string(DHStrSidebarSettings), systemImage: "gearshape")
             }
+            .tag(3)
         }
     }
 }

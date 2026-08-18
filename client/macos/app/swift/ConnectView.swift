@@ -21,13 +21,15 @@ enum DeskhubPage: Int, CaseIterable, Identifiable {
 
 struct MainMenuView: View {
     private static let portSettle = Duration.milliseconds(600)
+    private static let focusSettle = Duration.milliseconds(400)
 
     @Binding var route: ClientRoute
     @Bindable var connect: ConnectModel
     @Bindable var agent: AgentModel
 
     @State private var discovery = DiscoveryModel()
-    @State private var page: DeskhubPage = .client
+    @State private var page: DeskhubPage =
+        StartPage.index().flatMap(DeskhubPage.init(rawValue:)) ?? .client
     @State private var shareAlert = ""
     @State private var connectAlert = ""
     @State private var accessibilityWarning = false
@@ -49,12 +51,19 @@ struct MainMenuView: View {
             .background(Color(nsColor: .textBackgroundColor))
         }
         .task {
+            guard StartPage.index() != nil else { return }
+            try? await Task.sleep(for: MainMenuView.focusSettle)
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+        .task {
             agent.refreshPermissions()
             agent.loadAddresses()
             discovery.start()
             if agent.autoShare, !agent.didAutoShare, !agent.isSharing, !agent.isStarting {
                 agent.didAutoShare = true
-                page = .host
+                if StartPage.index() == nil {
+                    page = .host
+                }
                 await autoShare()
             }
         }

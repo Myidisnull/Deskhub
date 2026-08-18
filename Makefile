@@ -14,7 +14,7 @@
 #   make/ios.mk         iOS app     — xcodebuild (Simulator)
 #   make/android.mk     Android APK — Gradle (builds both the .so and the APK)
 #   make/codestyle.mk   format/lint for C++ + Kotlin + Swift
-#   make/tools.mk       one-off developer tools: icons, quic-smoke
+#   make/tools.mk       one-off developer tools: icons, quic-smoke, screenshots
 #
 # Windows uses cmd + VsDevCmd (it locates Visual Studio through vswhere, so it can be
 # called from a plain cmd / PowerShell / Git Bash), macOS/Linux use sh + the system
@@ -107,6 +107,13 @@
 #   make quic-smoke     build and run a standalone QUIC client+server against the quiche
 #                       static library, with a throwaway certificate — proves the library
 #                       links and handshakes without involving the app
+#   make screenshots    macOS only — build the iOS, Android and macOS apps, boot the
+#                       iPhone/iPad simulators and the phone/tablet emulators, open every
+#                       page and recapture the store screenshots straight off the device
+#                       framebuffer (no desktop background at the edges) into the fastlane
+#                       trees; the macOS window shots land in out/screenshots/macos and the
+#                       readme step derives docs/imgs from the captures.
+#                       ARGS="ios android macos readme" runs a subset
 #
 #   make clean
 

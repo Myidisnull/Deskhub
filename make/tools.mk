@@ -4,4 +4,7 @@ icons:
 quic-smoke:
 	@$(RUNSH) scripts/quic-smoke.sh
 
-.PHONY: icons quic-smoke
+screenshots:
+	@$(RUNSH) scripts/store-screenshots.sh $(ARGS)
+
+.PHONY: icons quic-smoke screenshots
