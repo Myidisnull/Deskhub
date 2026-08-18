@@ -89,6 +89,7 @@ private:
     void OnConnected(QuicConnId conn);
     void OnStream(std::span<const uint8_t> bytes);
     void SendRecord(std::span<const uint8_t> message);
+    void FlushOutbox();
     void SendBytes(const std::string& bytes);
     void SetState(TerminalViewerState state, std::string_view message);
     void Post(std::function<void()> command);

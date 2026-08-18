@@ -52,6 +52,7 @@ void RunPairedDevicesTests();
 void RunVtParserTests();
 void RunScreenTests();
 void RunSnapshotTests();
+void RunRepaintTests();
 void RunKeyEncoderTests();
 void RunPaletteTests();
 void RunStringsTests();

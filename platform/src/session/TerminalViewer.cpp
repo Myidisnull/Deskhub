@@ -16,6 +16,7 @@ namespace {
 
 constexpr uint32_t kPollWaitMs = 5;
 constexpr uint64_t kConnectTimeoutUs = 10'000'000;
+constexpr size_t kMaxOutboxBytes = size_t{256} * 1024;
 
 }
 
@@ -229,6 +230,8 @@ void TerminalViewer::Loop() {
         RunCommands();
         endpoint_.Poll(NowUs(), kPollWaitMs);
 
+        FlushOutbox();
+
         const uint64_t nowUs = NowUs();
         KeepLinkAlive(nowUs);
 
@@ -373,16 +376,14 @@ void TerminalViewer::SendRecord(std::span<const uint8_t> message) {
     std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
     const size_t written = deskhub::BuildRecord(record, message);
     if (written == 0) return;
-    if (conn_ == 0) {
-        outbox_.insert(outbox_.end(), record.begin(), record.begin() + std::ptrdiff_t(written));
-        return;
-    }
-    if (!outbox_.empty()) {
-        endpoint_.SendStream(conn_, kQuicControlStream, outbox_);
-        outbox_.clear();
-    }
-    endpoint_.SendStream(conn_, kQuicControlStream,
-        std::span<const uint8_t>(record.data(), written));
+    if (outbox_.size() + written > kMaxOutboxBytes) return;
+    outbox_.insert(outbox_.end(), record.begin(), record.begin() + std::ptrdiff_t(written));
+    FlushOutbox();
+}
+
+void TerminalViewer::FlushOutbox() {
+    if (conn_ == 0 || outbox_.empty()) return;
+    if (endpoint_.SendStream(conn_, kQuicControlStream, outbox_)) outbox_.clear();
 }
 
 void TerminalViewer::SendBytes(const std::string& bytes) {

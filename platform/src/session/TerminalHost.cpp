@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/terminal/Repaint.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
 
@@ -14,6 +15,9 @@ namespace {
 
 constexpr uint32_t kPumpWaitUs = 2'000;
 constexpr uint32_t kPtyWaitMs = 0;
+constexpr int kPumpRounds = 8;
+constexpr size_t kMaxPendingBytes = size_t{256} * 1024;
+constexpr uint64_t kRepaintIntervalUs = 100'000;
 
 }
 
@@ -82,7 +86,7 @@ void TerminalHost::Loop() {
             const std::lock_guard<std::mutex> lock(mutex_);
             DrainGone(nowUs);
             DrainKicks();
-            PumpShells();
+            PumpShells(nowUs);
             for (uint32_t id : sessions_.Expire(nowUs)) {
                 shells_.erase(id);
                 LOGI("terminal host: gave up on detached session %u", unsigned(id));
@@ -92,8 +96,8 @@ void TerminalHost::Loop() {
     }
 }
 
-void TerminalHost::SendToPeer(const NetAddr& peer, std::span<const uint8_t> message) {
-    if (sock_ != nullptr) sock_->SendRecord(peer, message);
+bool TerminalHost::SendToPeer(const NetAddr& peer, std::span<const uint8_t> message) {
+    return sock_ != nullptr && sock_->SendRecord(peer, message);
 }
 
 uint32_t TerminalHost::TermIdFor(const NetAddr& peer) const {
@@ -147,6 +151,10 @@ void TerminalHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> m
                 at->second.peer = from;
                 at->second.pty->Resize(request->size);
                 at->second.mirror->Resize(deskhub::ClampTermSize(request->size));
+                at->second.pending.clear();
+                at->second.pendingAt = 0;
+                at->second.behind = true;
+                at->second.lastRepaintUs = 0;
                 Audit(ack.termId, "reattached");
             }
         }
@@ -204,20 +212,64 @@ void TerminalHost::DrainGone(uint64_t nowUs) {
     }
 }
 
-void TerminalHost::PumpShells() {
+bool TerminalHost::FlushPending(uint32_t termId, Shell& shell, std::vector<uint8_t>& scratch) {
+    while (shell.pendingAt < shell.pending.size()) {
+        const size_t take = std::min<size_t>(deskhub::kMaxTermDataBytes,
+            shell.pending.size() - shell.pendingAt);
+        const size_t written = deskhub::BuildTermData(scratch, termId,
+            std::span<const uint8_t>(shell.pending.data() + shell.pendingAt, take));
+        if (written == 0) {
+            shell.behind = true;
+            break;
+        }
+        if (!SendToPeer(shell.peer, std::span<const uint8_t>(scratch.data(), written)))
+            return false;
+        shell.pendingAt += take;
+    }
+    shell.pending.clear();
+    shell.pendingAt = 0;
+    return true;
+}
+
+void TerminalHost::QueueForPeer(Shell& shell, std::span<const uint8_t> bytes) {
+    if (shell.behind) return;
+    if (shell.pending.size() - shell.pendingAt + bytes.size() > kMaxPendingBytes) {
+        shell.pending.clear();
+        shell.pendingAt = 0;
+        shell.behind = true;
+        return;
+    }
+    shell.pending.insert(shell.pending.end(), bytes.begin(), bytes.end());
+}
+
+void TerminalHost::QueueRepaint(Shell& shell, uint64_t nowUs) {
+    if (nowUs - shell.lastRepaintUs < kRepaintIntervalUs) return;
+    const std::string paint = deskhub::term::RenderScreen(*shell.mirror);
+    shell.pending.assign(paint.begin(), paint.end());
+    shell.pendingAt = 0;
+    shell.behind = false;
+    shell.lastRepaintUs = nowUs;
+}
+
+void TerminalHost::PumpShells(uint64_t nowUs) {
     std::vector<uint32_t> finished;
     std::vector<uint8_t> chunk(kPtyReadChunk);
     std::vector<uint8_t> message(deskhub::kMaxRecordSize);
 
     for (auto& [termId, shell] : shells_) {
-        for (int round = 0; round < 8; ++round) {
+        if (!shell.local) {
+            if (FlushPending(termId, shell, message) && shell.behind)
+                QueueRepaint(shell, nowUs);
+        }
+        for (int round = 0; round < kPumpRounds; ++round) {
             const int got = shell.pty->Read(chunk.data(), chunk.size(), kPtyWaitMs);
             if (got < 0) {
                 finished.push_back(termId);
                 break;
             }
             if (got == 0) break;
-            shell.mirror->Write(std::span<const uint8_t>(chunk.data(), size_t(got)));
+            const std::span<const uint8_t> fresh(chunk.data(), size_t(got));
+            shell.mirror->Write(fresh);
             const std::string reply = shell.mirror->TakeResponse();
             if (shell.local) {
                 if (!reply.empty())
@@ -225,16 +277,9 @@ void TerminalHost::PumpShells() {
                         reinterpret_cast<const uint8_t*>(reply.data()), reply.size()));
                 continue;
             }
-            size_t at = 0;
-            while (at < size_t(got)) {
-                const size_t take = std::min<size_t>(deskhub::kMaxTermDataBytes, size_t(got) - at);
-                const size_t written = deskhub::BuildTermData(message, termId,
-                    std::span<const uint8_t>(chunk.data() + at, take));
-                if (written == 0) break;
-                SendToPeer(shell.peer, std::span<const uint8_t>(message.data(), written));
-                at += take;
-            }
+            QueueForPeer(shell, fresh);
         }
+        if (!shell.local) FlushPending(termId, shell, message);
     }
 
     for (uint32_t termId : finished) {

@@ -60,16 +60,23 @@ private:
         NetAddr peer{};
         std::unique_ptr<deskhub::term::Screen> mirror{};
         bool local = false;
+        std::vector<uint8_t> pending{};
+        size_t pendingAt = 0;
+        bool behind = false;
+        uint64_t lastRepaintUs = 0;
     };
 
     void Loop();
-    void PumpShells();
+    void PumpShells(uint64_t nowUs);
+    bool FlushPending(uint32_t termId, Shell& shell, std::vector<uint8_t>& scratch);
+    void QueueForPeer(Shell& shell, std::span<const uint8_t> bytes);
+    void QueueRepaint(Shell& shell, uint64_t nowUs);
     void DrainKicks();
     void DrainGone(uint64_t nowUs);
     void CloseShell(uint32_t termId, int exitCode, bool tellClient);
     void WriteLocalBytes(uint32_t termId, const std::string& bytes);
     void Audit(uint32_t termId, std::string_view what);
-    void SendToPeer(const NetAddr& peer, std::span<const uint8_t> message);
+    bool SendToPeer(const NetAddr& peer, std::span<const uint8_t> message);
     uint32_t TermIdFor(const NetAddr& peer) const;
 
     SessionTransport* sock_ = nullptr;

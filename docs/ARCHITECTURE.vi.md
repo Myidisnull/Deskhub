@@ -210,6 +210,26 @@ iOS Simulator.
   core: keepalive tối đa bằng nửa idle timeout để mất một gói vẫn sống, và việc thử
   lại dừng đúng ở `kTerminalReattachGraceUs`, vì quá mốc đó host đã bỏ shell rồi,
   kết nối lại chỉ âm thầm mở một shell mới.
+- **Một record lên stream thì lên trọn vẹn, còn client tụt lại thì được vẽ lại chứ
+  không nhận từng byte**: mọi thứ tin cậy — control, auth, output terminal — đều là
+  record có tiền tố độ dài dùng chung một QUIC stream, nên nửa record trên đường
+  truyền làm lệch khung vĩnh viễn ở đầu bên kia; `RecordStream` không có cách nào
+  đồng bộ lại và peer đóng luôn kết nối. `QuicEndpoint::SendStream` trước đây ghi
+  được bao nhiêu hay bấy nhiêu rồi bỏ phần dư, chịu được cho tới khi một lệnh như
+  `make test` chạy nhanh hơn đường truyền: cửa sổ stream 1 MiB đầy, phần đuôi của một
+  record `TermData` bị bỏ, framer của viewer hỏng và shell "mất kết nối" một phút sau
+  khi mở. Giờ nó từ chối cả record khi stream không còn chỗ, và đóng kết nối nếu vẫn
+  lỡ ghi được một phần, vì stream đã rách thì không vá tại chỗ được. Ở tầng trên,
+  `TerminalHost` giữ output chưa gửi trong hàng đợi riêng của từng shell và thử gửi
+  lại ở mỗi nhịp, nên một đợt xả chỉ nhanh hơn đường truyền trong chốc lát — output
+  của một lần build chẳng hạn — vẫn tới client đủ từng byte. Vượt `kMaxPendingBytes`
+  thì hàng đợi bị bỏ chứ không
+  phình thêm: mọi byte đều đã vào `Screen` gương phía host rồi, nên client được kéo
+  cho kịp bằng `deskhub::term::RenderScreen` — vẽ lại lưới hiện tại, nhiều nhất một
+  lần mỗi `kRepaintIntervalUs`. Phần output không ai kịp đọc thì bỏ chứ không đệm, nhờ
+  vậy lệnh xả dữ liệu vẫn chạy đúng tốc độ của nó mà màn hình cuối cùng vẫn đúng.
+  Client gắn lại phiên cũng nhận đúng bản vẽ lại đó, vì sau một quãng đứt thì vị trí
+  của nó trong dòng byte không còn nghĩa gì.
 - **Chia sẻ tự động phải chờ desktop, không phải liệt kê một lần rồi thôi**: Windows
   đăng ký autostart bằng scheduled task `ONLOGON`, chạy trước khi phiên có màn hình
   nào để liệt kê, nên một lần gọi `ListDisplays()` lúc dựng cửa sổ trả về rỗng và app

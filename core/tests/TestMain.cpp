@@ -165,6 +165,9 @@ int main() {
     std::printf("--- terminal: the cell snapshot every window renders from ---\n");
     RunSnapshotTests();
 
+    std::printf("--- terminal: repainting a client that fell behind ---\n");
+    RunRepaintTests();
+
     std::printf("--- terminal: keys and modifiers to bytes ---\n");
     RunKeyEncoderTests();
 

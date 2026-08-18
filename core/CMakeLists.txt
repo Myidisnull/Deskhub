@@ -62,6 +62,7 @@ add_library(core STATIC
     src/terminal/VtParser.cpp
     src/terminal/Screen.cpp
     src/terminal/Snapshot.cpp
+    src/terminal/Repaint.cpp
     src/terminal/KeyEncoder.cpp
     src/terminal/Palette.cpp
 
@@ -156,6 +157,7 @@ if(DESKHUB_CORE_TESTS)
         tests/terminal/VtParserTests.cpp
         tests/terminal/ScreenTests.cpp
         tests/terminal/SnapshotTests.cpp
+        tests/terminal/RepaintTests.cpp
         tests/terminal/KeyEncoderTests.cpp
         tests/terminal/PaletteTests.cpp
 

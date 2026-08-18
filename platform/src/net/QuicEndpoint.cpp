@@ -366,6 +366,9 @@ bool QuicEndpoint::SendStream(QuicConnId conn, uint64_t streamId, std::span<cons
     bool fin) {
     Impl::Connection* entry = impl_->Lookup(conn);
     if (entry == nullptr || !quiche_conn_is_established(entry->conn)) return false;
+    if (bytes.empty()) return true;
+    const ssize_t room = quiche_conn_stream_capacity(entry->conn, streamId);
+    if (room >= 0 && size_t(room) < bytes.size()) return false;
     size_t at = 0;
     while (at < bytes.size()) {
         uint64_t err = 0;
@@ -375,7 +378,13 @@ bool QuicEndpoint::SendStream(QuicConnId conn, uint64_t streamId, std::span<cons
         at += size_t(written);
     }
     impl_->Flush(*entry);
-    return at == bytes.size();
+    if (at == bytes.size()) return true;
+    LOGW(
+        "quic: stream %llu took only %zu of %zu bytes; half a record on the wire desyncs the "
+        "framing on the far side, so the connection goes instead",
+        (unsigned long long)(streamId), at, bytes.size());
+    CloseConnection(conn, 1, "record truncated");
+    return false;
 }
 
 bool QuicEndpoint::SendDatagram(QuicConnId conn, std::span<const uint8_t> bytes) {

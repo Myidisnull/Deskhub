@@ -213,6 +213,26 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   keepalive is at most half the idle timeout so one lost packet is survivable, and
   retrying stops exactly at `kTerminalReattachGraceUs`, because past that the host
   has already dropped the shell and reconnecting would silently open a new one.
+- **A record goes onto the stream whole or not at all, and a client that falls behind
+  is repainted rather than fed every byte**: everything reliable — control, auth,
+  terminal output — is length-prefixed records sharing one QUIC stream, so half a
+  record on the wire desynchronises the framing on the far side permanently;
+  `RecordStream` has no way to resynchronise and the peer closes the connection.
+  `QuicEndpoint::SendStream` used to write whatever fit and drop the rest, which held
+  until a command like `make test` outran the link: the 1 MiB stream window filled,
+  the tail of a `TermData` record was dropped, the viewer's framer failed and the
+  shell "disconnected" a minute after it opened. It now refuses a record the stream
+  has no room for, and closes the connection if a partial write ever happens anyway,
+  because a torn stream cannot be repaired in place. Above it `TerminalHost` holds
+  unsent output in a per-shell queue and retries it on every tick, so a burst that
+  merely outruns the link for a moment — a build's output, say — still reaches the
+  client byte for byte. Past `kMaxPendingBytes` the queue is dropped instead of grown: every
+  byte has already reached the host-side mirror `Screen`, so the client is caught up
+  with `deskhub::term::RenderScreen` — one repaint of the current grid, at most every
+  `kRepaintIntervalUs`. Output nobody could have read is skipped rather than buffered,
+  which lets a flooding command run at its own speed and still leaves the right screen
+  behind. A reattaching client gets that same repaint, since its position in the byte
+  stream means nothing after a gap.
 - **An automatic share waits for the desktop instead of enumerating it once**:
   Windows registers autostart as a `ONLOGON` scheduled task, which fires before the
   session has a monitor to enumerate, so a single `ListDisplays()` at construction

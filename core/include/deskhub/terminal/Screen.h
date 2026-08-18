@@ -86,6 +86,21 @@ struct TerminalModes {
     bool operator==(const TerminalModes&) const = default;
 };
 
+struct ScrollRegion {
+    uint16_t top = 0;
+    uint16_t bottom = 0;
+
+    bool operator==(const ScrollRegion&) const = default;
+};
+
+struct CharsetState {
+    bool graphicsG0 = false;
+    bool graphicsG1 = false;
+    bool shiftedOut = false;
+
+    bool operator==(const CharsetState&) const = default;
+};
+
 class Screen {
 public:
     explicit Screen(TermSize size = TermSize{}, size_t scrollbackLimit = kDefaultScrollback);
@@ -116,6 +131,12 @@ public:
     }
     bool AlternateScreen() const {
         return alternate_;
+    }
+    ScrollRegion Region() const {
+        return ScrollRegion{scrollTop_, scrollBottom_};
+    }
+    CharsetState Charset() const {
+        return CharsetState{graphicsG0_, graphicsG1_, shiftedOut_};
     }
 
     size_t ScrollbackRows() const {

@@ -892,6 +892,66 @@ void TestWrongGuessesLockTheHost() {
         deskhubp::WriteAppDataFile(deskhubp::kPairedDevicesFileName, savedPaired);
 }
 
+void TestAFloodOfOutputNeverTearsTheStream() {
+    std::printf("[termhost] a command that floods the screen keeps the session alive...\n");
+    if (!deskhubp::QuicAvailable() || deskhubp::DefaultShell().empty()) {
+        std::printf("[termhost] skipped: this build has no QUIC library or no shell to host\n");
+        return;
+    }
+
+    const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
+    const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    const std::string savedPaired =
+        deskhubp::ReadAppDataFile(deskhubp::kPairedDevicesFileName);
+    deskhubp::ForgetAllPairedDevices();
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity clientIdentity =
+        deskhubp::LoadOrCreateHostIdentity("deskhub-client");
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+
+    const uint16_t port = uint16_t(kTestPort + 5);
+    HostRig host;
+    if (identity.Valid() && clientIdentity.Valid() &&
+        host.Start(identity, port, kTestPasscode)) {
+        Viewer viewer;
+        viewer.Start();
+        viewer.endpoint.Connect(deskhubp::QuicSettings{}, NetAddr{0x7F000001u, port},
+            "deskhub-test", viewer.Hooks());
+        viewer.PumpUntil([&viewer] { return viewer.connected; }, kMaxRounds);
+        viewer.BeginAuth(clientIdentity, identity.fingerprint, kTestPasscode);
+        viewer.PumpUntil([&viewer] { return viewer.Allowed(); }, kMaxRounds);
+        viewer.client->Open(std::string(), deskhub::TermSize{80, 24}, "test-client");
+
+        if (viewer.PumpUntil([&viewer] { return viewer.opens == 1; }, kMaxRounds)) {
+            viewer.PumpUntil([] { return false; }, 400);
+            viewer.Type("seq 1 400000 2>/dev/null; echo BURST-DONE\n");
+            WaitFor([] { return false; }, 800);
+
+            const bool caughtUp = viewer.PumpUntil(
+                [&viewer] {
+                    return viewer.screen.Text().find("BURST-DONE") != std::string::npos;
+                },
+                kMaxRounds * 5);
+
+            Check(!viewer.framer.Failed(),
+                "the record stream never tears, however far behind the client falls");
+            Check(host.SessionCount() == 1, "so the shell is still open on the host");
+            Check(viewer.exits.empty(), "and the client was never told the shell had gone");
+            Check(caughtUp, "the client catches up on what the command last printed");
+        }
+        viewer.endpoint.Close();
+    }
+
+    host.Stop();
+    if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
+    if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+    if (savedPaired.empty())
+        deskhubp::RemoveAppDataFile(deskhubp::kPairedDevicesFileName);
+    else
+        deskhubp::WriteAppDataFile(deskhubp::kPairedDevicesFileName, savedPaired);
+}
+
 }
 
 void RunTerminalHostTests() {
@@ -901,4 +961,5 @@ void RunTerminalHostTests() {
     TestViewerTrustsThenRunsAShell();
     TestTheTwoCasesAPasscodeCannotSettle();
     TestWrongGuessesLockTheHost();
+    TestAFloodOfOutputNeverTearsTheStream();
 }
