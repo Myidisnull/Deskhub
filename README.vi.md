@@ -19,11 +19,12 @@
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
 [![nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml)
 
-<img src="docs/imgs/macos_1.png" alt="Deskhub trên macOS đang chia sẻ màn hình: tốc độ thu và gửi theo thời gian thực, một người xem đang kết nối, round-trip 0 ms" width="850">
+<img src="docs/imgs/macos_1.png" alt="Deskhub trên macOS đang chia sẻ màn hình và một shell: khung Sharing ghi Screen · Terminal trên cổng UDP 47777, mỗi nguồn một dòng riêng kèm tốc độ thu và gửi theo thời gian thực" width="850">
 
-<sub>Một host macOS đang chia sẻ — tốc độ thu/gửi và băng thông theo thời gian thực cho từng
-màn hình, mỗi người xem một dòng riêng, <b>Stop</b> và <b>Disconnect</b> chỉ một cú bấm.
-Đúng vậy, RTT ghi <b>0 ms</b>.</sub>
+<sub>Một host macOS đang chia sẻ. Khung xanh nói đúng những gì đang mở ra ngoài — <b>Screen · Terminal</b>,
+một cổng UDP, và mã mà máy lạ phải chứng minh là mình biết. Mỗi nguồn một dòng riêng kèm tốc độ
+thu/gửi theo thời gian thực và nút <b>Stop</b> chỉ một cú bấm; <i>Share on network</i> ghim host vào
+đúng một card mạng, để nó vô hình trên mọi mạng khác mà máy này đang nối vào.</sub>
 
 </div>
 
@@ -33,36 +34,51 @@ nó.
 
 | ⚡ Nhanh | 📦 Một file | 🎛️ Đơn giản |
 | ------ | ---------- | --------- |
-| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng những trang đó trên mọi thiết bị — **Host**, **Client**, **Settings**, **Devices**. **Share** một màn hình hoặc **Connect** tới một IP, hết. Máy desktop còn chia sẻ được cả một **shell**. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
+| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng những trang đó trên mọi thiết bị — **Host**, **Client**, **Devices**, **Settings**. **Share** một màn hình hoặc **Connect** tới một IP, hết. Máy desktop còn chia sẻ được cả một **shell**. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
 
 ## 👀 Nhìn qua một chút
+
+**Bốn trang. Năm nền tảng. Một app.** Host, Client, Devices, Settings — vẫn bốn trang đó ở
+mọi nơi, nên học trên máy Mac là biết luôn app Android.
 
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/imgs/macos_2.png" alt="Trang Client của Deskhub trên macOS: kết nối bằng IP, ô nhập mã, quét mạng và danh sách thiết bị gần đây kèm trạng thái online">
-      <br><sub><b>Client</b> — gõ một IP, hoặc chỉ cần bấm vào máy mà trình quét mạng tìm thấy. Các thiết bị từng kết nối quay lại kèm trạng thái online/offline và ping theo thời gian thực.</sub>
+      <img src="docs/imgs/macos_live.png" alt="Deskhub trên macOS khi có người xem đang kết nối: tốc độ thu và gửi, băng thông, và round-trip 0 ms">
+      <br><sub><b>Một phiên đang chạy</b> — thu 58 fps, gửi 57, mỗi người xem một dòng riêng kèm nút <b>Disconnect</b>. Đúng vậy, RTT ghi <b>0 ms</b>.</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/imgs/macos_3.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng, mã 4 chữ số, công tắc chỉ xem và trạng thái quyền hệ thống">
-      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã ghép đôi 4 chữ số tuỳ chọn, công tắc chỉ-xem, và (trên macOS) trạng thái cấp quyền theo thời gian thực.</sub>
+      <img src="docs/imgs/macos_2.png" alt="Trang Client của Deskhub trên macOS: kết nối bằng IP, ô nhập mã, các ô chọn mở màn hình, quyền điều khiển và terminal, kèm trình quét mạng với trạng thái theo thời gian thực">
+      <br><sub><b>Client</b> — gõ một IP, hoặc bấm vào máy mà trình quét mạng tìm thấy. Bạn chọn trước sẽ mở cái gì: <i>màn hình</i>, <i>quyền điều khiển nó</i>, <i>một shell</i>, hay kết hợp tuỳ ý. Thiết bị từng kết nối quay lại kèm chấm online/offline và ping theo thời gian thực.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/imgs/macos_3.png" alt="Trang Devices của Deskhub trên macOS: danh sách máy đã ghép đôi kèm khoá, thời điểm ghép và lần cuối thấy, nút Forget, công tắc cho phép ghép đôi mới, và khoá SHA256 của máy này">
+      <br><sub><b>Devices</b> — mọi máy từng được cho vào, kèm tên và khoá, mỗi dòng một nút <i>Forget</i>. Tắt <i>Let new machines pair</i> khi máy của bạn đã nằm đủ trong danh sách, và mã có lộ ra ngoài cũng chẳng ai dùng được. Khoá của chính máy này nằm ở dưới cùng, để đọc qua điện thoại cho người kia đối chiếu.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/imgs/macos_4.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng UDP, mã ghép đôi, công tắc chỉ xem, đồng bộ clipboard, giữ máy thức, và trạng thái quyền hệ thống theo thời gian thực">
+      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã 4 chữ số tuỳ chọn, công tắc chỉ-xem, đồng bộ clipboard, giữ máy không ngủ… và trên macOS là trạng thái theo thời gian thực của hai quyền quan trọng nhất, mỗi quyền một nút mở thẳng đúng mục trong System Settings.</sub>
     </td>
   </tr>
 </table>
 
 <p align="center">
-  <img src="docs/imgs/ios_1.png" alt="Client iOS của Deskhub: kết nối tới máy khác bằng IP và mã, quét mạng, thiết bị gần đây" width="270">
-  &nbsp;&nbsp;
-  <img src="docs/imgs/ios_2.png" alt="Trang Host trên iOS của Deskhub: mã 4 chữ số, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="270">
+  <img src="docs/imgs/ios_1.png" alt="Trang Client trên iOS của Deskhub: ô IP, cổng và mã, nút Terminal, và trình quét mạng liệt kê các máy kèm ping" width="195">
+  <img src="docs/imgs/ios_2.png" alt="Trang Host trên iOS của Deskhub: mã ghép đôi, Share on network, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="195">
+  <img src="docs/imgs/ios_3.png" alt="Trang Devices trên iOS của Deskhub: máy đã ghép đôi kèm khoá và lần cuối thấy, nút Forget, công tắc ghép đôi mới, và khoá SHA256 của thiết bị này" width="195">
+  <img src="docs/imgs/ios_4.png" alt="Trang Settings trên iOS của Deskhub: cổng UDP, công tắc đồng bộ clipboard và giữ máy thức" width="195">
 </p>
-<p align="center"><sub>Vẫn app đó trên iPhone — quét mạng, chạm vào một máy, nhập mã 4 chữ số… hoặc chuyển sang tab Host để chia sẻ chính màn hình điện thoại.</sub></p>
+<p align="center"><sub><b>iPhone</b> · Client — Host — Devices — Settings. Quét mạng, chạm vào một máy, rồi điều khiển nó với khung hình làm trackpad. Hoặc chuyển sang Host để chia sẻ chính màn hình điện thoại.</sub></p>
 
 <p align="center">
-  <img src="docs/imgs/android_1.png" alt="Client Android của Deskhub: kết nối tới máy khác bằng IP và mã, quét mạng, thiết bị gần đây" width="270">
-  &nbsp;&nbsp;
-  <img src="docs/imgs/android_2.png" alt="Trang Host trên Android của Deskhub: mã 4 chữ số, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="270">
+  <img src="docs/imgs/android_1.png" alt="Trang Client trên Android của Deskhub: ô IP, cổng và mã, nút Terminal, công tắc điều khiển, và trình quét mạng liệt kê các máy kèm ping" width="195">
+  <img src="docs/imgs/android_2.png" alt="Trang Host trên Android của Deskhub: mã ghép đôi, Share on network, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="195">
+  <img src="docs/imgs/android_3.png" alt="Trang Devices trên Android của Deskhub: máy đã ghép đôi kèm khoá và lần cuối thấy, nút Forget, công tắc ghép đôi mới, và khoá SHA256 của thiết bị này" width="195">
+  <img src="docs/imgs/android_4.png" alt="Trang Settings trên Android của Deskhub: cổng UDP, công tắc đồng bộ clipboard và giữ máy thức" width="195">
 </p>
-<p align="center"><sub>Và trên Android — vẫn hai trang Client và Host; chia sẻ màn hình ở chế độ chỉ xem, từ Android 10 trở lên.</sub></p>
+<p align="center"><sub><b>Android</b> · vẫn bốn trang đó, khoác áo Material. Chia sẻ màn hình ở chế độ chỉ xem, từ Android 10 trở lên.</sub></p>
 
 ## 💡 Để làm gì
 
