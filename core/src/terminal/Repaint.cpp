@@ -61,8 +61,7 @@ void AppendColor(std::string& params, const Color& color, bool foreground) {
                 params += ';' + std::to_string(extended) + ";5;" + std::to_string(color.r);
             return;
         case ColorKind::Rgb:
-            params += ';' + std::to_string(extended) + ";2;" + std::to_string(color.r) + ';'
-                + std::to_string(color.g) + ';' + std::to_string(color.b);
+            params += ';' + std::to_string(extended) + ";2;" + std::to_string(color.r) + ';' + std::to_string(color.g) + ';' + std::to_string(color.b);
             return;
     }
 }
@@ -152,8 +151,8 @@ std::string RenderScreen(const Screen& screen) {
     AppendScrollRegion(out, region, size.rows);
     AppendPrivateMode(out, 6, modes.origin);
     const uint16_t cursorRow = modes.origin && cursor.row >= region.top
-        ? uint16_t(cursor.row - region.top)
-        : cursor.row;
+                                   ? uint16_t(cursor.row - region.top)
+                                   : cursor.row;
     AppendCup(out, cursorRow, cursor.col);
 
     AppendPrivateMode(out, 7, modes.autoWrap);
