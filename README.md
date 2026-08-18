@@ -19,12 +19,13 @@ enough to actually play games remotely, which ordinary remote desktop tools can'
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
 [![nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml)
 
-<img src="docs/imgs/macos_1.png" alt="Deskhub on macOS sharing a display and a shell: the Sharing banner reads Screen · Terminal on UDP port 47777, each source on its own row with live capture and send rates" width="850">
+<img src="docs/imgs/macos_1.png" alt="Deskhub Host page on macOS: a Share on network picker, the Wi-Fi and Tailscale addresses others connect to, a Not sharing banner on UDP port 47777, and the source list with Terminal ticked above a Start sharing button" width="850">
 
-<sub>A macOS host mid-share. One green banner says exactly what is exposed — <b>Screen · Terminal</b>,
-one UDP port, the passcode a new machine has to prove it knows. Every source gets its own row with
-live capture/send rates and a one-click <b>Stop</b>, and <i>Share on network</i> pins the host to a
-single interface so it stays invisible on every other network this machine is on.</sub>
+<sub>A macOS host, one tick away from sharing. You choose what leaves this machine — any display,
+the shell, or both — then press <b>Start sharing</b>. The banner says whether anything is exposed at
+all and on which UDP port, the addresses to hand out are right there with a <b>Copy</b> each, and
+<i>Share on network</i> pins the host to a single interface so it stays invisible on every other
+network this machine is on.</sub>
 
 </div>
 
@@ -38,44 +39,39 @@ display, type an IP on the other machine, and you're driving it.
 ## 👀 A quick look
 
 **Four pages. Five platforms. One app.** Host, Client, Devices, Settings — the same four
-everywhere, so learning it on a Mac teaches you the Android app too.
+everywhere, so learning it on a Mac teaches you the Android app too. Host is the shot above;
+here are the other three.
 
 <table>
   <tr>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_live.png" alt="Deskhub on macOS with a viewer connected: live capture and send rates, bandwidth, and a 0 ms round-trip time">
-      <br><sub><b>A session in flight</b> — 58 fps captured, 57 sent, every viewer on its own row with a one-click <b>Disconnect</b>. Yes, that RTT says <b>0 ms</b>.</sub>
+    <td align="center" width="33%">
+      <img src="docs/imgs/macos_2.png" alt="Deskhub Client page on macOS: host IP, UDP port, passcode and your-name fields, tickboxes to pick remote desktop, control and terminal, a Connect button, and a device table with status, ping and last-connected columns">
+      <br><sub><b>Client</b> — type an IP, or click a machine the network scan found. You pick what to open before you go: <i>the screen</i>, <i>control of it</i>, <i>a shell</i>, or any mix. Machines you have used come back in the table with their status, ping and when you last reached them.</sub>
     </td>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_2.png" alt="Deskhub Client page on macOS: connect by IP, passcode field, checkboxes to pick remote desktop, control and terminal, plus the network scan with live status">
-      <br><sub><b>Client</b> — type an IP, or click a machine the network scan found. You pick what to open before you go: <i>the screen</i>, <i>control of it</i>, <i>a shell</i>, or any mix. Recent devices come back with a live online/offline dot and a ping.</sub>
+    <td align="center" width="33%">
+      <img src="docs/imgs/macos_3.png" alt="Deskhub Devices page on macOS: paired machines with key, paired and last-seen times, Forget and Forget every machine buttons, a switch for new pairings, and this machine's SHA256 key">
+      <br><sub><b>Devices</b> — every machine ever let in, by name and key, with <i>Forget</i> for one and <i>Forget every machine</i> for the lot. Turn <i>Let new machines pair</i> off once yours are on the list and a leaked passcode buys nobody anything. Your own key is at the bottom, to read out over the phone.</sub>
     </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_3.png" alt="Deskhub Devices page on macOS: paired machines with key, paired and last-seen times, Forget buttons, a switch for new pairings, and this machine's SHA256 key">
-      <br><sub><b>Devices</b> — every machine ever let in, by name and key, with <i>Forget</i> next to each. Turn <i>Let new machines pair</i> off once yours are on the list and a leaked passcode buys nobody anything. Your own key is at the bottom, to read out over the phone.</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_4.png" alt="Deskhub Settings page on macOS: fps, bitrate, quality, UDP port, pairing passcode, view-only switch, clipboard and stay-awake toggles, and the live macOS permission state">
-      <br><sub><b>Settings</b> — fps, bitrate, quality cap, port, the optional 4-digit passcode, the view-only switch, clipboard sync, stay-awake… and on macOS the live state of the two permissions that matter, each with a button straight to the right System Settings pane.</sub>
+    <td align="center" width="33%">
+      <img src="docs/imgs/macos_4.png" alt="Deskhub Settings page on macOS: fps, bitrate and quality, UDP port, pairing passcode, a switch for whether viewers can control this machine, clipboard and stay-awake toggles, the live state of the Screen Recording and Accessibility permissions, and a start-at-login switch">
+      <br><sub><b>Settings</b> — fps, bitrate, quality cap, port, the optional 4-digit passcode, whether viewers may control this machine at all, clipboard sync, stay-awake, start-at-login… and on macOS the live state of the two permissions that matter, each with <i>Grant</i> and a button straight to the right System Settings pane.</sub>
     </td>
   </tr>
 </table>
 
 <p align="center">
-  <img src="docs/imgs/ios_1.png" alt="Deskhub iOS Client page: IP, port and passcode fields, Terminal button, and the network scan listing machines with ping" width="195">
+  <img src="docs/imgs/ios_1.png" alt="Deskhub iOS Client page: IP, port, passcode and name fields, Connect and Terminal buttons, a switch for controlling the remote machine, and the network scan reporting how many addresses it checked" width="195">
   <img src="docs/imgs/ios_2.png" alt="Deskhub iOS Host page: pairing passcode, Share on network, Start sharing, and the IP addresses others use to connect" width="195">
-  <img src="docs/imgs/ios_3.png" alt="Deskhub iOS Devices page: paired machines with key and last-seen time, Forget, the new-pairings switch, and this device's SHA256 key" width="195">
-  <img src="docs/imgs/ios_4.png" alt="Deskhub iOS Settings page: UDP port, clipboard sync and keep-awake switches" width="195">
+  <img src="docs/imgs/ios_3.png" alt="Deskhub iOS Devices page: an empty list of paired machines, the switch that lets new machines pair, and this device's SHA256 key" width="195">
+  <img src="docs/imgs/ios_4.png" alt="Deskhub iOS Connection settings page: the UDP port the scan looks on, plus clipboard sync and keep-awake switches" width="195">
 </p>
 <p align="center"><sub><b>iPhone</b> · Client — Host — Devices — Settings. Scan the network, tap a machine, drive it with the video as a trackpad. Or flip to Host and share the phone's own screen.</sub></p>
 
 <p align="center">
-  <img src="docs/imgs/android_1.png" alt="Deskhub Android Client page: IP, port and passcode fields, Terminal button, control switch, and the network scan listing machines with ping" width="195">
+  <img src="docs/imgs/android_1.png" alt="Deskhub Android Client page: IP, port, passcode and name fields, Connect and Terminal buttons, a control tickbox, and the network scan working through the subnet" width="195">
   <img src="docs/imgs/android_2.png" alt="Deskhub Android Host page: pairing passcode, Share on network, Start sharing, and the IP addresses others use to connect" width="195">
-  <img src="docs/imgs/android_3.png" alt="Deskhub Android Devices page: paired machines with key and last-seen time, Forget, the new-pairings switch, and this device's SHA256 key" width="195">
-  <img src="docs/imgs/android_4.png" alt="Deskhub Android Settings page: UDP port, clipboard sync and keep-awake switches" width="195">
+  <img src="docs/imgs/android_3.png" alt="Deskhub Android Devices page: an empty list of paired machines, the tickbox that lets new machines pair, and this device's SHA256 key" width="195">
+  <img src="docs/imgs/android_4.png" alt="Deskhub Android Connection settings page: the UDP port the scan looks on, plus clipboard sync and keep-awake tickboxes" width="195">
 </p>
 <p align="center"><sub><b>Android</b> · the same four pages, in Material dress. Hosting is a view-only screen share on Android 10+.</sub></p>
 

@@ -19,12 +19,13 @@
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
 [![nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml)
 
-<img src="docs/imgs/macos_1.png" alt="Deskhub trên macOS đang chia sẻ màn hình và một shell: khung Sharing ghi Screen · Terminal trên cổng UDP 47777, mỗi nguồn một dòng riêng kèm tốc độ thu và gửi theo thời gian thực" width="850">
+<img src="docs/imgs/macos_1.png" alt="Trang Host của Deskhub trên macOS: ô chọn Share on network, các địa chỉ Wi-Fi và Tailscale để máy khác kết nối tới, khung Not sharing trên cổng UDP 47777, và danh sách nguồn với Terminal đang được tick phía trên nút Start sharing" width="850">
 
-<sub>Một host macOS đang chia sẻ. Khung xanh nói đúng những gì đang mở ra ngoài — <b>Screen · Terminal</b>,
-một cổng UDP, và mã mà máy lạ phải chứng minh là mình biết. Mỗi nguồn một dòng riêng kèm tốc độ
-thu/gửi theo thời gian thực và nút <b>Stop</b> chỉ một cú bấm; <i>Share on network</i> ghim host vào
-đúng một card mạng, để nó vô hình trên mọi mạng khác mà máy này đang nối vào.</sub>
+<sub>Một host macOS, chỉ còn một cú tick nữa là chia sẻ. Bạn chọn cái gì được phép rời khỏi máy này —
+màn hình bất kỳ, cái shell, hay cả hai — rồi bấm <b>Start sharing</b>. Khung trạng thái nói rõ có gì
+đang mở ra ngoài hay không và trên cổng UDP nào, địa chỉ để đưa cho người kia nằm ngay đó kèm nút
+<b>Copy</b>; còn <i>Share on network</i> ghim host vào đúng một card mạng, để nó vô hình trên mọi
+mạng khác mà máy này đang nối vào.</sub>
 
 </div>
 
@@ -39,44 +40,39 @@ nó.
 ## 👀 Nhìn qua một chút
 
 **Bốn trang. Năm nền tảng. Một app.** Host, Client, Devices, Settings — vẫn bốn trang đó ở
-mọi nơi, nên học trên máy Mac là biết luôn app Android.
+mọi nơi, nên học trên máy Mac là biết luôn app Android. Host là tấm ảnh phía trên; đây là
+ba trang còn lại.
 
 <table>
   <tr>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_live.png" alt="Deskhub trên macOS khi có người xem đang kết nối: tốc độ thu và gửi, băng thông, và round-trip 0 ms">
-      <br><sub><b>Một phiên đang chạy</b> — thu 58 fps, gửi 57, mỗi người xem một dòng riêng kèm nút <b>Disconnect</b>. Đúng vậy, RTT ghi <b>0 ms</b>.</sub>
+    <td align="center" width="33%">
+      <img src="docs/imgs/macos_2.png" alt="Trang Client của Deskhub trên macOS: ô nhập IP của host, cổng UDP, mã và tên máy bạn, các ô tick chọn mở màn hình, quyền điều khiển và terminal, nút Connect, và bảng thiết bị với các cột trạng thái, ping và lần kết nối gần nhất">
+      <br><sub><b>Client</b> — gõ một IP, hoặc bấm vào máy mà trình quét mạng tìm thấy. Bạn chọn trước sẽ mở cái gì: <i>màn hình</i>, <i>quyền điều khiển nó</i>, <i>một shell</i>, hay kết hợp tuỳ ý. Những máy bạn từng dùng quay lại trong bảng kèm trạng thái, ping và lần kết nối gần nhất.</sub>
     </td>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_2.png" alt="Trang Client của Deskhub trên macOS: kết nối bằng IP, ô nhập mã, các ô chọn mở màn hình, quyền điều khiển và terminal, kèm trình quét mạng với trạng thái theo thời gian thực">
-      <br><sub><b>Client</b> — gõ một IP, hoặc bấm vào máy mà trình quét mạng tìm thấy. Bạn chọn trước sẽ mở cái gì: <i>màn hình</i>, <i>quyền điều khiển nó</i>, <i>một shell</i>, hay kết hợp tuỳ ý. Thiết bị từng kết nối quay lại kèm chấm online/offline và ping theo thời gian thực.</sub>
+    <td align="center" width="33%">
+      <img src="docs/imgs/macos_3.png" alt="Trang Devices của Deskhub trên macOS: danh sách máy đã ghép đôi kèm khoá, thời điểm ghép và lần cuối thấy, nút Forget và Forget every machine, công tắc cho phép ghép đôi mới, và khoá SHA256 của máy này">
+      <br><sub><b>Devices</b> — mọi máy từng được cho vào, kèm tên và khoá, có <i>Forget</i> cho từng máy và <i>Forget every machine</i> cho tất cả. Tắt <i>Let new machines pair</i> khi máy của bạn đã nằm đủ trong danh sách, và mã có lộ ra ngoài cũng chẳng ai dùng được. Khoá của chính máy này nằm ở dưới cùng, để đọc qua điện thoại cho người kia đối chiếu.</sub>
     </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_3.png" alt="Trang Devices của Deskhub trên macOS: danh sách máy đã ghép đôi kèm khoá, thời điểm ghép và lần cuối thấy, nút Forget, công tắc cho phép ghép đôi mới, và khoá SHA256 của máy này">
-      <br><sub><b>Devices</b> — mọi máy từng được cho vào, kèm tên và khoá, mỗi dòng một nút <i>Forget</i>. Tắt <i>Let new machines pair</i> khi máy của bạn đã nằm đủ trong danh sách, và mã có lộ ra ngoài cũng chẳng ai dùng được. Khoá của chính máy này nằm ở dưới cùng, để đọc qua điện thoại cho người kia đối chiếu.</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/imgs/macos_4.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate, chất lượng, cổng UDP, mã ghép đôi, công tắc chỉ xem, đồng bộ clipboard, giữ máy thức, và trạng thái quyền hệ thống theo thời gian thực">
-      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã 4 chữ số tuỳ chọn, công tắc chỉ-xem, đồng bộ clipboard, giữ máy không ngủ… và trên macOS là trạng thái theo thời gian thực của hai quyền quan trọng nhất, mỗi quyền một nút mở thẳng đúng mục trong System Settings.</sub>
+    <td align="center" width="33%">
+      <img src="docs/imgs/macos_4.png" alt="Trang Settings của Deskhub trên macOS: fps, bitrate và chất lượng, cổng UDP, mã ghép đôi, công tắc cho phép người xem điều khiển máy này, đồng bộ clipboard, giữ máy thức, trạng thái theo thời gian thực của quyền Screen Recording và Accessibility, và công tắc tự chạy khi đăng nhập">
+      <br><sub><b>Settings</b> — fps, bitrate, mức chất lượng, cổng, mã 4 chữ số tuỳ chọn, cho phép người xem điều khiển máy này hay không, đồng bộ clipboard, giữ máy không ngủ, tự chạy khi đăng nhập… và trên macOS là trạng thái theo thời gian thực của hai quyền quan trọng nhất, mỗi quyền có nút <i>Grant</i> và một nút mở thẳng đúng mục trong System Settings.</sub>
     </td>
   </tr>
 </table>
 
 <p align="center">
-  <img src="docs/imgs/ios_1.png" alt="Trang Client trên iOS của Deskhub: ô IP, cổng và mã, nút Terminal, và trình quét mạng liệt kê các máy kèm ping" width="195">
+  <img src="docs/imgs/ios_1.png" alt="Trang Client trên iOS của Deskhub: ô IP, cổng, mã và tên máy, nút Connect và Terminal, công tắc điều khiển máy từ xa, và trình quét mạng báo đã dò qua bao nhiêu địa chỉ" width="195">
   <img src="docs/imgs/ios_2.png" alt="Trang Host trên iOS của Deskhub: mã ghép đôi, Share on network, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="195">
-  <img src="docs/imgs/ios_3.png" alt="Trang Devices trên iOS của Deskhub: máy đã ghép đôi kèm khoá và lần cuối thấy, nút Forget, công tắc ghép đôi mới, và khoá SHA256 của thiết bị này" width="195">
-  <img src="docs/imgs/ios_4.png" alt="Trang Settings trên iOS của Deskhub: cổng UDP, công tắc đồng bộ clipboard và giữ máy thức" width="195">
+  <img src="docs/imgs/ios_3.png" alt="Trang Devices trên iOS của Deskhub: danh sách máy đã ghép đôi còn trống, công tắc cho phép máy mới ghép đôi, và khoá SHA256 của thiết bị này" width="195">
+  <img src="docs/imgs/ios_4.png" alt="Trang Connection settings trên iOS của Deskhub: cổng UDP mà trình quét dò tới, cùng công tắc đồng bộ clipboard và giữ máy thức" width="195">
 </p>
 <p align="center"><sub><b>iPhone</b> · Client — Host — Devices — Settings. Quét mạng, chạm vào một máy, rồi điều khiển nó với khung hình làm trackpad. Hoặc chuyển sang Host để chia sẻ chính màn hình điện thoại.</sub></p>
 
 <p align="center">
-  <img src="docs/imgs/android_1.png" alt="Trang Client trên Android của Deskhub: ô IP, cổng và mã, nút Terminal, công tắc điều khiển, và trình quét mạng liệt kê các máy kèm ping" width="195">
+  <img src="docs/imgs/android_1.png" alt="Trang Client trên Android của Deskhub: ô IP, cổng, mã và tên máy, nút Connect và Terminal, ô tick điều khiển, và trình quét mạng đang dò dần cả dải mạng" width="195">
   <img src="docs/imgs/android_2.png" alt="Trang Host trên Android của Deskhub: mã ghép đôi, Share on network, nút Start sharing và các địa chỉ IP để máy khác kết nối tới" width="195">
-  <img src="docs/imgs/android_3.png" alt="Trang Devices trên Android của Deskhub: máy đã ghép đôi kèm khoá và lần cuối thấy, nút Forget, công tắc ghép đôi mới, và khoá SHA256 của thiết bị này" width="195">
-  <img src="docs/imgs/android_4.png" alt="Trang Settings trên Android của Deskhub: cổng UDP, công tắc đồng bộ clipboard và giữ máy thức" width="195">
+  <img src="docs/imgs/android_3.png" alt="Trang Devices trên Android của Deskhub: danh sách máy đã ghép đôi còn trống, ô tick cho phép máy mới ghép đôi, và khoá SHA256 của thiết bị này" width="195">
+  <img src="docs/imgs/android_4.png" alt="Trang Connection settings trên Android của Deskhub: cổng UDP mà trình quét dò tới, cùng ô tick đồng bộ clipboard và giữ máy thức" width="195">
 </p>
 <p align="center"><sub><b>Android</b> · vẫn bốn trang đó, khoác áo Material. Chia sẻ màn hình ở chế độ chỉ xem, từ Android 10 trở lên.</sub></p>
 
