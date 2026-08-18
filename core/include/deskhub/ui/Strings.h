@@ -78,6 +78,9 @@ inline constexpr const char* kPortalConfirmNote =
     "is remembered, so the dialog does not appear again.";
 inline constexpr const char* kWaitingForShareDialog =
     "Waiting for the screen-sharing dialog\xE2\x80\xA6";
+inline constexpr const char* kWaitingForDisplays =
+    "No display yet \xE2\x80\x94 waiting for the desktop to finish starting before sharing"
+    "\xE2\x80\xA6";
 inline constexpr const char* kCaptureUnavailableTitle = "Screen capture is not available";
 inline constexpr const char* kNoDisplayTicked = "Tick at least one display to share.";
 inline constexpr const char* kStopSelectedDisplay = "Stop selected display";

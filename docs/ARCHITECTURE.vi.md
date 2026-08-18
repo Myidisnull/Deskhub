@@ -195,6 +195,31 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
 
 ## 9. Các quyết định đáng nhớ
 
+- **Link terminal tự giữ sống và tự quay số lại**: viewer terminal có QUIC connection
+  riêng, tách khỏi phiên video, nên không keepalive nào của đường video chạm tới nó.
+  Để yên ở dấu nhắc thì nó không có lưu lượng gì cả và chết vì idle timeout 30 giây
+  của QUIC; sau đó viewer dừng luôn thread ở trạng thái `Reattaching` mà không hề
+  quay số lại — trong khi shell vẫn đang chờ trên host suốt 2 phút và không ai quay
+  lại lấy. Giờ `TerminalViewer` gửi gói ack-eliciting theo chu kỳ và quay số lại có
+  backoff, dùng `TerminalClient::Reattach()` (vốn đã viết và có test trong core,
+  chỉ là chưa ai gọi) để lấy lại đúng shell cũ kèm scrollback.
+  `deskhub::KeepaliveIntervalUs` / `ReconnectDelayUs` giữ các mốc thời gian trong
+  core: keepalive tối đa bằng nửa idle timeout để mất một gói vẫn sống, và việc thử
+  lại dừng đúng ở `kTerminalReattachGraceUs`, vì quá mốc đó host đã bỏ shell rồi,
+  kết nối lại chỉ âm thầm mở một shell mới.
+- **Chia sẻ tự động phải chờ desktop, không phải liệt kê một lần rồi thôi**: Windows
+  đăng ký autostart bằng scheduled task `ONLOGON`, chạy trước khi phiên có màn hình
+  nào để liệt kê, nên một lần gọi `ListDisplays()` lúc dựng cửa sổ trả về rỗng và app
+  báo là không có gì để chia sẻ. `deskhub::ui::AutoShareGate` (trong core, có unit
+  test) giữ quy tắc thử lại — dò mỗi `kAutoShareProbeMs`, bỏ cuộc sau
+  `kAutoShareGiveUpMs` — và mỗi client tự chạy nó bằng timer của mình, nên chính sách
+  chỉ tồn tại một chỗ. `NextAutoShareStep` là đúng quy tắc đó nhưng không giữ trạng
+  thái, và đó là thứ client Swift gọi qua `dh_auto_share_step`. Một lần chia sẻ tự
+  động không bao giờ mở hộp thoại modal: lúc đăng nhập cửa sổ có thể đang ẩn trong
+  khay hệ thống, nơi hộp thoại vừa không nhìn thấy vừa chặn việc chia sẻ vĩnh viễn,
+  nên các lý do từ chối đi vào banner trang Host và log. Các client desktop cũng làm
+  mới danh sách nguồn theo tín hiệu đổi màn hình của OS, nhờ vậy danh sách vẫn đúng
+  khi cắm thêm màn hình về sau.
 - **Chọn quiche thay vì msquic/ngtcp2**: thư viện QUIC duy nhất có bằng chứng chạy
   thật trên cả Android lẫn iOS. Nó mang theo BoringSSL, thứ phục vụ luôn SPAKE2 và
   danh tính máy — không cần thư viện mật mã thứ hai.

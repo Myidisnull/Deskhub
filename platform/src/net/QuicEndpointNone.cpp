@@ -55,6 +55,10 @@ bool QuicEndpoint::SendDatagram(QuicConnId, std::span<const uint8_t>) {
     return false;
 }
 
+bool QuicEndpoint::SendKeepalive(QuicConnId) {
+    return false;
+}
+
 bool QuicEndpoint::SendRaw(const NetAddr&, std::span<const uint8_t>) {
     return false;
 }

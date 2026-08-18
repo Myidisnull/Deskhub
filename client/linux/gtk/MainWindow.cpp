@@ -429,11 +429,14 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_widget_show_all(window_);
     SelectPage(kPageClient);
 
+    g_signal_connect(gtk_widget_get_screen(window_), "monitors-changed",
+        G_CALLBACK(OnMonitorsChanged), this);
+
     if (settings_.autoShare) {
         SelectPage(kPageHost);
         g_idle_add(
             [](gpointer user) -> gboolean {
-                static_cast<MainWindow*>(user)->OnShare();
+                static_cast<MainWindow*>(user)->BeginAutoShare();
                 return G_SOURCE_REMOVE;
             },
             this);
@@ -1490,12 +1493,57 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     static_cast<MainWindow*>(user)->OnShare();
 }
 
-void MainWindow::OnShare() {
+void MainWindow::BeginAutoShare() {
+    if (Sharing() || autoShareGate_.Decided()) {
+        autoShareTimerId_ = 0;
+        return;
+    }
+
+    RefreshDisplayChoices();
+    const ui::AutoShareStep step = autoShareGate_.Advance(!availableDisplays_.empty());
+    if (step == ui::AutoShareStep::KeepWaiting) {
+        ApplyHostState(HostShareState::kIdle, ui::kWaitingForDisplays);
+        if (!autoShareTimerId_)
+            autoShareTimerId_ = g_timeout_add(autoShareGate_.ProbeMs(), OnAutoShareTimer, this);
+        return;
+    }
+
+    autoShareTimerId_ = 0;
+    if (step == ui::AutoShareStep::GiveUpWaiting)
+        LOGW("[Share] No monitor showed up in the %u ms after launch; sharing without one.",
+            autoShareGate_.WaitedMs());
+    OnShare(ShareTrigger::kAutomatic);
+}
+
+gboolean MainWindow::OnAutoShareTimer(gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    self->BeginAutoShare();
+    if (self->autoShareTimerId_) return G_SOURCE_CONTINUE;
+    return G_SOURCE_REMOVE;
+}
+
+void MainWindow::ReportShareProblem(const char* title, const std::string& text) {
+    if (shareTrigger_ == ShareTrigger::kAutomatic) {
+        LOGW("[Share] %s", text.c_str());
+        ApplyHostState(HostShareState::kIdle, text);
+        return;
+    }
+    ShowWarning(GTK_WINDOW(window_), title, text);
+}
+
+void MainWindow::OnMonitorsChanged(GdkScreen*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->Sharing()) return;
+    self->RefreshDisplayChoices();
+}
+
+void MainWindow::OnShare(ShareTrigger trigger) {
     if (hostStarting_) return;
     if (Sharing()) {
         StopHosting();
         return;
     }
+    shareTrigger_ = trigger;
 
     AgentOptions options;
     options.fps = settings_.fps;
@@ -1514,7 +1562,8 @@ void MainWindow::OnShare() {
 
     const std::vector<HostMonitor> ticked = TickedMonitors();
     if (ticked.empty() && !options.terminal) {
-        ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::kNoDisplayTicked);
+        ReportShareProblem("Deskhub",
+            availableDisplays_.empty() ? ui::kNoDisplayFound : ui::kNoDisplayTicked);
         return;
     }
     if (ticked.empty()) {
@@ -1552,15 +1601,14 @@ void MainWindow::OnShare() {
                 }
                 ShowIdleHostState();
                 if (!err.empty() && err != deskhubp::kListDisplaysCancelled)
-                    ShowError(GTK_WINDOW(window_), ui::kCaptureUnavailableTitle, err);
+                    ReportShareProblem(ui::kCaptureUnavailableTitle, err);
                 return;
             }
 
             if (filterTicked) sources = FilterToTickedMonitors(std::move(sources), ticked);
 
             const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(std::move(sources));
-            if (clamp.clamped)
-                ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::ShareClampWarning());
+            if (clamp.clamped) ReportShareProblem("Deskhub", ui::ShareClampWarning());
 
             StartHosting(clamp.sources, options);
         });
@@ -1591,8 +1639,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     if (!started) {
         terminalRequested_ = false;
         ShowIdleHostState();
-        ShowError(GTK_WINDOW(window_), "Deskhub",
-            std::string(ui::kShareStartFailed) + ".\n\n" + error);
+        ReportShareProblem("Deskhub", std::string(ui::kShareStartFailed) + ".\n\n" + error);
         return;
     }
 
@@ -1909,6 +1956,7 @@ void MainWindow::OnDestroy(GtkWidget*, gpointer user) {
     self->tray_.Detach();
     if (self->rescanTimerId_) g_source_remove(self->rescanTimerId_);
     if (self->hostTimerId_) g_source_remove(self->hostTimerId_);
+    if (self->autoShareTimerId_) g_source_remove(self->autoShareTimerId_);
     self->scanner_.Cancel();
     self->agentLoop_.Stop();
     self->agentDriver_.Join();

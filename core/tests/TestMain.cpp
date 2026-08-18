@@ -57,6 +57,9 @@ int main() {
     std::printf("--- session: remote terminal (host sessions, client, stream framing) ---\n");
     RunTerminalSessionTests();
 
+    std::printf("--- session: keeping a link alive and getting it back ---\n");
+    RunLinkRecoveryTests();
+
     std::printf("--- session: passcode attempt throttle ---\n");
     RunAuthThrottleTests();
 
@@ -183,6 +186,9 @@ int main() {
 
     std::printf("--- ui: launch-at-login artifacts ---\n");
     RunAutostartConfigTests();
+
+    std::printf("--- ui: waiting for the desktop before an automatic share ---\n");
+    RunAutoShareGateTests();
 
     std::printf("--- ui: passcodes stored on disk ---\n");
     RunSecretTextTests();

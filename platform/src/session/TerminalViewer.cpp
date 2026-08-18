@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "deskhub/session/LinkRecovery.h"
+#include "deskhub/session/TerminalSession.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
@@ -84,10 +86,17 @@ bool TerminalViewer::Start(const TerminalViewerConfig& config, TerminalViewerCal
     };
     hooks.onOpened = [this](const deskhub::TermOpenAck& ack) {
         RememberIfPasscodeProvedIt();
+        redialAttempts_ = 0;
+        linkLostAtUs_ = 0;
+        lastKeepaliveUs_ = NowUs();
         SetState(TerminalViewerState::Live,
             ack.resumed ? deskhub::ui::kTerminalReattached : deskhub::ui::kTerminalConnected);
     };
     hooks.onRefused = [this](deskhub::TermReason reason) {
+        if (Recovering() && client_->CanReattach()) {
+            SetState(TerminalViewerState::Reattaching, deskhub::ui::kTerminalReattaching);
+            return;
+        }
         SetState(TerminalViewerState::Refused, deskhub::ui::TerminalRefusalText(reason));
     };
     hooks.onExit = [this](int32_t) {
@@ -95,20 +104,11 @@ bool TerminalViewer::Start(const TerminalViewerConfig& config, TerminalViewerCal
     };
     client_ = std::make_unique<deskhub::TerminalClient>(std::move(hooks));
 
-    QuicCallbacks quic;
-    quic.onConnected = [this](QuicConnId id, const NetAddr&) { OnConnected(id); };
-    quic.onStream = [this](QuicConnId, uint64_t, std::span<const uint8_t> bytes, bool) {
-        OnStream(bytes);
-    };
-    quic.onClosed = [this](QuicConnId, const NetAddr&) {
-        if (State() == TerminalViewerState::Live) {
-            client_->LinkLost();
-            SetState(TerminalViewerState::Reattaching, deskhub::ui::kTerminalReattaching);
-        }
-    };
+    keepaliveIntervalUs_ = deskhub::KeepaliveIntervalUs(QuicSettings{}.idleTimeoutMs);
+    redialAttempts_ = 0;
+    linkLostAtUs_ = 0;
 
-    SetState(TerminalViewerState::Connecting, deskhub::ui::kTerminalConnecting);
-    if (!endpoint_.Connect(QuicSettings{}, config_.host, config_.hostLabel, std::move(quic))) {
+    if (!Dial()) {
         SetState(TerminalViewerState::Failed, deskhub::ui::kTerminalUnreachable);
         return false;
     }
@@ -117,6 +117,80 @@ bool TerminalViewer::Start(const TerminalViewerConfig& config, TerminalViewerCal
     running_.store(true, std::memory_order_release);
     thread_ = std::thread([this] { Loop(); });
     return true;
+}
+
+bool TerminalViewer::Dial() {
+    conn_ = 0;
+    framer_.Reset();
+    dialStartedUs_ = NowUs();
+    dialTimedOut_ = false;
+    lastKeepaliveUs_ = dialStartedUs_;
+
+    QuicCallbacks quic;
+    quic.onConnected = [this](QuicConnId id, const NetAddr&) { OnConnected(id); };
+    quic.onStream = [this](QuicConnId, uint64_t, std::span<const uint8_t> bytes, bool) {
+        OnStream(bytes);
+    };
+    quic.onClosed = [this](QuicConnId, const NetAddr&) { OnLinkLost(); };
+
+    SetState(TerminalViewerState::Connecting, deskhub::ui::kTerminalConnecting);
+    return endpoint_.Connect(QuicSettings{}, config_.host, config_.hostLabel, std::move(quic));
+}
+
+void TerminalViewer::OnLinkLost() {
+    conn_ = 0;
+    if (State() != TerminalViewerState::Live) return;
+    client_->LinkLost();
+    linkLostAtUs_ = NowUs();
+    redialAttempts_ = 0;
+    redialAtUs_ = linkLostAtUs_ + deskhub::ReconnectDelayUs(0);
+    LOGW("terminal: link to %s dropped \xE2\x80\x94 reattaching",
+        config_.host.ToString().c_str());
+    SetState(TerminalViewerState::Reattaching, deskhub::ui::kTerminalReattaching);
+}
+
+bool TerminalViewer::Recovering() const {
+    if (linkLostAtUs_ == 0) return false;
+    switch (State()) {
+        case TerminalViewerState::Reattaching:
+        case TerminalViewerState::Connecting:
+        case TerminalViewerState::Opening: return true;
+        default: return false;
+    }
+}
+
+void TerminalViewer::KeepLinkAlive(uint64_t nowUs) {
+    if (conn_ == 0 || State() != TerminalViewerState::Live) return;
+    if (!deskhub::KeepaliveDue(nowUs, lastKeepaliveUs_, keepaliveIntervalUs_)) return;
+    endpoint_.SendKeepalive(conn_);
+    lastKeepaliveUs_ = nowUs;
+}
+
+void TerminalViewer::RecoverLink(uint64_t nowUs) {
+    if (!deskhub::ReconnectStillWorthTrying(nowUs - linkLostAtUs_,
+            deskhub::kTerminalReattachGraceUs)) {
+        LOGW("terminal: gave up reattaching to %s after %u attempts",
+            config_.host.ToString().c_str(), redialAttempts_);
+        SetState(TerminalViewerState::Failed, deskhub::ui::kTerminalUnreachable);
+        stop_.store(true, std::memory_order_release);
+        return;
+    }
+    if (nowUs < redialAtUs_) return;
+
+    const bool linkUp = conn_ != 0;
+    const bool dialRanOut = nowUs - dialStartedUs_ > kConnectTimeoutUs;
+    if (!linkUp && endpoint_.ConnectionCount() != 0 && !dialRanOut) return;
+
+    ++redialAttempts_;
+    redialAtUs_ = nowUs + deskhub::ReconnectDelayUs(redialAttempts_);
+
+    if (linkUp && client_->CanReattach()) {
+        client_->Reattach();
+        return;
+    }
+
+    endpoint_.Close();
+    if (!Dial()) SetState(TerminalViewerState::Reattaching, deskhub::ui::kTerminalReattaching);
 }
 
 void TerminalViewer::Stop() {
@@ -151,17 +225,20 @@ void TerminalViewer::RunCommands() {
 }
 
 void TerminalViewer::Loop() {
-    const uint64_t startedUs = NowUs();
-    bool timedOut = false;
     while (!stop_.load(std::memory_order_acquire)) {
         RunCommands();
         endpoint_.Poll(NowUs(), kPollWaitMs);
-        if (conn_ == 0 && !timedOut && NowUs() - startedUs > kConnectTimeoutUs) {
-            timedOut = true;
-            SetState(TerminalViewerState::Failed, deskhub::ui::kTerminalUnreachable);
+
+        const uint64_t nowUs = NowUs();
+        KeepLinkAlive(nowUs);
+
+        if (Recovering()) {
+            RecoverLink(nowUs);
+            continue;
         }
-        if (State() == TerminalViewerState::Reattaching && endpoint_.ConnectionCount() == 0) {
-            stop_.store(true, std::memory_order_release);
+        if (conn_ == 0 && !dialTimedOut_ && nowUs - dialStartedUs_ > kConnectTimeoutUs) {
+            dialTimedOut_ = true;
+            SetState(TerminalViewerState::Failed, deskhub::ui::kTerminalUnreachable);
         }
     }
     RunCommands();
@@ -243,6 +320,10 @@ bool TerminalViewer::HandleAuth(std::span<const uint8_t> message) {
         return true;
     }
     if (auth_->HostProvedThePasscode(*result)) RememberIfPasscodeProvedIt();
+    if (client_->CanReattach()) {
+        client_->Reattach();
+        return true;
+    }
     client_->Open(std::string(), config_.size, config_.clientName);
     return true;
 }

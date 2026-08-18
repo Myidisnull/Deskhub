@@ -57,6 +57,7 @@ public:
     bool SendStream(QuicConnId conn, uint64_t streamId, std::span<const uint8_t> bytes,
         bool fin = false);
     bool SendDatagram(QuicConnId conn, std::span<const uint8_t> bytes);
+    bool SendKeepalive(QuicConnId conn);
     bool SendRaw(const NetAddr& to, std::span<const uint8_t> bytes);
 
     size_t MaxDatagramSize(QuicConnId conn) const;
