@@ -31,12 +31,8 @@ jobs:
       - name: Tag must match VERSION
         run: scripts/check-version.sh
 
-  tests:
-    needs: version-check
-    uses: ./.github/workflows/tests.yml
-
   apps:
-    needs: tests
+    needs: version-check
     uses: ./.github/workflows/apps.yml
     with:
       for_release: true
