@@ -31,7 +31,7 @@ display, type an IP on the other machine, and you're driving it.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
-| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | The same three sections everywhere — **Host**, **Client**, **Settings**. **Share** a display or **Connect** to an IP, and that's it. Phones host too, view-only, since no mobile OS lets an app inject input. |
+| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | The same pages everywhere — **Host**, **Client**, **Settings**, **Devices**. **Share** a display or **Connect** to an IP, and that's it. Desktops can also share a **shell**. Phones host too, view-only, since no mobile OS lets an app inject input. |
 
 ## 👀 A quick look
 
@@ -81,19 +81,22 @@ display, type an IP on the other machine, and you're driving it.
 
 ## 🔒 Before you share a screen
 
-> **⚠️ Deskhub encrypts nothing. Every host requires a 4-digit passcode — generated for
-> you on first launch — but that code travels in the clear like everything else, so
-> anyone who can capture a single packet on your network reads it and gets full mouse and
-> keyboard control of the sharing machine.**
+> **🔐 Sessions are encrypted.** Everything a session carries — video, keystrokes,
+> mouse, clipboard and terminal traffic — runs over **QUIC/TLS**, and an unknown machine
+> only gets in through a pairing handshake: it must prove it knows the host's passcode
+> via **SPAKE2** — the code itself never travels, and each connection allows exactly one
+> guess — or wait for the person at the host to answer *Let this machine in?*. Once
+> admitted, a machine is recognised by its key, listed on the **Devices** page, and
+> revocable there.
 >
-> Run it on a **network you trust**, or over a **VPN** — install
+> **⚠️ Encrypted is not the same as Internet-proof.** The port still answers discovery
+> probes, and the first pairing with a machine you have never met is a leap of faith.
+> Prefer a **network you trust**, or a **VPN** — install
 > [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z`
-> address. **Never port-forward UDP 47777**, and don't share your screen on café,
-> hotel, office or any other shared Wi-Fi.
+> address. **Never port-forward UDP 47777.**
 
-That is the whole security model: Deskhub borrows its encryption and its identity check
-from the layer underneath it. Read [`SECURITY.md`](SECURITY.md) for the full threat
-model, what is and isn't protected, and how to report a vulnerability.
+Read [`SECURITY.md`](SECURITY.md) for the full threat model, what is and isn't
+protected, and how to report a vulnerability.
 
 ## 🚀 Get it
 
@@ -207,12 +210,24 @@ with several viewers can tell them apart.
 Only one viewer drives the mouse and keyboard at a time: the earliest to have joined
 wins ties, and the others' input is dropped until it has been idle for a second. The
 person sitting at the host outranks all of them. **Settings** on every desktop host holds
-two access controls: the **4-digit passcode** viewers must enter — generated on first
-launch, changeable at any time, and not something you can turn off, with three wrong
-tries locking the host for 30 seconds — and *Viewers can control this machine*, which you
-can untick to share **view-only** (the host drops every input packet it receives). All
-five clients can enter a passcode and remember it per device. The passcode is not
-encryption — see [`SECURITY.md`](SECURITY.md).
+its access controls: the **4-digit passcode** viewers must prove they know — optional and
+empty by default, in which case every new machine instead waits for you to answer *Let
+this machine in?*, with three wrong guesses locking pairing for 30 seconds — and *Viewers
+can control this machine*, which you can untick to share **view-only** (the host drops
+every input packet it receives). All five clients can enter a passcode and remember it
+per device. The **Devices** page lists every machine paired with this one — name, key,
+when paired, last seen — with *Forget*, *Forget every machine*, and an *allow new
+pairings* switch that, turned off, admits only machines already paired. See
+[`SECURITY.md`](SECURITY.md).
+
+Desktops can share a **shell** as well as a screen: tick *Terminal — a shell on this
+machine* on the Host page, and viewers open it from *Terminal — open a shell* on their
+Client page. It opens in its own window — grid, scrollback, and on phones an extra key
+row for Esc, Tab, Ctrl/Alt, arrows and `^C` — and watching the screen while running a
+shell is normal. At most **8** shells are open at once, each listed on the host with its
+own *Disconnect* and *Stop & attach*, which pulls the shell back to the host machine with
+its scrollback intact. Phones and tablets share no terminal, and clients say so rather
+than opening an empty window.
 
 **Settings** also holds the desktop quality-of-life toggles. *Start Deskhub when you
 log in* registers the platform's own
@@ -225,8 +240,8 @@ machine starts sharing at login on its own, hiding into the tray once you close 
 window.
 *Sync clipboard text* makes plain text copied on one device pastable on the others
 (both directions, text only, 32 KiB cap, on all five clients — a phone or tablet reads
-its own clipboard only while Deskhub is in the foreground) — it rides the same
-unencrypted channel as the video, so leave it off on networks you do not trust.
+its own clipboard only while Deskhub is in the foreground) — it rides the same encrypted
+session as the video, so whatever you copy reaches every machine you have paired with.
 *Keep this device awake* (on by default) stops the machine from sleeping and the screen
 from turning off while a session is running — like `caffeinate` on macOS, but scoped to
 the session and released the moment it ends; on a phone or tablet it keeps the screen on
@@ -254,10 +269,10 @@ Every document below is published in English, with a Vietnamese translation besi
 ## ✨ Under the hood
 
 - **Zero-copy end to end** — capture straight into VRAM → NVENC → HW decode → render; the hot path never touches the CPU.
-- **Purpose-built UDP protocol** — infinite GOP + on-demand IDR, XOR FEC, adaptive bitrate.
+- **Purpose-built protocol over QUIC** — infinite GOP + on-demand IDR, XOR FEC, adaptive bitrate, all multiplexed on one encrypted connection.
 - **Real input** — relative mouse (Raw Input) + scancodes for DirectInput games; host's own mouse/keyboard always wins.
 - **One shared core** — protocol, FEC, and bitrate control live in `core/`, compiled into every client.
-- **Beaten up on purpose** — the core is unit-tested offline, runs under ASan, UBSan and TSan in CI, and six libFuzzer targets hammer the wire format, H.264 parsing, reassembly and session state machines every night; every crash found becomes a regression test.
+- **Beaten up on purpose** — the core is unit-tested offline, runs under ASan, UBSan and TSan in CI, and seven libFuzzer targets hammer the wire format, H.264 parsing, reassembly, terminal bytes, UI text and the session state machines every night; every crash found becomes a regression test.
 
 ## 📄 License
 

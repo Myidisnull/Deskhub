@@ -2,6 +2,7 @@
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 
 $clangFormatVersion = '22.1.3'
+$clangTidyVersion = '22.1.8'
 $ktlintVersion = '1.5.0'
 $ktlintSha256 = 'A16BE01DCC480AAB2F55F444B620142152F66E31564B3B9376506D624C28A2AD'
 $swiftformatVersion = '0.62.1'
@@ -98,6 +99,33 @@ if (-not $clangFormatOk) {
         Write-Host "[action]  clang-format $clangFormatVersion not found - CI enforces this exact version."
         Write-Host "          Install Python 3 (winget install Python.Python.3.12), reopen the terminal,"
         Write-Host "          then re-run bootstrap (or: pipx install clang-format==$clangFormatVersion)."
+    }
+}
+
+$clangTidyOk = $false
+$ct = Get-Command clang-tidy -ErrorAction SilentlyContinue
+if ($ct -and (((& $ct.Source --version) -join ' ') -match [regex]::Escape($clangTidyVersion))) {
+    Write-Host "[ok]      clang-tidy $clangTidyVersion ($($ct.Source))"
+    $clangTidyOk = $true
+}
+if (-not $clangTidyOk) {
+    $pipx = Get-Command pipx -ErrorAction SilentlyContinue
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($pipx) {
+        Write-Host "[install] clang-tidy $clangTidyVersion (pipx, what 'make lint-tidy' runs)..."
+        & $pipx.Source install --force "clang-tidy==$clangTidyVersion"
+        if ($LASTEXITCODE -ne 0) { throw "pipx failed installing clang-tidy (exit $LASTEXITCODE)" }
+        & $pipx.Source ensurepath
+        $restartNote = $true
+    } elseif ($py) {
+        Write-Host "[install] clang-tidy $clangTidyVersion (pip --user)..."
+        & $py.Source -m pip install --user --upgrade "clang-tidy==$clangTidyVersion"
+        if ($LASTEXITCODE -ne 0) { throw "pip failed installing clang-tidy (exit $LASTEXITCODE)" }
+        $restartNote = $true
+    } else {
+        Write-Host "[action]  clang-tidy $clangTidyVersion not found - CI enforces this exact version."
+        Write-Host "          Install Python 3 (winget install Python.Python.3.12), reopen the terminal,"
+        Write-Host "          then re-run bootstrap (or: pipx install clang-tidy==$clangTidyVersion)."
     }
 }
 

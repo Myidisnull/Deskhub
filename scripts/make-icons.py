@@ -1,30 +1,4 @@
 #!/usr/bin/env python3
-"""Regenerate every client icon from the single master artwork.
-
-The master is assets/icon_1024.png. Everything else is derived from it:
-
-  - macOS:   every icon_*.png in the appiconset (1024 is a byte-for-byte copy)
-  - iOS:     AppIcon.png (byte-for-byte copy of the master)
-  - Android: legacy mipmap-*/ic_launcher.png (rounded), adaptive
-             mipmap-*/ic_launcher_foreground.png (full-bleed) and the
-             values/ic_launcher_background.xml colour sampled from the artwork
-  - Google Play listing: fastlane metadata icon.png (512, full-bleed)
-  - Windows: Deskhub.ico
-  - Linux:   deskhub-*.png
-
-macOS, iOS, the Play Store and Android's adaptive-icon pipeline mask icons into their
-own shapes, so those assets stay full-bleed squares. Windows, Linux and pre-API-26
-Android launchers draw whatever they are given, so their icons carry the rounded shape
-and its transparency baked in - otherwise the app shows up as a hard blue square next
-to every other rounded icon.
-
-Run by hand after changing the artwork:
-
-    python3 scripts/make-icons.py
-
-Pure standard library on purpose: bootstrap installs no image tooling.
-"""
-
 import struct
 import sys
 import zlib

@@ -12,8 +12,10 @@ LLVM     :=
 
 BOOTSTRAP := powershell -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
 GIT_BASH  ?= C:\Program Files\Git\bin\bash.exe
-QUICHE_FOR := $(DEVCMD) "$(GIT_BASH)" scripts/build-quiche.sh
+RUNSH     := $(DEVCMD) "$(GIT_BASH)"
+QUICHE_FOR := $(RUNSH) scripts/build-quiche.sh
 QUICHE    := $(QUICHE_FOR) windows
+PYTHON    := python
 NULDEV    := nul
 RMRF      := $(DEVCMD) cmake -E rm -rf
 HELPCAT   := type make\help.txt
@@ -25,8 +27,10 @@ LLVMPATH :=
 LLVM     := $(if $(filter Darwin,$(UNAME)),xcrun)
 
 BOOTSTRAP := scripts/bootstrap.sh
+RUNSH     :=
 QUICHE_FOR := scripts/build-quiche.sh
 QUICHE    := $(QUICHE_FOR) host
+PYTHON    := python3
 NULDEV    := /dev/null
 RMRF      := rm -rf
 HELPCAT   := cat make/help.txt

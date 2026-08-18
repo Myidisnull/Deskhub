@@ -188,10 +188,13 @@ tích và cấu trúc dữ liệu nằm ở `core/` và có unit test.
 | `make test` | offline, không socket | toàn bộ `core/`: wire, framing, FEC, phiên, bộ giả lập VT, cài đặt, chuỗi, fuzz có cấu trúc |
 | `make test-platform` | socket loopback | bắt tay QUIC thật, SPAKE2 đầu-cuối, terminal host + viewer qua mạng, PTY với shell thật, lockout, approval |
 | `make test-integration` | loopback, thu/mã hoá giả | phiên host↔client đầy đủ: thương lượng, video qua mạng, input, cổng passcode/approval, chịu gói rác |
-| các target fuzz | CI hằng đêm | parser cho wire, H.264, ráp gói, byte terminal, chuỗi UI |
+| các target fuzz | 30 giây mỗi target ở mọi PR, 15 phút mỗi target hằng đêm | parser cho wire, H.264, ráp gói, byte terminal và chuỗi UI, cộng máy trạng thái phiên phía host và viewer |
 
-CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` ≥ 90% dòng /
-80% nhánh.
+CI còn ép clang-format và clang-tidy (đều ghim phiên bản), SwiftLint `--strict`,
+Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, CodeQL cho
+C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` ≥ 90% dòng / 80%
+nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
+iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
@@ -311,3 +314,11 @@ CI còn ép clang-format (phiên bản ghim), clang-tidy, và coverage `core/` �
 - **Một cổng**: beacon, màn hình và terminal dùng chung một listener; QUIC ghép kênh
   kết nối và stream. Cổng thứ hai ngày trước tồn tại chỉ vì đường màn hình tiền-QUIC
   chiếm trọn socket.
+- **Mọi icon đều được dẫn xuất, và chỉ một phần được bo góc**: `make icons` dựng lại
+  toàn bộ bộ icon từ một file gốc duy nhất `assets/icon_1024.png`. macOS, iOS, trang
+  Play Store và đường adaptive-icon của Android tự cắt artwork theo hình dạng riêng
+  của chúng, nên các asset đó giữ nguyên hình vuông tràn viền; Windows, Linux và
+  launcher Android trước API 26 vẽ đúng những gì được đưa, nên icon của chúng phải có
+  sẵn góc bo và phần trong suốt nướng vào ảnh — nếu không, app hiện ra như một ô vuông
+  xanh cứng cạnh mọi icon bo góc khác. `scripts/make-icons.py` cố ý chỉ dùng thư viện
+  chuẩn: bootstrap không cài công cụ xử lý ảnh nào.

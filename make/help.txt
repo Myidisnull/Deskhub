@@ -36,11 +36,16 @@ Deskhub - no platform is built by default, name the one you want:
     make format          apply formatting in place
     make lint            check without fixing, what CI enforces
     make format-cpp      lint-cpp / format-kotlin / lint-kotlin / format-swift / lint-swift
+    make lint-tidy       clang-tidy over core/src + platform/src, the same gate CI runs
 
   Distribution:
     make dist-macos      dmg signed with Developer ID + notarized + stapled
     make verify-macos    check that Gatekeeper accepts the build just produced
     make dist-linux      Linux .deb + .rpm - both ship the uinput udev rule, no manual permission step
+
+  Developer tools:
+    make icons           regenerate every client icon from assets/icon_1024.png
+    make quic-smoke      standalone QUIC client+server against the quiche static library
 
   Setup:
     make bootstrap                  install every dev dependency for this OS

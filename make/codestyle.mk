@@ -32,4 +32,8 @@ lint-kotlin:
 lint-swift:
 	@$(CODESTYLE) $(CHECKFLAG) $(ONLYFLAG) swift
 
-.PHONY: format format-cpp format-kotlin format-swift lint lint-cpp lint-kotlin lint-swift
+lint-tidy:
+	@$(DEVCMD) cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF >$(NULDEV)
+	@$(RUNSH) scripts/clang-tidy.sh
+
+.PHONY: format format-cpp format-kotlin format-swift lint lint-cpp lint-kotlin lint-swift lint-tidy

@@ -1,5 +1,5 @@
-• Chia sẻ màn hình điện thoại sang máy tính, chế độ chỉ xem (Android 10 trở lên)
-• Hình giờ xoay theo điện thoại khi bạn xoay máy
-• Đồng bộ clipboard tuỳ chọn: văn bản thuần copy ở máy này dán được ở máy kia
-• Chọn màn hình muốn xem của máy tính, và thấy những máy đang chia sẻ trong mạng
+• Mọi phiên giờ đều được mã hoá đầu-cuối trên QUIC/TLS
+• Cách ghép đôi mới: chứng minh bạn biết passcode của máy tính mà không hề gửi mã đi, hoặc được người ngồi tại máy duyệt
+• Máy tính đã ghép đôi được nhớ theo khoá và có thể thu hồi từ cả hai phía
+• Mở một shell trên máy tính từ xa trong cửa sổ riêng, kèm hàng phím Esc, Tab, Ctrl và các phím mũi tên
 • Sửa lỗi và cải thiện độ ổn định khi stream

@@ -12,10 +12,10 @@ Deskhub streams the screen of your Windows, macOS or Linux computer to your phon
 • Share this phone's screen the other way round, view-only, so a computer can watch it (Android 10 and later)
 
 <b>How it works</b>
-Install the free Deskhub app on the computer you want to reach (download from the project page) and start sharing there. Open Deskhub on your phone, tap that computer in the list or type its address, and enter the 4-digit passcode it displays. Works on your local network out of the box; for access over the Internet, pair it with Tailscale and connect via your Tailscale IP.
+Install the free Deskhub app on the computer you want to reach (download from the project page) and start sharing there. Open Deskhub on your phone, tap that computer in the list or type its address, and enter the 4-digit passcode it displays — or, if it is set up without one, wait for the person at the computer to let you in. Works on your local network out of the box; for access over the Internet, pair it with Tailscale and connect via your Tailscale IP.
 
 <b>Good to know</b>
-Deskhub does not encrypt its traffic. Every host requires a 4-digit passcode, but the stream itself is plain UDP — use it on a network you trust, or through a VPN such as Tailscale. There are no accounts and no servers of ours: your phone talks only to your own computer.
+Every session is encrypted end to end over QUIC/TLS — video, keystrokes, clipboard and everything else. A computer you have never connected to before must let you in first: either you prove you know its 4-digit passcode, or the person sitting at it approves your phone. After that your phone is a paired device it recognises, and it can be revoked from the computer at any time. There are no accounts and no servers of ours: your phone talks only to your own computer.
 
 <b>Requirements</b>
 • A computer running Windows 10 or later (x64), macOS 14 or later, or a current Linux desktop (glibc 2.35+), with the free Deskhub app

@@ -33,7 +33,7 @@ nó.
 
 | ⚡ Nhanh | 📦 Một file | 🎛️ Đơn giản |
 | ------ | ---------- | --------- |
-| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng ba mục trên mọi thiết bị — **Host**, **Client**, **Settings**. **Share** một màn hình hoặc **Connect** tới một IP, hết. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
+| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | Cùng những trang đó trên mọi thiết bị — **Host**, **Client**, **Settings**, **Devices**. **Share** một màn hình hoặc **Connect** tới một IP, hết. Máy desktop còn chia sẻ được cả một **shell**. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
 
 ## 👀 Nhìn qua một chút
 
@@ -83,18 +83,21 @@ nó.
 
 ## 🔒 Đọc trước khi chia sẻ màn hình
 
-> **⚠️ Deskhub không mã hoá bất cứ thứ gì. Mọi host đều yêu cầu mã 4 chữ số — được sinh
-> tự động cho bạn ở lần chạy đầu tiên — nhưng mã đó cũng đi ở dạng thô như mọi thứ khác,
-> nên bất kỳ ai bắt được một gói tin trong mạng của bạn đều đọc ra được nó và có toàn
-> quyền chuột và bàn phím trên máy đang chia sẻ.**
+> **🔐 Các phiên đều được mã hoá.** Mọi thứ một phiên mang theo — video, thao tác bàn
+> phím, chuột, clipboard và dữ liệu terminal — đều chạy trên **QUIC/TLS**, và một máy lạ
+> chỉ vào được qua bắt tay ghép đôi: nó phải chứng minh mình biết passcode của host bằng
+> **SPAKE2** — bản thân mã không bao giờ được truyền đi, và mỗi kết nối chỉ được đoán
+> đúng một lần — hoặc chờ người ngồi tại host trả lời *Let this machine in?*. Khi đã được
+> nhận, máy đó được nhận diện bằng khoá của nó, hiện trong trang **Devices**, và có thể
+> bị thu hồi ngay tại đó.
 >
-> Hãy dùng trong **mạng bạn tin tưởng**, hoặc qua **VPN** — cài
+> **⚠️ Mã hoá không đồng nghĩa với an toàn trên Internet.** Cổng vẫn trả lời các gói dò
+> tìm, và lần ghép đôi đầu tiên với một máy bạn chưa từng gặp vẫn là một bước đặt niềm
+> tin. Hãy ưu tiên **mạng bạn tin tưởng**, hoặc một **VPN** — cài
 > [Tailscale](https://tailscale.com) trên cả hai máy rồi kết nối tới địa chỉ `100.x.y.z`.
-> **Đừng bao giờ mở port-forward cho UDP 47777**, và đừng chia sẻ màn hình trên Wi-Fi
-> quán cà phê, khách sạn, văn phòng hay bất kỳ mạng dùng chung nào.
+> **Đừng bao giờ mở port-forward cho UDP 47777.**
 
-Đó là toàn bộ mô hình bảo mật: Deskhub mượn phần mã hoá và phần xác thực danh tính từ
-tầng bên dưới nó. Đọc [`SECURITY.vi.md`](SECURITY.vi.md) để biết đầy đủ mô hình mối đe doạ,
+Đọc [`SECURITY.vi.md`](SECURITY.vi.md) để biết đầy đủ mô hình mối đe doạ,
 những gì được và không được bảo vệ, và cách báo lỗ hổng.
 
 ## 🚀 Tải về
@@ -211,12 +214,24 @@ nhiều người xem phân biệt được từng người.
 Tại một thời điểm chỉ một người xem điều khiển được chuột và bàn phím: ai vào trước thì
 thắng khi tranh chấp, thao tác của những người còn lại bị bỏ qua cho tới khi người đang
 điều khiển ngừng thao tác một giây. Người ngồi trực tiếp tại máy host thì trên tất cả.
-Mục **Settings** trên mọi host desktop có hai tuỳ chọn kiểm soát truy cập: **mã 4 chữ số**
-mà người xem phải nhập — được sinh ra ở lần chạy đầu, đổi được bất cứ lúc nào, và không
-tắt đi được, sai ba lần thì host khoá 30 giây — và *Viewers can control this machine*, bỏ
-tích để chia sẻ ở chế độ **chỉ xem** (host bỏ qua mọi gói điều khiển nhận được). Cả năm
-client đều nhập được mã và nhớ mã theo từng thiết bị. Mã này không phải là mã hoá — xem
-[`SECURITY.vi.md`](SECURITY.vi.md).
+Mục **Settings** trên mọi host desktop chứa các tuỳ chọn kiểm soát truy cập: **mã 4 chữ
+số** mà người xem phải chứng minh là mình biết — không bắt buộc và mặc định để trống, khi
+trống thì mỗi máy mới phải chờ bạn trả lời *Let this machine in?*, đoán sai ba lần thì
+việc ghép đôi bị khoá 30 giây — và *Viewers can control this machine*, bỏ tích để chia sẻ
+ở chế độ **chỉ xem** (host bỏ qua mọi gói điều khiển nhận được). Cả năm client đều nhập
+được mã và nhớ mã theo từng thiết bị. Trang **Devices** liệt kê mọi máy đã ghép đôi với
+máy này — tên, khoá, ghép đôi lúc nào, thấy lần cuối khi nào — kèm *Forget*, *Forget every
+machine*, và công tắc *allow new pairings* mà khi tắt chỉ cho vào những máy đã ghép đôi
+từ trước. Xem [`SECURITY.vi.md`](SECURITY.vi.md).
+
+Máy desktop chia sẻ được cả một **shell** bên cạnh màn hình: tích *Terminal — a shell on
+this machine* ở trang Host, còn người xem mở nó bằng *Terminal — open a shell* ở trang
+Client của họ. Nó mở trong cửa sổ riêng — có lưới ký tự, scrollback, và trên điện thoại có
+thêm một hàng phím cho Esc, Tab, Ctrl/Alt, các phím mũi tên và `^C` — và vừa xem màn hình
+vừa chạy shell là chuyện bình thường. Tối đa **8** shell mở cùng lúc, mỗi cái là một dòng
+trên host kèm *Disconnect* và *Stop & attach* riêng, nút sau kéo shell về lại chính máy
+host mà vẫn giữ nguyên scrollback. Điện thoại và máy tính bảng không chia sẻ terminal, và
+client sẽ báo điều đó thay vì mở ra một cửa sổ rỗng.
 
 **Settings** cũng chứa các tuỳ chọn tiện dụng trên desktop.
 *Start Deskhub when you log in* đăng ký cơ chế khởi động cùng hệ điều hành của chính nền
@@ -229,7 +244,7 @@ với Hiện/Ẩn, Bắt đầu/Dừng chia sẻ và Thoát, đồng thời bi�
 text* cho phép văn bản thuần copy trên một thiết bị dán được trên các thiết bị còn lại
 (hai chiều, chỉ văn bản, giới hạn 32 KiB, trên cả năm client — điện thoại hay máy tính
 bảng chỉ đọc được clipboard của chính nó khi Deskhub đang ở nền trước) — nó đi trên cùng
-kênh không mã hoá với video, nên hãy tắt trên mạng bạn không tin tưởng.
+phiên đã mã hoá với video, nên thứ bạn copy sẽ tới mọi máy bạn đã ghép đôi.
 *Keep this device awake* (mặc định bật) giữ cho máy không đi ngủ và màn hình không tắt
 trong lúc có phiên đang chạy — giống `caffeinate` trên macOS, nhưng chỉ trong phạm vi
 phiên và được nhả ngay khi phiên kết thúc; trên điện thoại hay máy tính bảng nó giữ màn
@@ -257,10 +272,10 @@ với đuôi `*.vi.md`. Bản tiếng Anh là bản chuẩn.
 ## ✨ Bên trong nó
 
 - **Không sao chép dữ liệu suốt đường đi** — thu hình thẳng vào VRAM → NVENC → giải mã bằng phần cứng → hiển thị; đường dữ liệu nóng không đụng tới CPU.
-- **Giao thức UDP viết riêng** — GOP vô hạn + IDR theo yêu cầu, FEC kiểu XOR, bitrate tự điều chỉnh.
+- **Giao thức viết riêng chạy trên QUIC** — GOP vô hạn + IDR theo yêu cầu, FEC kiểu XOR, bitrate tự điều chỉnh, tất cả ghép kênh trên một kết nối đã mã hoá.
 - **Điều khiển thật** — chuột tương đối (Raw Input) + scancode cho game DirectInput; chuột/bàn phím của chính máy host luôn được ưu tiên.
 - **Một lõi dùng chung** — giao thức, FEC và điều tiết bitrate nằm trong `core/`, được biên dịch vào mọi client.
-- **Bị hành hạ có chủ đích** — phần lõi có unit test chạy offline, chạy dưới ASan, UBSan và TSan trong CI, và sáu fuzz target libFuzzer quần thảo định dạng gói tin, phân tích H.264, ráp gói và máy trạng thái phiên mỗi đêm; mọi crash tìm được đều trở thành regression test.
+- **Bị hành hạ có chủ đích** — phần lõi có unit test chạy offline, chạy dưới ASan, UBSan và TSan trong CI, và bảy fuzz target libFuzzer quần thảo định dạng gói tin, phân tích H.264, ráp gói, byte terminal, chuỗi UI và máy trạng thái phiên mỗi đêm; mọi crash tìm được đều trở thành regression test.
 
 ## 📄 Giấy phép
 

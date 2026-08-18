@@ -77,11 +77,13 @@ Hard constraints:
 make                 # print the target list — builds nothing
 make bootstrap       # install toolchain + deps (run once)
 make test            # build and run core_tests offline — the fast feedback loop
+make test-all        # core + platform + integration suites
 make test-ctest      # same tests through CTest, as CI runs them
 make coverage        # core coverage report (clang + llvm-cov)
 make debug           # configure + build the debug preset of the shared CMake tree
 make format          # format C++ / Kotlin / Swift
 make lint            # check formatting without writing (what CI enforces)
+make lint-tidy       # clang-tidy over core/src + platform/src, the same gate CI runs
 ```
 
 Per-platform: `make build-<os>`, `run-<os>`, `release-<os>` where `<os>` is one of
@@ -91,12 +93,22 @@ explicitly.
 
 Run `make test` and `make lint` before considering a change done.
 
-CI gates more than those two: clang-tidy over `core/src` + `platform/src`
-(`scripts/clang-tidy.sh`), SwiftLint `--strict` (runs in `make lint` only where
-swiftlint is installed), Android Lint, actionlint + shellcheck on the workflows and
-scripts, and core coverage ≥ 90% lines / 80% branches (`scripts/check-coverage.sh`,
-checked after `make coverage`). A green local `make test` + `make lint` does not cover
-those.
+CI gates a good deal more than those two:
+
+- clang-tidy over `core/src` + `platform/src` (`scripts/clang-tidy.sh`) — run it
+  locally with `make lint-tidy`
+- SwiftLint `--strict` (runs in `make lint` only where swiftlint is installed) and
+  Android Lint
+- actionlint + shellcheck on the workflows and `scripts/*.sh`
+- core coverage ≥ 90% lines / 80% branches (`scripts/check-coverage.sh`, checked
+  after `make coverage`)
+- all three suites under ASan/UBSan and TSan, and cross-built for arm64 Linux, an
+  Android emulator and the iOS Simulator
+- the libFuzzer targets for 30 s each on every PR, 15 min each nightly
+- CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and a
+  dependency review on pull requests
+
+A green local `make test` + `make lint` does not cover those.
 
 ## Conventions
 

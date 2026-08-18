@@ -85,7 +85,9 @@ jobs:
           echo "/tmp/swiftlint" >> "$GITHUB_PATH"
 
       - name: SwiftLint check
-        run: swiftlint lint --strict client/apple/swift client/ios/app/swift client/macos/app/swift
+        run: >
+          swiftlint lint --strict client/apple/swift client/ios/app/swift
+          client/ios/broadcast/swift client/ios/shared client/macos/app/swift
 
   android:
     runs-on: ubuntu-latest

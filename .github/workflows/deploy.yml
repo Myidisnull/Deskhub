@@ -287,7 +287,6 @@ jobs:
           path: |
             third_party/quiche/include
             third_party/quiche/aarch64-linux-android
-            third_party/quiche/armv7-linux-androideabi
             third_party/quiche/x86_64-linux-android
           key: quiche-android-${{ hashFiles('scripts/build-quiche.sh') }}
 
@@ -296,7 +295,7 @@ jobs:
           command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
           scripts/build-quiche.sh android
-          for target in aarch64-linux-android armv7-linux-androideabi x86_64-linux-android; do
+          for target in aarch64-linux-android x86_64-linux-android; do
             test -f "third_party/quiche/$target/libquiche.a"
           done
 

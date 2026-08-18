@@ -190,10 +190,13 @@ unit-tested.
 | `make test` | offline, no sockets | all of `core/`: wire, framing, FEC, sessions, VT emulator, settings, strings, deterministic structured fuzzing |
 | `make test-platform` | loopback sockets | real QUIC handshakes, SPAKE2 end-to-end, terminal host + viewer over the wire, PTY against a real shell, lockout, approval |
 | `make test-integration` | loopback, fake capture/encode | full host↔client sessions: negotiation, video across the wire, input, passcode/approval gating, junk resistance |
-| fuzz targets | nightly CI | parsers for wire, H.264, reassembly, terminal bytes, UI text |
+| fuzz targets | 30 s per target on every PR, 15 min per target nightly | parsers for wire, H.264, reassembly, terminal bytes and UI text, plus the host and viewer session state machines |
 
-CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 % line /
-80 % branch coverage on `core/`.
+CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
+`--strict`, Android Lint, actionlint + shellcheck, ASan/TSan runs of all three suites,
+CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 % line /
+80 % branch coverage on `core/`. The three suites are additionally cross-built and run
+on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
 
@@ -314,3 +317,11 @@ CI additionally enforces clang-format (pinned version), clang-tidy, and ≥ 90 %
 - **One port**: beacon, screen and terminal share a single listener; QUIC
   multiplexes connections and streams. The old second port existed only because the
   pre-QUIC screen path monopolised the socket.
+- **Every icon is derived, and only some of them are rounded**: `make icons` rebuilds
+  the whole set from the single master `assets/icon_1024.png`. macOS, iOS, the Play
+  Store listing and Android's adaptive-icon pipeline mask artwork into their own
+  shapes, so those assets stay full-bleed squares; Windows, Linux and pre-API-26
+  Android launchers draw whatever they are given, so their icons carry the rounded
+  corners and the transparency baked in — otherwise the app shows up as a hard blue
+  square next to every other rounded icon. `scripts/make-icons.py` is pure standard
+  library on purpose: bootstrap installs no image tooling.

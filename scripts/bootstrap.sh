@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CLANG_FORMAT_VERSION=22.1.3
+CLANG_TIDY_VERSION=22.1.8
 KTLINT_VERSION=1.5.0
 KTLINT_SHA256=a16be01dcc480aab2f55f444b620142152f66e31564b3b9376506d624c28a2ad
 SWIFTFORMAT_VERSION=0.62.1
@@ -35,6 +36,16 @@ install_clang_format() {
     else
         echo "[install] clang-format $CLANG_FORMAT_VERSION (pipx)..."
         pipx install --force "clang-format==$CLANG_FORMAT_VERSION"
+        pipx ensurepath
+    fi
+}
+
+install_clang_tidy() {
+    if have clang-tidy && clang-tidy --version | grep -qF "$CLANG_TIDY_VERSION"; then
+        echo "[ok]      clang-tidy $CLANG_TIDY_VERSION"
+    else
+        echo "[install] clang-tidy $CLANG_TIDY_VERSION (pipx, what 'make lint-tidy' runs)..."
+        pipx install --force "clang-tidy==$CLANG_TIDY_VERSION"
         pipx ensurepath
     fi
 }
@@ -156,6 +167,7 @@ Darwin)
     scripts/build-quiche.sh apple
 
     install_clang_format
+    install_clang_tidy
     install_format_tools
     install_android_packages "$HOME/Library/Android/sdk"
 
@@ -172,18 +184,18 @@ Linux)
     have apt-get || { echo "Only Ubuntu/Debian (apt) is supported for now." >&2; exit 1; }
 
     echo "[install] apt packages (build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config rpm)..."
-    sudo apt-get update -qq
-    sudo apt-get install -y build-essential clang llvm cmake ninja-build openjdk-17-jdk-headless pipx unzip curl pkg-config rpm
+    scripts/apt-install.sh build-essential clang llvm cmake ninja-build \
+        openjdk-17-jdk-headless pipx unzip curl pkg-config rpm
 
     echo "[install] apt packages for the Ubuntu app (PipeWire, VA-API, GTK3, tray, nasm)..."
-    sudo apt-get install -y \
+    scripts/apt-install.sh \
         libgtk-3-dev libglib2.0-dev libepoxy-dev libegl-dev libgles-dev \
         libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev \
         libayatana-appindicator3-dev \
         nasm
 
     echo "[install] VA-API drivers + GNOME portal (KDE/wlroots users: install the matching xdg-desktop-portal backend)..."
-    sudo apt-get install -y va-driver-all vainfo xdg-desktop-portal xdg-desktop-portal-gnome || true
+    scripts/apt-install.sh va-driver-all vainfo xdg-desktop-portal xdg-desktop-portal-gnome || true
 
     scripts/build-ffmpeg.sh
 
@@ -192,6 +204,7 @@ Linux)
     scripts/build-quiche.sh host
 
     install_clang_format
+    install_clang_tidy
     install_format_tools
     install_android_packages "$HOME/Android/Sdk"
 

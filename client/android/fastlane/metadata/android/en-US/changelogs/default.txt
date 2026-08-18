@@ -1,5 +1,5 @@
-• Share this phone's screen to a computer, view-only (Android 10 and later)
-• The picture now follows the phone when you rotate it
-• Optional clipboard sync: plain text copied on one device can be pasted on the other
-• Choose which of the computer's displays to watch, and see the ones sharing on your network
+• Every session is now encrypted end to end over QUIC/TLS
+• New pairing: prove the computer's passcode without ever sending it, or get approved by the person at the computer
+• Paired computers are remembered by key and can be revoked from either end
+• Open a shell on the remote computer in its own window, with a key row for Esc, Tab, Ctrl and the arrows
 • Stability and streaming fixes

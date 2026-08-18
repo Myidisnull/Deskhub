@@ -14,6 +14,7 @@
 #   make/ios.mk         iOS app     — xcodebuild (Simulator)
 #   make/android.mk     Android APK — Gradle (builds both the .so and the APK)
 #   make/codestyle.mk   format/lint for C++ + Kotlin + Swift
+#   make/tools.mk       one-off developer tools: icons, quic-smoke
 #
 # Windows uses cmd + VsDevCmd (it locates Visual Studio through vswhere, so it can be
 # called from a plain cmd / PowerShell / Git Bash), macOS/Linux use sh + the system
@@ -97,6 +98,15 @@
 #   make format-kotlin  / lint-kotlin   Kotlin only (ktlint: client/android)
 #   make format-swift   / lint-swift    Swift only (swiftformat + swiftlint --strict:
 #                                       client/apple + client/ios + client/macos)
+#   make lint-tidy      clang-tidy over core/src + platform/src, the same gate CI runs.
+#                       Configures the debug preset first for the compile database, so it
+#                       needs quiche; `make bootstrap` installs the pinned clang-tidy
+#
+# One-off developer tools:
+#   make icons          regenerate every client icon from assets/icon_1024.png
+#   make quic-smoke     build and run a standalone QUIC client+server against the quiche
+#                       static library, with a throwaway certificate — proves the library
+#                       links and handshakes without involving the app
 #
 #   make clean
 
@@ -110,6 +120,7 @@ include make/linux.mk
 include make/ios.mk
 include make/android.mk
 include make/codestyle.mk
+include make/tools.mk
 
 help:
 	@$(HELPCAT)
