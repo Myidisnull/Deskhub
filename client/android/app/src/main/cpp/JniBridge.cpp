@@ -240,6 +240,26 @@ Java_com_deskhub_app_NativeClient_nativeSetClientControl(JNIEnv*, jobject, jbool
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeShareAudio(JNIEnv*, jobject) {
+    return dh_share_audio() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetShareAudio(JNIEnv*, jobject, jboolean on) {
+    dh_set_share_audio(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativePlayAudio(JNIEnv*, jobject) {
+    return dh_play_audio() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetPlayAudio(JNIEnv*, jobject, jboolean on) {
+    dh_set_play_audio(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeClipboardSync(JNIEnv*, jobject) {
     return dh_clipboard_sync() ? JNI_TRUE : JNI_FALSE;
 }

@@ -46,11 +46,11 @@ Một máy có thể vừa là host vừa là client cùng lúc.
 
 | Nền tảng | Chia sẻ được | Xem được | Âm thanh |
 | --- | :--: | :--: | :--: |
-| Windows | ✅ | ✅ | ❌ chưa có |
-| macOS | ✅ | ✅ | ❌ chưa có |
+| Windows | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ |
 | Linux | ✅ | ✅ | ✅ |
-| Android | ✅ chỉ xem | ✅ | ❌ chưa có |
-| iOS | ✅ chỉ xem | ✅ | ❌ chưa có |
+| Android | ✅ chỉ xem | ✅ | ⚠️ Android 10+ |
+| iOS | ✅ chỉ xem | ✅ | ⚠️ chỉ tiếng của app |
 
 Mọi nền tảng đều có cùng bộ tính năng phía client, trừ những khác biệt nêu ở mục 12.
 Điện thoại và máy tính bảng chia sẻ ở chế độ **chỉ xem**: chúng phát màn hình nhưng không

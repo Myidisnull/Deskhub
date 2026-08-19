@@ -106,6 +106,7 @@ port-forward cho UDP 47777**. Mô hình mối đe doạ đầy đủ nằm ở [
 
 - **Zero-copy từ đầu tới cuối** — thu hình thẳng vào VRAM → NVENC → giải mã bằng phần cứng → vẽ ra màn hình; đường dữ liệu nóng không đụng tới CPU.
 - **Giao thức viết riêng, chạy trên QUIC** — GOP vô hạn + IDR theo yêu cầu, FEC kiểu XOR, bitrate tự điều chỉnh, tất cả ghép chung trên một kết nối đã mã hoá.
+- **Có hình thì có tiếng** — bản trộn âm thanh của chính máy đó, Opus 64 kbps, mỗi datagram một khung 20 ms; mất một gói chỉ mất một phần nhỏ của giây và không bao giờ làm hỏng hình. Không bao giờ là micro.
 - **Điều khiển thật** — chuột tương đối (Raw Input) + scancode cho game DirectInput; chuột và bàn phím của chính máy host luôn được ưu tiên.
 - **Một lõi dùng chung** — giao thức, FEC và điều khiển bitrate nằm trong `core/`, được biên dịch vào mọi client.
 - **Bị hành cho ra bã** — lõi được kiểm thử offline, chạy dưới ASan, UBSan và TSan trong CI, và bảy mục tiêu libFuzzer nện vào định dạng gói tin, bộ phân tích H.264, khâu ghép lại gói, luồng byte của terminal, chuỗi giao diện và các máy trạng thái phiên mỗi đêm; mỗi lần tìm ra một cú crash là một bài kiểm thử hồi quy mới.

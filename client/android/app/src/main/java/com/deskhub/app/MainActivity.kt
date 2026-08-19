@@ -1086,6 +1086,36 @@ private fun SettingsScreen(
             )
             Text(NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL))
         }
+        var shareAudio by remember { mutableStateOf(NativeClient.shareAudio()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = shareAudio,
+                onCheckedChange = {
+                    shareAudio = it
+                    NativeClient.setShareAudio(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_SHARE_AUDIO_LABEL))
+        }
+        var playAudio by remember { mutableStateOf(NativeClient.playAudio()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = playAudio,
+                onCheckedChange = {
+                    playAudio = it
+                    NativeClient.setPlayAudio(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_PLAY_AUDIO_LABEL))
+        }
         var keepAwake by remember { mutableStateOf(NativeClient.keepAwake()) }
         Row(
             modifier = Modifier.fillMaxWidth(),

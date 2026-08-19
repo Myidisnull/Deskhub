@@ -6,6 +6,8 @@ final class SettingsModel {
     var port: Int
     var clientControl: Bool
     var clipboardSync: Bool
+    var shareAudio: Bool
+    var playAudio: Bool
     var keepAwake: Bool
 
     init() {
@@ -13,6 +15,8 @@ final class SettingsModel {
         port = Int(stored.port)
         clientControl = stored.clientControl
         clipboardSync = dh_clipboard_sync()
+        shareAudio = dh_share_audio()
+        playAudio = dh_play_audio()
         keepAwake = dh_keep_awake()
     }
 
@@ -27,6 +31,8 @@ final class SettingsModel {
             stored.allowInput, clientControl, nil
         )
         dh_set_clipboard_sync(clipboardSync)
+        dh_set_share_audio(shareAudio)
+        dh_set_play_audio(playAudio)
         dh_set_keep_awake(keepAwake)
     }
 }

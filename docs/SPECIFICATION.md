@@ -43,11 +43,11 @@ A single machine can be host and client at the same time.
 
 | Platform | Can host | Can view | Sound |
 | --- | :--: | :--: | :--: |
-| Windows | ✅ | ✅ | ❌ not yet |
-| macOS | ✅ | ✅ | ❌ not yet |
+| Windows | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ |
 | Linux | ✅ | ✅ | ✅ |
-| Android | ✅ view-only | ✅ | ❌ not yet |
-| iOS | ✅ view-only | ✅ | ❌ not yet |
+| Android | ✅ view-only | ✅ | ⚠️ Android 10+ |
+| iOS | ✅ view-only | ✅ | ⚠️ app audio only |
 
 Every platform offers the same client feature set unless stated otherwise in section 12.
 Phones and tablets host in **view-only** mode: they stream their screen but never accept
