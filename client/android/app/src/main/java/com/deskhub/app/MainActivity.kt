@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -66,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val TAG = "Deskhub"
+
 class MainActivity : ComponentActivity() {
     private var pendingShare: HostService.ShareRequest? = null
 
@@ -83,6 +86,15 @@ class MainActivity : ComponentActivity() {
 
     private val notificationConsent =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val audioConsent =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val request = pendingShare
+            if (!granted) {
+                Log.i(TAG, "[audio] evt=capture_skip reason=viewer declined the recording prompt")
+            }
+            if (request != null) startProjectionConsent(request)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,9 +149,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestSharing(request: HostService.ShareRequest) {
-        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
         pendingShare = request
         NativeHost.awaitStart()
+        if (AudioShare.isSupported && !AudioShare.permissionGranted(this)) {
+            audioConsent.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startProjectionConsent(request)
+    }
+
+    private fun startProjectionConsent(request: HostService.ShareRequest) {
+        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
+        pendingShare = request
         projectionConsent.launch(manager.createScreenCaptureIntent())
     }
 

@@ -1,3 +1,6 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+
 #include "deskhubp/audio/AudioSink.h"
 #include "deskhubp/diag/Log.h"
 

@@ -75,7 +75,11 @@ class HostService : Service() {
         val options = ShareRequest.from(intent)
         scope.launch {
             val ok = NativeHost.start(options)
-            if (!ok) mainHandler.post { failWith(NativeHost.lastError()) }
+            if (!ok) {
+                mainHandler.post { failWith(NativeHost.lastError()) }
+            } else if (NativeHost.audioRunning()) {
+                AudioShare.start(applicationContext, granted)
+            }
         }
         clipboardJob?.cancel()
         if (NativeClient.clipboardSync()) {
@@ -107,6 +111,7 @@ class HostService : Service() {
     }
 
     private fun stopSharing() {
+        AudioShare.stop()
         NativeHost.stop()
         projection?.unregisterCallback(projectionCallback)
         projection = null
@@ -116,10 +121,12 @@ class HostService : Service() {
     }
 
     private fun foregroundType(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        } else {
-            0
+        when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> 0
+            AudioShare.permissionGranted(this) ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         }
 
     private fun buildNotification(): Notification {

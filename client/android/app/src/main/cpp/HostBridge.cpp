@@ -98,6 +98,19 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* e
                : JNI_FALSE;
 }
 
+JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeOfferAudio(JNIEnv* env, jobject,
+    jshortArray pcm, jint samples) {
+    if (!pcm || samples <= 0) return;
+    jshort* frame = env->GetShortArrayElements(pcm, nullptr);
+    if (!frame) return;
+    dha_offer_audio(reinterpret_cast<const int16_t*>(frame), samples);
+    env->ReleaseShortArrayElements(pcm, frame, JNI_ABORT);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeAudioRunning(JNIEnv*, jobject) {
+    return dha_audio_running() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeStop(JNIEnv*, jobject) {
     dha_stop();
 }

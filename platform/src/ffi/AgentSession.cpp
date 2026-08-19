@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
         const deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
         opt.bindIp = stored.bindIp;
         opt.clipboardSync = stored.clipboardSync;
+        opt.audio = stored.shareAudio;
         opt.deviceName = stored.deviceName;
         opt.allowNewPairings = stored.allowNewPairings;
     }
@@ -126,6 +128,18 @@ void dha_stop(void) {
         g_agent->Stop();
         g_agent.reset();
     }
+}
+
+void dha_offer_audio(const int16_t* pcm, int samples) {
+    if (!pcm || samples <= 0) return;
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    if (!lk.owns_lock() || !g_agent) return;
+    g_agent->OfferAudio(std::span<const int16_t>(pcm, size_t(samples)));
+}
+
+bool dha_audio_running(void) {
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    return lk.owns_lock() && g_agent && g_agent->audioRunning();
 }
 
 bool dha_terminal_active(void) {

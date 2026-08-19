@@ -1,3 +1,6 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+
 #include "capture/AudioCapture.h"
 
 #include "deskhubp/diag/Log.h"
