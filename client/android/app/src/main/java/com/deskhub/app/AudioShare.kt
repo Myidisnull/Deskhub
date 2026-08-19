@@ -72,14 +72,20 @@ object AudioShare {
         val bufferBytes = maxOf(minBytes, FRAME_SHORTS * Short.SIZE_BYTES * 4)
 
         val built =
-            runCatching {
+            try {
                 AudioRecord
                     .Builder()
                     .setAudioFormat(format)
                     .setBufferSizeInBytes(bufferBytes)
                     .setAudioPlaybackCaptureConfig(config)
                     .build()
-            }.getOrNull()
+            } catch (denied: SecurityException) {
+                Log.w(TAG, "[audio] evt=capture_open_fail reason=${denied.message}")
+                null
+            } catch (refused: UnsupportedOperationException) {
+                Log.w(TAG, "[audio] evt=capture_open_fail reason=${refused.message}")
+                null
+            }
 
         if (built == null || built.state != AudioRecord.STATE_INITIALIZED) {
             Log.w(TAG, "[audio] evt=capture_open_fail backend=playback capture")
