@@ -98,11 +98,30 @@ upstream không chỉnh sửa, ghim đúng phiên bản và commit bởi
 riêng nó (qua crate `boring`), cung cấp TLS và phần mật mã đứng sau cơ chế ghép đôi của
 Deskhub. Cả hai được liên kết tĩnh vào mọi app. Không thư viện nào bị chỉnh sửa.
 
+## Codec âm thanh (mọi app)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [libopus](https://opus-codec.org) 1.5.2 | BSD-3-Clause | **tĩnh** |
+
+Phần truyền âm thanh của Deskhub nhúng libopus, dựng từ mã nguồn upstream không chỉnh
+sửa, ghim đúng phiên bản và mã kiểm tra bởi
+[`scripts/build-opus.sh`](scripts/build-opus.sh), liên kết tĩnh vào mọi app. Một bản dựng
+phục vụ cả năm nền tảng: cùng một bộ mã hoá chạy trên máy chia sẻ và cùng một bộ giải mã
+chạy trên mọi máy xem. Thư viện không bị chỉnh sửa. Văn bản giấy phép:
+[`licenses/BSD-3-Clause-opus.txt`](licenses/BSD-3-Clause-opus.txt).
+
 ## Bằng sáng chế
 
 H.264/AVC được bảo hộ bởi các bằng sáng chế cấp phép qua
 [Via LA](https://www.via-la.com/). Quyền sáng chế tách biệt với các giấy phép bản quyền ở
 trên và không được cấp bởi Giấy phép MIT. Trên Windows, macOS, iOS và Android, việc mã
 hoá và giải mã do chính codec của hệ điều hành thực hiện. Trên Linux, chúng do driver
-VA-API của hãng GPU thực hiện. Deskhub không đóng gói kèm bất kỳ bản hiện thực codec nào
-của riêng mình.
+VA-API của hãng GPU thực hiện. Deskhub không đóng gói kèm bất kỳ bản hiện thực codec
+video nào của riêng mình.
+
+Opus, codec âm thanh, là ngoại lệ: libopus được đóng gói kèm. Opus được công bố là codec
+miễn phí bản quyền, và các giấy phép sáng chế bao phủ nó đều được cấp theo điều khoản
+miễn phí — danh sách khai báo nằm trong
+[`licenses/BSD-3-Clause-opus.txt`](licenses/BSD-3-Clause-opus.txt) và tại
+<https://opus-codec.org/license/>.

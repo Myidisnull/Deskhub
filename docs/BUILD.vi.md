@@ -29,8 +29,8 @@ Hãy tự cài những thứ sau trước khi chạy nó:
 
 | Hệ điều hành | Cài trước | Bootstrap sẽ lo phần còn lại |
 | --- | --- | --- |
-| **Ubuntu / Debian** | không cần gì ngoài apt; [Rust](https://rustup.rs) | build-essential, clang, llvm, cmake, ninja, JDK 17, các gói `-dev` của GTK3 / PipeWire / VA-API / khay hệ thống, driver VA-API, portal của GNOME, bản FFmpeg tối giản tĩnh, quiche |
-| **macOS** | [Homebrew](https://brew.sh), Xcode + command line tools, [Rust](https://rustup.rs) | cmake, ninja, swiftlint, pipx, LLVM của Homebrew (clang của Apple không kèm runtime libFuzzer), Temurin JDK 17, quiche cho Apple và Android |
+| **Ubuntu / Debian** | không cần gì ngoài apt; [Rust](https://rustup.rs) | build-essential, clang, llvm, cmake, ninja, JDK 17, các gói `-dev` của GTK3 / PipeWire / VA-API / khay hệ thống, driver VA-API, portal của GNOME, bản FFmpeg tối giản tĩnh, quiche, opus |
+| **macOS** | [Homebrew](https://brew.sh), Xcode + command line tools, [Rust](https://rustup.rs) | cmake, ninja, swiftlint, pipx, LLVM của Homebrew (clang của Apple không kèm runtime libFuzzer), Temurin JDK 17, quiche và opus cho Apple và Android |
 | **Windows** | winget (App Installer), Visual Studio kèm bộ công cụ C++ và thành phần *C++ Clang tools*, [Rust](https://rustup.rs) | phần còn lại qua winget, do `scripts/bootstrap.ps1` điều khiển |
 
 Trên mọi hệ điều hành nó còn ghim các công cụ định dạng: clang-format, clang-tidy, ktlint
@@ -54,7 +54,7 @@ platform/   lớp bọc mỏng quanh hệ điều hành, cùng một API — soc
             số ngẫu nhiên, liệt kê nguồn hình. Phụ thuộc vào core.
 client/     năm app: android, ios, linux, macos, windows.
             client/apple/ là phần Swift dùng chung cho app macOS và iOS, không phải một app.
-third_party/  quiche (QUIC), header nvenc, bản FFmpeg tối giản
+third_party/  quiche (QUIC), opus (âm thanh), header nvenc, bản FFmpeg tối giản
 make/       mỗi nền tảng một file .mk, được Makefile gốc include
 scripts/    bootstrap, đóng gói, coverage, định dạng và các tiện ích cho CI
 ```
@@ -98,12 +98,15 @@ make debug        # cấu hình + build preset debug
 make release      # …preset release
 ```
 
-**quiche được build riêng cho từng ABI.** Lớp truyền QUIC là một thư viện tĩnh viết bằng
-Rust, được dựng vào `third_party/quiche`, và không có nó thì không chia sẻ hay kết nối
-được gì. `debug`, `release` và mọi target `build-*` đều tự build ABI chúng cần trước, và
-build rồi thì lần sau bỏ qua — `make quiche`, `quiche-android`, `quiche-ios` và
-`quiche-macos` chạy riêng các bước đó. Nếu CMake dừng lại vì thiếu quiche thì đó là cố ý:
-nó từ chối tạo ra một file chạy được nhưng không bao giờ kết nối được.
+**quiche và opus được build riêng cho từng ABI.** Lớp truyền QUIC là một thư viện tĩnh
+viết bằng Rust, được dựng vào `third_party/quiche`, và không có nó thì không chia sẻ hay
+kết nối được gì. Codec âm thanh Opus là một thư viện tĩnh viết bằng C, dựng vào
+`third_party/opus`, và không có nó thì phiên chia sẻ không có tiếng. `debug`, `release` và
+mọi target `build-*` đều tự build ABI chúng cần trước, và build rồi thì lần sau bỏ qua —
+`make quiche`, `quiche-android`, `quiche-ios`, `quiche-macos` cùng các target `opus`,
+`opus-android`, `opus-ios`, `opus-macos` chạy riêng các bước đó. Nếu CMake dừng lại vì
+thiếu quiche thì đó là cố ý: nó từ chối tạo ra một file chạy được nhưng không bao giờ kết
+nối được.
 
 ## 5. Kiểm thử
 
@@ -203,16 +206,18 @@ request:
 | --- | --- |
 | `make icons` | dựng lại toàn bộ icon của các client từ `assets/icon_1024.png` |
 | `make quic-smoke` | một cặp client + server QUIC độc lập chạy trên thư viện tĩnh quiche |
+| `make opus-smoke` | một vòng mã hoá + giải mã độc lập chạy trên thư viện tĩnh opus — báo lại bitrate thật, gói lớn nhất và DTX có hoạt động không |
 | `make screenshots` | macOS: chụp lại ảnh cho store trên simulator iPhone/iPad, máy ảo Android và app macOS, rồi làm mới `docs/imgs` (`ARGS="ios android macos readme"` để làm một phần) |
 | `make setup-linux-permissions` | luật udev cho `/dev/uinput` + nhóm `input`, để host từ một bản build mã nguồn |
 | `make reset-macos-permissions` | xoá các quyền TCC khi bản build ở máy và bản tải về tranh nhau cùng một bundle id (`ARGS="--purge"` xoá luôn các bản đã dựng) |
 | `make ffmpeg-min` | Ubuntu: dựng bản FFmpeg tối giản tĩnh mà app liên kết tới (`build-linux` tự chạy) |
+| `make opus` | codec âm thanh Opus cho target của máy hiện tại (`debug`, `release` và `build-linux` tự chạy) |
 | `make clean` | xoá `out/` |
 
 ## 11. Khi bản build trở chứng
 
 - **CMake dừng vì thiếu thư viện quiche** — chạy target `make quiche*` tương ứng; mỗi ABI
-  cần bản của riêng nó.
+  cần bản của riêng nó. opus và các target `make opus*` cũng vậy.
 - **`make fuzz` trên macOS không tìm thấy libFuzzer** — nó cần LLVM của Homebrew;
   `make bootstrap` cài sẵn, phần còn lại vẫn build bằng bộ công cụ Xcode.
 - **`make lint` không đồng ý với editor của bạn** — công cụ được ghim mới là đúng. Chạy lại

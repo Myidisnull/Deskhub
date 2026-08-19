@@ -27,8 +27,8 @@ yourself before running it:
 
 | Host OS | Install first | What bootstrap then does |
 | --- | --- | --- |
-| **Ubuntu / Debian** | nothing beyond apt; [Rust](https://rustup.rs) | build-essential, clang, llvm, cmake, ninja, JDK 17, the GTK3 / PipeWire / VA-API / tray `-dev` packages, VA-API drivers, the GNOME portal, the static minimal FFmpeg, quiche |
-| **macOS** | [Homebrew](https://brew.sh), Xcode + command line tools, [Rust](https://rustup.rs) | cmake, ninja, swiftlint, pipx, Homebrew LLVM (Apple clang ships no libFuzzer runtime), Temurin JDK 17, quiche for Apple and Android |
+| **Ubuntu / Debian** | nothing beyond apt; [Rust](https://rustup.rs) | build-essential, clang, llvm, cmake, ninja, JDK 17, the GTK3 / PipeWire / VA-API / tray `-dev` packages, VA-API drivers, the GNOME portal, the static minimal FFmpeg, quiche, opus |
+| **macOS** | [Homebrew](https://brew.sh), Xcode + command line tools, [Rust](https://rustup.rs) | cmake, ninja, swiftlint, pipx, Homebrew LLVM (Apple clang ships no libFuzzer runtime), Temurin JDK 17, quiche and opus for Apple and Android |
 | **Windows** | winget (App Installer), Visual Studio with the C++ toolchain and the *C++ Clang tools* component, [Rust](https://rustup.rs) | the rest via winget, driven by `scripts/bootstrap.ps1` |
 
 On every OS it also pins the style tools: clang-format, clang-tidy, ktlint and
@@ -51,7 +51,7 @@ platform/   thin OS abstractions behind one shared API — sockets, clock, loggi
             randomness, source enumeration. Depends on core.
 client/     the five apps: android, ios, linux, macos, windows.
             client/apple/ is Swift shared by the macOS and iOS apps, not an app itself.
-third_party/  quiche (QUIC), the nvenc headers, the minimal FFmpeg build
+third_party/  quiche (QUIC), opus (audio), the nvenc headers, the minimal FFmpeg build
 make/       one .mk per platform, included by the root Makefile
 scripts/    bootstrap, packaging, coverage, style and CI helpers
 ```
@@ -95,12 +95,14 @@ make debug        # configure + build the debug preset
 make release      # …the release preset
 ```
 
-**quiche is per-ABI.** The QUIC transport is a Rust static library built into
-`third_party/quiche`, and nothing can share or connect without it. `debug`, `release` and
-every `build-*` target build the ABI they need first, and it is a no-op once built —
-`make quiche`, `quiche-android`, `quiche-ios` and `quiche-macos` run those steps on their
-own. If CMake stops with a missing-quiche error, that is deliberate: it refuses to produce
-a binary that could never connect.
+**quiche and opus are per-ABI.** The QUIC transport is a Rust static library built into
+`third_party/quiche`, and nothing can share or connect without it. The Opus audio codec is
+a C static library built into `third_party/opus`, and without it a share carries no sound.
+`debug`, `release` and every `build-*` target build the ABI they need first, and both are a
+no-op once built — `make quiche`, `quiche-android`, `quiche-ios`, `quiche-macos` and the
+matching `opus`, `opus-android`, `opus-ios`, `opus-macos` run those steps on their own. If
+CMake stops with a missing-quiche error, that is deliberate: it refuses to produce a binary
+that could never connect.
 
 ## 5. Tests
 
@@ -200,16 +202,18 @@ A green local `make test` + `make lint` is not the whole story. On every pull re
 | --- | --- |
 | `make icons` | regenerates every client icon from `assets/icon_1024.png` |
 | `make quic-smoke` | a standalone QUIC client + server against the quiche static library |
+| `make opus-smoke` | a standalone encode/decode round-trip against the opus static library — reports the real bitrate, the largest packet and whether DTX engages |
 | `make screenshots` | macOS: recaptures the store screenshots on the iPhone/iPad simulators, the Android emulators and the macOS app, then refreshes `docs/imgs` (`ARGS="ios android macos readme"` for a subset) |
 | `make setup-linux-permissions` | the `/dev/uinput` udev rule + `input` group, for hosting from a source build |
 | `make reset-macos-permissions` | clears the TCC grants when a local build and a downloaded build fight over the bundle id (`ARGS="--purge"` also deletes the built copies) |
 | `make ffmpeg-min` | Ubuntu: the static minimal FFmpeg the app links (run automatically by `build-linux`) |
+| `make opus` | the Opus audio codec for the host target (run automatically by `debug`, `release` and `build-linux`) |
 | `make clean` | removes `out/` |
 
 ## 11. When the build fights back
 
 - **CMake stops on a missing quiche library** — run the matching `make quiche*` target;
-  each ABI needs its own.
+  each ABI needs its own. The same holds for opus and the `make opus*` targets.
 - **`make fuzz` on macOS finds no libFuzzer** — it needs Homebrew LLVM; `make bootstrap`
   installs it, while the rest keeps building with the Xcode toolchain.
 - **`make lint` disagrees with your editor** — the pinned tools win. Run `make bootstrap`

@@ -28,6 +28,21 @@ jobs:
           scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
           test -f third_party/quiche/macos-universal/libquiche.a
 
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-apple-darwin
+            third_party/opus/x86_64-apple-darwin
+            third_party/opus/macos-universal
+          key: opus-macos-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: |
+          scripts/build-opus.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/opus/macos-universal/libopus.a
+
       - name: Build macOS app (make release-macos, ad-hoc signing)
         run: make release-macos MACOS_SIGN=adhoc
 
@@ -82,6 +97,20 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
           scripts/build-quiche.sh android
 
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-linux-android
+            third_party/opus/x86_64-linux-android
+          key: opus-android-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus for every ABI (static audio codec)
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+          scripts/build-opus.sh android
+
       - name: Build debug APK (make build-android)
         run: make build-android
 
@@ -112,6 +141,20 @@ jobs:
         run: |
           scripts/build-quiche.sh aarch64-apple-ios-sim aarch64-apple-ios
           test -f third_party/quiche/aarch64-apple-ios-sim/libquiche.a
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-apple-ios-sim
+            third_party/opus/aarch64-apple-ios
+          key: opus-ios-app-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: |
+          scripts/build-opus.sh aarch64-apple-ios-sim aarch64-apple-ios
+          test -f third_party/opus/aarch64-apple-ios-sim/libopus.a
 
       - name: Build iOS app for Simulator (make build-ios)
         run: make build-ios

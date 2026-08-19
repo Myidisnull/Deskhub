@@ -95,10 +95,28 @@ BoringSSL (via the `boring` crate), which provides TLS and the cryptography behi
 Deskhub's pairing. Both are linked statically into every app. Neither library is
 modified.
 
+## Audio codec (all apps)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [libopus](https://opus-codec.org) 1.5.2 | BSD-3-Clause | **static** |
+
+Deskhub's audio streaming embeds libopus, built from unmodified upstream sources pinned
+to an exact version and checksum by [`scripts/build-opus.sh`](scripts/build-opus.sh) and
+linked statically into every app. One build serves all five platforms: the same encoder
+runs on the sharing machine and the same decoder on every viewer. The library is not
+modified. Licence text: [`licenses/BSD-3-Clause-opus.txt`](licenses/BSD-3-Clause-opus.txt).
+
 ## Patents
 
 H.264/AVC is covered by patents licensed through [Via LA](https://www.via-la.com/).
 Patent rights are separate from the copyright licenses above and are not granted by the
 MIT License. On Windows, macOS, iOS, and Android, encoding and decoding are performed by
 the operating system's own codecs. On Linux, they are performed by the GPU vendor's
-VA-API driver. Deskhub ships no codec implementation of its own.
+VA-API driver. Deskhub ships no video codec implementation of its own.
+
+Opus, the audio codec, is the exception: libopus is bundled. Opus is published as a
+royalty-free codec, and the patent licences that cover it are granted on royalty-free
+terms — the declarations are listed in
+[`licenses/BSD-3-Clause-opus.txt`](licenses/BSD-3-Clause-opus.txt) and at
+<https://opus-codec.org/license/>.

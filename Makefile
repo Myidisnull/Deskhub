@@ -14,7 +14,7 @@
 #   make/ios.mk         iOS app     — xcodebuild (Simulator)
 #   make/android.mk     Android APK — Gradle (builds both the .so and the APK)
 #   make/codestyle.mk   format/lint for C++ + Kotlin + Swift
-#   make/tools.mk       one-off developer tools: icons, quic-smoke, screenshots
+#   make/tools.mk       one-off developer tools: icons, quic-smoke, opus-smoke, screenshots
 #
 # Windows uses cmd + VsDevCmd (it locates Visual Studio through vswhere, so it can be
 # called from a plain cmd / PowerShell / Git Bash), macOS/Linux use sh + the system
@@ -51,14 +51,21 @@
 #                       for the host target. debug and release run it first — it is a no-op once
 #                       built. Windows drives the script through Git Bash: override with
 #                       GIT_BASH=<path to bash.exe> if Git is installed elsewhere
+#   make opus           build the Opus audio codec into third_party/opus (scripts/build-opus.sh)
+#                       for the host target, the same way: debug and release run it first and it
+#                       is a no-op once built
 #
-# quiche is per-ABI, so every cross-compiled app builds its own before the app itself —
-# without them CMake stops with an error instead of producing a binary that cannot connect:
+# quiche and opus are per-ABI, so every cross-compiled app builds its own before the app
+# itself — without them CMake stops with an error instead of producing a binary that
+# cannot connect or cannot carry sound:
 #   make quiche-android  arm64-v8a + x86_64 static libs (build/release/run-android run it first).
 #                        Needs the NDK (plus cargo-ndk outside Windows, which drives the NDK
 #                        toolchain itself); ANDROID_NDK_VERSION=<v> picks another NDK
 #   make quiche-ios      iOS device + Simulator (build/release-ios run it first)
 #   make quiche-macos    arm64 + x86_64, lipo'd into macos-universal (build/release-macos run it)
+#   make opus-android    arm64-v8a + x86_64 (needs the NDK; CMake drives it, no cargo-ndk)
+#   make opus-ios        iOS device + Simulator
+#   make opus-macos      arm64 + x86_64, lipo'd into macos-universal
 #
 # Ubuntu, ONE-TIME permission grant for the host role (mouse/keyboard injection via /dev/uinput):
 #   make setup-linux-permissions    udev rule + add the user to the `input` group
@@ -107,6 +114,9 @@
 #   make quic-smoke     build and run a standalone QUIC client+server against the quiche
 #                       static library, with a throwaway certificate — proves the library
 #                       links and handshakes without involving the app
+#   make opus-smoke     build and run a standalone encode/decode round-trip against the opus
+#                       static library — proves it links, that a 20 ms frame fits one
+#                       datagram, and reports the real bitrate and DTX behaviour
 #   make screenshots    macOS only — build the iOS, Android and macOS apps, boot the
 #                       iPhone/iPad simulators and the phone/tablet emulators, open every
 #                       page and recapture the store screenshots straight off the device
