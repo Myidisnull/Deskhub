@@ -41,13 +41,13 @@ A single machine can be host and client at the same time.
 
 ## 3. Roles by platform
 
-| Platform | Can host | Can view |
-| --- | :--: | :--: |
-| Windows | ✅ | ✅ |
-| macOS | ✅ | ✅ |
-| Linux | ✅ | ✅ |
-| Android | ✅ view-only | ✅ |
-| iOS | ✅ view-only | ✅ |
+| Platform | Can host | Can view | Sound |
+| --- | :--: | :--: | :--: |
+| Windows | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ |
+| Linux | ✅ | ✅ | ✅ |
+| Android | ✅ view-only | ✅ | ⚠️ Android 10+ |
+| iOS | ✅ view-only | ✅ | ⚠️ app audio only |
 
 Every platform offers the same client feature set unless stated otherwise in section 12.
 Phones and tablets host in **view-only** mode: they stream their screen but never accept
@@ -114,6 +114,7 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 | V-3 | Session status | The window shows a live status line: frame rate, bandwidth, round-trip time and end-to-end latency. |
 | V-4 | Titled windows | Each viewer window is titled with the source it is showing plus its current status, so multiple sessions are distinguishable. |
 | V-5 | Disconnect | The viewer can end the session at any time. |
+| V-6 | Sound | Where both machines support it (section 3), the viewer hears what the shared machine is playing, in step with the picture to within about a frame. Sound is carried on its own channel: losing a packet costs a fraction of a second of audio and never disturbs the picture, and a machine playing nothing costs almost no bandwidth. It is off for a viewer that turns it off (T-23) and never sent by a host that turns it off (T-22). |
 
 ## 8. Controlling the remote machine
 
@@ -167,6 +168,8 @@ the built-in defaults for everything else.
 | T-17 | Sync clipboard text | on / off | off |
 | T-19 | Keep this device awake during sessions | on / off | on |
 | T-21 | Allow new machines to pair (Devices page) | on / off | on |
+| T-22 | Share this device's sound with viewers | on / off | on |
+| T-23 | Play the sound of the device you are watching | on / off | on |
 
 | ID | Feature | Description |
 | --- | --- | --- |
@@ -178,6 +181,7 @@ the built-in defaults for everything else.
 | T-16 | Background mode | Desktop only. With T-15 on, a tray / menu-bar icon appears with *Show/Hide window*, *Start/Stop sharing* and *Quit*; closing the window hides the app instead of quitting it, and sharing continues in the background. The window always appears on launch and hides only when the user closes it, so T-13 + T-11 + T-15 together start sharing at login with the window shown until it is closed. On Windows, left-clicking the tray icon shows or hides the window. On macOS the Dock icon disappears while the window is hidden. On Linux the tray needs a StatusNotifier host (standard on KDE; GNOME needs the AppIndicator extension) — without one, closing the window still quits, so the app can never become unreachable. On Windows and Linux, while sharing is active, closing the window always hides to the tray even with T-15 off (when a tray is available), so connected viewers are not dropped; on macOS closing the window never quits the app, so sharing continues either way. |
 | T-18 | Clipboard sync | With T-17 on, plain text copied on any machine in the session appears on the others within a couple of seconds, in both directions; the host relays a viewer's copy to the other viewers. Text is capped at 32 KiB (longer copies are cut at a whole character); images, files and formatting are never transferred. The host's toggle governs the session: with it off, the host ignores and never sends clipboard data. Each machine also needs its own toggle on to read or write its local clipboard. On Android and iOS the operating system constrains this: an Android device picks up its own copies only while Deskhub is the app in the foreground, though incoming text is applied at any time; an iOS viewer may show the system paste prompt when Deskhub reads a fresh copy; and an iOS device that is hosting does not take part at all, because its broadcast runs in a separate process without clipboard access. |
 | T-20 | Keep awake | With T-19 on, the machine does not go to sleep and the display does not turn off while it is sharing or viewing; the block is released the moment the session ends, and no sleep settings are changed. On Windows, macOS and Linux this covers both display and system sleep for hosts and viewers alike (on Linux it needs systemd-logind and a desktop that honours the freedesktop screensaver interface — standard on KDE and GNOME). The operating system still wins where it insists: closing a laptop lid, pressing the power button, or macOS on battery power may still sleep the machine. On Android and iOS the toggle keeps the screen on while viewing a stream; sharing from a phone already survives the screen turning off (P-5), so hosting there does not hold the screen. |
+| T-24 | What sound is shared | With T-22 on, the host shares what its own speakers are playing — the mix every application on it produces. It never captures a microphone: Deskhub has no two-way audio, and asks for no microphone permission on any platform. A viewer only receives sound if it asked for it (T-23), so a host with T-22 on sends nothing to a viewer that is not listening, and both toggles take effect the next time a session starts. |
 
 ## 11. Status and troubleshooting
 
@@ -203,7 +207,8 @@ the built-in defaults for everything else.
 
 Deskhub does **not** provide, and this specification does not cover:
 
-- Audio streaming.
+- Microphone capture, two-way audio, or any voice channel. Sound travels one way only,
+  from the shared machine to the people watching it (V-6).
 - File transfer or remote printing.
 - Clipboard sync beyond plain text (images, files, rich text).
 - Any account, directory, presence or invitation system.

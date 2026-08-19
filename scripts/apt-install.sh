@@ -79,8 +79,8 @@ mirror_carries_this_release() {
 
 point_the_sources_at() {
     local mirror=$1 list switched=0
-    for list in /etc/apt/sources.list /etc/apt/sources.list.d/*.list \
-        /etc/apt/sources.list.d/*.sources; do
+    for list in /etc/apt/sources.list /etc/apt/apt-mirrors.txt \
+        /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
         [ -f "$list" ] || continue
         grep -qE "$ARCHIVE_URI_PATTERN" "$list" || continue
         [ -f "$list.deskhub-original" ] || sudo cp -p "$list" "$list.deskhub-original"
@@ -101,7 +101,7 @@ for mirror in "${FALLBACK_MIRRORS[@]}"; do
         continue
     fi
     if ! point_the_sources_at "$mirror"; then
-        echo "apt-install.sh: no Ubuntu archive entry to rewrite; the sources are not ours." >&2
+        echo "apt-install.sh: no Ubuntu archive entry to rewrite in sources.list, apt-mirrors.txt (where GitHub runners keep the azure mirror behind mirror+file) or sources.list.d; the sources are not ours." >&2
         break
     fi
     echo "apt-install.sh: retrying against $mirror" >&2

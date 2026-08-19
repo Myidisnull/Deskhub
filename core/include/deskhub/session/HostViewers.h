@@ -34,6 +34,7 @@ private:
 struct ViewerSlot {
     bool active = false;
     bool started = false;
+    bool wantsAudio = false;
     bool haveFeedback = false;
     uint32_t clientId = 0;
     uint64_t addrPacked = 0;
@@ -89,7 +90,10 @@ public:
     size_t viewerCount() const {
         return publishedCount_.load(std::memory_order_acquire);
     }
+    void SetWantsAudio(ViewerSlot& slot, bool on);
+
     size_t SnapshotAddrs(std::span<uint64_t> out) const;
+    size_t SnapshotAudioAddrs(std::span<uint64_t> out) const;
     size_t SnapshotInfos(std::span<ViewerInfo> out) const;
 
     InputReceiver::Stats inputStats() const;
@@ -99,6 +103,7 @@ private:
 
     ViewerSlot slots_[kMaxViewersPerSource];
     std::atomic<uint64_t> published_[kMaxViewersPerSource] = {};
+    std::atomic<uint64_t> publishedAudio_[kMaxViewersPerSource] = {};
     ViewerInfo publishedInfos_[kMaxViewersPerSource] = {};
     mutable std::mutex publishMutex_;
     std::atomic<size_t> publishedCount_{0};

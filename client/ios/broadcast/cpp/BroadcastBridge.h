@@ -11,6 +11,8 @@ void dhb_start_broadcast(const char* containerPath, const char* screenName);
 
 void dhb_push_frame(void* pixelBuffer, uint32_t cgOrientation);
 
+void dhb_push_audio(const int16_t* pcm, int samples);
+
 void dhb_finish_broadcast(void);
 
 bool dhb_sharing(void);

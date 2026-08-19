@@ -1002,6 +1002,12 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     clipboardCheck_ = gtk_check_button_new_with_label(ui::kClipboardSyncLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(clipboardCheck_), settings_.clipboardSync);
     gtk_box_pack_start(GTK_BOX(box), clipboardCheck_, FALSE, FALSE, 0);
+    shareAudioCheck_ = gtk_check_button_new_with_label(ui::kShareAudioLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shareAudioCheck_), settings_.shareAudio);
+    gtk_box_pack_start(GTK_BOX(box), shareAudioCheck_, FALSE, FALSE, 0);
+    playAudioCheck_ = gtk_check_button_new_with_label(ui::kPlayAudioLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(playAudioCheck_), settings_.playAudio);
+    gtk_box_pack_start(GTK_BOX(box), playAudioCheck_, FALSE, FALSE, 0);
     keepAwakeCheck_ = gtk_check_button_new_with_label(ui::kKeepAwakeLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_), settings_.keepAwake);
     gtk_box_pack_start(GTK_BOX(box), keepAwakeCheck_, FALSE, FALSE, 0);
@@ -1025,6 +1031,8 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(hostPasscodeEntry_, "changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(allowInputCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(shareAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(playAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(keepAwakeCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(autostartCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(autoShareCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
@@ -1108,6 +1116,8 @@ void MainWindow::SaveSettings() {
     settings_.allowNewPairings =
         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowPairingCheck_));
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
+    settings_.shareAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shareAudioCheck_));
+    settings_.playAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(playAudioCheck_));
     settings_.keepAwake = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_));
     const gint bindSel = gtk_combo_box_get_active(GTK_COMBO_BOX(bindCombo_));
     if (bindSel >= 0 && size_t(bindSel) < bindChoices_.size())
@@ -1557,6 +1567,7 @@ void MainWindow::OnShare(ShareTrigger trigger) {
         settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
     options.allowNewPairings = settings_.allowNewPairings;
     options.clipboardSync = settings_.clipboardSync;
+    options.audio = settings_.shareAudio;
     options.terminal = TerminalTicked();
     terminalRequested_ = options.terminal;
 

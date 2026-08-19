@@ -31,6 +31,7 @@ private:
 struct AgentDiagCaps {
     bool capIdle = false;
     bool zerocopy = false;
+    bool queueDrop = false;
 };
 
 class SourceDiag {
@@ -45,6 +46,7 @@ public:
     WindowStat encLatMs;
     WindowCount idr;
     WindowCount sendFail;
+    WindowCount queueDrop;
     WindowMax burstMs;
 
     void LatchIdr(uint64_t bytes, uint32_t pkts, uint32_t burst);

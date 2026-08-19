@@ -26,6 +26,10 @@ inline constexpr size_t kFecLenPrefix = 2;
 inline constexpr size_t kMaxVideoPayload =
     kMaxDatagram - kCommonHeaderSize - kFecHeaderSize - kFecLenPrefix;
 
+inline constexpr size_t kAudioHeaderSize = 12;
+inline constexpr size_t kMaxAudioPayload =
+    kMaxDatagram - kCommonHeaderSize - kAudioHeaderSize;
+
 inline constexpr size_t kInputHeaderSize = 5;
 inline constexpr size_t kInputEventSize = 19;
 inline constexpr size_t kMaxInputEvents =
@@ -57,6 +61,7 @@ enum class MsgType : uint8_t {
     SourceList = 0x06,
     VideoPacket = 0x10,
     FecPacket = 0x11,
+    AudioPacket = 0x12,
     InputEvent = 0x20,
     Ping = 0x30,
     Pong = 0x31,
@@ -107,20 +112,26 @@ struct SourceInfo {
 
 inline constexpr uint8_t kHostAcceptsInput = 1u << 0;
 inline constexpr uint8_t kHostSharesTerminal = 1u << 1;
+inline constexpr uint8_t kHostSharesAudio = 1u << 2;
 
 struct HostCaps {
     bool acceptsInput = false;
     bool terminal = false;
+    bool audio = false;
 };
 
 inline constexpr uint8_t HostCapFlags(const HostCaps& caps) {
     return uint8_t((caps.acceptsInput ? kHostAcceptsInput : 0) |
-                   (caps.terminal ? kHostSharesTerminal : 0));
+                   (caps.terminal ? kHostSharesTerminal : 0) |
+                   (caps.audio ? kHostSharesAudio : 0));
 }
 
 inline constexpr HostCaps HostCapsOfFlags(uint8_t flags) {
-    return HostCaps{(flags & kHostAcceptsInput) != 0, (flags & kHostSharesTerminal) != 0};
+    return HostCaps{(flags & kHostAcceptsInput) != 0, (flags & kHostSharesTerminal) != 0,
+        (flags & kHostSharesAudio) != 0};
 }
+
+inline constexpr uint16_t kClientWantsAudio = 1u << 0;
 
 inline constexpr size_t kMaxClientNameBytes = 64;
 
@@ -294,6 +305,16 @@ struct FecPacketView {
     std::span<const uint8_t> parity;
 };
 
+struct AudioHeader {
+    uint32_t seq;
+    uint64_t timestampUs;
+};
+
+struct AudioPacketView {
+    AudioHeader hdr;
+    std::span<const uint8_t> payload;
+};
+
 struct ClipboardChunkView {
     uint32_t revision = 0;
     uint16_t chunkIndex = 0;
@@ -325,6 +346,8 @@ size_t BuildVideoPacket(std::span<uint8_t> out, uint32_t sessionId, const VideoH
     bool idr, bool frameEnd, std::span<const uint8_t> payload);
 size_t BuildFecPacket(std::span<uint8_t> out, uint32_t sessionId, const FecHeader& fh,
     bool idr, std::span<const uint8_t> parity);
+size_t BuildAudioPacket(std::span<uint8_t> out, uint32_t sessionId, const AudioHeader& ah,
+    std::span<const uint8_t> payload);
 size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t firstSeq,
     std::span<const InputEvent> events);
 size_t BuildClipboardChunk(std::span<uint8_t> out, uint32_t sessionId,
@@ -352,6 +375,7 @@ std::optional<VideoPacketView> ParseVideoPacket(const CommonHeader& h,
     std::span<const uint8_t> payload);
 std::optional<FecPacketView> ParseFecPacket(const CommonHeader& h,
     std::span<const uint8_t> payload);
+std::optional<AudioPacketView> ParseAudioPacket(std::span<const uint8_t> payload);
 size_t ParseInputEvents(std::span<const uint8_t> payload, uint32_t& firstSeq,
     std::span<InputEvent> out);
 std::optional<ClipboardChunkView> ParseClipboardChunk(std::span<const uint8_t> payload);

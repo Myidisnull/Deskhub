@@ -10,6 +10,7 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/net/ClientNetLoop.h"
+#include "deskhubp/audio/AudioPlayer.h"
 #include "deskhubp/net/SessionTransport.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/HostIdentity.h"
@@ -48,6 +49,7 @@ struct ClientEngineConfig {
     bool sendNacks = true;
     bool logLossRuns = true;
     bool alwaysFocused = false;
+    bool wantsAudio = false;
     const char* statusSeparator = "  ";
     std::string passcode;
     std::string displayName;
@@ -104,6 +106,8 @@ public:
             decodeRunning_ = true;
             surfaceAckGen_ = surfaceGen_;
         }
+        if (cfg_.wantsAudio && !player_.Start())
+            LOGW("[Client] Watching without sound: no audio device could be opened.");
         decodeThread_ = std::thread([this] { DecodeThread(); });
         netThread_ = std::thread([this] { NetThread(); });
         LOGI("[Client] Connecting to %s (source %u) ...", cfg_.server.ToString().c_str(),
@@ -125,6 +129,7 @@ public:
     }
 
     void Stop() {
+        player_.Stop();
         quit_.store(true);
         decCv_.notify_all();
         surfaceCv_.notify_all();
@@ -236,6 +241,14 @@ public:
 
     deskhub::diag::ClientDiag& diag() {
         return diag_;
+    }
+
+    AudioPlayer::Stats audioStats() const {
+        return player_.stats();
+    }
+
+    bool audioRunning() const {
+        return player_.running();
     }
 
 private:
@@ -452,6 +465,7 @@ private:
             }
             decCv_.notify_one();
         };
+        cb.onAudioPacket = [this](const deskhub::AudioPacketView& v) { player_.Push(v); };
         cb.onClipboardText = [this](std::string_view text) {
             std::lock_guard<std::mutex> lk(clipMutex_);
             remoteClips_.emplace_back(text);
@@ -542,6 +556,7 @@ private:
         pcfg.sourceId = cfg_.sourceId;
         pcfg.desiredFps = cfg_.desiredFps;
         pcfg.sendNacks = cfg_.sendNacks;
+        pcfg.wantsAudio = cfg_.wantsAudio;
         pcfg.logLossRuns = cfg_.logLossRuns;
         pcfg.statusSeparator = cfg_.statusSeparator;
         pcfg.passcode = cfg_.passcode;
@@ -655,6 +670,7 @@ private:
 
     deskhub::ClientInputQueue input_;
     deskhub::diag::ClientDiag diag_;
+    AudioPlayer player_;
 
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;

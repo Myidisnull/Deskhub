@@ -94,6 +94,22 @@ bool ViewerTable::anyStarted() const {
     return false;
 }
 
+void ViewerTable::SetWantsAudio(ViewerSlot& slot, bool on) {
+    if (!slot.active || slot.wantsAudio == on) return;
+    slot.wantsAudio = on;
+    Publish();
+}
+
+size_t ViewerTable::SnapshotAudioAddrs(std::span<uint64_t> out) const {
+    size_t n = 0;
+    for (const std::atomic<uint64_t>& a : publishedAudio_) {
+        if (n >= out.size()) break;
+        const uint64_t packed = a.load(std::memory_order_acquire);
+        if (packed) out[n++] = packed;
+    }
+    return n;
+}
+
 size_t ViewerTable::SnapshotAddrs(std::span<uint64_t> out) const {
     size_t n = 0;
     for (const std::atomic<uint64_t>& a : published_) {
@@ -135,11 +151,13 @@ void ViewerTable::Publish() {
         publishedInfos_[n].addrPacked = s.addrPacked;
         publishedInfos_[n].name = s.name;
         published_[n].store(s.addrPacked, std::memory_order_release);
+        publishedAudio_[n].store(s.wantsAudio ? s.addrPacked : 0, std::memory_order_release);
         ++n;
     }
     for (size_t i = n; i < kMaxViewersPerSource; ++i) {
         publishedInfos_[i] = ViewerInfo{};
         published_[i].store(0, std::memory_order_release);
+        publishedAudio_[i].store(0, std::memory_order_release);
     }
     publishedCount_.store(n, std::memory_order_release);
 }

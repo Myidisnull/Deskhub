@@ -91,6 +91,32 @@ void SendEncodedFrame(deskhub::SourcePipelineState& st, SessionTransport& sock,
     st.diag.LatchIdr(frame.size(), uint32_t(pkts), burstMs);
 }
 
+size_t SendAudioFrame(deskhub::SourcePipelineState& st, SessionTransport& sock,
+    std::span<const uint8_t> opusFrame, uint32_t seq, uint64_t timestampUs) {
+    if (!st.session || st.session->state() != deskhub::HostSession::State::Streaming) return 0;
+    if (opusFrame.empty() || opusFrame.size() > deskhub::kMaxAudioPayload) return 0;
+
+    uint64_t addrs[deskhub::kMaxViewersPerSource];
+    const size_t listeners = deskhub::SnapshotAudioViewerAddrs(st, addrs);
+    if (!listeners) return 0;
+
+    uint8_t datagram[deskhub::kMaxDatagram];
+    const deskhub::AudioHeader ah{seq, timestampUs};
+    const size_t n = deskhub::BuildAudioPacket(datagram, st.session->sessionId(), ah, opusFrame);
+    if (!n) return 0;
+
+    size_t sent = 0;
+    for (size_t i = 0; i < listeners; ++i) {
+        if (sock.SendTo(NetAddr::Unpack(addrs[i]), datagram, n)) {
+            st.bytesSent.fetch_add(n, std::memory_order_relaxed);
+            ++sent;
+        } else {
+            st.diag.sendFail.Add();
+        }
+    }
+    return sent;
+}
+
 void LogListeningAddresses(uint16_t port, const std::string& boundIp) {
     if (!boundIp.empty()) {
         LOGI("[Agent] Listening on %s, UDP port %u. On the other machine, enter that address.",

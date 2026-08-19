@@ -14,11 +14,16 @@ Deskhub - no platform is built by default, name the one you want:
     make release         configure + build the release preset
     make quiche          build the QUIC library (third_party/quiche) for the host target -
                          debug/release run it first; without it nothing can share or connect
+    make opus            build the Opus audio codec (third_party/opus) for the host target -
+                         debug/release run it first; without it a share carries no sound
 
-  QUIC library for the cross-compiled apps - each build-* target runs its own first:
+  QUIC library and Opus for the cross-compiled apps - each build-* target runs its own first:
     make quiche-android  arm64-v8a + x86_64 (needs the NDK; cargo-ndk outside Windows)
     make quiche-ios      iOS device + Simulator
     make quiche-macos    arm64 + x86_64, lipo'd into macos-universal
+    make opus-android    arm64-v8a + x86_64 (needs the NDK)
+    make opus-ios        iOS device + Simulator
+    make opus-macos      arm64 + x86_64, lipo'd into macos-universal
 
   Tests:
     make test              build core_tests and run it offline
@@ -46,6 +51,7 @@ Deskhub - no platform is built by default, name the one you want:
   Developer tools:
     make icons           regenerate every client icon from assets/icon_1024.png
     make quic-smoke      standalone QUIC client+server against the quiche static library
+    make opus-smoke      standalone encode/decode round-trip against the opus static library
     make screenshots     macOS: recapture the store screenshots on the iPhone/iPad
                          simulators, the Android emulators and the macOS app, then
                          refresh docs/imgs (ARGS="ios android macos readme" for a subset)

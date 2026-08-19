@@ -4,11 +4,14 @@
 
 #include "capture/ScreenCapture.h"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <vector>
 
-#include "deskhubp/diag/Log.h"
 #include "deskhub/control/StreamSize.h"
+#include "deskhub/media/AudioTypes.h"
+#include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
 
 @class DeskhubStreamOutput;
@@ -17,7 +20,16 @@ struct ScreenCapture::Impl {
     uint32_t displayId = 0;
     uint32_t fps = 60;
     uint32_t maxDim = 0;
+    bool wantAudio = false;
     FrameHandler onFrame;
+
+    dispatch_queue_t audioQueue = nullptr;
+    std::mutex audioMutex;
+    AudioHandler onAudio;
+    std::vector<int16_t> staging;
+    size_t staged = 0;
+
+    void FeedAudio(const float* const* channels, size_t channelCount, size_t frames);
 
     uint32_t cliW = 0, cliH = 0;
 
@@ -40,8 +52,14 @@ struct ScreenCapture::Impl {
     std::atomic<uint32_t> idleFrames{0};
 };
 
+struct DeinterleavedBufferList {
+    AudioBufferList list;
+    AudioBuffer extra[deskhub::media::kAudioChannels - 1];
+};
+
 @interface DeskhubStreamOutput : NSObject <SCStreamOutput, SCStreamDelegate>
 @property(nonatomic, assign) ScreenCapture::Impl* impl;
+- (void)forwardAudio:(CMSampleBufferRef)sampleBuffer to:(ScreenCapture::Impl*)impl;
 @end
 
 @implementation DeskhubStreamOutput
@@ -50,10 +68,14 @@ struct ScreenCapture::Impl {
     didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
                    ofType:(SCStreamOutputType)type {
     (void)stream;
-    if (type != SCStreamOutputTypeScreen) return;
     ScreenCapture::Impl* impl = self.impl;
     if (!impl || !impl->running.load(std::memory_order_acquire)) return;
     if (!CMSampleBufferIsValid(sampleBuffer)) return;
+    if (type == SCStreamOutputTypeAudio) {
+        [self forwardAudio:sampleBuffer to:impl];
+        return;
+    }
+    if (type != SCStreamOutputTypeScreen) return;
 
     NSArray* attachments =
         (__bridge NSArray*)CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, NO);
@@ -75,6 +97,29 @@ struct ScreenCapture::Impl {
     fi.meta.height = uint32_t(CVPixelBufferGetHeight(pb));
     fi.meta.timestampUs = NowUs();
     if (fi.meta.width && fi.meta.height && impl->onFrame) impl->onFrame(fi);
+}
+
+- (void)forwardAudio:(CMSampleBufferRef)sampleBuffer to:(ScreenCapture::Impl*)impl {
+    DeinterleavedBufferList storage{};
+    AudioBufferList* list = &storage.list;
+    CMBlockBufferRef block = nullptr;
+    const OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer,
+        nullptr, list, sizeof(storage), nullptr, nullptr,
+        kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &block);
+    if (status != noErr || list->mNumberBuffers == 0) {
+        if (block) CFRelease(block);
+        return;
+    }
+
+    const float* channels[deskhub::media::kAudioChannels] = {};
+    const size_t channelCount = std::min<size_t>(list->mNumberBuffers,
+        deskhub::media::kAudioChannels);
+    for (size_t i = 0; i < channelCount; ++i)
+        channels[i] = static_cast<const float*>(list->mBuffers[i].mData);
+
+    const size_t frames = list->mBuffers[0].mDataByteSize / sizeof(float);
+    if (channels[0] && frames) impl->FeedAudio(channels, channelCount, frames);
+    CFRelease(block);
 }
 
 - (void)stream:(SCStream*)stream didStopWithError:(NSError*)error {
@@ -112,7 +157,8 @@ double ScaleForFrame(CGRect frame) {
     return scale;
 }
 
-SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool scaled) {
+SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool scaled,
+    bool withAudio) {
     SCStreamConfiguration* cfg = [[SCStreamConfiguration alloc] init];
     cfg.width = w;
     cfg.height = h;
@@ -120,7 +166,12 @@ SCStreamConfiguration* MakeConfig(uint32_t w, uint32_t h, uint32_t fps, bool sca
     cfg.minimumFrameInterval = CMTimeMake(1, int32_t(fps));
     cfg.showsCursor = YES;
     cfg.queueDepth = 8;
-    cfg.capturesAudio = NO;
+    cfg.capturesAudio = withAudio ? YES : NO;
+    if (withAudio) {
+        cfg.sampleRate = int(deskhub::media::kAudioSampleRate);
+        cfg.channelCount = int(deskhub::media::kAudioChannels);
+        cfg.excludesCurrentProcessAudio = YES;
+    }
     cfg.scalesToFit = scaled ? YES : NO;
     return cfg;
 }
@@ -134,7 +185,7 @@ deskhub::StreamSize ApplySizeLocked(ScreenCapture::Impl* impl) {
     impl->cfgW = t.width;
     impl->cfgH = t.height;
     SCStreamConfiguration* cfg = MakeConfig(t.width, t.height, impl->fps,
-        t.width != impl->curW || t.height != impl->curH);
+        t.width != impl->curW || t.height != impl->curH, impl->wantAudio);
     impl->config = cfg;
     [impl->stream updateConfiguration:cfg
                     completionHandler:^(NSError* e) {
@@ -172,6 +223,7 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
     impl_->displayId = displayId;
     impl_->fps = fps ? fps : 60;
     impl_->maxDim = maxDim;
+    impl_->wantAudio = opt.audio;
     impl_->onFrame = std::move(onFrame);
     impl_->cliW = impl_->cliH = 0;
     impl_->qualityPct = 100;
@@ -223,7 +275,7 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
     impl_->cfgW = t0.width;
     impl_->cfgH = t0.height;
     impl_->config = MakeConfig(t0.width, t0.height, impl_->fps,
-        t0.width != w || t0.height != h);
+        t0.width != w || t0.height != h, impl_->wantAudio);
 
     impl_->output = [[DeskhubStreamOutput alloc] init];
     impl_->output.impl = impl_.get();
@@ -236,6 +288,19 @@ bool ScreenCapture::Start(uint64_t targetId, const deskhub::media::CaptureOption
             QOS_CLASS_USER_INTERACTIVE, 0));
 
     NSError* err = nil;
+    if (impl_->wantAudio) {
+        impl_->audioQueue = dispatch_queue_create("com.manhpham.deskhub.audio",
+            DISPATCH_QUEUE_SERIAL);
+        NSError* audioErr = nil;
+        if (![impl_->stream addStreamOutput:impl_->output
+                                       type:SCStreamOutputTypeAudio
+                         sampleHandlerQueue:impl_->audioQueue
+                                      error:&audioErr]) {
+            LOGW("[Capture] sharing without sound: %s",
+                audioErr ? audioErr.localizedDescription.UTF8String : "?");
+        }
+    }
+
     if (![impl_->stream addStreamOutput:impl_->output
                                    type:SCStreamOutputTypeScreen
                      sampleHandlerQueue:impl_->frameQueue
@@ -330,6 +395,30 @@ void ScreenCapture::SetQuality(uint32_t scalePct, uint32_t fps, uint32_t& outW,
     }
     outW = impl_->cfgW;
     outH = impl_->cfgH;
+}
+
+void ScreenCapture::Impl::FeedAudio(const float* const* channels, size_t channelCount,
+    size_t frames) {
+    std::lock_guard<std::mutex> lock(audioMutex);
+    if (!onAudio) return;
+    if (staging.empty()) staging.assign(deskhub::media::kAudioSamplesPerFrameInterleaved, 0);
+
+    for (size_t f = 0; f < frames; ++f) {
+        for (size_t c = 0; c < deskhub::media::kAudioChannels; ++c) {
+            const float sample = channels[std::min(c, channelCount - 1)][f];
+            const float scaled = std::clamp(sample, -1.0f, 1.0f) * 32767.0f;
+            staging[staged++] = int16_t(scaled);
+            if (staged < staging.size()) continue;
+            onAudio(staging);
+            staged = 0;
+        }
+    }
+}
+
+void ScreenCapture::SetAudioHandler(AudioHandler onAudio) {
+    std::lock_guard<std::mutex> lock(impl_->audioMutex);
+    impl_->onAudio = std::move(onAudio);
+    impl_->staged = 0;
 }
 
 void ScreenCapture::Stop() {

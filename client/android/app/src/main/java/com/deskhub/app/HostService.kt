@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -24,6 +25,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+
+private const val TAG = "Deskhub"
 
 class HostService : Service() {
     private var projection: MediaProjection? = null
@@ -75,7 +78,11 @@ class HostService : Service() {
         val options = ShareRequest.from(intent)
         scope.launch {
             val ok = NativeHost.start(options)
-            if (!ok) mainHandler.post { failWith(NativeHost.lastError()) }
+            if (!ok) {
+                mainHandler.post { failWith(NativeHost.lastError()) }
+            } else if (NativeHost.audioRunning()) {
+                AudioShare.start(applicationContext, granted)
+            }
         }
         clipboardJob?.cancel()
         if (NativeClient.clipboardSync()) {
@@ -107,6 +114,8 @@ class HostService : Service() {
     }
 
     private fun stopSharing() {
+        Log.i(TAG, "[audio] evt=share_stop caller=${Throwable().stackTrace.getOrNull(1)}")
+        AudioShare.stop()
         NativeHost.stop()
         projection?.unregisterCallback(projectionCallback)
         projection = null

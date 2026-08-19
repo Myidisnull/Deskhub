@@ -2,7 +2,7 @@
 
 # Deskhub Privacy Policy
 
-_Effective date: August 15, 2026 — Version 2.0_
+_Effective date: August 19, 2026 — Version 2.1_
 
 > A Vietnamese translation is available at [`PRIVACY.vi.md`](PRIVACY.vi.md). This English
 > version is the authoritative one.
@@ -41,6 +41,7 @@ party.
 | Data | Purpose | Where it goes | Retention |
 |---|---|---|---|
 | Screen content of the shared computer (video frames) | Displaying that screen on your other device | Sent directly between your two devices, encrypted in transit (QUIC/TLS) | Never stored; exists only in memory during the session |
+| Sound the shared computer is playing (only while it shares sound and a viewer asks for it) | Letting the person watching hear that computer | Sent directly between your two devices, encrypted in transit (QUIC/TLS), as compressed audio | Never stored; exists only in memory during the session |
 | Mouse, keyboard, and touch input | Controlling the shared computer from your other device | Sent directly from the viewing device to the shared computer, encrypted in transit (QUIC/TLS) | Never stored; discarded after injection |
 | This machine's key pair — a private key and self-signed certificate created on first run | Proving this machine's identity to machines it connects to; people see it as a fingerprint (`SHA256:…`) | Written to `host_key.pem` and `host_cert.pem` in the app's own folder; only the public half (the certificate) is presented to machines you connect to | Kept until you delete the files; deleting them gives the machine a new identity, and machines that knew the old one will warn |
 | The keys of hosts this device has trusted (fingerprint, address, label, first/last seen) | Recognising a known host and warning loudly if its key ever changes | Written to `known_hosts` in the same folder; never transmitted | Kept until you delete the file |
@@ -115,6 +116,10 @@ but only one of them drives the mouse and keyboard at any moment.
 | Android | Screen capture consent (`MediaProjection`) | Only when you start sharing this device's screen. Android asks every time; the answer cannot be remembered. |
 | Android | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Keeps the share running while the app is in the background or the screen is off. Required by Android for screen capture. |
 | Android | `POST_NOTIFICATIONS` | Shows the ongoing notification Android requires while a screen share is running. No other notifications are sent. |
+
+Sharing sound needs no permission of its own on the desktops: it captures what the
+computer itself is playing, not a microphone. Deskhub never records a microphone and asks
+for no microphone permission on any platform.
 
 The apps request no other permissions. If a future version needs a new
 permission, it will be requested in-context and this policy will be updated.
@@ -202,6 +207,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Version | Date | Change |
 |---|---|---|
+| 2.1 | 2026-08-19 | Sharing a screen can now share that computer's **sound** as well. What is captured is the mix the computer's own speakers are playing — never a microphone; Deskhub has no two-way audio and asks for no microphone permission. The audio is compressed, sent directly to the people watching over the same encrypted transport as the picture, and never stored. It travels only when the machine sharing has *Share this device's sound* on **and** a viewer has *Play the sound of the device you are watching* on; either switch turns it off. Both switches are saved with your other preferences in `ui-settings.txt` and are on by default. |
 | 2.0 | 2026-08-15 | Sessions now run over an encrypted transport (QUIC/TLS) — video, input, clipboard and terminal traffic alike — and machines are admitted by pairing. New data stored on your own device, all in the app's folder and never sent to us: a key pair that is this machine's identity (`host_key.pem`, `host_cert.pem`), the keys of hosts you have trusted (`known_hosts`), the machines allowed into this host (`paired_devices` — key fingerprint, the name each sent, timestamps), and a non-secret salt (`auth_salt`). The passcode is now optional and is never transmitted: the pairing handshake proves it without sending it. |
 | 1.9 | 2026-08-14 | On Linux, the screen choice made in the desktop's screen-sharing dialog is now remembered: the permission token the desktop issues is saved to `portal-restore-token.txt` so later shares skip the dialog. The token only works for your own desktop session on this machine, is never transmitted, is replaced after each share, and is removed when you press *Choose screens again* or delete the file. |
 | 1.8 | 2026-08-14 | New *keep awake* toggle (on by default): while you are sharing or viewing, the app asks the operating system not to sleep the machine or turn off the display, and releases that request when the session ends. Only the on/off choice is stored, in the same local settings file; nothing about it is transmitted, and no system sleep settings are changed. |

@@ -10,6 +10,7 @@ void RunDeviceNameTests();
 void RunLogFileTests();
 void RunFfiTextTests();
 void RunLocalInputGateTests();
+void RunOpusCodecTests();
 void RunHostCallbackTests();
 void RunHostProbeTests();
 void RunLanScannerTests();

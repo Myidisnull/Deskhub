@@ -165,6 +165,7 @@ Darwin)
     check_rust
     install_cargo_ndk
     scripts/build-quiche.sh apple
+    scripts/build-opus.sh apple
 
     install_clang_format
     install_clang_tidy
@@ -175,8 +176,9 @@ Darwin)
     if [ -n "$ANDROID_NDK_HOME" ]; then
         export ANDROID_NDK_HOME
         scripts/build-quiche.sh android
+        scripts/build-opus.sh android
     else
-        echo "[skip]    quiche for Android (no NDK under ~/Library/Android/sdk/ndk)"
+        echo "[skip]    quiche and opus for Android (no NDK under ~/Library/Android/sdk/ndk)"
     fi
     ;;
 
@@ -202,6 +204,7 @@ Linux)
     check_rust
     install_cargo_ndk
     scripts/build-quiche.sh host
+    scripts/build-opus.sh host
 
     install_clang_format
     install_clang_tidy
@@ -212,8 +215,9 @@ Linux)
     if [ -n "$ANDROID_NDK_HOME" ]; then
         export ANDROID_NDK_HOME
         scripts/build-quiche.sh android
+        scripts/build-opus.sh android
     else
-        echo "[skip]    quiche for Android (no NDK under ~/Android/Sdk/ndk)"
+        echo "[skip]    quiche and opus for Android (no NDK under ~/Android/Sdk/ndk)"
     fi
     ;;
 

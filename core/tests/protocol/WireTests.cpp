@@ -841,6 +841,91 @@ void TestAuthWire() {
     Check(!ParseAuthResult(badCode).has_value(), "so is a verdict we do not know");
 }
 
+void TestAudioWire() {
+    std::printf("[wire] AUDIO round-trip, size limits and the audio capability bits...\n");
+    uint8_t buf[kMaxDatagram];
+
+    const std::vector<uint8_t> frame = {0xFC, 0x01, 0x02, 0x03, 0x7F, 0x80, 0x00, 0xFF};
+    AudioHeader ah{0x01020304, 0x0000112233445566ULL};
+    size_t n = BuildAudioPacket(buf, 0xABCD1234, ah, frame);
+    Check(n == kCommonHeaderSize + kAudioHeaderSize + frame.size(),
+        "audio packet is header + payload, nothing more");
+
+    const auto ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && ch->type == MsgType::AudioPacket && ch->chan == Chan::Audio &&
+              ch->sessionId == 0xABCD1234,
+        "audio packet carries its own message type on the audio channel");
+
+    const auto v = ParseAudioPacket(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(v && v->hdr.seq == ah.seq && v->hdr.timestampUs == ah.timestampUs,
+        "audio sequence and timestamp survive the round-trip");
+    Check(v && v->payload.size() == frame.size() &&
+              std::equal(frame.begin(), frame.end(), v->payload.begin()),
+        "audio payload bytes survive the round-trip");
+
+    Check(BuildAudioPacket(buf, 1, ah, std::span<const uint8_t>()) == 0,
+        "an empty audio frame is not a packet");
+
+    const std::vector<uint8_t> biggest(kMaxAudioPayload, 0x5A);
+    n = BuildAudioPacket(buf, 1, ah, biggest);
+    Check(n == kMaxDatagram, "an audio frame of kMaxAudioPayload still fits one datagram");
+    Check(ParseAudioPacket(PayloadOf(std::span<const uint8_t>(buf, n))).has_value(),
+        "audio payload == kMaxAudioPayload accepted");
+
+    const std::vector<uint8_t> oversized(kMaxAudioPayload + 1, 0x5A);
+    Check(BuildAudioPacket(buf, 1, ah, oversized) == 0,
+        "audio payload > kMaxAudioPayload refused at build");
+
+    constexpr size_t kWidestMeasuredOpusFrame = 209;
+    Check(kWidestMeasuredOpusFrame < kMaxAudioPayload,
+        "the widest 20 ms Opus frame measured by opus-smoke leaves room to spare");
+
+    {
+        Datagram d(kCommonHeaderSize + kAudioHeaderSize, 0);
+        d[0] = kProtocolVersion;
+        d[1] = uint8_t(MsgType::AudioPacket);
+        d[3] = uint8_t(Chan::Audio);
+        Check(!ParseAudioPacket(PayloadOf(d)).has_value(),
+            "an audio packet with no payload is rejected");
+    }
+    {
+        Datagram d(kCommonHeaderSize + kAudioHeaderSize - 1, 0);
+        d[0] = kProtocolVersion;
+        d[1] = uint8_t(MsgType::AudioPacket);
+        d[3] = uint8_t(Chan::Audio);
+        Check(!ParseAudioPacket(PayloadOf(d)).has_value(),
+            "a truncated audio header is rejected");
+    }
+    {
+        Datagram d(kCommonHeaderSize + kAudioHeaderSize + kMaxAudioPayload + 1, 0);
+        d[0] = kProtocolVersion;
+        d[1] = uint8_t(MsgType::AudioPacket);
+        d[3] = uint8_t(Chan::Audio);
+        Check(!ParseAudioPacket(PayloadOf(d)).has_value(),
+            "an oversized audio payload is rejected at parse too");
+    }
+
+    Check(HostCapFlags(HostCaps{false, false, true}) == kHostSharesAudio,
+        "the audio capability has a flag of its own");
+    Check(HostCapsOfFlags(kHostSharesAudio).audio &&
+              !HostCapsOfFlags(kHostSharesAudio).acceptsInput &&
+              !HostCapsOfFlags(kHostSharesAudio).terminal,
+        "the audio capability decodes without disturbing the others");
+    Check(!HostCapsOfFlags(uint8_t(kHostAcceptsInput | kHostSharesTerminal)).audio,
+        "a 5.0.x host that knows no audio decodes as silent");
+
+    Hello wantsAudio{7, kCodecMaskH264, 1920, 1080, 60, kClientWantsAudio};
+    n = BuildHello(buf, wantsAudio);
+    const auto back = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(back && (back->features & kClientWantsAudio) != 0,
+        "a viewer asking for sound says so in the features it already sends");
+    Hello silent{7, kCodecMaskH264, 1920, 1080, 60, 0};
+    n = BuildHello(buf, silent);
+    const auto quiet = ParseHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(quiet && (quiet->features & kClientWantsAudio) == 0,
+        "a 5.0.x viewer sends features = 0 and so never asks for sound");
+}
+
 void RunWireTests() {
     TestWireRoundtrip();
     TestStateEventClassification();
@@ -858,4 +943,5 @@ void RunWireTests() {
     TestPacketClassification();
     TestTerminalWire();
     TestAuthWire();
+    TestAudioWire();
 }

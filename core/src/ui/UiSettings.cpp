@@ -49,6 +49,8 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "autostart") out.autostart = *v != 0;
     if (key == "auto_share") out.autoShare = *v != 0;
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
+    if (key == "share_audio") out.shareAudio = *v != 0;
+    if (key == "play_audio") out.playAudio = *v != 0;
     if (key == "start_hidden") out.startHidden = *v != 0;
     if (key == "keep_awake") out.keepAwake = *v != 0;
     if (key == "allow_new_pairings") out.allowNewPairings = *v != 0;
@@ -109,6 +111,8 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("autostart=") + (settings.autostart ? "1" : "0") + '\n';
     out += std::string("auto_share=") + (settings.autoShare ? "1" : "0") + '\n';
     out += std::string("clipboard_sync=") + (settings.clipboardSync ? "1" : "0") + '\n';
+    out += std::string("share_audio=") + (settings.shareAudio ? "1" : "0") + '\n';
+    out += std::string("play_audio=") + (settings.playAudio ? "1" : "0") + '\n';
     out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
     out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
     out += std::string("allow_new_pairings=") + (settings.allowNewPairings ? "1" : "0") + '\n';

@@ -60,16 +60,18 @@ Mọi thứ host cung cấp đi trên **một cổng UDP** (mặc định 47777)
  stream      datagram      (TLS)      ở bản rõ; mọi gói thô khác
    |             |                    đều bị bỏ
  control      video
- input                    Stream chở các record có tiền tố độ dài
+ input        audio       Stream chở các record có tiền tố độ dài
  clipboard                (RecordStream), tối đa 16 KiB mỗi record.
- terminal                 Mỗi datagram chở đúng một gói video (≤ 1200 B).
+ terminal                 Mỗi datagram chở đúng một gói video hoặc
+                          một gói audio (≤ 1200 B).
 ```
 
 - **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal — mỗi kết
   nối dùng một stream hai chiều do client mở. Stream nghẽn ở kết nối này không làm
   đứng kết nối khác.
-- **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video. QUIC không bao
-  giờ gửi lại datagram mất; FEC/NACK của app tự xử lý mất gói.
+- **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video và gói audio.
+  QUIC không bao giờ gửi lại datagram mất; với video thì FEC/NACK của app tự xử lý,
+  còn với audio thì không gì xử lý cả — xem mục 9.
 - **UDP thô** chỉ còn cho dò tìm: beacon trả lời máy quét không nói QUIC, và gói dò
   không mời nhận danh sách rỗng. Gói thô đến mà không phải loại dò tìm bị loại trước
   khi chạm tới bất kỳ mã phiên nào.
@@ -197,6 +199,83 @@ nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm
 iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
+
+- **Cổng khung hình đếm tới một mốc hạn, không đếm từ khung nó vừa giữ**: một compositor
+  đưa sang 40 fps trong khi mục tiêu là 30 fps thì hầu hết các mốc 33 ms đều không có
+  khung nào rơi đúng vào, nên một cổng chỉ hỏi "khung này có cách khung tôi giữ đủ xa
+  không?" sẽ loại một khung xen kẽ và dừng ở 20 fps — vừa dưới mục tiêu, vừa lởm chởm,
+  tức là giật hình chứ không phải luồng chậm hơn. `FrameGate` thay vào đó mang theo một
+  mốc hạn chạy đều: mỗi lần nhận khung, mốc tiến đúng một chu kỳ, nên phần dư được giữ
+  lại và 40 vào cho ra 30. Capture chậm hơn mục tiêu không bao giờ bị chặt bớt, và một
+  mốc hạn đã tụt lại sau thời gian thực sẽ đồng bộ lại thay vì tích lũy, nên một quãng
+  lặng không mua được một cú dồn khung về sau.
+
+- **Host Linux encode trên thread riêng, và đưa cho thread đó khung hình nhỏ chứ không
+  phải khung lớn**: encode ngay trong callback `process` của PipeWire từng ghìm capture
+  xuống `1000 / enc_ms` fps và biến mọi dao động thời gian encode thành rung nhịp khung
+  hình phía client. Giờ encode chạy trên thread riêng, được nạp qua `FrameMailbox`, một
+  hàng đợi một-chỗ kiểu mới-nhất-thắng — khi encoder chậm chân, frame mới nhất thắng và
+  frame cũ được đếm chứ không xếp hàng. Thứ đi qua hàng đợi là khung hình đã thu nhỏ về
+  kích thước encode, còn khoảng một phần bảy số byte. Chuyển khung nguyên độ phân giải
+  qua đó tốn hơn nhiều so với bản thân phép copy: 20 MB cache line bị bỏ lại ở trạng
+  thái dirty trong core capture, và core encode phải kéo sang, đo được 16 ms so với
+  3,4 ms cho cùng phép đọc trên vùng nhớ nó không sở hữu. Thread capture đằng nào cũng
+  phải chạm mỗi pixel nguồn đúng một lần, nên đó là chỗ đúng để tiêu lượt duyệt duy
+  nhất ấy. Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay
+  khi callback trả về nên chúng không sống lâu hơn callback, và VA-API đằng nào cũng
+  thu nhỏ chúng trên GPU.
+- **Host Linux chọn encoder theo nơi frame nằm, không phải theo thứ được cài**: frame
+  dma-buf đi vào VA-API, nơi import được zero-copy trên đúng GPU đã tạo ra nó; frame
+  mapped (CPU) đi vào NVENC khi có driver NVIDIA, vì trên desktop do GPU NVIDIA render,
+  compositor thương lượng lại screencast về shared memory, và việc encode khi đó thuộc
+  về card lấy được pixel thẳng từ bộ nhớ hệ thống. `HwEncoder` đưa ra lựa chọn đó mỗi
+  lần dựng lại encoder, và một frame khác loại đến sau sẽ trả về `false` — đó là tín
+  hiệu để dựng lại.
+- **Phần thu nhỏ ảnh trước NVENC là của chúng ta, không phải của swscale**: NVENC nhận
+  pixel packed 32-bit nhưng không tự resize, còn ảnh capture là nguyên độ phân giải màn
+  hình. `libswscale` đo được 9,2 ms cho 3440x1440 → 1280x534 — khoảng 2 GB/s, kém băng
+  thông bộ nhớ của máy này cả một bậc, vì rescale packed-RGB rơi ra ngoài các đường đã
+  tối ưu của nó. `RgbDownscale` trong `core/` là một bộ trung bình theo vùng viết đúng
+  cho hình dạng này: mỗi pixel nguồn một lần nạp 32-bit, cộng dồn số nguyên, 4,0 ms cho
+  cùng khung hình đó, và khử răng cưa đúng cách thay vì một mẫu bilinear như swscale.
+  Tổng chi phí NVENC cho cả khung rơi vào ~5 ms, nên 60 fps còn dư chỗ.
+- **Các con số hiệu năng chỉ có ý nghĩa khi đo trên bản release**: `make build-linux`
+  và `make run-linux` cấu hình preset `x64-debug`, tức `-O0`, trong khi đường encode giờ
+  là số học pixel nằm trong `core/`. Cùng một khung hình tốn ~19 ms ở đó so với ~5 ms từ
+  `make release-linux`. Một báo cáo giật hình đo trên binary debug là đang đo kiểu build.
+
+- **Viewer Apple hiển thị video theo PTS trên một control timebase, và pacer không bao
+  giờ tin chính nó**: hiển thị mỗi frame ngay lúc nó đến khiến jitter Wi-Fi hiện ra
+  thành giật hình trong khi mọi con số độ trễ vẫn đẹp — nhịp không phải là độ trễ.
+  `VideoPacer` (core, test offline được) ánh xạ PTS của host sang giờ hiển thị local
+  theo đúng cách metric e2e làm — minimum theo cửa sổ của `arrival − pts` — cộng một
+  khoảng đệm ~33 ms để jitter được trả từ đó, và `VtDecoder` lái control timebase của
+  `AVSampleBufferDisplayLayer` theo nó, chỉ resync khi lệch quá 250 ms. Một cú nhảy pts
+  quá 2 s được đọc là stream mới chứ không phải jitter, nên ánh xạ được dựng lại thay
+  vì đứng hình suốt một cửa sổ. Vì không thể chứng minh từ đây rằng renderer tôn trọng
+  timebase ngoài trên mọi phiên bản OS, decoder tự canh lưng mình: một chuỗi frame bị
+  hàng đợi renderer đầy nuốt mất sẽ lật về display-immediately và flush — thà mất phần
+  mượt còn hơn mất hình.
+
+- **Audio là một khung một datagram, và mất thì không đuổi theo**: một khung Opus 20 ms
+  ở 64 kbps đo được khoảng 160 byte, rộng nhất 209 byte, so với 1180 byte một datagram
+  chứa được — nên đường audio không có packetizer, không FEC, không reassembler, không
+  NACK, tức là bỏ đi gần hết những gì đường video có. Mất gói được hấp thụ ở chỗ rẻ
+  nhất: Opus mang sẵn FEC trong khung kế tiếp, và bên nhận bảo bộ giải mã che chỗ hổng
+  mà jitter buffer báo. Gửi lại còn tệ hơn vô ích, vì một khung đến muộn 200 ms thì
+  không phát được nữa nhưng vẫn kịp làm chậm mười khung sau nó. `make opus-smoke` đo
+  đúng những con số đó trên bất kỳ máy nào dựng được thư viện.
+- **Đồng hồ audio điều khiển jitter buffer, không phải đồng hồ tường**:
+  `AudioJitterBuffer` không có timer nào bên trong. Bộ phát kéo một khung mỗi lần gọi,
+  còn độ trễ mục tiêu chỉ là số khung nó nạp trước khi bắt đầu — 60 ms là ba khung. Nhờ
+  vậy toàn bộ phần này test được offline mà không phải ngủ, và các kiểu hỏng đều hiện
+  rõ: bùng gói thì bị chặn thay vì xếp hàng, hết gói thì nạp lại thay vì giật, số thứ
+  tự nhảy xa thì coi là luồng mới thay vì hàng nghìn khung mất.
+- **Tiếng cần cả hai đầu đồng ý, và client cũ không bao giờ nghe thấy**: viewer đặt bit
+  0 của `Hello.features`, host quảng bá `kHostSharesAudio` trong phần năng lực của nó,
+  và host chỉ gửi gói cho viewer nào có bit đó. Chính điều này giữ `kProtocolVersion` ở
+  mức 2: viewer 5.0.x gửi `features = 0`, nên host 5.1 không bao giờ đặt lên dây một
+  thông điệp mà nó không phân tích được.
 
 - **Link terminal tự giữ sống và tự quay số lại**: viewer terminal có QUIC connection
   riêng, tách khỏi phiên video, nên không keepalive nào của đường video chạm tới nó.

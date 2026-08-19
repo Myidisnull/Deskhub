@@ -67,6 +67,7 @@ const char* SourceDiag::FormatSum(char* buf, size_t cap, const char* hms, const 
     const WindowStat::Snapshot l = encLatMs.TakeReset();
     const uint32_t idrN = idr.TakeReset();
     const uint32_t fail = sendFail.TakeReset();
+    const uint32_t queued = queueDrop.TakeReset();
     const uint32_t burst = burstMs.TakeReset();
 
     if (!cap) return buf;
@@ -79,6 +80,7 @@ const char* SourceDiag::FormatSum(char* buf, size_t cap, const char* hms, const 
     Append(p, end, " enc_lat_ms=%.1f/%u", l.avg, l.max);
     if (caps_.capIdle) Append(p, end, " cap_idle=%u", capIdle);
     Append(p, end, " idr=%u burst_ms_max=%u send_fail=%u", idrN, burst, fail);
+    if (caps_.queueDrop) Append(p, end, " q_drop=%u", queued);
     if (caps_.zerocopy) Append(p, end, " zerocopy=%d", zerocopy ? 1 : 0);
     return buf;
 }

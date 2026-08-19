@@ -71,6 +71,19 @@ jobs:
         if: matrix.language == 'c-cpp'
         run: scripts/build-quiche.sh host
 
+      - name: Cache opus
+        if: matrix.language == 'c-cpp'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus
+            !third_party/opus/src
+          key: opus-host-ubuntu-latest-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        if: matrix.language == 'c-cpp'
+        run: scripts/build-opus.sh host
+
       - name: Cache quiche for Android
         if: matrix.language == 'java-kotlin'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -88,6 +101,22 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
           scripts/build-quiche.sh android
 
+      - name: Cache opus for Android
+        if: matrix.language == 'java-kotlin'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-linux-android
+            third_party/opus/x86_64-linux-android
+          key: opus-android-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus for every ABI (static audio codec)
+        if: matrix.language == 'java-kotlin'
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+          scripts/build-opus.sh android
+
       - name: Cache quiche for macOS
         if: matrix.language == 'swift'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -104,6 +133,23 @@ jobs:
         run: |
           scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
           test -f third_party/quiche/macos-universal/libquiche.a
+
+      - name: Cache opus for macOS
+        if: matrix.language == 'swift'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-apple-darwin
+            third_party/opus/x86_64-apple-darwin
+            third_party/opus/macos-universal
+          key: opus-macos-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec, macOS)
+        if: matrix.language == 'swift'
+        run: |
+          scripts/build-opus.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/opus/macos-universal/libopus.a
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6

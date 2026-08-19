@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,6 +25,14 @@ public:
 
     void Stop() {
         engine_.Stop();
+    }
+
+    void OfferAudio(std::span<const int16_t> pcm) {
+        engine_.OfferAudio(pcm);
+    }
+
+    bool audioRunning() const {
+        return engine_.audioRunning();
     }
 
     void StopSource(uint8_t sourceId) {

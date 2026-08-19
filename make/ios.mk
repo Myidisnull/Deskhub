@@ -5,14 +5,18 @@ IOS_BUNDLE := com.ios.deskhub
 IOS_APP    := out/build/ios/Debug-iphonesimulator/app.app
 IOS_DEVICE ?=
 IOS_QUICHE_TARGETS := aarch64-apple-ios-sim aarch64-apple-ios
+IOS_OPUS_TARGETS := aarch64-apple-ios-sim aarch64-apple-ios
 
 quiche-ios:
 	-@$(QUICHE_FOR) $(IOS_QUICHE_TARGETS)
 
-build-ios: quiche-ios
+opus-ios:
+	-@$(OPUS_FOR) $(IOS_OPUS_TARGETS)
+
+build-ios: quiche-ios opus-ios
 	xcodebuild -project $(IOS_PROJ) -target app -configuration Debug -sdk iphonesimulator SYMROOT=$(IOS_OUT) build
 
-release-ios: quiche-ios
+release-ios: quiche-ios opus-ios
 	xcodebuild -project $(IOS_PROJ) -target app -configuration Release -sdk iphonesimulator SYMROOT=$(IOS_OUT) build
 
 run-ios: build-ios
@@ -32,8 +36,8 @@ run-ios: build-ios
 	xcrun simctl install "$$udid" $(IOS_APP); \
 	xcrun simctl launch "$$udid" $(IOS_BUNDLE)
 else
-quiche-ios build-ios release-ios run-ios:
+quiche-ios opus-ios build-ios release-ios run-ios:
 	@echo "make $@: needs macOS + Xcode"; exit 1
 endif
 
-.PHONY: quiche-ios build-ios release-ios run-ios
+.PHONY: quiche-ios opus-ios build-ios release-ios run-ios

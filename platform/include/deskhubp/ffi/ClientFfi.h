@@ -213,6 +213,8 @@ typedef enum {
     DHStrHostHasNoTerminal = 127,
     DHStrWaitingForDisplays = 128,
     DHStrNoDisplayFound = 129,
+    DHStrShareAudioLabel = 130,
+    DHStrPlayAudioLabel = 131,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

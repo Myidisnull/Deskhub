@@ -23,6 +23,9 @@ std::string ViewerAddrList(const deskhub::SourcePipelineState& st);
 void SendEncodedFrame(deskhub::SourcePipelineState& st, SessionTransport& sock,
     std::span<const uint8_t> frame, uint64_t timestampUs, bool keyframe);
 
+size_t SendAudioFrame(deskhub::SourcePipelineState& st, SessionTransport& sock,
+    std::span<const uint8_t> opusFrame, uint32_t seq, uint64_t timestampUs);
+
 void LogListeningAddresses(uint16_t port, const std::string& boundIp = {});
 
 std::vector<deskhub::SourcePipelineState*> SelectLiveSources(

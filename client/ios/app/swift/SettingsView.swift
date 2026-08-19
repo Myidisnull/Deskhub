@@ -35,6 +35,18 @@ struct SettingsView: View {
                 .onChange(of: settings.clipboardSync) { _, _ in
                     settings.save()
                 }
+                Toggle(isOn: $settings.shareAudio) {
+                    Text(DeskhubClient.string(DHStrShareAudioLabel))
+                }
+                .onChange(of: settings.shareAudio) { _, _ in
+                    settings.save()
+                }
+                Toggle(isOn: $settings.playAudio) {
+                    Text(DeskhubClient.string(DHStrPlayAudioLabel))
+                }
+                .onChange(of: settings.playAudio) { _, _ in
+                    settings.save()
+                }
                 Toggle(isOn: $settings.keepAwake) {
                     Text(DeskhubClient.string(DHStrKeepAwakeLabel))
                 }

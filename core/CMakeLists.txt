@@ -17,6 +17,7 @@ add_library(core STATIC
 
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
+    src/transport/AudioJitterBuffer.cpp
     src/transport/RetransmitCache.cpp
 
     src/session/HostSession.cpp
@@ -40,11 +41,13 @@ add_library(core STATIC
     src/control/StreamSize.cpp
     src/control/FrameGate.cpp
     src/control/ClockOffset.cpp
+    src/control/VideoPacer.cpp
     src/control/QualityLadder.cpp
 
     src/media/ViewFit.cpp
     src/media/H264Sps.cpp
     src/media/AnnexB.cpp
+    src/media/RgbDownscale.cpp
     src/media/RatePlan.cpp
     src/media/H264Encode.cpp
 
@@ -99,6 +102,7 @@ if(DESKHUB_CORE_TESTS)
         tests/protocol/WireTests.cpp
 
         tests/transport/ReassemblerTests.cpp
+        tests/transport/AudioJitterBufferTests.cpp
         tests/transport/FecTests.cpp
         tests/transport/RetransmitCacheTests.cpp
         tests/transport/PacerTests.cpp
@@ -131,6 +135,7 @@ if(DESKHUB_CORE_TESTS)
         tests/control/StreamSizeTests.cpp
         tests/control/FrameGateTests.cpp
         tests/control/ClockOffsetTests.cpp
+        tests/control/VideoPacerTests.cpp
         tests/control/QualityLadderTests.cpp
 
         tests/diag/DiagTests.cpp
@@ -145,6 +150,8 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ViewFitTests.cpp
         tests/media/SourceLabelTests.cpp
         tests/media/ViewerTitleTests.cpp
+        tests/media/FrameMailboxTests.cpp
+        tests/media/RgbDownscaleTests.cpp
 
         tests/session/BeaconTests.cpp
 

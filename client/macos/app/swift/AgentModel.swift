@@ -56,6 +56,8 @@ final class AgentModel {
     var autostart = dh_autostart_enabled()
     var startHidden = dh_start_hidden()
     var clipboardSync = dh_clipboard_sync()
+    var shareAudio = dh_share_audio()
+    var playAudio = dh_play_audio()
     var keepAwake = dh_keep_awake()
     var didAutoShare = false
     var autoShareWaitNote = ""
@@ -98,6 +100,8 @@ final class AgentModel {
         dh_set_auto_share(autoShare)
         dh_set_start_hidden(startHidden)
         dh_set_clipboard_sync(clipboardSync)
+        dh_set_share_audio(shareAudio)
+        dh_set_play_audio(playAudio)
         dh_set_keep_awake(keepAwake)
     }
 

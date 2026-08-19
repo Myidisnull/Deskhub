@@ -26,6 +26,7 @@ struct Rig {
 
     diag::ClientDiag diag;
     std::vector<Reassembler::Frame> frames;
+    std::vector<std::pair<uint32_t, Datagram>> audio;
     std::vector<std::string> logs;
     std::string status;
     std::string ended;
@@ -39,6 +40,9 @@ struct Rig {
         ClientPumpCallbacks cb;
         cb.send = [this](std::span<const uint8_t> d) { toHost.emplace_back(d.begin(), d.end()); };
         cb.onFrame = [this](Reassembler::Frame&& f) { frames.push_back(std::move(f)); };
+        cb.onAudioPacket = [this](const AudioPacketView& v) {
+            audio.emplace_back(v.hdr.seq, Datagram(v.payload.begin(), v.payload.end()));
+        };
         cb.onParams = [this](const NegotiatedParams& p, bool reconfigured) {
             params = p;
             ++paramsCalls;
@@ -594,6 +598,65 @@ void TestFocusInputByeAndRtt() {
 
 }
 
+void TestAudioOnlyFlowsWhenAskedFor() {
+    std::printf("[pump] audio reaches the speaker only for a viewer that asked for it...\n");
+
+    auto run = [](bool wantsAudio) {
+        struct Result {
+            size_t packets = 0;
+            uint32_t seq = 0;
+            uint8_t firstByte = 0;
+            bool helloAskedForAudio = false;
+            size_t audioViewers = 0;
+        } out;
+
+        Rig r;
+        ClientPump pump(r.Callbacks(), r.diag);
+
+        HostCallbacks hcb;
+        hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
+        hcb.randomBytes = TestRandomBytes;
+        HostSession host(hcb, StreamParams{1920, 1080, 60, 20'000'000});
+        host.SetPasscode(kTestPasscode);
+
+        const uint64_t now = 10'000'000;
+        ClientPumpConfig cfg = TestPumpCfg(2, 1920, 1080, 0, 60);
+        cfg.wantsAudio = wantsAudio;
+        pump.Start(cfg, now);
+
+        const auto hello = ParseHello(PayloadOf(r.toHost.front()));
+        out.helloAskedForAudio = hello && (hello->features & kClientWantsAudio) != 0;
+        Exchange(r, pump, host, now);
+
+        uint64_t addrs[kMaxViewersPerHost];
+        out.audioViewers = host.SnapshotAudioViewerAddrs(addrs);
+
+        const std::vector<uint8_t> opus = {0xFC, 0x11, 0x22, 0x33};
+        uint8_t buf[kMaxDatagram];
+        const AudioHeader ah{42, 1'234'000};
+        const size_t n = BuildAudioPacket(buf, host.sessionId(), ah, opus);
+        pump.OnDatagram(std::span<const uint8_t>(buf, n), now);
+
+        out.packets = r.audio.size();
+        if (out.packets) {
+            out.seq = r.audio.front().first;
+            out.firstByte = r.audio.front().second.front();
+        }
+        return out;
+    };
+
+    const auto asked = run(true);
+    Check(asked.helloAskedForAudio, "the HELLO says the viewer wants sound");
+    Check(asked.audioViewers == 1, "the host counts it among the viewers to send audio to");
+    Check(asked.packets == 1 && asked.seq == 42 && asked.firstByte == 0xFC,
+        "the Opus frame arrives untouched, sequence and all");
+
+    const auto silent = run(false);
+    Check(!silent.helloAskedForAudio, "a viewer that wants no sound says nothing");
+    Check(silent.audioViewers == 0, "the host has nobody to send audio to");
+    Check(silent.packets == 0, "and an audio packet that arrives anyway is ignored");
+}
+
 void RunClientPumpTests() {
     TestHandshakeAndParams();
     TestVideoReachesTheFrameSink();
@@ -610,4 +673,5 @@ void RunClientPumpTests() {
     TestLossAsksForAKeyframe();
     TestLossRunsLineIsPrinted();
     TestFocusInputByeAndRtt();
+    TestAudioOnlyFlowsWhenAskedFor();
 }

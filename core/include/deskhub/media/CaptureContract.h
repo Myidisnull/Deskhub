@@ -14,6 +14,7 @@ struct FrameMeta {
 struct CaptureOptions {
     uint32_t fps = 60;
     uint32_t maxDim = 0;
+    bool audio = false;
 };
 
 template <class F>

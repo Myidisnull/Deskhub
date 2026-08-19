@@ -25,6 +25,7 @@ AMediaFormat* MakeEncoderFormat(const EncoderConfig& cfg) {
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_COLOR_FORMAT, kColorFormatSurface);
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_BIT_RATE, int32_t(cfg.bitrateBps));
     AMediaFormat_setFloat(fmt, AMEDIAFORMAT_KEY_FRAME_RATE, float(cfg.fps));
+    AMediaFormat_setFloat(fmt, "max-fps-to-encoder", float(cfg.fps));
     AMediaFormat_setInt32(fmt, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, kKeyframeIntervalSecs);
     AMediaFormat_setInt32(fmt, "bitrate-mode", kBitrateModeCbr);
     AMediaFormat_setInt32(fmt, "max-bframes", 0);

@@ -243,6 +243,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     for (HostSource* st : live_) AttachSession(*st);
 
     localInputMon_.Start();
+    StartAudio();
     if (policy_.onSharing) policy_.onSharing();
     LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live_.size());
 
@@ -266,6 +267,8 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 void HostEngine::Stop() {
     if (pipes_.empty() && !recvThread_.joinable()) return;
 
+    if (policy_.stopAudioCapture) policy_.stopAudioCapture();
+    audio_.Stop();
     quit_.store(true);
     if (recvThread_.joinable()) recvThread_.join();
     running_.store(false, std::memory_order_release);
@@ -370,6 +373,26 @@ void HostEngine::DrainControlRequests() {
     PublishStatus();
 }
 
+void HostEngine::StartAudio() {
+    if (!opt_.audio) return;
+    if (!policy_.startAudioCapture) {
+        LOGW("[Agent] Sharing without sound: this build captures no audio.");
+        return;
+    }
+    if (!audio_.Start([this](std::span<const uint8_t> frame, uint32_t seq,
+                          uint64_t timestampUs) {
+            for (HostSource* st : live_) SendAudioFrame(*st, sock_, frame, seq, timestampUs);
+        })) {
+        LOGW("[Agent] Sharing without sound: the audio encoder did not start.");
+        return;
+    }
+    if (!policy_.startAudioCapture(audio_.format(),
+            [this](std::span<const int16_t> pcm) { audio_.Offer(pcm); })) {
+        LOGW("[Agent] Sharing without sound: nothing to capture it from.");
+        audio_.Stop();
+    }
+}
+
 void HostEngine::RecvLoop() {
     beacon_.SetPasscode(opt_.passcode);
 
@@ -378,7 +401,7 @@ void HostEngine::RecvLoop() {
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
         beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput,
-            terminal_ != nullptr && terminal_->Running()});
+            terminal_ != nullptr && terminal_->Running(), audio_.running()});
         DrainControlRequests();
         DrainLocalClipboard();
     };

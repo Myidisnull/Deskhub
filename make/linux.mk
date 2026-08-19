@@ -5,10 +5,10 @@ LINUX_APP_RELEASE := out/build/x64-release/client/linux/deskhub
 ffmpeg-min:
 	@scripts/build-ffmpeg.sh
 
-build-linux: ffmpeg-min quiche
+build-linux: ffmpeg-min quiche opus
 	@cmake --preset x64-debug -DDESKHUB_LINUX_APP=ON -DDESKHUB_REQUIRE_LINUX_APP=ON && cmake --build --preset x64-debug --target deskhub_app
 
-release-linux: ffmpeg-min quiche
+release-linux: ffmpeg-min quiche opus
 	@cmake --preset x64-release -DDESKHUB_LINUX_APP=ON -DDESKHUB_REQUIRE_LINUX_APP=ON && cmake --build --preset x64-release --target deskhub_app
 
 run-linux: build-linux

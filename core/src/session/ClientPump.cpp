@@ -57,7 +57,7 @@ void ClientPump::Start(const ClientPumpConfig& cfg, uint64_t nowUs) {
     hello.maxWidth = cfg.maxWidth;
     hello.maxHeight = cfg.maxHeight;
     hello.desiredFps = cfg.desiredFps;
-    hello.features = 0;
+    hello.features = cfg.wantsAudio ? kClientWantsAudio : 0;
     hello.sourceId = cfg.sourceId;
     hello.passcode = cfg.passcode;
     hello.clientName = cfg.displayName;
@@ -78,6 +78,16 @@ void ClientPump::OnDatagram(std::span<const uint8_t> pkt, uint64_t nowUs) {
     const auto h = ParseCommonHeader(pkt);
     if (!h) return;
 
+    if (h->chan == Chan::Audio) {
+        if (h->sessionId != session_.sessionId() || session_.sessionId() == 0) return;
+        if (!cfg_.wantsAudio || !cb_.onAudioPacket) return;
+        if (const auto v = ParseAudioPacket(PayloadOf(pkt))) {
+            session_.NotifyVideoPacket(nowUs);
+            cb_.onAudioPacket(*v);
+            windowBytes_ += v->payload.size();
+        }
+        return;
+    }
     if (h->chan != Chan::Video) {
         session_.HandlePacket(pkt, nowUs);
         return;

@@ -66,6 +66,10 @@ typedef struct {
 bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
     uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode, bool terminal);
 
+void dha_offer_audio(const int16_t* pcm, int samples);
+
+bool dha_audio_running(void);
+
 bool dha_terminal_active(void);
 
 void dha_kick_shell(uint32_t term_id);

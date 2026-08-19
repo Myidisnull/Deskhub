@@ -205,6 +205,15 @@ std::vector<Vector> AllVectors() {
                  },
         "02110101112233440a0b0c0d01020304050607080005010001020304"});
 
+    v.push_back({"AUDIO_PACKET", [](std::span<uint8_t> out) {
+                     AudioHeader ah{};
+                     ah.seq = 0x0A0B0C0D;
+                     ah.timestampUs = 0x0102030405060708ull;
+                     const uint8_t frame[] = {0xFC, 0x11, 0x22, 0x33};
+                     return BuildAudioPacket(out, 0x11223344, ah, frame);
+                 },
+        "02120003112233440a0b0c0d0102030405060708fc112233"});
+
     v.push_back({"INPUT_EVENT", [](std::span<uint8_t> out) {
                      const auto e = SampleInput();
                      return BuildInputEvents(out, 0x11223344, 0x00010203, e);

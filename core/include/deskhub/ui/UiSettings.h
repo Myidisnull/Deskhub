@@ -22,6 +22,8 @@ struct UiSettings {
     bool autostart = false;
     bool autoShare = false;
     bool clipboardSync = false;
+    bool shareAudio = true;
+    bool playAudio = true;
     bool startHidden = false;
     bool keepAwake = true;
     bool allowNewPairings = true;

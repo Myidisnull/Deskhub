@@ -78,6 +78,8 @@ object NativeClient {
     const val STR_BIND_INTERFACE_LABEL = 61
     const val STR_BIND_ALL_INTERFACES = 62
     const val STR_CLIPBOARD_SYNC_LABEL = 65
+    const val STR_SHARE_AUDIO_LABEL = 130
+    const val STR_PLAY_AUDIO_LABEL = 131
     const val STR_BIND_NOT_CONNECTED = 70
     const val STR_SECTION_CONNECTION = 72
     const val STR_SECTION_SESSION = 74
@@ -257,6 +259,22 @@ object NativeClient {
     fun clientControl(): Boolean = nativeClientControl()
 
     fun setClientControl(on: Boolean) = nativeSetClientControl(on)
+
+    private external fun nativeShareAudio(): Boolean
+
+    private external fun nativeSetShareAudio(on: Boolean)
+
+    private external fun nativePlayAudio(): Boolean
+
+    private external fun nativeSetPlayAudio(on: Boolean)
+
+    fun shareAudio(): Boolean = nativeShareAudio()
+
+    fun setShareAudio(on: Boolean) = nativeSetShareAudio(on)
+
+    fun playAudio(): Boolean = nativePlayAudio()
+
+    fun setPlayAudio(on: Boolean) = nativeSetPlayAudio(on)
 
     private external fun nativeClipboardSync(): Boolean
 

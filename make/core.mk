@@ -21,10 +21,13 @@ endif
 quiche:
 	-@$(QUICHE)
 
-debug: quiche
+opus:
+	-@$(OPUS)
+
+debug: quiche opus
 	@$(DEVCMD) cmake --preset x64-debug && cmake --build --preset x64-debug
 
-release: quiche
+release: quiche opus
 	@$(DEVCMD) cmake --preset x64-release && cmake --build --preset x64-release
 
 test:
@@ -110,4 +113,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: quiche debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage
+.PHONY: quiche opus debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage

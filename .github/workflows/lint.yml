@@ -64,6 +64,17 @@ jobs:
       - name: Build quiche (static QUIC + TLS)
         run: scripts/build-quiche.sh host
 
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus
+            !third_party/opus/src
+          key: opus-host-ubuntu-latest-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: scripts/build-opus.sh host
+
       - name: Generate the compile database
         run: cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
 
