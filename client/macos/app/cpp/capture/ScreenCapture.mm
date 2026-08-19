@@ -52,6 +52,11 @@ struct ScreenCapture::Impl {
     std::atomic<uint32_t> idleFrames{0};
 };
 
+struct DeinterleavedBufferList {
+    AudioBufferList list;
+    AudioBuffer extra[deskhub::media::kAudioChannels - 1];
+};
+
 @interface DeskhubStreamOutput : NSObject <SCStreamOutput, SCStreamDelegate>
 @property(nonatomic, assign) ScreenCapture::Impl* impl;
 - (void)forwardAudio:(CMSampleBufferRef)sampleBuffer to:(ScreenCapture::Impl*)impl;
@@ -95,24 +100,24 @@ struct ScreenCapture::Impl {
 }
 
 - (void)forwardAudio:(CMSampleBufferRef)sampleBuffer to:(ScreenCapture::Impl*)impl {
-    AudioBufferList list{};
+    DeinterleavedBufferList storage{};
+    AudioBufferList* list = &storage.list;
     CMBlockBufferRef block = nullptr;
-    const OSStatus status =
-        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, nullptr, &list,
-            sizeof(list), nullptr, nullptr, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            &block);
-    if (status != noErr || list.mNumberBuffers == 0) {
+    const OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer,
+        nullptr, list, sizeof(storage), nullptr, nullptr,
+        kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &block);
+    if (status != noErr || list->mNumberBuffers == 0) {
         if (block) CFRelease(block);
         return;
     }
 
     const float* channels[deskhub::media::kAudioChannels] = {};
-    const size_t channelCount = std::min<size_t>(list.mNumberBuffers,
+    const size_t channelCount = std::min<size_t>(list->mNumberBuffers,
         deskhub::media::kAudioChannels);
     for (size_t i = 0; i < channelCount; ++i)
-        channels[i] = static_cast<const float*>(list.mBuffers[i].mData);
+        channels[i] = static_cast<const float*>(list->mBuffers[i].mData);
 
-    const size_t frames = list.mBuffers[0].mDataByteSize / sizeof(float);
+    const size_t frames = list->mBuffers[0].mDataByteSize / sizeof(float);
     if (channels[0] && frames) impl->FeedAudio(channels, channelCount, frames);
     CFRelease(block);
 }

@@ -2,6 +2,7 @@
 #include "deskhubp/diag/Log.h"
 
 #include <pipewire/pipewire.h>
+#include <pipewire/version.h>
 #include <spa/param/audio/format-utils.h>
 #include <spa/utils/result.h>
 
@@ -81,10 +82,14 @@ void AudioSink::Impl::OnProcess(void* userdata) {
 
     const size_t stride = sizeof(int16_t) * impl->format.channels;
     size_t wantedSamples = d.maxsize / sizeof(int16_t);
+#if PW_CHECK_VERSION(0, 3, 49)
     if (b->requested != 0) {
         const size_t requested = size_t(b->requested) * impl->format.channels;
         wantedSamples = std::min(wantedSamples, requested);
     }
+#else
+    wantedSamples = std::min(wantedSamples, impl->format.interleavedSamples());
+#endif
 
     auto* out = static_cast<int16_t*>(d.data);
     const size_t got = impl->Take(out, wantedSamples);
