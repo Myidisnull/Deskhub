@@ -202,22 +202,51 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
 
-- **The Linux host encodes on its own thread, never in the capture callback**: encoding
-  inside PipeWire's `process` callback throttled capture to `1000 / enc_ms` fps and
-  turned every encode-time wobble into frame-cadence jitter on the client. Mapped
-  frames are copied once (buffers recycled through a small pool) and handed to a
-  dedicated encode thread through `FrameMailbox`, a latest-wins single-slot queue —
-  when the encoder falls behind, the freshest frame wins and the stale one is counted,
-  not queued. Dma-buf frames still encode inline: the compositor reuses their backing
-  memory the moment the callback returns, so they cannot outlive it.
+- **The frame gate counts to a deadline, not from the last frame it kept**: a compositor
+  that hands over 40 fps against a 30 fps target has no frame at all on most of the
+  33 ms boundaries, so a gate that only asks "is this far enough after the one I kept?"
+  rejects every second frame and settles at 20 fps — under target, and ragged, which is
+  judder rather than a slower stream. `FrameGate` carries a running due time instead:
+  admitting advances it by exactly one interval, so the remainder is kept and 40 in
+  gives 30 out. A capture slower than the target is never decimated, and a due time
+  that has fallen behind real time resyncs rather than banking a burst, so a quiet
+  spell cannot buy one later.
+
+- **The Linux host encodes on its own thread, and hands that thread the small frame,
+  not the big one**: encoding inside PipeWire's `process` callback throttled capture to
+  `1000 / enc_ms` fps and turned every encode-time wobble into frame-cadence jitter on
+  the client. The encode now runs on its own thread, fed through `FrameMailbox`, a
+  latest-wins single-slot queue — when the encoder falls behind, the freshest frame
+  wins and the stale one is counted, not queued. What crosses the queue is the frame
+  already downscaled to encode size, roughly a seventh of the bytes. Copying the
+  full-resolution frame across instead cost far more than the copy itself: 20 MB of
+  cache lines left dirty in the capture core, which the encode core then had to pull
+  across, measured at 16 ms against 3.4 ms for the same read of memory it did not own.
+  The capture thread has to touch every source pixel once regardless, so it is the
+  right place to spend that single pass. Dma-buf frames still encode inline: the
+  compositor reuses their backing memory the moment the callback returns, so they
+  cannot outlive it, and VA-API scales them on the GPU anyway.
 - **The Linux host picks its encoder by where the frame lives, not by what is
   installed**: a dma-buf frame goes to VA-API, which can import it zero-copy on the
   GPU that produced it; a mapped (CPU) frame goes to NVENC when an NVIDIA driver is
-  present, because once the pixels are in system memory the fastest encoder wins —
-  on a desktop rendered by the NVIDIA GPU the compositor renegotiates screencast to
-  shared memory anyway, and VA-API on the idle iGPU was measured at 23 ms a frame
-  against NVENC's 3. `HwEncoder` makes that call per encoder rebuild, and a frame of
-  the other kind arriving later returns `false`, which is the signal to rebuild.
+  present, because on a desktop rendered by an NVIDIA GPU the compositor renegotiates
+  screencast to shared memory, and the encode then belongs on the card that can take
+  the pixels straight from system memory. `HwEncoder` makes that call per encoder
+  rebuild, and a frame of the other kind arriving later returns `false`, which is the
+  signal to rebuild.
+- **The downscale ahead of NVENC is ours, not swscale's**: NVENC takes packed 32-bit
+  pixels but will not resize them, and the capture is a full-resolution desktop.
+  `libswscale` measured 9.2 ms for 3440x1440 → 1280x534 — roughly 2 GB/s, an order of
+  magnitude off this machine's memory bandwidth, because a packed-RGB rescale falls off
+  its optimised paths. `RgbDownscale` in `core/` is an area average written for exactly
+  this shape: one 32-bit load per source pixel, integer accumulation, 4.0 ms for the
+  same frame, and correct antialiasing rather than the bilinear tap swscale was giving.
+  Whole-frame NVENC cost lands at ~5 ms, so 60 fps has headroom.
+- **Performance numbers only mean anything from a release build**: `make build-linux`
+  and `make run-linux` configure the `x64-debug` preset, which is `-O0`, and the encode
+  path is now pixel arithmetic in `core/`. The same frame costs ~19 ms there against
+  ~5 ms from `make release-linux`. A judder report measured against a debug binary is
+  measuring the build type.
 
 - **Apple viewers pace video by PTS on a control timebase, and the pacer never trusts
   itself**: displaying every frame the moment it arrived made Wi-Fi arrival jitter

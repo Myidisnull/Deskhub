@@ -22,8 +22,7 @@ void TestLatestWins() {
     int got = 0;
     Check(box.TakeWait(got), "a frame is available");
     Check(got == 3, "and it is the newest one");
-    Check(box.TakeSuperseded() == 2, "the two older frames count as superseded");
-    Check(box.TakeSuperseded() == 0, "the counter resets on read");
+    Check(!box.Put(4).has_value(), "once taken, the next frame displaces nothing");
 }
 
 void TestTakeBlocksUntilPut() {
@@ -45,7 +44,6 @@ void TestCloseUnblocksAndRefuses() {
     taker.join();
 
     Check(box.Put(7).value_or(0) == 7, "a frame put after close bounces straight back");
-    Check(box.TakeSuperseded() == 0, "and is not counted as superseded");
     std::thread after([&] { Check(!box.TakeWait(got), "take after close returns nothing"); });
     after.join();
 }

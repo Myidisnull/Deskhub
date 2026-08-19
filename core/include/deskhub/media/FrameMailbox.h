@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
-#include <utility>
 
 namespace deskhub::media {
 
@@ -15,10 +14,7 @@ public:
         {
             std::lock_guard<std::mutex> lk(mutex_);
             if (closed_) return std::optional<Frame>(std::move(frame));
-            if (pending_) {
-                ++superseded_;
-                displaced = std::move(pending_);
-            }
+            if (pending_) displaced = std::move(pending_);
             pending_ = std::move(frame);
         }
         cv_.notify_one();
@@ -43,17 +39,11 @@ public:
         cv_.notify_all();
     }
 
-    uint64_t TakeSuperseded() {
-        std::lock_guard<std::mutex> lk(mutex_);
-        return std::exchange(superseded_, 0);
-    }
-
 private:
     std::mutex mutex_;
     std::condition_variable cv_;
     std::optional<Frame> pending_;
     bool closed_ = false;
-    uint64_t superseded_ = 0;
 };
 
 }

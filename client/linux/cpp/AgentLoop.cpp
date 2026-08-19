@@ -1,6 +1,5 @@
 #include "deskhubp/session/AgentLoop.h"
 
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -21,6 +20,7 @@
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/diag/AgentDiag.h"
 #include "deskhub/media/FrameMailbox.h"
+#include "deskhub/media/RgbDownscale.h"
 #include "deskhub/session/HostRouter.h"
 
 namespace {
@@ -29,15 +29,17 @@ using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, H
 
 struct SourcePipeline : LinuxSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : LinuxSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true}) {}
+        : LinuxSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true, true}) {}
 
     uint32_t nodeId = 0;
     int32_t srcX = 0, srcY = 0;
 
     deskhub::FrameGate frameGate;
 
+    deskhub::media::RgbDownscaler scaler;
     deskhub::media::FrameMailbox<CopiedFrame> encodeBox;
     std::thread encodeThread;
+    uint32_t encoderW = 0, encoderH = 0;
 
     std::vector<uint8_t> TakePixelBuffer() {
         std::lock_guard<std::mutex> lk(pixelPoolMutex_);
@@ -116,13 +118,16 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
         auto onPacket = engine->MakePacketSink(*p);
 
-        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h,
-                                 FrameMemory frameKind) -> bool {
-            if (p->encoder && p->encoder->IsOpen()) return true;
+        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h, FrameMemory frameKind,
+                                 uint32_t drmFormat) -> bool {
+            if (p->encoder && p->encoder->IsOpen() && p->encoderW == w && p->encoderH == h)
+                return true;
+            p->encoder.reset();
+            p->SetCachedFrame(false);
             EncoderConfig cfg = deskhub::MakeEncoderConfig(*p, {w, h}, fps);
             cfg.onPacket = onPacket;
             auto enc = std::make_unique<HwEncoder>();
-            if (!enc->Init(cfg, frameKind)) {
+            if (!enc->Init(cfg, frameKind, drmFormat)) {
                 LOGE("[Agent][%s] No hardware encoder would start (NVENC or VA-API).",
                     p->name.c_str());
                 p->failed.store(true);
@@ -130,28 +135,16 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             }
             LOGI("[Agent][%s] Encoding with %s.", p->name.c_str(), enc->BackendName());
             p->encoder = std::move(enc);
+            p->encoderW = w;
+            p->encoderH = h;
             return true;
         };
 
-        auto encodeAdmitted = [p, ensureEncoder, maxDim](const LinuxFrameInfo& fi) {
+        auto encodeAt = [p, ensureEncoder](const LinuxFrameInfo& fi, uint32_t encodeW,
+                            uint32_t encodeH) {
             std::lock_guard<std::mutex> lk(p->encMutex);
+            if (!ensureEncoder(encodeW, encodeH, fi.memory, fi.drmFormat)) return;
 
-            const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
-                fi.meta.height, maxDim);
-            if (adm.rebuildEncoder) {
-                p->encoder.reset();
-                p->SetCachedFrame(false);
-            }
-            if (!adm.sizeNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
-            if (!adm.pauseNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
-            if (adm.drop) return;
-
-            p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
-
-            if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!ensureEncoder(adm.encode.width, adm.encode.height, fi.memory)) return;
             const bool idr = p->forceIdr.exchange(false);
             HwEncoder* enc = p->encoder.get();
             const bool ok = deskhubp::DiagEncode(*p, idr,
@@ -165,7 +158,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->SetCachedFrame(enc->haveSourceFrame());
         };
 
-        auto onFrame = [p, encodeAdmitted](const LinuxFrameInfo& fi) {
+        auto onFrame = [p, encodeAt, maxDim](const LinuxFrameInfo& fi) {
             p->captured.fetch_add(1, std::memory_order_relaxed);
             if (p->failed.load()) return;
 
@@ -173,27 +166,47 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                     fi.meta.timestampUs))
                 return;
 
+            const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
+                fi.meta.height, maxDim);
+            if (!adm.sizeNote.empty())
+                LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
+            if (!adm.pauseNote.empty())
+                LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
+            if (adm.drop) return;
+
+            p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
+            if (!p->netReady.load(std::memory_order_acquire)) return;
+
             if (fi.memory == FrameMemory::DmaBuf) {
-                encodeAdmitted(fi);
+                encodeAt(fi, adm.encode.width, adm.encode.height);
                 return;
             }
 
+            if (!p->scaler.Matches(fi.meta.width, fi.meta.height, adm.encode.width,
+                    adm.encode.height))
+                p->scaler.Configure(fi.meta.width, fi.meta.height, adm.encode.width,
+                    adm.encode.height);
+            if (!p->scaler.ready()) return;
+
             CopiedFrame copy;
             copy.pixels = p->TakePixelBuffer();
-            const size_t bytes = size_t(fi.stride) * fi.meta.height;
-            copy.pixels.resize(bytes);
-            std::memcpy(copy.pixels.data(), fi.handle, bytes);
-            copy.stride = fi.stride;
+            copy.stride = adm.encode.width * deskhub::media::kPackedPixelBytes;
+            copy.pixels.resize(size_t(copy.stride) * adm.encode.height);
+            p->scaler.Scale(fi.handle, fi.stride, copy.pixels.data(), copy.stride);
             copy.drmFormat = fi.drmFormat;
             copy.meta = fi.meta;
-            if (auto displaced = p->encodeBox.Put(std::move(copy)))
+            copy.meta.width = adm.encode.width;
+            copy.meta.height = adm.encode.height;
+            if (auto displaced = p->encodeBox.Put(std::move(copy))) {
+                p->diag.queueDrop.Add();
                 p->ReturnPixelBuffer(std::move(displaced->pixels));
+            }
         };
 
-        p->encodeThread = std::thread([p, encodeAdmitted] {
+        p->encodeThread = std::thread([p, encodeAt] {
             CopiedFrame copy;
             while (p->encodeBox.TakeWait(copy)) {
-                encodeAdmitted(FrameFromCopy(copy));
+                encodeAt(FrameFromCopy(copy), copy.meta.width, copy.meta.height);
                 p->ReturnPixelBuffer(std::move(copy.pixels));
             }
         });

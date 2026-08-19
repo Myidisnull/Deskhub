@@ -200,22 +200,49 @@ iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
-- **Host Linux encode trên thread riêng, không bao giờ trong callback capture**: encode
-  ngay trong callback `process` của PipeWire từng ghìm capture xuống `1000 / enc_ms`
-  fps và biến mọi dao động thời gian encode thành rung nhịp khung hình phía client.
-  Frame dạng mapped được copy một lần (buffer tái dùng qua một pool nhỏ) rồi chuyển cho
-  thread encode riêng qua `FrameMailbox`, một hàng đợi một-chỗ kiểu mới-nhất-thắng —
-  khi encoder chậm chân, frame mới nhất thắng và frame cũ được đếm chứ không xếp hàng.
-  Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay khi
-  callback trả về, nên chúng không thể sống lâu hơn callback.
+- **Cổng khung hình đếm tới một mốc hạn, không đếm từ khung nó vừa giữ**: một compositor
+  đưa sang 40 fps trong khi mục tiêu là 30 fps thì hầu hết các mốc 33 ms đều không có
+  khung nào rơi đúng vào, nên một cổng chỉ hỏi "khung này có cách khung tôi giữ đủ xa
+  không?" sẽ loại một khung xen kẽ và dừng ở 20 fps — vừa dưới mục tiêu, vừa lởm chởm,
+  tức là giật hình chứ không phải luồng chậm hơn. `FrameGate` thay vào đó mang theo một
+  mốc hạn chạy đều: mỗi lần nhận khung, mốc tiến đúng một chu kỳ, nên phần dư được giữ
+  lại và 40 vào cho ra 30. Capture chậm hơn mục tiêu không bao giờ bị chặt bớt, và một
+  mốc hạn đã tụt lại sau thời gian thực sẽ đồng bộ lại thay vì tích lũy, nên một quãng
+  lặng không mua được một cú dồn khung về sau.
+
+- **Host Linux encode trên thread riêng, và đưa cho thread đó khung hình nhỏ chứ không
+  phải khung lớn**: encode ngay trong callback `process` của PipeWire từng ghìm capture
+  xuống `1000 / enc_ms` fps và biến mọi dao động thời gian encode thành rung nhịp khung
+  hình phía client. Giờ encode chạy trên thread riêng, được nạp qua `FrameMailbox`, một
+  hàng đợi một-chỗ kiểu mới-nhất-thắng — khi encoder chậm chân, frame mới nhất thắng và
+  frame cũ được đếm chứ không xếp hàng. Thứ đi qua hàng đợi là khung hình đã thu nhỏ về
+  kích thước encode, còn khoảng một phần bảy số byte. Chuyển khung nguyên độ phân giải
+  qua đó tốn hơn nhiều so với bản thân phép copy: 20 MB cache line bị bỏ lại ở trạng
+  thái dirty trong core capture, và core encode phải kéo sang, đo được 16 ms so với
+  3,4 ms cho cùng phép đọc trên vùng nhớ nó không sở hữu. Thread capture đằng nào cũng
+  phải chạm mỗi pixel nguồn đúng một lần, nên đó là chỗ đúng để tiêu lượt duyệt duy
+  nhất ấy. Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay
+  khi callback trả về nên chúng không sống lâu hơn callback, và VA-API đằng nào cũng
+  thu nhỏ chúng trên GPU.
 - **Host Linux chọn encoder theo nơi frame nằm, không phải theo thứ được cài**: frame
   dma-buf đi vào VA-API, nơi import được zero-copy trên đúng GPU đã tạo ra nó; frame
-  mapped (CPU) đi vào NVENC khi có driver NVIDIA, vì một khi pixel đã nằm trong bộ nhớ
-  hệ thống thì encoder nhanh nhất thắng — trên desktop do GPU NVIDIA render, compositor
-  đằng nào cũng thương lượng lại screencast về shared memory, và VA-API trên iGPU nhàn
-  rỗi đo được 23 ms một frame so với 3 ms của NVENC. `HwEncoder` đưa ra lựa chọn đó mỗi
+  mapped (CPU) đi vào NVENC khi có driver NVIDIA, vì trên desktop do GPU NVIDIA render,
+  compositor thương lượng lại screencast về shared memory, và việc encode khi đó thuộc
+  về card lấy được pixel thẳng từ bộ nhớ hệ thống. `HwEncoder` đưa ra lựa chọn đó mỗi
   lần dựng lại encoder, và một frame khác loại đến sau sẽ trả về `false` — đó là tín
   hiệu để dựng lại.
+- **Phần thu nhỏ ảnh trước NVENC là của chúng ta, không phải của swscale**: NVENC nhận
+  pixel packed 32-bit nhưng không tự resize, còn ảnh capture là nguyên độ phân giải màn
+  hình. `libswscale` đo được 9,2 ms cho 3440x1440 → 1280x534 — khoảng 2 GB/s, kém băng
+  thông bộ nhớ của máy này cả một bậc, vì rescale packed-RGB rơi ra ngoài các đường đã
+  tối ưu của nó. `RgbDownscale` trong `core/` là một bộ trung bình theo vùng viết đúng
+  cho hình dạng này: mỗi pixel nguồn một lần nạp 32-bit, cộng dồn số nguyên, 4,0 ms cho
+  cùng khung hình đó, và khử răng cưa đúng cách thay vì một mẫu bilinear như swscale.
+  Tổng chi phí NVENC cho cả khung rơi vào ~5 ms, nên 60 fps còn dư chỗ.
+- **Các con số hiệu năng chỉ có ý nghĩa khi đo trên bản release**: `make build-linux`
+  và `make run-linux` cấu hình preset `x64-debug`, tức `-O0`, trong khi đường encode giờ
+  là số học pixel nằm trong `core/`. Cùng một khung hình tốn ~19 ms ở đó so với ~5 ms từ
+  `make release-linux`. Một báo cáo giật hình đo trên binary debug là đang đo kiểu build.
 
 - **Viewer Apple hiển thị video theo PTS trên một control timebase, và pacer không bao
   giờ tin chính nó**: hiển thị mỗi frame ngay lúc nó đến khiến jitter Wi-Fi hiện ra

@@ -14,17 +14,19 @@
 
 class HwEncoder {
 public:
-    bool Init(const deskhub::media::EncoderConfig& cfg, FrameMemory frameKind) {
+    bool Init(const deskhub::media::EncoderConfig& cfg, FrameMemory frameKind,
+        uint32_t drmFormat) {
 #ifdef DESKHUB_HAVE_NVENC
         if (frameKind == FrameMemory::Mapped && NvEncoder::DriverPresent()) {
             auto nv = std::make_unique<NvEncoder>();
-            if (nv->Init(cfg)) {
+            if (nv->Init(cfg, drmFormat)) {
                 nv_ = std::move(nv);
                 return true;
             }
         }
 #else
         (void)frameKind;
+        (void)drmFormat;
 #endif
         auto va = std::make_unique<VaEncoder>();
         if (!va->Init(cfg)) return false;

@@ -16,7 +16,7 @@ public:
 
     static bool DriverPresent();
 
-    bool Init(const deskhub::media::EncoderConfig& cfg);
+    bool Init(const deskhub::media::EncoderConfig& cfg, uint32_t drmFormat);
 
     bool Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forceKeyframe);
 

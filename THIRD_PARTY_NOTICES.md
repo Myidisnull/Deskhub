@@ -12,7 +12,7 @@ redistribution of Deskhub under the MIT License.
 
 | Component | License | Linkage |
 | --- | --- | --- |
-| [FFmpeg](https://ffmpeg.org) 8.0 — `libavcodec`, `libswscale`, `libavutil` | LGPL-2.1-or-later | **static** |
+| [FFmpeg](https://ffmpeg.org) 8.0 — `libavcodec`, `libavutil` | LGPL-2.1-or-later | **static** |
 | [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) (NVENC SDK 13.0 headers) | MIT | headers only |
 | [GTK](https://www.gtk.org) 3 | LGPL-2.1-or-later | dynamic |
 | [PipeWire](https://pipewire.org) 0.3 | MIT | dynamic |
@@ -27,10 +27,9 @@ redistribution of Deskhub under the MIT License.
 The Linux app is the only target that bundles FFmpeg. It is built from unmodified
 upstream FFmpeg 8.0 sources by [`scripts/build-ffmpeg.sh`](scripts/build-ffmpeg.sh),
 configured **without** `--enable-gpl` and **without** `--enable-nonfree`, with only the
-native H.264 decoder, the VA-API hwaccel and `libswscale` enabled. The resulting
-`libavcodec`, `libswscale` and `libavutil` are therefore covered by the GNU Lesser
-General Public License, version 2.1 or later — full text in
-[`licenses/LGPL-2.1.txt`](licenses/LGPL-2.1.txt).
+native H.264 decoder and the VA-API hwaccel enabled. The resulting `libavcodec` and
+`libavutil` are therefore covered by the GNU Lesser General Public License, version 2.1
+or later — full text in [`licenses/LGPL-2.1.txt`](licenses/LGPL-2.1.txt).
 
 Because these libraries are linked statically, LGPL-2.1 §6 requires that recipients be
 able to relink the application against a modified version of FFmpeg. Deskhub satisfies
