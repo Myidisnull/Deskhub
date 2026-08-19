@@ -27,6 +27,8 @@ struct TerminalGridSnapshot {
     var cursorCol = 0
     var cursorVisible = false
     var revision: UInt64 = 0
+    var scrollbackRows = 0
+    var scrollOffset = 0
     var cells: [DHTermCell] = []
 
     func cell(_ row: Int, _ col: Int) -> DHTermCell {
@@ -42,7 +44,8 @@ struct TerminalGridSnapshot {
 
     func answerTrust(_ accept: Bool)
     func grid(
-        into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32, info: inout DHTermGrid
+        scrollOffset: UInt32, into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32,
+        info: inout DHTermGrid
     ) -> Bool
     func sendKey(_ key: Int32, codepoint: UInt32, shift: Bool, alt: Bool, ctrl: Bool)
     func sendText(_ text: String)
@@ -94,10 +97,11 @@ final class RemoteTerminalFeed: TerminalFeed {
     }
 
     func grid(
-        into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32, info: inout DHTermGrid
+        scrollOffset: UInt32, into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32,
+        info: inout DHTermGrid
     ) -> Bool {
         guard let handle else { return false }
-        return dh_term_grid(handle, 0, cells, capacity, &info)
+        return dh_term_grid(handle, scrollOffset, cells, capacity, &info)
     }
 
     func sendKey(_ key: Int32, codepoint: UInt32, shift: Bool, alt: Bool, ctrl: Bool) {
@@ -137,6 +141,8 @@ final class TerminalModel {
     private var feed: (any TerminalFeed)?
     private var pollTimer: Timer?
     private var lastRevision = UInt64.max
+    private var lastOffset = -1
+    private var lastScrollbackRows = 0
 
     var state: Int32 = 0
     var message = ""
@@ -146,6 +152,7 @@ final class TerminalModel {
     var trustFingerprint = ""
     var latchCtrl = false
     var latchAlt = false
+    private(set) var scrollOffset = 0
 
     var finished: Bool { state >= TerminalModel.refused }
 
@@ -164,7 +171,24 @@ final class TerminalModel {
         stop()
         feed = source
         lastRevision = .max
+        lastOffset = -1
+        lastScrollbackRows = 0
+        scrollOffset = 0
         startPolling()
+    }
+
+    func scrollBy(rows: Int) {
+        guard rows != 0 else { return }
+        let next = min(max(scrollOffset + rows, 0), grid.scrollbackRows)
+        guard next != scrollOffset else { return }
+        scrollOffset = next
+        poll()
+    }
+
+    func scrollToBottom() {
+        guard scrollOffset != 0 else { return }
+        scrollOffset = 0
+        poll()
     }
 
     func stop() {
@@ -202,16 +226,19 @@ final class TerminalModel {
         _ key: Int32, codepoint: UInt32 = 0, shift: Bool = false, alt: Bool = false,
         ctrl: Bool = false
     ) {
+        scrollToBottom()
         feed?.sendKey(key, codepoint: codepoint, shift: shift, alt: alt, ctrl: ctrl)
     }
 
     func sendText(_ text: String) {
         guard !text.isEmpty else { return }
+        scrollToBottom()
         feed?.sendText(text)
     }
 
     func paste(_ text: String) {
         guard !text.isEmpty else { return }
+        scrollToBottom()
         feed?.paste(text)
     }
 
@@ -240,15 +267,27 @@ final class TerminalModel {
         }
 
         var info = DHTermGrid()
-        _ = feed.grid(into: nil, capacity: 0, info: &info)
-        guard info.revision != lastRevision else { return }
+        _ = feed.grid(scrollOffset: UInt32(scrollOffset), into: nil, capacity: 0, info: &info)
+
+        let arrived = Int(info.scrollbackRows) - lastScrollbackRows
+        lastScrollbackRows = Int(info.scrollbackRows)
+        if scrollOffset > 0, arrived > 0 {
+            scrollOffset += arrived
+        }
+
+        guard info.revision != lastRevision || scrollOffset != lastOffset else { return }
         let needed = Int(info.rows) * Int(info.cols)
         var cells = [DHTermCell](repeating: DHTermCell(), count: max(needed, 1))
         let filled = cells.withUnsafeMutableBufferPointer { ptr in
-            feed.grid(into: ptr.baseAddress, capacity: UInt32(needed), info: &info)
+            feed.grid(
+                scrollOffset: UInt32(scrollOffset), into: ptr.baseAddress,
+                capacity: UInt32(needed), info: &info
+            )
         }
         guard filled || needed == 0 else { return }
         lastRevision = info.revision
+        scrollOffset = Int(info.scrollOffset)
+        lastOffset = scrollOffset
         grid = TerminalGridSnapshot(
             rows: Int(info.rows),
             cols: Int(info.cols),
@@ -256,6 +295,8 @@ final class TerminalModel {
             cursorCol: Int(info.cursorCol),
             cursorVisible: info.cursorVisible,
             revision: info.revision,
+            scrollbackRows: Int(info.scrollbackRows),
+            scrollOffset: scrollOffset,
             cells: Array(cells.prefix(needed))
         )
     }

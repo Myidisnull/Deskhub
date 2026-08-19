@@ -44,6 +44,8 @@ object NativeTerminal {
         val cursorRow: Int get() = data[2]
         val cursorCol: Int get() = data[3]
         val cursorVisible: Boolean get() = data[4] != 0
+        val scrollbackRows: Int get() = data[5]
+        val scrollOffset: Int get() = data[6]
         val revision: Long
             get() =
                 (data[8].toLong() shl 32) or (data[7].toLong() and 0xFFFFFFFFL)

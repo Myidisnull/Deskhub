@@ -27,9 +27,10 @@ final class LocalShellFeed: TerminalFeed {
     func answerTrust(_: Bool) {}
 
     func grid(
-        into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32, info: inout DHTermGrid
+        scrollOffset: UInt32, into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32,
+        info: inout DHTermGrid
     ) -> Bool {
-        dha_local_grid(termId, 0, cells, capacity, &info)
+        dha_local_grid(termId, scrollOffset, cells, capacity, &info)
     }
 
     func sendKey(_ key: Int32, codepoint: UInt32, shift: Bool, alt: Bool, ctrl: Bool) {
