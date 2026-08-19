@@ -31,14 +31,14 @@ jobs:
       - name: Tag must match VERSION
         run: scripts/check-version.sh
 
-  build:
+  build-desktop:
     needs: verify-tag
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/build-desktop.yml
     with:
       for_release: true
 
   github-release:
-    needs: build
+    needs: build-desktop
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
