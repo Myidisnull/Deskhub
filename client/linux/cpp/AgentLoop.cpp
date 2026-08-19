@@ -1,27 +1,31 @@
 #include "deskhubp/session/AgentLoop.h"
 
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <span>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "capture/AudioCapture.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/media/PortalScreenCast.h"
-#include "encode/VaEncoder.h"
+#include "encode/HwEncoder.h"
 #include "input/InputInjector.h"
 
 #include "deskhub/control/FrameGate.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/diag/AgentDiag.h"
+#include "deskhub/media/FrameMailbox.h"
 #include "deskhub/session/HostRouter.h"
 
 namespace {
 
-using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, VaEncoder>;
+using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, HwEncoder>;
 
 struct SourcePipeline : LinuxSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
@@ -31,6 +35,28 @@ struct SourcePipeline : LinuxSourceBase {
     int32_t srcX = 0, srcY = 0;
 
     deskhub::FrameGate frameGate;
+
+    deskhub::media::FrameMailbox<CopiedFrame> encodeBox;
+    std::thread encodeThread;
+
+    std::vector<uint8_t> TakePixelBuffer() {
+        std::lock_guard<std::mutex> lk(pixelPoolMutex_);
+        if (pixelPool_.empty()) return {};
+        std::vector<uint8_t> buffer = std::move(pixelPool_.back());
+        pixelPool_.pop_back();
+        return buffer;
+    }
+
+    void ReturnPixelBuffer(std::vector<uint8_t>&& buffer) {
+        std::lock_guard<std::mutex> lk(pixelPoolMutex_);
+        if (pixelPool_.size() < kPixelPoolDepth) pixelPool_.push_back(std::move(buffer));
+    }
+
+private:
+    static constexpr size_t kPixelPoolDepth = 2;
+
+    std::mutex pixelPoolMutex_;
+    std::vector<std::vector<uint8_t>> pixelPool_;
 };
 
 SourcePipeline& Pipeline(deskhubp::HostSource& st) {
@@ -90,24 +116,24 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
         auto onPacket = engine->MakePacketSink(*p);
 
-        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h) -> bool {
+        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h,
+                                 FrameMemory frameKind) -> bool {
             if (p->encoder && p->encoder->IsOpen()) return true;
             EncoderConfig cfg = deskhub::MakeEncoderConfig(*p, {w, h}, fps);
             cfg.onPacket = onPacket;
-            auto enc = std::make_unique<VaEncoder>();
-            if (!enc->Init(cfg)) {
-                LOGE("[Agent][%s] VA-API refused to start an encoder.", p->name.c_str());
+            auto enc = std::make_unique<HwEncoder>();
+            if (!enc->Init(cfg, frameKind)) {
+                LOGE("[Agent][%s] No hardware encoder would start (NVENC or VA-API).",
+                    p->name.c_str());
                 p->failed.store(true);
                 return false;
             }
+            LOGI("[Agent][%s] Encoding with %s.", p->name.c_str(), enc->BackendName());
             p->encoder = std::move(enc);
             return true;
         };
 
-        auto onFrame = [p, ensureEncoder, maxDim](const LinuxFrameInfo& fi) {
-            p->captured.fetch_add(1, std::memory_order_relaxed);
-            if (p->failed.load()) return;
-
+        auto encodeAdmitted = [p, ensureEncoder, maxDim](const LinuxFrameInfo& fi) {
             std::lock_guard<std::mutex> lk(p->encMutex);
 
             const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
@@ -122,16 +148,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                 LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
             if (adm.drop) return;
 
-            if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed),
-                    fi.meta.timestampUs))
-                return;
-
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
             if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!ensureEncoder(adm.encode.width, adm.encode.height)) return;
+            if (!ensureEncoder(adm.encode.width, adm.encode.height, fi.memory)) return;
             const bool idr = p->forceIdr.exchange(false);
-            VaEncoder* enc = p->encoder.get();
+            HwEncoder* enc = p->encoder.get();
             const bool ok = deskhubp::DiagEncode(*p, idr,
                 [enc, &fi, idr] { return enc->Encode(fi, fi.meta.timestampUs, idr); });
             if (!ok) {
@@ -143,16 +165,53 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->SetCachedFrame(enc->haveSourceFrame());
         };
 
+        auto onFrame = [p, encodeAdmitted](const LinuxFrameInfo& fi) {
+            p->captured.fetch_add(1, std::memory_order_relaxed);
+            if (p->failed.load()) return;
+
+            if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed),
+                    fi.meta.timestampUs))
+                return;
+
+            if (fi.memory == FrameMemory::DmaBuf) {
+                encodeAdmitted(fi);
+                return;
+            }
+
+            CopiedFrame copy;
+            copy.pixels = p->TakePixelBuffer();
+            const size_t bytes = size_t(fi.stride) * fi.meta.height;
+            copy.pixels.resize(bytes);
+            std::memcpy(copy.pixels.data(), fi.handle, bytes);
+            copy.stride = fi.stride;
+            copy.drmFormat = fi.drmFormat;
+            copy.meta = fi.meta;
+            if (auto displaced = p->encodeBox.Put(std::move(copy)))
+                p->ReturnPixelBuffer(std::move(displaced->pixels));
+        };
+
+        p->encodeThread = std::thread([p, encodeAdmitted] {
+            CopiedFrame copy;
+            while (p->encodeBox.TakeWait(copy)) {
+                encodeAdmitted(FrameFromCopy(copy));
+                p->ReturnPixelBuffer(std::move(copy.pixels));
+            }
+        });
+
         if (!p->capture.Start(p->nodeId, deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
             LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
                 p->name.c_str());
             p->failed.store(true);
+            p->encodeBox.Close();
+            p->encodeThread.join();
         }
     };
 
     policy.source.stopCapture = [](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
         p.capture.Stop();
+        p.encodeBox.Close();
+        if (p.encodeThread.joinable()) p.encodeThread.join();
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (p.encoder) p.encoder->Finish();
         p.SetCachedFrame(false);
@@ -188,7 +247,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         auto lk = deskhubp::TryHoldEncoder(p.encMutex);
         if (!lk.owns_lock() || !p.encoder || !p.hasCachedFrame()) return;
         const bool idr = p.forceIdr.exchange(false);
-        VaEncoder* enc = p.encoder.get();
+        HwEncoder* enc = p.encoder.get();
         const bool ok = deskhubp::DiagEncode(p, idr,
             [enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); });
         if (!ok) {

@@ -103,6 +103,9 @@ int main() {
     std::printf("--- control: clock offset / one-way latency ---\n");
     RunClockOffsetTests();
 
+    std::printf("--- control: video pacer (arrival jitter -> display cadence) ---\n");
+    RunVideoPacerTests();
+
     std::printf("--- control: quality ladder (fps + resolution vs bandwidth) ---\n");
     RunQualityLadderTests();
 
@@ -138,6 +141,9 @@ int main() {
 
     std::printf("--- media: viewer window title (status + lock hint) ---\n");
     RunViewerTitleTests();
+
+    std::printf("--- media: latest-wins frame mailbox ---\n");
+    RunFrameMailboxTests();
 
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();

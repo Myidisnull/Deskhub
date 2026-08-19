@@ -200,6 +200,36 @@ iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
+- **Host Linux encode trên thread riêng, không bao giờ trong callback capture**: encode
+  ngay trong callback `process` của PipeWire từng ghìm capture xuống `1000 / enc_ms`
+  fps và biến mọi dao động thời gian encode thành rung nhịp khung hình phía client.
+  Frame dạng mapped được copy một lần (buffer tái dùng qua một pool nhỏ) rồi chuyển cho
+  thread encode riêng qua `FrameMailbox`, một hàng đợi một-chỗ kiểu mới-nhất-thắng —
+  khi encoder chậm chân, frame mới nhất thắng và frame cũ được đếm chứ không xếp hàng.
+  Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay khi
+  callback trả về, nên chúng không thể sống lâu hơn callback.
+- **Host Linux chọn encoder theo nơi frame nằm, không phải theo thứ được cài**: frame
+  dma-buf đi vào VA-API, nơi import được zero-copy trên đúng GPU đã tạo ra nó; frame
+  mapped (CPU) đi vào NVENC khi có driver NVIDIA, vì một khi pixel đã nằm trong bộ nhớ
+  hệ thống thì encoder nhanh nhất thắng — trên desktop do GPU NVIDIA render, compositor
+  đằng nào cũng thương lượng lại screencast về shared memory, và VA-API trên iGPU nhàn
+  rỗi đo được 23 ms một frame so với 3 ms của NVENC. `HwEncoder` đưa ra lựa chọn đó mỗi
+  lần dựng lại encoder, và một frame khác loại đến sau sẽ trả về `false` — đó là tín
+  hiệu để dựng lại.
+
+- **Viewer Apple hiển thị video theo PTS trên một control timebase, và pacer không bao
+  giờ tin chính nó**: hiển thị mỗi frame ngay lúc nó đến khiến jitter Wi-Fi hiện ra
+  thành giật hình trong khi mọi con số độ trễ vẫn đẹp — nhịp không phải là độ trễ.
+  `VideoPacer` (core, test offline được) ánh xạ PTS của host sang giờ hiển thị local
+  theo đúng cách metric e2e làm — minimum theo cửa sổ của `arrival − pts` — cộng một
+  khoảng đệm ~33 ms để jitter được trả từ đó, và `VtDecoder` lái control timebase của
+  `AVSampleBufferDisplayLayer` theo nó, chỉ resync khi lệch quá 250 ms. Một cú nhảy pts
+  quá 2 s được đọc là stream mới chứ không phải jitter, nên ánh xạ được dựng lại thay
+  vì đứng hình suốt một cửa sổ. Vì không thể chứng minh từ đây rằng renderer tôn trọng
+  timebase ngoài trên mọi phiên bản OS, decoder tự canh lưng mình: một chuỗi frame bị
+  hàng đợi renderer đầy nuốt mất sẽ lật về display-immediately và flush — thà mất phần
+  mượt còn hơn mất hình.
+
 - **Audio là một khung một datagram, và mất thì không đuổi theo**: một khung Opus 20 ms
   ở 64 kbps đo được khoảng 160 byte, rộng nhất 209 byte, so với 1180 byte một datagram
   chứa được — nên đường audio không có packetizer, không FEC, không reassembler, không
