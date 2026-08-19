@@ -14,6 +14,7 @@ int main() {
 
     std::printf("--- transport: reassembler ---\n");
     RunReassemblerTests();
+    RunAudioJitterBufferTests();
 
     std::printf("--- transport: FEC ---\n");
     RunFecTests();

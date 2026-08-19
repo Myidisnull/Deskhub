@@ -2,6 +2,7 @@
 void RunWireTests();
 void RunByteOrderTests();
 void RunReassemblerTests();
+void RunAudioJitterBufferTests();
 void RunFecTests();
 void RunRetransmitCacheTests();
 void RunPacerTests();

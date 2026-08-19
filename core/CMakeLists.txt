@@ -17,6 +17,7 @@ add_library(core STATIC
 
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
+    src/transport/AudioJitterBuffer.cpp
     src/transport/RetransmitCache.cpp
 
     src/session/HostSession.cpp
@@ -99,6 +100,7 @@ if(DESKHUB_CORE_TESTS)
         tests/protocol/WireTests.cpp
 
         tests/transport/ReassemblerTests.cpp
+        tests/transport/AudioJitterBufferTests.cpp
         tests/transport/FecTests.cpp
         tests/transport/RetransmitCacheTests.cpp
         tests/transport/PacerTests.cpp
