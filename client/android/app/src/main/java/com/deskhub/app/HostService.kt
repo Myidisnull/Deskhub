@@ -125,13 +125,10 @@ class HostService : Service() {
     }
 
     private fun foregroundType(): Int =
-        when {
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> 0
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                AudioShare.permissionGranted(this) ->
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        } else {
+            0
         }
 
     private fun buildNotification(): Notification {
