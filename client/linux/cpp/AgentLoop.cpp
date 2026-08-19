@@ -6,6 +6,7 @@
 #include <span>
 #include <utility>
 
+#include "capture/AudioCapture.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
@@ -46,6 +47,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
+    auto audioCapture = std::make_shared<AudioCapture>();
+    policy.startAudioCapture = [audioCapture](const deskhub::media::AudioFormat& format,
+                                   std::function<void(std::span<const int16_t>)> onFrame) {
+        return audioCapture->Start(format, std::move(onFrame));
+    };
+    policy.stopAudioCapture = [audioCapture] { audioCapture->Stop(); };
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
     policy.noSourceError = "No display to share.";

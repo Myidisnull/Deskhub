@@ -57,16 +57,18 @@ Everything a host offers rides **one UDP port** (default 47777) through one
  streams     datagrams     (TLS)      in the plain; every other
    |             |                    raw packet is dropped
  control      video
- input                    Streams carry framed records (RecordStream):
+ input        audio       Streams carry framed records (RecordStream):
  clipboard                length-prefixed messages up to 16 KiB.
- terminal                 Datagrams carry one video packet each (≤ 1200 B).
+ terminal                 Datagrams carry one video or audio packet
+                          each (≤ 1200 B).
 ```
 
 - **Streams** (reliable, ordered): control, input, clipboard, terminal — each
   connection uses one bidirectional stream, opened by the client. A stuck stream on
   one connection cannot stall another connection.
-- **Datagrams** (unreliable, unordered, still encrypted): video packets. Lost ones
-  are never retransmitted by QUIC; the app's own FEC/NACK machinery handles loss.
+- **Datagrams** (unreliable, unordered, still encrypted): video and audio packets.
+  Lost ones are never retransmitted by QUIC; for video the app's own FEC/NACK
+  machinery handles loss, and for audio nothing does — see section 9.
 - **Raw UDP** exists only for discovery: the beacon answers scanners that speak no
   QUIC, and probes it did not invite get an empty source list. Inbound raw packets
   that are not discovery types are discarded before they reach any session code.
@@ -199,6 +201,28 @@ CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 
 on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
+
+- **Audio is one frame per datagram, and a lost one is never chased**: a 20 ms Opus
+  frame at 64 kbps measures about 160 bytes, 209 at its widest, against the 1180 bytes
+  a datagram has room for — so the audio path has no packetizer, no FEC, no
+  reassembler and no NACK, which is most of what the video path is. Loss is absorbed
+  where it costs least: Opus carries in-band FEC in the following frame, and the
+  receiver asks its decoder to conceal a hole the jitter buffer reports. Retransmitting
+  would be worse than useless, because a frame that arrives 200 ms late is unplayable
+  yet still delays the ten behind it. `make opus-smoke` measures those numbers on any
+  machine that builds the library.
+- **The audio clock drives the jitter buffer, not a wall clock**: `AudioJitterBuffer`
+  has no timer in it. The sink pulls one frame per callback and the target delay is
+  simply how many frames it fills before starting — 60 ms is three. That makes the
+  whole thing testable offline with no sleeping, and it makes the failure modes
+  explicit: a burst is capped rather than queued, an empty buffer rebuffers rather
+  than stuttering, and a sequence jump is read as a new stream rather than as
+  thousands of lost frames.
+- **Sound needs both ends to say yes, and old clients never hear it**: a viewer sets
+  bit 0 of `Hello.features`, a host advertises `kHostSharesAudio` in its capabilities,
+  and the host sends a packet only to viewers whose bit is set. That is what keeps
+  `kProtocolVersion` at 2: a 5.0.x viewer sends `features = 0`, so a 5.1 host never
+  puts a message on its wire that it cannot parse.
 
 - **The terminal link keeps itself alive and dials itself back**: a terminal viewer
   owns a QUIC connection of its own, separate from the video session, so none of the

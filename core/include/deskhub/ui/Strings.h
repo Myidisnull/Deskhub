@@ -117,6 +117,10 @@ inline constexpr const char* kAutostartLabel = "Start Deskhub when you log in";
 inline constexpr const char* kAutoShareLabel = "Start sharing when Deskhub opens";
 inline constexpr const char* kClipboardSyncLabel =
     "Sync clipboard text with connected devices";
+inline constexpr const char* kShareAudioLabel =
+    "Share this device's sound with viewers";
+inline constexpr const char* kPlayAudioLabel =
+    "Play the sound of the device you are watching";
 inline constexpr const char* kKeepAwakeLabel =
     "Keep this device awake while a session is active";
 inline constexpr const char* kCloseToTrayLabel =

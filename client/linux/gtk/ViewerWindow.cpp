@@ -127,6 +127,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     cfg.screenH = sh;
     cfg.passcode = passcode;
     cfg.displayName = deskhubp::SessionDeviceName();
+    cfg.wantsAudio = deskhubp::LoadUiSettings().playAudio;
     cfg.onStatus = [this](const char* status) {
         std::string line = status ? status : "";
         PostToMain([line = std::move(line)](ViewerWindow& v) {

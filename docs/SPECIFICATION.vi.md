@@ -44,13 +44,13 @@ Một máy có thể vừa là host vừa là client cùng lúc.
 
 ## 3. Vai trò theo nền tảng
 
-| Nền tảng | Chia sẻ được | Xem được |
-| --- | :--: | :--: |
-| Windows | ✅ | ✅ |
-| macOS | ✅ | ✅ |
-| Linux | ✅ | ✅ |
-| Android | ✅ chỉ xem | ✅ |
-| iOS | ✅ chỉ xem | ✅ |
+| Nền tảng | Chia sẻ được | Xem được | Âm thanh |
+| --- | :--: | :--: | :--: |
+| Windows | ✅ | ✅ | ❌ chưa có |
+| macOS | ✅ | ✅ | ❌ chưa có |
+| Linux | ✅ | ✅ | ✅ |
+| Android | ✅ chỉ xem | ✅ | ❌ chưa có |
+| iOS | ✅ chỉ xem | ✅ | ❌ chưa có |
 
 Mọi nền tảng đều có cùng bộ tính năng phía client, trừ những khác biệt nêu ở mục 12.
 Điện thoại và máy tính bảng chia sẻ ở chế độ **chỉ xem**: chúng phát màn hình nhưng không
@@ -118,6 +118,7 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 | V-3 | Trạng thái phiên | Cửa sổ hiển thị dòng trạng thái trực tiếp: tốc độ khung hình, băng thông, độ trễ khứ hồi và độ trễ đầu-cuối. |
 | V-4 | Cửa sổ có tiêu đề | Mỗi cửa sổ xem có tiêu đề gồm tên nguồn đang xem và trạng thái hiện tại, để phân biệt được khi mở nhiều phiên. |
 | V-5 | Ngắt kết nối | Viewer có thể kết thúc phiên bất cứ lúc nào. |
+| V-6 | Âm thanh | Ở những nơi cả hai máy đều hỗ trợ (mục 3), viewer nghe được thứ máy đang chia sẻ phát ra, lệch hình chừng một khung. Âm thanh đi trên kênh riêng: mất một gói chỉ mất một phần nhỏ của giây tiếng và không bao giờ làm hỏng hình, còn máy không phát gì thì gần như không tốn băng thông. Viewer tắt (T-23) thì không nghe, host tắt (T-22) thì không gửi. |
 
 ## 8. Điều khiển máy từ xa
 
@@ -171,6 +172,8 @@ giá trị mặc định dựng sẵn.
 | T-17 | Đồng bộ văn bản clipboard | bật / tắt | tắt |
 | T-19 | Giữ thiết bị này thức trong phiên | bật / tắt | bật |
 | T-21 | Cho máy mới ghép đôi (trang Devices) | bật / tắt | bật |
+| T-22 | Chia sẻ tiếng của máy này cho viewer | bật / tắt | bật |
+| T-23 | Phát tiếng của máy đang xem | bật / tắt | bật |
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
@@ -182,6 +185,7 @@ giá trị mặc định dựng sẵn.
 | T-16 | Chế độ chạy nền | Chỉ desktop. Khi bật T-15, một biểu tượng khay / thanh menu xuất hiện với *Hiện/Ẩn cửa sổ*, *Bắt đầu/Dừng chia sẻ* và *Thoát*; đóng cửa sổ sẽ ẩn app thay vì thoát, và việc chia sẻ tiếp tục trong nền. Cửa sổ luôn hiện ra lúc khởi động và chỉ ẩn khi người dùng đóng nó, nên T-13 + T-11 + T-15 kết hợp sẽ tự chia sẻ ngay khi đăng nhập với cửa sổ hiện cho tới khi được đóng. Trên Windows, bấm chuột trái vào biểu tượng khay sẽ hiện hoặc ẩn cửa sổ. Trên macOS biểu tượng Dock biến mất khi cửa sổ đang ẩn. Trên Linux khay cần một StatusNotifier host (mặc định có trên KDE; GNOME cần extension AppIndicator) — nếu không có, đóng cửa sổ vẫn thoát app, để app không bao giờ trở nên không với tới được. Trên Windows và Linux, khi đang chia sẻ, đóng cửa sổ luôn ẩn về khay kể cả khi T-15 tắt (nếu khay khả dụng), nên các viewer đang kết nối không bị ngắt; trên macOS đóng cửa sổ không bao giờ thoát app, nên việc chia sẻ vẫn tiếp tục dù T-15 bật hay tắt. |
 | T-18 | Đồng bộ clipboard | Khi bật T-17, văn bản thuần copy trên một máy trong phiên sẽ xuất hiện trên các máy còn lại trong vòng vài giây, theo cả hai chiều; host chuyển tiếp bản copy của một viewer tới các viewer khác. Văn bản giới hạn 32 KiB (bản dài hơn bị cắt tại ranh giới ký tự); ảnh, file và định dạng không bao giờ được truyền. Công tắc của host quyết định cả phiên: tắt thì host bỏ qua và không bao giờ gửi dữ liệu clipboard. Mỗi máy cũng cần bật công tắc của chính nó để đọc/ghi clipboard cục bộ. Trên Android và iOS, hệ điều hành giới hạn việc này: thiết bị Android chỉ nhặt được bản copy của chính nó khi Deskhub là ứng dụng đang ở nền trước, còn văn bản gửi tới thì được áp dụng bất cứ lúc nào; viewer trên iOS có thể thấy hộp thoại dán của hệ thống khi Deskhub đọc một bản copy mới; và thiết bị iOS đang làm host hoàn toàn không tham gia, vì broadcast của nó chạy trong một process riêng không truy cập được clipboard. |
 | T-20 | Giữ máy thức | Khi bật T-19, máy không đi ngủ và màn hình không tắt trong lúc đang chia sẻ hoặc đang xem; khóa được nhả ngay khi phiên kết thúc, và không cài đặt ngủ nào của hệ thống bị thay đổi. Trên Windows, macOS và Linux, điều này chặn cả ngủ màn hình lẫn ngủ hệ thống, cho cả host lẫn viewer (trên Linux cần systemd-logind và một desktop tôn trọng giao diện screensaver của freedesktop — mặc định có trên KDE và GNOME). Hệ điều hành vẫn thắng ở những chỗ nó cương quyết: gập nắp laptop, bấm nút nguồn, hoặc macOS chạy pin vẫn có thể đưa máy vào giấc ngủ. Trên Android và iOS, công tắc này giữ màn hình sáng khi đang xem một stream; việc chia sẻ từ điện thoại vốn đã sống sót khi màn hình tắt (P-5), nên khi làm host điện thoại không giữ màn hình sáng. |
+| T-24 | Tiếng nào được chia sẻ | Khi bật T-22, host chia sẻ đúng thứ loa của nó đang phát — bản trộn của mọi ứng dụng trên máy. Nó không bao giờ thu micro: Deskhub không có âm thanh hai chiều, và không xin quyền micro trên bất kỳ nền tảng nào. Viewer chỉ nhận tiếng nếu chính nó xin (T-23), nên một host bật T-22 vẫn không gửi gì cho viewer không nghe; cả hai công tắc có hiệu lực từ phiên kế tiếp. |
 
 ## 11. Trạng thái và chẩn đoán
 
@@ -207,7 +211,8 @@ giá trị mặc định dựng sẵn.
 
 Deskhub **không** cung cấp, và đặc tả này không bao gồm:
 
-- Truyền âm thanh.
+- Thu micro, âm thanh hai chiều, hay bất kỳ kênh thoại nào. Tiếng chỉ đi một chiều, từ máy
+  đang chia sẻ tới những người đang xem nó (V-6).
 - Truyền tệp hay in từ xa.
 - Đồng bộ clipboard ngoài văn bản thuần (ảnh, tệp, văn bản có định dạng).
 - Bất kỳ hệ thống tài khoản, danh bạ, hiện diện hay lời mời nào.

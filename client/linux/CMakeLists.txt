@@ -57,6 +57,7 @@ add_executable(deskhub_app
     cpp/AgentLoop.cpp
 
     cpp/capture/ScreenCapture.cpp
+    cpp/capture/AudioCapture.cpp
 
     cpp/encode/VaDisplay.cpp
     cpp/encode/VaEncoder.cpp

@@ -2,7 +2,7 @@
 
 # Chính sách quyền riêng tư của Deskhub
 
-_Ngày hiệu lực: 15 tháng 8, 2026 — Phiên bản 2.0_
+_Ngày hiệu lực: 19 tháng 8, 2026 — Phiên bản 2.1_
 
 > Đây là bản dịch của [`PRIVACY.md`](PRIVACY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản có giá trị pháp lý**.
@@ -40,6 +40,7 @@ ba.
 | Dữ liệu | Mục đích | Nó đi đâu | Thời gian lưu |
 |---|---|---|---|
 | Nội dung màn hình của máy đang chia sẻ (các khung hình) | Hiển thị màn hình đó trên thiết bị còn lại của bạn | Gửi trực tiếp giữa hai thiết bị của bạn, mã hoá trên đường truyền (QUIC/TLS) | Không bao giờ lưu; chỉ tồn tại trong bộ nhớ trong lúc phiên đang chạy |
+| Tiếng mà máy đang chia sẻ phát ra (chỉ khi máy đó bật chia sẻ tiếng và có viewer xin nghe) | Để người đang xem nghe được máy đó | Gửi trực tiếp giữa hai thiết bị của bạn, mã hoá trên đường truyền (QUIC/TLS), dưới dạng âm thanh đã nén | Không bao giờ lưu; chỉ tồn tại trong bộ nhớ trong lúc phiên đang chạy |
 | Thao tác chuột, bàn phím và chạm | Điều khiển máy đang chia sẻ từ thiết bị còn lại | Gửi trực tiếp từ thiết bị đang xem tới máy đang chia sẻ, mã hoá trên đường truyền (QUIC/TLS) | Không bao giờ lưu; bỏ đi ngay sau khi được đưa vào máy |
 | Cặp khoá của máy này — khoá riêng và chứng chỉ tự ký sinh ra ở lần chạy đầu | Chứng minh danh tính máy này với các máy nó kết nối tới; người dùng thấy nó dưới dạng dấu vân tay (`SHA256:…`) | Ghi vào `host_key.pem` và `host_cert.pem` trong thư mục riêng của app; chỉ nửa công khai (chứng chỉ) được trình cho máy bạn kết nối tới | Giữ cho tới khi bạn xoá tệp; xoá đi thì máy mang danh tính mới, và các máy từng biết danh tính cũ sẽ cảnh báo |
 | Khoá của các host mà thiết bị này đã tin (dấu vân tay, địa chỉ, nhãn, lần gặp đầu/cuối) | Nhận ra host quen và cảnh báo lớn nếu khoá của nó đổi | Ghi vào `known_hosts` trong cùng thư mục; không bao giờ được truyền đi | Giữ cho tới khi bạn xoá tệp |
@@ -111,6 +112,10 @@ Tối đa năm người xem có thể cùng xem một PC, nhưng tại mỗi th�
 | Android | Đồng ý thu màn hình (`MediaProjection`) | Chỉ khi bạn bắt đầu chia sẻ màn hình của thiết bị này. Android hỏi mỗi lần; câu trả lời không thể ghi nhớ. |
 | Android | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Giữ cho phiên chia sẻ tiếp tục chạy khi app xuống nền hoặc màn hình tắt. Android bắt buộc phải có để thu màn hình. |
 | Android | `POST_NOTIFICATIONS` | Hiện thông báo thường trực mà Android bắt buộc phải có khi đang chia sẻ màn hình. Không gửi thông báo nào khác. |
+
+Việc chia sẻ tiếng không cần quyền riêng nào trên các máy để bàn: nó thu đúng thứ máy
+tính đang phát ra, không phải micro. Deskhub không bao giờ thu micro và không xin quyền
+micro trên bất kỳ nền tảng nào.
 
 Ứng dụng không yêu cầu quyền nào khác. Nếu một phiên bản sau này cần thêm quyền mới,
 quyền đó sẽ được xin đúng ngữ cảnh và chính sách này sẽ được cập nhật.
@@ -197,6 +202,7 @@ https://github.com/manhpham90vn/Deskhub/blob/main/PRIVACY.md
 
 | Phiên bản | Ngày | Thay đổi |
 |---|---|---|
+| 2.1 | 2026-08-19 | Chia sẻ màn hình nay chia sẻ được cả **tiếng** của máy đó. Thứ được thu là bản trộn mà loa của chính máy đang phát — không bao giờ là micro; Deskhub không có âm thanh hai chiều và không xin quyền micro. Âm thanh được nén, gửi thẳng tới người đang xem qua đúng kênh mã hoá chở hình ảnh, và không bao giờ được lưu. Nó chỉ đi khi máy chia sẻ bật *Chia sẻ tiếng của máy này* **và** viewer bật *Phát tiếng của máy đang xem*; tắt một trong hai là hết. Cả hai công tắc được lưu cùng các tuỳ chọn khác trong `ui-settings.txt` và mặc định đều bật. |
 | 2.0 | 2026-08-15 | Phiên làm việc nay chạy trên kênh truyền mã hoá (QUIC/TLS) — video, thao tác, clipboard lẫn terminal — và máy được cho vào bằng cơ chế ghép đôi. Dữ liệu mới lưu trên chính thiết bị của bạn, tất cả trong thư mục của app và không bao giờ gửi cho chúng tôi: cặp khoá là danh tính của máy này (`host_key.pem`, `host_cert.pem`), khoá của các host bạn đã tin (`known_hosts`), các máy được phép vào host này (`paired_devices` — dấu vân tay khoá, tên mỗi máy gửi, mốc thời gian), và một salt không bí mật (`auth_salt`). Passcode nay là tuỳ chọn và không bao giờ được truyền đi: cuộc bắt tay ghép đôi chứng minh mã mà không gửi mã. |
 | 1.9 | 2026-08-14 | Trên Linux, lựa chọn màn hình trong hộp thoại chia sẻ của desktop nay được ghi nhớ: token cấp quyền mà desktop phát ra được lưu vào `portal-restore-token.txt` để các lần chia sẻ sau bỏ qua hộp thoại. Token chỉ hoạt động với phiên desktop của chính bạn trên máy này, không bao giờ được truyền đi, được thay mới sau mỗi lần chia sẻ, và bị xoá khi bạn bấm *Choose screens again* hoặc xoá tệp. |
 | 1.8 | 2026-08-14 | Công tắc *giữ máy thức* mới (mặc định bật): trong lúc bạn đang chia sẻ hoặc đang xem, app yêu cầu hệ điều hành không đưa máy vào giấc ngủ và không tắt màn hình, và nhả yêu cầu đó khi phiên kết thúc. Chỉ lựa chọn bật/tắt được lưu, trong cùng tệp cài đặt cục bộ; không có gì về nó được truyền đi, và không cài đặt ngủ nào của hệ thống bị thay đổi. |

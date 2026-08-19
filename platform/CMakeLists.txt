@@ -168,6 +168,8 @@ add_library(platform STATIC
     ${deskhub_platform_pty}
     ${deskhub_platform_audio}
     ${deskhub_platform_sink}
+    src/audio/AudioPlayer.cpp
+    src/audio/AudioBroadcaster.cpp
     src/system/TrustStoreFile.cpp
     src/system/PairedDevicesFile.cpp
     src/session/AuthNegotiation.cpp

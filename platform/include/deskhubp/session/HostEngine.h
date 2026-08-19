@@ -6,6 +6,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/Beacon.h"
 #include "deskhub/session/SourcePipelineState.h"
+#include "deskhubp/audio/AudioBroadcaster.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/net/SessionTransport.h"
@@ -60,6 +61,11 @@ struct HostEnginePolicy {
     std::function<void(uint64_t addrPacked, std::string shortKey, std::string name)>
         onApprovalNeeded;
 
+    std::function<bool(const deskhub::media::AudioFormat&,
+        std::function<void(std::span<const int16_t>)>)>
+        startAudioCapture;
+    std::function<void()> stopAudioCapture;
+
     std::string noSourceError = "No source selected.";
     std::string noUsableSourceError = "No usable source \xE2\x80\x94 stopping.";
 
@@ -96,6 +102,18 @@ public:
     std::string LastError();
     std::string BindWarning();
 
+    void OfferAudio(std::span<const int16_t> pcm) {
+        audio_.Offer(pcm);
+    }
+
+    bool audioRunning() const {
+        return audio_.running();
+    }
+
+    const deskhub::media::AudioFormat& audioFormat() const {
+        return audio_.format();
+    }
+
     void OfferLocalClipboard(std::string text);
     std::optional<std::string> TakeRemoteClipboard();
 
@@ -120,6 +138,7 @@ public:
 
 private:
     bool Fail(std::string message);
+    void StartAudio();
     void AttachSession(HostSource& st);
     void ShutdownSource(HostSource& st);
     void PublishStatus();
@@ -160,6 +179,7 @@ private:
     std::string bindWarning_;
 
     LocalInputMonitor localInputMon_;
+    AudioBroadcaster audio_;
     deskhub::Beacon beacon_;
 
     uint32_t startBitrateBps_ = 0;

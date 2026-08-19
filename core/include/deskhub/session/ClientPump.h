@@ -24,6 +24,7 @@ struct ClientPumpConfig {
     uint8_t sourceId = 0;
     uint8_t desiredFps = kDefaultClientFps;
     bool sendNacks = false;
+    bool wantsAudio = false;
     bool logLossRuns = false;
     const char* statusSeparator = "  ";
     std::string passcode{};
@@ -33,6 +34,7 @@ struct ClientPumpConfig {
 struct ClientPumpCallbacks {
     std::function<void(std::span<const uint8_t>)> send;
     std::function<void(Reassembler::Frame&&)> onFrame;
+    std::function<void(const AudioPacketView&)> onAudioPacket;
     std::function<void(std::string_view text)> onClipboardText;
     std::function<void(const NegotiatedParams&, bool reconfigured)> onParams;
     std::function<void(const char* reason)> onEnded;

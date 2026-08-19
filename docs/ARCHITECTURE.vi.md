@@ -60,16 +60,18 @@ Mọi thứ host cung cấp đi trên **một cổng UDP** (mặc định 47777)
  stream      datagram      (TLS)      ở bản rõ; mọi gói thô khác
    |             |                    đều bị bỏ
  control      video
- input                    Stream chở các record có tiền tố độ dài
+ input        audio       Stream chở các record có tiền tố độ dài
  clipboard                (RecordStream), tối đa 16 KiB mỗi record.
- terminal                 Mỗi datagram chở đúng một gói video (≤ 1200 B).
+ terminal                 Mỗi datagram chở đúng một gói video hoặc
+                          một gói audio (≤ 1200 B).
 ```
 
 - **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal — mỗi kết
   nối dùng một stream hai chiều do client mở. Stream nghẽn ở kết nối này không làm
   đứng kết nối khác.
-- **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video. QUIC không bao
-  giờ gửi lại datagram mất; FEC/NACK của app tự xử lý mất gói.
+- **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video và gói audio.
+  QUIC không bao giờ gửi lại datagram mất; với video thì FEC/NACK của app tự xử lý,
+  còn với audio thì không gì xử lý cả — xem mục 9.
 - **UDP thô** chỉ còn cho dò tìm: beacon trả lời máy quét không nói QUIC, và gói dò
   không mời nhận danh sách rỗng. Gói thô đến mà không phải loại dò tìm bị loại trước
   khi chạm tới bất kỳ mã phiên nào.
@@ -197,6 +199,26 @@ nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm
 iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
+
+- **Audio là một khung một datagram, và mất thì không đuổi theo**: một khung Opus 20 ms
+  ở 64 kbps đo được khoảng 160 byte, rộng nhất 209 byte, so với 1180 byte một datagram
+  chứa được — nên đường audio không có packetizer, không FEC, không reassembler, không
+  NACK, tức là bỏ đi gần hết những gì đường video có. Mất gói được hấp thụ ở chỗ rẻ
+  nhất: Opus mang sẵn FEC trong khung kế tiếp, và bên nhận bảo bộ giải mã che chỗ hổng
+  mà jitter buffer báo. Gửi lại còn tệ hơn vô ích, vì một khung đến muộn 200 ms thì
+  không phát được nữa nhưng vẫn kịp làm chậm mười khung sau nó. `make opus-smoke` đo
+  đúng những con số đó trên bất kỳ máy nào dựng được thư viện.
+- **Đồng hồ audio điều khiển jitter buffer, không phải đồng hồ tường**:
+  `AudioJitterBuffer` không có timer nào bên trong. Bộ phát kéo một khung mỗi lần gọi,
+  còn độ trễ mục tiêu chỉ là số khung nó nạp trước khi bắt đầu — 60 ms là ba khung. Nhờ
+  vậy toàn bộ phần này test được offline mà không phải ngủ, và các kiểu hỏng đều hiện
+  rõ: bùng gói thì bị chặn thay vì xếp hàng, hết gói thì nạp lại thay vì giật, số thứ
+  tự nhảy xa thì coi là luồng mới thay vì hàng nghìn khung mất.
+- **Tiếng cần cả hai đầu đồng ý, và client cũ không bao giờ nghe thấy**: viewer đặt bit
+  0 của `Hello.features`, host quảng bá `kHostSharesAudio` trong phần năng lực của nó,
+  và host chỉ gửi gói cho viewer nào có bit đó. Chính điều này giữ `kProtocolVersion` ở
+  mức 2: viewer 5.0.x gửi `features = 0`, nên host 5.1 không bao giờ đặt lên dây một
+  thông điệp mà nó không phân tích được.
 
 - **Link terminal tự giữ sống và tự quay số lại**: viewer terminal có QUIC connection
   riêng, tách khỏi phiên video, nên không keepalive nào của đường video chạm tới nó.

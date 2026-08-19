@@ -229,6 +229,8 @@ private:
     GtkWidget* autostartCheck_ = nullptr;
     GtkWidget* startHiddenCheck_ = nullptr;
     GtkWidget* clipboardCheck_ = nullptr;
+    GtkWidget* shareAudioCheck_ = nullptr;
+    GtkWidget* playAudioCheck_ = nullptr;
     GtkWidget* keepAwakeCheck_ = nullptr;
     TrayIcon tray_;
     guint clipTimerId_ = 0;

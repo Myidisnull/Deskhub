@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/transport/AudioJitterBuffer.h"
+#include "deskhubp/audio/AudioPlayer.h"
 #include "deskhubp/audio/AudioSink.h"
 #include "deskhubp/media/OpusCodec.h"
 
@@ -168,6 +169,56 @@ void TestSinkPlaysOrDeclines() {
     Check(!sink.IsOpen(), "a closed sink says so");
 }
 
+void TestPlayerRunsTheWholeReceivingSide() {
+    std::printf(
+        "[audio] a captured frame survives encode, the wire, the jitter buffer "
+        "and playback...\n");
+    const AudioFormat format{};
+    AudioPlayer player;
+    if (!player.Start(format)) {
+        std::printf("[audio] no audio device here - skipping the play-out path\n");
+        Check(!player.running(), "a player that cannot start says so");
+        return;
+    }
+
+    OpusAudioEncoder enc;
+    Check(enc.Open(format, deskhub::media::kAudioBitrateBps), "the host-side encoder opens");
+
+    std::vector<uint8_t> packet(kMaxOpusPacketBytes);
+    uint8_t datagram[deskhub::kMaxDatagram];
+    constexpr int kFrames = 10;
+    constexpr uint32_t kLostFrame = 4;
+
+    for (int f = 0; f < kFrames; ++f) {
+        const size_t written = enc.Encode(Tone(format, f), packet);
+        Check(written > 0, "the frame encodes");
+        if (uint32_t(f) == kLostFrame) continue;
+
+        const deskhub::AudioHeader ah{uint32_t(f), uint64_t(f) * deskhub::kAudioFrameUs};
+        const size_t n = deskhub::BuildAudioPacket(datagram, 0x1234, ah,
+            std::span<const uint8_t>(packet.data(), written));
+        Check(n > 0, "and goes on the wire");
+        const auto view = deskhub::ParseAudioPacket(deskhub::PayloadOf(
+            std::span<const uint8_t>(datagram, n)));
+        Check(view.has_value(), "and parses on the other side");
+        player.Push(*view);
+        std::this_thread::sleep_for(std::chrono::milliseconds(deskhub::kAudioFrameMs));
+    }
+
+    for (int waited = 0; waited < 100; ++waited) {
+        if (player.stats().jitter.framesPlayed >= kFrames - 2) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    const AudioPlayer::Stats stats = player.stats();
+    Check(stats.jitter.framesPlayed >= kFrames - 2, "nearly every frame reached the speaker");
+    Check(stats.jitter.framesConcealed == 1, "the one dropped frame was concealed, not skipped");
+    Check(stats.decodeFailures == 0, "nothing failed to decode");
+
+    player.Stop();
+    Check(!player.running(), "the player stops cleanly");
+}
+
 }
 
 void RunOpusCodecTests() {
@@ -176,4 +227,5 @@ void RunOpusCodecTests() {
     TestBadInputIsRefused();
     TestCloseIsRepeatable();
     TestSinkPlaysOrDeclines();
+    TestPlayerRunsTheWholeReceivingSide();
 }
