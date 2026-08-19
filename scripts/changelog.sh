@@ -23,6 +23,34 @@ skipped=()
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
+repo_url() {
+    if [ -n "${GITHUB_SERVER_URL:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+        printf '%s/%s' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY"
+        return 0
+    fi
+    origin=$(git remote get-url origin 2>/dev/null) || return 0
+    origin=${origin%.git}
+    case "$origin" in
+    git@*:*)
+        host=${origin#git@}
+        printf 'https://%s/%s' "${host%%:*}" "${origin#*:}"
+        ;;
+    http://* | https://*)
+        printf '%s' "$origin"
+        ;;
+    esac
+}
+
+COMMIT_BASE=$(repo_url)
+
+commit_ref() {
+    if [ -n "$COMMIT_BASE" ]; then
+        printf '[`%s`](%s/commit/%s)' "$1" "$COMMIT_BASE" "$2"
+    else
+        printf '`%s`' "$1"
+    fi
+}
+
 capitalize() {
     first=$(printf '%s' "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')
     printf '%s%s' "$first" "$(printf '%s' "$1" | cut -c2-)"
@@ -50,8 +78,8 @@ classify() {
     esac
 }
 
-while IFS=$'\x1f' read -r sha subject; do
-    [ -n "$sha" ] || continue
+while IFS=$'\x1f' read -r short full subject; do
+    [ -n "$short" ] || continue
     breaking=""
     if [[ $subject =~ ^([A-Za-z]+)(\([^\)]*\))?(!)?:[[:space:]]*(.*)$ ]]; then
         type=$(lower "${BASH_REMATCH[1]}")
@@ -64,9 +92,9 @@ while IFS=$'\x1f' read -r sha subject; do
     [ -n "$text" ] || continue
 
     section=$(classify "$type" "$text")
-    entry="- $(capitalize "$text") (\`$sha\`)"
+    entry="- $(capitalize "$text") ($(commit_ref "$short" "$full"))"
     if [ -n "$breaking" ]; then
-        entry="- **Breaking** — $(capitalize "$text") (\`$sha\`)"
+        entry="- **Breaking** — $(capitalize "$text") ($(commit_ref "$short" "$full"))"
         if [ "$section" = skipped ]; then section=changed; fi
     fi
 
@@ -80,7 +108,7 @@ while IFS=$'\x1f' read -r sha subject; do
         if [ -n "$INCLUDE_INTERNAL" ]; then changed+=("$entry"); else skipped+=("$entry"); fi
         ;;
     esac
-done < <(git log --no-merges --pretty=tformat:"%h%x1f%s" "$RANGE")
+done < <(git log --no-merges --pretty=tformat:"%h%x1f%H%x1f%s" "$RANGE")
 
 print_section() {
     title=$1
