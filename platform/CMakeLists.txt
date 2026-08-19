@@ -57,6 +57,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 if(WIN32)
     set(deskhub_platform_sink src/audio/AudioSinkWasapi.cpp)
+elseif(APPLE)
+    set(deskhub_platform_sink src/audio/AudioSinkCoreAudio.mm)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android" AND ANDROID_PLATFORM_LEVEL GREATER_EQUAL 26)
     set(deskhub_platform_sink src/audio/AudioSinkAAudio.cpp)
 elseif(DESKHUB_PIPEWIRE_FOUND)
@@ -239,6 +241,7 @@ if(APPLE)
 
     target_link_libraries(platform PUBLIC
         "-framework Foundation"
+        "-framework AudioToolbox"
         "-framework AVFoundation"
         "-framework CoreMedia"
         "-framework CoreVideo"

@@ -58,12 +58,33 @@ SourcePipeline& Pipeline(deskhubp::HostSource& st) {
     return static_cast<SourcePipeline&>(st);
 }
 
+bool ForEachLiveCapture(deskhubp::HostEngine& engine,
+    const std::function<void(ScreenCapture&)>& fn) {
+    bool any = false;
+    engine.ForEachLiveSource([&](deskhubp::HostSource& st) {
+        fn(Pipeline(st).capture);
+        any = true;
+    });
+    return any;
+}
+
 }
 
 bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
+    policy.startAudioCapture = [engine](const deskhub::media::AudioFormat&,
+                                   std::function<void(std::span<const int16_t>)> onFrame) {
+        return ForEachLiveCapture(*engine, [&onFrame](ScreenCapture& capture) {
+            capture.SetAudioHandler(onFrame);
+        });
+    };
+    policy.stopAudioCapture = [engine] {
+        ForEachLiveCapture(*engine, [](ScreenCapture& capture) {
+            capture.SetAudioHandler(nullptr);
+        });
+    };
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
     policy.noSourceError = "No display to share.";
@@ -145,7 +166,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         };
 
         if (!p->capture.Start(p->displayId,
-                deskhub::media::CaptureOptions{fps, engine->options().maxDim}, onFrame)) {
+                deskhub::media::CaptureOptions{fps, engine->options().maxDim,
+                    engine->options().audio},
+                onFrame)) {
             LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
                 p->name.c_str());
             p->failed.store(true);

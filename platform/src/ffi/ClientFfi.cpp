@@ -110,6 +110,8 @@ const char* dh_string(DHStringId id) {
         case DHStrAutostartLabel: return deskhub::ui::kAutostartLabel;
         case DHStrAutoShareLabel: return deskhub::ui::kAutoShareLabel;
         case DHStrClipboardSyncLabel: return deskhub::ui::kClipboardSyncLabel;
+        case DHStrShareAudioLabel: return deskhub::ui::kShareAudioLabel;
+        case DHStrPlayAudioLabel: return deskhub::ui::kPlayAudioLabel;
         case DHStrCloseToTrayLabel: return deskhub::ui::kCloseToTrayLabel;
         case DHStrTrayShowWindow: return deskhub::ui::kTrayShowWindow;
         case DHStrTrayHideWindow: return deskhub::ui::kTrayHideWindow;

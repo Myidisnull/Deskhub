@@ -102,6 +102,11 @@ public:
     std::string LastError();
     std::string BindWarning();
 
+    void ForEachLiveSource(const std::function<void(HostSource&)>& fn) {
+        for (HostSource* st : live_)
+            if (st) fn(*st);
+    }
+
     void OfferAudio(std::span<const int16_t> pcm) {
         audio_.Offer(pcm);
     }
