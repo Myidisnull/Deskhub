@@ -32,6 +32,7 @@ void RunControlTests();
 void RunStreamSizeTests();
 void RunFrameGateTests();
 void RunClockOffsetTests();
+void RunVideoPacerTests();
 void RunQualityLadderTests();
 void RunDiagTests();
 void RunMediaContractTests();

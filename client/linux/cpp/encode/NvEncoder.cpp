@@ -25,11 +25,11 @@ namespace {
 
 AVPixelFormat PixelFormatFor(uint32_t drmFormat) {
     switch (drmFormat) {
-    case DRM_FORMAT_XRGB8888: return AV_PIX_FMT_BGR0;
-    case DRM_FORMAT_ARGB8888: return AV_PIX_FMT_BGRA;
-    case DRM_FORMAT_XBGR8888: return AV_PIX_FMT_RGB0;
-    case DRM_FORMAT_ABGR8888: return AV_PIX_FMT_RGBA;
-    default: return AV_PIX_FMT_NONE;
+        case DRM_FORMAT_XRGB8888: return AV_PIX_FMT_BGR0;
+        case DRM_FORMAT_ARGB8888: return AV_PIX_FMT_BGRA;
+        case DRM_FORMAT_XBGR8888: return AV_PIX_FMT_RGB0;
+        case DRM_FORMAT_ABGR8888: return AV_PIX_FMT_RGBA;
+        default: return AV_PIX_FMT_NONE;
     }
 }
 

@@ -103,6 +103,9 @@ int main() {
     std::printf("--- control: clock offset / one-way latency ---\n");
     RunClockOffsetTests();
 
+    std::printf("--- control: video pacer (arrival jitter -> display cadence) ---\n");
+    RunVideoPacerTests();
+
     std::printf("--- control: quality ladder (fps + resolution vs bandwidth) ---\n");
     RunQualityLadderTests();
 

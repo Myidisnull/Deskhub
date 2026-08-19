@@ -41,6 +41,7 @@ add_library(core STATIC
     src/control/StreamSize.cpp
     src/control/FrameGate.cpp
     src/control/ClockOffset.cpp
+    src/control/VideoPacer.cpp
     src/control/QualityLadder.cpp
 
     src/media/ViewFit.cpp
@@ -133,6 +134,7 @@ if(DESKHUB_CORE_TESTS)
         tests/control/StreamSizeTests.cpp
         tests/control/FrameGateTests.cpp
         tests/control/ClockOffsetTests.cpp
+        tests/control/VideoPacerTests.cpp
         tests/control/QualityLadderTests.cpp
 
         tests/diag/DiagTests.cpp

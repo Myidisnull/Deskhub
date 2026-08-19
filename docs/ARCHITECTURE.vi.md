@@ -217,6 +217,19 @@ iOS Simulator.
   lần dựng lại encoder, và một frame khác loại đến sau sẽ trả về `false` — đó là tín
   hiệu để dựng lại.
 
+- **Viewer Apple hiển thị video theo PTS trên một control timebase, và pacer không bao
+  giờ tin chính nó**: hiển thị mỗi frame ngay lúc nó đến khiến jitter Wi-Fi hiện ra
+  thành giật hình trong khi mọi con số độ trễ vẫn đẹp — nhịp không phải là độ trễ.
+  `VideoPacer` (core, test offline được) ánh xạ PTS của host sang giờ hiển thị local
+  theo đúng cách metric e2e làm — minimum theo cửa sổ của `arrival − pts` — cộng một
+  khoảng đệm ~33 ms để jitter được trả từ đó, và `VtDecoder` lái control timebase của
+  `AVSampleBufferDisplayLayer` theo nó, chỉ resync khi lệch quá 250 ms. Một cú nhảy pts
+  quá 2 s được đọc là stream mới chứ không phải jitter, nên ánh xạ được dựng lại thay
+  vì đứng hình suốt một cửa sổ. Vì không thể chứng minh từ đây rằng renderer tôn trọng
+  timebase ngoài trên mọi phiên bản OS, decoder tự canh lưng mình: một chuỗi frame bị
+  hàng đợi renderer đầy nuốt mất sẽ lật về display-immediately và flush — thà mất phần
+  mượt còn hơn mất hình.
+
 - **Audio là một khung một datagram, và mất thì không đuổi theo**: một khung Opus 20 ms
   ở 64 kbps đo được khoảng 160 byte, rộng nhất 209 byte, so với 1180 byte một datagram
   chứa được — nên đường audio không có packetizer, không FEC, không reassembler, không

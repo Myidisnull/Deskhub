@@ -55,10 +55,70 @@ void VtDecoder::Shutdown() {
     }
     if (layer_) {
         AVSampleBufferDisplayLayer* l = (__bridge AVSampleBufferDisplayLayer*)layer_;
+        if (timebase_) l.controlTimebase = nullptr;
         [l.sampleBufferRenderer flush];
         layer_ = nullptr;
     }
+    if (timebase_) {
+        CFRelease((CMTimebaseRef)timebase_);
+        timebase_ = nullptr;
+    }
+    pacer_.Reset();
+    timebaseRunning_ = false;
+    paceDisabled_ = false;
+    pacedCongestionRun_ = 0;
     spsLen_ = ppsLen_ = 0;
+}
+
+bool VtDecoder::EnsurePacedTimebase(uint64_t ptsUs, uint64_t nowUs) {
+    if (paceDisabled_) return false;
+    pacer_.ObserveArrival(ptsUs, nowUs);
+
+    AVSampleBufferDisplayLayer* l = (__bridge AVSampleBufferDisplayLayer*)layer_;
+    if (!timebase_) {
+        CMTimebaseRef tb = nullptr;
+        if (CMTimebaseCreateWithSourceClock(kCFAllocatorDefault, CMClockGetHostTimeClock(),
+                &tb) != noErr ||
+            !tb) {
+            LOGW("[Decoder] no control timebase — frames will display on arrival.");
+            paceDisabled_ = true;
+            return false;
+        }
+        timebase_ = (void*)tb;
+        l.controlTimebase = tb;
+    }
+
+    CMTimebaseRef tb = (CMTimebaseRef)timebase_;
+    const int64_t currentUs =
+        CMTimeConvertScale(CMTimebaseGetTime(tb), 1'000'000, kCMTimeRoundingMethod_Default)
+            .value;
+    if (!timebaseRunning_ || pacer_.NeedsResync(currentUs, nowUs)) {
+        const OSStatus timeSet =
+            CMTimebaseSetTime(tb, CMTimeMake(pacer_.DesiredTimebaseUs(nowUs), 1'000'000));
+        const OSStatus rateSet = CMTimebaseSetRate(tb, 1.0);
+        if (timeSet != noErr || rateSet != noErr) {
+            DisablePacing();
+            return false;
+        }
+        timebaseRunning_ = true;
+    }
+    return true;
+}
+
+void VtDecoder::DisablePacing() {
+    paceDisabled_ = true;
+    timebaseRunning_ = false;
+    if (layer_) {
+        AVSampleBufferDisplayLayer* l = (__bridge AVSampleBufferDisplayLayer*)layer_;
+        if (timebase_) l.controlTimebase = nullptr;
+        [l.sampleBufferRenderer flush];
+    }
+    if (timebase_) {
+        CFRelease((CMTimebaseRef)timebase_);
+        timebase_ = nullptr;
+    }
+    LOGW("[Decoder] paced frames were not being consumed — falling back to "
+         "display-immediately.");
 }
 
 bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
@@ -146,12 +206,16 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
         return false;
     }
 
-    if (CFArrayRef atts = CMSampleBufferGetSampleAttachmentsArray(sb, true)) {
-        if (CFArrayGetCount(atts) > 0) {
-            CFMutableDictionaryRef d0 =
-                (CFMutableDictionaryRef)CFArrayGetValueAtIndex(atts, 0);
-            CFDictionarySetValue(d0, kCMSampleAttachmentKey_DisplayImmediately,
-                kCFBooleanTrue);
+    const uint64_t nowUs = NowUs();
+    const bool paced = EnsurePacedTimebase(ptsUs, nowUs);
+    if (!paced) {
+        if (CFArrayRef atts = CMSampleBufferGetSampleAttachmentsArray(sb, true)) {
+            if (CFArrayGetCount(atts) > 0) {
+                CFMutableDictionaryRef d0 =
+                    (CFMutableDictionaryRef)CFArrayGetValueAtIndex(atts, 0);
+                CFDictionarySetValue(d0, kCMSampleAttachmentKey_DisplayImmediately,
+                    kCFBooleanTrue);
+            }
         }
     }
 
@@ -168,13 +232,17 @@ bool VtDecoder::Decode(const uint8_t* nal, size_t len, uint64_t ptsUs) {
 
     if (!r.isReadyForMoreMediaData) {
         counters_.CountCongestionDrop();
+        if (paced && ++pacedCongestionRun_ >= kPacedStallDrops) DisablePacing();
         CFRelease(sb);
         return true;
     }
+    pacedCongestionRun_ = 0;
 
     [r enqueueSampleBuffer:sb];
     CFRelease(sb);
 
-    counters_.FramePresented(ptsUs, NowUs());
+    const uint64_t shownUs = paced ? pacer_.DisplayTimeUs(ptsUs, nowUs) : nowUs;
+    counters_.FramePresented(ptsUs, shownUs);
+    if (paced) counters_.RecordPresentDelayMs(uint32_t((shownUs - nowUs) / 1000));
     return true;
 }
