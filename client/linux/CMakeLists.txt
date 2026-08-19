@@ -32,18 +32,10 @@ if(NOT EXISTS ${FFMPEG_MIN_DIR}/lib/libavcodec.a)
     return()
 endif()
 
-if(NOT EXISTS ${FFMPEG_MIN_DIR}/lib/libswscale.a)
-    message(${deskhub_skip_level}
-        "Deskhub: skipping the Ubuntu app — third_party/ffmpeg-min predates the "
-        "swscale-enabled build. Re-run 'scripts/build-ffmpeg.sh'.")
-    return()
-endif()
-
 add_library(ffmpeg_min INTERFACE)
 target_include_directories(ffmpeg_min SYSTEM INTERFACE ${FFMPEG_MIN_DIR}/include)
 target_link_libraries(ffmpeg_min INTERFACE
     ${FFMPEG_MIN_DIR}/lib/libavcodec.a
-    ${FFMPEG_MIN_DIR}/lib/libswscale.a
     ${FFMPEG_MIN_DIR}/lib/libavutil.a
 )
 

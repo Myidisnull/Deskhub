@@ -2,10 +2,6 @@
 
 #include <drm_fourcc.h>
 
-extern "C" {
-#include <libswscale/swscale.h>
-}
-
 #include <ffnvcodec/dynlink_cuda.h>
 #include <ffnvcodec/nvEncodeAPI.h>
 
@@ -17,19 +13,20 @@ extern "C" {
 
 #include "deskhub/media/H264Sps.h"
 #include "deskhub/media/RatePlan.h"
+#include "deskhub/media/RgbDownscale.h"
 #include "deskhubp/diag/Log.h"
 
 using deskhub::media::EncoderConfig;
 
 namespace {
 
-AVPixelFormat PixelFormatFor(uint32_t drmFormat) {
+NV_ENC_BUFFER_FORMAT NvencFormatFor(uint32_t drmFormat) {
     switch (drmFormat) {
-        case DRM_FORMAT_XRGB8888: return AV_PIX_FMT_BGR0;
-        case DRM_FORMAT_ARGB8888: return AV_PIX_FMT_BGRA;
-        case DRM_FORMAT_XBGR8888: return AV_PIX_FMT_RGB0;
-        case DRM_FORMAT_ABGR8888: return AV_PIX_FMT_RGBA;
-        default: return AV_PIX_FMT_NONE;
+        case DRM_FORMAT_XRGB8888:
+        case DRM_FORMAT_ARGB8888: return NV_ENC_BUFFER_FORMAT_ARGB;
+        case DRM_FORMAT_XBGR8888:
+        case DRM_FORMAT_ABGR8888: return NV_ENC_BUFFER_FORMAT_ABGR;
+        default: return NV_ENC_BUFFER_FORMAT_UNDEFINED;
     }
 }
 
@@ -55,9 +52,8 @@ struct NvEncoder::Impl {
     NV_ENC_INITIALIZE_PARAMS init{};
     NV_ENC_CONFIG encCfg{};
 
-    SwsContext* sws = nullptr;
-    uint32_t swsSrcW = 0, swsSrcH = 0, swsSrcStride = 0;
-    AVPixelFormat swsSrcFmt = AV_PIX_FMT_NONE;
+    deskhub::media::RgbDownscaler scaler;
+    NV_ENC_BUFFER_FORMAT bufferFormat = NV_ENC_BUFFER_FORMAT_ARGB;
 
     EncoderConfig cfg{};
     std::vector<uint8_t> lastScaled;
@@ -96,7 +92,7 @@ struct NvEncoder::Impl {
             LOGE("[NvEnc] input buffer lock failed: %s", LastApiError());
             return false;
         }
-        const uint32_t rowBytes = cfg.width * 4;
+        const uint32_t rowBytes = cfg.width * deskhub::media::kPackedPixelBytes;
         auto* dst = static_cast<uint8_t*>(lock.bufferDataPtr);
         for (uint32_t y = 0; y < cfg.height; ++y)
             std::memcpy(dst + size_t(y) * lock.pitch, lastScaled.data() + size_t(y) * rowBytes,
@@ -111,7 +107,7 @@ struct NvEncoder::Impl {
         pic.inputPitch = pitch;
         pic.inputBuffer = inputBuf;
         pic.outputBitstream = bitstream;
-        pic.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
+        pic.bufferFmt = bufferFormat;
         pic.pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
         pic.inputTimeStamp = timestampUs;
         if (forceKeyframe)
@@ -160,10 +156,6 @@ struct NvEncoder::Impl {
             inputBuf = nullptr;
             bitstream = nullptr;
         }
-        if (sws) {
-            sws_freeContext(sws);
-            sws = nullptr;
-        }
         if (cuCtx) {
             cu->cuCtxDestroy(cuCtx);
             cuCtx = nullptr;
@@ -203,9 +195,14 @@ bool NvEncoder::DriverPresent() {
     return present;
 }
 
-bool NvEncoder::Init(const EncoderConfig& cfg) {
+bool NvEncoder::Init(const EncoderConfig& cfg, uint32_t drmFormat) {
     Impl* im = impl_.get();
     im->cfg = cfg;
+    im->bufferFormat = NvencFormatFor(drmFormat);
+    if (im->bufferFormat == NV_ENC_BUFFER_FORMAT_UNDEFINED) {
+        LOGE("[NvEnc] unsupported capture pixel format 0x%08x.", drmFormat);
+        return false;
+    }
 
     if (cuda_load_functions(&im->cu, nullptr) < 0) return false;
     if (nvenc_load_functions(&im->nv, nullptr) < 0) return false;
@@ -276,7 +273,7 @@ bool NvEncoder::Init(const EncoderConfig& cfg) {
     in.version = NV_ENC_CREATE_INPUT_BUFFER_VER;
     in.width = cfg.width;
     in.height = cfg.height;
-    in.bufferFmt = NV_ENC_BUFFER_FORMAT_ARGB;
+    in.bufferFmt = im->bufferFormat;
     if (im->fn.nvEncCreateInputBuffer(im->session, &in) != NV_ENC_SUCCESS) {
         LOGE("[NvEnc] input buffer creation failed: %s", im->LastApiError());
         return false;
@@ -291,7 +288,7 @@ bool NvEncoder::Init(const EncoderConfig& cfg) {
     }
     im->bitstream = out.bitstreamBuffer;
 
-    im->lastScaled.assign(size_t(cfg.width) * cfg.height * 4, 0);
+    im->lastScaled.assign(size_t(cfg.width) * cfg.height * deskhub::media::kPackedPixelBytes, 0);
     im->haveSource = false;
     LOGI("[NvEnc] %ux%u @%u fps, %.1f Mbps CBR, ultra-low-latency — NVIDIA hardware encoder.",
         cfg.width, cfg.height, cfg.fps, cfg.bitrateBps / 1e6);
@@ -303,34 +300,18 @@ bool NvEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forc
     if (!IsOpen()) return false;
     if (fi.memory != FrameMemory::Mapped) return false;
 
-    const AVPixelFormat srcFmt = PixelFormatFor(fi.drmFormat);
-    if (srcFmt == AV_PIX_FMT_NONE) {
-        LOGE("[NvEnc] unsupported capture pixel format 0x%08x.", fi.drmFormat);
+    if (NvencFormatFor(fi.drmFormat) != im->bufferFormat) {
+        LOGE("[NvEnc] capture pixel format 0x%08x no longer matches the input buffer.",
+            fi.drmFormat);
         return false;
     }
 
-    if (!im->sws || im->swsSrcW != fi.meta.width || im->swsSrcH != fi.meta.height ||
-        im->swsSrcStride != fi.stride || im->swsSrcFmt != srcFmt) {
-        if (im->sws) sws_freeContext(im->sws);
-        im->sws = sws_getContext(int(fi.meta.width), int(fi.meta.height), srcFmt,
-            int(im->cfg.width), int(im->cfg.height), AV_PIX_FMT_BGRA, SWS_FAST_BILINEAR, nullptr,
-            nullptr, nullptr);
-        if (!im->sws) {
-            LOGE("[NvEnc] swscale refused %ux%u -> %ux%u.", fi.meta.width, fi.meta.height,
-                im->cfg.width, im->cfg.height);
-            return false;
-        }
-        im->swsSrcW = fi.meta.width;
-        im->swsSrcH = fi.meta.height;
-        im->swsSrcStride = fi.stride;
-        im->swsSrcFmt = srcFmt;
-    }
+    if (!im->scaler.Matches(fi.meta.width, fi.meta.height, im->cfg.width, im->cfg.height))
+        im->scaler.Configure(fi.meta.width, fi.meta.height, im->cfg.width, im->cfg.height);
+    if (!im->scaler.ready()) return false;
 
-    const uint8_t* srcPlanes[1] = {fi.handle};
-    const int srcStrides[1] = {int(fi.stride)};
-    uint8_t* dstPlanes[1] = {im->lastScaled.data()};
-    const int dstStrides[1] = {int(im->cfg.width * 4)};
-    sws_scale(im->sws, srcPlanes, srcStrides, 0, int(fi.meta.height), dstPlanes, dstStrides);
+    im->scaler.Scale(fi.handle, fi.stride, im->lastScaled.data(),
+        im->cfg.width * deskhub::media::kPackedPixelBytes);
     im->haveSource = true;
 
     return im->EncodeScaled(timestampUs, forceKeyframe);

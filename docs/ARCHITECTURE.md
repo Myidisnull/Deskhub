@@ -213,11 +213,24 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 - **The Linux host picks its encoder by where the frame lives, not by what is
   installed**: a dma-buf frame goes to VA-API, which can import it zero-copy on the
   GPU that produced it; a mapped (CPU) frame goes to NVENC when an NVIDIA driver is
-  present, because once the pixels are in system memory the fastest encoder wins —
-  on a desktop rendered by the NVIDIA GPU the compositor renegotiates screencast to
-  shared memory anyway, and VA-API on the idle iGPU was measured at 23 ms a frame
-  against NVENC's 3. `HwEncoder` makes that call per encoder rebuild, and a frame of
-  the other kind arriving later returns `false`, which is the signal to rebuild.
+  present, because on a desktop rendered by an NVIDIA GPU the compositor renegotiates
+  screencast to shared memory, and the encode then belongs on the card that can take
+  the pixels straight from system memory. `HwEncoder` makes that call per encoder
+  rebuild, and a frame of the other kind arriving later returns `false`, which is the
+  signal to rebuild.
+- **The downscale ahead of NVENC is ours, not swscale's**: NVENC takes packed 32-bit
+  pixels but will not resize them, and the capture is a full-resolution desktop.
+  `libswscale` measured 9.2 ms for 3440x1440 → 1280x534 — roughly 2 GB/s, an order of
+  magnitude off this machine's memory bandwidth, because a packed-RGB rescale falls off
+  its optimised paths. `RgbDownscale` in `core/` is an area average written for exactly
+  this shape: one 32-bit load per source pixel, integer accumulation, 4.0 ms for the
+  same frame, and correct antialiasing rather than the bilinear tap swscale was giving.
+  Whole-frame NVENC cost lands at ~5 ms, so 60 fps has headroom.
+- **Performance numbers only mean anything from a release build**: `make build-linux`
+  and `make run-linux` configure the `x64-debug` preset, which is `-O0`, and the encode
+  path is now pixel arithmetic in `core/`. The same frame costs ~19 ms there against
+  ~5 ms from `make release-linux`. A judder report measured against a debug binary is
+  measuring the build type.
 
 - **Apple viewers pace video by PTS on a control timebase, and the pacer never trusts
   itself**: displaying every frame the moment it arrived made Wi-Fi arrival jitter

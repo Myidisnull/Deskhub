@@ -118,7 +118,7 @@ jobs:
           path: third_party/ffmpeg-min
           key: ffmpeg-min-${{ matrix.os }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
 
-      - name: Build minimal FFmpeg (static, h264 decode + swscale)
+      - name: Build minimal FFmpeg (static, h264 decode only)
         run: scripts/build-ffmpeg.sh
 
       - name: Cache quiche

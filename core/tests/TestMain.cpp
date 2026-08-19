@@ -145,6 +145,9 @@ int main() {
     std::printf("--- media: latest-wins frame mailbox ---\n");
     RunFrameMailboxTests();
 
+    std::printf("--- media: area-average RGB downscale ---\n");
+    RunRgbDownscaleTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 

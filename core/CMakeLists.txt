@@ -47,6 +47,7 @@ add_library(core STATIC
     src/media/ViewFit.cpp
     src/media/H264Sps.cpp
     src/media/AnnexB.cpp
+    src/media/RgbDownscale.cpp
     src/media/RatePlan.cpp
     src/media/H264Encode.cpp
 
@@ -150,6 +151,7 @@ if(DESKHUB_CORE_TESTS)
         tests/media/SourceLabelTests.cpp
         tests/media/ViewerTitleTests.cpp
         tests/media/FrameMailboxTests.cpp
+        tests/media/RgbDownscaleTests.cpp
 
         tests/session/BeaconTests.cpp
 

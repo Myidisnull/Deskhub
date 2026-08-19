@@ -10,7 +10,7 @@ STAMP="$PREFIX/.stamp"
 CONFIGURE_FLAGS=(
     --disable-everything
     --disable-programs --disable-doc --disable-network --disable-autodetect
-    --disable-avdevice --disable-avformat --disable-swresample
+    --disable-avdevice --disable-avformat --disable-swscale --disable-swresample
     --disable-avfilter
     --enable-decoder=h264
     --enable-hwaccel=h264_vaapi
@@ -30,7 +30,7 @@ command -v nasm >/dev/null 2>&1 || {
     exit 1
 }
 
-echo "[install] ffmpeg-min $FFMPEG_VERSION (h264 decoder + vaapi hwaccel + swscale)..."
+echo "[install] ffmpeg-min $FFMPEG_VERSION (h264 decoder + vaapi hwaccel only)..."
 BUILD="$PREFIX/src"
 rm -rf "$PREFIX"
 mkdir -p "$BUILD"

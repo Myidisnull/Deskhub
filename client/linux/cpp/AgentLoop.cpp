@@ -116,13 +116,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
         auto onPacket = engine->MakePacketSink(*p);
 
-        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h,
-                                 FrameMemory frameKind) -> bool {
+        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h, FrameMemory frameKind,
+                                 uint32_t drmFormat) -> bool {
             if (p->encoder && p->encoder->IsOpen()) return true;
             EncoderConfig cfg = deskhub::MakeEncoderConfig(*p, {w, h}, fps);
             cfg.onPacket = onPacket;
             auto enc = std::make_unique<HwEncoder>();
-            if (!enc->Init(cfg, frameKind)) {
+            if (!enc->Init(cfg, frameKind, drmFormat)) {
                 LOGE("[Agent][%s] No hardware encoder would start (NVENC or VA-API).",
                     p->name.c_str());
                 p->failed.store(true);
@@ -151,7 +151,8 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
             if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!ensureEncoder(adm.encode.width, adm.encode.height, fi.memory)) return;
+            if (!ensureEncoder(adm.encode.width, adm.encode.height, fi.memory, fi.drmFormat))
+                return;
             const bool idr = p->forceIdr.exchange(false);
             HwEncoder* enc = p->encoder.get();
             const bool ok = deskhubp::DiagEncode(*p, idr,
