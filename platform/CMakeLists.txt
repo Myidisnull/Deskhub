@@ -5,6 +5,7 @@ if(NOT COMMAND deskhub_target_warnings)
 endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubQuiche.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubOpus.cmake)
 
 option(DESKHUB_QUIC "Build the QUIC transport (requires third_party/quiche)" ON)
 if(DESKHUB_QUIC AND NOT DESKHUB_QUICHE_FOUND)
@@ -29,6 +30,23 @@ else()
         src/system/HostIdentityNone.cpp
         src/system/AuthProofNone.cpp
     )
+endif()
+
+option(DESKHUB_AUDIO "Build audio streaming (requires third_party/opus)" ON)
+if(DESKHUB_AUDIO AND NOT DESKHUB_OPUS_FOUND)
+    message(FATAL_ERROR
+        "Deskhub: third_party/opus/${DESKHUB_OPUS_TARGET} is missing. A build without it "
+        "shares a screen with no sound, so it fails here instead of shipping a surprise. "
+        "Run scripts/build-opus.sh (make bootstrap does), or pass -DDESKHUB_AUDIO=OFF to "
+        "build the silent stub on purpose.")
+endif()
+if(DESKHUB_AUDIO)
+    set(deskhub_platform_audio src/media/OpusCodec.cpp)
+else()
+    message(STATUS
+        "Deskhub: DESKHUB_AUDIO=OFF — building the silent stub; this binary carries no "
+        "sound.")
+    set(deskhub_platform_audio src/media/OpusCodecNone.cpp)
 endif()
 
 if(WIN32)
@@ -136,6 +154,7 @@ add_library(platform STATIC
     ${deskhub_platform_os}
     ${deskhub_platform_quic}
     ${deskhub_platform_pty}
+    ${deskhub_platform_audio}
     src/system/TrustStoreFile.cpp
     src/system/PairedDevicesFile.cpp
     src/session/AuthNegotiation.cpp
@@ -163,12 +182,23 @@ if(DESKHUB_QUIC)
     target_link_libraries(platform PRIVATE deskhub::quiche)
 endif()
 
+if(DESKHUB_AUDIO)
+    target_link_libraries(platform PRIVATE deskhub::opus)
+endif()
+
 if(APPLE)
+    set(deskhub_bundled_libs)
     if(DESKHUB_QUIC)
+        list(APPEND deskhub_bundled_libs ${DESKHUB_QUICHE_LIB})
+    endif()
+    if(DESKHUB_AUDIO)
+        list(APPEND deskhub_bundled_libs ${DESKHUB_OPUS_LIB})
+    endif()
+    if(deskhub_bundled_libs)
         add_custom_command(TARGET platform POST_BUILD
             COMMAND libtool -static -no_warning_for_no_symbols
                 -o $<TARGET_FILE_DIR:platform>/libplatform_bundled.a
-                $<TARGET_FILE:platform> ${DESKHUB_QUICHE_LIB})
+                $<TARGET_FILE:platform> ${deskhub_bundled_libs})
     else()
         add_custom_command(TARGET platform POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -235,6 +265,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/ffi/FfiTextTests.cpp
         tests/ffi/TerminalFfiTests.cpp
         tests/input/LocalInputGateTests.cpp
+        tests/media/OpusCodecTests.cpp
         tests/net/NetAddrTests.cpp
         tests/net/SourceQueryTests.cpp
         tests/net/HostProbeTests.cpp
