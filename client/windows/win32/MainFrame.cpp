@@ -444,6 +444,8 @@ private:
     wxCheckBox* autoShareCtrl_ = nullptr;
     wxCheckBox* autostartCtrl_ = nullptr;
     wxCheckBox* startHiddenCtrl_ = nullptr;
+    wxCheckBox* shareAudioCtrl_ = nullptr;
+    wxCheckBox* playAudioCtrl_ = nullptr;
     wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* clipboardCtrl_ = nullptr;
     DeskhubTrayIcon* trayIcon_ = nullptr;
@@ -1074,6 +1076,12 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     clipboardCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kClipboardSyncLabel));
     clipboardCtrl_->SetValue(settings_.clipboardSync);
     sizer->Add(clipboardCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    shareAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kShareAudioLabel));
+    shareAudioCtrl_->SetValue(settings_.shareAudio);
+    sizer->Add(shareAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    playAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kPlayAudioLabel));
+    playAudioCtrl_->SetValue(settings_.playAudio);
+    sizer->Add(playAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     keepAwakeCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kKeepAwakeLabel));
     keepAwakeCtrl_->SetValue(settings_.keepAwake);
     sizer->Add(keepAwakeCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1476,6 +1484,7 @@ void MainFrame::OnShare(ShareTrigger trigger) {
     options.deviceName = settings_.deviceName;
     options.allowNewPairings = settings_.allowNewPairings;
     options.clipboardSync = settings_.clipboardSync;
+    options.audio = settings_.shareAudio;
     options.terminal = terminal;
 
     terminalRequested_ = terminal;
@@ -1966,6 +1975,8 @@ void MainFrame::SaveSettings() {
     settings_.allowInput = allowInputCtrl_->GetValue();
     settings_.clientControl = controlCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();
+    settings_.shareAudio = shareAudioCtrl_->GetValue();
+    settings_.playAudio = playAudioCtrl_->GetValue();
     settings_.keepAwake = keepAwakeCtrl_->GetValue();
     const std::string passcode(passcodeCtrl_->GetValue().utf8_str());
     if (passcode.empty() || deskhub::IsValidPasscode(passcode)) settings_.passcode = passcode;
