@@ -40,7 +40,11 @@ public:
     Stats stats() const;
 
 private:
+    static constexpr uint64_t kReportIntervalUs = 2'000'000;
+
     void Run();
+    void Report() const;
+    size_t buffered() const;
     size_t Fill(const deskhub::AudioJitterBuffer::Frame& frame, std::span<int16_t> pcm);
 
     deskhub::media::AudioFormat format_{};

@@ -43,12 +43,17 @@ public:
     }
 
 private:
+    static constexpr uint64_t kReportIntervalUs = 2'000'000;
+
     std::mutex encoderMutex_;
     OpusAudioEncoder encoder_;
     SendFn send_;
     deskhub::media::AudioFormat format_{};
     std::vector<uint8_t> packet_;
     uint32_t nextSeq_ = 0;
+    uint64_t bytesEncoded_ = 0;
+    uint64_t reportedAtUs_ = 0;
+    uint64_t nextReportUs_ = 0;
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> framesEncoded_{0};
     std::atomic<uint64_t> framesRefused_{0};

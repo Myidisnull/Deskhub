@@ -51,6 +51,7 @@ void AudioPlayer::Run() {
     std::vector<int16_t> pcm(format_.interleavedSamples());
     const uint64_t frameUs = uint64_t(format_.samplesPerFrame) * 1'000'000 / format_.sampleRate;
     uint64_t nextUs = NowUs();
+    uint64_t nextReportUs = nextUs + kReportIntervalUs;
 
     while (!quit_.load(std::memory_order_acquire)) {
         std::optional<deskhub::AudioJitterBuffer::Frame> frame;
@@ -69,6 +70,10 @@ void AudioPlayer::Run() {
 
         nextUs += frameUs;
         const uint64_t nowUs = NowUs();
+        if (nowUs >= nextReportUs) {
+            nextReportUs = nowUs + kReportIntervalUs;
+            Report();
+        }
         if (nextUs > nowUs)
             SleepUs(nextUs - nowUs);
         else
@@ -80,6 +85,25 @@ size_t AudioPlayer::Fill(const deskhub::AudioJitterBuffer::Frame& frame,
     std::span<int16_t> pcm) {
     if (frame.concealed) return decoder_.Conceal(pcm);
     return decoder_.Decode(frame.payload, pcm);
+}
+
+void AudioPlayer::Report() const {
+    const Stats s = stats();
+    LOGI(
+        "[DIAG][audio] evt=play recv=%llu played=%llu concealed=%llu late=%llu dup=%llu "
+        "dropped=%llu underrun=%llu resync=%llu dec_fail=%llu sink_drop=%llu sink_starve=%llu "
+        "held=%zu",
+        (unsigned long long)s.jitter.framesReceived, (unsigned long long)s.jitter.framesPlayed,
+        (unsigned long long)s.jitter.framesConcealed, (unsigned long long)s.jitter.framesLate,
+        (unsigned long long)s.jitter.framesDuplicate,
+        (unsigned long long)s.jitter.framesDropped, (unsigned long long)s.jitter.underruns,
+        (unsigned long long)s.jitter.resyncs, (unsigned long long)s.decodeFailures,
+        (unsigned long long)s.sinkDropped, (unsigned long long)s.sinkStarved, buffered());
+}
+
+size_t AudioPlayer::buffered() const {
+    std::lock_guard<std::mutex> lock(bufferMutex_);
+    return buffer_.buffered();
 }
 
 AudioPlayer::Stats AudioPlayer::stats() const {

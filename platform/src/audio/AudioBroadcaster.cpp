@@ -21,6 +21,9 @@ bool AudioBroadcaster::Start(SendFn send, const deskhub::media::AudioFormat& for
     format_ = format;
     packet_.assign(kMaxOpusPacketBytes, 0);
     nextSeq_ = 0;
+    bytesEncoded_ = 0;
+    reportedAtUs_ = NowUs();
+    nextReportUs_ = reportedAtUs_ + kReportIntervalUs;
     framesEncoded_.store(0, std::memory_order_relaxed);
     framesRefused_.store(0, std::memory_order_relaxed);
     running_.store(true, std::memory_order_release);
@@ -53,8 +56,20 @@ void AudioBroadcaster::Offer(std::span<const int16_t> pcm) {
     }
 
     const uint32_t seq = nextSeq_++;
-    send_(std::span<const uint8_t>(packet_.data(), written), seq, NowUs());
+    const uint64_t nowUs = NowUs();
+    send_(std::span<const uint8_t>(packet_.data(), written), seq, nowUs);
     framesEncoded_.fetch_add(1, std::memory_order_relaxed);
+    bytesEncoded_ += written;
+
+    if (nowUs < nextReportUs_) return;
+    const uint64_t sinceUs = nowUs - reportedAtUs_;
+    LOGI("[DIAG][audio] evt=share frames=%llu refused=%llu kbps=%.1f",
+        (unsigned long long)framesEncoded_.load(std::memory_order_relaxed),
+        (unsigned long long)framesRefused_.load(std::memory_order_relaxed),
+        sinceUs ? double(bytesEncoded_) * 8.0 * 1000.0 / double(sinceUs) : 0.0);
+    bytesEncoded_ = 0;
+    reportedAtUs_ = nowUs;
+    nextReportUs_ = nowUs + kReportIntervalUs;
 }
 
 }

@@ -19,6 +19,9 @@ object AudioShare {
     private const val CHANNELS = 2
     private const val SAMPLES_PER_FRAME = 960
     private const val FRAME_SHORTS = SAMPLES_PER_FRAME * CHANNELS
+    private const val FRAME_MS = 20L
+    private const val MAX_EMPTY_READS = 50
+    private const val REPORT_INTERVAL_NS = 2_000_000_000L
 
     val isSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
@@ -112,18 +115,45 @@ object AudioShare {
 
     private fun pump(source: AudioRecord) {
         val frame = ShortArray(FRAME_SHORTS)
+        var frames = 0L
+        var short = 0L
+        var refused = 0L
+        var reportedAt = System.nanoTime()
+
         while (running) {
             var filled = 0
+            var failed = false
             while (running && filled < FRAME_SHORTS) {
                 val got = source.read(frame, filled, FRAME_SHORTS - filled)
-                if (got <= 0) break
+                if (got <= 0) {
+                    failed = true
+                    break
+                }
                 filled += got
             }
             if (!running) break
+            if (failed && filled == 0) {
+                refused++
+                if (refused > MAX_EMPTY_READS) {
+                    Log.w(TAG, "[audio] evt=capture_stalled reads=$refused frames=$frames")
+                    break
+                }
+                Thread.sleep(FRAME_MS)
+                continue
+            }
             if (filled < FRAME_SHORTS) {
+                short++
                 java.util.Arrays.fill(frame, filled, FRAME_SHORTS, 0)
             }
             NativeHost.offerAudio(frame, FRAME_SHORTS)
+            frames++
+
+            val now = System.nanoTime()
+            if (now - reportedAt >= REPORT_INTERVAL_NS) {
+                Log.i(TAG, "[DIAG][audio] evt=capture frames=$frames short=$short empty=$refused")
+                reportedAt = now
+            }
         }
+        Log.i(TAG, "[audio] evt=capture_stop frames=$frames short=$short empty=$refused")
     }
 }
