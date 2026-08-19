@@ -28,7 +28,7 @@ final class AudioResampler {
 
         var offered = false
         var conversionError: NSError?
-        converter.convert(to: target, error: &conversionError) { _, status in
+        let outcome = converter.convert(to: target, error: &conversionError) { _, status in
             if offered {
                 status.pointee = .noDataNow
                 return nil
@@ -37,7 +37,9 @@ final class AudioResampler {
             status.pointee = .haveData
             return source
         }
-        if conversionError != nil { return nil }
+        guard outcome == .haveData || outcome == .inputRanDry, conversionError == nil else {
+            return nil
+        }
 
         guard let channel = target.int16ChannelData, target.frameLength > 0 else { return nil }
         let count = Int(target.frameLength) * Int(output.channelCount)
