@@ -71,6 +71,39 @@ void TestZeroTimestampIsAReference() {
     Check(!gate.Admit(30, 1'000), "so the next frame 1ms later is dropped");
 }
 
+uint32_t AdmittedOverASecond(uint32_t targetFps, uint32_t captureFps) {
+    FrameGate gate;
+    const uint64_t stepUs = 1'000'000ull / captureFps;
+    uint32_t admitted = 0;
+    for (uint32_t i = 0; i < captureFps; ++i)
+        if (gate.Admit(targetFps, uint64_t(i) * stepUs)) ++admitted;
+    return admitted;
+}
+
+void TestAwkwardCaptureRateStillMeetsTheTarget() {
+    std::printf("[gate] a capture rate that is not a multiple of the target still meets it...\n");
+    Check(AdmittedOverASecond(30, 40) == 30, "40fps in, 30fps target -> 30 admitted, not 20");
+    Check(AdmittedOverASecond(30, 45) == 30, "45fps in -> 30 admitted");
+    Check(AdmittedOverASecond(60, 90) == 60, "90fps in, 60fps target -> 60 admitted");
+    Check(AdmittedOverASecond(30, 60) == 30, "an exact multiple is unaffected");
+    Check(AdmittedOverASecond(30, 30) == 30, "a capture already at the target passes whole");
+}
+
+void TestSlowCaptureIsNeverDecimated() {
+    std::printf("[gate] a capture slower than the target loses nothing...\n");
+    Check(AdmittedOverASecond(30, 10) == 10, "10fps in, 30fps target -> all 10 admitted");
+    Check(AdmittedOverASecond(60, 25) == 25, "25fps in, 60fps target -> all 25 admitted");
+}
+
+void TestIdleTimeBanksNoBurst() {
+    std::printf("[gate] a quiet spell does not buy a burst afterwards...\n");
+    FrameGate gate;
+    Check(gate.Admit(30, 0), "reference frame");
+    Check(gate.Admit(30, 5'000'000), "a frame after five idle seconds is admitted");
+    Check(!gate.Admit(30, 5'001'000), "but the one 1ms behind it is still too early");
+    Check(gate.Admit(30, 5'033'333), "and the cadence resumes from there");
+}
+
 }
 
 void RunFrameGateTests() {
@@ -81,4 +114,7 @@ void RunFrameGateTests() {
     TestNonMonotonicTimestamps();
     TestReset();
     TestZeroTimestampIsAReference();
+    TestAwkwardCaptureRateStillMeetsTheTarget();
+    TestSlowCaptureIsNeverDecimated();
+    TestIdleTimeBanksNoBurst();
 }

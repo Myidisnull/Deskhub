@@ -202,6 +202,16 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
 
+- **The frame gate counts to a deadline, not from the last frame it kept**: a compositor
+  that hands over 40 fps against a 30 fps target has no frame at all on most of the
+  33 ms boundaries, so a gate that only asks "is this far enough after the one I kept?"
+  rejects every second frame and settles at 20 fps — under target, and ragged, which is
+  judder rather than a slower stream. `FrameGate` carries a running due time instead:
+  admitting advances it by exactly one interval, so the remainder is kept and 40 in
+  gives 30 out. A capture slower than the target is never decimated, and a due time
+  that has fallen behind real time resyncs rather than banking a burst, so a quiet
+  spell cannot buy one later.
+
 - **The Linux host encodes on its own thread, and hands that thread the small frame,
   not the big one**: encoding inside PipeWire's `process` callback throttled capture to
   `1000 / enc_ms` fps and turned every encode-time wobble into frame-cadence jitter on

@@ -200,6 +200,16 @@ iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
+- **Cổng khung hình đếm tới một mốc hạn, không đếm từ khung nó vừa giữ**: một compositor
+  đưa sang 40 fps trong khi mục tiêu là 30 fps thì hầu hết các mốc 33 ms đều không có
+  khung nào rơi đúng vào, nên một cổng chỉ hỏi "khung này có cách khung tôi giữ đủ xa
+  không?" sẽ loại một khung xen kẽ và dừng ở 20 fps — vừa dưới mục tiêu, vừa lởm chởm,
+  tức là giật hình chứ không phải luồng chậm hơn. `FrameGate` thay vào đó mang theo một
+  mốc hạn chạy đều: mỗi lần nhận khung, mốc tiến đúng một chu kỳ, nên phần dư được giữ
+  lại và 40 vào cho ra 30. Capture chậm hơn mục tiêu không bao giờ bị chặt bớt, và một
+  mốc hạn đã tụt lại sau thời gian thực sẽ đồng bộ lại thay vì tích lũy, nên một quãng
+  lặng không mua được một cú dồn khung về sau.
+
 - **Host Linux encode trên thread riêng, và đưa cho thread đó khung hình nhỏ chứ không
   phải khung lớn**: encode ngay trong callback `process` của PipeWire từng ghìm capture
   xuống `1000 / enc_ms` fps và biến mọi dao động thời gian encode thành rung nhịp khung
