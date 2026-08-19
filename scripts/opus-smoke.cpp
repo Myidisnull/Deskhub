@@ -14,6 +14,7 @@ constexpr int kFrameSamples = 960;
 constexpr int kBitrateBps = 64000;
 constexpr int kPacketLossPct = 5;
 constexpr int kToneHz = 440;
+constexpr double kTwoPi = 6.283185307179586;
 constexpr int16_t kToneAmplitude = 12000;
 constexpr int kToneFrames = 100;
 constexpr int kSilenceFrames = 50;
@@ -30,7 +31,7 @@ std::vector<int16_t> MakeTone(int frames) {
     std::vector<int16_t> pcm(size_t(frames) * kFrameSamples * kChannels);
     for (int i = 0; i < frames * kFrameSamples; ++i) {
         const double t = double(i) / kSampleRate;
-        const auto s = int16_t(kToneAmplitude * std::sin(2.0 * M_PI * kToneHz * t));
+        const auto s = int16_t(kToneAmplitude * std::sin(kTwoPi * kToneHz * t));
         pcm[size_t(i) * kChannels] = s;
         pcm[size_t(i) * kChannels + 1] = s;
     }

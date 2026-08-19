@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <thread>
+#include <string_view>
 #include <vector>
 
 using namespace deskhubp;
@@ -18,6 +19,7 @@ using deskhub::media::AudioFormat;
 namespace {
 
 constexpr int kToneHz = 440;
+constexpr double kTwoPi = 6.283185307179586;
 constexpr int16_t kToneAmplitude = 12000;
 
 std::vector<int16_t> Tone(const AudioFormat& format, int frameIndex) {
@@ -25,7 +27,7 @@ std::vector<int16_t> Tone(const AudioFormat& format, int frameIndex) {
     const size_t first = size_t(frameIndex) * format.samplesPerFrame;
     for (uint32_t i = 0; i < format.samplesPerFrame; ++i) {
         const double t = double(first + i) / format.sampleRate;
-        const auto s = int16_t(kToneAmplitude * std::sin(2.0 * M_PI * kToneHz * t));
+        const auto s = int16_t(kToneAmplitude * std::sin(kTwoPi * kToneHz * t));
         for (uint32_t c = 0; c < format.channels; ++c) pcm[size_t(i) * format.channels + c] = s;
     }
     return pcm;
@@ -37,11 +39,20 @@ double Rms(const std::vector<int16_t>& pcm) {
     return pcm.empty() ? 0.0 : std::sqrt(sum / double(pcm.size()));
 }
 
+bool BuiltWithoutOpus() {
+    return std::string_view(OpusAudioEncoder::BackendName()) == "none";
+}
+
 void TestRoundTrip() {
     std::printf("[audio] a tone survives encode and decode at the negotiated format...\n");
     const AudioFormat format{};
     OpusAudioEncoder enc;
     OpusAudioDecoder dec;
+    if (BuiltWithoutOpus()) {
+        Check(!enc.Open(format, deskhub::media::kAudioBitrateBps),
+            "a build without the codec refuses to encode rather than pretending");
+        return;
+    }
     Check(enc.Open(format, deskhub::media::kAudioBitrateBps), "the encoder opens");
     Check(dec.Open(format), "the decoder opens");
     Check(enc.IsOpen() && dec.IsOpen(), "both report themselves open");
@@ -72,6 +83,7 @@ void TestRoundTrip() {
 
 void TestConcealmentFillsAFrame() {
     std::printf("[audio] concealment produces a whole frame without a packet...\n");
+    if (BuiltWithoutOpus()) return;
     const AudioFormat format{};
     OpusAudioEncoder enc;
     OpusAudioDecoder dec;
@@ -94,6 +106,7 @@ void TestConcealmentFillsAFrame() {
 
 void TestBadInputIsRefused() {
     std::printf("[audio] the codec refuses formats and buffers it cannot honour...\n");
+    if (BuiltWithoutOpus()) return;
     OpusAudioEncoder enc;
     AudioFormat wrongRate{};
     wrongRate.sampleRate = 44100;
@@ -130,6 +143,7 @@ void TestBadInputIsRefused() {
 
 void TestCloseIsRepeatable() {
     std::printf("[audio] closing twice and reopening is safe...\n");
+    if (BuiltWithoutOpus()) return;
     const AudioFormat format{};
     OpusAudioEncoder enc;
     Check(enc.Open(format, deskhub::media::kAudioBitrateBps), "first open");
@@ -174,6 +188,7 @@ void TestPlayerRunsTheWholeReceivingSide() {
         "[audio] a captured frame survives encode, the wire, the jitter buffer "
         "and playback...\n");
     const AudioFormat format{};
+    if (BuiltWithoutOpus()) return;
     AudioPlayer player;
     if (!player.Start(format)) {
         std::printf("[audio] no audio device here - skipping the play-out path\n");

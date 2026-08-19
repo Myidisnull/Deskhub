@@ -60,7 +60,8 @@
         "CMAKE_CXX_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
         "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate",
         "DESKHUB_LINUX_APP": "OFF",
-        "DESKHUB_QUIC": "OFF"
+        "DESKHUB_QUIC": "OFF",
+        "DESKHUB_AUDIO": "OFF"
       }
     },
     {
@@ -73,7 +74,8 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
         "DESKHUB_FUZZ": "ON",
         "DESKHUB_LINUX_APP": "OFF",
-        "DESKHUB_QUIC": "OFF"
+        "DESKHUB_QUIC": "OFF",
+        "DESKHUB_AUDIO": "OFF"
       }
     },
     {
@@ -86,7 +88,8 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate",
         "DESKHUB_FUZZ": "ON",
         "DESKHUB_LINUX_APP": "OFF",
-        "DESKHUB_QUIC": "OFF"
+        "DESKHUB_QUIC": "OFF",
+        "DESKHUB_AUDIO": "OFF"
       }
     }
   ],
