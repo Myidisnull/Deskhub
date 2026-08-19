@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -24,6 +25,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+
+private const val TAG = "Deskhub"
 
 class HostService : Service() {
     private var projection: MediaProjection? = null
@@ -111,6 +114,7 @@ class HostService : Service() {
     }
 
     private fun stopSharing() {
+        Log.i(TAG, "[audio] evt=share_stop caller=${Throwable().stackTrace.getOrNull(1)}")
         AudioShare.stop()
         NativeHost.stop()
         projection?.unregisterCallback(projectionCallback)
@@ -123,7 +127,8 @@ class HostService : Service() {
     private fun foregroundType(): Int =
         when {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> 0
-            AudioShare.permissionGranted(this) ->
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                AudioShare.permissionGranted(this) ->
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
