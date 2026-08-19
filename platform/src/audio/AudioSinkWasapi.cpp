@@ -8,6 +8,8 @@
 
 #include <audioclient.h>
 #include <mmdeviceapi.h>
+#include <mmreg.h>
+#include <objbase.h>
 #include <wrl/client.h>
 
 #include <algorithm>

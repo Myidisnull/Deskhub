@@ -10,6 +10,8 @@
 
 #include <audioclient.h>
 #include <mmdeviceapi.h>
+#include <mmreg.h>
+#include <objbase.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -144,7 +146,7 @@ void AudioCapture::Impl::Run() {
         format.sampleRate, format.channels);
 
     const uint64_t frameUs = uint64_t(format.samplesPerFrame) * 1'000'000 / format.sampleRate;
-    uint64_t nextDueUs = deskhubp::NowUs() + frameUs;
+    uint64_t nextDueUs = NowUs() + frameUs;
 
     while (!quit.load(std::memory_order_acquire)) {
         UINT32 available = 0;
@@ -157,7 +159,7 @@ void AudioCapture::Impl::Run() {
             capture->ReleaseBuffer(deviceFrames);
         }
 
-        const uint64_t nowUs = deskhubp::NowUs();
+        const uint64_t nowUs = NowUs();
         if (nowUs >= nextDueUs) {
             if (staged > 0 || frames.load(std::memory_order_relaxed) > 0) PadWithSilence();
             nextDueUs = nowUs + frameUs;
