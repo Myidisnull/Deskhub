@@ -147,6 +147,7 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ViewFitTests.cpp
         tests/media/SourceLabelTests.cpp
         tests/media/ViewerTitleTests.cpp
+        tests/media/FrameMailboxTests.cpp
 
         tests/session/BeaconTests.cpp
 

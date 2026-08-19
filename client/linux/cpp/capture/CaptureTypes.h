@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 
 #include "deskhub/media/CaptureContract.h"
 
@@ -27,3 +28,20 @@ struct LinuxFrameInfo : deskhub::media::CapturedFrame<const uint8_t*> {
 
     uint32_t drmFormat = 0;
 };
+
+struct CopiedFrame {
+    std::vector<uint8_t> pixels;
+    uint32_t stride = 0;
+    uint32_t drmFormat = 0;
+    deskhub::media::FrameMeta meta;
+};
+
+inline LinuxFrameInfo FrameFromCopy(const CopiedFrame& copy) {
+    LinuxFrameInfo fi;
+    fi.memory = FrameMemory::Mapped;
+    fi.handle = copy.pixels.data();
+    fi.stride = copy.stride;
+    fi.drmFormat = copy.drmFormat;
+    fi.meta = copy.meta;
+    return fi;
+}

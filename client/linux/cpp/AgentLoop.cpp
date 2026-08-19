@@ -1,10 +1,13 @@
 #include "deskhubp/session/AgentLoop.h"
 
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <span>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "capture/AudioCapture.h"
 #include "capture/ScreenCapture.h"
@@ -17,6 +20,7 @@
 #include "deskhub/control/FrameGate.h"
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/diag/AgentDiag.h"
+#include "deskhub/media/FrameMailbox.h"
 #include "deskhub/session/HostRouter.h"
 
 namespace {
@@ -31,6 +35,28 @@ struct SourcePipeline : LinuxSourceBase {
     int32_t srcX = 0, srcY = 0;
 
     deskhub::FrameGate frameGate;
+
+    deskhub::media::FrameMailbox<CopiedFrame> encodeBox;
+    std::thread encodeThread;
+
+    std::vector<uint8_t> TakePixelBuffer() {
+        std::lock_guard<std::mutex> lk(pixelPoolMutex_);
+        if (pixelPool_.empty()) return {};
+        std::vector<uint8_t> buffer = std::move(pixelPool_.back());
+        pixelPool_.pop_back();
+        return buffer;
+    }
+
+    void ReturnPixelBuffer(std::vector<uint8_t>&& buffer) {
+        std::lock_guard<std::mutex> lk(pixelPoolMutex_);
+        if (pixelPool_.size() < kPixelPoolDepth) pixelPool_.push_back(std::move(buffer));
+    }
+
+private:
+    static constexpr size_t kPixelPoolDepth = 2;
+
+    std::mutex pixelPoolMutex_;
+    std::vector<std::vector<uint8_t>> pixelPool_;
 };
 
 SourcePipeline& Pipeline(deskhubp::HostSource& st) {
@@ -104,10 +130,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             return true;
         };
 
-        auto onFrame = [p, ensureEncoder, maxDim](const LinuxFrameInfo& fi) {
-            p->captured.fetch_add(1, std::memory_order_relaxed);
-            if (p->failed.load()) return;
-
+        auto encodeAdmitted = [p, ensureEncoder, maxDim](const LinuxFrameInfo& fi) {
             std::lock_guard<std::mutex> lk(p->encMutex);
 
             const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
@@ -121,10 +144,6 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             if (!adm.pauseNote.empty())
                 LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
             if (adm.drop) return;
-
-            if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed),
-                    fi.meta.timestampUs))
-                return;
 
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
@@ -143,16 +162,53 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->SetCachedFrame(enc->haveSourceFrame());
         };
 
+        auto onFrame = [p, encodeAdmitted](const LinuxFrameInfo& fi) {
+            p->captured.fetch_add(1, std::memory_order_relaxed);
+            if (p->failed.load()) return;
+
+            if (!p->frameGate.Admit(p->curFps.load(std::memory_order_relaxed),
+                    fi.meta.timestampUs))
+                return;
+
+            if (fi.memory == FrameMemory::DmaBuf) {
+                encodeAdmitted(fi);
+                return;
+            }
+
+            CopiedFrame copy;
+            copy.pixels = p->TakePixelBuffer();
+            const size_t bytes = size_t(fi.stride) * fi.meta.height;
+            copy.pixels.resize(bytes);
+            std::memcpy(copy.pixels.data(), fi.handle, bytes);
+            copy.stride = fi.stride;
+            copy.drmFormat = fi.drmFormat;
+            copy.meta = fi.meta;
+            if (auto displaced = p->encodeBox.Put(std::move(copy)))
+                p->ReturnPixelBuffer(std::move(displaced->pixels));
+        };
+
+        p->encodeThread = std::thread([p, encodeAdmitted] {
+            CopiedFrame copy;
+            while (p->encodeBox.TakeWait(copy)) {
+                encodeAdmitted(FrameFromCopy(copy));
+                p->ReturnPixelBuffer(std::move(copy.pixels));
+            }
+        });
+
         if (!p->capture.Start(p->nodeId, deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
             LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
                 p->name.c_str());
             p->failed.store(true);
+            p->encodeBox.Close();
+            p->encodeThread.join();
         }
     };
 
     policy.source.stopCapture = [](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
         p.capture.Stop();
+        p.encodeBox.Close();
+        if (p.encodeThread.joinable()) p.encodeThread.join();
         std::lock_guard<std::mutex> lk(p.encMutex);
         if (p.encoder) p.encoder->Finish();
         p.SetCachedFrame(false);

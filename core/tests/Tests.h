@@ -44,6 +44,7 @@ void RunQualityPresetTests();
 void RunViewFitTests();
 void RunSourceLabelTests();
 void RunViewerTitleTests();
+void RunFrameMailboxTests();
 void RunBeaconTests();
 void RunLanScanTests();
 void RunIpv4Tests();

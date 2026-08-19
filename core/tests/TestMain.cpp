@@ -139,6 +139,9 @@ int main() {
     std::printf("--- media: viewer window title (status + lock hint) ---\n");
     RunViewerTitleTests();
 
+    std::printf("--- media: latest-wins frame mailbox ---\n");
+    RunFrameMailboxTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 
