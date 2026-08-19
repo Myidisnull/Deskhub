@@ -29,7 +29,7 @@ using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, H
 
 struct SourcePipeline : LinuxSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : LinuxSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true}) {}
+        : LinuxSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true, true}) {}
 
     uint32_t nodeId = 0;
     int32_t srcX = 0, srcY = 0;
@@ -197,8 +197,10 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             copy.meta = fi.meta;
             copy.meta.width = adm.encode.width;
             copy.meta.height = adm.encode.height;
-            if (auto displaced = p->encodeBox.Put(std::move(copy)))
+            if (auto displaced = p->encodeBox.Put(std::move(copy))) {
+                p->diag.queueDrop.Add();
                 p->ReturnPixelBuffer(std::move(displaced->pixels));
+            }
         };
 
         p->encodeThread = std::thread([p, encodeAt] {
