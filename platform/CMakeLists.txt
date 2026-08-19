@@ -49,6 +49,18 @@ else()
     set(deskhub_platform_audio src/media/OpusCodecNone.cpp)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(DESKHUB_PIPEWIRE IMPORTED_TARGET libpipewire-0.3)
+    endif()
+endif()
+if(DESKHUB_PIPEWIRE_FOUND)
+    set(deskhub_platform_sink src/audio/AudioSinkPipewire.cpp)
+else()
+    set(deskhub_platform_sink src/audio/AudioSinkNone.cpp)
+endif()
+
 if(WIN32)
     set(deskhub_platform_pty src/system/PtyWin.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
@@ -155,6 +167,7 @@ add_library(platform STATIC
     ${deskhub_platform_quic}
     ${deskhub_platform_pty}
     ${deskhub_platform_audio}
+    ${deskhub_platform_sink}
     src/system/TrustStoreFile.cpp
     src/system/PairedDevicesFile.cpp
     src/session/AuthNegotiation.cpp
@@ -184,6 +197,10 @@ endif()
 
 if(DESKHUB_AUDIO)
     target_link_libraries(platform PRIVATE deskhub::opus)
+endif()
+
+if(DESKHUB_PIPEWIRE_FOUND)
+    target_link_libraries(platform PRIVATE PkgConfig::DESKHUB_PIPEWIRE)
 endif()
 
 if(APPLE)

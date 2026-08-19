@@ -2,10 +2,13 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/transport/AudioJitterBuffer.h"
+#include "deskhubp/audio/AudioSink.h"
 #include "deskhubp/media/OpusCodec.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <thread>
 #include <vector>
 
 using namespace deskhubp;
@@ -120,7 +123,7 @@ void TestBadInputIsRefused() {
     Check(dec.Open(format), "the decoder opens");
     Check(dec.Decode(std::span<const uint8_t>(), out) == 0, "an empty packet decodes to nothing");
 
-    const uint8_t junk[] = { 0xFF, 0xFF, 0xFF, 0xFF };
+    const uint8_t junk[] = {0xFF, 0xFF, 0xFF, 0xFF};
     dec.Decode(junk, out);
 }
 
@@ -136,6 +139,35 @@ void TestCloseIsRepeatable() {
     Check(OpusAudioEncoder::BackendName() != nullptr, "the backend names itself for the logs");
 }
 
+void TestSinkPlaysOrDeclines() {
+    std::printf("[audio] the sink either plays a decoded frame or refuses cleanly...\n");
+    const AudioFormat format{};
+    AudioSink sink;
+    const std::vector<int16_t> frame = Tone(format, 0);
+
+    if (!sink.Open(format)) {
+        std::printf("[audio] no %s server here - checking the refusal path only\n",
+            AudioSink::BackendName());
+        Check(!sink.IsOpen(), "a sink that cannot open says so");
+        Check(!sink.Write(frame), "a closed sink accepts nothing");
+        Check(sink.framesQueued() == 0, "a closed sink queues nothing");
+        return;
+    }
+
+    Check(sink.IsOpen(), "an opened sink says so");
+    Check(!sink.Write(std::span<const int16_t>()), "an empty write is refused");
+    std::vector<int16_t> halfFrame(format.interleavedSamples() / 2);
+    Check(!sink.Write(halfFrame), "a partial frame is refused");
+
+    for (int f = 0; f < 3; ++f) Check(sink.Write(Tone(format, f)), "whole frames are accepted");
+    for (int waited = 0; waited < 40 && sink.framesQueued() > 0; ++waited)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    Check(sink.framesQueued() == 0, "the audio device drained what was written to it");
+
+    sink.Close();
+    Check(!sink.IsOpen(), "a closed sink says so");
+}
+
 }
 
 void RunOpusCodecTests() {
@@ -143,4 +175,5 @@ void RunOpusCodecTests() {
     TestConcealmentFillsAFrame();
     TestBadInputIsRefused();
     TestCloseIsRepeatable();
+    TestSinkPlaysOrDeclines();
 }
