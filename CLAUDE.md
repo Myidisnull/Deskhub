@@ -130,7 +130,9 @@ its English original is a bug.
 
 | English | Vietnamese | Covers |
 | --- | --- | --- |
-| `README.md` | `README.vi.md` | What it is, install, day-to-day use |
+| `README.md` | `README.vi.md` | What it is, why, platforms, what's inside — short, and links out |
+| `docs/INSTALL.md` | `docs/INSTALL.vi.md` | Getting a prebuilt Deskhub onto each platform |
+| `docs/BUILD.md` | `docs/BUILD.vi.md` | Building from source, tests, packaging, releasing |
 | `docs/SPECIFICATION.md` | `docs/SPECIFICATION.vi.md` | Feature spec — behaviour only, no implementation detail |
 | `docs/ARCHITECTURE.md` | `docs/ARCHITECTURE.vi.md` | How it is built — layers, threads, wire protocol, design decisions |
 | `SECURITY.md` | `SECURITY.vi.md` | Threat model, hardening, vulnerability reports |

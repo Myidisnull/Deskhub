@@ -4,8 +4,8 @@
 
 Tài liệu này mô tả Deskhub **làm được gì**, dưới góc nhìn của người dùng. Đây là đặc tả
 sản phẩm, không phải tài liệu thiết kế: không có chi tiết cài đặt, không mô tả giao thức,
-không hướng dẫn build. Những nội dung đó nằm ở [`README.vi.md`](../README.vi.md),
-[`SECURITY.vi.md`](../SECURITY.vi.md) và trong mã nguồn.
+không hướng dẫn build. Những nội dung đó nằm ở [`INSTALL.vi.md`](INSTALL.vi.md),
+[`BUILD.vi.md`](BUILD.vi.md), [`SECURITY.vi.md`](../SECURITY.vi.md) và trong mã nguồn.
 
 Đây là bản dịch của [`SPECIFICATION.md`](SPECIFICATION.md); khi hai bản khác nhau, bản
 tiếng Anh là bản chuẩn.

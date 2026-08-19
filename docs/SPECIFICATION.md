@@ -5,7 +5,8 @@
 This document describes **what** Deskhub does, as experienced by a person using it. It is
 a product specification, not a design document: it contains no implementation detail, no
 protocol description and no build instructions. Those live in
-[`README.md`](../README.md), [`SECURITY.md`](../SECURITY.md) and the source tree.
+[`INSTALL.md`](INSTALL.md), [`BUILD.md`](BUILD.md), [`SECURITY.md`](../SECURITY.md) and
+the source tree.
 
 - **Status:** describes the behaviour of the current code.
 - **Audience:** anyone who needs to know what the product is supposed to do — testers,
