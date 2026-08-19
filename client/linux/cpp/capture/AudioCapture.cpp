@@ -137,7 +137,7 @@ bool AudioCapture::Start(const deskhub::media::AudioFormat& format, FrameHandler
 
     const int rc = pw_stream_connect(impl->stream, PW_DIRECTION_INPUT, PW_ID_ANY,
         pw_stream_flags(PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_MAP_BUFFERS |
-            PW_STREAM_FLAG_RT_PROCESS),
+                        PW_STREAM_FLAG_RT_PROCESS),
         params, 1);
     pw_thread_loop_unlock(impl->loop);
 

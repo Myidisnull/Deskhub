@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <span>
 #include <thread>
 
 namespace deskhubp {
@@ -40,6 +41,7 @@ public:
 
 private:
     void Run();
+    size_t Fill(const deskhub::AudioJitterBuffer::Frame& frame, std::span<int16_t> pcm);
 
     deskhub::media::AudioFormat format_{};
     AudioSink sink_;

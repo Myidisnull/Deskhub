@@ -60,9 +60,7 @@ void AudioPlayer::Run() {
         }
 
         if (frame) {
-            const size_t samples = frame->concealed
-                ? decoder_.Conceal(pcm)
-                : decoder_.Decode(frame->payload, pcm);
+            const size_t samples = Fill(*frame, pcm);
             if (samples == format_.samplesPerFrame)
                 sink_.Write(pcm);
             else
@@ -76,6 +74,12 @@ void AudioPlayer::Run() {
         else
             nextUs = nowUs;
     }
+}
+
+size_t AudioPlayer::Fill(const deskhub::AudioJitterBuffer::Frame& frame,
+    std::span<int16_t> pcm) {
+    if (frame.concealed) return decoder_.Conceal(pcm);
+    return decoder_.Decode(frame.payload, pcm);
 }
 
 AudioPlayer::Stats AudioPlayer::stats() const {
