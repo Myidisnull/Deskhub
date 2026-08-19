@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APT_TIMEOUT=${APT_TIMEOUT:-300}
+APT_UPDATE_TIMEOUT=${APT_UPDATE_TIMEOUT:-90}
+APT_INSTALL_TIMEOUT=${APT_INSTALL_TIMEOUT:-240}
 APT_RETRIES=${APT_RETRIES:-3}
+
+APT_OPTS=(-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15)
 
 declare -a missing=()
 for pkg in "$@"; do
@@ -24,16 +27,39 @@ fi
 
 echo "apt-install.sh: installing ${missing[*]}"
 
+fall_back_to_the_main_mirror() {
+    local list switched=0
+    for list in /etc/apt/sources.list /etc/apt/sources.list.d/*.list \
+        /etc/apt/sources.list.d/*.sources; do
+        [ -f "$list" ] || continue
+        if grep -q 'azure\.archive\.ubuntu\.com' "$list"; then
+            sudo sed -i 's|://azure\.archive\.ubuntu\.com|://archive.ubuntu.com|g' "$list"
+            switched=1
+        fi
+    done
+    if [ "$switched" -eq 1 ]; then
+        echo "apt-install.sh: retrying against archive.ubuntu.com; the runner's default" >&2
+        echo "apt-install.sh: azure mirror was not answering, and asking it again is what" >&2
+        echo "apt-install.sh: turns a 20-second step into a twenty-minute one." >&2
+    fi
+}
+
 for attempt in $(seq 1 "$APT_RETRIES"); do
-    if timeout "$APT_TIMEOUT" sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
-        timeout "$APT_TIMEOUT" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"; then
+    if timeout "$APT_UPDATE_TIMEOUT" sudo DEBIAN_FRONTEND=noninteractive \
+        apt-get "${APT_OPTS[@]}" update -qq &&
+        timeout "$APT_INSTALL_TIMEOUT" sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get "${APT_OPTS[@]}" install -y --no-install-recommends "${missing[@]}"; then
         exit 0
     fi
-    echo "apt-install.sh: attempt $attempt of $APT_RETRIES failed or exceeded ${APT_TIMEOUT}s." >&2
+    echo "apt-install.sh: attempt $attempt of $APT_RETRIES failed or ran past its timeout." >&2
+    if [ "$attempt" -eq 1 ]; then
+        fall_back_to_the_main_mirror
+    fi
     sleep $((attempt * 5))
 done
 
 echo "apt-install.sh: giving up on ${missing[*]} after $APT_RETRIES attempts." >&2
-echo "apt-install.sh: a bare 'apt-get update' can hang indefinitely on a stalled mirror," >&2
-echo "apt-install.sh: which burns the whole job timeout instead of failing here." >&2
+echo "apt-install.sh: apt is told to time out its own transfers in ${APT_OPTS[*]}; without" >&2
+echo "apt-install.sh: that a stalled mirror hangs until the outer timeout, and three of" >&2
+echo "apt-install.sh: those in a row cost more than the whole build normally takes." >&2
 exit 1

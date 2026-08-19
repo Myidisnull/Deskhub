@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "deskhub/protocol/Wire.h"
@@ -31,6 +33,8 @@ constexpr uint64_t kInitialMaxData = 4u << 20;
 constexpr uint64_t kInitialMaxStreamData = 1u << 20;
 constexpr uint64_t kMaxStreams = 64;
 constexpr uint64_t kDropLogIntervalUs = 1'000'000;
+constexpr uint64_t kQuietWarnStepUs = 5'000'000;
+constexpr uint64_t kPollGapWarnUs = 250'000;
 constexpr size_t kDatagramQueue = 512;
 
 sockaddr_in ToSockAddr(const NetAddr& addr) {
@@ -85,6 +89,8 @@ struct QuicEndpoint::Impl {
         quiche_conn* conn = nullptr;
         NetAddr peer{};
         bool announced = false;
+        uint64_t lastRecvUs = 0;
+        uint64_t quietSteps = 0;
     };
 
     ~Impl() {
@@ -92,8 +98,11 @@ struct QuicEndpoint::Impl {
     }
 
     void Shutdown() {
-        for (auto& [key, entry] : connections_)
-            if (entry.conn != nullptr) quiche_conn_free(entry.conn);
+        for (auto& [key, entry] : connections_) {
+            if (entry.conn == nullptr) continue;
+            SayGoodbye(entry);
+            quiche_conn_free(entry.conn);
+        }
         connections_.clear();
         socket_.Close();
         if (config_ != nullptr) {
@@ -175,8 +184,16 @@ struct QuicEndpoint::Impl {
                 LOGW("quic: send failed (%zd)", written);
                 return;
             }
-            socket_.SendTo(entry.peer, out, size_t(written));
+            if (!socket_.SendTo(entry.peer, out, size_t(written))) ReportSendFail(entry.peer);
         }
+    }
+
+    void SayGoodbye(Connection& entry) {
+        if (!open_ || quiche_conn_is_closed(entry.conn)) return;
+        constexpr std::string_view kReason = "bye";
+        quiche_conn_close(entry.conn, true, 0,
+            reinterpret_cast<const uint8_t*>(kReason.data()), kReason.size());
+        Flush(entry);
     }
 
     void Accept(const NetAddr& from, std::span<const uint8_t> packet) {
@@ -217,6 +234,7 @@ struct QuicEndpoint::Impl {
         if (entry == nullptr) {
             if (!server_) return;
             if (connections_.size() >= kMaxConnections) return;
+            ReportStranger(from, packet);
             Accept(from, packet);
             entry = Lookup(from.Pack());
             if (entry == nullptr) return;
@@ -232,7 +250,50 @@ struct QuicEndpoint::Impl {
 
         std::vector<uint8_t> copy(packet.begin(), packet.end());
         const ssize_t read = quiche_conn_recv(entry->conn, copy.data(), copy.size(), &info);
-        if (read < 0) ReportDrop(from, read);
+        if (read < 0) {
+            ReportDrop(from, read);
+            return;
+        }
+        entry->lastRecvUs = NowUs();
+        entry->quietSteps = 0;
+    }
+
+    void ReportSendFail(const NetAddr& peer) {
+        ++sendFails_;
+        const uint64_t nowUs = NowUs();
+        if (nowUs - lastSendFailLogUs_ < kDropLogIntervalUs) return;
+        lastSendFailLogUs_ = nowUs;
+        LOGW(
+            "quic: the socket refused %llu packet(s) for %s; quiche counts them as sent, so "
+            "every one of them has to be recovered as a loss",
+            static_cast<unsigned long long>(sendFails_), peer.ToString().c_str());
+        sendFails_ = 0;
+    }
+
+    void ReportStranger(const NetAddr& from, std::span<const uint8_t> packet) {
+        constexpr uint8_t kLongHeaderBit = 0x80;
+        if (connections_.empty()) return;
+        if (packet.empty() || (packet[0] & kLongHeaderBit) != 0) return;
+        const uint64_t nowUs = NowUs();
+        if (nowUs - lastStrangerLogUs_ < kDropLogIntervalUs) return;
+        lastStrangerLogUs_ = nowUs;
+        LOGW(
+            "quic: a packet came from %s, which matches none of the %zu open connection(s); "
+            "connections are keyed by address, so a peer whose port moved cannot be followed "
+            "and its old link will time out instead",
+            from.ToString().c_str(), connections_.size());
+    }
+
+    void ReportQuiet(Connection& entry, uint64_t nowUs) {
+        if (entry.lastRecvUs == 0) return;
+        if (nowUs <= entry.lastRecvUs) return;
+        const uint64_t quietUs = nowUs - entry.lastRecvUs;
+        const uint64_t steps = quietUs / kQuietWarnStepUs;
+        if (steps <= entry.quietSteps) return;
+        entry.quietSteps = steps;
+        LOGW("quic: %s has sent nothing for %llu s; the link dies at %llu s of silence",
+            entry.peer.ToString().c_str(), static_cast<unsigned long long>(quietUs / 1'000'000),
+            static_cast<unsigned long long>(settings_.idleTimeoutMs / 1000));
     }
 
     void ReportDrop(const NetAddr& from, ssize_t code) {
@@ -279,13 +340,52 @@ struct QuicEndpoint::Impl {
         }
     }
 
+    void ReportClose(const Connection& entry) {
+        quiche_stats stats{};
+        quiche_conn_stats(entry.conn, &stats);
+        const std::string peer = entry.peer.ToString();
+
+        bool app = false;
+        uint64_t code = 0;
+        const uint8_t* reason = nullptr;
+        size_t reasonLen = 0;
+
+        if (quiche_conn_is_timed_out(entry.conn)) {
+            LOGW(
+                "quic: %s answered nothing for the whole %llu ms idle timeout, so the link is "
+                "gone; nobody refused anything, the peer just went quiet (recv %zu pkt/%llu B, "
+                "sent %zu pkt/%llu B, lost %zu)",
+                peer.c_str(), static_cast<unsigned long long>(settings_.idleTimeoutMs),
+                stats.recv, static_cast<unsigned long long>(stats.recv_bytes), stats.sent,
+                static_cast<unsigned long long>(stats.sent_bytes), stats.lost);
+            return;
+        }
+        if (quiche_conn_peer_error(entry.conn, &app, &code, &reason, &reasonLen)) {
+            LOGW("quic: %s closed the link from its own end (%s error %llu: %.*s)", peer.c_str(),
+                app ? "application" : "transport", static_cast<unsigned long long>(code),
+                int(reasonLen), reason == nullptr ? "" : reinterpret_cast<const char*>(reason));
+            return;
+        }
+        if (quiche_conn_local_error(entry.conn, &app, &code, &reason, &reasonLen)) {
+            LOGW("quic: this host closed the link to %s (%s error %llu: %.*s)", peer.c_str(),
+                app ? "application" : "transport", static_cast<unsigned long long>(code),
+                int(reasonLen), reason == nullptr ? "" : reinterpret_cast<const char*>(reason));
+            return;
+        }
+        LOGI("quic: %s left (recv %zu pkt, sent %zu pkt, lost %zu)", peer.c_str(), stats.recv,
+            stats.sent, stats.lost);
+    }
+
     void Service() {
         std::vector<QuicConnId> dead;
+        const uint64_t nowUs = NowUs();
         for (auto& [id, entry] : connections_) {
             if (quiche_conn_is_established(entry.conn) && !entry.announced) {
                 entry.announced = true;
+                if (entry.lastRecvUs == 0) entry.lastRecvUs = nowUs;
                 if (cb_.onConnected) cb_.onConnected(id, entry.peer);
             }
+            if (entry.announced) ReportQuiet(entry, nowUs);
             if (entry.announced) {
                 DrainStreams(id, entry);
                 DrainDatagrams(id, entry);
@@ -295,10 +395,22 @@ struct QuicEndpoint::Impl {
         }
         for (QuicConnId id : dead) {
             Connection& entry = connections_[id];
+            if (entry.announced) ReportClose(entry);
             if (entry.announced && cb_.onClosed) cb_.onClosed(id, entry.peer);
             quiche_conn_free(entry.conn);
             connections_.erase(id);
         }
+    }
+
+    void ReportPollGap() {
+        const uint64_t nowUs = NowUs();
+        const uint64_t sinceUs = lastPollUs_ == 0 ? 0 : nowUs - lastPollUs_;
+        lastPollUs_ = nowUs;
+        if (sinceUs <= kPollGapWarnUs || connections_.empty()) return;
+        LOGW(
+            "quic: %llu ms went by without reading the socket, so nothing was acked or timed "
+            "out in that window",
+            static_cast<unsigned long long>(sinceUs / 1000));
     }
 
     bool WaitReadable(uint32_t waitMs) {
@@ -307,6 +419,7 @@ struct QuicEndpoint::Impl {
 
     void Poll(uint32_t waitMs) {
         if (!open_) return;
+        ReportPollGap();
         socket_.SetRecvTimeout(waitMs == 0 ? 1 : waitMs);
         uint8_t buf[kQuicMaxUdpPayload];
         for (int i = 0; i < kPacketsPerPoll; ++i) {
@@ -336,6 +449,10 @@ struct QuicEndpoint::Impl {
     bool open_ = false;
     uint64_t drops_ = 0;
     uint64_t lastDropLogUs_ = 0;
+    uint64_t sendFails_ = 0;
+    uint64_t lastSendFailLogUs_ = 0;
+    uint64_t lastStrangerLogUs_ = 0;
+    uint64_t lastPollUs_ = 0;
 };
 
 QuicEndpoint::QuicEndpoint() : impl_(std::make_unique<Impl>()) {

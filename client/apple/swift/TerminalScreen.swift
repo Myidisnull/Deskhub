@@ -49,6 +49,12 @@ struct TerminalScreen: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if model.scrollOffset > 0 {
+                    Button { model.scrollToBottom() } label: {
+                        Text(verbatim: "\u{2193} \(model.scrollOffset)")
+                            .font(.caption.monospacedDigit())
+                    }
+                }
                 Button(DeskhubClient.string(DHStrTerminalCloseButton)) { onClose() }
             }
             .padding(8)
@@ -64,6 +70,7 @@ struct TerminalScreen: View {
 
 private struct TerminalGridView: View {
     @Bindable var model: TerminalModel
+    @State private var dragCarry: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
@@ -103,14 +110,30 @@ private struct TerminalGridView: View {
                     }
                 }
 
-                TerminalKeyInput(model: model)
-                    .frame(width: 1, height: 1)
+                #if os(macOS)
+                    TerminalKeyInput(model: model)
+                #else
+                    TerminalKeyInput(model: model)
+                        .frame(width: 1, height: 1)
+                #endif
             }
             .background(termBackground)
             .contentShape(Rectangle())
+            .gesture(scrollDrag(cell: cell))
             .onAppear { resize(to: proxy.size, cell: cell) }
             .onChange(of: proxy.size) { _, size in resize(to: size, cell: cell) }
         }
+    }
+
+    private func scrollDrag(cell: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                let rows = Int((value.translation.height - dragCarry) / max(1, cell.height))
+                guard rows != 0 else { return }
+                dragCarry += CGFloat(rows) * cell.height
+                model.scrollBy(rows: rows)
+            }
+            .onEnded { _ in dragCarry = 0 }
     }
 
     private func resize(to size: CGSize, cell: CGSize) {
@@ -130,7 +153,6 @@ private struct TerminalGridView: View {
         func makeNSView(context _: Context) -> TermKeyView {
             let view = TermKeyView()
             view.model = model
-            DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
             return view
         }
 
@@ -142,7 +164,25 @@ private struct TerminalGridView: View {
     final class TermKeyView: NSView {
         weak var model: TerminalModel?
 
+        private var wheelCarry: CGFloat = 0
+
         override var acceptsFirstResponder: Bool { true }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { window.makeFirstResponder(self) }
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            guard let model else { return }
+            let step = event.hasPreciseScrollingDeltas ? termCellSize.height : 1
+            wheelCarry += event.scrollingDeltaY
+            let rows = Int((wheelCarry / max(1, step)).rounded(.towardZero))
+            guard rows != 0 else { return }
+            wheelCarry -= CGFloat(rows) * step
+            model.scrollBy(rows: rows)
+        }
 
         override func keyDown(with event: NSEvent) {
             guard let model else { return }
@@ -203,7 +243,6 @@ private struct TerminalGridView: View {
         func makeUIView(context _: Context) -> TermKeyView {
             let view = TermKeyView()
             view.model = model
-            DispatchQueue.main.async { view.becomeFirstResponder() }
             return view
         }
 
@@ -216,6 +255,12 @@ private struct TerminalGridView: View {
         weak var model: TerminalModel?
 
         override var canBecomeFirstResponder: Bool { true }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            DispatchQueue.main.async { self.becomeFirstResponder() }
+        }
 
         var hasText: Bool { true }
 

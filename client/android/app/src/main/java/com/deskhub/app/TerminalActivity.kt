@@ -18,6 +18,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -191,6 +192,7 @@ private fun TerminalScreen(
     var keyboardOn by remember { mutableStateOf(false) }
     var keyView by remember { mutableStateOf<TermInputView?>(null) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    var scrollOffset by remember { mutableIntStateOf(0) }
 
     val paint =
         remember {
@@ -201,6 +203,7 @@ private fun TerminalScreen(
         }
 
     val sendChar: (Int) -> Unit = { codepoint ->
+        scrollOffset = 0
         if (latchCtrl || latchAlt) {
             NativeTerminal.sendKey(
                 NativeTerminal.KEY_CHAR,
@@ -217,6 +220,7 @@ private fun TerminalScreen(
         }
     }
     val sendSpecial: (Int) -> Unit = { key ->
+        scrollOffset = 0
         NativeTerminal.sendKey(key, 0, alt = latchAlt, ctrl = latchCtrl)
         latchCtrl = false
         latchAlt = false
@@ -229,13 +233,24 @@ private fun TerminalScreen(
             return@LaunchedEffect
         }
         var revision = -1L
+        var lastOffset = -1
+        var scrollbackSeen = 0
         while (true) {
             termState = NativeTerminal.state()
             message = NativeTerminal.message()
-            val fresh = NativeTerminal.grid(0)
-            if (fresh != null && fresh.revision != revision) {
-                revision = fresh.revision
-                grid = fresh
+            var fresh = NativeTerminal.grid(scrollOffset)
+            if (fresh != null) {
+                val arrived = fresh.scrollbackRows - scrollbackSeen
+                scrollbackSeen = fresh.scrollbackRows
+                if (scrollOffset > 0 && arrived > 0) {
+                    fresh = NativeTerminal.grid(scrollOffset + arrived) ?: fresh
+                }
+                if (fresh.revision != revision || fresh.scrollOffset != lastOffset) {
+                    revision = fresh.revision
+                    lastOffset = fresh.scrollOffset
+                    scrollOffset = fresh.scrollOffset
+                    grid = fresh
+                }
             }
             delay(TERM_POLL_MS)
         }
@@ -287,6 +302,23 @@ private fun TerminalScreen(
                         .onSizeChanged { canvasSize = it }
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { keyboardOn = true })
+                        }.pointerInput(Unit) {
+                            var carry = 0f
+                            detectVerticalDragGestures(
+                                onDragEnd = { carry = 0f },
+                                onDragCancel = { carry = 0f },
+                            ) { _, dragAmount ->
+                                val metrics = paint.fontMetrics
+                                val cellH = max(1f, metrics.descent - metrics.ascent)
+                                carry += dragAmount
+                                val rows = (carry / cellH).toInt()
+                                if (rows != 0) {
+                                    carry -= rows * cellH
+                                    val limit = grid?.scrollbackRows ?: 0
+                                    scrollOffset =
+                                        (scrollOffset + rows).coerceIn(0, limit)
+                                }
+                            }
                         },
             ) {
                 drawIntoCanvas { canvas ->
