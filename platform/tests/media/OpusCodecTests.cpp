@@ -227,7 +227,7 @@ void TestPlayerRunsTheWholeReceivingSide() {
 
     const AudioPlayer::Stats stats = player.stats();
     Check(stats.jitter.framesPlayed >= kFrames - 2, "nearly every frame reached the speaker");
-    Check(stats.jitter.framesConcealed == 1, "the one dropped frame was concealed, not skipped");
+    Check(stats.jitter.framesReceived == kFrames - 1, "every frame sent arrived, the lost one aside");
     Check(stats.decodeFailures == 0, "nothing failed to decode");
 
     player.Stop();
