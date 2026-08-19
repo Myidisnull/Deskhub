@@ -202,6 +202,23 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
 
+- **The Linux host encodes on its own thread, never in the capture callback**: encoding
+  inside PipeWire's `process` callback throttled capture to `1000 / enc_ms` fps and
+  turned every encode-time wobble into frame-cadence jitter on the client. Mapped
+  frames are copied once (buffers recycled through a small pool) and handed to a
+  dedicated encode thread through `FrameMailbox`, a latest-wins single-slot queue —
+  when the encoder falls behind, the freshest frame wins and the stale one is counted,
+  not queued. Dma-buf frames still encode inline: the compositor reuses their backing
+  memory the moment the callback returns, so they cannot outlive it.
+- **The Linux host picks its encoder by where the frame lives, not by what is
+  installed**: a dma-buf frame goes to VA-API, which can import it zero-copy on the
+  GPU that produced it; a mapped (CPU) frame goes to NVENC when an NVIDIA driver is
+  present, because once the pixels are in system memory the fastest encoder wins —
+  on a desktop rendered by the NVIDIA GPU the compositor renegotiates screencast to
+  shared memory anyway, and VA-API on the idle iGPU was measured at 23 ms a frame
+  against NVENC's 3. `HwEncoder` makes that call per encoder rebuild, and a frame of
+  the other kind arriving later returns `false`, which is the signal to rebuild.
+
 - **Audio is one frame per datagram, and a lost one is never chased**: a 20 ms Opus
   frame at 64 kbps measures about 160 bytes, 209 at its widest, against the 1180 bytes
   a datagram has room for — so the audio path has no packetizer, no FEC, no

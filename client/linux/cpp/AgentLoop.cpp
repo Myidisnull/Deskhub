@@ -14,7 +14,7 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
 #include "deskhubp/media/PortalScreenCast.h"
-#include "encode/VaEncoder.h"
+#include "encode/HwEncoder.h"
 #include "input/InputInjector.h"
 
 #include "deskhub/control/FrameGate.h"
@@ -25,7 +25,7 @@
 
 namespace {
 
-using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, VaEncoder>;
+using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, HwEncoder>;
 
 struct SourcePipeline : LinuxSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
@@ -116,16 +116,19 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
         auto onPacket = engine->MakePacketSink(*p);
 
-        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h) -> bool {
+        auto ensureEncoder = [p, fps, onPacket](uint32_t w, uint32_t h,
+                                 FrameMemory frameKind) -> bool {
             if (p->encoder && p->encoder->IsOpen()) return true;
             EncoderConfig cfg = deskhub::MakeEncoderConfig(*p, {w, h}, fps);
             cfg.onPacket = onPacket;
-            auto enc = std::make_unique<VaEncoder>();
-            if (!enc->Init(cfg)) {
-                LOGE("[Agent][%s] VA-API refused to start an encoder.", p->name.c_str());
+            auto enc = std::make_unique<HwEncoder>();
+            if (!enc->Init(cfg, frameKind)) {
+                LOGE("[Agent][%s] No hardware encoder would start (NVENC or VA-API).",
+                    p->name.c_str());
                 p->failed.store(true);
                 return false;
             }
+            LOGI("[Agent][%s] Encoding with %s.", p->name.c_str(), enc->BackendName());
             p->encoder = std::move(enc);
             return true;
         };
@@ -148,9 +151,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
 
             if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!ensureEncoder(adm.encode.width, adm.encode.height)) return;
+            if (!ensureEncoder(adm.encode.width, adm.encode.height, fi.memory)) return;
             const bool idr = p->forceIdr.exchange(false);
-            VaEncoder* enc = p->encoder.get();
+            HwEncoder* enc = p->encoder.get();
             const bool ok = deskhubp::DiagEncode(*p, idr,
                 [enc, &fi, idr] { return enc->Encode(fi, fi.meta.timestampUs, idr); });
             if (!ok) {
@@ -244,7 +247,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         auto lk = deskhubp::TryHoldEncoder(p.encMutex);
         if (!lk.owns_lock() || !p.encoder || !p.hasCachedFrame()) return;
         const bool idr = p.forceIdr.exchange(false);
-        VaEncoder* enc = p.encoder.get();
+        HwEncoder* enc = p.encoder.get();
         const bool ok = deskhubp::DiagEncode(p, idr,
             [enc, nowUs, idr] { return enc->EncodeLast(nowUs, idr); });
         if (!ok) {

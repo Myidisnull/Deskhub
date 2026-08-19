@@ -200,6 +200,23 @@ iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
+- **Host Linux encode trên thread riêng, không bao giờ trong callback capture**: encode
+  ngay trong callback `process` của PipeWire từng ghìm capture xuống `1000 / enc_ms`
+  fps và biến mọi dao động thời gian encode thành rung nhịp khung hình phía client.
+  Frame dạng mapped được copy một lần (buffer tái dùng qua một pool nhỏ) rồi chuyển cho
+  thread encode riêng qua `FrameMailbox`, một hàng đợi một-chỗ kiểu mới-nhất-thắng —
+  khi encoder chậm chân, frame mới nhất thắng và frame cũ được đếm chứ không xếp hàng.
+  Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay khi
+  callback trả về, nên chúng không thể sống lâu hơn callback.
+- **Host Linux chọn encoder theo nơi frame nằm, không phải theo thứ được cài**: frame
+  dma-buf đi vào VA-API, nơi import được zero-copy trên đúng GPU đã tạo ra nó; frame
+  mapped (CPU) đi vào NVENC khi có driver NVIDIA, vì một khi pixel đã nằm trong bộ nhớ
+  hệ thống thì encoder nhanh nhất thắng — trên desktop do GPU NVIDIA render, compositor
+  đằng nào cũng thương lượng lại screencast về shared memory, và VA-API trên iGPU nhàn
+  rỗi đo được 23 ms một frame so với 3 ms của NVENC. `HwEncoder` đưa ra lựa chọn đó mỗi
+  lần dựng lại encoder, và một frame khác loại đến sau sẽ trả về `false` — đó là tín
+  hiệu để dựng lại.
+
 - **Audio là một khung một datagram, và mất thì không đuổi theo**: một khung Opus 20 ms
   ở 64 kbps đo được khoảng 160 byte, rộng nhất 209 byte, so với 1180 byte một datagram
   chứa được — nên đường audio không có packetizer, không FEC, không reassembler, không

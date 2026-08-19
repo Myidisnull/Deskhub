@@ -15,7 +15,8 @@ chế việc phân phối lại Deskhub theo Giấy phép MIT.
 
 | Thành phần | Giấy phép | Cách liên kết |
 | --- | --- | --- |
-| [FFmpeg](https://ffmpeg.org) 8.0 — `libavcodec`, `libavutil` | LGPL-2.1-or-later | **tĩnh** |
+| [FFmpeg](https://ffmpeg.org) 8.0 — `libavcodec`, `libswscale`, `libavutil` | LGPL-2.1-or-later | **tĩnh** |
+| [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) (header NVENC SDK 13.0) | MIT | chỉ header |
 | [GTK](https://www.gtk.org) 3 | LGPL-2.1-or-later | động |
 | [PipeWire](https://pipewire.org) 0.3 | MIT | động |
 | [libva](https://github.com/intel/libva) / `libva-drm` | MIT | động |
@@ -29,9 +30,9 @@ chế việc phân phối lại Deskhub theo Giấy phép MIT.
 App Linux là mục tiêu build duy nhất có đóng gói kèm FFmpeg. Nó được dựng từ mã nguồn
 FFmpeg 8.0 nguyên bản của thượng nguồn bằng
 [`scripts/build-ffmpeg.sh`](scripts/build-ffmpeg.sh), cấu hình **không** có
-`--enable-gpl` và **không** có `--enable-nonfree`, chỉ bật bộ giải mã H.264 nội tại và
-hwaccel VA-API. Do đó `libavcodec` và `libavutil` thu được nằm dưới GNU Lesser General
-Public License, phiên bản 2.1 hoặc mới hơn — toàn văn trong
+`--enable-gpl` và **không** có `--enable-nonfree`, chỉ bật bộ giải mã H.264 nội tại,
+hwaccel VA-API và `libswscale`. Do đó `libavcodec`, `libswscale` và `libavutil` thu được
+nằm dưới GNU Lesser General Public License, phiên bản 2.1 hoặc mới hơn — toàn văn trong
 [`licenses/LGPL-2.1.txt`](licenses/LGPL-2.1.txt).
 
 Vì các thư viện này được liên kết tĩnh, LGPL-2.1 §6 yêu cầu người nhận phải có khả năng
@@ -42,6 +43,11 @@ thay bằng FFmpeg của riêng mình và dựng lại bằng `make`.
 
 FFmpeg không bị chỉnh sửa dưới bất kỳ hình thức nào. Mã nguồn thượng nguồn:
 <https://ffmpeg.org/download.html>.
+
+`third_party/nvenc-13.0` là một git submodule chỉ chứa các header API của NVIDIA Video
+Codec SDK, do dự án FFmpeg phân phối lại dưới Giấy phép MIT. Bản thân phần hiện thực
+NVENC nằm trong driver NVIDIA của người dùng (`libnvidia-encode.so.1`, `libcuda.so.1`)
+và được nạp lúc chạy; nó không được đóng gói kèm.
 
 ### GTK 3 (LGPL-2.1-or-later, liên kết động)
 
