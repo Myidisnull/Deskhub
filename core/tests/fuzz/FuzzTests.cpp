@@ -53,6 +53,10 @@ bool ExerciseWireParsers(std::span<const uint8_t> d) {
     InputEvent events[kMaxInputEvents];
     ok = ok && ParseInputEvents(pl, firstSeq, events) <= kMaxInputEvents;
 
+    if (const auto audio = ParseAudioPacket(pl)) {
+        ok = ok && !audio->payload.empty() && audio->payload.size() <= kMaxAudioPayload;
+    }
+
     if (const auto clip = ParseClipboardChunk(pl)) {
         ok = ok && clip->chunkCount > 0 && clip->chunkIndex < clip->chunkCount;
         ok = ok && clip->payload.size() <= kMaxClipboardChunkPayload;
@@ -114,7 +118,7 @@ std::vector<SourceInfo> RandomSources() {
 Datagram BuildRandomValidDatagram() {
     uint8_t buf[kMaxDatagram];
     size_t n = 0;
-    switch (Rnd() % 21) {
+    switch (Rnd() % 22) {
         case 0: {
             Hello m{Rnd(), uint16_t(Rnd()), uint16_t(Rnd()), uint16_t(Rnd()),
                 uint8_t(Rnd()), uint16_t(Rnd()), uint8_t(Rnd()), PasscodeFromRandom(Rnd())};
@@ -225,6 +229,15 @@ Datagram BuildRandomValidDatagram() {
             m.code = AuthResultCode(Rnd() % (uint8_t(AuthResultCode::Locked) + 1));
             for (auto& b : m.confirm) b = uint8_t(Rnd());
             n = BuildAuthResult(buf, m);
+            break;
+        }
+        case 20: {
+            AudioHeader ah{};
+            ah.seq = Rnd();
+            ah.timestampUs = (uint64_t(Rnd()) << 32) | Rnd();
+            Datagram frame = RandomJunk(kMaxAudioPayload);
+            if (frame.empty()) frame.push_back(uint8_t(Rnd()));
+            n = BuildAudioPacket(buf, Rnd(), ah, frame);
             break;
         }
         default: {
