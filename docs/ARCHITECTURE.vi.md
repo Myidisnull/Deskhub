@@ -200,14 +200,20 @@ iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
-- **Host Linux encode trên thread riêng, không bao giờ trong callback capture**: encode
-  ngay trong callback `process` của PipeWire từng ghìm capture xuống `1000 / enc_ms`
-  fps và biến mọi dao động thời gian encode thành rung nhịp khung hình phía client.
-  Frame dạng mapped được copy một lần (buffer tái dùng qua một pool nhỏ) rồi chuyển cho
-  thread encode riêng qua `FrameMailbox`, một hàng đợi một-chỗ kiểu mới-nhất-thắng —
-  khi encoder chậm chân, frame mới nhất thắng và frame cũ được đếm chứ không xếp hàng.
-  Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay khi
-  callback trả về, nên chúng không thể sống lâu hơn callback.
+- **Host Linux encode trên thread riêng, và đưa cho thread đó khung hình nhỏ chứ không
+  phải khung lớn**: encode ngay trong callback `process` của PipeWire từng ghìm capture
+  xuống `1000 / enc_ms` fps và biến mọi dao động thời gian encode thành rung nhịp khung
+  hình phía client. Giờ encode chạy trên thread riêng, được nạp qua `FrameMailbox`, một
+  hàng đợi một-chỗ kiểu mới-nhất-thắng — khi encoder chậm chân, frame mới nhất thắng và
+  frame cũ được đếm chứ không xếp hàng. Thứ đi qua hàng đợi là khung hình đã thu nhỏ về
+  kích thước encode, còn khoảng một phần bảy số byte. Chuyển khung nguyên độ phân giải
+  qua đó tốn hơn nhiều so với bản thân phép copy: 20 MB cache line bị bỏ lại ở trạng
+  thái dirty trong core capture, và core encode phải kéo sang, đo được 16 ms so với
+  3,4 ms cho cùng phép đọc trên vùng nhớ nó không sở hữu. Thread capture đằng nào cũng
+  phải chạm mỗi pixel nguồn đúng một lần, nên đó là chỗ đúng để tiêu lượt duyệt duy
+  nhất ấy. Frame dma-buf vẫn encode tại chỗ: compositor tái dùng bộ nhớ của chúng ngay
+  khi callback trả về nên chúng không sống lâu hơn callback, và VA-API đằng nào cũng
+  thu nhỏ chúng trên GPU.
 - **Host Linux chọn encoder theo nơi frame nằm, không phải theo thứ được cài**: frame
   dma-buf đi vào VA-API, nơi import được zero-copy trên đúng GPU đã tạo ra nó; frame
   mapped (CPU) đi vào NVENC khi có driver NVIDIA, vì trên desktop do GPU NVIDIA render,

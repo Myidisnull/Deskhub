@@ -202,14 +202,20 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
 
-- **The Linux host encodes on its own thread, never in the capture callback**: encoding
-  inside PipeWire's `process` callback throttled capture to `1000 / enc_ms` fps and
-  turned every encode-time wobble into frame-cadence jitter on the client. Mapped
-  frames are copied once (buffers recycled through a small pool) and handed to a
-  dedicated encode thread through `FrameMailbox`, a latest-wins single-slot queue —
-  when the encoder falls behind, the freshest frame wins and the stale one is counted,
-  not queued. Dma-buf frames still encode inline: the compositor reuses their backing
-  memory the moment the callback returns, so they cannot outlive it.
+- **The Linux host encodes on its own thread, and hands that thread the small frame,
+  not the big one**: encoding inside PipeWire's `process` callback throttled capture to
+  `1000 / enc_ms` fps and turned every encode-time wobble into frame-cadence jitter on
+  the client. The encode now runs on its own thread, fed through `FrameMailbox`, a
+  latest-wins single-slot queue — when the encoder falls behind, the freshest frame
+  wins and the stale one is counted, not queued. What crosses the queue is the frame
+  already downscaled to encode size, roughly a seventh of the bytes. Copying the
+  full-resolution frame across instead cost far more than the copy itself: 20 MB of
+  cache lines left dirty in the capture core, which the encode core then had to pull
+  across, measured at 16 ms against 3.4 ms for the same read of memory it did not own.
+  The capture thread has to touch every source pixel once regardless, so it is the
+  right place to spend that single pass. Dma-buf frames still encode inline: the
+  compositor reuses their backing memory the moment the callback returns, so they
+  cannot outlive it, and VA-API scales them on the GPU anyway.
 - **The Linux host picks its encoder by where the frame lives, not by what is
   installed**: a dma-buf frame goes to VA-API, which can import it zero-copy on the
   GPU that produced it; a mapped (CPU) frame goes to NVENC when an NVIDIA driver is

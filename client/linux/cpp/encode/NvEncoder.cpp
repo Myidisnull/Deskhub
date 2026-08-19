@@ -306,12 +306,17 @@ bool NvEncoder::Encode(const LinuxFrameInfo& fi, uint64_t timestampUs, bool forc
         return false;
     }
 
-    if (!im->scaler.Matches(fi.meta.width, fi.meta.height, im->cfg.width, im->cfg.height))
-        im->scaler.Configure(fi.meta.width, fi.meta.height, im->cfg.width, im->cfg.height);
-    if (!im->scaler.ready()) return false;
-
-    im->scaler.Scale(fi.handle, fi.stride, im->lastScaled.data(),
-        im->cfg.width * deskhub::media::kPackedPixelBytes);
+    const uint32_t rowBytes = im->cfg.width * deskhub::media::kPackedPixelBytes;
+    if (fi.meta.width == im->cfg.width && fi.meta.height == im->cfg.height) {
+        for (uint32_t y = 0; y < im->cfg.height; ++y)
+            std::memcpy(im->lastScaled.data() + size_t(y) * rowBytes,
+                fi.handle + size_t(y) * fi.stride, rowBytes);
+    } else {
+        if (!im->scaler.Matches(fi.meta.width, fi.meta.height, im->cfg.width, im->cfg.height))
+            im->scaler.Configure(fi.meta.width, fi.meta.height, im->cfg.width, im->cfg.height);
+        if (!im->scaler.ready()) return false;
+        im->scaler.Scale(fi.handle, fi.stride, im->lastScaled.data(), rowBytes);
+    }
     im->haveSource = true;
 
     return im->EncodeScaled(timestampUs, forceKeyframe);
