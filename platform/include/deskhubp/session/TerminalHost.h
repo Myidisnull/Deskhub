@@ -64,6 +64,13 @@ private:
         size_t pendingAt = 0;
         bool behind = false;
         uint64_t lastRepaintUs = 0;
+        uint64_t ptyBytes = 0;
+        uint64_t sentBytes = 0;
+        uint64_t droppedBytes = 0;
+        uint64_t sendFails = 0;
+        uint64_t repaints = 0;
+        uint64_t reportedAtUs = 0;
+        uint64_t reportedBytes = 0;
     };
 
     void Loop();
@@ -71,6 +78,7 @@ private:
     bool FlushPending(uint32_t termId, Shell& shell, std::vector<uint8_t>& scratch);
     void QueueForPeer(Shell& shell, std::span<const uint8_t> bytes);
     void QueueRepaint(Shell& shell, uint64_t nowUs);
+    void ReportShell(uint32_t termId, Shell& shell, uint64_t nowUs);
     void DrainKicks();
     void DrainGone(uint64_t nowUs);
     void CloseShell(uint32_t termId, int exitCode, bool tellClient);

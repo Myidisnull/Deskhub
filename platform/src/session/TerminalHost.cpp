@@ -18,6 +18,7 @@ constexpr uint32_t kPtyWaitMs = 0;
 constexpr int kPumpRounds = 8;
 constexpr size_t kMaxPendingBytes = size_t{256} * 1024;
 constexpr uint64_t kRepaintIntervalUs = 100'000;
+constexpr uint64_t kShellReportIntervalUs = 1'000'000;
 
 }
 
@@ -222,8 +223,11 @@ bool TerminalHost::FlushPending(uint32_t termId, Shell& shell, std::vector<uint8
             shell.behind = true;
             break;
         }
-        if (!SendToPeer(shell.peer, std::span<const uint8_t>(scratch.data(), written)))
+        if (!SendToPeer(shell.peer, std::span<const uint8_t>(scratch.data(), written))) {
+            ++shell.sendFails;
             return false;
+        }
+        shell.sentBytes += take;
         shell.pendingAt += take;
     }
     shell.pending.clear();
@@ -232,8 +236,12 @@ bool TerminalHost::FlushPending(uint32_t termId, Shell& shell, std::vector<uint8
 }
 
 void TerminalHost::QueueForPeer(Shell& shell, std::span<const uint8_t> bytes) {
-    if (shell.behind) return;
+    if (shell.behind) {
+        shell.droppedBytes += bytes.size();
+        return;
+    }
     if (shell.pending.size() - shell.pendingAt + bytes.size() > kMaxPendingBytes) {
+        shell.droppedBytes += shell.pending.size() - shell.pendingAt + bytes.size();
         shell.pending.clear();
         shell.pendingAt = 0;
         shell.behind = true;
@@ -249,6 +257,27 @@ void TerminalHost::QueueRepaint(Shell& shell, uint64_t nowUs) {
     shell.pendingAt = 0;
     shell.behind = false;
     shell.lastRepaintUs = nowUs;
+    ++shell.repaints;
+}
+
+void TerminalHost::ReportShell(uint32_t termId, Shell& shell, uint64_t nowUs) {
+    if (nowUs - shell.reportedAtUs < kShellReportIntervalUs) return;
+    const uint64_t moved = shell.ptyBytes + shell.sentBytes + shell.droppedBytes;
+    if (moved == shell.reportedBytes) {
+        shell.reportedAtUs = nowUs;
+        return;
+    }
+    shell.reportedAtUs = nowUs;
+    shell.reportedBytes = moved;
+    LOGI(
+        "[DIAG][term] id=%u pty_bytes=%llu sent_bytes=%llu dropped_bytes=%llu send_fail=%llu "
+        "repaint=%llu pending=%zu behind=%d local=%d",
+        unsigned(termId), static_cast<unsigned long long>(shell.ptyBytes),
+        static_cast<unsigned long long>(shell.sentBytes),
+        static_cast<unsigned long long>(shell.droppedBytes),
+        static_cast<unsigned long long>(shell.sendFails),
+        static_cast<unsigned long long>(shell.repaints), shell.pending.size() - shell.pendingAt,
+        int(shell.behind), int(shell.local));
 }
 
 void TerminalHost::PumpShells(uint64_t nowUs) {
@@ -269,6 +298,7 @@ void TerminalHost::PumpShells(uint64_t nowUs) {
             }
             if (got == 0) break;
             const std::span<const uint8_t> fresh(chunk.data(), size_t(got));
+            shell.ptyBytes += size_t(got);
             shell.mirror->Write(fresh);
             const std::string reply = shell.mirror->TakeResponse();
             if (shell.local) {
@@ -280,6 +310,7 @@ void TerminalHost::PumpShells(uint64_t nowUs) {
             QueueForPeer(shell, fresh);
         }
         if (!shell.local) FlushPending(termId, shell, message);
+        ReportShell(termId, shell, nowUs);
     }
 
     for (uint32_t termId : finished) {
