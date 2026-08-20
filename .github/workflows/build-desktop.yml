@@ -71,21 +71,25 @@ jobs:
             { grep -iE "error|LNK[0-9]" app-build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
+      - name: Assert neither exe needs a redistributable
+        shell: pwsh
+        run: |
+          $exes = @($env:APP_EXE, 'out/build/x64-release/client/cli/deskhub-cli.exe')
+          foreach ($exe in $exes) {
+            Write-Output "== $exe"
+            $deps = dumpbin /dependents $exe
+            $deps
+            $bad = $deps | Select-String -Pattern 'VCRUNTIME|MSVCP\d|MSVCR\d'
+            if ($bad) {
+              Write-Output "::error::$exe needs the Visual C++ Redistributable - the release is supposed to be a single self-contained exe"
+              exit 1
+            }
+          }
+          Write-Output "OK - the MSVC runtime is linked statically."
+
       - name: Smoke the command-line client
         shell: bash
         run: scripts/cli-smoke.sh out/build/x64-release/client/cli/deskhub-cli.exe
-
-      - name: Assert no Visual C++ Redistributable dependency
-        shell: pwsh
-        run: |
-          $deps = dumpbin /dependents $env:APP_EXE
-          $deps
-          $bad = $deps | Select-String -Pattern 'VCRUNTIME|MSVCP\d|MSVCR\d'
-          if ($bad) {
-            Write-Output "::error::$env:APP_EXE needs the Visual C++ Redistributable - the release is supposed to be a single self-contained exe"
-            exit 1
-          }
-          Write-Output "OK - the MSVC runtime is linked statically."
 
       - name: Upload app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
