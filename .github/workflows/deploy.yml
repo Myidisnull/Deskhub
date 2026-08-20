@@ -37,8 +37,12 @@ jobs:
     with:
       for_release: true
 
+  build-cli:
+    needs: verify-tag
+    uses: ./.github/workflows/build-cli.yml
+
   github-release:
-    needs: build-desktop
+    needs: [build-desktop, build-cli]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15

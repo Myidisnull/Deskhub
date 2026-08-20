@@ -1,0 +1,230 @@
+name: build-cli
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Install Ninja + NASM
+        run: choco install ninja nasm -y
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/x86_64-pc-windows-msvc
+          key: quiche-windows-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        shell: bash
+        run: |
+          scripts/build-quiche.sh windows 2>&1 | tee quiche-build.log ||
+            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
+              tail -15 quiche-build.log | sed 's/^/::error::/' || true
+              exit 1; }
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/x86_64-pc-windows-msvc
+          key: opus-windows-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        shell: bash
+        run: |
+          scripts/build-opus.sh windows 2>&1 | tee opus-build.log ||
+            { grep -iE "error|LNK[0-9]" opus-build.log | tail -30 | sed 's/^/::error::/' || true
+              tail -15 opus-build.log | sed 's/^/::error::/' || true
+              exit 1; }
+
+      - name: Configure without the desktop app, which would fetch wxWidgets
+        run: cmake --preset x64-release -DDESKHUB_CLI=ON -DDESKHUB_WINDOWS_APP=OFF
+
+      - name: Build the command-line client
+        shell: bash
+        run: |
+          cmake --build --preset x64-release --target deskhub_cli 2>&1 | tee cli-build.log ||
+            { grep -iE "error|LNK[0-9]" cli-build.log | tail -40 | sed 's/^/::error::/' || true
+              exit 1; }
+
+      - name: Assert the exe needs no redistributable
+        shell: pwsh
+        run: |
+          $exe = 'out/build/x64-release/client/cli/deskhub-cli.exe'
+          $deps = dumpbin /dependents $exe
+          $deps
+          $bad = $deps | Select-String -Pattern 'VCRUNTIME|MSVCP\d|MSVCR\d'
+          if ($bad) {
+            Write-Output "::error::$exe needs the Visual C++ Redistributable - the release is supposed to be a single self-contained exe"
+            exit 1
+          }
+          Write-Output "OK - the MSVC runtime is linked statically."
+
+      - name: Smoke the command-line client
+        shell: bash
+        run: scripts/cli-smoke.sh out/build/x64-release/client/cli/deskhub-cli.exe
+
+      - name: Upload the command-line client
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deskhub-cli-windows
+          path: out/build/x64-release/client/cli/deskhub-cli.exe
+          retention-days: 14
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-darwin
+            third_party/quiche/x86_64-apple-darwin
+            third_party/quiche/macos-universal
+          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/quiche/macos-universal/libquiche.a
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-apple-darwin
+            third_party/opus/x86_64-apple-darwin
+            third_party/opus/macos-universal
+          key: opus-macos-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: |
+          scripts/build-opus.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/opus/macos-universal/libopus.a
+
+      - name: Configure
+        run: >
+          cmake --preset arm64-release -DDESKHUB_CLI=ON
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build the command-line client
+        run: cmake --build --preset arm64-release --target deskhub_cli
+
+      - name: Assert one binary carries both architectures
+        run: |
+          bin=out/build/arm64-release/client/cli/deskhub-cli
+          archs=$(lipo -archs "$bin")
+          echo "$bin: $archs"
+          for want in arm64 x86_64; do
+            case " $archs " in
+              *" $want "*) ;;
+              *) echo "::error::$bin has no $want slice - Intel Macs would not run it"; exit 1 ;;
+            esac
+          done
+
+      - name: Smoke the command-line client
+        run: scripts/cli-smoke.sh out/build/arm64-release/client/cli/deskhub-cli
+
+      - name: Upload the command-line client
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deskhub-cli-macos
+          path: out/build/arm64-release/client/cli/deskhub-cli
+          retention-days: 14
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build dependencies, none of them a GUI toolkit
+        run: >
+          scripts/apt-install.sh ninja-build pkg-config nasm
+          libglib2.0-dev libepoxy-dev libegl-dev libgles-dev
+          libdrm-dev libva-dev libpipewire-0.3-dev libspa-0.2-dev
+          libx11-dev libxfixes-dev
+
+      - name: Cache minimal FFmpeg
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: third_party/ffmpeg-min
+          key: ffmpeg-min-ubuntu-22.04-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+      - name: Build minimal FFmpeg (static, h264 decode only)
+        run: scripts/build-ffmpeg.sh
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/x86_64-unknown-linux-gnu
+          key: quiche-ubuntu-22.04-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: scripts/build-quiche.sh host
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/x86_64-unknown-linux-gnu
+          key: opus-ubuntu-22.04-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: scripts/build-opus.sh host
+
+      - name: Configure without the desktop app, which would need GTK
+        run: cmake --preset x64-release -DDESKHUB_CLI=ON -DDESKHUB_LINUX_APP=OFF
+
+      - name: Build the command-line client
+        run: cmake --build --preset x64-release --target deskhub_cli
+
+      - name: Assert no dynamic FFmpeg dependency
+        run: |
+          bin=out/build/x64-release/client/cli/deskhub-cli
+          if readelf -d "$bin" | grep -q 'NEEDED.*libav'; then
+            echo "::error::$bin links libav* dynamically — the release would not start on newer Ubuntu"
+            readelf -d "$bin" | grep NEEDED
+            exit 1
+          fi
+          echo "OK — FFmpeg is linked statically. Dynamic dependencies:"
+          readelf -d "$bin" | grep NEEDED
+
+      - name: Smoke the command-line client
+        run: scripts/cli-smoke.sh out/build/x64-release/client/cli/deskhub-cli
+
+      - name: Upload the command-line client
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deskhub-cli-linux
+          path: out/build/x64-release/client/cli/deskhub-cli
+          retention-days: 14
+          if-no-files-found: error

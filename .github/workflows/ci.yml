@@ -18,6 +18,9 @@ jobs:
   build-desktop:
     uses: ./.github/workflows/build-desktop.yml
 
+  build-cli:
+    uses: ./.github/workflows/build-cli.yml
+
   build-mobile:
     uses: ./.github/workflows/build-mobile.yml
 
