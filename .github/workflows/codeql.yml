@@ -38,118 +38,27 @@ jobs:
         if: matrix.language == 'c-cpp'
         run: scripts/apt-install.sh ninja-build
 
-      - name: Validate the Gradle wrapper
+      - uses: ./.github/actions/android-sdk
         if: matrix.language == 'java-kotlin'
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-
-      - name: Setup JDK 17
-        if: matrix.language == 'java-kotlin'
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
+          gradle: 'true'
 
-      - name: Setup Android SDK
-        if: matrix.language == 'java-kotlin'
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-
-      - name: Install NDK + CMake
-        if: matrix.language == 'java-kotlin'
-        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
-
-      - name: Cache quiche
+      - uses: ./.github/actions/third-party
         if: matrix.language == 'c-cpp'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-host-ubuntu-latest-${{ hashFiles('scripts/build-quiche.sh') }}
+          cache-key: host-ubuntu-latest
 
-      - name: Build quiche (static QUIC + TLS)
-        if: matrix.language == 'c-cpp'
-        run: scripts/build-quiche.sh host
-
-      - name: Cache opus
-        if: matrix.language == 'c-cpp'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-host-ubuntu-latest-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        if: matrix.language == 'c-cpp'
-        run: scripts/build-opus.sh host
-
-      - name: Cache quiche for Android
+      - uses: ./.github/actions/third-party
         if: matrix.language == 'java-kotlin'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/aarch64-linux-android
-            third_party/quiche/x86_64-linux-android
-          key: quiche-android-${{ hashFiles('scripts/build-quiche.sh') }}
+          targets: android
+          cache-key: android
 
-      - name: Build quiche for every ABI (static QUIC + TLS)
-        if: matrix.language == 'java-kotlin'
-        run: |
-          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
-          scripts/build-quiche.sh android
-
-      - name: Cache opus for Android
-        if: matrix.language == 'java-kotlin'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
+        if: matrix.language == 'swift'
         with:
-          path: |
-            third_party/opus/include
-            third_party/opus/aarch64-linux-android
-            third_party/opus/x86_64-linux-android
-          key: opus-android-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus for every ABI (static audio codec)
-        if: matrix.language == 'java-kotlin'
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
-          scripts/build-opus.sh android
-
-      - name: Cache quiche for macOS
-        if: matrix.language == 'swift'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/aarch64-apple-darwin
-            third_party/quiche/x86_64-apple-darwin
-            third_party/quiche/macos-universal
-          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS, macOS)
-        if: matrix.language == 'swift'
-        run: |
-          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
-          test -f third_party/quiche/macos-universal/libquiche.a
-
-      - name: Cache opus for macOS
-        if: matrix.language == 'swift'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/aarch64-apple-darwin
-            third_party/opus/x86_64-apple-darwin
-            third_party/opus/macos-universal
-          key: opus-macos-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec, macOS)
-        if: matrix.language == 'swift'
-        run: |
-          scripts/build-opus.sh aarch64-apple-darwin x86_64-apple-darwin
-          test -f third_party/opus/macos-universal/libopus.a
+          targets: aarch64-apple-darwin x86_64-apple-darwin
+          cache-key: macos
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6

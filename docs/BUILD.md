@@ -55,6 +55,7 @@ client/     the five apps: android, ios, linux, macos, windows.
 third_party/  quiche (QUIC), opus (audio), the nvenc headers, the minimal FFmpeg build
 make/       one .mk per platform, included by the root Makefile
 scripts/    bootstrap, packaging, coverage, style and CI helpers
+.github/    workflows, and actions/ — the composite steps they all reuse
 ```
 
 Write logic once and share it: before adding anything under `client/*`, check whether it

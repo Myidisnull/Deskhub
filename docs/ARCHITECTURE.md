@@ -420,6 +420,22 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   `com.deskhub.macos` row — System Settings shows the permission granted while the
   copy just launched is denied, silently for Accessibility.
   `make reset-macos-permissions` clears every grant so the next launch asks again.
+- **macOS is a desktop build in CI and a signed one at release, never both at once**:
+  `build-desktop` compiles the app ad-hoc-signed on every push, so a Cocoa change that
+  no longer builds fails its own pull request; `deploy` reaches the same app through
+  `release-macos`, the fastlane path — Developer ID, notarization, dmg — that produces
+  something a user can actually open. The reusable workflow therefore skips its macOS
+  job when `for_release` is set, or a tag would pay for a second macOS runner to make a
+  bundle nobody ships. `build-mobile` carries iOS and Android only, for the same reason
+  and with the same split.
+- **Every workflow gets quiche and opus from one action, and the cache key is the whole
+  contract**: `.github/actions/third-party` builds both libraries for whatever targets a
+  job names, which is why nineteen copies of the same cache-then-build block are down to
+  one line per job. Its `cache-key` input is not decoration — it is the only thing
+  keeping two jobs from restoring each other's libraries. Two target sets differ,
+  and so do two runner images building the same triple: a `libquiche.a` compiled on
+  ubuntu-latest and restored on ubuntu-22.04 links a glibc the release exists to avoid.
+  Anything that changes what the build produces belongs in that key.
 - **One static release CRT on Windows, every configuration**: cargo builds quiche
   against the static release CRT (the msvc default — never force it through
   `RUSTFLAGS`, that leaks into proc-macros and kills cargo), and the whole CMake

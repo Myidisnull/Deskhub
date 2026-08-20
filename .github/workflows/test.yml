@@ -43,37 +43,9 @@ jobs:
             Windows) choco install ninja nasm -y ;;
           esac
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-host-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        shell: bash
-        run: |
-          scripts/build-quiche.sh host 2>&1 | tee quiche-build.log ||
-            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 quiche-build.log | sed 's/^/::error::/' || true
-              exit 1; }
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-host-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        shell: bash
-        run: |
-          scripts/build-opus.sh host 2>&1 | tee opus-build.log ||
-            { grep -iE "error|LNK[0-9]" opus-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 opus-build.log | sed 's/^/::error::/' || true
-              exit 1; }
+          cache-key: host-${{ matrix.os }}
 
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
@@ -111,27 +83,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-host-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: scripts/build-quiche.sh host
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-host-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: scripts/build-opus.sh host
+          cache-key: host-${{ matrix.os }}
 
       - name: Configure (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
@@ -188,51 +142,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      NDK_VERSION: 26.1.10909125
       BUILD_DIR: out/build/android-${{ matrix.abi }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-
-      - name: Install NDK
-        run: sdkmanager "ndk;$NDK_VERSION"
+      - uses: ./.github/actions/android-sdk
 
       - name: Install Ninja
         run: scripts/apt-install.sh ninja-build
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-${{ matrix.rust_target }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: |
-          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
-          scripts/build-quiche.sh ${{ matrix.rust_target }}
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-${{ matrix.rust_target }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
-          scripts/build-opus.sh ${{ matrix.rust_target }}
+          targets: ${{ matrix.rust_target }}
+          cache-key: ${{ matrix.rust_target }}
 
       - name: Cross-compile the test binaries for android-${{ matrix.abi }}
         run: |
           cmake -B "$BUILD_DIR" -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=${{ matrix.abi }} \
             -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_static \
@@ -271,31 +198,10 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/aarch64-apple-ios-sim
-          key: quiche-ios-sim-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: |
-          scripts/build-quiche.sh aarch64-apple-ios-sim
-          test -f third_party/quiche/aarch64-apple-ios-sim/libquiche.a
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/aarch64-apple-ios-sim
-          key: opus-ios-sim-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: |
-          scripts/build-opus.sh aarch64-apple-ios-sim
-          test -f third_party/opus/aarch64-apple-ios-sim/libopus.a
+          targets: aarch64-apple-ios-sim
+          cache-key: ios-sim
 
       - name: Build the test binaries for the iOS Simulator
         run: |

@@ -1,0 +1,16 @@
+name: fastlane
+description: Install Ruby and the pinned fastlane that every release and metadata lane runs on.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      with:
+        ruby-version: '3.3'
+
+    - name: Install fastlane
+      shell: bash
+      env:
+        FASTLANE_VERSION: 2.237.0
+      run: gem install fastlane -v "$FASTLANE_VERSION" --no-document

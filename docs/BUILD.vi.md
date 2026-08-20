@@ -58,6 +58,7 @@ client/     năm app: android, ios, linux, macos, windows.
 third_party/  quiche (QUIC), opus (âm thanh), header nvenc, bản FFmpeg tối giản
 make/       mỗi nền tảng một file .mk, được Makefile gốc include
 scripts/    bootstrap, đóng gói, coverage, định dạng và các tiện ích cho CI
+.github/    workflows, và actions/ — những bước dùng chung mà tất cả chúng tái sử dụng
 ```
 
 Viết một lần rồi dùng chung: trước khi thêm bất cứ thứ gì vào `client/*`, hãy xem nó có

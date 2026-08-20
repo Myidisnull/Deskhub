@@ -414,6 +414,22 @@ iOS Simulator.
   `com.deskhub.macos` — System Settings hiện đã cấp quyền trong khi bản vừa chạy bị
   từ chối, âm thầm với Accessibility. `make reset-macos-permissions` xoá mọi quyền
   để lần chạy sau hỏi lại.
+- **macOS là một bản desktop trong CI và một bản đã ký khi phát hành, không bao giờ
+  cả hai cùng lúc**: `build-desktop` biên dịch app với chữ ký ad-hoc ở mọi lần push,
+  nên một thay đổi Cocoa không build được sẽ fail ngay tại pull request của nó;
+  `deploy` đi tới cùng app đó qua `release-macos`, đường fastlane — Developer ID,
+  notarize, dmg — thứ tạo ra bản người dùng mở được thật. Vì vậy workflow dùng lại
+  bỏ qua job macOS của nó khi `for_release` được bật, nếu không một tag sẽ trả tiền
+  cho một macOS runner thứ hai chỉ để dựng một bundle chẳng ai ship. `build-mobile`
+  chỉ còn iOS và Android, cùng lý do và cùng cách tách.
+- **Mọi workflow lấy quiche và opus từ một action duy nhất, và cache key chính là toàn
+  bộ giao kèo**: `.github/actions/third-party` dựng cả hai thư viện cho bất kỳ tập
+  target nào job khai báo, nhờ vậy mười chín bản sao của cùng một khối cache-rồi-build
+  rút xuống còn một dòng mỗi job. Input `cache-key` của nó không phải để trang trí — đó
+  là thứ duy nhất ngăn hai job khôi phục nhầm thư viện của nhau. Hai tập target thì khác
+  nhau, mà hai runner image dựng cùng một triple cũng khác: một `libquiche.a` biên dịch
+  trên ubuntu-latest rồi khôi phục trên ubuntu-22.04 sẽ link vào đúng cái glibc mà bản
+  phát hành sinh ra để tránh. Thứ gì làm đổi kết quả build thì thuộc về key đó.
 - **Một CRT release tĩnh trên Windows, cho mọi cấu hình**: cargo build quiche với
   CRT release tĩnh (mặc định của msvc — đừng bao giờ ép qua `RUSTFLAGS`, flag đó
   ngấm vào proc-macro và giết cargo), và cả cây CMake pin `MultiThreaded` cho khớp

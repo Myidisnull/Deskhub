@@ -23,37 +23,10 @@ jobs:
       - name: Install Ninja + NASM
         run: choco install ninja nasm -y
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/x86_64-pc-windows-msvc
-          key: quiche-windows-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        shell: bash
-        run: |
-          scripts/build-quiche.sh windows 2>&1 | tee quiche-build.log ||
-            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 quiche-build.log | sed 's/^/::error::/' || true
-              exit 1; }
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/x86_64-pc-windows-msvc
-          key: opus-windows-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        shell: bash
-        run: |
-          scripts/build-opus.sh windows 2>&1 | tee opus-build.log ||
-            { grep -iE "error|LNK[0-9]" opus-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 opus-build.log | sed 's/^/::error::/' || true
-              exit 1; }
+          targets: windows
+          cache-key: windows
 
       - name: Configure without the desktop app, which would fetch wxWidgets
         run: cmake --preset x64-release -DDESKHUB_CLI=ON -DDESKHUB_WINDOWS_APP=OFF
@@ -96,35 +69,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/aarch64-apple-darwin
-            third_party/quiche/x86_64-apple-darwin
-            third_party/quiche/macos-universal
-          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: |
-          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
-          test -f third_party/quiche/macos-universal/libquiche.a
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/aarch64-apple-darwin
-            third_party/opus/x86_64-apple-darwin
-            third_party/opus/macos-universal
-          key: opus-macos-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: |
-          scripts/build-opus.sh aarch64-apple-darwin x86_64-apple-darwin
-          test -f third_party/opus/macos-universal/libopus.a
+          targets: aarch64-apple-darwin x86_64-apple-darwin
+          cache-key: macos
 
       - name: Configure
         run: >
@@ -181,27 +129,9 @@ jobs:
       - name: Build minimal FFmpeg (static, h264 decode only)
         run: scripts/build-ffmpeg.sh
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/x86_64-unknown-linux-gnu
-          key: quiche-ubuntu-22.04-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: scripts/build-quiche.sh host
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/x86_64-unknown-linux-gnu
-          key: opus-ubuntu-22.04-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: scripts/build-opus.sh host
+          cache-key: host-ubuntu-22.04
 
       - name: Configure without the desktop app, which would need GTK
         run: cmake --preset x64-release -DDESKHUB_CLI=ON -DDESKHUB_LINUX_APP=OFF
