@@ -196,14 +196,19 @@ the same as the app's, so the two agree.
 | Platform | File |
 | --- | --- |
 | 🪟 Windows | `deskhub-cli-v*-windows.exe` — download and run it, no installer |
+| 🍎 macOS | `deskhub-cli-v*-macos` — one binary for Apple Silicon and Intel |
 | 🐧 Linux | `deskhub-cli-v*-linux-x86_64`, or already there if you installed the deb or the rpm |
 
-It shares a screen through the same portal and VA-API driver the app needs, and relies on
-the same `/dev/uinput` rule for remote input, so everything under [Linux](#-linux) applies
-to it too.
+The macOS and Linux files arrive without the executable bit, so `chmod +x` them once.
+Neither is signed or notarized the way the dmg is: on macOS the first run needs
+`xattr -d com.apple.quarantine deskhub-cli-v*-macos`, or *Open Anyway* in System Settings
+→ Privacy & Security.
 
-macOS has no prebuilt command-line client yet — build it yourself with `make release-cli`
-([BUILD.md](BUILD.md)).
+On Linux it shares a screen through the same portal and VA-API driver the app needs, and
+relies on the same `/dev/uinput` rule for remote input, so everything under
+[Linux](#-linux) applies to it too. On macOS it shares a screen and opens shells, but it
+cannot *watch* one — `connect` needs a window layer the command-line build does not have,
+and says so; use the app for that.
 
 ---
 

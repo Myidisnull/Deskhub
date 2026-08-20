@@ -107,6 +107,73 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  macos-cli:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache quiche
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/quiche/include
+            third_party/quiche/aarch64-apple-darwin
+            third_party/quiche/x86_64-apple-darwin
+            third_party/quiche/macos-universal
+          key: quiche-macos-${{ hashFiles('scripts/build-quiche.sh') }}
+
+      - name: Build quiche (static QUIC + TLS)
+        run: |
+          scripts/build-quiche.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/quiche/macos-universal/libquiche.a
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-apple-darwin
+            third_party/opus/x86_64-apple-darwin
+            third_party/opus/macos-universal
+          key: opus-macos-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: |
+          scripts/build-opus.sh aarch64-apple-darwin x86_64-apple-darwin
+          test -f third_party/opus/macos-universal/libopus.a
+
+      - name: Configure
+        run: >
+          cmake --preset arm64-release -DDESKHUB_CLI=ON
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build the command-line client
+        run: cmake --build --preset arm64-release --target deskhub_cli
+
+      - name: Assert one binary carries both architectures
+        run: |
+          bin=out/build/arm64-release/client/cli/deskhub-cli
+          archs=$(lipo -archs "$bin")
+          echo "$bin: $archs"
+          for want in arm64 x86_64; do
+            case " $archs " in
+              *" $want "*) ;;
+              *) echo "::error::$bin has no $want slice - Intel Macs would not run it"; exit 1 ;;
+            esac
+          done
+
+      - name: Smoke the command-line client
+        run: scripts/cli-smoke.sh out/build/arm64-release/client/cli/deskhub-cli
+
+      - name: Upload the command-line client
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deskhub-cli-macos
+          path: out/build/arm64-release/client/cli/deskhub-cli
+          retention-days: 14
+          if-no-files-found: error
+
   linux:
     strategy:
       fail-fast: false

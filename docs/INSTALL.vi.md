@@ -198,14 +198,19 @@ với app, nên hai bên luôn khớp nhau.
 | Nền tảng | File |
 | --- | --- |
 | 🪟 Windows | `deskhub-cli-v*-windows.exe` — tải về rồi chạy, không cần trình cài đặt |
+| 🍎 macOS | `deskhub-cli-v*-macos` — một file chạy được cả Apple Silicon lẫn Intel |
 | 🐧 Linux | `deskhub-cli-v*-linux-x86_64`, hoặc đã có sẵn nếu bạn cài bản deb hay rpm |
 
-Nó chia sẻ màn hình qua đúng portal và driver VA-API mà app cần, và cũng dựa vào luật
-`/dev/uinput` đó để điều khiển từ xa, nên mọi thứ nói ở phần [Linux](#-linux) đều áp dụng
-cho nó.
+Hai file macOS và Linux tải về chưa có quyền thực thi, nên `chmod +x` một lần. Cả hai đều
+không được ký và công chứng như file dmg: trên macOS lần chạy đầu cần
+`xattr -d com.apple.quarantine deskhub-cli-v*-macos`, hoặc bấm *Open Anyway* trong System
+Settings → Privacy & Security.
 
-macOS chưa có bản dựng sẵn cho dòng lệnh — bạn tự build bằng `make release-cli`
-([BUILD.vi.md](BUILD.vi.md)).
+Trên Linux nó chia sẻ màn hình qua đúng portal và driver VA-API mà app cần, và cũng dựa
+vào luật `/dev/uinput` đó để điều khiển từ xa, nên mọi thứ nói ở phần [Linux](#-linux) đều
+áp dụng cho nó. Trên macOS nó chia sẻ màn hình và mở shell được, nhưng không *xem* được
+màn hình máy khác — lệnh `connect` cần một lớp cửa sổ mà bản dòng lệnh không có, và nó báo
+rõ như vậy; muốn xem thì dùng app.
 
 ---
 

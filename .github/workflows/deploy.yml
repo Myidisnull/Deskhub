@@ -63,6 +63,8 @@ jobs:
           mv dist/deskhub-cli-windows/deskhub-cli.exe "out/deskhub-cli-${GITHUB_REF_NAME}-windows.exe"
           mv dist/deskhub-cli-linux/deskhub-cli "out/deskhub-cli-${GITHUB_REF_NAME}-linux-x86_64"
           chmod +x "out/deskhub-cli-${GITHUB_REF_NAME}-linux-x86_64"
+          mv dist/deskhub-cli-macos/deskhub-cli "out/deskhub-cli-${GITHUB_REF_NAME}-macos"
+          chmod +x "out/deskhub-cli-${GITHUB_REF_NAME}-macos"
           mv dist/deskhub-linux-deb/deskhub_*.deb "out/deskhub-${GITHUB_REF_NAME}-amd64.deb"
           mv dist/deskhub-linux-rpm/deskhub-*.rpm "out/deskhub-${GITHUB_REF_NAME}-x86_64.rpm"
 
@@ -93,6 +95,7 @@ jobs:
             out/deskhub-${{ github.ref_name }}-x86_64.rpm
             out/deskhub-cli-${{ github.ref_name }}-windows.exe
             out/deskhub-cli-${{ github.ref_name }}-linux-x86_64
+            out/deskhub-cli-${{ github.ref_name }}-macos
           body_path: out/release-notes.md
 
   release-ios:
