@@ -4,7 +4,7 @@ set -euo pipefail
 CLI=${1:-out/build/x64-debug/client/cli/deskhub-cli}
 PORT=${DESKHUB_SMOKE_PORT:-47989}
 PASSCODE=0417
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/deskhub-cli-smoke.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 if [ ! -x "$CLI" ]; then
