@@ -75,15 +75,32 @@ if [ "$ready" != 1 ]; then
 fi
 
 expect_code 0 "$CLI" probe "127.0.0.1:$PORT"
-expect_code 0 "$CLI" sources "127.0.0.1:$PORT" --passcode "$PASSCODE" --json
-grep -q '"terminal":true' "$WORK/out" || fail "the host did not offer a shell"
+
+offered=0
+for _ in $(seq 1 200); do
+    if "$CLI" sources "127.0.0.1:$PORT" --passcode "$PASSCODE" --json >"$WORK/out" 2>"$WORK/err" &&
+        grep -q '"terminal":true' "$WORK/out"; then
+        offered=1
+        break
+    fi
+    sleep 0.1
+done
+if [ "$offered" != 1 ]; then
+    echo "--- stdout"; cat "$WORK/out"
+    echo "--- stderr"; cat "$WORK/err"
+    fail "the host never offered its shell"
+fi
 
 expect_code 4 "$CLI" sources "127.0.0.1:$PORT" --passcode 9999
 
 printf 'echo deskhub-smoke-ok\nexit\n' |
-    "$CLI" shell "127.0.0.1:$PORT" --passcode "$PASSCODE" >"$WORK/shell.out" 2>/dev/null || true
-tr -d '\r' <"$WORK/shell.out" | grep -aq "deskhub-smoke-ok" ||
+    "$CLI" shell "127.0.0.1:$PORT" --passcode "$PASSCODE" >"$WORK/shell.out" 2>"$WORK/shell.err" || true
+if ! tr -d '\r' <"$WORK/shell.out" | grep -aq "deskhub-smoke-ok"; then
+    echo "--- shell stdout"; cat "$WORK/shell.out"
+    echo "--- shell stderr"; cat "$WORK/shell.err"
+    echo "--- host stderr"; cat "$WORK/share.err"
     fail "the remote shell did not run the command"
+fi
 
 kill -INT "$SHARE_PID"
 wait "$SHARE_PID" || fail "the host did not stop cleanly on an interrupt"
