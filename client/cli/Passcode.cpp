@@ -1,7 +1,6 @@
 #include "Passcode.h"
 
 #include <cstdio>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -10,6 +9,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/system/Console.h"
+#include "deskhubp/system/Environment.h"
 
 namespace deskhubcli {
 
@@ -79,8 +79,8 @@ Passcode ResolvePasscode(const deskhub::cli::Command& command) {
         case PasscodeSource::Absent: break;
     }
 
-    const char* fromEnv = std::getenv(kPasscodeEnvVar);
-    if (fromEnv && *fromEnv) return Accept(FirstLine(fromEnv));
+    const std::string fromEnv = deskhubp::EnvValue(kPasscodeEnvVar);
+    if (!fromEnv.empty()) return Accept(FirstLine(fromEnv));
 
     Passcode none;
     none.ok = true;

@@ -89,6 +89,7 @@ if(WIN32)
         src/system/AutostartWin.cpp
         src/system/KeepAwakeWin.cpp
         src/system/ConsoleWin.cpp
+        src/system/EnvironmentWin.cpp
     )
 else()
     set(deskhub_platform_os
@@ -96,6 +97,7 @@ else()
         src/net/NetInfoPosix.cpp
         src/system/DeviceNamePosix.cpp
         src/system/ConsolePosix.cpp
+        src/system/EnvironmentPosix.cpp
     )
     if(APPLE)
         list(APPEND deskhub_platform_os src/system/MemoryFootprintApple.cpp)

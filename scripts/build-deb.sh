@@ -20,7 +20,11 @@ scripts/stage-linux-pkgroot.sh "$STAGE"
 
 mkdir -p "$STAGE/debian"
 touch "$STAGE/debian/control"
-DEPENDS="$(cd "$STAGE" && dpkg-shlibdeps -O usr/bin/deskhub | sed 's/^shlibs:Depends=//')"
+SHLIBDEPS_BINS=(usr/bin/deskhub)
+if [ -f "$STAGE/usr/bin/deskhub-cli" ]; then
+    SHLIBDEPS_BINS+=(usr/bin/deskhub-cli)
+fi
+DEPENDS="$(cd "$STAGE" && dpkg-shlibdeps -O "${SHLIBDEPS_BINS[@]}" | sed 's/^shlibs:Depends=//')"
 rm -rf "$STAGE/debian"
 
 INSTALLED_SIZE="$(du -sk "$STAGE" | cut -f1)"

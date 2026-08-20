@@ -213,6 +213,7 @@ jobs:
         run: |
           sudo apt-get install -y ./out/dist/linux/deskhub_*.deb
           test -x /usr/bin/deskhub
+          test -x /usr/bin/deskhub-cli
           test -f /usr/lib/udev/rules.d/60-deskhub-uinput.rules
           test -f /usr/lib/modules-load.d/deskhub.conf
           dpkg-deb --info out/dist/linux/deskhub_*.deb
@@ -238,6 +239,7 @@ jobs:
           docker run --rm -v "$PWD/out/dist/linux:/pkg:ro" fedora:latest bash -ec '
             dnf install -y -q /pkg/deskhub-*.rpm
             test -x /usr/bin/deskhub
+            test -x /usr/bin/deskhub-cli
             test -f /usr/lib/udev/rules.d/60-deskhub-uinput.rules
             test -f /usr/lib/modules-load.d/deskhub.conf
             if ldd /usr/bin/deskhub | grep "not found"; then

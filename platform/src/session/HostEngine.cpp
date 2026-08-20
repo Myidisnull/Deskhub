@@ -401,7 +401,7 @@ void HostEngine::RecvLoop() {
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
         beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput,
-            terminal_ != nullptr && terminal_->Running(), audio_.running()});
+            opt_.terminal || (terminal_ != nullptr && terminal_->Running()), audio_.running()});
         DrainControlRequests();
         DrainLocalClipboard();
     };
