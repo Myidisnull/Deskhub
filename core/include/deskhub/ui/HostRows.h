@@ -1,16 +1,20 @@
 #pragma once
 #include "deskhub/media/AgentTypes.h"
+#include "deskhub/session/FileTransfer.h"
 #include "deskhub/session/TerminalSession.h"
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace deskhub::ui {
 
 inline constexpr const char* kViewerRowLabel = "    \xE2\x86\xB3 viewer";
 inline constexpr const char* kShellRowLabel = "    \xE2\x86\xB3 shell";
+inline constexpr const char* kSendingRowLabel = "    \xE2\x86\xB3 sending";
 inline constexpr uint8_t kTerminalSourceId = 0xFF;
+inline constexpr uint8_t kFilesSourceId = 0xFE;
 
 struct HostRow {
     bool viewer = false;
@@ -20,6 +24,8 @@ struct HostRow {
     bool terminal = false;
     uint32_t termId = 0;
     TerminalState shellState = TerminalState::Live;
+    bool files = false;
+    uint64_t peerPacked = 0;
 
     bool operator==(const HostRow&) const = default;
 };
@@ -43,6 +49,10 @@ std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& 
 std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources,
     bool terminalShared, const std::vector<TerminalRecord>& shells);
 
+std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources,
+    bool terminalShared, const std::vector<TerminalRecord>& shells, bool filesShared,
+    const std::vector<TransferRecord>& transfers);
+
 const media::AgentSourceStatus* FindHostSource(
     const std::vector<media::AgentSourceStatus>& sources, uint8_t sourceId);
 
@@ -52,5 +62,11 @@ HostRowCells HostRowText(const HostRow& row, const media::AgentSourceStatus& sou
 
 HostRowCells TerminalRowText(const HostRow& row, uint16_t port,
     const std::vector<TerminalRecord>& shells);
+
+const TransferRecord* FindTransfer(const std::vector<TransferRecord>& transfers,
+    uint64_t peerPacked);
+
+HostRowCells FilesRowText(const HostRow& row, std::string_view folder,
+    const std::vector<TransferRecord>& transfers);
 
 }

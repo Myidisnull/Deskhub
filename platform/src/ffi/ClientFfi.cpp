@@ -150,6 +150,21 @@ const char* dh_string(DHStringId id) {
         case DHStrTrustReject: return deskhub::ui::kTrustReject;
         case DHStrTerminalSourceName: return deskhub::ui::kTerminalSourceName;
         case DHStrTerminalPickerLabel: return deskhub::ui::kTerminalPickerLabel;
+        case DHStrFilesSourceName: return deskhub::ui::kFilesSourceName;
+        case DHStrFilesPickerLabel: return deskhub::ui::kFilesPickerLabel;
+        case DHStrTransferHeading: return deskhub::ui::kTransferHeading;
+        case DHStrTransferChooseButton: return deskhub::ui::kTransferChooseButton;
+        case DHStrTransferCancelButton: return deskhub::ui::kTransferCancelButton;
+        case DHStrTransferFolderLabel: return deskhub::ui::kTransferFolderLabel;
+        case DHStrTransferSending: return deskhub::ui::kTransferSending;
+        case DHStrTransferDone: return deskhub::ui::kTransferDone;
+        case DHStrTransferHostNotTaking: return deskhub::ui::kTransferHostNotTaking;
+        case DHStrTransferSendHeading: return deskhub::ui::kTransferSendHeading;
+        case DHStrTransferNoneChosen: return deskhub::ui::kTransferNoneChosen;
+        case DHStrTransferBusyNote: return deskhub::ui::kTransferBusyNote;
+        case DHStrTransferTooManyFiles: return deskhub::ui::kTransferTooManyFiles;
+        case DHStrOpenFilesLabel: return deskhub::ui::kOpenFilesLabel;
+        case DHStrTransferSentHeading: return deskhub::ui::kTransferSentHeading;
         case DHStrOpenChoiceGroup: return deskhub::ui::kOpenChoiceGroup;
         case DHStrOpenDesktopLabel: return deskhub::ui::kOpenDesktopLabel;
         case DHStrOpenShellLabel: return deskhub::ui::kOpenShellLabel;
@@ -312,6 +327,10 @@ int dh_max_sources(void) {
     return int(deskhub::kMaxSources);
 }
 
+int dh_max_transfer_files(void) {
+    return int(deskhub::kMaxTransferFiles);
+}
+
 uint32_t dh_auto_share_probe_ms(void) {
     return deskhub::ui::kAutoShareProbeMs;
 }
@@ -328,7 +347,7 @@ DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms) {
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,
     DHHostCaps* out_caps) {
-    if (out_caps) *out_caps = DHHostCaps{false, false};
+    if (out_caps) *out_caps = DHHostCaps{false, false, false, false};
     if (!address || !out || capacity <= 0) return DH_SOURCE_QUERY_FAILED;
 
     NetAddr server;
@@ -341,7 +360,8 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
     deskhub::HostCaps caps{};
     if (!QuerySources(server, sources, passcode ? passcode : "", nullptr, &caps))
         return DH_SOURCE_QUERY_FAILED;
-    if (out_caps) *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal};
+    if (out_caps)
+        *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal, caps.audio, caps.files};
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {

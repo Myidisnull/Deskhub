@@ -24,7 +24,8 @@ inline ShareClampResult ClampShareSources(std::vector<media::ShareSource> all) {
     return r;
 }
 
-inline media::AgentOptions ShareOptionsOf(const ui::UiSettings& settings, bool terminal) {
+inline media::AgentOptions ShareOptionsOf(const ui::UiSettings& settings, bool terminal,
+    bool files = false) {
     media::AgentOptions options;
     options.fps = settings.fps;
     options.bitrateMbps = settings.bitrateMbps;
@@ -38,6 +39,7 @@ inline media::AgentOptions ShareOptionsOf(const ui::UiSettings& settings, bool t
     options.clipboardSync = settings.clipboardSync;
     options.audio = settings.shareAudio;
     options.terminal = terminal;
+    options.files = files;
     return options;
 }
 

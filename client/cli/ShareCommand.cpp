@@ -1,6 +1,7 @@
 #include "Commands.h"
 
 #include <chrono>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -15,7 +16,9 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/media/DisplayEnum.h"
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/session/FileHost.h"
 #include "deskhubp/session/TerminalHost.h"
+#include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -26,6 +29,17 @@ namespace {
 using deskhub::cli::PairingPolicy;
 
 constexpr uint32_t kPollMs = 200;
+
+std::string PathText(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
+std::filesystem::path TransferFolder(const std::string& chosen) {
+    if (chosen.empty()) return deskhubp::DefaultTransferDir();
+    const std::u8string wide(chosen.begin(), chosen.end());
+    return std::filesystem::path(wide);
+}
 
 std::string ViewerSummary(const deskhub::media::AgentSourceStatus& source) {
     if (!source.viewerCount) return "-";
@@ -135,20 +149,23 @@ ExitCode RunShare(const Command& command) {
     if (!passcode.value.empty()) settings.passcode = passcode.value;
     if (settings.deviceName.empty()) settings.deviceName = deskhubp::LocalDeviceName();
 
-    AgentOptions options = deskhub::ShareOptionsOf(settings, command.share.terminal);
+    AgentOptions options =
+        deskhub::ShareOptionsOf(settings, command.share.terminal, command.share.files);
     options.clipboardSync = false;
 
+    const bool sharesTenant = command.share.terminal || command.share.files;
     std::vector<AgentSource> sources;
     if (command.share.screen && !CollectSources(command, sources)) {
-        if (!command.share.terminal) return ExitCode::NothingToShare;
+        if (!sharesTenant) return ExitCode::NothingToShare;
         sources.clear();
     }
-    if (sources.empty() && !command.share.terminal) return ExitCode::NothingToShare;
+    if (sources.empty() && !sharesTenant) return ExitCode::NothingToShare;
 
     WatchForInterrupt();
 
     AgentLoop agent;
     deskhubp::TerminalHost terminal;
+    deskhubp::FileHost files;
     if (!agent.Start(sources, options)) {
         PrintError(std::string(deskhub::ui::kShareStartFailed) + ": " + agent.LastError());
         return ExitCode::BindFailed;
@@ -163,11 +180,26 @@ ExitCode RunShare(const Command& command) {
         agent.SetTerminal(&terminal);
     }
 
+    if (command.share.files) {
+        const std::filesystem::path folder = TransferFolder(settings.transferDir);
+        if (files.Start(agent.Socket(), folder, deskhubp::FileHostCallbacks{})) {
+            agent.SetFiles(&files);
+        } else {
+            PrintError(std::string(deskhub::ui::kShareStartFailed) +
+                       ": files cannot be stored in " + PathText(folder) + ".");
+            if (terminal.Running()) terminal.Stop();
+            agent.Stop();
+            return ExitCode::Failed;
+        }
+    }
+
     const bool screenSharing = !agent.Status().empty();
     if (!command.quiet) {
         PrintError(deskhub::ui::ShareSummaryLine(screenSharing, terminal.Running(), options.port));
         PrintError(deskhub::ui::PasscodeNote(options.passcode));
         if (!options.allowInput) PrintError(deskhub::ui::kViewOnlyNote);
+        if (files.Running())
+            PrintError(deskhub::ui::TransferFolderNote(PathText(files.Directory())));
         const std::string bindWarning = agent.BindWarning();
         if (!bindWarning.empty()) PrintError(bindWarning);
         PrintError("Press Ctrl-C to stop sharing.");
@@ -192,6 +224,7 @@ ExitCode RunShare(const Command& command) {
         }
     }
 
+    if (files.Running()) files.Stop();
     if (terminal.Running()) terminal.Stop();
     agent.Stop();
     if (!command.quiet) PrintError("Stopped sharing.");

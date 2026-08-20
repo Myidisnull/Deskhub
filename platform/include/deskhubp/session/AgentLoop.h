@@ -97,6 +97,10 @@ public:
         engine_.SetTerminal(terminal);
     }
 
+    void SetFiles(deskhubp::FileHost* files) {
+        engine_.SetFiles(files);
+    }
+
 private:
     deskhubp::HostEngine engine_;
     std::mutex pairingMutex_;

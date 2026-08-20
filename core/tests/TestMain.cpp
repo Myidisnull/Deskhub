@@ -58,6 +58,15 @@ int main() {
     std::printf("--- session: remote terminal (host sessions, client, stream framing) ---\n");
     RunTerminalSessionTests();
 
+    std::printf("--- transfer: file names the filesystem can be trusted with ---\n");
+    RunSafeNameTests();
+
+    std::printf("--- transfer: CRC-32 over chunked files ---\n");
+    RunCrc32Tests();
+
+    std::printf("--- transfer: client-to-host file batches (offer, chunks, checksums) ---\n");
+    RunFileTransferTests();
+
     std::printf("--- session: keeping a link alive and getting it back ---\n");
     RunLinkRecoveryTests();
 

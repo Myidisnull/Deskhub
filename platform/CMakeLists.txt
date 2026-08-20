@@ -186,6 +186,10 @@ add_library(platform STATIC
     src/session/AuthNegotiation.cpp
     src/session/TerminalHost.cpp
     src/session/TerminalViewer.cpp
+    src/session/FileHost.cpp
+    src/session/FileTransferClient.cpp
+    src/session/FileUpload.cpp
+    src/system/FileStore.cpp
     src/net/SessionTransport.cpp
     src/net/SourceQuery.cpp
     src/net/HostProbe.cpp
@@ -198,6 +202,7 @@ add_library(platform STATIC
     src/ffi/ClientFfi.cpp
     src/ffi/AgentSession.cpp
     src/ffi/DiscoveryFfi.cpp
+    src/ffi/TransferFfi.cpp
     src/ffi/TerminalFfi.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -312,6 +317,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/session/HostCallbackTests.cpp
         tests/session/AuthNegotiationTests.cpp
         tests/session/TerminalHostTests.cpp
+        tests/session/FileTransferTests.cpp
         tests/system/ClockTests.cpp
         tests/system/DeviceNameTests.cpp
         tests/system/MemoryFootprintTests.cpp

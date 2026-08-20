@@ -43,11 +43,17 @@ struct HostPage: View {
             } else {
                 SharePickerTable(
                     sources: agent.shareSources,
+                    filesFolder: agent.filesFolder,
                     ticked: $agent.tickedSources,
-                    terminal: $agent.shareTerminal
+                    terminal: $agent.shareTerminal,
+                    files: $agent.shareFiles
                 )
                 .frame(minHeight: 170)
                 deskhubHint(DeskhubClient.string(DHStrPickSourcesHint))
+                if agent.shareFiles, !agent.filesFolder.isEmpty {
+                    deskhubHint(DeskhubClient.string(DHStrTransferFolderLabel)
+                        + " " + agent.filesFolder)
+                }
             }
 
             Button {
@@ -206,24 +212,35 @@ struct HostSourceTable: View {
 
 struct SharePickerTable: View {
     let sources: [ShareSource]
+    let filesFolder: String
     @Binding var ticked: Set<UInt32>
     @Binding var terminal: Bool
+    @Binding var files: Bool
+
+    private enum Kind {
+        case display(UInt32)
+        case terminal
+        case files
+    }
 
     private struct Row: Identifiable {
         let id: String
         let name: String
         let size: String
-        let sourceId: UInt32?
+        let kind: Kind
     }
 
     private var rows: [Row] {
         var all = sources.map { source in
             Row(id: "source-\(source.id)", name: source.name,
-                size: "\(source.width)x\(source.height)", sourceId: source.id)
+                size: "\(source.width)x\(source.height)", kind: .display(source.id))
         }
         all.append(Row(id: "terminal",
                        name: DeskhubClient.string(DHStrTerminalPickerLabel),
-                       size: "", sourceId: nil))
+                       size: "", kind: .terminal))
+        all.append(Row(id: "files",
+                       name: DeskhubClient.string(DHStrFilesPickerLabel),
+                       size: "", kind: .files))
         return all
     }
 
@@ -239,16 +256,22 @@ struct SharePickerTable: View {
     }
 
     private func tick(_ row: Row) -> Binding<Bool> {
-        guard let sourceId = row.sourceId else { return $terminal }
-        return Binding(
-            get: { ticked.contains(sourceId) },
-            set: { on in
-                if on {
-                    ticked.insert(sourceId)
-                } else {
-                    ticked.remove(sourceId)
+        switch row.kind {
+        case .terminal:
+            $terminal
+        case .files:
+            $files
+        case let .display(sourceId):
+            Binding(
+                get: { ticked.contains(sourceId) },
+                set: { on in
+                    if on {
+                        ticked.insert(sourceId)
+                    } else {
+                        ticked.remove(sourceId)
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }

@@ -87,6 +87,9 @@ void dh_set_client_desktop(bool on);
 bool dh_client_shell(void);
 void dh_set_client_shell(bool on);
 
+bool dh_client_files(void);
+void dh_set_client_files(bool on);
+
 int dh_device_name(char* out, int capacity);
 void dh_set_device_name(const char* name);
 

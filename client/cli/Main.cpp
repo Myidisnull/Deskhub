@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
         case deskhub::cli::Verb::Share: return Report(deskhubcli::RunShare(command));
         case deskhub::cli::Verb::Shell: return Report(deskhubcli::RunShell(command));
         case deskhub::cli::Verb::Connect: return Report(deskhubcli::RunConnect(command));
+        case deskhub::cli::Verb::Send: return Report(deskhubcli::RunSend(command));
         case deskhub::cli::Verb::None: break;
     }
     return RunHelp(command);

@@ -29,6 +29,12 @@ add_library(core STATIC
     src/session/ClipboardSync.cpp
     src/session/TerminalSession.cpp
     src/session/TerminalClient.cpp
+    src/session/FileTransfer.cpp
+    src/session/FileSender.cpp
+    src/session/FileReceiver.cpp
+
+    src/transfer/Crc32.cpp
+    src/transfer/SafeName.cpp
     src/session/LinkRecovery.cpp
 
     src/input/InputSender.cpp
@@ -121,8 +127,12 @@ if(DESKHUB_CORE_TESTS)
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
         tests/session/TerminalSessionTests.cpp
+        tests/session/FileTransferTests.cpp
         tests/session/LinkRecoveryTests.cpp
         tests/session/AuthThrottleTests.cpp
+
+        tests/transfer/Crc32Tests.cpp
+        tests/transfer/SafeNameTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp

@@ -24,6 +24,7 @@ struct AgentOptions {
     bool clipboardSync = false;
     bool allowNewPairings = true;
     bool terminal = false;
+    bool files = false;
     bool audio = false;
 };
 

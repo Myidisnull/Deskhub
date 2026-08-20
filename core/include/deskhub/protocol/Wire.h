@@ -50,7 +50,8 @@ enum class Chan : uint8_t { Control = 0,
     Video = 1,
     Input = 2,
     Audio = 3,
-    Terminal = 4 };
+    Terminal = 4,
+    File = 5 };
 
 enum class MsgType : uint8_t {
     Hello = 0x01,
@@ -82,6 +83,12 @@ enum class MsgType : uint8_t {
     AuthChallenge = 0x61,
     AuthResponse = 0x62,
     AuthResult = 0x63,
+    FileOffer = 0x70,
+    FileAccept = 0x71,
+    FileChunk = 0x72,
+    FileDone = 0x73,
+    FileAck = 0x74,
+    FileCancel = 0x75,
 };
 
 inline constexpr uint8_t kVideoFlagIdr = 1u << 0;
@@ -113,22 +120,25 @@ struct SourceInfo {
 inline constexpr uint8_t kHostAcceptsInput = 1u << 0;
 inline constexpr uint8_t kHostSharesTerminal = 1u << 1;
 inline constexpr uint8_t kHostSharesAudio = 1u << 2;
+inline constexpr uint8_t kHostAcceptsFiles = 1u << 3;
 
 struct HostCaps {
     bool acceptsInput = false;
     bool terminal = false;
     bool audio = false;
+    bool files = false;
 };
 
 inline constexpr uint8_t HostCapFlags(const HostCaps& caps) {
     return uint8_t((caps.acceptsInput ? kHostAcceptsInput : 0) |
                    (caps.terminal ? kHostSharesTerminal : 0) |
-                   (caps.audio ? kHostSharesAudio : 0));
+                   (caps.audio ? kHostSharesAudio : 0) |
+                   (caps.files ? kHostAcceptsFiles : 0));
 }
 
 inline constexpr HostCaps HostCapsOfFlags(uint8_t flags) {
     return HostCaps{(flags & kHostAcceptsInput) != 0, (flags & kHostSharesTerminal) != 0,
-        (flags & kHostSharesAudio) != 0};
+        (flags & kHostSharesAudio) != 0, (flags & kHostAcceptsFiles) != 0};
 }
 
 inline constexpr uint16_t kClientWantsAudio = 1u << 0;
@@ -453,5 +463,92 @@ std::optional<TermOpen> ParseTermOpen(std::span<const uint8_t> payload);
 std::optional<TermOpenAck> ParseTermOpenAck(std::span<const uint8_t> payload);
 std::optional<TermSize> ParseTermResize(std::span<const uint8_t> payload);
 std::optional<int32_t> ParseTermExit(std::span<const uint8_t> payload);
+
+inline constexpr size_t kMaxTransferFiles = 32;
+inline constexpr size_t kMaxTransferNameBytes = 255;
+inline constexpr uint64_t kMaxTransferFileBytes = 8ull << 30;
+inline constexpr uint64_t kMaxTransferBatchBytes = 32ull << 30;
+
+inline constexpr size_t kFileOfferHeaderSize = 5;
+inline constexpr size_t kFileOfferEntryOverhead = 9;
+static_assert(kCommonHeaderSize + kFileOfferHeaderSize +
+                  kMaxTransferFiles * (kFileOfferEntryOverhead + kMaxTransferNameBytes) <=
+              kMaxRecordSize);
+
+inline constexpr size_t kFileChunkHeaderSize = 14;
+inline constexpr size_t kMaxFileChunkBytes =
+    kMaxRecordSize - kCommonHeaderSize - kFileChunkHeaderSize;
+
+bool IsWireLegalFileName(std::string_view name);
+
+struct TransferFile {
+    uint64_t size = 0;
+    std::string name{};
+};
+
+struct FileOffer {
+    uint32_t batchId = 0;
+    std::vector<TransferFile> files{};
+};
+
+enum class TransferReason : uint8_t {
+    Accepted = 0,
+    NotAccepting = 1,
+    Busy = 2,
+    TooManyFiles = 3,
+    TooLarge = 4,
+    BadName = 5,
+    WriteFailed = 6,
+    Corrupt = 7,
+    Cancelled = 8,
+    LinkLost = 9,
+    ReadFailed = 10,
+};
+
+inline constexpr uint8_t kMaxTransferReason = uint8_t(TransferReason::ReadFailed);
+
+struct FileAccept {
+    uint32_t batchId = 0;
+    TransferReason reason = TransferReason::Accepted;
+};
+
+struct FileChunkView {
+    uint32_t batchId = 0;
+    uint16_t fileIndex = 0;
+    uint64_t offset = 0;
+    std::span<const uint8_t> data{};
+};
+
+struct FileDone {
+    uint32_t batchId = 0;
+    uint16_t fileIndex = 0;
+    uint32_t crc32 = 0;
+};
+
+struct FileAck {
+    uint32_t batchId = 0;
+    uint16_t fileIndex = 0;
+    TransferReason reason = TransferReason::Accepted;
+};
+
+struct FileCancel {
+    uint32_t batchId = 0;
+    TransferReason reason = TransferReason::Cancelled;
+};
+
+size_t BuildFileOffer(std::span<uint8_t> out, const FileOffer& m);
+size_t BuildFileAccept(std::span<uint8_t> out, const FileAccept& m);
+size_t BuildFileChunk(std::span<uint8_t> out, uint32_t batchId, uint16_t fileIndex,
+    uint64_t offset, std::span<const uint8_t> data);
+size_t BuildFileDone(std::span<uint8_t> out, const FileDone& m);
+size_t BuildFileAck(std::span<uint8_t> out, const FileAck& m);
+size_t BuildFileCancel(std::span<uint8_t> out, const FileCancel& m);
+
+std::optional<FileOffer> ParseFileOffer(std::span<const uint8_t> payload);
+std::optional<FileAccept> ParseFileAccept(std::span<const uint8_t> payload);
+std::optional<FileChunkView> ParseFileChunk(std::span<const uint8_t> payload);
+std::optional<FileDone> ParseFileDone(std::span<const uint8_t> payload);
+std::optional<FileAck> ParseFileAck(std::span<const uint8_t> payload);
+std::optional<FileCancel> ParseFileCancel(std::span<const uint8_t> payload);
 
 }

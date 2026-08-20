@@ -248,6 +248,7 @@ Verb VerbOf(std::string_view token) {
     if (token == "share") return Verb::Share;
     if (token == "shell") return Verb::Shell;
     if (token == "connect") return Verb::Connect;
+    if (token == "send") return Verb::Send;
     return Verb::None;
 }
 
@@ -471,6 +472,50 @@ FlagResult ApplyPairingFlag(Command& command, const Flag& flag, Cursor& cursor) 
     return FlagResult::Handled;
 }
 
+void ParseSend(Command& command, Cursor& cursor) {
+    bool haveAddress = false;
+    while (More(cursor)) {
+        const std::string_view token = Take(cursor);
+        if (!IsFlagToken(token)) {
+            if (!haveAddress) {
+                if (!TakeAddress(command, token)) return;
+                haveAddress = true;
+                continue;
+            }
+            if (command.send.files.size() >= kMaxTransferFiles) {
+                command.error = "send carries at most " + std::to_string(kMaxTransferFiles) +
+                                " files at a time";
+                return;
+            }
+            command.send.files.emplace_back(token);
+            continue;
+        }
+        const Flag flag = SplitFlag(token);
+        if (WantsHelp(flag)) {
+            command.helpFor = Verb::Send;
+            command.verb = Verb::Help;
+            return;
+        }
+        if (ApplyGlobalFlag(command, flag) == FlagResult::Handled) continue;
+
+        FlagResult result = ApplyPasscodeFlag(command, flag, cursor);
+        if (result == FlagResult::Failed) return;
+        if (result == FlagResult::Handled) continue;
+
+        result = ApplyTextFlag(command, flag, cursor, "--name", command.deviceName);
+        if (result == FlagResult::Failed) return;
+        if (result == FlagResult::Handled) continue;
+
+        command.error = UnknownOption(flag.name, Verb::Send);
+        return;
+    }
+    if (!haveAddress) {
+        command.error = NeedsAddress(Verb::Send);
+        return;
+    }
+    if (command.send.files.empty()) command.error = "send needs at least one file to send";
+}
+
 void ParseShare(Command& command, Cursor& cursor) {
     ShareOptions& share = command.share;
     while (More(cursor)) {
@@ -490,6 +535,10 @@ void ParseShare(Command& command, Cursor& cursor) {
         if (!flag.hasInlineValue) {
             if (flag.name == "--terminal") {
                 share.terminal = true;
+                continue;
+            }
+            if (flag.name == "--files") {
+                share.files = true;
                 continue;
             }
             if (flag.name == "--no-screen") {
@@ -553,11 +602,15 @@ void ParseShare(Command& command, Cursor& cursor) {
         result = ApplyBoundedFlag(command, flag, cursor, "--status-interval", kMinStatusIntervalMs, kMaxStatusIntervalMs, interval);
         if (result == FlagResult::Failed) return;
         if (result == FlagResult::Handled) {
-            share.statusIntervalMs = *interval;
+            if (interval) share.statusIntervalMs = *interval;
             continue;
         }
 
         result = ApplyTextFlag(command, flag, cursor, "--bind", share.bindIp);
+        if (result == FlagResult::Failed) return;
+        if (result == FlagResult::Handled) continue;
+
+        result = ApplyTextFlag(command, flag, cursor, "--files-dir", share.filesDir);
         if (result == FlagResult::Failed) return;
         if (result == FlagResult::Handled) continue;
 
@@ -569,8 +622,10 @@ void ParseShare(Command& command, Cursor& cursor) {
         return;
     }
 
-    if (!share.screen && !share.terminal)
-        command.error = "--no-screen leaves nothing to share - add --terminal, or drop --no-screen";
+    if (!share.screen && !share.terminal && !share.files)
+        command.error =
+            "--no-screen leaves nothing to share - add --terminal or --files, or drop "
+            "--no-screen";
     if (!share.screen && !share.displays.empty())
         command.error = "--display and --no-screen ask for opposite things";
     if (share.bindIp && !share.bindIp->empty() && !ParseIPv4(*share.bindIp))
@@ -662,6 +717,7 @@ const char* VerbName(Verb verb) {
         case Verb::Share: return "share";
         case Verb::Shell: return "shell";
         case Verb::Connect: return "connect";
+        case Verb::Send: return "send";
         case Verb::None: break;
     }
     return "";
@@ -711,6 +767,7 @@ Command ParseCommand(int argc, const char* const* argv) {
         case Verb::Share: ParseShare(command, cursor); break;
         case Verb::Shell: ParseAddressVerb(command, cursor, true, false); break;
         case Verb::Connect: ParseConnect(command, cursor); break;
+        case Verb::Send: ParseSend(command, cursor); break;
         case Verb::None: break;
     }
     return command;
@@ -789,6 +846,7 @@ ui::UiSettings ApplyShareOptions(const Command& command, ui::UiSettings settings
     if (share.allowNewPairings) settings.allowNewPairings = *share.allowNewPairings;
     if (command.deviceName) settings.deviceName = ui::TruncateDeviceName(*command.deviceName);
     if (share.bindIp) settings.bindIp = *share.bindIp;
+    if (share.filesDir) settings.transferDir = ui::TruncateSettingsPath(*share.filesDir);
     return settings;
 }
 
@@ -805,6 +863,7 @@ std::string UsageText() {
            "  share               share this machine on the network\n"
            "  connect ADDRESS     watch and drive a host, in a window of its own\n"
            "  shell ADDRESS       open a shell on a host, right here in this terminal\n"
+           "  send ADDRESS FILE   send files to a host that takes them\n"
            "  displays            the displays this machine can share\n"
            "  scan                look for machines sharing on this network\n"
            "  sources ADDRESS     ask a host what it is sharing\n"
@@ -914,6 +973,21 @@ std::string UsageText(Verb verb) {
                    "\n"
                    "  --passcode VALUE  the host's passcode, the same way sources takes it\n"
                    "  --name NAME       what the host sees this machine called\n";
+        case Verb::Send:
+            return "Usage: " + program +
+                   " send ADDRESS[:PORT] FILE [FILE...] [--passcode VALUE] [--name NAME]\n"
+                   "\n"
+                   "Send files to a host that was started with --files. The host stores them in\n"
+                   "its transfer folder without asking, so it only takes files from machines it\n"
+                   "has admitted. Names are reduced to a plain file name before they are stored,\n"
+                   "and nothing already there is ever overwritten.\n"
+                   "\n"
+                   "  --passcode VALUE  the host's passcode, the same way sources takes it\n"
+                   "  --name NAME       what the host sees this machine called\n"
+                   "\n"
+                   "At most " +
+                   std::to_string(kMaxTransferFiles) +
+                   " files travel in one batch. It exits 4 if the host refuses them.\n";
         case Verb::Share:
             return "Usage: " + program +
                    " share [--display ID|NAME|all]... [--terminal] [flags]\n"
@@ -922,8 +996,11 @@ std::string UsageText(Verb verb) {
                    "Without --display every display is shared.\n"
                    "\n"
                    "  --display ID|NAME|all  which display to share, once per display\n"
-                   "  --no-screen            share no display at all; needs --terminal\n"
+                   "  --no-screen            share no display at all; needs --terminal or\n"
+                   "                         --files\n"
                    "  --terminal             share a shell as well\n"
+                   "  --files                take files viewers send, into the transfer folder\n"
+                   "  --files-dir PATH       where files viewers send are stored\n"
                    "  --no-input             viewers watch but cannot type or click\n"
                    "  --audio / --no-audio   send this machine's sound, or do not\n"
                    "  --fps N                frames per second\n"

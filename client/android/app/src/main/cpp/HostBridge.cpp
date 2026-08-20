@@ -93,7 +93,7 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* e
 
     const std::string code = deskhubj::FromJString(env, passcode);
     return dha_start(&source, 1, uint32_t(fps), uint32_t(bitrateMbps), uint32_t(maxDim),
-               uint16_t(port), false, code.c_str(), false)
+               uint16_t(port), false, code.c_str(), false, false)
                ? JNI_TRUE
                : JNI_FALSE;
 }

@@ -1,6 +1,7 @@
 #include "deskhubp/ffi/AgentSession.h"
 
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -18,13 +19,16 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/session/FileHost.h"
 #include "deskhubp/session/TerminalHost.h"
+#include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
 
 std::unique_ptr<AgentLoop> g_agent;
 std::unique_ptr<deskhubp::TerminalHost> g_terminal;
+std::unique_ptr<deskhubp::FileHost> g_files;
 std::mutex g_agentMutex;
 
 std::mutex g_audioMutex;
@@ -79,8 +83,9 @@ int dha_list_share_sources(DHShareSource* out, int capacity) {
 }
 
 bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
-    uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode, bool terminal) {
-    if ((!sources || count <= 0) && !terminal) return false;
+    uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode, bool terminal,
+    bool files) {
+    if ((!sources || count <= 0) && !terminal && !files) return false;
 
     std::vector<AgentSource> list;
     if (sources && count > 0) {
@@ -95,12 +100,16 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     if (port) opt.port = port;
     opt.allowInput = allow_input;
     opt.terminal = terminal;
+    opt.files = files;
     const std::string typedPasscode = passcode ? passcode : "";
     opt.passcode = typedPasscode.empty() || deskhub::IsValidPasscode(typedPasscode)
                        ? typedPasscode
                        : deskhubp::HostPasscode();
+    std::filesystem::path transferDir;
     {
         const deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
+        transferDir = stored.transferDir.empty() ? deskhubp::DefaultTransferDir()
+                                                 : deskhubp::FfiPath(stored.transferDir.c_str());
         opt.bindIp = stored.bindIp;
         opt.clipboardSync = stored.clipboardSync;
         opt.audio = stored.shareAudio;
@@ -111,13 +120,16 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
         PublishAudioTarget(nullptr);
+        if (g_files) g_files->Stop();
         if (g_terminal) g_terminal->Stop();
         g_agent->Stop();
         g_agent.reset();
     }
     g_agent = std::make_unique<AgentLoop>();
     if (!g_terminal) g_terminal = std::make_unique<deskhubp::TerminalHost>();
+    if (!g_files) g_files = std::make_unique<deskhubp::FileHost>();
     g_agent->SetTerminal(g_terminal.get());
+    g_agent->SetFiles(g_files.get());
     if (!g_agent->Start(list, opt)) {
         deskhubp::CopyToBuf(g_errorBuf, sizeof(g_errorBuf), g_agent->LastError());
         g_agent.reset();
@@ -127,6 +139,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     g_port = opt.port;
     if (terminal)
         g_terminal->Start(g_agent->Socket(), std::string(), deskhubp::TerminalHostCallbacks{});
+    if (files) g_files->Start(g_agent->Socket(), transferDir, deskhubp::FileHostCallbacks{});
     g_errorBuf[0] = '\0';
     return true;
 }
@@ -135,6 +148,7 @@ void dha_stop(void) {
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
         PublishAudioTarget(nullptr);
+        if (g_files) g_files->Stop();
         if (g_terminal) g_terminal->Stop();
         g_agent->Stop();
         g_agent.reset();
@@ -156,6 +170,34 @@ bool dha_audio_running(void) {
 bool dha_terminal_active(void) {
     std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
     return lk.owns_lock() && g_terminal && g_terminal->Running();
+}
+
+bool dha_files_active(void) {
+    std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+    return lk.owns_lock() && g_files && g_files->Running();
+}
+
+void dha_stop_files(void) {
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_files) g_files->Stop();
+}
+
+int dha_files_dir(char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    out[0] = '\0';
+    std::filesystem::path folder;
+    {
+        std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
+        if (lk.owns_lock() && g_files) folder = g_files->Directory();
+    }
+    if (folder.empty()) {
+        const std::string chosen = deskhubp::LoadUiSettings().transferDir;
+        folder = chosen.empty() ? deskhubp::DefaultTransferDir()
+                                : deskhubp::FfiPath(chosen.c_str());
+    }
+    const std::u8string text = folder.u8string();
+    deskhubp::CopyToBuf(out, size_t(capacity), std::string(text.begin(), text.end()));
+    return int(std::strlen(out));
 }
 
 void dha_kick_shell(uint32_t term_id) {
@@ -258,7 +300,10 @@ int dha_host_rows(DHHostRow* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     std::vector<AgentSourceStatus> sources;
     std::vector<deskhub::TerminalRecord> shells;
+    std::vector<deskhub::TransferRecord> transfers;
     bool terminalOn = false;
+    bool filesOn = false;
+    std::string folder;
     uint16_t port = deskhub::kDeskhubPort;
     {
         std::unique_lock<std::mutex> lk(g_agentMutex, std::try_to_lock);
@@ -266,17 +311,25 @@ int dha_host_rows(DHHostRow* out, int capacity) {
         sources = g_agent->Status();
         terminalOn = g_terminal && g_terminal->Running();
         if (terminalOn) shells = g_terminal->Sessions();
+        filesOn = g_files && g_files->Running();
+        if (filesOn) {
+            transfers = g_files->Transfers();
+            const std::u8string text = g_files->Directory().u8string();
+            folder.assign(text.begin(), text.end());
+        }
         port = g_port;
     }
 
     const std::vector<deskhub::ui::HostRow> rows =
-        deskhub::ui::BuildHostRows(sources, terminalOn, shells);
+        deskhub::ui::BuildHostRows(sources, terminalOn, shells, filesOn, transfers);
     int written = 0;
     for (const deskhub::ui::HostRow& row : rows) {
         if (written >= capacity) break;
         deskhub::ui::HostRowCells cells;
         if (row.terminal) {
             cells = deskhub::ui::TerminalRowText(row, port, shells);
+        } else if (row.files) {
+            cells = deskhub::ui::FilesRowText(row, folder, transfers);
         } else {
             const AgentSourceStatus* source =
                 deskhub::ui::FindHostSource(sources, row.sourceId);
@@ -286,6 +339,7 @@ int dha_host_rows(DHHostRow* out, int capacity) {
         DHHostRow& slot = out[written++];
         slot.viewer = row.viewer;
         slot.terminal = row.terminal;
+        slot.files = row.files;
         slot.sourceId = row.sourceId;
         slot.termId = row.termId;
         slot.shellState = uint8_t(row.shellState);

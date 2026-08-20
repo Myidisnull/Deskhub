@@ -17,6 +17,7 @@ inline constexpr size_t kQuicMaxUdpPayload = 1350;
 inline constexpr uint64_t kQuicIdleTimeoutMs = 30'000;
 inline constexpr uint64_t kQuicControlStream = 0;
 inline constexpr uint64_t kQuicFirstTerminalStream = 4;
+inline constexpr uint64_t kQuicFileStream = 8;
 inline constexpr uint64_t kQuicStreamStride = 4;
 
 using QuicConnId = uint64_t;

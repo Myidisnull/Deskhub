@@ -35,6 +35,7 @@ struct MainMenuView: View {
     @State private var accessibilityWarning = false
     @State private var openDesktop = dh_client_desktop()
     @State private var openShell = dh_client_shell()
+    @State private var openTransfer = dh_client_files()
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""
     @State private var promptPort = ""
@@ -200,6 +201,9 @@ struct MainMenuView: View {
                     Toggle(DeskhubClient.string(DHStrOpenShellLabel), isOn: $openShell)
                         .toggleStyle(.checkbox)
                         .onChange(of: openShell) { _, on in dh_set_client_shell(on) }
+                    Toggle(DeskhubClient.string(DHStrOpenFilesLabel), isOn: $openTransfer)
+                        .toggleStyle(.checkbox)
+                        .onChange(of: openTransfer) { _, on in dh_set_client_files(on) }
                     deskhubHint(DeskhubClient.string(DHStrMobileHostNote))
                     deskhubHint(DeskhubClient.string(DHStrOpenChoiceHint))
                 }
@@ -261,11 +265,13 @@ extension MainMenuView {
             return
         }
         agent.refreshPermissions()
-        if !agent.hasScreenRecording {
+        let tenantsOnly = agent.pickedSources.isEmpty
+            && (agent.shareTerminal || agent.shareFiles)
+        if !tenantsOnly, !agent.hasScreenRecording {
             shareAlert = DeskhubClient.string(DHStrScreenRecordingRequired)
             return
         }
-        if !agent.hasAccessibility {
+        if !tenantsOnly, !agent.hasAccessibility {
             accessibilityWarning = true
             return
         }
@@ -305,9 +311,26 @@ extension MainMenuView {
         beginConnect()
     }
 
+    private func openTenantWindows(_ caps: HostCaps, address: String, passcode: String) {
+        if openShell {
+            if caps.terminal {
+                openWindow(value: TerminalRequest(address: address, passcode: passcode))
+            } else {
+                connect.connectError = DeskhubClient.string(DHStrHostHasNoTerminal)
+            }
+        }
+        guard openTransfer else { return }
+        if caps.files {
+            openWindow(value: TransferRequest(address: address, passcode: passcode,
+                                              name: connect.deviceName))
+        } else {
+            connect.connectError = DeskhubClient.string(DHStrTransferHostNotTaking)
+        }
+    }
+
     private func beginConnect() {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
-        if !openDesktop, !openShell {
+        if !openDesktop, !openShell, !openTransfer {
             connectAlert = DeskhubClient.string(DHStrOpenNothingTicked)
             return
         }
@@ -320,13 +343,7 @@ extension MainMenuView {
             guard !accepted.isEmpty else { return }
             await discovery.remember(address: accepted, passcode: passcode)
 
-            if openShell {
-                if found.caps.terminal {
-                    openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
-                } else {
-                    connect.connectError = DeskhubClient.string(DHStrHostHasNoTerminal)
-                }
-            }
+            openTenantWindows(found.caps, address: accepted, passcode: passcode)
             guard openDesktop else { return }
             guard !found.sources.isEmpty else {
                 connect.connectError = DeskhubClient.sourceQueryEmpty(accepted)

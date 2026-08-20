@@ -426,6 +426,16 @@ void dh_set_client_shell(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+bool dh_client_files(void) {
+    return deskhubp::LoadUiSettings().clientFiles;
+}
+
+void dh_set_client_files(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.clientFiles = on;
+    deskhubp::SaveUiSettings(out);
+}
+
 int dh_device_name(char* out, int capacity) {
     return FillText(out, capacity, deskhubp::LoadUiSettings().deviceName);
 }

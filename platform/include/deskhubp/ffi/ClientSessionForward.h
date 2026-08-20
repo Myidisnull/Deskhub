@@ -1,9 +1,14 @@
 #pragma once
 #include "deskhub/input/Hotkeys.h"
+#include "deskhub/session/FileSender.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/ffi/FfiText.h"
 
 #include <cstring>
+#include <filesystem>
+#include <string>
+#include <vector>
 
 #define DESKHUB_DEFINE_CLIENT_SESSION_FORWARDERS(engineOf)                                 \
     void dh_session_key(DHSession* s, int32_t vk, int32_t scan, bool down) {               \
@@ -103,4 +108,45 @@
                                                                                            \
     void dh_session_reject_key(DHSession* s) {                                             \
         deskhubp::RejectFfiClientKey(s);                                                   \
+    }                                                                                      \
+                                                                                           \
+    bool dh_session_send_files(DHSession* s, const char* const* paths, int count) {        \
+        if (!s || !paths || count <= 0) return false;                                      \
+        std::vector<std::filesystem::path> list;                                           \
+        list.reserve(size_t(count));                                                       \
+        for (int i = 0; i < count; ++i)                                                    \
+            if (paths[i]) list.push_back(deskhubp::FfiPath(paths[i]));                     \
+        return engineOf(s).SendFiles(list);                                                \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_cancel_files(DHSession* s) {                                           \
+        if (s) engineOf(s).CancelUpload();                                                 \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_transfer(DHSession* s, DHTransfer* out) {                              \
+        if (!out) return;                                                                  \
+        *out = DHTransfer{};                                                               \
+        if (!s) return;                                                                    \
+        const deskhub::TransferProgress progress = engineOf(s).uploadProgress();           \
+        const deskhub::FileSenderState state = engineOf(s).uploadState();                  \
+        out->active = engineOf(s).uploading();                                             \
+        out->done = state == deskhub::FileSenderState::Done;                               \
+        out->failed = state == deskhub::FileSenderState::Failed ||                         \
+                      state == deskhub::FileSenderState::Refused;                          \
+        out->fileIndex = progress.fileIndex;                                               \
+        out->fileCount = progress.fileCount;                                               \
+        out->bytes = progress.batchBytes;                                                  \
+        out->total = progress.batchSize;                                                   \
+        deskhubp::CopyToBuf(out->name, sizeof(out->name), progress.name);                  \
+        if (out->done || out->failed)                                                      \
+            deskhubp::CopyToBuf(out->message, sizeof(out->message),                        \
+                std::string(deskhub::ui::TransferReasonText(engineOf(s).uploadReason()))); \
+    }                                                                                      \
+                                                                                           \
+    int dh_session_transfer_error(DHSession* s, char* out, int capacity) {                 \
+        if (!out || capacity <= 0) return 0;                                               \
+        out[0] = '\0';                                                                     \
+        if (!s) return 0;                                                                  \
+        deskhubp::CopyToBuf(out, size_t(capacity), engineOf(s).uploadError());             \
+        return int(std::strlen(out));                                                      \
     }

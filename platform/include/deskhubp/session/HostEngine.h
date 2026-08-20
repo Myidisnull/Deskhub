@@ -30,6 +30,7 @@
 namespace deskhubp {
 
 class TerminalHost;
+class FileHost;
 
 using HostSource = deskhub::SourcePipelineState;
 
@@ -94,6 +95,10 @@ public:
         terminal_ = terminal;
     }
 
+    void SetFiles(FileHost* files) {
+        files_ = files;
+    }
+
     bool running() const {
         return running_.load(std::memory_order_acquire);
     }
@@ -143,6 +148,7 @@ public:
 
 private:
     bool Fail(std::string message);
+    void RefuseFiles(const NetAddr& from, std::span<const uint8_t> message);
     void StartAudio();
     void AttachSession(HostSource& st);
     void ShutdownSource(HostSource& st);
@@ -158,6 +164,7 @@ private:
 
     SessionTransport sock_;
     TerminalHost* terminal_ = nullptr;
+    FileHost* files_ = nullptr;
     std::thread recvThread_;
     std::atomic<bool> quit_{false};
     std::atomic<bool> running_{false};

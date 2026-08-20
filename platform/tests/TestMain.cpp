@@ -88,6 +88,9 @@ int main() {
     RunTerminalHostTests();
     RunTerminalFfiTests();
 
+    std::printf("--- session: files from a viewer to the host, over QUIC ---\n");
+    RunFileTransferPlatformTests();
+
     RunAgentLoopTests();
     RunDiscoveryFfiTests();
 

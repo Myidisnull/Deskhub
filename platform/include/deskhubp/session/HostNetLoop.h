@@ -47,6 +47,7 @@ struct HostNetLoopHooks {
     std::function<void()> publishStatus;
     std::function<void()> onSocketError;
     std::function<void(const NetAddr& from, std::span<const uint8_t> message)> onTerminal;
+    std::function<void(const NetAddr& from, std::span<const uint8_t> message)> onFile;
     std::function<bool()> keepAlive;
 
     HostSourceHooks source;

@@ -61,6 +61,7 @@ public:
     bool PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp, std::string& name) const;
 
     bool SendRecord(const NetAddr& to, std::span<const uint8_t> message);
+    bool SendRecordOn(const NetAddr& to, uint64_t streamId, std::span<const uint8_t> message);
 
     void SetVideoPath(VideoPath path);
     VideoPath videoPath() const;
@@ -79,7 +80,8 @@ private:
     QuicCallbacks MakeCallbacks();
     void OnStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes);
     void Deliver(const NetAddr& from, std::span<const uint8_t> message, bool overQuic);
-    bool SendReliable(const NetAddr& to, std::span<const uint8_t> message);
+    bool SendReliable(const NetAddr& to, uint64_t streamId,
+        std::span<const uint8_t> message);
     bool HandleHostAuth(const NetAddr& from, std::span<const uint8_t> message);
     void SendAuth(const NetAddr& to, std::span<const uint8_t> message);
     void SettleHostAuth(const NetAddr& peer, HostAuth& auth, const deskhub::AuthResult& result);

@@ -1,11 +1,13 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/protocol/ByteOrder.h"
 #include "deskhub/protocol/RecordStream.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/session/TerminalClient.h"
 #include "deskhub/session/TerminalSession.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -246,10 +248,33 @@ void TestRecordStream() {
     bad.Append(wire);
     Check(bad.Next(message), "until it is reset");
 
+    RecordStream sliced;
+    const std::vector<uint8_t> biggest(kMaxRecordSize, 0x5A);
+    std::vector<uint8_t> framed(kRecordPrefixSize + kMaxRecordSize);
+    framed.resize(BuildRecord(framed, biggest));
+    std::vector<uint8_t> pair(framed);
+    pair.insert(pair.end(), framed.begin(), framed.end());
+
+    constexpr size_t kTransportSlice = 8192;
+    size_t taken = 0;
+    for (size_t at = 0; at < pair.size(); at += kTransportSlice) {
+        const size_t slice = std::min(kTransportSlice, pair.size() - at);
+        sliced.Append(std::span<const uint8_t>(pair).subspan(at, slice));
+        while (sliced.Next(message)) {
+            Check(message.size() == kMaxRecordSize, "each record comes back whole");
+            ++taken;
+        }
+    }
+    Check(!sliced.Failed() && taken == 2,
+        "the largest record survives arriving in slices that straddle its end");
+
     RecordStream flood;
-    const std::vector<uint8_t> huge(kMaxRecordBacklog + 1, 0xAB);
-    flood.Append(huge);
-    Check(flood.Failed(), "a peer that never finishes a record cannot make us grow forever");
+    std::vector<uint8_t> unfinished(kMaxRecordBacklog + 1, 0);
+    PutU16(unfinished.data(), uint16_t(kMaxRecordSize));
+    flood.Append(unfinished);
+    Check(!flood.Failed(), "a first slice is always taken");
+    flood.Append(unfinished);
+    Check(flood.Failed(), "a caller that never drains cannot make us grow forever");
 
     Check(!RecordStream().Next(message), "an empty stream yields nothing");
     RecordStream nothing;

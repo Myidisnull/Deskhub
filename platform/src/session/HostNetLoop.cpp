@@ -204,6 +204,8 @@ void RunHostNetLoop(SessionTransport& sock, deskhub::Beacon& beacon,
             const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(pkt);
             if (header && header->chan == deskhub::Chan::Terminal) {
                 if (hooks.onTerminal) hooks.onTerminal(from, pkt);
+            } else if (header && header->chan == deskhub::Chan::File) {
+                if (hooks.onFile) hooks.onFile(from, pkt);
             } else if (const size_t rn =
                            beacon.Reply(beaconBuf, pkt, sock.Authenticated(from));
                 rn) {

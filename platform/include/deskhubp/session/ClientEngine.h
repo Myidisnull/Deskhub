@@ -12,6 +12,7 @@
 #include "deskhubp/net/ClientNetLoop.h"
 #include "deskhubp/audio/AudioPlayer.h"
 #include "deskhubp/net/SessionTransport.h"
+#include "deskhubp/session/FileUpload.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/HostIdentity.h"
 #include "deskhubp/system/KeepAwake.h"
@@ -24,6 +25,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <functional>
 #include <optional>
@@ -88,6 +90,13 @@ public:
             return false;
         }
         sock_.SetRecvTimeout(10);
+
+        FileUploadCallbacks uploadHooks;
+        uploadHooks.send = [this](std::span<const uint8_t> message) {
+            return sock_.SendRecordOn(cfg_.server, kQuicFileStream, message);
+        };
+        upload_ = std::make_unique<FileUpload>(std::move(uploadHooks));
+
         trustDecision_.store(int(TrustDecision::Pending), std::memory_order_release);
         autoTrustPending_.store(false, std::memory_order_release);
 
@@ -249,6 +258,35 @@ public:
 
     bool audioRunning() const {
         return player_.running();
+    }
+
+    bool SendFiles(const std::vector<std::filesystem::path>& paths) {
+        if (!upload_) return false;
+        return upload_->Begin(paths);
+    }
+
+    void CancelUpload() {
+        if (upload_) upload_->Cancel();
+    }
+
+    bool uploading() const {
+        return upload_ && upload_->Busy();
+    }
+
+    deskhub::FileSenderState uploadState() const {
+        return upload_ ? upload_->State() : deskhub::FileSenderState::Idle;
+    }
+
+    deskhub::TransferReason uploadReason() const {
+        return upload_ ? upload_->Reason() : deskhub::TransferReason::Accepted;
+    }
+
+    deskhub::TransferProgress uploadProgress() const {
+        return upload_ ? upload_->Progress() : deskhub::TransferProgress{};
+    }
+
+    std::string uploadError() const {
+        return upload_ ? upload_->LastError() : std::string();
     }
 
 private:
@@ -567,6 +605,12 @@ private:
 
         ClientNetLoopHooks hooks;
         hooks.stopped = [this] { return quit_.load(); };
+        hooks.onFile = [this](std::span<const uint8_t> message) {
+            if (upload_) upload_->HandleMessage(message);
+        };
+        hooks.pumpFiles = [this] {
+            if (upload_) upload_->Pump();
+        };
         hooks.afterFrames = [this](deskhub::ClientPump& p, uint64_t now) {
             if (decodeFailed_.exchange(false, std::memory_order_acq_rel))
                 p.RequestKeyframe("dec_fail", now);
@@ -598,6 +642,7 @@ private:
 
         RunClientNetLoop(sock_, pump, hooks);
 
+        if (upload_) upload_->LinkLost();
         quit_.store(true);
         decCv_.notify_all();
         {
@@ -627,6 +672,7 @@ private:
 
     ClientEngineConfig cfg_{};
     SessionTransport sock_;
+    std::unique_ptr<FileUpload> upload_;
     std::atomic<int32_t> trustDecision_{0};
     std::atomic<bool> autoTrustPending_{false};
     deskhub::Fingerprint fingerprint_{};

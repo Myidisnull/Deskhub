@@ -22,6 +22,7 @@ void RunAuthProofTests();
 void RunAuthNegotiationTests();
 void RunPtyTests();
 void RunTerminalHostTests();
+void RunFileTransferPlatformTests();
 void RunTerminalFfiTests();
 void RunAgentLoopTests();
 void RunDiscoveryFfiTests();

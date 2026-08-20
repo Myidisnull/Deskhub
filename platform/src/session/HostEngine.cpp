@@ -6,6 +6,7 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
+#include "deskhubp/session/FileHost.h"
 #include "deskhubp/session/TerminalHost.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/HostIdentity.h"
@@ -155,7 +156,8 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         statusRows_.clear();
     }
 
-    if (sources.empty() && !opt_.terminal) return Fail(policy_.noSourceError);
+    const bool tenantOnly = opt_.terminal || opt_.files;
+    if (sources.empty() && !tenantOnly) return Fail(policy_.noSourceError);
     if (sources.size() > deskhub::kMaxSources)
         return Fail("At most " + std::to_string(deskhub::kMaxSources) +
                     " sources can be shared at once.");
@@ -213,6 +215,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     sock_.SetHostAuth(std::move(auth), std::move(authHooks));
     sock_.SetOnPeerGone([this](const NetAddr& peer) {
         if (terminal_ != nullptr) terminal_->OnPeerGone(peer);
+        if (files_ != nullptr) files_->OnPeerGone(peer);
     });
 
     if (policy_.afterSocket) {
@@ -235,7 +238,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     const std::vector<HostSource*> all = AllSources();
     live_ = SelectLiveSources(all, policy_.status.closed, nullptr,
         [this](HostSource& st) { ShutdownSource(st); });
-    if (live_.empty() && !(sources.empty() && opt_.terminal)) {
+    if (live_.empty() && !(sources.empty() && tenantOnly)) {
         sock_.Close();
         return Fail(policy_.noUsableSourceError);
     }
@@ -264,6 +267,22 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     return true;
 }
 
+void HostEngine::RefuseFiles(const NetAddr& from, std::span<const uint8_t> message) {
+    const auto header = deskhub::ParseCommonHeader(message);
+    if (!header || header->type != deskhub::MsgType::FileOffer) return;
+    const auto offer = deskhub::ParseFileOffer(deskhub::PayloadOf(message));
+    if (!offer) return;
+
+    deskhub::FileAccept refusal;
+    refusal.batchId = offer->batchId;
+    refusal.reason = deskhub::TransferReason::NotAccepting;
+
+    std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+    out.resize(deskhub::BuildFileAccept(out, refusal));
+    if (out.empty()) return;
+    sock_.SendRecordOn(from, kQuicFileStream, out);
+}
+
 void HostEngine::Stop() {
     if (pipes_.empty() && !recvThread_.joinable()) return;
 
@@ -276,6 +295,7 @@ void HostEngine::Stop() {
     localInputMon_.Stop();
 
     if (terminal_ != nullptr) terminal_->Stop();
+    if (files_ != nullptr) files_->Stop();
     for (auto& up : pipes_) ShutdownSource(*up);
     LogTransferTotals(AllSources());
     sock_.Close();
@@ -401,15 +421,27 @@ void HostEngine::RecvLoop() {
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
         beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput,
-            terminal_ != nullptr && terminal_->Running(), audio_.running()});
+            terminal_ != nullptr && terminal_->Running(), audio_.running(),
+            files_ != nullptr && files_->Accepting()});
         DrainControlRequests();
         DrainLocalClipboard();
     };
     loop.publishStatus = [this] { PublishStatus(); };
+    loop.onFile = [this](const NetAddr& from, std::span<const uint8_t> message) {
+        if (files_ != nullptr) {
+            files_->HandleMessage(from, message);
+            return;
+        }
+        RefuseFiles(from, message);
+    };
     loop.onTerminal = [this](const NetAddr& from, std::span<const uint8_t> message) {
         if (terminal_ != nullptr) terminal_->HandleMessage(from, message);
     };
-    loop.keepAlive = [this] { return opt_.terminal || (terminal_ != nullptr && terminal_->Running()); };
+    loop.keepAlive = [this] {
+        return opt_.terminal || opt_.files ||
+               (terminal_ != nullptr && terminal_->Running()) ||
+               (files_ != nullptr && files_->Running());
+    };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;
     loop.source.shutdown = [this](HostSource& st) { ShutdownSource(st); };

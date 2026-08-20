@@ -17,11 +17,13 @@ struct ShareOptions: Sendable {
     let allowInput: Bool
     let passcode: String
     var terminal: Bool = false
+    var files: Bool = false
 }
 
 struct HostRow: Identifiable, Hashable, Sendable {
     let viewer: Bool
     let terminal: Bool
+    let files: Bool
     let sourceId: UInt8
     let termId: UInt32
     let shellState: UInt8
@@ -93,7 +95,7 @@ nonisolated enum DeskhubAgent {
             dha_start(
                 ptr.baseAddress, Int32(ptr.count), options.fps, options.bitrateMbps,
                 options.maxDim, options.port, options.allowInput, options.passcode,
-                options.terminal
+                options.terminal, options.files
             )
         }
     }
@@ -109,6 +111,14 @@ nonisolated enum DeskhubAgent {
 
     static func attachShell(_ termId: UInt32) -> Bool { dha_attach_shell(termId) }
 
+    static var filesActive: Bool { dha_files_active() }
+
+    static func stopFiles() { dha_stop_files() }
+
+    static var filesFolder: String {
+        DeskhubClient.buffered(1024) { dha_files_dir($0, $1) }
+    }
+
     static var maxSources: Int { Int(dh_max_sources()) }
 
     static func hostRows() -> [HostRow] {
@@ -119,6 +129,7 @@ nonisolated enum DeskhubAgent {
                 HostRow(
                     viewer: row.viewer,
                     terminal: row.terminal,
+                    files: row.files,
                     sourceId: row.sourceId,
                     termId: row.termId,
                     shellState: row.shellState,

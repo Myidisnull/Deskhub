@@ -179,7 +179,7 @@ ExitCode RunSources(const Command& command) {
         PrintError(deskhub::ui::AuthRefusalText(code));
         return ExitCode::Refused;
     }
-    if (sources.empty() && !caps.terminal) {
+    if (sources.empty() && !caps.terminal && !caps.files) {
         PrintError(deskhub::ui::SourceQueryEmpty(command.address));
         return ExitCode::Unreachable;
     }
@@ -204,6 +204,7 @@ ExitCode RunSources(const Command& command) {
         json.Field("acceptsInput", caps.acceptsInput);
         json.Field("terminal", caps.terminal);
         json.Field("audio", caps.audio);
+        json.Field("files", caps.files);
         json.ObjectEnd();
         json.ObjectEnd();
         PrintLine(json.Text());
@@ -211,7 +212,7 @@ ExitCode RunSources(const Command& command) {
     }
 
     if (sources.empty()) {
-        PrintLine("No display is shared - only the shell.");
+        PrintLine(deskhub::ui::NoDisplaySharedNote(caps.terminal, caps.files));
     } else {
         Table table;
         table.Row({"ID", "NAME", "SIZE"});
@@ -228,6 +229,7 @@ ExitCode RunSources(const Command& command) {
         PrintLine(std::string("accepts input: ") + yesNo(caps.acceptsInput));
         PrintLine(std::string("remote shell:  ") + yesNo(caps.terminal));
         PrintLine(std::string("audio:         ") + yesNo(caps.audio));
+        PrintLine(std::string("file transfer: ") + yesNo(caps.files));
     }
     return ExitCode::Ok;
 }

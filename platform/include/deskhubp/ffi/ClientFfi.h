@@ -36,6 +36,8 @@ typedef struct {
 typedef struct {
     bool acceptsInput;
     bool terminal;
+    bool audio;
+    bool files;
 } DHHostCaps;
 
 typedef struct {
@@ -215,6 +217,21 @@ typedef enum {
     DHStrNoDisplayFound = 129,
     DHStrShareAudioLabel = 130,
     DHStrPlayAudioLabel = 131,
+    DHStrFilesSourceName = 132,
+    DHStrFilesPickerLabel = 133,
+    DHStrTransferHeading = 134,
+    DHStrTransferChooseButton = 135,
+    DHStrTransferCancelButton = 136,
+    DHStrTransferFolderLabel = 137,
+    DHStrTransferSending = 138,
+    DHStrTransferDone = 139,
+    DHStrTransferHostNotTaking = 140,
+    DHStrTransferSendHeading = 141,
+    DHStrTransferNoneChosen = 142,
+    DHStrTransferBusyNote = 143,
+    DHStrTransferTooManyFiles = 144,
+    DHStrOpenFilesLabel = 145,
+    DHStrTransferSentHeading = 146,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -244,6 +261,8 @@ bool dh_is_valid_passcode(const char* passcode);
 int dh_passcode_digits(void);
 
 int dh_max_sources(void);
+
+int dh_max_transfer_files(void);
 
 uint32_t dh_auto_share_probe_ms(void);
 

@@ -129,6 +129,10 @@ nonisolated enum DeskhubClient {
         return (showPicker, sourceId)
     }
 
+    static var maxTransferFiles: Int {
+        Int(dh_max_transfer_files())
+    }
+
     static var passcodeDigits: Int {
         Int(dh_passcode_digits())
     }
@@ -159,7 +163,8 @@ nonisolated enum DeskhubClient {
         }
         return HostQuery(
             sources: sources,
-            caps: HostCaps(acceptsInput: caps.acceptsInput, terminal: caps.terminal)
+            caps: HostCaps(acceptsInput: caps.acceptsInput, terminal: caps.terminal,
+                           files: caps.files)
         )
     }
 
@@ -171,11 +176,36 @@ nonisolated enum DeskhubClient {
 struct HostCaps: Sendable {
     var acceptsInput = false
     var terminal = false
+    var files = false
 }
 
 struct HostQuery: Sendable {
     var sources: [Source] = []
     var caps = HostCaps()
+}
+
+struct TransferState: Sendable, Equatable {
+    var active = false
+    var done = false
+    var failed = false
+    var fileIndex: UInt16 = 0
+    var fileCount: UInt16 = 0
+    var bytes: UInt64 = 0
+    var total: UInt64 = 0
+    var name = ""
+    var message = ""
+
+    var idle: Bool { !active && !done && !failed }
+
+    var fraction: Double {
+        guard total > 0 else { return active ? 0 : 1 }
+        return min(1, Double(bytes) / Double(total))
+    }
+
+    var step: String {
+        guard fileCount > 0 else { return "" }
+        return "\(min(Int(fileIndex) + 1, Int(fileCount)))/\(fileCount)"
+    }
 }
 
 struct SessionHandlers: Sendable {
@@ -318,5 +348,39 @@ final class ClientSession: @unchecked Sendable {
     func takeClipboard() -> String? {
         let text = DeskhubClient.buffered(33000) { dh_session_clip_take(handle, $0, $1) }
         return text.isEmpty ? nil : text
+    }
+
+    func sendFiles(_ paths: [String]) -> Bool {
+        guard !paths.isEmpty else { return false }
+        let copies = paths.map { strdup($0) }
+        defer { copies.forEach { free($0) } }
+        var pointers: [UnsafePointer<CChar>?] = copies.map { UnsafePointer($0) }
+        return pointers.withUnsafeMutableBufferPointer { buf in
+            dh_session_send_files(handle, buf.baseAddress, Int32(buf.count))
+        }
+    }
+
+    func cancelFiles() {
+        dh_session_cancel_files(handle)
+    }
+
+    func transfer() -> TransferState {
+        var raw = DHTransfer()
+        dh_session_transfer(handle, &raw)
+        return TransferState(
+            active: raw.active,
+            done: raw.done,
+            failed: raw.failed,
+            fileIndex: raw.fileIndex,
+            fileCount: raw.fileCount,
+            bytes: raw.bytes,
+            total: raw.total,
+            name: DeskhubClient.cString(raw.name),
+            message: DeskhubClient.cString(raw.message)
+        )
+    }
+
+    func transferError() -> String {
+        DeskhubClient.buffered(512) { dh_session_transfer_error(handle, $0, $1) }
     }
 }

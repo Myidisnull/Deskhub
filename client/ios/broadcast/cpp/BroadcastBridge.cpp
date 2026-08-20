@@ -56,7 +56,7 @@ std::string StartSharing(uint32_t width, uint32_t height) {
     const bool ok = dha_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
         settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps,
         settings.maxDim ? settings.maxDim : defaults.maxDim, uint16_t(settings.port), false,
-        settings.passcode, false);
+        settings.passcode, false, false);
     if (ok) return std::string();
 
     const char* reason = dha_last_error();

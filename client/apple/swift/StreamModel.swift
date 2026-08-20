@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class StreamModel {
+final class StreamModel: TransferDriver {
     let address: String
     let passcode: String
     let control: Bool
@@ -22,6 +22,12 @@ final class StreamModel {
     var askingTrust = false
     var trustChanged = false
     var trustFingerprint = ""
+
+    var transfer = TransferState()
+    var transferError = ""
+    var chosenFiles: [URL] = []
+    var history: [TransferHistoryRow] = []
+    @ObservationIgnored private var settled = true
 
     private var session: ClientSession?
     private var layer: AVSampleBufferDisplayLayer?
@@ -135,6 +141,27 @@ final class StreamModel {
         session?.offerClipboard(text)
     }
 
+    func sendChosenFiles() {
+        guard let session, !chosenFiles.isEmpty else { return }
+        transferError = ""
+        if !session.sendFiles(chosenFiles.map(\.path)) {
+            transferError = session.transferError()
+            return
+        }
+        settled = false
+        transfer = session.transfer()
+    }
+
+    func cancelTransfer() {
+        session?.cancelFiles()
+    }
+
+    func forgetTransfer() {
+        chosenFiles = []
+        transferError = ""
+        transfer = TransferState()
+    }
+
     func takeClipboard() -> String? {
         session?.takeClipboard()
     }
@@ -155,6 +182,15 @@ final class StreamModel {
             endReason = state.endReason
             mouseLocked = false
         }
+        transfer = session.transfer()
+        settleTransfer()
+    }
+
+    private func settleTransfer() {
+        guard transfer.done || transfer.failed, !settled else { return }
+        settled = true
+        history.append(contentsOf: transferHistoryRows(for: chosenFiles, outcome: transfer))
+        chosenFiles = []
     }
 
     private func makeHandlers() -> SessionHandlers {

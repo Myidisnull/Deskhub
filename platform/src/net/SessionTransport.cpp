@@ -247,7 +247,7 @@ void SessionTransport::SettleHostAuth(const NetAddr& peer, HostAuth& auth,
 
 void SessionTransport::SendAuth(const NetAddr& to, std::span<const uint8_t> message) {
     if (message.empty()) return;
-    SendReliable(to, message);
+    SendReliable(to, kQuicControlStream, message);
 }
 
 void SessionTransport::SetHostAuth(HostAuthConfig config, TransportAuthCallbacks callbacks) {
@@ -278,9 +278,14 @@ bool SessionTransport::PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp,
 }
 
 bool SessionTransport::SendRecord(const NetAddr& to, std::span<const uint8_t> message) {
+    return SendRecordOn(to, kQuicControlStream, message);
+}
+
+bool SessionTransport::SendRecordOn(const NetAddr& to, uint64_t streamId,
+    std::span<const uint8_t> message) {
     const std::lock_guard<std::mutex> lock(sendMutex_);
     if (!endpoint_.Established(to.Pack())) return false;
-    return SendReliable(to, message);
+    return SendReliable(to, streamId, message);
 }
 
 bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig config,
@@ -354,11 +359,12 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
     return false;
 }
 
-bool SessionTransport::SendReliable(const NetAddr& to, std::span<const uint8_t> message) {
+bool SessionTransport::SendReliable(const NetAddr& to, uint64_t streamId,
+    std::span<const uint8_t> message) {
     std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
     const size_t written = deskhub::BuildRecord(record, message);
     if (written == 0) return false;
-    return endpoint_.SendStream(to.Pack(), kQuicControlStream,
+    return endpoint_.SendStream(to.Pack(), streamId,
         std::span<const uint8_t>(record.data(), written));
 }
 
@@ -373,7 +379,7 @@ bool SessionTransport::SendTo(const NetAddr& to, const uint8_t* data, size_t len
 
     const std::lock_guard<std::mutex> lock(sendMutex_);
     if (!endpoint_.Established(to.Pack())) return endpoint_.SendRaw(to, message);
-    return SendReliable(to, message);
+    return SendReliable(to, kQuicControlStream, message);
 }
 
 int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {

@@ -3,10 +3,13 @@
 #include <quiche.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
+#include <map>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/diag/Log.h"
@@ -36,6 +39,8 @@ constexpr uint64_t kDropLogIntervalUs = 1'000'000;
 constexpr uint64_t kQuietWarnStepUs = 5'000'000;
 constexpr uint64_t kPollGapWarnUs = 250'000;
 constexpr size_t kDatagramQueue = 512;
+constexpr size_t kMaxStreamOutbox = 4u << 20;
+constexpr size_t kOutboxCompactAt = 64u << 10;
 
 sockaddr_in ToSockAddr(const NetAddr& addr) {
     sockaddr_in out{};
@@ -85,12 +90,23 @@ void FillRandomConnId(uint8_t* out, size_t len) {
 }
 
 struct QuicEndpoint::Impl {
+    struct StreamOutbox {
+        std::vector<uint8_t> bytes{};
+        size_t at = 0;
+        bool fin = false;
+
+        size_t Pending() const {
+            return bytes.size() - at;
+        }
+    };
+
     struct Connection {
         quiche_conn* conn = nullptr;
         NetAddr peer{};
         bool announced = false;
         uint64_t lastRecvUs = 0;
         uint64_t quietSteps = 0;
+        std::map<uint64_t, StreamOutbox> outbox{};
     };
 
     ~Impl() {
@@ -172,6 +188,48 @@ struct QuicEndpoint::Impl {
     const Connection* Lookup(QuicConnId id) const {
         const auto at = connections_.find(id);
         return at == connections_.end() ? nullptr : &at->second;
+    }
+
+    bool QueueStream(Connection& entry, uint64_t streamId, std::span<const uint8_t> bytes,
+        bool fin) {
+        StreamOutbox& box = entry.outbox[streamId];
+        if (box.Pending() + bytes.size() > kMaxStreamOutbox) return false;
+        box.bytes.insert(box.bytes.end(), bytes.begin(), bytes.end());
+        if (fin) box.fin = true;
+        DrainOutbox(entry, streamId, box);
+        return true;
+    }
+
+    void DrainOutbox(Connection& entry, uint64_t streamId, StreamOutbox& box) {
+        while (box.at < box.bytes.size()) {
+            uint64_t err = 0;
+            const size_t left = box.bytes.size() - box.at;
+            const ssize_t written = quiche_conn_stream_send(entry.conn, streamId,
+                box.bytes.data() + box.at, left, box.fin, &err);
+            if (written == 0 || written == QUICHE_ERR_DONE) break;
+            if (written < 0) {
+                LOGW("quic: stream %llu refused its bytes (%zd); dropping what it cannot take",
+                    (unsigned long long)(streamId), written);
+                box.bytes.clear();
+                box.at = 0;
+                box.fin = false;
+                return;
+            }
+            box.at += size_t(written);
+        }
+        if (box.at >= box.bytes.size()) {
+            box.bytes.clear();
+            box.at = 0;
+            box.fin = false;
+        } else if (box.at >= kOutboxCompactAt) {
+            box.bytes.erase(box.bytes.begin(), box.bytes.begin() + std::ptrdiff_t(box.at));
+            box.at = 0;
+        }
+    }
+
+    void DrainOutboxes(Connection& entry) {
+        for (auto& [streamId, box] : entry.outbox)
+            if (box.Pending() > 0) DrainOutbox(entry, streamId, box);
     }
 
     void Flush(Connection& entry) {
@@ -390,6 +448,7 @@ struct QuicEndpoint::Impl {
                 DrainStreams(id, entry);
                 DrainDatagrams(id, entry);
             }
+            DrainOutboxes(entry);
             Flush(entry);
             if (quiche_conn_is_closed(entry.conn)) dead.push_back(id);
         }
@@ -484,24 +543,9 @@ bool QuicEndpoint::SendStream(QuicConnId conn, uint64_t streamId, std::span<cons
     Impl::Connection* entry = impl_->Lookup(conn);
     if (entry == nullptr || !quiche_conn_is_established(entry->conn)) return false;
     if (bytes.empty()) return true;
-    const ssize_t room = quiche_conn_stream_capacity(entry->conn, streamId);
-    if (room >= 0 && size_t(room) < bytes.size()) return false;
-    size_t at = 0;
-    while (at < bytes.size()) {
-        uint64_t err = 0;
-        const ssize_t written = quiche_conn_stream_send(entry->conn, streamId,
-            bytes.data() + at, bytes.size() - at, fin && at + 1 >= bytes.size(), &err);
-        if (written <= 0) break;
-        at += size_t(written);
-    }
+    if (!impl_->QueueStream(*entry, streamId, bytes, fin)) return false;
     impl_->Flush(*entry);
-    if (at == bytes.size()) return true;
-    LOGW(
-        "quic: stream %llu took only %zu of %zu bytes; half a record on the wire desyncs the "
-        "framing on the far side, so the connection goes instead",
-        (unsigned long long)(streamId), at, bytes.size());
-    CloseConnection(conn, 1, "record truncated");
-    return false;
+    return true;
 }
 
 bool QuicEndpoint::SendDatagram(QuicConnId conn, std::span<const uint8_t> bytes) {

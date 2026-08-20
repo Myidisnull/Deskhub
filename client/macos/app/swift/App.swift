@@ -34,6 +34,14 @@ struct DeskhubApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 900, height: 560)
 
+        WindowGroup(id: "transfer", for: TransferRequest.self) { $request in
+            if let request {
+                FileTransferWindow(request: request)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 520, height: 460)
+
         WindowGroup(id: "localShell", for: UInt32.self) { $termId in
             if let termId {
                 LocalShellWindow(termId: termId)

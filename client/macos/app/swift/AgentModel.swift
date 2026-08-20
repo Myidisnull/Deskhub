@@ -31,6 +31,8 @@ final class AgentModel {
     var shareSources: [ShareSource] = []
     var tickedSources: Set<UInt32> = []
     var shareTerminal = true
+    var shareFiles = true
+    var filesFolder = DeskhubAgent.filesFolder
     var pairingAsks: [PairingAsk] = []
 
     struct PairingAsk: Identifiable {
@@ -165,37 +167,6 @@ final class AgentModel {
         shareSources.filter { tickedSources.contains($0.id) }
     }
 
-    func runRowAction(_ row: HostRow) {
-        guard isSharing else { return }
-        if row.terminal {
-            if row.viewer {
-                dha_kick_shell(row.termId)
-            } else {
-                dha_stop_terminal()
-                sharingTerminal = false
-                if !rows.contains(where: { !$0.terminal }) { stopSharing() }
-            }
-            return
-        }
-        if row.viewer {
-            DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
-        } else {
-            DeskhubAgent.stopSource(row.sourceId)
-        }
-    }
-
-    func stopAndAttachShell(_ row: HostRow) -> Bool {
-        guard isSharing, row.canAttachLocally else { return false }
-        guard DeskhubAgent.attachShell(row.termId) else { return false }
-        rows = DeskhubAgent.hostRows()
-        return true
-    }
-
-    func answerPairing(_ ask: PairingAsk, allow: Bool) {
-        dha_answer_pairing(ask.addrPacked, allow)
-        pairingAsks.removeAll { $0.addrPacked == ask.addrPacked }
-    }
-
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing else { return false }
         autoShareWaitNote = ""
@@ -204,12 +175,13 @@ final class AgentModel {
             return false
         }
         let terminal = shareTerminal
+        let files = shareFiles
         if shareSources.isEmpty { await refreshShareSources() }
-        guard !shareSources.isEmpty || terminal else {
+        guard !shareSources.isEmpty || terminal || files else {
             startError = DeskhubClient.string(DHStrScreenRecordingRequired)
             return false
         }
-        guard !pickedSources.isEmpty || terminal else {
+        guard !pickedSources.isEmpty || terminal || files else {
             startError = DeskhubClient.string(DHStrNoDisplayTicked)
             return false
         }
@@ -229,7 +201,8 @@ final class AgentModel {
             port: UInt16(max(1, min(65535, port))),
             allowInput: allowInput,
             passcode: acceptedPasscode,
-            terminal: terminal
+            terminal: terminal,
+            files: files
         )
 
         let ok = await Task.detached {
@@ -241,10 +214,11 @@ final class AgentModel {
         if ok {
             sharingScreen = !picked.isEmpty
             sharingTerminal = terminal
+            filesFolder = DeskhubAgent.filesFolder
             startPolling()
         } else {
             clampWarning = ""
-            startError = hasScreenRecording
+            startError = picked.isEmpty || hasScreenRecording
                 ? DeskhubClient.string(DHStrShareStartFailed) + ". " + DeskhubAgent.lastError
                 : DeskhubClient.string(DHStrScreenRecordingRequired)
         }
@@ -286,6 +260,43 @@ final class AgentModel {
 }
 
 extension AgentModel {
+    func runRowAction(_ row: HostRow) {
+        guard isSharing else { return }
+        if row.terminal {
+            if row.viewer {
+                dha_kick_shell(row.termId)
+            } else {
+                dha_stop_terminal()
+                sharingTerminal = false
+                if !rows.contains(where: { !$0.terminal }) { stopSharing() }
+            }
+            return
+        }
+        if row.files {
+            guard !row.viewer else { return }
+            DeskhubAgent.stopFiles()
+            if !rows.contains(where: { !$0.files }) { stopSharing() }
+            return
+        }
+        if row.viewer {
+            DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
+        } else {
+            DeskhubAgent.stopSource(row.sourceId)
+        }
+    }
+
+    func stopAndAttachShell(_ row: HostRow) -> Bool {
+        guard isSharing, row.canAttachLocally else { return false }
+        guard DeskhubAgent.attachShell(row.termId) else { return false }
+        rows = DeskhubAgent.hostRows()
+        return true
+    }
+
+    func answerPairing(_ ask: PairingAsk, allow: Bool) {
+        dha_answer_pairing(ask.addrPacked, allow)
+        pairingAsks.removeAll { $0.addrPacked == ask.addrPacked }
+    }
+
     private func drainPairingRequests() {
         let requests = DeskhubClient.ffiList(
             16, DHPairingRequest(),

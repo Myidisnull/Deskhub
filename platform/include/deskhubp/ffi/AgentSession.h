@@ -25,6 +25,7 @@ typedef struct {
 typedef struct {
     bool viewer;
     bool terminal;
+    bool files;
     uint8_t sourceId;
     uint32_t termId;
     uint8_t shellState;
@@ -64,13 +65,20 @@ typedef struct {
 } DHPairingRequest;
 
 bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t bitrate_mbps,
-    uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode, bool terminal);
+    uint32_t max_dim, uint16_t port, bool allow_input, const char* passcode, bool terminal,
+    bool files);
 
 void dha_offer_audio(const int16_t* pcm, int samples);
 
 bool dha_audio_running(void);
 
 bool dha_terminal_active(void);
+
+bool dha_files_active(void);
+
+void dha_stop_files(void);
+
+int dha_files_dir(char* out, int capacity);
 
 void dha_kick_shell(uint32_t term_id);
 

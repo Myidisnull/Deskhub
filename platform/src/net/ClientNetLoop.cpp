@@ -28,7 +28,7 @@ uint32_t MakeClientId(uint8_t sourceId) {
 
 void RunClientNetLoop(SessionTransport& sock, deskhub::ClientPump& pump,
     const ClientNetLoopHooks& hooks) {
-    uint8_t buf[deskhub::kMaxDatagram];
+    uint8_t buf[deskhub::kMaxRecordSize];
 
     for (;;) {
         if (hooks.stopped && hooks.stopped()) break;
@@ -40,7 +40,16 @@ void RunClientNetLoop(SessionTransport& sock, deskhub::ClientPump& pump,
             if (hooks.onSocketError) hooks.onSocketError();
             break;
         }
-        if (n > 0) pump.OnDatagram(std::span<const uint8_t>(buf, size_t(n)), now);
+        if (n > 0) {
+            const std::span<const uint8_t> message(buf, size_t(n));
+            const auto header = deskhub::ParseCommonHeader(message);
+            if (header && header->chan == deskhub::Chan::File) {
+                if (hooks.onFile) hooks.onFile(message);
+            } else {
+                pump.OnDatagram(message, now);
+            }
+        }
+        if (hooks.pumpFiles) hooks.pumpFiles();
 
         pump.PollFrames(now);
         if (hooks.afterFrames) hooks.afterFrames(pump, now);

@@ -6,6 +6,7 @@
 #include "deskhubp/ffi/AgentSession.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/ffi/TransferFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/TerminalFfi.h"
 

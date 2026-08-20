@@ -242,6 +242,92 @@ void TestSourceLookupByIdIgnoresOrder() {
 
 }
 
+TransferRecord MakeTransfer(uint64_t peer, std::string endpoint, std::string name,
+    uint16_t index, uint16_t count, uint64_t done, uint64_t total, bool live) {
+    TransferRecord record;
+    record.peerPacked = peer;
+    record.endpoint = std::move(endpoint);
+    record.peerName = std::move(name);
+    record.batchId = 1;
+    record.fileIndex = index;
+    record.fileCount = count;
+    record.batchBytes = done;
+    record.batchSize = total;
+    record.name = "payload.bin";
+    record.live = live;
+    return record;
+}
+
+void TestFileTransferIsARowInTheSameTable() {
+    std::printf("[hostrows] file transfer sits in the table like any other source...\n");
+    const std::vector<media::AgentSourceStatus> sources{MakeSource(1, {"192.168.1.7:47777"})};
+    const std::vector<TransferRecord> transfers{
+        MakeTransfer(0xAB01, "192.168.1.9:51000", "Anh's laptop", 0, 3, 50, 200, true),
+        MakeTransfer(0xAB02, "192.168.1.4:51001", "", 2, 3, 200, 200, false),
+    };
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows(sources, false, {}, true, transfers);
+
+    Check(rows.size() == 5, "one display, its viewer, the file source and its two senders");
+    Check(!rows[2].viewer && rows[2].files && rows[2].sourceId == ui::kFilesSourceId,
+        "file transfer follows the displays as a source of its own");
+    Check(rows[3].viewer && rows[3].files && rows[3].peerPacked == 0xAB01,
+        "each machine sending hangs off that row");
+    Check(!rows[0].files && !rows[1].files, "display rows are not marked as files");
+
+    Check(ui::BuildHostRows(sources, false, {}, false, transfers) == ui::BuildHostRows(sources),
+        "no file row while file transfer is not shared");
+    Check(ui::BuildHostRows(sources, false, {}, true, {}).size() == 3,
+        "sharing it with nobody sending is still one row");
+
+    const std::vector<TerminalRecord> shells{MakeShell(4, "192.168.1.9:51000", "laptop")};
+    const std::vector<ui::HostRow> both =
+        ui::BuildHostRows(sources, true, shells, true, transfers);
+    Check(both.size() == 7, "the terminal and the file source coexist");
+    Check(both[2].terminal && both[4].files, "the terminal comes first, then file transfer");
+}
+
+void TestFileRowCellsReadLikeTheTable() {
+    std::printf("[hostrows] the file row names its folder and who is sending...\n");
+    const std::vector<TransferRecord> transfers{
+        MakeTransfer(0xAB01, "192.168.1.9:51000", "Anh's laptop", 0, 3, 50, 200, true),
+        MakeTransfer(0xAB02, "192.168.1.4:51001", "", 2, 3, 200, 200, false),
+    };
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows({}, false, {}, true, transfers);
+
+    const ui::HostRowCells source = ui::FilesRowText(rows[0], "/Users/anh/Deskhub", transfers);
+    Check(source.source == ui::kFilesSourceName, "the source cell names the feature");
+    Check(source.client == "/Users/anh/Deskhub", "the folder is where the viewers land");
+    Check(source.viewers == "1", "only the machines actually sending are counted");
+    Check(source.online, "and the row reads as busy while one is");
+
+    const ui::HostRowCells busy = ui::FilesRowText(rows[1], "/Users/anh/Deskhub", transfers);
+    Check(busy.source == ui::kSendingRowLabel, "a sender is an indented row");
+    Check(busy.client == "Anh's laptop (192.168.1.9:51000)", "named the way viewers are");
+    Check(busy.size == "payload.bin", "the file on its way is shown");
+    Check(busy.viewers == "1/3", "with how far through the batch it is");
+    Check(busy.send == "25%", "and how much of the batch has landed");
+    Check(busy.online, "a live sender reads as online");
+
+    const ui::HostRowCells done = ui::FilesRowText(rows[2], "/Users/anh/Deskhub", transfers);
+    Check(done.client == "192.168.1.4:51001", "a machine with no name shows its address");
+    Check(done.send == "accepted", "a finished batch says how it ended, not a percentage");
+    Check(!done.online, "and no longer reads as online");
+
+    const std::vector<ui::HostRow> quiet = ui::BuildHostRows({}, false, {}, true, {});
+    const ui::HostRowCells idle = ui::FilesRowText(quiet[0], "/Users/anh/Deskhub", {});
+    Check(idle.viewers == "0" && !idle.online, "nobody sending reads as quiet");
+}
+
+void TestTransferLookupByPeer() {
+    std::printf("[hostrows] a sender row finds its own transfer, whatever the order...\n");
+    const std::vector<TransferRecord> transfers{
+        MakeTransfer(0xAB01, "a", "", 0, 1, 1, 2, true),
+        MakeTransfer(0xAB02, "b", "", 0, 1, 1, 2, true),
+    };
+    Check(ui::FindTransfer(transfers, 0xAB02) == &transfers[1], "the second is found by its peer");
+    Check(ui::FindTransfer(transfers, 0xFFFF) == nullptr, "and an unknown peer finds nothing");
+}
+
 void RunHostRowsTests() {
     TestEverySourceGetsARowFollowedByItsViewers();
     TestRowsCompareEqualWhileNothingChanges();
@@ -254,4 +340,7 @@ void RunHostRowsTests() {
     TestLocallyAttachedShellReadsAsTheHostsOwn();
     TestShellLookupByTermId();
     TestSourceLookupByIdIgnoresOrder();
+    TestFileTransferIsARowInTheSameTable();
+    TestFileRowCellsReadLikeTheTable();
+    TestTransferLookupByPeer();
 }
