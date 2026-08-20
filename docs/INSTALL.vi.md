@@ -24,6 +24,9 @@ Mọi file tải về đều nằm ở
 | 🤖 Android | `deskhub-v*-android.apk` | Cài file apk, hoặc tham gia bản beta trên Play |
 | 📱 iOS | — | [TestFlight](https://testflight.apple.com/join/7qY7wgpd) |
 
+Ngoài ra còn có `deskhub-cli`, vẫn là client đó nhưng không có cửa sổ riêng — xem
+[Dòng lệnh](#-dòng-lệnh).
+
 ---
 
 ## 🪟 Windows
@@ -68,10 +71,8 @@ chạy được ngay sau khi cài, không cần đổi nhóm người dùng, kh�
 chạy thẳng chạy được trên mọi bản phân phối x86_64 có glibc 2.35+ (Ubuntu 22.04, Fedora
 36, openSUSE 15.5, Arch hiện hành).
 
-File deb và rpm cũng cài kèm `deskhub-cli`, vẫn là client đó nhưng không có cửa sổ riêng:
-nó chia sẻ màn hình, mở shell từ xa và điều khiển host từ script hay qua SSH. Chạy
-`deskhub-cli help` để xem danh sách lệnh. Mọi thứ nó đọc và ghi — cấu hình, máy đã ghép
-đôi, khoá host đã tin — đều dùng chung với app, nên hai bên luôn khớp nhau.
+File deb và rpm cũng cài kèm `deskhub-cli` vào `/usr/bin/deskhub-cli` — xem
+[Dòng lệnh](#-dòng-lệnh) bên dưới.
 
 **Để chia sẻ màn hình của máy này**, cần thêm ba thứ nữa.
 
@@ -184,6 +185,27 @@ File ipa không sideload được, nên bản beta chạy qua TestFlight:
 
 Giống Android, iPhone hay iPad ở vai host chỉ chia sẻ để xem — không hệ điều hành di động
 nào cho phép một app bơm thao tác điều khiển vào chính thiết bị nó đang chạy.
+
+---
+
+## 💻 Dòng lệnh
+
+`deskhub-cli` vẫn là client đó nhưng không có cửa sổ riêng: nó chia sẻ màn hình, mở shell
+từ xa và điều khiển host từ script hay qua SSH. Chạy `deskhub-cli help` để xem danh sách
+lệnh. Mọi thứ nó đọc và ghi — cấu hình, máy đã ghép đôi, khoá host đã tin — đều dùng chung
+với app, nên hai bên luôn khớp nhau.
+
+| Nền tảng | File |
+| --- | --- |
+| 🪟 Windows | `deskhub-cli-v*-windows.exe` — tải về rồi chạy, không cần trình cài đặt |
+| 🐧 Linux | `deskhub-cli-v*-linux-x86_64`, hoặc đã có sẵn nếu bạn cài bản deb hay rpm |
+
+Nó chia sẻ màn hình qua đúng portal và driver VA-API mà app cần, và cũng dựa vào luật
+`/dev/uinput` đó để điều khiển từ xa, nên mọi thứ nói ở phần [Linux](#-linux) đều áp dụng
+cho nó.
+
+macOS chưa có bản dựng sẵn cho dòng lệnh — bạn tự build bằng `make release-cli`
+([BUILD.vi.md](BUILD.vi.md)).
 
 ---
 

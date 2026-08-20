@@ -20,6 +20,9 @@ distributed by TestFlight and Google Play.
 | 🤖 Android | `deskhub-v*-android.apk` | Install the apk, or join the Play beta |
 | 📱 iOS | — | [TestFlight](https://testflight.apple.com/join/7qY7wgpd) |
 
+There is also `deskhub-cli`, the same client with no window of its own — see
+[Command line](#-command-line).
+
 ---
 
 ## 🪟 Windows
@@ -65,10 +68,8 @@ remote input works right after install, with no group change and no re-login. Th
 portable binary runs on any x86_64 distro with glibc 2.35+ (Ubuntu 22.04, Fedora 36,
 openSUSE 15.5, any current Arch).
 
-The deb and the rpm also install `deskhub-cli`, the same client without a window of its
-own: it shares a screen, opens a remote shell and drives a host from a script or over
-SSH. Run `deskhub-cli help` for the list. Everything it reads and writes — settings,
-paired machines, trusted host keys — is the same as the app's, so the two agree.
+The deb and the rpm also install `deskhub-cli` as `/usr/bin/deskhub-cli` — see
+[Command line](#-command-line) below.
 
 **To share this machine's screen**, three more things must be in place.
 
@@ -182,6 +183,27 @@ An ipa cannot be sideloaded, so the beta runs through TestFlight:
 
 Like Android, an iPhone or iPad hosts view-only — no mobile OS lets an app inject input
 into the device it runs on.
+
+---
+
+## 💻 Command line
+
+`deskhub-cli` is the same client without a window of its own: it shares a screen, opens a
+remote shell and drives a host from a script or over SSH. Run `deskhub-cli help` for the
+list. Everything it reads and writes — settings, paired machines, trusted host keys — is
+the same as the app's, so the two agree.
+
+| Platform | File |
+| --- | --- |
+| 🪟 Windows | `deskhub-cli-v*-windows.exe` — download and run it, no installer |
+| 🐧 Linux | `deskhub-cli-v*-linux-x86_64`, or already there if you installed the deb or the rpm |
+
+It shares a screen through the same portal and VA-API driver the app needs, and relies on
+the same `/dev/uinput` rule for remote input, so everything under [Linux](#-linux) applies
+to it too.
+
+macOS has no prebuilt command-line client yet — build it yourself with `make release-cli`
+([BUILD.md](BUILD.md)).
 
 ---
 
