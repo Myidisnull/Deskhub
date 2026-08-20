@@ -65,6 +65,11 @@ remote input works right after install, with no group change and no re-login. Th
 portable binary runs on any x86_64 distro with glibc 2.35+ (Ubuntu 22.04, Fedora 36,
 openSUSE 15.5, any current Arch).
 
+The deb and the rpm also install `deskhub-cli`, the same client without a window of its
+own: it shares a screen, opens a remote shell and drives a host from a script or over
+SSH. Run `deskhub-cli help` for the list. Everything it reads and writes — settings,
+paired machines, trusted host keys — is the same as the app's, so the two agree.
+
 **To share this machine's screen**, three more things must be in place.
 
 ### 1. A screen-capture portal

@@ -194,13 +194,16 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
     };
 
     GError* gerr = nullptr;
-    GDBusConnection* conn = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &gerr);
-    if (!conn) {
-        lastError_ = std::string("no session D-Bus: ") + (gerr ? gerr->message : "?");
-        if (gerr) g_error_free(gerr);
-        LOGE("[Portal] %s", lastError_.c_str());
-        return fail();
+    if (!bus_) {
+        bus_ = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &gerr);
+        if (!bus_) {
+            lastError_ = std::string("no session D-Bus: ") + (gerr ? gerr->message : "?");
+            if (gerr) g_error_free(gerr);
+            LOGE("[Portal] %s", lastError_.c_str());
+            return fail();
+        }
     }
+    GDBusConnection* conn = static_cast<GDBusConnection*>(bus_);
 
     const uint32_t version = ReadUintProperty(conn, "version");
     const uint32_t cursorModes = ReadUintProperty(conn, "AvailableCursorModes");
@@ -209,7 +212,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
             "xdg-desktop-portal ScreenCast not available — install "
             "xdg-desktop-portal-gnome (GNOME), -kde (KDE) or -wlr (wlroots)";
         LOGE("[Portal] %s", lastError_.c_str());
-        g_object_unref(conn);
         return fail();
     }
     LOGI("[Portal] ScreenCast version %u, cursor modes 0x%x.", version, cursorModes);
@@ -227,7 +229,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
             tok1, &lastError_);
         if (!res) {
             LOGE("[Portal] CreateSession failed: %s", lastError_.c_str());
-            g_object_unref(conn);
             return fail();
         }
         const char* sh = nullptr;
@@ -237,7 +238,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
         if (sessionHandle_.empty()) {
             lastError_ = "portal returned no session_handle";
             LOGE("[Portal] %s", lastError_.c_str());
-            g_object_unref(conn);
             return fail();
         }
     }
@@ -271,7 +271,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
         }
         if (!res) {
             LOGE("[Portal] SelectSources failed: %s", lastError_.c_str());
-            g_object_unref(conn);
             return fail();
         }
         g_variant_unref(res);
@@ -295,7 +294,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
         if (!res) {
             LOGE("[Portal] Start failed: %s", lastError_.c_str());
             Close();
-            g_object_unref(conn);
             return fail();
         }
 
@@ -352,7 +350,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
             lastError_ = "portal returned no stream (no screen selected)";
             LOGE("[Portal] %s", lastError_.c_str());
             Close();
-            g_object_unref(conn);
             return fail();
         }
     }
@@ -372,7 +369,6 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
             LOGE("[Portal] %s", lastError_.c_str());
             if (fdList) g_object_unref(fdList);
             Close();
-            g_object_unref(conn);
             return finish(AttemptResult::Failed);
         }
 
@@ -387,13 +383,11 @@ PortalScreenCast::AttemptResult PortalScreenCast::OpenAttempt() {
             if (gerr) g_error_free(gerr);
             LOGE("[Portal] %s", lastError_.c_str());
             Close();
-            g_object_unref(conn);
             return finish(AttemptResult::Failed);
         }
     }
 
     LOGI("[Portal] Ready: %zu screen(s), PipeWire fd %d.", streams_.size(), pipewireFd_);
-    g_object_unref(conn);
     return finish(AttemptResult::Ok);
 }
 
@@ -402,17 +396,16 @@ void PortalScreenCast::Close() {
         close(pipewireFd_);
         pipewireFd_ = -1;
     }
-    if (!sessionHandle_.empty()) {
-        GError* gerr = nullptr;
-        if (GDBusConnection* conn = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &gerr)) {
-            g_dbus_connection_call(conn, kBusName, sessionHandle_.c_str(), kSessionIface, "Close",
-                nullptr, nullptr, G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, nullptr, nullptr);
-            g_dbus_connection_flush_sync(conn, nullptr, nullptr);
-            g_object_unref(conn);
-        } else if (gerr) {
-            g_error_free(gerr);
-        }
-        sessionHandle_.clear();
+    GDBusConnection* conn = static_cast<GDBusConnection*>(bus_);
+    if (conn && !sessionHandle_.empty()) {
+        g_dbus_connection_call(conn, kBusName, sessionHandle_.c_str(), kSessionIface, "Close",
+            nullptr, nullptr, G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, nullptr, nullptr);
+        g_dbus_connection_flush_sync(conn, nullptr, nullptr);
+    }
+    sessionHandle_.clear();
+    if (conn) {
+        g_object_unref(conn);
+        bus_ = nullptr;
     }
     streams_.clear();
 }

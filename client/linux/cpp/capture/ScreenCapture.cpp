@@ -148,6 +148,19 @@ void OnStateChanged(void* data, pw_stream_state old, pw_stream_state state, cons
     auto* im = static_cast<ScreenCapture::Impl*>(data);
     LOGI("[Capture][node %u] state %s -> %s%s%s", im->nodeId, pw_stream_state_as_string(old),
         pw_stream_state_as_string(state), error ? ": " : "", error ? error : "");
+
+    if (error && std::strstr(error, "no target node")) {
+        LOGE(
+            "[Capture][node %u] The node the portal named is gone, so there is nothing to "
+            "capture. Either the ScreenCast session ended — it dies with the D-Bus "
+            "connection that opened it, so whoever holds that connection must keep it "
+            "referenced for as long as the capture runs — or the compositor never created "
+            "the node at all. 'pw-dump' during a share tells the two apart: no screencast "
+            "node listed means the compositor, and a Wayland session cannot restart its "
+            "compositor in place, so log out and back in before sharing again.",
+            im->nodeId);
+    }
+
     if (state == PW_STREAM_STATE_UNCONNECTED || state == PW_STREAM_STATE_ERROR)
         im->closed.store(true, std::memory_order_release);
 }

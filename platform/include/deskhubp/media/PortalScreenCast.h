@@ -51,6 +51,7 @@ private:
 
     AttemptResult OpenAttempt();
 
+    void* bus_ = nullptr;
     int pipewireFd_ = -1;
     std::string sessionHandle_;
     std::string restoreToken_;

@@ -1473,19 +1473,7 @@ void MainFrame::OnShare(ShareTrigger trigger) {
 
     const std::vector<AgentSource>& sources = clamp.sources;
 
-    AgentOptions options;
-    options.fps = settings_.fps;
-    options.bitrateMbps = settings_.bitrateMbps;
-    options.maxDim = settings_.maxDim;
-    options.port = uint16_t(settings_.port);
-    options.allowInput = settings_.allowInput;
-    options.passcode = settings_.passcode;
-    options.bindIp = settings_.bindIp;
-    options.deviceName = settings_.deviceName;
-    options.allowNewPairings = settings_.allowNewPairings;
-    options.clipboardSync = settings_.clipboardSync;
-    options.audio = settings_.shareAudio;
-    options.terminal = terminal;
+    const AgentOptions options = deskhub::ShareOptionsOf(settings_, terminal);
 
     terminalRequested_ = terminal;
     StartHosting(sources, options);

@@ -49,6 +49,21 @@ implementation itself lives in the user's NVIDIA driver (`libnvidia-encode.so.1`
 Linked dynamically against the distribution-provided shared libraries. No GTK source is
 bundled or modified; users may replace the system libraries freely.
 
+## Command-line client (`client/cli`)
+
+The command-line client links the same libraries as the desktop app of the system it is
+built for, minus the GUI toolkit — no GTK on Linux, no wxWidgets on Windows. It draws a
+remote screen in a window of its own, which on Linux adds two libraries the app does not
+need:
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [libX11](https://gitlab.freedesktop.org/xorg/lib/libx11) | MIT | dynamic (Linux) |
+| [libXfixes](https://gitlab.freedesktop.org/xorg/lib/libxfixes) | MIT | dynamic (Linux) |
+
+On Windows it reuses the app's own Win32 viewer window, so it adds nothing. On macOS it
+uses AppKit and ScreenCaptureKit from the Apple SDK, the same as the app.
+
 ## Windows app (`client/windows`)
 
 | Component | License | Linkage |

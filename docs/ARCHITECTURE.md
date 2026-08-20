@@ -20,6 +20,7 @@ One rule drives the whole layout: logic is written once and shared by every clie
 core/       pure C++20, no OS headers, no third-party code, unit-tested offline
 platform/   thin OS abstractions behind one identical API per header (depends on core)
 client/     per-OS apps: windows, linux, macos, ios, android (depend on platform + core)
+            plus client/cli, one command-line client for all three desktops
 ```
 
 | Layer | Contents |
@@ -34,7 +35,9 @@ client/     per-OS apps: windows, linux, macos, ios, android (depend on platform
 | `platform/net` | `UdpSocket` (per-OS), `QuicEndpoint` (quiche behind a pimpl), `SessionTransport`, source query, host probe, LAN scanner |
 | `platform/session` | `HostEngine`, `HostNetLoop`, `ClientEngine`, `TerminalHost`, `TerminalViewer`, `AuthNegotiation` |
 | `platform/system` | Clock, random, PTY (ConPTY / forkpty), host identity (keys), trust/paired-device files, autostart, keep-awake |
+| `core/cli` | The command-line grammar and its JSON writer — pure text in, validated command out |
 | `client/<os>` | Capture, encode, decode, render, windowing, dialogs — nothing protocol-shaped |
+| `client/cli` | Flags to sessions: one binary that hosts, connects and opens shells with no GUI toolkit. It links the same per-OS media library the desktop app does |
 
 `core/` must stay testable offline with no network and no GPU. `platform/` may touch
 the OS but must expose one identical API everywhere. If the same code appears in two
@@ -201,6 +204,26 @@ CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 
 on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
+
+- **The command-line client is a fourth front-end, not a second implementation**: it
+  parses flags in `core/cli`, then drives exactly the pieces the desktop apps drive —
+  `AgentLoop` to host, `ClientEngine` to watch, `TerminalViewer` to open a shell. The
+  only thing it owns is a window: X11 + EGL on Linux, the desktop app's own `RunViewer`
+  on Windows. That is why each client's `cpp/` tree is a static library
+  (`deskhub_linux_core`, `deskhub_win_core`, `deskhub_win_view`, `deskhub_mac_core`) and
+  the GUI code sits above it — the split exists so the CLI can link the media pipeline
+  without linking GTK or wxWidgets.
+
+- **`preflight` runs only when there is a screen to capture**: every client uses it to
+  check the capture path — the xdg portal on Linux, the Screen Recording grant on macOS,
+  a D3D11 device on Windows. A share that carries only a shell needs none of that, so
+  asking anyway turned `share --terminal` on a headless box into "the screen-capture
+  permission is gone". `HostEngine::Start` now skips it when the source list is empty.
+
+- **A host with a shell and no screen stays alive**: the net loop ends a session once no
+  source is alive, and a terminal-only share has none by definition. `keepAlive` answers
+  from the caller's intent (`AgentOptions::terminal`), not from a `TerminalHost` pointer
+  that is only attached after the loop is already running.
 
 - **The frame gate counts to a deadline, not from the last frame it kept**: a compositor
   that hands over 40 fps against a 30 fps target has no frame at all on most of the
@@ -420,6 +443,15 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 - **One port**: beacon, screen and terminal share a single listener; QUIC
   multiplexes connections and streams. The old second port existed only because the
   pre-QUIC screen path monopolised the socket.
+- **The portal ScreenCast session lives and dies with a D-Bus connection**: GLib caches
+  the shared session bus by weak reference, so `g_object_unref` on the last handle
+  disposes the connection outright. `xdg-desktop-portal` then drops the session, the
+  compositor destroys the PipeWire node, and the node id the portal just handed over
+  points at nothing — the stream reaches `paused` and fails with *no target node
+  available*. `PortalScreenCast` therefore owns its `GDBusConnection` for as long as
+  the session is open rather than borrowing one per call. The desktop app masked this
+  for a long time because GTK keeps a reference on the session bus for the life of the
+  process; `deskhub-cli` links no GTK and had none.
 - **Every icon is derived, and only some of them are rounded**: `make icons` rebuilds
   the whole set from the single master `assets/icon_1024.png`. macOS, iOS, the Play
   Store listing and Android's adaptive-icon pipeline mask artwork into their own

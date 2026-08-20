@@ -83,6 +83,7 @@ bool TerminalViewer::Start(const TerminalViewerConfig& config, TerminalViewerCal
             return screen_.TakeResponse();
         }();
         if (!reply.empty()) SendBytes(reply);
+        if (cb_.onOutput) cb_.onOutput(bytes);
         if (cb_.onRedraw) cb_.onRedraw();
     };
     hooks.onOpened = [this](const deskhub::TermOpenAck& ack) {

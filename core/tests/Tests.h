@@ -64,6 +64,8 @@ void RunHostRowsTests();
 void RunDeviceRowsTests();
 void RunRecentDevicesTests();
 void RunUiSettingsTests();
+void RunCliCommandTests();
+void RunCliJsonTests();
 void RunAutostartConfigTests();
 void RunAutoShareGateTests();
 void RunSecretTextTests();

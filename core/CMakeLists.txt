@@ -76,6 +76,9 @@ add_library(core STATIC
     src/ui/UiSettings.cpp
     src/ui/AutostartConfig.cpp
     src/ui/AutoShareGate.cpp
+
+    src/cli/Command.cpp
+    src/cli/Json.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -176,6 +179,9 @@ if(DESKHUB_CORE_TESTS)
         tests/ui/UiSettingsTests.cpp
         tests/ui/AutostartConfigTests.cpp
         tests/ui/AutoShareGateTests.cpp
+
+        tests/cli/CommandTests.cpp
+        tests/cli/JsonTests.cpp
 
         tests/fuzz/FuzzTests.cpp
     )

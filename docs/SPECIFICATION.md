@@ -57,6 +57,11 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 **Settings** — plus a **Devices** page listing the machines paired with this one
 (section 9).
 
+The three desktops also have a command-line client. It offers the same behaviour with no
+pages at all: it hosts, connects, opens a remote shell, finds machines, and reads and
+writes the very same settings, paired machines and trusted host keys the app does. It is
+an alternative face on the behaviour in this document, never a different behaviour.
+
 ---
 
 ## 4. Hosting — sharing this machine's screen

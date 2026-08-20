@@ -88,12 +88,14 @@ if(WIN32)
         src/system/DeviceNameWin.cpp
         src/system/AutostartWin.cpp
         src/system/KeepAwakeWin.cpp
+        src/system/ConsoleWin.cpp
     )
 else()
     set(deskhub_platform_os
         src/net/UdpSocketPosix.cpp
         src/net/NetInfoPosix.cpp
         src/system/DeviceNamePosix.cpp
+        src/system/ConsolePosix.cpp
     )
     if(APPLE)
         list(APPEND deskhub_platform_os src/system/MemoryFootprintApple.cpp)

@@ -61,6 +61,11 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 **Settings** — cộng thêm trang **Devices** liệt kê các máy đã ghép đôi với máy này
 (mục 9).
 
+Ba nền tảng để bàn còn có một client dòng lệnh. Nó làm đúng những việc trên mà không có
+trang nào cả: làm host, kết nối, mở shell từ xa, tìm máy, và đọc ghi đúng những cấu hình,
+máy đã ghép đôi và khoá host đã tin mà app dùng. Nó là một khuôn mặt khác của những hành vi
+mô tả trong tài liệu này, không bao giờ là hành vi khác.
+
 ---
 
 ## 4. Host — chia sẻ màn hình máy này

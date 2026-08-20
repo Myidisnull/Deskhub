@@ -54,6 +54,20 @@ và được nạp lúc chạy; nó không được đóng gói kèm.
 Liên kết động tới các thư viện chia sẻ do bản phân phối cung cấp. Không có mã nguồn GTK
 nào được đóng gói kèm hay chỉnh sửa; người dùng có thể thay thế thư viện hệ thống tuỳ ý.
 
+## Client dòng lệnh (`client/cli`)
+
+Client dòng lệnh liên kết đúng những thư viện mà app để bàn của hệ điều hành tương ứng
+dùng, trừ toolkit đồ hoạ — không GTK trên Linux, không wxWidgets trên Windows. Nó vẽ màn
+hình từ xa trong cửa sổ của riêng nó, nên trên Linux có thêm hai thư viện mà app không cần:
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [libX11](https://gitlab.freedesktop.org/xorg/lib/libx11) | MIT | động (Linux) |
+| [libXfixes](https://gitlab.freedesktop.org/xorg/lib/libxfixes) | MIT | động (Linux) |
+
+Trên Windows nó dùng lại chính cửa sổ Win32 của app nên không thêm gì. Trên macOS nó dùng
+AppKit và ScreenCaptureKit trong SDK của Apple, giống như app.
+
 ## App Windows (`client/windows`)
 
 | Thành phần | Giấy phép | Cách liên kết |

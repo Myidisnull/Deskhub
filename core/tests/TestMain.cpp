@@ -206,6 +206,10 @@ int main() {
     std::printf("--- ui: passcodes stored on disk ---\n");
     RunSecretTextTests();
 
+    std::printf("--- cli: the command line every desktop shares ---\n");
+    RunCliCommandTests();
+    RunCliJsonTests();
+
     std::printf("--- fuzz: deterministic structured fuzzing over every parser ---\n");
     RunFuzzTests();
 

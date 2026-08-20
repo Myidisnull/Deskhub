@@ -1,6 +1,8 @@
 #pragma once
+#include "deskhub/media/AgentTypes.h"
 #include "deskhub/media/ShareSource.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/ui/UiSettings.h"
 
 #include <utility>
 #include <vector>
@@ -20,6 +22,23 @@ inline ShareClampResult ClampShareSources(std::vector<media::ShareSource> all) {
     }
     r.sources = std::move(all);
     return r;
+}
+
+inline media::AgentOptions ShareOptionsOf(const ui::UiSettings& settings, bool terminal) {
+    media::AgentOptions options;
+    options.fps = settings.fps;
+    options.bitrateMbps = settings.bitrateMbps;
+    options.maxDim = settings.maxDim;
+    options.port = uint16_t(settings.port);
+    options.allowInput = settings.allowInput;
+    options.passcode = settings.passcode;
+    options.bindIp = settings.bindIp;
+    options.deviceName = settings.deviceName;
+    options.allowNewPairings = settings.allowNewPairings;
+    options.clipboardSync = settings.clipboardSync;
+    options.audio = settings.shareAudio;
+    options.terminal = terminal;
+    return options;
 }
 
 }

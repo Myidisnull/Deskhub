@@ -155,6 +155,11 @@ If you want to keep using Deskhub as it is today, these are worth doing:
 - [ ] Do not leave a share running on a laptop that you carry onto other networks.
 - [ ] Lock your machine when you walk away, so an unattended session cannot be taken
       over silently.
+- [ ] With `deskhub-cli`, do not put the passcode in the command itself. `--passcode 0417`
+      is visible to every process on the machine through `ps` and `/proc/*/cmdline`, and
+      it lands in your shell history. Use `--passcode -` to read it from standard input,
+      `--passcode @FILE` to read it from a file only you can read, or set
+      `DESKHUB_PASSCODE` in the environment.
 
 ## Local artifacts
 
@@ -162,7 +167,7 @@ Diagnostic logs are written in plain text under `~/.deskhub/` (`%USERPROFILE%\.d
 on Windows) on Windows, macOS and Linux. They contain connection statistics and peer
 addresses, not screen content or keystrokes.
 
-The desktop apps keep more files in that folder: `ui-settings.txt` (fps, bitrate,
+The desktop apps and `deskhub-cli` share those files. They keep more in that folder: `ui-settings.txt` (fps, bitrate,
 resolution cap, ports, the view-only and pairing switches, your host passcode if you set
 one, and the device name shown to hosts), `recent-devices.txt` (the last 10 addresses you
 connected to, when, and the passcode used for each), `host_key.pem` + `host_cert.pem`

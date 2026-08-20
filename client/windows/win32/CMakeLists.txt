@@ -31,13 +31,9 @@ add_executable(deskhub_app WIN32
     PasscodePrompt.cpp
     SourcePickerDialog.cpp
     TerminalWindow.cpp
-    Viewer.cpp
-    ViewerInput.cpp
-
-    ../cpp/ClientSessionWin.cpp
 )
 target_include_directories(deskhub_app PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(deskhub_app PRIVATE deskhub_win_core wx::core wx::base)
+target_link_libraries(deskhub_app PRIVATE deskhub_win_view wx::core wx::base)
 set_target_properties(deskhub_app PROPERTIES OUTPUT_NAME "Deskhub")
 deskhub_target_warnings(deskhub_app)
 if(MSVC)

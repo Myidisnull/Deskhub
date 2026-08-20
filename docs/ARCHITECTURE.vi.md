@@ -23,6 +23,7 @@ Một quy tắc chi phối toàn bộ bố cục: logic viết một lần và d
 core/       C++20 thuần, không header OS, không mã bên thứ ba, test offline được
 platform/   lớp trừu tượng OS mỏng, mỗi header một API giống hệt nhau mọi nơi (phụ thuộc core)
 client/     app theo từng OS: windows, linux, macos, ios, android (phụ thuộc platform + core)
+            cộng thêm client/cli, một client dòng lệnh dùng chung cho cả ba máy để bàn
 ```
 
 | Tầng | Nội dung |
@@ -37,7 +38,9 @@ client/     app theo từng OS: windows, linux, macos, ios, android (phụ thu�
 | `platform/net` | `UdpSocket` (theo OS), `QuicEndpoint` (quiche sau pimpl), `SessionTransport`, truy vấn nguồn, dò host, quét LAN |
 | `platform/session` | `HostEngine`, `HostNetLoop`, `ClientEngine`, `TerminalHost`, `TerminalViewer`, `AuthNegotiation` |
 | `platform/system` | Đồng hồ, ngẫu nhiên, PTY (ConPTY / forkpty), danh tính máy (khoá), file trust/paired, autostart, giữ máy thức |
+| `core/cli` | Ngữ pháp dòng lệnh và bộ ghi JSON của nó — vào là văn bản thuần, ra là một lệnh đã kiểm tra hợp lệ |
 | `client/<os>` | Thu hình, mã hoá, giải mã, vẽ, cửa sổ, hộp thoại — không có gì mang hình dạng giao thức |
+| `client/cli` | Từ cờ thành phiên: một binary vừa làm host, vừa kết nối, vừa mở shell, không cần toolkit đồ hoạ. Nó link đúng thư viện media theo OS mà app để bàn đang dùng |
 
 `core/` phải test offline được, không mạng không GPU. `platform/` được đụng OS nhưng
 API công khai phải giống hệt nhau trên mọi hệ. Nếu cùng một đoạn mã xuất hiện ở hai
@@ -199,6 +202,26 @@ nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm
 iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
+
+- **Client dòng lệnh là mặt tiền thứ tư, không phải bản cài đặt thứ hai**: nó phân tích cờ
+  trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `AgentLoop`
+  để làm host, `ClientEngine` để xem, `TerminalViewer` để mở shell. Thứ duy nhất của riêng
+  nó là cửa sổ: X11 + EGL trên Linux, còn trên Windows là chính `RunViewer` của app để bàn.
+  Đó là lý do phần `cpp/` của mỗi client được tách thành thư viện tĩnh
+  (`deskhub_linux_core`, `deskhub_win_core`, `deskhub_win_view`, `deskhub_mac_core`) và
+  phần giao diện nằm bên trên — tách như vậy để CLI link được đường ống media mà không phải
+  kéo theo GTK hay wxWidgets.
+
+- **`preflight` chỉ chạy khi thật sự có màn hình để chụp**: mọi client dùng nó để kiểm tra
+  đường chụp hình — portal xdg trên Linux, quyền Screen Recording trên macOS, thiết bị
+  D3D11 trên Windows. Một phiên chia sẻ chỉ có shell thì không cần gì trong số đó, nên hỏi
+  vẫn hỏi làm `share --terminal` trên máy không màn hình báo "quyền chụp màn hình đã mất".
+  `HostEngine::Start` nay bỏ qua nó khi danh sách nguồn rỗng.
+
+- **Host chỉ chia sẻ shell mà không có màn hình vẫn phải sống**: vòng lặp mạng kết thúc
+  phiên khi không còn nguồn nào sống, mà phiên chỉ có shell thì theo định nghĩa là không có
+  nguồn nào. `keepAlive` nay trả lời theo ý định của người gọi (`AgentOptions::terminal`),
+  chứ không theo con trỏ `TerminalHost` vốn chỉ được gắn vào sau khi vòng lặp đã chạy.
 
 - **Cổng khung hình đếm tới một mốc hạn, không đếm từ khung nó vừa giữ**: một compositor
   đưa sang 40 fps trong khi mục tiêu là 30 fps thì hầu hết các mốc 33 ms đều không có
@@ -413,6 +436,14 @@ iOS Simulator.
 - **Một cổng**: beacon, màn hình và terminal dùng chung một listener; QUIC ghép kênh
   kết nối và stream. Cổng thứ hai ngày trước tồn tại chỉ vì đường màn hình tiền-QUIC
   chiếm trọn socket.
+- **Phiên ScreenCast của portal sống chết theo một kết nối D-Bus**: GLib cache session
+  bus dùng chung bằng tham chiếu yếu, nên `g_object_unref` trên handle cuối cùng sẽ huỷ
+  luôn kết nối. `xdg-desktop-portal` khi đó bỏ phiên, compositor xoá node PipeWire, và
+  node id mà portal vừa trao lại trỏ vào hư không — luồng đi tới `paused` rồi hỏng với
+  *no target node available*. Vì vậy `PortalScreenCast` tự giữ `GDBusConnection` của nó
+  suốt thời gian phiên còn mở, thay vì mượn một kết nối cho mỗi lời gọi. Ứng dụng desktop
+  che lấp lỗi này rất lâu vì GTK giữ một tham chiếu tới session bus trong suốt vòng đời
+  tiến trình; `deskhub-cli` không liên kết GTK nên không có tham chiếu nào.
 - **Mọi icon đều được dẫn xuất, và chỉ một phần được bo góc**: `make icons` dựng lại
   toàn bộ bộ icon từ một file gốc duy nhất `assets/icon_1024.png`. macOS, iOS, trang
   Play Store và đường adaptive-icon của Android tự cắt artwork theo hình dạng riêng

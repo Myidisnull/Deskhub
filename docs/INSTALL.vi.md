@@ -68,6 +68,11 @@ chạy được ngay sau khi cài, không cần đổi nhóm người dùng, kh�
 chạy thẳng chạy được trên mọi bản phân phối x86_64 có glibc 2.35+ (Ubuntu 22.04, Fedora
 36, openSUSE 15.5, Arch hiện hành).
 
+File deb và rpm cũng cài kèm `deskhub-cli`, vẫn là client đó nhưng không có cửa sổ riêng:
+nó chia sẻ màn hình, mở shell từ xa và điều khiển host từ script hay qua SSH. Chạy
+`deskhub-cli help` để xem danh sách lệnh. Mọi thứ nó đọc và ghi — cấu hình, máy đã ghép
+đôi, khoá host đã tin — đều dùng chung với app, nên hai bên luôn khớp nhau.
+
 **Để chia sẻ màn hình của máy này**, cần thêm ba thứ nữa.
 
 ### 1. Một portal thu hình màn hình

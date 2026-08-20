@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -42,6 +43,7 @@ struct TerminalViewerConfig {
 
 struct TerminalViewerCallbacks {
     std::function<void()> onRedraw;
+    std::function<void(std::span<const uint8_t> bytes)> onOutput;
     std::function<void(TerminalViewerState, std::string_view message)> onState;
     std::function<void(deskhub::TrustVerdict, std::string_view fingerprint)> onTrustAsked;
 };

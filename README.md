@@ -109,6 +109,7 @@ network you trust or a VPN, and **never port-forward UDP 47777**. Full threat mo
 - **Sound comes with the screen** — the machine's own audio mix, Opus at 64 kbps, one 20 ms frame per datagram; a lost packet costs a fraction of a second and never disturbs the picture. Never a microphone.
 - **Real input** — relative mouse (Raw Input) + scancodes for DirectInput games; host's own mouse/keyboard always wins.
 - **One shared core** — protocol, FEC, and bitrate control live in `core/`, compiled into every client.
+- **A command line too** — `deskhub-cli` shares a screen, opens a remote shell and drives a host from a script or over SSH, with no GUI toolkit at all. See [Build](docs/BUILD.md#the-command-line-client).
 - **Beaten up on purpose** — the core is unit-tested offline, runs under ASan, UBSan and TSan in CI, and seven libFuzzer targets hammer the wire format, H.264 parsing, reassembly, terminal bytes, UI text and the session state machines every night; every crash found becomes a regression test.
 
 ## 📚 Docs

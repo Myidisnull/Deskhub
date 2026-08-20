@@ -160,6 +160,10 @@ Nếu bạn muốn tiếp tục dùng Deskhub như hiện tại, những việc 
 - [ ] Đừng để một phiên chia sẻ chạy trên chiếc laptop mà bạn mang sang mạng khác.
 - [ ] Khoá máy khi bạn rời đi, để một phiên không người trông không bị chiếm quyền âm
       thầm.
+- [ ] Với `deskhub-cli`, đừng đặt passcode ngay trên dòng lệnh. `--passcode 0417` hiện ra
+      cho mọi tiến trình trên máy qua `ps` và `/proc/*/cmdline`, và nó nằm lại trong lịch
+      sử shell. Hãy dùng `--passcode -` để đọc từ đầu vào chuẩn, `--passcode @FILE` để đọc
+      từ một tệp chỉ mình bạn đọc được, hoặc đặt biến môi trường `DESKHUB_PASSCODE`.
 
 ## Dấu vết để lại trên máy
 
@@ -167,7 +171,7 @@ Nhật ký chẩn đoán được ghi ở dạng văn bản thuần dưới `~/.
 (`%USERPROFILE%\.deskhub` trên Windows) trên Windows, macOS và Linux. Chúng chứa thống kê
 kết nối và địa chỉ của máy đối diện, không chứa nội dung màn hình hay phím gõ.
 
-Các app desktop giữ thêm nhiều tệp trong thư mục đó: `ui-settings.txt` (fps, bitrate,
+Các app desktop và `deskhub-cli` dùng chung những tệp đó. Chúng còn giữ thêm: `ui-settings.txt` (fps, bitrate,
 giới hạn độ phân giải, các cổng, công tắc chỉ xem và công tắc ghép đôi, passcode host nếu
 bạn có đặt, và tên thiết bị hiển thị cho host), `recent-devices.txt` (10 địa chỉ gần nhất
 bạn đã kết nối, thời điểm, và passcode dùng cho từng địa chỉ), `host_key.pem` +

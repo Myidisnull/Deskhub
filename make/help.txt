@@ -7,7 +7,12 @@ Deskhub - no platform is built by default, name the one you want:
     make build-ios       release-ios       run-ios         needs macOS + Xcode, Simulator
     make build-android   release-android   run-android     needs the Android SDK/NDK, adb
 
-    run-windows and run-linux take ARGS="--share ..."
+    The desktop apps take no flags - everything is chosen on their four pages.
+
+  Command line client - Linux, Windows and macOS, no GUI toolkit:
+    make build-cli       release-cli       run-cli         one deskhub-cli binary
+                         run-cli takes ARGS="scan", ARGS="sources 192.168.1.10", ...
+    make cli-smoke       host + viewer + a remote shell over loopback, headless
 
   Shared CMake tree - core + platform + the current OS client:
     make debug           configure + build the debug preset

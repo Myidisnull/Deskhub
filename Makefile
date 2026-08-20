@@ -13,6 +13,7 @@
 #   make/linux.mk       Ubuntu app  — CMake (GTK3 + native, ONE `deskhub`)
 #   make/ios.mk         iOS app     — xcodebuild (Simulator)
 #   make/android.mk     Android APK — Gradle (builds both the .so and the APK)
+#   make/cli.mk         command-line client — CMake (one deskhub-cli, no GUI toolkit)
 #   make/codestyle.mk   format/lint for C++ + Kotlin + Swift
 #   make/tools.mk       one-off developer tools: icons, quic-smoke, opus-smoke, screenshots
 #
@@ -30,8 +31,14 @@
 #   make build-android   / release-android   / run-android   debug APK / release APK (unsigned)
 #   make build-ios       / release-ios       / run-ios       iOS app for the Simulator (needs macOS + Xcode)
 #
-# run-windows and run-linux take ARGS="--share ...". run-android installs and opens on
-# the connected device/emulator via adb; run-ios does the same on the Simulator.
+# The desktop apps parse no command-line flags at all — everything is chosen on their
+# four pages. To drive Deskhub from a script or over SSH, build the command-line client
+# instead. It runs on Linux, Windows and macOS and shares one binary name:
+#   make build-cli       / release-cli       / run-cli       one deskhub-cli, no GUI toolkit
+#   make cli-smoke       host + viewer + a remote shell over loopback, headless, no GPU
+#
+# run-cli takes ARGS="scan" and the like. run-android installs and opens on the
+# connected device/emulator via adb; run-ios does the same on the Simulator.
 #
 # Ubuntu only — build the static minimal FFmpeg the app links (build-linux and
 # release-linux run it automatically, it is a no-op once built):
@@ -136,6 +143,7 @@ include make/macos.mk
 include make/linux.mk
 include make/ios.mk
 include make/android.mk
+include make/cli.mk
 include make/codestyle.mk
 include make/tools.mk
 

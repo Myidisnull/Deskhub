@@ -51,6 +51,7 @@ platform/   thin OS abstractions behind one shared API — sockets, clock, loggi
             randomness, source enumeration. Depends on core.
 client/     the five apps: android, ios, linux, macos, windows.
             client/apple/ is Swift shared by the macOS and iOS apps, not an app itself.
+            client/cli/ is the command-line client, one binary for all three desktops.
 third_party/  quiche (QUIC), opus (audio), the nvenc headers, the minimal FFmpeg build
 make/       one .mk per platform, included by the root Makefile
 scripts/    bootstrap, packaging, coverage, style and CI helpers
@@ -84,9 +85,42 @@ New logic in `core/` needs a test in the matching `core/tests/` subdirectory.
 | `make build-android` | a debug APK | Android SDK + NDK, `adb` |
 
 Each has a `release-<os>` (optimized) and a `run-<os>` (build, then launch) sibling.
-`run-windows` and `run-linux` accept `ARGS="--share ..."`; `run-android` installs and
-opens on the connected device or emulator through adb, and `run-ios` does the same on the
-Simulator.
+The desktop apps parse no command-line flags at all — everything is chosen on their four
+pages. `run-android` installs and opens on the connected device or emulator through adb,
+and `run-ios` does the same on the Simulator.
+
+### The command-line client
+
+`client/cli/` builds one `deskhub-cli` binary that does the same job without a GUI
+toolkit, driven by flags instead of pages. It is the way to run Deskhub over SSH, from a
+script, or under systemd.
+
+```bash
+make build-cli                       # debug build for this OS
+make release-cli                     # optimized
+make run-cli ARGS="scan"             # build, then run with those arguments
+```
+
+It is behind `-DDESKHUB_CLI=ON` (off by default), so the app builds and the sanitizer,
+coverage and fuzz presets are untouched by it. Turning it on makes the per-OS media
+libraries required rather than optional, because a client that cannot capture or decode is
+not a client.
+
+| Command | Does |
+| --- | --- |
+| `share` | share this machine — any display, the shell, or both |
+| `connect ADDRESS` | open a window on a host's screen and drive it |
+| `shell ADDRESS` | open a shell on a host, in the terminal you are already in |
+| `displays`, `scan`, `sources`, `probe` | what can be shared, and who is out there |
+| `devices`, `trust`, `settings` | the same files the desktop app reads and writes |
+
+`deskhub-cli help COMMAND` prints the flags. Every command answers `--json`, and the exit
+code says what went wrong: `2` bad flags, `3` nobody answered, `4` refused, `5` the host
+key changed, `9` this build cannot do it.
+
+Per-OS state today: Linux does all of it. Windows shares and connects through the same
+window code the desktop app already uses. macOS shares and opens shells, but `connect`
+needs a window layer that is not written yet, and reports so.
 
 To work on `core/` and `platform/` alone, the shared CMake tree is faster:
 

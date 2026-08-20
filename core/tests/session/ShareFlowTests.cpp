@@ -29,8 +29,38 @@ void TestClampKeepsTheFirstSources() {
     Check(!fits.clamped && fits.sources.size() == 2, "a small list passes through untouched");
 }
 
+void TestSettingsBecomeAgentOptions() {
+    std::printf("[share] the settings every client stores become the options it hosts with...\n");
+    ui::UiSettings settings;
+    settings.fps = 45;
+    settings.bitrateMbps = 35;
+    settings.maxDim = 2560;
+    settings.port = 47999;
+    settings.allowInput = false;
+    settings.passcode = "0417";
+    settings.bindIp = "192.168.1.10";
+    settings.deviceName = "study pc";
+    settings.allowNewPairings = false;
+    settings.clipboardSync = true;
+    settings.shareAudio = false;
+
+    const media::AgentOptions options = ShareOptionsOf(settings, true);
+    Check(options.fps == 45 && options.bitrateMbps == 35 && options.maxDim == 2560,
+        "the picture settings carry over");
+    Check(options.port == 47999, "so does the port");
+    Check(!options.allowInput, "and the view-only switch");
+    Check(options.passcode == "0417" && options.bindIp == "192.168.1.10",
+        "and the passcode and the network");
+    Check(options.deviceName == "study pc", "and the name viewers see");
+    Check(!options.allowNewPairings && options.clipboardSync && !options.audio,
+        "and the pairing, clipboard and sound switches");
+    Check(options.terminal, "the shell is asked for separately, not read from the file");
+    Check(!ShareOptionsOf(settings, false).terminal, "and can be left out");
+}
+
 }
 
 void RunShareFlowTests() {
     TestClampKeepsTheFirstSources();
+    TestSettingsBecomeAgentOptions();
 }

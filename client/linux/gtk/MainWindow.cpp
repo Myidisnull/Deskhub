@@ -1555,20 +1555,9 @@ void MainWindow::OnShare(ShareTrigger trigger) {
     }
     shareTrigger_ = trigger;
 
-    AgentOptions options;
-    options.fps = settings_.fps;
-    options.bitrateMbps = settings_.bitrateMbps;
-    options.maxDim = settings_.maxDim;
+    AgentOptions options = deskhub::ShareOptionsOf(settings_, TerminalTicked());
     options.port = Port();
-    options.allowInput = settings_.allowInput;
-    options.passcode = settings_.passcode;
-    options.bindIp = settings_.bindIp;
-    options.deviceName =
-        settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
-    options.allowNewPairings = settings_.allowNewPairings;
-    options.clipboardSync = settings_.clipboardSync;
-    options.audio = settings_.shareAudio;
-    options.terminal = TerminalTicked();
+    if (options.deviceName.empty()) options.deviceName = deskhubp::LocalDeviceName();
     terminalRequested_ = options.terminal;
 
     const std::vector<HostMonitor> ticked = TickedMonitors();

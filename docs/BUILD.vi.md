@@ -54,6 +54,7 @@ platform/   lớp bọc mỏng quanh hệ điều hành, cùng một API — soc
             số ngẫu nhiên, liệt kê nguồn hình. Phụ thuộc vào core.
 client/     năm app: android, ios, linux, macos, windows.
             client/apple/ là phần Swift dùng chung cho app macOS và iOS, không phải một app.
+            client/cli/ là client dòng lệnh, một binary cho cả ba máy để bàn.
 third_party/  quiche (QUIC), opus (âm thanh), header nvenc, bản FFmpeg tối giản
 make/       mỗi nền tảng một file .mk, được Makefile gốc include
 scripts/    bootstrap, đóng gói, coverage, định dạng và các tiện ích cho CI
@@ -88,8 +89,42 @@ Logic mới trong `core/` phải có bài kiểm thử tương ứng trong thư 
 | `make build-android` | APK bản debug | Android SDK + NDK, `adb` |
 
 Mỗi target đều có anh em `release-<os>` (bản tối ưu) và `run-<os>` (build rồi chạy).
-`run-windows` và `run-linux` nhận `ARGS="--share ..."`; `run-android` cài và mở app trên
-thiết bị hoặc máy ảo đang kết nối qua adb, còn `run-ios` làm điều tương tự trên Simulator.
+Các app để bàn không đọc cờ dòng lệnh nào cả — mọi thứ chọn trên bốn trang của chúng.
+`run-android` cài và mở app trên thiết bị hoặc máy ảo đang kết nối qua adb, còn `run-ios`
+làm điều tương tự trên Simulator.
+
+### Client dòng lệnh
+
+`client/cli/` dựng một binary `deskhub-cli` làm đúng những việc đó nhưng không cần toolkit
+đồ hoạ, điều khiển bằng cờ thay vì bằng trang. Đây là cách chạy Deskhub qua SSH, trong
+script, hay dưới systemd.
+
+```bash
+make build-cli                       # bản debug cho OS hiện tại
+make release-cli                     # bản tối ưu
+make run-cli ARGS="scan"             # build rồi chạy với các tham số đó
+```
+
+Nó nằm sau `-DDESKHUB_CLI=ON` (mặc định tắt), nên app vẫn build như cũ và các preset
+sanitizer, coverage, fuzz không bị đụng tới. Bật nó lên thì các thư viện media của từng OS
+trở thành bắt buộc chứ không còn tuỳ chọn, vì một client không chụp và không giải mã được
+thì không phải là client.
+
+| Lệnh | Làm gì |
+| --- | --- |
+| `share` | chia sẻ máy này — màn hình nào cũng được, shell, hoặc cả hai |
+| `connect ĐỊA_CHỈ` | mở một cửa sổ xem màn hình host và điều khiển nó |
+| `shell ĐỊA_CHỈ` | mở shell trên host, ngay trong terminal đang dùng |
+| `displays`, `scan`, `sources`, `probe` | chia sẻ được những gì, và ngoài kia có ai |
+| `devices`, `trust`, `settings` | đúng những file mà app để bàn đọc và ghi |
+
+`deskhub-cli help LỆNH` in ra các cờ. Mọi lệnh đều nhận `--json`, và mã thoát nói rõ hỏng ở
+đâu: `2` sai cờ, `3` không ai trả lời, `4` bị từ chối, `5` khoá của host đã đổi, `9` bản
+build này không làm được.
+
+Tình trạng theo OS hiện nay: Linux làm được tất cả. Windows chia sẻ và kết nối qua đúng
+phần cửa sổ mà app để bàn đang dùng. macOS chia sẻ và mở shell được, nhưng `connect` cần
+một lớp cửa sổ chưa viết, và nó báo đúng như vậy.
 
 Nếu chỉ động vào `core/` và `platform/`, dùng cây CMake dùng chung sẽ nhanh hơn:
 

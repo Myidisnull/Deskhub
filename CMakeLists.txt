@@ -43,12 +43,31 @@ if(DESKHUB_INTEGRATION_TESTS)
 endif()
 
 option(DESKHUB_LINUX_APP "Build the Ubuntu desktop app" ON)
+option(DESKHUB_WINDOWS_APP "Build the Windows desktop app" ON)
+option(DESKHUB_CLI "Build the command-line client" OFF)
 
 if(WIN32)
     add_subdirectory(client/windows/cpp)
-    add_subdirectory(client/windows/win32)
+    if(DESKHUB_WINDOWS_APP)
+        add_subdirectory(client/windows/win32)
+    endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    if(DESKHUB_LINUX_APP)
+    if(DESKHUB_LINUX_APP OR DESKHUB_CLI)
         add_subdirectory(client/linux)
+    endif()
+elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(DESKHUB_CLI)
+        add_subdirectory(client/macos/app/cpp)
+    endif()
+endif()
+
+if(DESKHUB_CLI)
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+       (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"))
+        add_subdirectory(client/cli)
+    else()
+        message(FATAL_ERROR
+            "Deskhub: DESKHUB_CLI is only built for Linux, Windows and macOS - "
+            "the phones have no command line to run it from.")
     endif()
 endif()

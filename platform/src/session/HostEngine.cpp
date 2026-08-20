@@ -160,7 +160,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         return Fail("At most " + std::to_string(deskhub::kMaxSources) +
                     " sources can be shared at once.");
 
-    if (policy_.preflight) {
+    if (policy_.preflight && !sources.empty()) {
         std::string err = policy_.preflight();
         if (!err.empty()) return Fail(std::move(err));
     }
@@ -409,7 +409,7 @@ void HostEngine::RecvLoop() {
     loop.onTerminal = [this](const NetAddr& from, std::span<const uint8_t> message) {
         if (terminal_ != nullptr) terminal_->HandleMessage(from, message);
     };
-    loop.keepAlive = [this] { return terminal_ != nullptr && terminal_->Running(); };
+    loop.keepAlive = [this] { return opt_.terminal || (terminal_ != nullptr && terminal_->Running()); };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;
     loop.source.shutdown = [this](HostSource& st) { ShutdownSource(st); };
