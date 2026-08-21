@@ -205,6 +205,23 @@ if(DESKHUB_CORE_TESTS)
     add_test(NAME core_tests COMMAND core_tests)
 endif()
 
+option(DESKHUB_CORE_PERF "Build core_perf" ${deskhub_tests_default})
+
+if(DESKHUB_CORE_PERF)
+    add_executable(core_perf
+        perf/PerfMain.cpp
+        perf/PerfHarness.cpp
+
+        perf/VideoPerf.cpp
+        perf/TransferPerf.cpp
+        perf/TerminalPerf.cpp
+        perf/ControlPerf.cpp
+    )
+    target_link_libraries(core_perf PRIVATE core)
+    target_include_directories(core_perf PRIVATE perf)
+    deskhub_target_warnings(core_perf)
+endif()
+
 option(DESKHUB_FUZZ "Build libFuzzer fuzz targets (clang only)" OFF)
 
 if(DESKHUB_FUZZ)

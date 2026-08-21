@@ -202,6 +202,7 @@ nhận và tên thiết bị dành riêng đều bị loại — trước khi `p
 | `make test-platform` | socket loopback | bắt tay QUIC thật, SPAKE2 đầu-cuối, terminal host + viewer qua mạng, PTY với shell thật, lockout, approval |
 | `make test-integration` | loopback, thu/mã hoá giả | phiên host↔client đầy đủ: thương lượng, video qua mạng, input, cổng passcode/approval, chịu gói rác |
 | các target fuzz | 30 giây mỗi target ở mọi PR, 15 phút mỗi target hằng đêm | parser cho wire, H.264, ráp gói, byte terminal và chuỗi UI, cộng máy trạng thái phiên phía host và viewer |
+| `make test-perf` | bản release, offline | đo các đường nóng của `core/` chứ không chỉ chạy chúng: số lần cấp phát trên mỗi đơn vị, chi phí khi đầu vào gấp 4, và độ lệch so với mốc ghi ngay trên máy đó |
 
 CI còn ép clang-format và clang-tidy (đều ghim phiên bản), SwiftLint `--strict`,
 Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, CodeQL cho
@@ -210,6 +211,17 @@ nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm
 iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
+
+- **Bộ đo hiệu năng chặn theo số lần cấp phát và hình dạng chi phí, không theo mili-giây**:
+  cả ba bộ test đều dựng bản debug, và CI còn chạy lại chúng dưới ASan, TSan và coverage —
+  nơi một hạn mức thời gian đo chính sanitizer chứ không đo mã. Vì vậy `core_perf` (preset
+  release, `make test-perf`) fail theo hai thứ độc lập với máy — số lần cấp phát trên mỗi
+  gói, mỗi khung hình hay mỗi KB, đếm bằng cách thay `operator new` toàn cục, và một dòng
+  `-scaling` có thời gian tăng nhanh hơn hẳn đầu vào — còn phần đo thời gian chỉ so với
+  `out/perf/baseline.txt`, ghi riêng cho từng máy bằng `make perf-baseline` và không bao
+  giờ commit. Chính cách chia đó cho phép bộ đo bắt được hồi quy kiểu "khâu ghép gói giờ
+  chép mỗi mảnh hai lần" trên laptop, trên máy CI hay trên điện thoại như nhau, mà vẫn in
+  ra ns mỗi đơn vị và MB/s cho những đường mà bản thân con số mới là thứ ta cần.
 
 - **Client dòng lệnh là mặt tiền thứ tư, không phải bản cài đặt thứ hai**: nó phân tích cờ
   trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `AgentLoop`

@@ -205,6 +205,7 @@ control bytes, characters Windows rejects and reserved device names all go — b
 | `make test-platform` | loopback sockets | real QUIC handshakes, SPAKE2 end-to-end, terminal host + viewer over the wire, PTY against a real shell, lockout, approval |
 | `make test-integration` | loopback, fake capture/encode | full host↔client sessions: negotiation, video across the wire, input, passcode/approval gating, junk resistance |
 | fuzz targets | 30 s per target on every PR, 15 min per target nightly | parsers for wire, H.264, reassembly, terminal bytes and UI text, plus the host and viewer session state machines |
+| `make test-perf` | release build, offline | the hot paths of `core/` measured rather than only exercised: allocations per unit, the cost at 4× the input, and the drift against a baseline recorded on that machine |
 
 CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
 `--strict`, Android Lint, actionlint + shellcheck, ASan/TSan runs of all three suites,
@@ -213,6 +214,18 @@ CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 
 on arm64 Linux, an Android emulator and the iOS Simulator.
 
 ## 9. Decisions worth remembering
+
+- **The performance suite gates on allocations and shape, not on milliseconds**: the
+  three test suites build debug, and CI runs them again under ASan, TSan and coverage,
+  where a wall-clock budget measures the sanitizer rather than the code. So `core_perf`
+  (release preset, `make test-perf`) fails on two machine-independent things —
+  allocations per packet, frame or KB, counted by replacing the global `operator new`,
+  and a `-scaling` row whose time grows far faster than its input — and keeps the timing
+  half as a comparison against `out/perf/baseline.txt`, recorded per machine by
+  `make perf-baseline` and never committed. That split is what lets the suite fail a
+  regression like "the reassembler now copies every piece twice" on a laptop, a CI
+  runner or a phone alike, while still printing ns per unit and MB/s for the paths where
+  the number itself is the point.
 
 - **The command-line client is a fourth front-end, not a second implementation**: it
   parses flags in `core/cli`, then drives exactly the pieces the desktop apps drive —
