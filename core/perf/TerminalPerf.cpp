@@ -91,13 +91,13 @@ void RunTerminalPerf() {
         }});
 
     Measure(Workload{"terminal/snapshot-200x50", "snapshot", 1, 0, 8.0, [&] {
-        const term::TerminalSnapshot snapshot = term::SnapshotScreen(wide, 0);
-        Consume(snapshot.cells.size());
-    }});
+                         const term::TerminalSnapshot snapshot = term::SnapshotScreen(wide, 0);
+                         Consume(snapshot.cells.size());
+                     }});
 
     Measure(Workload{"terminal/render-200x50", "render", 1, 0, 12.0, [&] {
-        Consume(term::RenderScreen(wide).size());
-    }});
+                         Consume(term::RenderScreen(wide).size());
+                     }});
 
     term::Screen scalingScreen(TermSize{kNarrowCols, kNarrowRows});
     MeasureScaling(ScalingWorkload{"terminal/screen-write-scaling", "KB", 64, 256, 7.0,

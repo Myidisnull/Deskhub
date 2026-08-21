@@ -227,6 +227,18 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   runner or a phone alike, while still printing ns per unit and MB/s for the paths where
   the number itself is the point.
 
+- **`FileHost` never sends while holding its own lock**: the QUIC service loop runs
+  `QuicEndpoint::Poll` under `SessionTransport::sendMutex_`, and a connection that closes
+  there calls straight back into `FileHost::OnPeerGone`, which takes `FileHost::mutex_`.
+  So `sendMutex_ -> mutex_` is fixed by the transport. Any path that took `mutex_` first
+  and then sent — `FileReceiver` emitting an accept, an ack or a cancel through
+  `hooks.send` — closed the cycle, and TSan caught it as a lock-order inversion between
+  the receive loop and a UI thread flipping `SetAccepting(false)` on a live transfer.
+  Records the receiver emits are therefore queued into `outbox_` under `mutex_` and sent
+  only after it is released, with `outboxMutex_` held across both halves so a peer still
+  sees them in the order they were produced. `OnPeerGone` cannot send at all: it already
+  runs under `sendMutex_`, so it drops whatever it queued.
+
 - **The command-line client is a fourth front-end, not a second implementation**: it
   parses flags in `core/cli`, then drives exactly the pieces the desktop apps drive —
   `AgentLoop` to host, `ClientEngine` to watch, `TerminalViewer` to open a shell. The

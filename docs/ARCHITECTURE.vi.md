@@ -212,6 +212,18 @@ iOS Simulator.
 
 ## 9. Các quyết định đáng nhớ
 
+- **`FileHost` không bao giờ gửi khi đang giữ khoá của chính nó**: vòng lặp phục vụ QUIC
+  chạy `QuicEndpoint::Poll` dưới `SessionTransport::sendMutex_`, và một kết nối đóng lại ở
+  đó sẽ gọi thẳng ngược vào `FileHost::OnPeerGone`, nơi lấy `FileHost::mutex_`. Nghĩa là
+  thứ tự `sendMutex_ -> mutex_` đã bị tầng vận chuyển ấn định. Bất kỳ đường nào lấy
+  `mutex_` trước rồi mới gửi — `FileReceiver` phát một accept, một ack hay một cancel qua
+  `hooks.send` — đều khép kín vòng lặp, và TSan bắt được nó dưới dạng lock-order inversion
+  giữa vòng lặp nhận và một luồng UI gạt `SetAccepting(false)` khi đang có transfer chạy.
+  Vì vậy các bản ghi mà receiver phát ra được xếp vào `outbox_` dưới `mutex_` rồi chỉ gửi
+  sau khi đã nhả khoá, với `outboxMutex_` giữ suốt cả hai nửa để phía bên kia vẫn nhận
+  đúng thứ tự chúng được sinh ra. Riêng `OnPeerGone` thì không thể gửi gì: nó vốn đã chạy
+  dưới `sendMutex_`, nên nó bỏ đi những gì đã xếp hàng.
+
 - **Bộ đo hiệu năng chặn theo số lần cấp phát và hình dạng chi phí, không theo mili-giây**:
   cả ba bộ test đều dựng bản debug, và CI còn chạy lại chúng dưới ASan, TSan và coverage —
   nơi một hạn mức thời gian đo chính sanitizer chứ không đo mã. Vì vậy `core_perf` (preset

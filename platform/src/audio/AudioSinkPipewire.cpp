@@ -7,6 +7,7 @@
 #include <spa/utils/result.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <vector>
@@ -31,8 +32,8 @@ struct AudioSink::Impl {
     size_t readAt = 0;
     size_t filled = 0;
 
-    uint64_t dropped = 0;
-    uint64_t starved = 0;
+    std::atomic<uint64_t> dropped{0};
+    std::atomic<uint64_t> starved{0};
 
     static void OnProcess(void* userdata);
     static void OnStateChanged(void* userdata, pw_stream_state old, pw_stream_state now,
@@ -58,7 +59,7 @@ struct AudioSink::Impl {
             const size_t drop = std::min(pcm.size(), filled);
             readAt = (readAt + drop) % ring.size();
             filled -= drop;
-            ++dropped;
+            dropped.fetch_add(1, std::memory_order_relaxed);
         }
         size_t writeAt = (readAt + filled) % ring.size();
         for (int16_t s : pcm) {
@@ -95,7 +96,7 @@ void AudioSink::Impl::OnProcess(void* userdata) {
     const size_t got = impl->Take(out, wantedSamples);
     if (got < wantedSamples) {
         std::memset(out + got, 0, (wantedSamples - got) * sizeof(int16_t));
-        ++impl->starved;
+        impl->starved.fetch_add(1, std::memory_order_relaxed);
     }
 
     d.chunk->offset = 0;
@@ -226,11 +227,11 @@ size_t AudioSink::framesQueued() const {
 }
 
 uint64_t AudioSink::framesDropped() const {
-    return impl_ ? impl_->dropped : 0;
+    return impl_ ? impl_->dropped.load(std::memory_order_relaxed) : 0;
 }
 
 uint64_t AudioSink::framesStarved() const {
-    return impl_ ? impl_->starved : 0;
+    return impl_ ? impl_->starved.load(std::memory_order_relaxed) : 0;
 }
 
 const char* AudioSink::BackendName() {

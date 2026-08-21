@@ -66,15 +66,24 @@ private:
         deskhub::TransferReason reason = deskhub::TransferReason::Accepted;
     };
 
+    struct OutboundRecord {
+        NetAddr addr{};
+        std::vector<uint8_t> bytes{};
+    };
+
     Peer* PeerFor(const NetAddr& from);
     void RefreshLimits(Peer& peer);
     std::vector<std::string> TakeAudit();
+    std::vector<OutboundRecord> TakeOutbox();
+    static void SendOutbox(SessionTransport* sock, const std::vector<OutboundRecord>& records);
 
     SessionTransport* sock_ = nullptr;
     FileHostCallbacks cb_{};
     std::filesystem::path dir_{};
     std::map<uint64_t, std::unique_ptr<Peer>> peers_{};
     std::vector<std::string> audit_{};
+    std::vector<OutboundRecord> outbox_{};
+    std::mutex outboxMutex_{};
     mutable std::mutex mutex_{};
     std::atomic<bool> running_{false};
     std::atomic<bool> accepting_{false};

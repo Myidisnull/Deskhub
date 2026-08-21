@@ -54,6 +54,7 @@ void FileHost::Stop() {
             if (peer->receiver) peer->receiver->LinkLost();
         peers_.clear();
         sock_ = nullptr;
+        outbox_.clear();
         lines = TakeAudit();
     }
     for (const std::string& line : lines)
@@ -61,14 +62,20 @@ void FileHost::Stop() {
 }
 
 void FileHost::SetAccepting(bool on) {
+    const std::lock_guard<std::mutex> flushOrder(outboxMutex_);
     std::vector<std::string> lines;
+    std::vector<OutboundRecord> outbound;
+    SessionTransport* sock = nullptr;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         accepting_.store(on, std::memory_order_release);
         for (auto& [packed, peer] : peers_)
             if (peer->receiver) peer->receiver->SetAccepting(on);
+        sock = sock_;
+        outbound = TakeOutbox();
         lines = TakeAudit();
     }
+    SendOutbox(sock, outbound);
     for (const std::string& line : lines)
         if (cb_.onAudit) cb_.onAudit(line);
     if (cb_.onTransfersChanged) cb_.onTransfersChanged();
@@ -83,6 +90,18 @@ std::vector<std::string> FileHost::TakeAudit() {
     std::vector<std::string> lines;
     lines.swap(audit_);
     return lines;
+}
+
+std::vector<FileHost::OutboundRecord> FileHost::TakeOutbox() {
+    std::vector<OutboundRecord> records;
+    records.swap(outbox_);
+    return records;
+}
+
+void FileHost::SendOutbox(SessionTransport* sock, const std::vector<OutboundRecord>& records) {
+    if (sock == nullptr) return;
+    for (const OutboundRecord& record : records)
+        sock->SendRecordOn(record.addr, kQuicFileStream, record.bytes);
 }
 
 FileHost::Peer* FileHost::PeerFor(const NetAddr& from) {
@@ -104,7 +123,7 @@ FileHost::Peer* FileHost::PeerFor(const NetAddr& from) {
     Peer* raw = peer.get();
     deskhub::FileReceiverCallbacks hooks;
     hooks.send = [this, raw](std::span<const uint8_t> message) {
-        if (sock_) sock_->SendRecordOn(raw->addr, kQuicFileStream, message);
+        outbox_.push_back(OutboundRecord{raw->addr, {message.begin(), message.end()}});
     };
     hooks.open = [raw](uint16_t index, const std::string& safeName, uint64_t size) {
         return raw->store->Open(index, safeName, size);
@@ -135,7 +154,10 @@ void FileHost::RefreshLimits(Peer& peer) {
 }
 
 void FileHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> message) {
+    const std::lock_guard<std::mutex> flushOrder(outboxMutex_);
     std::vector<std::string> lines;
+    std::vector<OutboundRecord> outbound;
+    SessionTransport* sock = nullptr;
     bool changed = false;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
@@ -155,9 +177,12 @@ void FileHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> messa
         peer->live = peer->receiver->Busy();
         peer->reason = peer->receiver->Reason();
         changed = wasLive != peer->live;
+        sock = sock_;
+        outbound = TakeOutbox();
         lines = TakeAudit();
     }
 
+    SendOutbox(sock, outbound);
     for (const std::string& line : lines) {
         LOGI("%s", line.c_str());
         if (cb_.onAudit) cb_.onAudit(line);
@@ -175,6 +200,7 @@ void FileHost::OnPeerGone(const NetAddr& peer) {
         if (at->second->receiver) at->second->receiver->LinkLost();
         changed = at->second->live;
         peers_.erase(at);
+        outbox_.clear();
         lines = TakeAudit();
     }
     for (const std::string& line : lines) {

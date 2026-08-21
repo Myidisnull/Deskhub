@@ -36,17 +36,17 @@ void RunControlPerf() {
         BuildVideoPacket(datagram, 1, videoHeader, false, false, videoPayload);
 
     Measure(Workload{"wire/build-video-packet", "packet", 1, videoPacketBytes, 0.0, [&] {
-        ++videoHeader.pktIndex;
-        Consume(BuildVideoPacket(datagram, 1, videoHeader, false, false, videoPayload));
-    }});
+                         ++videoHeader.pktIndex;
+                         Consume(BuildVideoPacket(datagram, 1, videoHeader, false, false, videoPayload));
+                     }});
 
     Measure(Workload{"wire/parse-video-packet", "packet", 1, videoPacketBytes, 0.0, [&] {
-        const std::span<const uint8_t> wire(datagram.data(), videoPacketBytes);
-        const auto header = ParseCommonHeader(wire);
-        if (!header) return;
-        const auto packet = ParseVideoPacket(*header, PayloadOf(wire));
-        if (packet) Consume(packet->payload.size());
-    }});
+                         const std::span<const uint8_t> wire(datagram.data(), videoPacketBytes);
+                         const auto header = ParseCommonHeader(wire);
+                         if (!header) return;
+                         const auto packet = ParseVideoPacket(*header, PayloadOf(wire));
+                         if (packet) Consume(packet->payload.size());
+                     }});
 
     std::vector<InputEvent> events(kInputBatchEvents);
     for (size_t i = 0; i < events.size(); ++i)
@@ -69,13 +69,13 @@ void RunControlPerf() {
     AudioJitterBuffer jitter;
     uint32_t audioSeq = 0;
     Measure(Workload{"audio/jitter-buffer-push-pop", "frame", 1, kAudioPayloadBytes, 3.5, [&] {
-        const AudioPacketView packet{AudioHeader{audioSeq, audioSeq * kAudioFrameUs},
-            audioPayload};
-        jitter.Push(packet);
-        ++audioSeq;
-        const auto frame = jitter.Pop();
-        if (frame) Consume(frame->payload.size());
-    }});
+                         const AudioPacketView packet{AudioHeader{audioSeq, audioSeq * kAudioFrameUs},
+                             audioPayload};
+                         jitter.Push(packet);
+                         ++audioSeq;
+                         const auto frame = jitter.Pop();
+                         if (frame) Consume(frame->payload.size());
+                     }});
 
     RetransmitCache cache;
     uint32_t cachedFrameId = 0;
@@ -98,10 +98,10 @@ void RunControlPerf() {
     VideoPacer pacer;
     uint64_t pacerNowUs = 0;
     Measure(Workload{"control/video-pacer", "frame", 1, 0, 0.0, [&] {
-        pacerNowUs += kFrameIntervalUs;
-        pacer.ObserveArrival(pacerNowUs, pacerNowUs + 3000);
-        Consume(pacer.DisplayTimeUs(pacerNowUs, pacerNowUs + 3000));
-    }});
+                         pacerNowUs += kFrameIntervalUs;
+                         pacer.ObserveArrival(pacerNowUs, pacerNowUs + 3000);
+                         Consume(pacer.DisplayTimeUs(pacerNowUs, pacerNowUs + 3000));
+                     }});
 
     AudioJitterBuffer scalingJitter;
     uint32_t scalingSeq = 0;

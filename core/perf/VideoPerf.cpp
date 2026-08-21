@@ -115,18 +115,18 @@ void RunVideoPerf() {
     plainPacketizer.SetSessionId(1);
     uint32_t plainFrameId = 0;
     Measure(Workload{"video/packetize", "frame", 1, nal.size(), 0.0, [&] {
-        plainPacketizer.SendFrame(nal, plainFrameId, plainFrameId * kFrameIntervalUs, true, sink);
-        ++plainFrameId;
-    }});
+                         plainPacketizer.SendFrame(nal, plainFrameId, plainFrameId * kFrameIntervalUs, true, sink);
+                         ++plainFrameId;
+                     }});
 
     Packetizer fecPacketizer;
     fecPacketizer.SetSessionId(1);
     fecPacketizer.SetFecEnabled(true);
     uint32_t fecFrameId = 0;
     Measure(Workload{"video/packetize-with-fec", "frame", 1, nal.size(), 0.0, [&] {
-        fecPacketizer.SendFrame(nal, fecFrameId, fecFrameId * kFrameIntervalUs, true, sink);
-        ++fecFrameId;
-    }});
+                         fecPacketizer.SendFrame(nal, fecFrameId, fecFrameId * kFrameIntervalUs, true, sink);
+                         ++fecFrameId;
+                     }});
 
     std::vector<Datagram> packets = PacketizeOnce(nal, false);
     const std::vector<size_t> inOrder = ArrivalOrder(packets.size());
@@ -135,18 +135,18 @@ void RunVideoPerf() {
     Reassembler orderedReassembler(kFrameIntervalUs);
     uint32_t orderedFrameId = 0;
     Measure(Workload{"video/reassemble-in-order", "packet", packets.size(), nal.size(), 1.2, [&] {
-        Consume(FeedFrame(orderedReassembler, packets, inOrder, orderedFrameId,
-            orderedFrameId * kFrameIntervalUs));
-        ++orderedFrameId;
-    }});
+                         Consume(FeedFrame(orderedReassembler, packets, inOrder, orderedFrameId,
+                             orderedFrameId * kFrameIntervalUs));
+                         ++orderedFrameId;
+                     }});
 
     Reassembler scrambledReassembler(kFrameIntervalUs);
     uint32_t scrambledFrameId = 0;
     Measure(Workload{"video/reassemble-out-of-order", "packet", packets.size(), nal.size(), 1.2, [&] {
-        Consume(FeedFrame(scrambledReassembler, packets, scrambled, scrambledFrameId,
-            scrambledFrameId * kFrameIntervalUs));
-        ++scrambledFrameId;
-    }});
+                         Consume(FeedFrame(scrambledReassembler, packets, scrambled, scrambledFrameId,
+                             scrambledFrameId * kFrameIntervalUs));
+                         ++scrambledFrameId;
+                     }});
 
     std::vector<Datagram> fecPackets = PacketizeOnce(nal, true);
     const std::vector<size_t> lossy = OrderMissingOnePacket(fecPackets);
@@ -155,10 +155,10 @@ void RunVideoPerf() {
     Reassembler recoveringReassembler(kFrameIntervalUs);
     uint32_t recoveredFrameId = 0;
     Measure(Workload{"video/reassemble-fec-recovery", "packet", fecDataPackets, nal.size(), 1.4, [&] {
-        Consume(FeedFrame(recoveringReassembler, fecPackets, lossy, recoveredFrameId,
-            recoveredFrameId * kFrameIntervalUs));
-        ++recoveredFrameId;
-    }});
+                         Consume(FeedFrame(recoveringReassembler, fecPackets, lossy, recoveredFrameId,
+                             recoveredFrameId * kFrameIntervalUs));
+                         ++recoveredFrameId;
+                     }});
 
     Reassembler nackReassembler(kFrameIntervalUs);
     std::vector<uint16_t> nackIndices(kMaxNackIndices);
@@ -170,13 +170,13 @@ void RunVideoPerf() {
     uint32_t nackFrameId = 0;
     uint64_t nackNowUs = 0;
     Measure(Workload{"video/plan-nack", "plan", 1, 0, 70.0, [&] {
-        for (Datagram& packet : packets) SetFrameId(packet, nackFrameId);
-        for (size_t index : everySecondPacket) FeedOne(nackReassembler, packets[index], nackNowUs);
-        nackNowUs += kFrameIntervalUs;
-        uint32_t frameId = 0;
-        Consume(nackReassembler.PlanNack(nackNowUs, 20'000, frameId, nackIndices));
-        ++nackFrameId;
-    }});
+                         for (Datagram& packet : packets) SetFrameId(packet, nackFrameId);
+                         for (size_t index : everySecondPacket) FeedOne(nackReassembler, packets[index], nackNowUs);
+                         nackNowUs += kFrameIntervalUs;
+                         uint32_t frameId = 0;
+                         Consume(nackReassembler.PlanNack(nackNowUs, 20'000, frameId, nackIndices));
+                         ++nackFrameId;
+                     }});
 
     std::vector<uint8_t> source(size_t(kSourceWidth) * kSourceHeight * media::kPackedPixelBytes);
     std::vector<uint8_t> scaled(size_t(kScaledWidth) * kScaledHeight * media::kPackedPixelBytes);
@@ -184,9 +184,9 @@ void RunVideoPerf() {
     media::RgbDownscaler downscaler;
     downscaler.Configure(kSourceWidth, kSourceHeight, kScaledWidth, kScaledHeight);
     Measure(Workload{"video/downscale-1080p-to-720p", "frame", 1, source.size(), 0.0, [&] {
-        downscaler.Scale(source.data(), kSourceWidth * media::kPackedPixelBytes, scaled.data(),
-            kScaledWidth * media::kPackedPixelBytes);
-    }});
+                         downscaler.Scale(source.data(), kSourceWidth * media::kPackedPixelBytes, scaled.data(),
+                             kScaledWidth * media::kPackedPixelBytes);
+                     }});
 
     std::vector<uint8_t> scalingNal(kScalingFrameBytes);
     FillRandom(scalingNal);
