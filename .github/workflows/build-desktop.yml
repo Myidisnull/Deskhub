@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           cmake --build --preset x64-release 2>&1 | tee app-build.log ||
-            { grep -iE "error|LNK[0-9]" app-build.log | tail -40 | sed 's/^/::error::/' || true
+            { grep -iE "error|warning C[0-9]|LNK[0-9]" app-build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
       - name: Assert the exe needs no redistributable

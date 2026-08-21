@@ -50,12 +50,12 @@ jobs:
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
 
-      - name: Build the three test binaries
+      - name: Build the three test binaries and the perf harness
         shell: bash
         run: |
           cmake --build --preset ${{ matrix.preset }} \
-              --target core_tests platform_tests integration_tests 2>&1 | tee build.log ||
-            { grep -iE "error|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
+              --target core_tests platform_tests integration_tests core_perf 2>&1 | tee build.log ||
+            { grep -iE "error|warning C[0-9]|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
       - name: Run them through CTest

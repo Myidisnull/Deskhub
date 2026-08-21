@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           cmake --build --preset x64-release --target deskhub_cli 2>&1 | tee cli-build.log ||
-            { grep -iE "error|LNK[0-9]" cli-build.log | tail -40 | sed 's/^/::error::/' || true
+            { grep -iE "error|warning C[0-9]|LNK[0-9]" cli-build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
       - name: Assert the exe needs no redistributable
