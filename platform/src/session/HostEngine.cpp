@@ -255,6 +255,11 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         std::lock_guard<std::mutex> lk(errMutex_);
         lastError_.clear();
     }
+    sock_.SetBulkReady([this] { return files_ == nullptr || files_->DiskKeepingUp(); });
+    sock_.SetOnStreamBroken([this](const NetAddr& peer, uint64_t stream) {
+        if (stream == kQuicFileStream && files_ != nullptr) files_->OnPeerGone(peer);
+    });
+
     running_.store(true, std::memory_order_release);
     recvThread_ = std::thread([this] {
         RecvLoop();

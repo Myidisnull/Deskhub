@@ -16,7 +16,11 @@ std::string Utf8Of(const std::filesystem::path& path) {
 }
 
 FileHost::~FileHost() {
-    Stop();
+    try {
+        Stop();
+    } catch (...) {
+        peers_.clear();
+    }
 }
 
 bool FileHost::Start(SessionTransport& sock, const std::filesystem::path& dir,
@@ -90,6 +94,7 @@ FileHost::Peer* FileHost::PeerFor(const NetAddr& from) {
     peer->addr = from;
     peer->endpoint = from.ToString();
     peer->store = std::make_unique<FileStore>();
+    peer->store->ShareBacklogWith(&diskBacklog_);
     if (!peer->store->SetDirectory(dir_)) return nullptr;
 
     deskhub::Fingerprint fingerprint{};

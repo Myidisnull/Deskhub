@@ -23,7 +23,11 @@ constexpr uint64_t kShellReportIntervalUs = 1'000'000;
 }
 
 TerminalHost::~TerminalHost() {
-    Stop();
+    try {
+        Stop();
+    } catch (...) {
+        shells_.clear();
+    }
 }
 
 bool TerminalHost::Start(SessionTransport& sock, std::string shell,

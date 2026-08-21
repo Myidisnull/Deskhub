@@ -22,6 +22,7 @@ struct Peer {
     std::string stream{};
     std::vector<std::vector<uint8_t>> datagrams{};
     std::vector<std::vector<uint8_t>> foreign{};
+    std::vector<uint64_t> broken{};
     bool connected = false;
     bool closed = false;
 };
@@ -42,6 +43,9 @@ deskhubp::QuicCallbacks HooksFor(Peer& peer) {
     };
     hooks.onForeignDatagram = [&peer](const NetAddr&, std::span<const uint8_t> bytes) {
         peer.foreign.emplace_back(bytes.begin(), bytes.end());
+    };
+    hooks.onStreamBroken = [&peer](deskhubp::QuicConnId, uint64_t stream) {
+        peer.broken.push_back(stream);
     };
     return hooks;
 }
@@ -136,6 +140,71 @@ void TestHandshakeStreamAndDatagram() {
     if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
 }
 
+void TestARefusedStreamIsResetNotTruncated() {
+    std::printf("[quic] a stream that stops taking bytes is reset, and its owner is told...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[quic] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
+    const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    Peer server;
+    Peer client;
+
+    deskhubp::QuicSettings serverSettings;
+    serverSettings.certPemPath = identity.certPath;
+    serverSettings.keyPemPath = identity.keyPath;
+    if (!server.endpoint.Listen(serverSettings, "127.0.0.1", uint16_t(kTestPort + 1),
+            HooksFor(server)))
+        return;
+
+    const NetAddr target{0x7F000001u, uint16_t(kTestPort + 1)};
+    if (!client.endpoint.Connect(deskhubp::QuicSettings{}, target, "deskhub-test",
+            HooksFor(client)))
+        return;
+
+    for (int i = 0; i < kMaxRounds && !(server.connected && client.connected); ++i)
+        Pump(client, server, 1);
+    if (!client.connected || !server.connected) return;
+
+    const std::string payload = "the first and only whole record";
+    const auto asBytes = [](const std::string& text) {
+        return std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(text.data()),
+            text.size());
+    };
+
+    Check(client.endpoint.SendStream(client.conn, deskhubp::kQuicFileStream, asBytes(payload),
+              true),
+        "the file stream carries a record and is finished");
+    for (int i = 0; i < kMaxRounds && server.stream.size() < payload.size(); ++i)
+        Pump(client, server, 1);
+    Check(server.stream == payload, "which arrives whole");
+
+    const std::string orphan = "bytes the stream can no longer take";
+    Check(client.endpoint.SendStream(client.conn, deskhubp::kQuicFileStream, asBytes(orphan)),
+        "a later write is queued before anyone knows the stream is finished");
+    Pump(client, server, 20);
+
+    Check(client.broken.size() == 1 && client.broken[0] == deskhubp::kQuicFileStream,
+        "the owner is told the file stream broke, so the transfer fails instead of hanging");
+    Check(server.stream == payload,
+        "and not one orphan byte reached the peer, so its record framer never sees half a "
+        "record and the connection survives");
+    Check(!client.endpoint.SendStream(client.conn, deskhubp::kQuicFileStream, asBytes(orphan)),
+        "further writes to the broken stream are refused rather than quietly buffered");
+
+    client.endpoint.Close();
+    server.endpoint.Close();
+
+    if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
+    if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+}
+
 void TestUnstartedEndpointIsHarmless() {
     std::printf("[quic] an endpoint that never started refuses everything quietly...\n");
     deskhubp::QuicEndpoint idle;
@@ -157,5 +226,6 @@ void TestUnstartedEndpointIsHarmless() {
 
 void RunQuicEndpointTests() {
     TestHandshakeStreamAndDatagram();
+    TestARefusedStreamIsResetNotTruncated();
     TestUnstartedEndpointIsHarmless();
 }

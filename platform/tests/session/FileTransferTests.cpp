@@ -223,6 +223,139 @@ void TestFileStoreNeverOverwritesOrLeavesScraps() {
     Check(scraps == 0, "and no half-written part file is left behind");
 }
 
+void TestTheDiskQueueIsBoundedAndOffTheLoop() {
+    std::printf("[store] writes leave the caller's thread, and the queue has a ceiling...\n");
+    const std::filesystem::path landing = Scratch("disk-queue");
+
+    std::atomic<size_t> backlog{0};
+    deskhubp::FileStore store;
+    store.ShareBacklogWith(&backlog);
+    Check(store.SetDirectory(landing), "the store takes the folder");
+
+    constexpr size_t kChunk = deskhub::kMaxFileChunkBytes;
+    constexpr int kWrites = 512;
+    const std::vector<uint8_t> block = Pattern(kChunk, 3);
+
+    const std::string name = store.Open(0, "bulk.bin", uint64_t(kChunk) * kWrites);
+    Check(!name.empty(), "and opens a file for a batch far larger than the queue");
+
+    size_t deepest = 0;
+    uint64_t slowestUs = 0;
+    for (int i = 0; i < kWrites; ++i) {
+        const uint64_t t0 = NowUs();
+        Check(store.Write(0, block), "every chunk is taken");
+        const uint64_t spent = NowUs() - t0;
+        if (spent > slowestUs) slowestUs = spent;
+        const size_t seen = backlog.load(std::memory_order_relaxed);
+        if (seen > deepest) deepest = seen;
+    }
+
+    std::printf("        peak queue %zu B (cap %zu B), slowest Write %llu us\n", deepest,
+        deskhubp::kMaxQueuedWriteBytes, static_cast<unsigned long long>(slowestUs));
+
+    Check(deepest > 0,
+        "work really piled up behind another thread, so the caller was never the one "
+        "waiting on the disk");
+    Check(deepest <= deskhubp::kMaxQueuedWriteBytes + kChunk,
+        "and the queue never ran past its ceiling, so a disk slower than the network "
+        "throttles the sender instead of eating memory");
+
+    store.Close(0, true);
+    Check(backlog.load(std::memory_order_relaxed) == 0, "closing drains the queue to nothing");
+
+    const std::vector<uint8_t> landed = ReadFile(landing / name);
+    Check(landed.size() == kChunk * size_t(kWrites), "the whole file reached the disk");
+    bool intact = landed.size() == kChunk * size_t(kWrites);
+    for (int i = 0; intact && i < kWrites; ++i)
+        intact = std::equal(block.begin(), block.end(), landed.begin() + i * std::ptrdiff_t(kChunk));
+    Check(intact, "byte for byte and in order, though another thread wrote every chunk");
+}
+
+void TestTheUploadRingKeepsTheLoopOffTheDisk() {
+    std::printf("[files] the send loop reads from a bounded ring, never from the disk...\n");
+    const std::filesystem::path source = Scratch("ring-send");
+
+    const std::vector<uint8_t> bytes = Pattern(deskhub::kMaxFileChunkBytes * 200 + 77, 6);
+    const std::filesystem::path file = WriteFile(source, "bulk.bin", bytes);
+
+    std::vector<std::vector<uint8_t>> replies;
+    uint64_t chunkBytes = 0;
+    size_t chunkCount = 0;
+
+    deskhubp::FileUploadCallbacks hooks;
+    hooks.send = [&replies, &chunkBytes, &chunkCount](std::span<const uint8_t> message) {
+        const auto header = deskhub::ParseCommonHeader(message);
+        if (!header) return false;
+        const std::span<const uint8_t> payload = deskhub::PayloadOf(message);
+        std::vector<uint8_t> out(deskhub::kMaxRecordSize);
+
+        if (header->type == deskhub::MsgType::FileOffer) {
+            const auto offer = deskhub::ParseFileOffer(payload);
+            if (!offer) return false;
+            deskhub::FileAccept accept;
+            accept.batchId = offer->batchId;
+            accept.reason = deskhub::TransferReason::Accepted;
+            out.resize(deskhub::BuildFileAccept(out, accept));
+            replies.push_back(out);
+            return true;
+        }
+        if (header->type == deskhub::MsgType::FileChunk) {
+            const auto chunk = deskhub::ParseFileChunk(payload);
+            if (!chunk) return false;
+            chunkBytes += chunk->data.size();
+            ++chunkCount;
+            return true;
+        }
+        if (header->type == deskhub::MsgType::FileDone) {
+            const auto done = deskhub::ParseFileDone(payload);
+            if (!done) return false;
+            deskhub::FileAck ack;
+            ack.batchId = done->batchId;
+            ack.fileIndex = done->fileIndex;
+            ack.reason = deskhub::TransferReason::Accepted;
+            out.resize(deskhub::BuildFileAck(out, ack));
+            replies.push_back(out);
+            return true;
+        }
+        return true;
+    };
+
+    deskhub::FileSenderState finished = deskhub::FileSenderState::Idle;
+    hooks.onFinished = [&finished](deskhub::FileSenderState state, deskhub::TransferReason) {
+        finished = state;
+    };
+
+    deskhubp::FileUpload upload(std::move(hooks));
+    Check(upload.Begin({file}), "the batch is offered");
+
+    size_t widestPump = 0;
+    uint64_t slowestUs = 0;
+    for (int i = 0; i < 200000 && upload.Busy(); ++i) {
+        std::vector<std::vector<uint8_t>> ready;
+        ready.swap(replies);
+        for (const std::vector<uint8_t>& reply : ready) upload.HandleMessage(reply);
+
+        const uint64_t t0 = NowUs();
+        const size_t moved = upload.Pump();
+        const uint64_t spent = NowUs() - t0;
+        if (spent > slowestUs) slowestUs = spent;
+        if (moved > widestPump) widestPump = moved;
+        if (moved == 0 && ready.empty()) SleepUs(100);
+    }
+
+    std::printf("        %zu chunks, widest Pump %zu (cap %zu), slowest Pump %llu us\n",
+        chunkCount, widestPump, deskhubp::kFileChunksPerTick,
+        static_cast<unsigned long long>(slowestUs));
+
+    Check(finished == deskhub::FileSenderState::Done, "the whole file goes out");
+    Check(chunkBytes == bytes.size(), "every byte of it, exactly once");
+    Check(widestPump <= deskhubp::kFileChunksPerTick,
+        "no single turn of the net loop was handed more than its chunk budget");
+    Check(slowestUs < 250'000,
+        "and no turn ever parked the loop on the disk, which is what a read-ahead thread "
+        "behind a bounded ring buys");
+}
+
 void TestABatchCrossesARealConnection() {
     std::printf("[files] a batch crosses a real QUIC connection and lands whole...\n");
     const std::filesystem::path source = Scratch("send");
@@ -375,6 +508,8 @@ void TestBeginRefusesWhatItCannotSend() {
 
 void RunFileTransferPlatformTests() {
     TestFileStoreNeverOverwritesOrLeavesScraps();
+    TestTheDiskQueueIsBoundedAndOffTheLoop();
+    TestTheUploadRingKeepsTheLoopOffTheDisk();
     TestBeginRefusesWhatItCannotSend();
     TestTheSendSurfaceTheClientPageDrives();
     TestABatchCrossesARealConnection();

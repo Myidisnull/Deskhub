@@ -39,6 +39,22 @@ bool CarriesVideo(std::span<const uint8_t> message) {
     return header.has_value() && header->chan == deskhub::Chan::Video;
 }
 
+bool CarriesAudio(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    return header.has_value() && header->chan == deskhub::Chan::Audio;
+}
+
+Lane LaneOf(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return Lane::Interactive;
+    switch (header->chan) {
+        case deskhub::Chan::Video:
+        case deskhub::Chan::Audio: return Lane::Realtime;
+        case deskhub::Chan::File: return Lane::Bulk;
+        default: return Lane::Interactive;
+    }
+}
+
 bool IsBeaconMessage(std::span<const uint8_t> message) {
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
     if (!header) return false;
@@ -68,6 +84,12 @@ QuicCallbacks SessionTransport::MakeCallbacks() {
     };
     hooks.onForeignDatagram = [this](const NetAddr& from, std::span<const uint8_t> bytes) {
         Deliver(from, bytes, false);
+    };
+    hooks.pauseStream = [this](uint64_t stream) {
+        return stream == kQuicFileStream && BulkBlocked();
+    };
+    hooks.onStreamBroken = [this](QuicConnId conn, uint64_t stream) {
+        brokenStreams_.emplace_back(NetAddr::Unpack(conn), stream);
     };
     hooks.onClosed = [this](QuicConnId conn, const NetAddr& peer) {
         for (auto it = framers_.begin(); it != framers_.end();) {
@@ -103,8 +125,9 @@ bool SessionTransport::WaitEstablished(const NetAddr& peer, uint32_t timeoutMs) 
 void SessionTransport::Close() {
     endpoint_.Close();
     framers_.clear();
-    inbox_.clear();
+    for (std::deque<TransportMessage>& lane : inbox_) lane.clear();
     authInbox_.clear();
+    brokenStreams_.clear();
     hostAuth_.clear();
     authenticated_.clear();
 }
@@ -124,6 +147,21 @@ VideoPath SessionTransport::videoPath() const {
 
 void SessionTransport::SetOnPeerGone(std::function<void(const NetAddr&)> fn) {
     onPeerGone_ = std::move(fn);
+}
+
+void SessionTransport::SetOnStreamBroken(
+    std::function<void(const NetAddr&, uint64_t streamId)> fn) {
+    onStreamBroken_ = std::move(fn);
+}
+
+void SessionTransport::ReportBrokenStreams() {
+    std::vector<std::pair<NetAddr, uint64_t>> broken;
+    {
+        const std::lock_guard<std::mutex> lock(sendMutex_);
+        broken.swap(brokenStreams_);
+    }
+    if (!onStreamBroken_) return;
+    for (const auto& [peer, stream] : broken) onStreamBroken_(peer, stream);
 }
 
 void SessionTransport::OnStream(QuicConnId conn, uint64_t stream,
@@ -163,7 +201,46 @@ void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> mes
     TransportMessage queued;
     queued.from = from;
     queued.bytes.assign(message.begin(), message.end());
-    inbox_.push_back(std::move(queued));
+    inbox_[size_t(LaneOf(message))].push_back(std::move(queued));
+}
+
+void SessionTransport::SetBulkReady(std::function<bool()> fn) {
+    bulkReady_ = std::move(fn);
+}
+
+size_t SessionTransport::BulkQueued() const {
+    return inbox_[size_t(Lane::Bulk)].size();
+}
+
+bool SessionTransport::BulkBlocked() const {
+    if (BulkQueued() >= kMaxBulkQueued) return true;
+    return bulkReady_ && !bulkReady_();
+}
+
+bool SessionTransport::BulkServable() const {
+    if (inbox_[size_t(Lane::Bulk)].empty()) return false;
+    return !bulkReady_ || bulkReady_();
+}
+
+bool SessionTransport::AnythingServable() const {
+    return !inbox_[size_t(Lane::Realtime)].empty() ||
+           !inbox_[size_t(Lane::Interactive)].empty() || BulkServable();
+}
+
+std::deque<TransportMessage>* SessionTransport::NextLane() {
+    const bool bulkDue = sinceBulkPop_ >= kBulkEveryNthPop;
+    if (bulkDue && BulkServable()) {
+        sinceBulkPop_ = 0;
+        return &inbox_[size_t(Lane::Bulk)];
+    }
+    for (const Lane lane : {Lane::Realtime, Lane::Interactive}) {
+        if (inbox_[size_t(lane)].empty()) continue;
+        ++sinceBulkPop_;
+        return &inbox_[size_t(lane)];
+    }
+    if (!BulkServable()) return nullptr;
+    sinceBulkPop_ = 0;
+    return &inbox_[size_t(Lane::Bulk)];
 }
 
 bool SessionTransport::HandleHostAuth(const NetAddr& from, std::span<const uint8_t> message) {
@@ -379,20 +456,23 @@ bool SessionTransport::SendTo(const NetAddr& to, const uint8_t* data, size_t len
 
     const std::lock_guard<std::mutex> lock(sendMutex_);
     if (!endpoint_.Established(to.Pack())) return endpoint_.SendRaw(to, message);
+    if (CarriesAudio(message)) return endpoint_.SendDatagram(to.Pack(), message);
     return SendReliable(to, kQuicControlStream, message);
 }
 
 int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
     if (!endpoint_.IsOpen()) return -1;
-    if (inbox_.empty()) {
+    if (!AnythingServable()) {
         endpoint_.WaitReadable(recvWaitMs_);
         const std::lock_guard<std::mutex> lock(sendMutex_);
         endpoint_.Poll(NowUs(), 0);
     }
-    if (inbox_.empty()) return 0;
+    ReportBrokenStreams();
+    std::deque<TransportMessage>* lane = NextLane();
+    if (lane == nullptr) return 0;
 
-    const TransportMessage message = std::move(inbox_.front());
-    inbox_.pop_front();
+    const TransportMessage message = std::move(lane->front());
+    lane->pop_front();
     from = message.from;
     const size_t take = std::min(cap, message.bytes.size());
     std::copy_n(message.bytes.begin(), take, buf);
@@ -406,6 +486,10 @@ std::optional<deskhub::Fingerprint> SessionTransport::PeerFingerprint(
 
 bool SessionTransport::Established(const NetAddr& peer) const {
     return endpoint_.Established(peer.Pack());
+}
+
+QuicSendStats SessionTransport::SendStats() const {
+    return endpoint_.SendStats();
 }
 
 size_t SessionTransport::MaxDatagramSize(const NetAddr& peer) const {

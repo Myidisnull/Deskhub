@@ -50,6 +50,10 @@ public:
 
     std::vector<deskhub::TransferRecord> Transfers() const;
 
+    bool DiskKeepingUp() const {
+        return diskBacklog_.load(std::memory_order_relaxed) < kMaxQueuedWriteBytes;
+    }
+
 private:
     struct Peer {
         NetAddr addr{};
@@ -74,6 +78,7 @@ private:
     mutable std::mutex mutex_{};
     std::atomic<bool> running_{false};
     std::atomic<bool> accepting_{false};
+    std::atomic<size_t> diskBacklog_{0};
 };
 
 }

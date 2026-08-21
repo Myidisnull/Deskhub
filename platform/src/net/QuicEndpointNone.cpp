@@ -67,6 +67,10 @@ size_t QuicEndpoint::MaxDatagramSize(QuicConnId) const {
     return 0;
 }
 
+QuicSendStats QuicEndpoint::SendStats() const {
+    return QuicSendStats{};
+}
+
 std::optional<deskhub::Fingerprint> QuicEndpoint::PeerFingerprint(QuicConnId) const {
     return std::nullopt;
 }

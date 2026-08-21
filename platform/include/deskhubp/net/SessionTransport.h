@@ -5,6 +5,7 @@
 #include "deskhubp/net/QuicEndpoint.h"
 #include "deskhubp/session/AuthNegotiation.h"
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -14,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace deskhubp {
@@ -22,6 +24,16 @@ enum class VideoPath : uint8_t {
     RawUdp = 0,
     QuicDatagram = 1,
 };
+
+enum class Lane : uint8_t {
+    Realtime = 0,
+    Interactive = 1,
+    Bulk = 2,
+};
+
+inline constexpr size_t kLaneCount = 3;
+inline constexpr size_t kMaxBulkQueued = 64;
+inline constexpr unsigned kBulkEveryNthPop = 8;
 
 struct TransportMessage {
     NetAddr from{};
@@ -63,14 +75,19 @@ public:
     bool SendRecord(const NetAddr& to, std::span<const uint8_t> message);
     bool SendRecordOn(const NetAddr& to, uint64_t streamId, std::span<const uint8_t> message);
 
+    void SetBulkReady(std::function<bool()> fn);
+    size_t BulkQueued() const;
+
     void SetVideoPath(VideoPath path);
     VideoPath videoPath() const;
 
     void SetOnPeerGone(std::function<void(const NetAddr&)> fn);
+    void SetOnStreamBroken(std::function<void(const NetAddr&, uint64_t streamId)> fn);
 
     std::optional<deskhub::Fingerprint> PeerFingerprint(const NetAddr& peer) const;
     bool Established(const NetAddr& peer) const;
     size_t MaxDatagramSize(const NetAddr& peer) const;
+    QuicSendStats SendStats() const;
 
     bool IsOpen() const;
     bool lastBindAddrInUse() const;
@@ -80,6 +97,11 @@ private:
     QuicCallbacks MakeCallbacks();
     void OnStream(QuicConnId conn, uint64_t stream, std::span<const uint8_t> bytes);
     void Deliver(const NetAddr& from, std::span<const uint8_t> message, bool overQuic);
+    bool BulkBlocked() const;
+    bool BulkServable() const;
+    std::deque<TransportMessage>* NextLane();
+    bool AnythingServable() const;
+    void ReportBrokenStreams();
     bool SendReliable(const NetAddr& to, uint64_t streamId,
         std::span<const uint8_t> message);
     bool HandleHostAuth(const NetAddr& from, std::span<const uint8_t> message);
@@ -88,8 +110,9 @@ private:
 
     QuicEndpoint endpoint_;
     std::map<uint64_t, deskhub::RecordStream> framers_;
-    std::deque<TransportMessage> inbox_;
+    std::array<std::deque<TransportMessage>, kLaneCount> inbox_;
     std::deque<TransportMessage> authInbox_;
+    std::vector<std::pair<NetAddr, uint64_t>> brokenStreams_;
     std::map<uint64_t, std::unique_ptr<HostAuth>> hostAuth_;
     std::map<uint64_t, bool> authenticated_;
     deskhub::AuthThrottle authThrottle_{};
@@ -98,7 +121,10 @@ private:
     bool hostAuthOn_ = false;
     bool clientAuthOn_ = false;
     std::function<void(const NetAddr&)> onPeerGone_;
+    std::function<void(const NetAddr&, uint64_t streamId)> onStreamBroken_;
     VideoPath videoPath_ = VideoPath::QuicDatagram;
+    std::function<bool()> bulkReady_;
+    unsigned sinceBulkPop_ = 0;
     uint32_t recvWaitMs_ = 10;
     mutable std::mutex sendMutex_;
 };

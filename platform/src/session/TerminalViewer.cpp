@@ -21,7 +21,11 @@ constexpr size_t kMaxOutboxBytes = size_t{256} * 1024;
 }
 
 TerminalViewer::~TerminalViewer() {
-    Stop();
+    try {
+        Stop();
+    } catch (...) {
+        outbox_.clear();
+    }
 }
 
 std::string TerminalViewer::Message() const {
@@ -389,9 +393,10 @@ void TerminalViewer::FlushOutbox() {
 
 void TerminalViewer::SendBytes(const std::string& bytes) {
     if (bytes.empty() || !Running()) return;
-    Post([this, bytes] {
+    const auto payload = std::make_shared<const std::string>(bytes);
+    Post([this, payload] {
         client_->SendInput(std::span<const uint8_t>(
-            reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size()));
+            reinterpret_cast<const uint8_t*>(payload->data()), payload->size()));
     });
 }
 

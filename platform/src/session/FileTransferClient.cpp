@@ -169,6 +169,10 @@ void FileTransferClient::Loop() {
     };
     upload_ = std::make_unique<FileUpload>(std::move(hooks));
 
+    sock_.SetOnStreamBroken([this](const NetAddr&, uint64_t stream) {
+        if (stream == kQuicFileStream && upload_) upload_->LinkLost();
+    });
+
     if (!upload_->Begin(config_.files)) {
         reason_.store(deskhub::TransferReason::ReadFailed, std::memory_order_release);
         SetState(FileTransferClientState::Failed, upload_->LastError());

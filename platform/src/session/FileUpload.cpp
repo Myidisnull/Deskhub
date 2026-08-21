@@ -3,6 +3,7 @@
 #include "deskhub/transfer/SafeName.h"
 #include "deskhubp/diag/Log.h"
 
+#include <algorithm>
 #include <system_error>
 #include <utility>
 
@@ -30,12 +31,101 @@ FileUpload::FileUpload(FileUploadCallbacks callbacks) : cb_(std::move(callbacks)
         pending_.progress = progress;
     };
     hooks.onFinished = [this](deskhub::FileSenderState state, deskhub::TransferReason reason) {
-        sources_.clear();
+        readerStop_ = true;
         pending_.haveFinish = true;
         pending_.state = state;
         pending_.reason = reason;
     };
     sender_ = std::make_unique<deskhub::FileSender>(std::move(hooks));
+}
+
+FileUpload::~FileUpload() {
+    StopReader();
+}
+
+void FileUpload::StartReader() {
+    ring_.clear();
+    ringBytes_ = 0;
+    readerStop_ = false;
+    readerEof_ = false;
+    readerFailed_ = false;
+    reader_ = std::thread([this] { ReaderThread(); });
+}
+
+void FileUpload::StopReader() {
+    if (!reader_.joinable()) return;
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        readerStop_ = true;
+    }
+    roomCv_.notify_all();
+    reader_.join();
+}
+
+void FileUpload::ReaderThread() {
+    for (size_t at = 0; at < plan_.size(); ++at) {
+        const uint16_t index = uint16_t(at);
+        const uint64_t size = plan_[at].size;
+        uint64_t offset = 0;
+        while (offset < size) {
+            const uint64_t left = size - offset;
+            const size_t want =
+                size_t(left < deskhub::kMaxFileChunkBytes ? left : deskhub::kMaxFileChunkBytes);
+
+            ReadChunk chunk;
+            chunk.index = index;
+            chunk.offset = offset;
+            chunk.data.resize(want);
+
+            std::ifstream& in = sources_[index];
+            in.clear();
+            in.seekg(std::streamoff(offset), std::ios::beg);
+            if (!in) {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                readerFailed_ = true;
+                readyCv_.notify_all();
+                return;
+            }
+            in.read(reinterpret_cast<char*>(chunk.data.data()), std::streamsize(want));
+            const std::streamsize got = in.gcount();
+            if (got <= 0) {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                readerFailed_ = true;
+                readyCv_.notify_all();
+                return;
+            }
+            chunk.data.resize(size_t(got));
+
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                roomCv_.wait(lock, [this] {
+                    return readerStop_ || ringBytes_ < kMaxReadAheadBytes;
+                });
+                if (readerStop_) return;
+                ringBytes_ += chunk.data.size();
+                ring_.push_back(std::move(chunk));
+            }
+            readyCv_.notify_all();
+            offset += uint64_t(got);
+        }
+    }
+    const std::lock_guard<std::mutex> lock(mutex_);
+    readerEof_ = true;
+    readyCv_.notify_all();
+}
+
+size_t FileUpload::Pumpable() const {
+    if (readerFailed_) return 1;
+
+    const deskhub::TransferProgress at = sender_->Progress();
+    size_t ready = 0;
+    for (const ReadChunk& chunk : ring_)
+        if (chunk.index > at.fileIndex ||
+            (chunk.index == at.fileIndex && chunk.offset >= at.fileBytes))
+            ++ready;
+
+    if (ready > 0) return ready;
+    return readerEof_ ? 1 : 0;
 }
 
 FileBatch InspectFiles(const std::vector<std::filesystem::path>& paths) {
@@ -66,6 +156,7 @@ FileBatch InspectFiles(const std::vector<std::filesystem::path>& paths) {
 }
 
 bool FileUpload::Begin(const std::vector<std::filesystem::path>& paths) {
+    StopReader();
     const std::lock_guard<std::mutex> lock(mutex_);
     error_.clear();
 
@@ -92,24 +183,33 @@ bool FileUpload::Begin(const std::vector<std::filesystem::path>& paths) {
     }
 
     sources_ = std::move(opened);
+    plan_ = batch.files;
     if (!sender_->Offer(nextBatchId_, std::move(batch.files))) {
         sources_.clear();
+        plan_.clear();
         error_ = "The batch is more than one transfer can carry.";
         return false;
     }
     ++nextBatchId_;
+    StartReader();
     return true;
 }
 
 size_t FileUpload::ReadAt(uint16_t index, uint64_t offset, std::span<uint8_t> out) {
-    if (index >= sources_.size()) return 0;
-    std::ifstream& in = sources_[index];
-    in.clear();
-    in.seekg(std::streamoff(offset), std::ios::beg);
-    if (!in) return 0;
-    in.read(reinterpret_cast<char*>(out.data()), std::streamsize(out.size()));
-    const std::streamsize got = in.gcount();
-    return got > 0 ? size_t(got) : 0;
+    while (!ring_.empty()) {
+        const ReadChunk& head = ring_.front();
+        if (head.index > index || (head.index == index && head.offset >= offset)) break;
+        ringBytes_ -= head.data.size();
+        ring_.pop_front();
+        roomCv_.notify_all();
+    }
+    if (ring_.empty()) return 0;
+
+    const ReadChunk& head = ring_.front();
+    if (head.index != index || head.offset != offset) return 0;
+    const size_t n = std::min(out.size(), head.data.size());
+    std::copy_n(head.data.begin(), n, out.begin());
+    return n;
 }
 
 void FileUpload::Flush() {
@@ -118,6 +218,14 @@ void FileUpload::Flush() {
         const std::lock_guard<std::mutex> lock(mutex_);
         ready = pending_;
         pending_ = Pending{};
+    }
+    if (ready.haveFinish) {
+        StopReader();
+        const std::lock_guard<std::mutex> lock(mutex_);
+        sources_.clear();
+        plan_.clear();
+        ring_.clear();
+        ringBytes_ = 0;
     }
     if (ready.haveProgress && cb_.onProgress) cb_.onProgress(ready.progress);
     if (ready.haveFinish && cb_.onFinished) cb_.onFinished(ready.state, ready.reason);
@@ -135,8 +243,10 @@ size_t FileUpload::Pump(size_t maxChunks) {
     size_t sent = 0;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
-        if (sender_->State() == deskhub::FileSenderState::Sending)
-            sent = sender_->Pump(maxChunks);
+        if (sender_->State() == deskhub::FileSenderState::Sending) {
+            const size_t budget = std::min(maxChunks, Pumpable());
+            if (budget > 0) sent = sender_->Pump(budget);
+        }
     }
     Flush();
     return sent;

@@ -46,6 +46,80 @@ FileStore::~FileStore() {
     } catch (...) {
         open_.clear();
     }
+    StopWriter();
+}
+
+void FileStore::CountBacklog(size_t bytes, bool added) {
+    if (backlog_ == nullptr || bytes == 0) return;
+    if (added)
+        backlog_->fetch_add(bytes, std::memory_order_relaxed);
+    else
+        backlog_->fetch_sub(bytes, std::memory_order_relaxed);
+}
+
+void FileStore::StartWriter() {
+    if (writer_.joinable()) return;
+    stopping_ = false;
+    writer_ = std::thread([this] { WriterThread(); });
+}
+
+void FileStore::StopWriter() {
+    if (!writer_.joinable()) return;
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        stopping_ = true;
+    }
+    workCv_.notify_all();
+    writer_.join();
+}
+
+void FileStore::WriterThread() {
+    for (;;) {
+        WriteJob job;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            workCv_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
+            if (queue_.empty()) {
+                if (stopping_) return;
+                continue;
+            }
+            job = std::move(queue_.front());
+            queue_.pop_front();
+            writing_ = true;
+        }
+
+        const bool ok = WriteNow(job.index, std::span<const uint8_t>(job.data));
+
+        {
+            const std::lock_guard<std::mutex> lock(mutex_);
+            queuedBytes_ -= job.data.size();
+            writing_ = false;
+            if (!ok) writeFailed_ = true;
+        }
+        CountBacklog(job.data.size(), false);
+        roomCv_.notify_all();
+        idleCv_.notify_all();
+    }
+}
+
+void FileStore::Post(WriteJob job) {
+    const size_t bytes = job.data.size();
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        roomCv_.wait(lock,
+            [this, bytes] { return stopping_ || queuedBytes_ + bytes <= kMaxQueuedWriteBytes; });
+        if (stopping_) return;
+        queuedBytes_ += bytes;
+        queue_.push_back(std::move(job));
+    }
+    CountBacklog(bytes, true);
+    workCv_.notify_one();
+}
+
+void FileStore::Settle() {
+    if (!writer_.joinable()) return;
+    std::unique_lock<std::mutex> lock(mutex_);
+    idleCv_.wait(lock, [this] { return queue_.empty() && !writing_; });
 }
 
 bool FileStore::SetDirectory(const std::filesystem::path& dir) {
@@ -79,6 +153,10 @@ bool FileStore::Claimed(const std::string& name) const {
 std::string FileStore::Open(uint16_t index, const std::string& safeName, uint64_t size) {
     if (dir_.empty()) return {};
     Close(index, false);
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        writeFailed_ = false;
+    }
 
     std::string name = deskhub::UniqueFileName(safeName,
         [this](const std::string& candidate) { return Claimed(candidate); });
@@ -104,10 +182,11 @@ std::string FileStore::Open(uint16_t index, const std::string& safeName, uint64_
     }
 
     open_.emplace(index, std::move(slot));
+    StartWriter();
     return name;
 }
 
-bool FileStore::Write(uint16_t index, std::span<const uint8_t> data) {
+bool FileStore::WriteNow(uint16_t index, std::span<const uint8_t> data) {
     const auto at = open_.find(index);
     if (at == open_.end()) return false;
     at->second.out.write(reinterpret_cast<const char*>(data.data()),
@@ -115,7 +194,21 @@ bool FileStore::Write(uint16_t index, std::span<const uint8_t> data) {
     return bool(at->second.out);
 }
 
+bool FileStore::Write(uint16_t index, std::span<const uint8_t> data) {
+    if (open_.find(index) == open_.end()) return false;
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (writeFailed_) return false;
+    }
+    WriteJob job;
+    job.index = index;
+    job.data.assign(data.begin(), data.end());
+    Post(std::move(job));
+    return true;
+}
+
 void FileStore::Close(uint16_t index, bool keep) {
+    Settle();
     const auto at = open_.find(index);
     if (at == open_.end()) return;
     Slot slot = std::move(at->second);

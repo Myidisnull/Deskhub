@@ -97,6 +97,10 @@ public:
         };
         upload_ = std::make_unique<FileUpload>(std::move(uploadHooks));
 
+        sock_.SetOnStreamBroken([this](const NetAddr&, uint64_t stream) {
+            if (stream == kQuicFileStream && upload_) upload_->LinkLost();
+        });
+
         trustDecision_.store(int(TrustDecision::Pending), std::memory_order_release);
         autoTrustPending_.store(false, std::memory_order_release);
 
