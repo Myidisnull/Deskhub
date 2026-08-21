@@ -889,8 +889,8 @@ void MainWindow::RefreshPairedDevices() {
         gtk_list_store_set(pairedStore_, &it, 0,
             device.name.empty() ? "(unnamed)" : device.name.c_str(), 1,
             deskhub::ShortFingerprint(device.fingerprint).c_str(), 2,
-            deskhubp::FormatUnixMinute(device.pairedUnix).c_str(), 3,
-            deskhubp::FormatUnixMinute(device.lastSeenUnix).c_str(), -1);
+            FormatUnixMinute(device.pairedUnix).c_str(), 3,
+            FormatUnixMinute(device.lastSeenUnix).c_str(), -1);
     }
     gtk_widget_set_visible(pairedHintLabel_, pairedDevices_.empty());
     gtk_widget_set_sensitive(forgetDeviceButton_, !pairedDevices_.empty());
@@ -1310,13 +1310,13 @@ void MainWindow::OnDeviceStatus(const deskhubp::DeviceStatus& status) {
 
 void MainWindow::RecordProbe(const std::string& addr, bool online, uint32_t rttMs) {
     uint64_t key = 0;
-    if (!deskhubp::HostKeyOf(addr, key)) return;
+    if (!HostKeyOf(addr, key)) return;
     probes_[key] = deskhubp::DeviceStatus{addr, online, rttMs};
 }
 
 const deskhubp::DeviceStatus* MainWindow::ProbeFor(const std::string& addr) const {
     uint64_t key = 0;
-    if (!deskhubp::HostKeyOf(addr, key)) return nullptr;
+    if (!HostKeyOf(addr, key)) return nullptr;
     const auto found = probes_.find(key);
     return found == probes_.end() ? nullptr : &found->second;
 }
@@ -1337,7 +1337,7 @@ void MainWindow::RefreshDeviceList() {
         const std::string ping = online ? ui::PingMs(probe->rttMs) : std::string("-");
         const char* colour = !probe ? kUnknownColour : (online ? kOnlineColour : kOfflineColour);
         const std::string last = device.lastConnectedUnix != 0
-                                     ? deskhubp::FormatUnixMinute(device.lastConnectedUnix)
+                                     ? FormatUnixMinute(device.lastConnectedUnix)
                                      : std::string("-");
 
         GtkTreeIter it;
@@ -1351,7 +1351,7 @@ void MainWindow::RefreshDeviceList() {
 void MainWindow::RefreshDeviceStatus() {
     for (const ui::RecentDevice& device : recent_) {
         uint64_t key = 0;
-        if (deskhubp::HostKeyOf(device.addr, key)) probes_.erase(key);
+        if (HostKeyOf(device.addr, key)) probes_.erase(key);
     }
     RefreshDeviceList();
     poller_.RefreshNow();

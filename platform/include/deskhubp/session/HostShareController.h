@@ -52,7 +52,15 @@ public:
         return terminalHost_;
     }
 
+    const TerminalHost& terminalHost() const {
+        return terminalHost_;
+    }
+
     FileHost& fileHost() {
+        return fileHost_;
+    }
+
+    const FileHost& fileHost() const {
         return fileHost_;
     }
 

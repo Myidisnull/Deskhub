@@ -949,8 +949,8 @@ void MainFrame::RefreshPairedDevices() {
         const long row = pairedList_->InsertItem(long(i),
             ToWx(device.name.empty() ? std::string("(unnamed)") : device.name));
         pairedList_->SetItem(row, 1, ToWx(deskhub::ShortFingerprint(device.fingerprint)));
-        pairedList_->SetItem(row, 2, ToWx(deskhubp::FormatUnixMinute(device.pairedUnix)));
-        pairedList_->SetItem(row, 3, ToWx(deskhubp::FormatUnixMinute(device.lastSeenUnix)));
+        pairedList_->SetItem(row, 2, ToWx(FormatUnixMinute(device.pairedUnix)));
+        pairedList_->SetItem(row, 3, ToWx(FormatUnixMinute(device.lastSeenUnix)));
     }
     SetHintLabel(pairedHint_, ToWx(ui::kPairedEmpty));
     pairedHint_->Show(pairedDevices_.empty());
@@ -1353,7 +1353,7 @@ void MainFrame::RefreshDeviceList() {
         const long row = deviceList_->InsertItem(long(i), ToWx(device.addr));
         deviceList_->SetItem(row, 1, ToWx(ui::DeviceOriginLabel(device.origin)));
         deviceList_->SetItem(row, 4,
-            device.lastConnectedUnix != 0 ? ToWx(deskhubp::FormatUnixMinute(device.lastConnectedUnix))
+            device.lastConnectedUnix != 0 ? ToWx(FormatUnixMinute(device.lastConnectedUnix))
                                           : wxString("-"));
         ApplyRowStatus(row, device.addr);
     }
@@ -1361,14 +1361,14 @@ void MainFrame::RefreshDeviceList() {
 
 const ProbeResult* MainFrame::ProbeFor(const std::string& addr) const {
     uint64_t key = 0;
-    if (!deskhubp::HostKeyOf(addr, key)) return nullptr;
+    if (!HostKeyOf(addr, key)) return nullptr;
     const auto it = probes_.find(key);
     return it == probes_.end() ? nullptr : &it->second;
 }
 
 void MainFrame::RecordProbe(const std::string& addr, bool online, uint32_t rttMs) {
     uint64_t key = 0;
-    if (!deskhubp::HostKeyOf(addr, key)) return;
+    if (!HostKeyOf(addr, key)) return;
     probes_[key] = ProbeResult{online, rttMs};
 }
 
@@ -1387,9 +1387,9 @@ void MainFrame::ApplyRowStatus(long row, const std::string& addr) {
 
 void MainFrame::ApplyProbeToRows(const std::string& addr) {
     uint64_t key = 0;
-    if (!deskhubp::HostKeyOf(addr, key)) return;
+    if (!HostKeyOf(addr, key)) return;
     for (size_t i = 0; i < deviceRows_.size(); ++i)
-        if (deskhubp::SameHost(deviceRows_[i].addr, key)) ApplyRowStatus(long(i), deviceRows_[i].addr);
+        if (SameHost(deviceRows_[i].addr, key)) ApplyRowStatus(long(i), deviceRows_[i].addr);
 }
 
 void MainFrame::StartPoller() {
@@ -1827,7 +1827,7 @@ void MainFrame::RescanNow() {
 void MainFrame::RefreshDeviceStatus() {
     for (const ui::RecentDevice& device : recent_) {
         uint64_t key = 0;
-        if (deskhubp::HostKeyOf(device.addr, key)) probes_.erase(key);
+        if (HostKeyOf(device.addr, key)) probes_.erase(key);
     }
     RefreshDeviceList();
     poller_.RefreshNow();
