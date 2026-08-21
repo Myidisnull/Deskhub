@@ -126,6 +126,7 @@ void SessionTransport::Close() {
     endpoint_.Close();
     framers_.clear();
     for (std::deque<TransportMessage>& lane : inbox_) lane.clear();
+    bulkDepth_.store(0, std::memory_order_relaxed);
     authInbox_.clear();
     brokenStreams_.clear();
     hostAuth_.clear();
@@ -201,7 +202,10 @@ void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> mes
     TransportMessage queued;
     queued.from = from;
     queued.bytes.assign(message.begin(), message.end());
-    inbox_[size_t(LaneOf(message))].push_back(std::move(queued));
+    const Lane lane = LaneOf(message);
+    inbox_[size_t(lane)].push_back(std::move(queued));
+    if (lane == Lane::Bulk)
+        bulkDepth_.store(inbox_[size_t(Lane::Bulk)].size(), std::memory_order_relaxed);
 }
 
 void SessionTransport::SetBulkReady(std::function<bool()> fn) {
@@ -209,11 +213,11 @@ void SessionTransport::SetBulkReady(std::function<bool()> fn) {
 }
 
 size_t SessionTransport::BulkQueued() const {
-    return inbox_[size_t(Lane::Bulk)].size();
+    return bulkDepth_.load(std::memory_order_relaxed);
 }
 
 bool SessionTransport::BulkBlocked() const {
-    if (BulkQueued() >= kMaxBulkQueued) return true;
+    if (inbox_[size_t(Lane::Bulk)].size() >= kMaxBulkQueued) return true;
     return bulkReady_ && !bulkReady_();
 }
 
@@ -473,6 +477,7 @@ int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
 
     const TransportMessage message = std::move(lane->front());
     lane->pop_front();
+    bulkDepth_.store(inbox_[size_t(Lane::Bulk)].size(), std::memory_order_relaxed);
     from = message.from;
     const size_t take = std::min(cap, message.bytes.size());
     std::copy_n(message.bytes.begin(), take, buf);

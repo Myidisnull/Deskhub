@@ -3,9 +3,15 @@
 
 #include "deskhubp/session/HostEngine.h"
 
+#include <atomic>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
+
+namespace deskhubp {
+class FileHost;
+}
 
 namespace fake {
 
@@ -20,10 +26,23 @@ public:
 
     bool Start(const std::vector<deskhub::media::ShareSource>& sources, uint16_t port,
         uint32_t fps = 30, uint32_t maxDim = 1920, const std::string& passcode = kTestPasscode,
-        bool allowInput = true);
+        bool allowInput = true, bool audio = false);
 
     void Stop() {
+        StopTone();
         engine_.Stop();
+    }
+
+    deskhubp::SessionTransport& socket() {
+        return engine_.socket();
+    }
+
+    void SetFiles(deskhubp::FileHost* files) {
+        engine_.SetFiles(files);
+    }
+
+    bool audioRunning() {
+        return engine_.audioRunning();
     }
 
     bool running() {
@@ -55,9 +74,15 @@ public:
     }
 
 private:
+    void StartTone(const deskhub::media::AudioFormat& format,
+        const std::function<void(std::span<const int16_t>)>& offer);
+    void StopTone();
+
     deskhubp::HostEngine engine_;
     std::mutex pairMutex_;
     std::vector<uint64_t> pairingAsks_;
+    std::thread tone_;
+    std::atomic<bool> toneStop_{false};
 };
 
 }

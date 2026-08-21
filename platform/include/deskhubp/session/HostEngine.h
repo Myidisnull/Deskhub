@@ -92,11 +92,19 @@ public:
     void AnswerPairingRequest(uint64_t addrPacked, bool allowed);
 
     void SetTerminal(TerminalHost* terminal) {
-        terminal_ = terminal;
+        terminal_.store(terminal, std::memory_order_release);
     }
 
     void SetFiles(FileHost* files) {
-        files_ = files;
+        files_.store(files, std::memory_order_release);
+    }
+
+    TerminalHost* terminal() const {
+        return terminal_.load(std::memory_order_acquire);
+    }
+
+    FileHost* files() const {
+        return files_.load(std::memory_order_acquire);
     }
 
     bool running() const {
@@ -163,8 +171,8 @@ private:
     HostEnginePolicy policy_;
 
     SessionTransport sock_;
-    TerminalHost* terminal_ = nullptr;
-    FileHost* files_ = nullptr;
+    std::atomic<TerminalHost*> terminal_{nullptr};
+    std::atomic<FileHost*> files_{nullptr};
     std::thread recvThread_;
     std::atomic<bool> quit_{false};
     std::atomic<bool> running_{false};

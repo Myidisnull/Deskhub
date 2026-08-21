@@ -6,6 +6,7 @@
 #include "deskhubp/session/AuthNegotiation.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -113,6 +114,7 @@ private:
     std::array<std::deque<TransportMessage>, kLaneCount> inbox_;
     std::deque<TransportMessage> authInbox_;
     std::vector<std::pair<NetAddr, uint64_t>> brokenStreams_;
+    std::atomic<size_t> bulkDepth_{0};
     std::map<uint64_t, std::unique_ptr<HostAuth>> hostAuth_;
     std::map<uint64_t, bool> authenticated_;
     deskhub::AuthThrottle authThrottle_{};

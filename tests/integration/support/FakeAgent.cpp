@@ -5,9 +5,13 @@
 #include "deskhub/control/StreamSize.h"
 #include "deskhub/session/HostRouter.h"
 
+#include "deskhubp/system/Clock.h"
+
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 namespace fake {
 namespace {
@@ -38,8 +42,40 @@ deskhub::media::ShareSource Source(const char* name, uint32_t width, uint32_t he
     return s;
 }
 
+void Agent::StartTone(const deskhub::media::AudioFormat& format,
+    const std::function<void(std::span<const int16_t>)>& offer) {
+    StopTone();
+    toneStop_.store(false, std::memory_order_release);
+    tone_ = std::thread([this, format, offer] {
+        std::vector<int16_t> pcm(format.interleavedSamples());
+        const uint64_t frameUs =
+            uint64_t(format.samplesPerFrame) * 1'000'000 / format.sampleRate;
+        uint64_t phase = 0;
+        uint64_t dueUs = NowUs();
+        while (!toneStop_.load(std::memory_order_acquire)) {
+            for (uint32_t i = 0; i < format.samplesPerFrame; ++i) {
+                const double t = double(phase + i) / double(format.sampleRate);
+                const auto sample = int16_t(8000.0 * std::sin(2.0 * 3.14159265 * 440.0 * t));
+                for (uint32_t c = 0; c < format.channels; ++c)
+                    pcm[size_t(i) * format.channels + c] = sample;
+            }
+            phase += format.samplesPerFrame;
+            offer(pcm);
+            dueUs += frameUs;
+            const uint64_t now = NowUs();
+            if (dueUs > now) SleepUs(dueUs - now);
+        }
+    });
+}
+
+void Agent::StopTone() {
+    if (!tone_.joinable()) return;
+    toneStop_.store(true, std::memory_order_release);
+    tone_.join();
+}
+
 bool Agent::Start(const std::vector<deskhub::media::ShareSource>& sources, uint16_t port,
-    uint32_t fps, uint32_t maxDim, const std::string& passcode, bool allowInput) {
+    uint32_t fps, uint32_t maxDim, const std::string& passcode, bool allowInput, bool audio) {
     deskhub::media::AgentOptions opt;
     opt.fps = fps;
     opt.maxDim = maxDim;
@@ -47,6 +83,7 @@ bool Agent::Start(const std::vector<deskhub::media::ShareSource>& sources, uint1
     opt.port = port;
     opt.passcode = passcode;
     opt.allowInput = allowInput;
+    opt.audio = audio;
 
     deskhubp::HostEngine* engine = &engine_;
 
@@ -56,6 +93,13 @@ bool Agent::Start(const std::vector<deskhub::media::ShareSource>& sources, uint1
     policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string, std::string) {
         PushPairingRequest(addrPacked);
     };
+
+    policy.startAudioCapture = [this](const deskhub::media::AudioFormat& format,
+                                   std::function<void(std::span<const int16_t>)> offer) {
+        StartTone(format, offer);
+        return true;
+    };
+    policy.stopAudioCapture = [this] { StopTone(); };
 
     policy.source.create = [engine](const deskhub::media::ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {

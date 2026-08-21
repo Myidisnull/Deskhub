@@ -36,6 +36,9 @@ int main() {
     std::printf("--- end to end: connect, stream, input, disconnect ---\n");
     RunSessionFlowTests();
 
+    std::printf("--- under load: a file transfer beside a live stream ---\n");
+    RunTransferUnderLoadTests();
+
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");
         return 0;

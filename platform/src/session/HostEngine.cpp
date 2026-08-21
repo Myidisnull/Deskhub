@@ -214,8 +214,8 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
     };
     sock_.SetHostAuth(std::move(auth), std::move(authHooks));
     sock_.SetOnPeerGone([this](const NetAddr& peer) {
-        if (terminal_ != nullptr) terminal_->OnPeerGone(peer);
-        if (files_ != nullptr) files_->OnPeerGone(peer);
+        if (TerminalHost* t = terminal()) t->OnPeerGone(peer);
+        if (FileHost* f = files()) f->OnPeerGone(peer);
     });
 
     if (policy_.afterSocket) {
@@ -255,9 +255,13 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         std::lock_guard<std::mutex> lk(errMutex_);
         lastError_.clear();
     }
-    sock_.SetBulkReady([this] { return files_ == nullptr || files_->DiskKeepingUp(); });
+    sock_.SetBulkReady([this] {
+        const FileHost* f = files();
+        return f == nullptr || f->DiskKeepingUp();
+    });
     sock_.SetOnStreamBroken([this](const NetAddr& peer, uint64_t stream) {
-        if (stream == kQuicFileStream && files_ != nullptr) files_->OnPeerGone(peer);
+        FileHost* f = files();
+        if (stream == kQuicFileStream && f != nullptr) f->OnPeerGone(peer);
     });
 
     running_.store(true, std::memory_order_release);
@@ -299,8 +303,8 @@ void HostEngine::Stop() {
 
     localInputMon_.Stop();
 
-    if (terminal_ != nullptr) terminal_->Stop();
-    if (files_ != nullptr) files_->Stop();
+    if (TerminalHost* t = terminal()) t->Stop();
+    if (FileHost* f = files()) f->Stop();
     for (auto& up : pipes_) ShutdownSource(*up);
     LogTransferTotals(AllSources());
     sock_.Close();
@@ -426,26 +430,26 @@ void HostEngine::RecvLoop() {
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
         beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput,
-            terminal_ != nullptr && terminal_->Running(), audio_.running(),
-            files_ != nullptr && files_->Accepting()});
+            terminal() != nullptr && terminal()->Running(), audio_.running(),
+            files() != nullptr && files()->Accepting()});
         DrainControlRequests();
         DrainLocalClipboard();
     };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.onFile = [this](const NetAddr& from, std::span<const uint8_t> message) {
-        if (files_ != nullptr) {
-            files_->HandleMessage(from, message);
+        if (FileHost* f = files()) {
+            f->HandleMessage(from, message);
             return;
         }
         RefuseFiles(from, message);
     };
     loop.onTerminal = [this](const NetAddr& from, std::span<const uint8_t> message) {
-        if (terminal_ != nullptr) terminal_->HandleMessage(from, message);
+        if (TerminalHost* t = terminal()) t->HandleMessage(from, message);
     };
     loop.keepAlive = [this] {
         return opt_.terminal || opt_.files ||
-               (terminal_ != nullptr && terminal_->Running()) ||
-               (files_ != nullptr && files_->Running());
+               (terminal() != nullptr && terminal()->Running()) ||
+               (files() != nullptr && files()->Running());
     };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;

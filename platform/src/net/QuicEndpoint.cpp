@@ -438,8 +438,8 @@ struct QuicEndpoint::Impl {
 
         std::vector<uint8_t> chunk(kStreamChunk);
         for (uint64_t stream : ready) {
-            if (cb_.pauseStream && cb_.pauseStream(stream)) continue;
             for (;;) {
+                if (cb_.pauseStream && cb_.pauseStream(stream)) break;
                 bool fin = false;
                 uint64_t err = 0;
                 const ssize_t got = quiche_conn_stream_recv(entry.conn, stream, chunk.data(),
