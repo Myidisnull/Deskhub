@@ -41,7 +41,11 @@ std::filesystem::path DefaultTransferDir() {
 }
 
 FileStore::~FileStore() {
-    CloseAll();
+    try {
+        CloseAll();
+    } catch (...) {
+        open_.clear();
+    }
 }
 
 bool FileStore::SetDirectory(const std::filesystem::path& dir) {

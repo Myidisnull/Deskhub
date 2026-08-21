@@ -34,10 +34,8 @@ uint64_t SizeOf(const std::filesystem::path& path) {
 
 class StandaloneTarget final : public FileSendTarget {
 public:
-    StandaloneTarget(const NetAddr& server, std::string address, std::string passcode,
-        std::string clientName)
-        : server_(server), address_(std::move(address)), passcode_(std::move(passcode)),
-          clientName_(std::move(clientName)) {}
+    explicit StandaloneTarget(deskhubp::FileTransferClientConfig config)
+        : config_(std::move(config)) {}
 
     ~StandaloneTarget() override {
         client_.Stop();
@@ -53,14 +51,10 @@ public:
             return false;
         }
 
-        deskhubp::FileTransferClientConfig config;
-        config.host = server_;
-        config.hostLabel = address_;
-        config.passcode = passcode_;
-        config.clientName = clientName_;
+        deskhubp::FileTransferClientConfig config = config_;
         config.files = files;
         if (!client_.Start(config, deskhubp::FileTransferClientCallbacks{})) {
-            error_ = ui::CouldNotConnectTo(address_);
+            error_ = ui::CouldNotConnectTo(config_.hostLabel);
             return false;
         }
         return true;
@@ -79,10 +73,7 @@ public:
     }
 
 private:
-    NetAddr server_{};
-    std::string address_;
-    std::string passcode_;
-    std::string clientName_;
+    deskhubp::FileTransferClientConfig config_{};
     std::string error_;
     deskhubp::FileTransferClient client_;
 };
@@ -297,7 +288,12 @@ GtkWidget* MutedLabel(const std::string& text) {
 
 std::unique_ptr<FileSendTarget> MakeStandaloneFileSendTarget(const NetAddr& server,
     const std::string& address, const std::string& passcode, const std::string& clientName) {
-    return std::make_unique<StandaloneTarget>(server, address, passcode, clientName);
+    deskhubp::FileTransferClientConfig config;
+    config.host = server;
+    config.hostLabel = address;
+    config.passcode = passcode;
+    config.clientName = clientName;
+    return std::make_unique<StandaloneTarget>(std::move(config));
 }
 
 std::unique_ptr<FileSendTarget> MakeHookedFileSendTarget(FileSendHooks hooks) {
