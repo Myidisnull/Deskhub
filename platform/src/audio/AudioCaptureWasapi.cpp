@@ -1,8 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
-#include "capture/AudioCapture.h"
-
+#include "deskhubp/audio/AudioCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/Clock.h"
 
@@ -16,9 +15,10 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstring>
 #include <thread>
 #include <vector>
+
+namespace deskhubp {
 
 namespace {
 
@@ -221,4 +221,10 @@ uint64_t AudioCapture::framesCaptured() const {
 
 uint64_t AudioCapture::framesPaddedWithSilence() const {
     return impl_ ? impl_->padded.load(std::memory_order_relaxed) : 0;
+}
+
+const char* AudioCapture::BackendName() {
+    return "wasapi";
+}
+
 }

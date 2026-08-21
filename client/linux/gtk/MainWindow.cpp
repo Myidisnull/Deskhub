@@ -16,6 +16,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/Clock.h"
 #include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
@@ -62,11 +63,6 @@ struct HostColumn {
 const HostColumn kHostColumns[] = {{"Source", 140, 0.f}, {"Size", 80, 0.f},
     {"Viewers", 58, 1.f}, {"Client", 120, 0.f}, {"Capture", 58, 1.f}, {"Send", 50, 1.f},
     {"Mbps", 55, 1.f}, {"RTT", 55, 1.f}};
-
-std::string PathText(const std::filesystem::path& path) {
-    const std::u8string text = path.u8string();
-    return std::string(text.begin(), text.end());
-}
 
 constexpr const char* kOnlineColour = "#00913c";
 constexpr const char* kOfflineColour = "#c82828";
@@ -286,30 +282,6 @@ GtkWidget* ListFrame(GtkWidget* view, int height) {
     return scroll;
 }
 
-std::string FormatLastConnected(int64_t unixTime) {
-    if (unixTime <= 0) return {};
-    const std::time_t stamp = std::time_t(unixTime);
-    std::tm parts{};
-    if (!localtime_r(&stamp, &parts)) return {};
-    char buf[32];
-    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &parts) == 0) return {};
-    return std::string(buf);
-}
-
-bool HostKeyOf(const std::string& addr, uint64_t& key) {
-    NetAddr parsed{};
-    if (!ParseNetAddr(addr, parsed)) return false;
-    key = parsed.Pack();
-    return true;
-}
-
-std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& devices) {
-    std::vector<std::string> out;
-    out.reserve(devices.size());
-    for (const auto& device : devices) out.push_back(device.addr);
-    return out;
-}
-
 bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sources,
     std::vector<deskhub::SourceInfo>& out) {
     out.clear();
@@ -424,8 +396,22 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_stack_add_named(GTK_STACK(stack_), BuildSettingsPage(), "settings");
     gtk_box_pack_start(GTK_BOX(root), stack_, TRUE, TRUE, 0);
 
-    agentLoop_.SetTerminal(&terminalHost_);
-    agentLoop_.SetFiles(&fileHost_);
+    share_.agentLoop().SetTerminal(&share_.terminalHost());
+    share_.agentLoop().SetFiles(&share_.fileHost());
+
+    deskhubp::HostShareController::Hooks hooks;
+    hooks.onError = [this](const std::string& message) {
+        ShowError(GTK_WINDOW(window_), "Deskhub", message);
+    };
+    hooks.postToUi = [this](std::function<void()> fn) { PostToUi(std::move(fn)); };
+    hooks.openLocalTerminal = [this](uint32_t termId) {
+        return OpenHostTerminalWindow(GTK_WINDOW(window_), share_.terminalHost(), termId);
+    };
+    hooks.onRowsChanged = [this] { UpdateHostRows(hostStatus_); };
+    hooks.askPairing = [this](const PairingRequest& request) { return AskPairing(request); };
+    hooks.onBannerChanged = [this] { ApplySharingBanner(); };
+    hooks.onNothingLeftShared = [this] { StopHosting(); };
+    share_.SetHooks(std::move(hooks));
 
     loadingSettings_ = false;
 
@@ -605,7 +591,7 @@ void MainWindow::ShowHostTable(bool sharing) {
 
     const bool showFolder = !sharing && FilesTicked();
     gtk_label_set_text(GTK_LABEL(hostFilesHint_),
-        (std::string(ui::kTransferFolderLabel) + " " + PathText(TransferFolder())).c_str());
+        (std::string(ui::kTransferFolderLabel) + " " + deskhubp::PathText(TransferFolder())).c_str());
     gtk_widget_set_no_show_all(hostFilesHint_, !showFolder);
     gtk_widget_set_visible(hostFilesHint_, showFolder);
 }
@@ -903,8 +889,8 @@ void MainWindow::RefreshPairedDevices() {
         gtk_list_store_set(pairedStore_, &it, 0,
             device.name.empty() ? "(unnamed)" : device.name.c_str(), 1,
             deskhub::ShortFingerprint(device.fingerprint).c_str(), 2,
-            FormatLastConnected(device.pairedUnix).c_str(), 3,
-            FormatLastConnected(device.lastSeenUnix).c_str(), -1);
+            deskhubp::FormatUnixMinute(device.pairedUnix).c_str(), 3,
+            deskhubp::FormatUnixMinute(device.lastSeenUnix).c_str(), -1);
     }
     gtk_widget_set_visible(pairedHintLabel_, pairedDevices_.empty());
     gtk_widget_set_sensitive(forgetDeviceButton_, !pairedDevices_.empty());
@@ -956,42 +942,19 @@ void MainWindow::OnTransferDirClicked(GtkButton*, gpointer user) {
         GTK_WINDOW(self->window_), GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel",
         GTK_RESPONSE_CANCEL, ui::kTransferChooseButton, GTK_RESPONSE_ACCEPT, nullptr);
     gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(chooser),
-        PathText(self->TransferFolder()).c_str());
+        deskhubp::PathText(self->TransferFolder()).c_str());
 
     if (gtk_dialog_run(GTK_DIALOG(chooser)) == GTK_RESPONSE_ACCEPT) {
         if (gchar* picked = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser))) {
             self->settings_.transferDir = ui::TruncateSettingsPath(picked);
             g_free(picked);
             gtk_label_set_text(GTK_LABEL(self->transferDirLabel_),
-                PathText(self->TransferFolder()).c_str());
+                deskhubp::PathText(self->TransferFolder()).c_str());
             deskhubp::SaveUiSettings(self->settings_);
             if (!self->Sharing()) self->ShowIdleHostState();
         }
     }
     gtk_widget_destroy(chooser);
-}
-
-void MainWindow::DrainPairingRequests() {
-    if (askingPairing_) return;
-    const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
-    if (requests.empty()) return;
-
-    askingPairing_ = true;
-    std::map<std::string, bool> answers;
-    const deskhub::PairedDevices paired = deskhubp::LoadPairedDevices();
-    for (const deskhub::PairedDevice& device : paired.Devices())
-        answers[deskhub::ShortFingerprint(device.fingerprint)] = true;
-
-    const auto answerFor = [this, &answers](const PairingRequest& request) {
-        const auto found = answers.find(request.shortKey);
-        if (found != answers.end()) return found->second;
-        const bool allowed = AskPairing(request);
-        answers[request.shortKey] = allowed;
-        return allowed;
-    };
-    for (const PairingRequest& request : requests)
-        agentLoop_.AnswerPairing(request.addrPacked, answerFor(request));
-    askingPairing_ = false;
 }
 
 bool MainWindow::AskPairing(const PairingRequest& request) {
@@ -1076,7 +1039,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
 
     GtkWidget* folderRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_box_pack_start(GTK_BOX(folderRow), Label(ui::kTransferFolderLabel), FALSE, FALSE, 0);
-    transferDirLabel_ = StyledLabel(PathText(TransferFolder()), "deskhub-hint");
+    transferDirLabel_ = StyledLabel(deskhubp::PathText(TransferFolder()), "deskhub-hint");
     gtk_label_set_ellipsize(GTK_LABEL(transferDirLabel_), PANGO_ELLIPSIZE_MIDDLE);
     gtk_box_pack_start(GTK_BOX(folderRow), transferDirLabel_, TRUE, TRUE, 0);
     GtkWidget* folderButton = gtk_button_new_with_label(ui::kTransferChooseButton);
@@ -1334,7 +1297,7 @@ void MainWindow::OnScanFinished(const deskhubp::ScanProgress& progress) {
 }
 
 void MainWindow::StartPoller() {
-    poller_.SetAddresses(AddressesOf(recent_));
+    poller_.SetAddresses(ui::AddressesOf(recent_));
     poller_.Start([this](const deskhubp::DeviceStatus& status) {
         PostToUi([this, status] { OnDeviceStatus(status); });
     });
@@ -1347,13 +1310,13 @@ void MainWindow::OnDeviceStatus(const deskhubp::DeviceStatus& status) {
 
 void MainWindow::RecordProbe(const std::string& addr, bool online, uint32_t rttMs) {
     uint64_t key = 0;
-    if (!HostKeyOf(addr, key)) return;
+    if (!deskhubp::HostKeyOf(addr, key)) return;
     probes_[key] = deskhubp::DeviceStatus{addr, online, rttMs};
 }
 
 const deskhubp::DeviceStatus* MainWindow::ProbeFor(const std::string& addr) const {
     uint64_t key = 0;
-    if (!HostKeyOf(addr, key)) return nullptr;
+    if (!deskhubp::HostKeyOf(addr, key)) return nullptr;
     const auto found = probes_.find(key);
     return found == probes_.end() ? nullptr : &found->second;
 }
@@ -1374,7 +1337,7 @@ void MainWindow::RefreshDeviceList() {
         const std::string ping = online ? ui::PingMs(probe->rttMs) : std::string("-");
         const char* colour = !probe ? kUnknownColour : (online ? kOnlineColour : kOfflineColour);
         const std::string last = device.lastConnectedUnix != 0
-                                     ? FormatLastConnected(device.lastConnectedUnix)
+                                     ? deskhubp::FormatUnixMinute(device.lastConnectedUnix)
                                      : std::string("-");
 
         GtkTreeIter it;
@@ -1388,7 +1351,7 @@ void MainWindow::RefreshDeviceList() {
 void MainWindow::RefreshDeviceStatus() {
     for (const ui::RecentDevice& device : recent_) {
         uint64_t key = 0;
-        if (HostKeyOf(device.addr, key)) probes_.erase(key);
+        if (deskhubp::HostKeyOf(device.addr, key)) probes_.erase(key);
     }
     RefreshDeviceList();
     poller_.RefreshNow();
@@ -1496,7 +1459,7 @@ void MainWindow::StartConnect(const std::string& addr, const std::string& passco
         return;
     }
 
-    const OpenChoice choice{desktop, shell, files};
+    const deskhub::OpenChoice choice{desktop, shell, files};
     const bool started = connectDriver_.QueryAsync(
         server, passcode, [this](const std::function<void()>& fn) { PostToUi(fn); },
         [this, addr, passcode, choice](const deskhubp::ConnectOutcome& outcome) {
@@ -1528,7 +1491,7 @@ void MainWindow::OpenFileSend(const NetAddr& server, const std::string& passcode
 }
 
 void MainWindow::OnSourcesReady(const std::string& addr, const std::string& passcode,
-    const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
+    const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
     SetBusy(false, nullptr);
 
     if (!outcome.ok) {
@@ -1538,31 +1501,19 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
 
     ui::TouchRecentDevice(recent_, addr, int64_t(std::time(nullptr)), passcode);
     SaveRecentDevices();
-    poller_.SetAddresses(AddressesOf(recent_));
+    poller_.SetAddresses(ui::AddressesOf(recent_));
     RefreshDeviceList();
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) return;
 
-    if (choice.shell) {
-        if (outcome.caps.terminal)
-            OpenShell(server, passcode);
-        else
-            SetClientStatus(ui::kHostHasNoTerminal, true);
-    }
-
-    if (choice.files) {
-        if (outcome.caps.files)
-            OpenFileSend(server, passcode);
-        else
-            SetClientStatus(ui::kTransferHostNotTaking, true);
-    }
-
-    if (!choice.desktop) return;
-    if (outcome.sources.empty()) {
-        SetClientStatus(ui::SourceQueryEmpty(addr), true);
-        return;
-    }
+    const deskhub::ConnectPlan plan =
+        deskhub::PlanAfterConnect(outcome.caps, outcome.sources, choice);
+    if (plan.openShell) OpenShell(server, passcode);
+    if (plan.openFiles) OpenFileSend(server, passcode);
+    if (plan.problem != deskhub::ConnectProblem::None)
+        SetClientStatus(deskhub::ConnectProblemText(plan.problem, addr), true);
+    if (!plan.openDesktop) return;
 
     std::vector<deskhub::SourceInfo> picked;
     if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) return;
@@ -1716,7 +1667,7 @@ void MainWindow::StartHosting(const std::vector<AgentSource>& sources,
 
     agentDriver_.Join();
     agentDriver_.StartAsync(
-        agentLoop_, sources, options,
+        share_.agentLoop(), sources, options,
         [this](const std::function<void()>& fn) { PostToUi(fn); },
         [this, options](bool started, const std::string& error) {
             OnHostStarted(started, error, options);
@@ -1738,12 +1689,12 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
 
     hosting_ = true;
 
-    screenSharing_ = !agentLoop_.Status().empty();
+    screenSharing_ = !share_.agentLoop().Status().empty();
     sharePort_ = options.port;
     sharePasscodeNote_ = ui::PasscodeNote(options.passcode);
     shareViewOnly_ = !options.allowInput;
-    shareBindWarning_ = agentLoop_.BindWarning();
-    if (terminalRequested_) StartTerminalShare();
+    shareBindWarning_ = share_.agentLoop().BindWarning();
+    if (terminalRequested_) share_.StartTerminalShare();
     if (filesRequested_) StartFileShare();
     ApplySharingBanner();
     tray_.SetSharing(true);
@@ -1757,103 +1708,22 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
 }
 
 bool MainWindow::Sharing() const {
-    return hosting_ || hostStarting_ || terminalHost_.Running() || fileHost_.Running();
+    return hosting_ || hostStarting_ || share_.terminalHost().Running() || share_.fileHost().Running();
 }
 
 void MainWindow::ApplySharingBanner() {
-    std::string status = ui::ShareSummaryLine(screenSharing_, terminalHost_.Running(),
-        fileHost_.Running(), sharePort_);
-    if (fileHost_.Running())
-        status += "\n" + ui::TransferFolderNote(PathText(fileHost_.Directory()));
-    if (!sharePasscodeNote_.empty()) status += "\n" + sharePasscodeNote_;
-    if (screenSharing_ && shareViewOnly_) status += std::string("\n") + ui::kViewOnlyNote;
-    if (hosting_ && !shareBindWarning_.empty()) status += "\n" + shareBindWarning_;
-    ApplyHostState(HostShareState::kSharing, status);
-}
-
-void MainWindow::StartTerminalShare() {
-    if (terminalHost_.Running()) return;
-
-    deskhubp::TerminalHostCallbacks hooks;
-    hooks.onSessionsChanged = [this] {
-        PostToUi([this] {
-            RefreshShells();
-            UpdateHostRows(hostStatus_);
-        });
-    };
-
-    if (!terminalHost_.Start(agentLoop_.Socket(), std::string(), std::move(hooks))) {
-        ShowError(GTK_WINDOW(window_), "Deskhub", ui::kShareStartFailed);
-        return;
-    }
-    RefreshShells();
-}
-
-void MainWindow::StopTerminalShare() {
-    if (!terminalHost_.Running()) return;
-    terminalHost_.Stop();
-    shells_.clear();
-}
-
-void MainWindow::StopTerminalRow() {
-    StopTerminalShare();
-    if (!screenSharing_ && !fileHost_.Running()) {
-        StopHosting();
-        return;
-    }
-    ApplySharingBanner();
-    UpdateHostRows(hostStatus_);
+    deskhubp::HostShareBanner banner;
+    banner.screenSharing = screenSharing_;
+    banner.hosting = hosting_;
+    banner.port = sharePort_;
+    banner.viewOnly = shareViewOnly_;
+    banner.passcodeNote = sharePasscodeNote_;
+    banner.bindWarning = shareBindWarning_;
+    ApplyHostState(HostShareState::kSharing, share_.BannerText(banner));
 }
 
 void MainWindow::StartFileShare() {
-    if (fileHost_.Running()) return;
-
-    const std::filesystem::path folder = TransferFolder();
-    if (!fileHost_.Start(agentLoop_.Socket(), folder, deskhubp::FileHostCallbacks{})) {
-        filesRequested_ = false;
-        ShowError(GTK_WINDOW(window_), "Deskhub", ui::TransferFolderUnusable(PathText(folder)));
-        return;
-    }
-    RefreshTransfers();
-}
-
-void MainWindow::StopFileShare() {
-    if (!fileHost_.Running()) return;
-    fileHost_.Stop();
-    transfers_.clear();
-}
-
-void MainWindow::StopFilesRow() {
-    StopFileShare();
-    if (!screenSharing_ && !terminalHost_.Running()) {
-        StopHosting();
-        return;
-    }
-    ApplySharingBanner();
-    UpdateHostRows(hostStatus_);
-}
-
-void MainWindow::RefreshTransfers() {
-    transfers_ = fileHost_.Running() ? fileHost_.Transfers()
-                                     : std::vector<deskhub::TransferRecord>{};
-}
-
-void MainWindow::RefreshShells() {
-    shells_ = terminalHost_.Running() ? terminalHost_.Sessions()
-                                      : std::vector<deskhub::TerminalRecord>{};
-}
-
-void MainWindow::KickShell(uint32_t termId) {
-    if (!terminalHost_.Running()) return;
-    terminalHost_.KickSession(termId);
-}
-
-void MainWindow::StopAndAttachShell(uint32_t termId) {
-    if (!terminalHost_.AttachLocal(termId)) return;
-    RefreshShells();
-    UpdateHostRows(hostStatus_);
-    if (!OpenHostTerminalWindow(GTK_WINDOW(window_), terminalHost_, termId))
-        KickShell(termId);
+    if (!share_.StartFileShare(TransferFolder())) filesRequested_ = false;
 }
 
 void MainWindow::StopHosting() {
@@ -1865,9 +1735,9 @@ void MainWindow::StopHosting() {
         g_source_remove(clipTimerId_);
         clipTimerId_ = 0;
     }
-    StopTerminalShare();
-    StopFileShare();
-    agentLoop_.Stop();
+    share_.StopTerminalShare();
+    share_.StopFileShare();
+    share_.agentLoop().Stop();
     agentDriver_.Join();
     hosting_ = false;
     screenSharing_ = false;
@@ -1889,12 +1759,12 @@ gboolean MainWindow::OnClipboardTimer(gpointer user) {
     if (!self->hosting_) return G_SOURCE_CONTINUE;
 
     GtkClipboard* board = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-    if (const auto remote = self->agentLoop_.TakeRemoteClipboard()) {
+    if (const auto remote = self->share_.agentLoop().TakeRemoteClipboard()) {
         gtk_clipboard_set_text(board, remote->c_str(), int(remote->size()));
         return G_SOURCE_CONTINUE;
     }
     if (gchar* text = gtk_clipboard_wait_for_text(board)) {
-        self->agentLoop_.OfferLocalClipboard(text);
+        self->share_.agentLoop().OfferLocalClipboard(text);
         g_free(text);
     }
     return G_SOURCE_CONTINUE;
@@ -1902,14 +1772,14 @@ gboolean MainWindow::OnClipboardTimer(gpointer user) {
 
 gboolean MainWindow::OnHostTimer(gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
-    self->DrainPairingRequests();
+    self->share_.DrainPairingRequests();
     if (!self->hosting_) {
         self->hostTimerId_ = 0;
         return G_SOURCE_REMOVE;
     }
 
     std::vector<AgentSourceStatus> rows;
-    const deskhubp::AgentDriveState state = self->agentDriver_.Poll(self->agentLoop_, rows);
+    const deskhubp::AgentDriveState state = self->agentDriver_.Poll(self->share_.agentLoop(), rows);
     if (state == deskhubp::AgentDriveState::Stopped) {
         self->hostTimerId_ = 0;
         self->StopHosting();
@@ -1922,8 +1792,8 @@ gboolean MainWindow::OnHostTimer(gpointer user) {
             self->ApplySharingBanner();
         }
     }
-    self->RefreshShells();
-    self->RefreshTransfers();
+    self->share_.RefreshShells();
+    self->share_.RefreshTransfers();
     self->UpdateHostRows(self->hostStatus_);
     return G_SOURCE_CONTINUE;
 }
@@ -2016,8 +1886,8 @@ void MainWindow::FillHostRow(const HostRowWidgets& widgets, const ui::HostRowCel
 }
 
 void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, terminalHost_.Running(), shells_,
-        fileHost_.Running(), transfers_);
+    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, share_.terminalHost().Running(), share_.shells(),
+        share_.fileHost().Running(), share_.transfers());
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
         RebuildHostRowWidgets();
@@ -2026,12 +1896,12 @@ void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
     for (size_t i = 0; i < hostRows_.size() && i < hostRowWidgets_.size(); ++i) {
         const ui::HostRow& ref = hostRows_[i];
         if (ref.terminal) {
-            FillHostRow(hostRowWidgets_[i], ui::TerminalRowText(ref, Port(), shells_));
+            FillHostRow(hostRowWidgets_[i], ui::TerminalRowText(ref, Port(), share_.shells()));
             continue;
         }
         if (ref.files) {
             FillHostRow(hostRowWidgets_[i],
-                ui::FilesRowText(ref, PathText(fileHost_.Directory()), transfers_));
+                ui::FilesRowText(ref, deskhubp::PathText(share_.fileHost().Directory()), share_.transfers()));
             continue;
         }
         const AgentSourceStatus* source = ui::FindHostSource(rows, ref.sourceId);
@@ -2041,25 +1911,25 @@ void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
 
 void MainWindow::RunRowAction(const ui::HostRow& row) {
     if (row.files) {
-        if (!row.viewer) StopFilesRow();
+        if (!row.viewer) share_.StopFilesRow(screenSharing_);
         return;
     }
     if (row.terminal) {
         if (row.viewer) {
-            KickShell(row.termId);
+            share_.KickShell(row.termId);
         } else {
-            StopTerminalRow();
+            share_.StopTerminalRow(screenSharing_);
         }
         return;
     }
     if (!hosting_) return;
     if (!row.viewer) {
-        agentLoop_.StopSource(row.sourceId);
+        share_.agentLoop().StopSource(row.sourceId);
         return;
     }
     NetAddr addr{};
     if (!ParseNetAddr(row.viewerAddr, addr)) return;
-    agentLoop_.KickViewer(row.sourceId, addr.Pack());
+    share_.agentLoop().KickViewer(row.sourceId, addr.Pack());
 }
 
 void MainWindow::OnHostRowActionClicked(GtkButton* b, gpointer user) {
@@ -2074,7 +1944,7 @@ void MainWindow::OnHostRowAttachClicked(GtkButton* b, gpointer user) {
     const gint index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "deskhub-host-row"));
     if (index < 0 || size_t(index) >= self->hostRows_.size()) return;
     const deskhub::ui::HostRow& row = self->hostRows_[size_t(index)];
-    if (row.terminal && row.viewer) self->StopAndAttachShell(row.termId);
+    if (row.terminal && row.viewer) self->share_.StopAndAttachShell(row.termId);
 }
 
 gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {
@@ -2103,7 +1973,7 @@ void MainWindow::OnDestroy(GtkWidget*, gpointer user) {
     if (self->hostTimerId_) g_source_remove(self->hostTimerId_);
     if (self->autoShareTimerId_) g_source_remove(self->autoShareTimerId_);
     self->scanner_.Cancel();
-    self->agentLoop_.Stop();
+    self->share_.agentLoop().Stop();
     self->agentDriver_.Join();
     self->poller_.Stop();
     delete self;

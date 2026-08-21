@@ -15,7 +15,6 @@ add_library(deskhub_win_core STATIC
     net/Firewall.cpp
 
     capture/ScreenCapture.cpp
-    capture/AudioCapture.cpp
     capture/Downscaler.cpp
 
     gpu/GpuSelect.cpp

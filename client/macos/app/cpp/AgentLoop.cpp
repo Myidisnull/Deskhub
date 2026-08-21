@@ -1,7 +1,5 @@
 #include "deskhubp/session/AgentLoop.h"
 
-#include <CoreVideo/CVPixelBuffer.h>
-
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -12,7 +10,7 @@
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
-#include "deskhubp/media/VtEncoder.h"
+#include "deskhubp/media/VtSourcePipeline.h"
 #include "deskhubp/system/Clock.h"
 #include "input/InputInjector.h"
 
@@ -22,36 +20,13 @@
 
 namespace {
 
-using MacSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, VtEncoder>;
+using MacSourceBase = deskhubp::VtSourcePipeline<ScreenCapture, InputInjector>;
 
 struct SourcePipeline : MacSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
         : MacSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{true, false}) {}
 
-    ~SourcePipeline() override {
-        ReleaseCached();
-    }
-
     uint32_t displayId = 0;
-
-    std::function<bool(uint32_t, uint32_t)> ensureEncoderFn;
-
-    void* cachedPb = nullptr;
-
-    void ReleaseCached() {
-        if (!cachedPb) return;
-        CVPixelBufferRelease(static_cast<CVPixelBufferRef>(cachedPb));
-        cachedPb = nullptr;
-        SetCachedFrame(false);
-    }
-
-    void EncodeTimed(void* pb, uint64_t tsUs, bool idr) {
-        const bool ok = deskhubp::DiagEncode(*this, idr,
-            [this, pb, tsUs, idr] { return encoder->Encode(pb, tsUs, idr); });
-        if (ok) return;
-        encoder.reset();
-        forceIdr.store(true);
-    }
 };
 
 SourcePipeline& Pipeline(deskhubp::HostSource& st) {
@@ -88,11 +63,6 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
     policy.noSourceError = "No display to share.";
-    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string shortKey,
-                                  std::string name) {
-        PushPairingRequest(PairingRequest{addrPacked, std::move(shortKey), std::move(name)});
-    };
-
     policy.preflight = [] {
         if (!macperm::HasScreenRecording())
             LOGW(
@@ -123,46 +93,10 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
         auto onPacket = engine->MakePacketSink(*p);
 
-        p->ensureEncoderFn = [p, fps, onPacket](uint32_t w, uint32_t h) -> bool {
-            if (p->encoder && p->encoder->IsOpen()) return true;
-            EncoderConfig cfg = deskhub::MakeEncoderConfig(*p, {w, h}, fps);
-            cfg.onPacket = onPacket;
-            auto enc = std::make_unique<VtEncoder>();
-            if (!enc->Init(cfg)) {
-                LOGE("[Agent][%s] VideoToolbox refused to start an encoder.", p->name.c_str());
-                p->failed.store(true);
-                return false;
-            }
-            p->encoder = std::move(enc);
-            return true;
-        };
+        deskhubp::InstallVtEncoderFactory(p, fps, onPacket);
 
         auto onFrame = [p, maxDim](const MacFrameInfo& fi) {
-            p->captured.fetch_add(1, std::memory_order_relaxed);
-            if (p->failed.load()) return;
-
-            std::lock_guard<std::mutex> lk(p->encMutex);
-
-            const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
-                fi.meta.height, maxDim);
-            if (adm.rebuildEncoder) {
-                p->encoder.reset();
-                p->ReleaseCached();
-            }
-            if (!adm.sizeNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
-            if (!adm.pauseNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
-            if (adm.drop) return;
-
-            if (p->cachedPb) CVPixelBufferRelease(static_cast<CVPixelBufferRef>(p->cachedPb));
-            p->cachedPb = CVPixelBufferRetain(static_cast<CVPixelBufferRef>(fi.handle));
-            p->SetCachedFrame(p->cachedPb != nullptr);
-            p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
-
-            if (!p->netReady.load(std::memory_order_acquire)) return;
-            if (!p->ensureEncoderFn(adm.encode.width, adm.encode.height)) return;
-            p->EncodeTimed(fi.handle, fi.meta.timestampUs, p->forceIdr.exchange(false));
+            deskhubp::OfferVtFrame(p, maxDim, fi);
         };
 
         if (!p->capture.Start(p->displayId,
@@ -175,13 +109,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         }
     };
 
-    policy.source.stopCapture = [](deskhubp::HostSource& st) {
-        SourcePipeline& p = Pipeline(st);
-        p.capture.Stop();
-        std::lock_guard<std::mutex> lk(p.encMutex);
-        if (p.encoder) p.encoder->Finish();
-        p.ReleaseCached();
-    };
+    policy.source.stopCapture = deskhubp::StopVtCapture<SourcePipeline>;
 
     policy.source.attachInput = [engine](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
@@ -212,15 +140,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return Pipeline(st).capture.TakeIdleCount();
     };
 
-    policy.source.flush = [](deskhubp::HostSource& st, uint64_t nowUs) {
-        SourcePipeline& p = Pipeline(st);
-        if (!p.hasCachedFrame()) return;
-        auto lk = deskhubp::TryHoldEncoder(p.encMutex);
-        if (!lk.owns_lock()) return;
-        if (!p.cachedPb || !p.ensureEncoderFn(p.srcW.load(), p.srcH.load())) return;
-        p.EncodeTimed(p.cachedPb, nowUs, p.forceIdr.exchange(false));
-        if (p.encoder) p.encoder->Flush();
-    };
+    policy.source.flush = deskhubp::FlushVtSource<SourcePipeline>;
 
-    return engine_.Start(sources, opt, std::move(policy));
+    return StartEngine(sources, opt, std::move(policy));
 }

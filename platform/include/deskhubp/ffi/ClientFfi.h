@@ -41,6 +41,15 @@ typedef struct {
 } DHHostCaps;
 
 typedef struct {
+    bool openShell;
+    bool openFiles;
+    bool openDesktop;
+    bool showPicker;
+    uint8_t sourceId;
+    int32_t problem;
+} DHConnectPlan;
+
+typedef struct {
     double x;
     double y;
     double width;
@@ -271,6 +280,11 @@ uint32_t dh_auto_share_probe_ms(void);
 DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms);
 
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id);
+
+DHConnectPlan dh_connect_plan(DHHostCaps caps, const DHSourceInfo* sources, int count,
+    bool want_desktop, bool want_shell, bool want_files);
+
+int dh_connect_problem_text(int32_t problem, const char* address, char* out, int capacity);
 
 int dh_connecting_to(const char* address, char* out, int capacity);
 

@@ -1,62 +1,16 @@
+#include "deskhub/media/PcmRing.h"
 #include "deskhubp/audio/AudioSink.h"
 #include "deskhubp/diag/Log.h"
 
 #include <aaudio/AAudio.h>
 
-#include <algorithm>
-#include <atomic>
-#include <cstring>
-#include <mutex>
-#include <vector>
-
 namespace deskhubp {
-
-namespace {
-
-constexpr size_t kRingFrames = 8;
-
-}
 
 struct AudioSink::Impl {
     AAudioStream* stream = nullptr;
     deskhub::media::AudioFormat format{};
 
-    mutable std::mutex ringMutex;
-    std::vector<int16_t> ring;
-    size_t readAt = 0;
-    size_t filled = 0;
-
-    std::atomic<uint64_t> dropped{0};
-    std::atomic<uint64_t> starved{0};
-
-    size_t Take(int16_t* out, size_t wanted) {
-        std::unique_lock<std::mutex> lock(ringMutex, std::try_to_lock);
-        if (!lock.owns_lock()) return 0;
-        const size_t take = std::min(wanted, filled);
-        for (size_t i = 0; i < take; ++i) {
-            out[i] = ring[readAt];
-            readAt = (readAt + 1) % ring.size();
-        }
-        filled -= take;
-        return take;
-    }
-
-    void Put(std::span<const int16_t> pcm) {
-        std::lock_guard<std::mutex> lock(ringMutex);
-        if (pcm.size() > ring.size()) return;
-        while (ring.size() - filled < pcm.size()) {
-            const size_t drop = std::min(pcm.size(), filled);
-            readAt = (readAt + drop) % ring.size();
-            filled -= drop;
-            dropped.fetch_add(1, std::memory_order_relaxed);
-        }
-        size_t writeAt = (readAt + filled) % ring.size();
-        for (int16_t s : pcm) {
-            ring[writeAt] = s;
-            writeAt = (writeAt + 1) % ring.size();
-        }
-        filled += pcm.size();
-    }
+    deskhub::media::PcmRing ring;
 
     static aaudio_data_callback_result_t OnData(AAudioStream*, void* userData, void* audioData,
         int32_t numFrames);
@@ -67,11 +21,7 @@ aaudio_data_callback_result_t AudioSink::Impl::OnData(AAudioStream*, void* userD
     auto* impl = static_cast<AudioSink::Impl*>(userData);
     auto* out = static_cast<int16_t*>(audioData);
     const size_t wanted = size_t(numFrames) * impl->format.channels;
-    const size_t got = impl->Take(out, wanted);
-    if (got < wanted) {
-        std::memset(out + got, 0, (wanted - got) * sizeof(int16_t));
-        impl->starved.fetch_add(1, std::memory_order_relaxed);
-    }
+    impl->ring.TakeOrSilence(out, wanted);
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -93,7 +43,7 @@ bool AudioSink::Open(const deskhub::media::AudioFormat& format) {
 
     auto impl = std::make_unique<Impl>();
     impl->format = format;
-    impl->ring.assign(kRingFrames * format.interleavedSamples(), 0);
+    impl->ring.Open(format);
 
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
@@ -135,7 +85,7 @@ void AudioSink::Close() {
 bool AudioSink::Write(std::span<const int16_t> pcm) {
     if (!impl_ || pcm.empty()) return false;
     if (pcm.size() != impl_->format.interleavedSamples()) return false;
-    impl_->Put(pcm);
+    impl_->ring.Put(pcm);
     return true;
 }
 
@@ -144,17 +94,15 @@ bool AudioSink::IsOpen() const {
 }
 
 size_t AudioSink::framesQueued() const {
-    if (!impl_) return 0;
-    std::lock_guard<std::mutex> lock(impl_->ringMutex);
-    return impl_->filled / impl_->format.interleavedSamples();
+    return impl_ ? impl_->ring.framesQueued() : 0;
 }
 
 uint64_t AudioSink::framesDropped() const {
-    return impl_ ? impl_->dropped.load(std::memory_order_relaxed) : 0;
+    return impl_ ? impl_->ring.framesDropped() : 0;
 }
 
 uint64_t AudioSink::framesStarved() const {
-    return impl_ ? impl_->starved.load(std::memory_order_relaxed) : 0;
+    return impl_ ? impl_->ring.framesStarved() : 0;
 }
 
 const char* AudioSink::BackendName() {

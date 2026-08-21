@@ -12,8 +12,8 @@
 
 #include "TrayIcon.h"
 #include "deskhub/net/PairedDevices.h"
+#include "deskhub/session/ConnectFlow.h"
 #include "deskhub/session/OpenViewers.h"
-#include "deskhub/session/TerminalSession.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
@@ -24,8 +24,7 @@
 #include "deskhubp/session/AgentDriver.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
-#include "deskhubp/session/FileHost.h"
-#include "deskhubp/session/TerminalHost.h"
+#include "deskhubp/session/HostShareController.h"
 
 class MainWindow {
 public:
@@ -75,24 +74,14 @@ private:
     void SelectPage(int page);
 
     void RefreshPairedDevices();
-    void DrainPairingRequests();
     bool AskPairing(const PairingRequest& request);
     void ForgetSelectedDevice();
     void ForgetEveryDevice();
 
     bool Sharing() const;
-    void StartTerminalShare();
-    void StopTerminalShare();
-    void StopTerminalRow();
     void StartFileShare();
-    void StopFileShare();
-    void StopFilesRow();
-    void RefreshTransfers();
     std::filesystem::path TransferFolder() const;
     void OpenFileSend(const NetAddr& server, const std::string& passcode);
-    void RefreshShells();
-    void KickShell(uint32_t termId);
-    void StopAndAttachShell(uint32_t termId);
     void ApplySharingBanner();
     void OpenShell(const NetAddr& server, const std::string& passcode);
 
@@ -118,14 +107,8 @@ private:
 
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartConnect(const std::string& addr, const std::string& passcode);
-    struct OpenChoice {
-        bool desktop = false;
-        bool shell = false;
-        bool files = false;
-    };
-
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
+        const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
     bool ReadPasscode(GtkWidget* entry, std::string& out);
 
     void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
@@ -263,12 +246,8 @@ private:
 
     deskhubp::LanScanner scanner_;
     deskhubp::DeviceStatusPoller poller_;
-    AgentLoop agentLoop_;
+    deskhubp::HostShareController share_;
     deskhubp::AgentDriver agentDriver_;
-    deskhubp::TerminalHost terminalHost_;
-    deskhubp::FileHost fileHost_;
-    std::vector<deskhub::TerminalRecord> shells_;
-    std::vector<deskhub::TransferRecord> transfers_;
     std::vector<AgentSourceStatus> hostStatus_;
 
     guint rescanTimerId_ = 0;
@@ -279,7 +258,6 @@ private:
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool loadingSettings_ = false;
-    bool askingPairing_ = false;
     bool screenSharing_ = false;
     bool terminalRequested_ = false;
     bool filesRequested_ = false;

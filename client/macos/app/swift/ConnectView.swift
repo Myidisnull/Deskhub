@@ -311,23 +311,6 @@ extension MainMenuView {
         beginConnect()
     }
 
-    private func openTenantWindows(_ caps: HostCaps, address: String, passcode: String) {
-        if openShell {
-            if caps.terminal {
-                openWindow(value: TerminalRequest(address: address, passcode: passcode))
-            } else {
-                connect.connectError = DeskhubClient.string(DHStrHostHasNoTerminal)
-            }
-        }
-        guard openTransfer else { return }
-        if caps.files {
-            openWindow(value: TransferRequest(address: address, passcode: passcode,
-                                              name: connect.deviceName))
-        } else {
-            connect.connectError = DeskhubClient.string(DHStrTransferHostNotTaking)
-        }
-    }
-
     private func beginConnect() {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
         if !openDesktop, !openShell, !openTransfer {
@@ -343,13 +326,23 @@ extension MainMenuView {
             guard !accepted.isEmpty else { return }
             await discovery.remember(address: accepted, passcode: passcode)
 
-            openTenantWindows(found.caps, address: accepted, passcode: passcode)
-            guard openDesktop else { return }
-            guard !found.sources.isEmpty else {
-                connect.connectError = DeskhubClient.sourceQueryEmpty(accepted)
-                return
+            let plan = DeskhubClient.connectPlan(
+                caps: found.caps, sources: found.sources,
+                desktop: openDesktop, shell: openShell, files: openTransfer
+            )
+            if plan.openShell {
+                openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
             }
-            if DeskhubClient.connectDecision(found.sources).showPicker {
+            if plan.openFiles {
+                openWindow(value: TransferRequest(address: accepted, passcode: passcode,
+                                                  name: connect.deviceName))
+            }
+            if plan.hasProblem {
+                connect.connectError =
+                    DeskhubClient.connectProblemText(plan.problem, address: accepted)
+            }
+            guard plan.openDesktop else { return }
+            if plan.showPicker {
                 route = .sourcePicker(found.sources)
             } else {
                 openViewers(found.sources, address: accepted, passcode: passcode,

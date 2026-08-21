@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "capture/AudioCapture.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
@@ -75,22 +74,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
-    auto audioCapture = std::make_shared<AudioCapture>();
-    policy.startAudioCapture = [audioCapture](const deskhub::media::AudioFormat& format,
-                                   std::function<void(std::span<const int16_t>)> onFrame) {
-        return audioCapture->Start(format, std::move(onFrame));
-    };
-    policy.stopAudioCapture = [audioCapture] { audioCapture->Stop(); };
+    deskhubp::UseSystemAudioCapture(policy);
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
     policy.noSourceError = "No display to share.";
     policy.noUsableSourceError =
         "No usable source \xE2\x80\x94 the compositor sent no frame.";
-    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string shortKey,
-                                  std::string name) {
-        PushPairingRequest(PairingRequest{addrPacked, std::move(shortKey), std::move(name)});
-    };
-
     policy.preflight = [] {
         if (deskhubp::PortalScreenCast::Instance().isOpen()) return std::string();
         return std::string(
@@ -270,5 +259,5 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         }
     };
 
-    return engine_.Start(sources, opt, std::move(policy));
+    return StartEngine(sources, opt, std::move(policy));
 }

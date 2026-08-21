@@ -6,6 +6,8 @@
 #include <memory>
 #include <span>
 
+namespace deskhubp {
+
 class AudioCapture {
 public:
     using FrameHandler = std::function<void(std::span<const int16_t>)>;
@@ -23,7 +25,11 @@ public:
     uint64_t framesCaptured() const;
     uint64_t framesPaddedWithSilence() const;
 
+    static const char* BackendName();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+}

@@ -19,7 +19,6 @@
 #include "ElevatedShare.h"
 #include "capture/Downscaler.h"
 #include "gpu/GpuSelect.h"
-#include "capture/AudioCapture.h"
 #include "capture/ScreenCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
@@ -78,12 +77,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     auto gpu = std::make_shared<GpuChoice>();
 
     deskhubp::HostEnginePolicy policy;
-    auto audioCapture = std::make_shared<AudioCapture>();
-    policy.startAudioCapture = [audioCapture](const deskhub::media::AudioFormat& format,
-                                   std::function<void(std::span<const int16_t>)> onFrame) {
-        return audioCapture->Start(format, std::move(onFrame));
-    };
-    policy.stopAudioCapture = [audioCapture] { audioCapture->Stop(); };
+    deskhubp::UseSystemAudioCapture(policy);
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
 
@@ -105,11 +99,6 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                 "If the other machine cannot connect, allow Deskhub.exe through Windows "
                 "Firewall for the current network.");
         return std::string();
-    };
-
-    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string shortKey,
-                                  std::string name) {
-        PushPairingRequest(PairingRequest{addrPacked, std::move(shortKey), std::move(name)});
     };
 
     policy.onSharing = [] {
@@ -268,5 +257,5 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         p.EncodeTimed(p.cachedTex.Get(), p.forceIdr.exchange(false));
     };
 
-    return engine_.Start(sources, opt, std::move(policy));
+    return StartEngine(sources, opt, std::move(policy));
 }

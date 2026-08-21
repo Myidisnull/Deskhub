@@ -1,7 +1,8 @@
 #include "deskhub/diag/AgentDiag.h"
 
+#include "deskhub/diag/TextAppend.h"
+
 #include <cinttypes>
-#include <cstdarg>
 #include <cstdio>
 
 namespace deskhub::diag {
@@ -31,19 +32,6 @@ SourceRate::Window SourceRate::Close(uint32_t captured, uint64_t framesSent, uin
     lastBytes_ = bytesSent;
     lastUs_ = nowUs;
     return w;
-}
-
-namespace {
-
-void Append(char*& p, char* end, const char* fmt, ...) {
-    if (p >= end) return;
-    va_list ap;
-    va_start(ap, fmt);
-    const int n = std::vsnprintf(p, size_t(end - p), fmt, ap);
-    va_end(ap);
-    p = (n < 0 || n >= int(end - p)) ? end : p + n;
-}
-
 }
 
 void SourceDiag::LatchIdr(uint64_t bytes, uint32_t pkts, uint32_t burst) {

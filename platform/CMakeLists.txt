@@ -57,15 +57,20 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 if(WIN32)
     set(deskhub_platform_sink src/audio/AudioSinkWasapi.cpp)
+    set(deskhub_platform_capture src/audio/AudioCaptureWasapi.cpp)
 elseif(APPLE)
     set(deskhub_platform_sink src/audio/AudioSinkCoreAudio.mm)
+    set(deskhub_platform_capture src/audio/AudioCaptureNone.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android" AND ANDROID_PLATFORM_LEVEL GREATER_EQUAL 26)
     set(deskhub_platform_sink src/audio/AudioSinkAAudio.cpp)
     set(deskhub_platform_sink_libs aaudio)
+    set(deskhub_platform_capture src/audio/AudioCaptureNone.cpp)
 elseif(DESKHUB_PIPEWIRE_FOUND)
     set(deskhub_platform_sink src/audio/AudioSinkPipewire.cpp)
+    set(deskhub_platform_capture src/audio/AudioCapturePipewire.cpp)
 else()
     set(deskhub_platform_sink src/audio/AudioSinkNone.cpp)
+    set(deskhub_platform_capture src/audio/AudioCaptureNone.cpp)
 endif()
 
 if(WIN32)
@@ -179,6 +184,7 @@ add_library(platform STATIC
     ${deskhub_platform_pty}
     ${deskhub_platform_audio}
     ${deskhub_platform_sink}
+    ${deskhub_platform_capture}
     src/audio/AudioPlayer.cpp
     src/audio/AudioBroadcaster.cpp
     src/system/TrustStoreFile.cpp

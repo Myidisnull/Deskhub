@@ -46,7 +46,6 @@ add_library(deskhub_linux_core STATIC
     AgentLoop.cpp
 
     capture/ScreenCapture.cpp
-    capture/AudioCapture.cpp
 
     encode/VaDisplay.cpp
     encode/VaEncoder.cpp

@@ -111,11 +111,6 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     policy.noSourceError = "No screen to share.";
     policy.noUsableSourceError =
         "Screen capture never started \xE2\x80\x94 the recording permission was withdrawn.";
-    policy.onApprovalNeeded = [this](uint64_t addrPacked, std::string shortKey,
-                                  std::string name) {
-        PushPairingRequest(PairingRequest{addrPacked, std::move(shortKey), std::move(name)});
-    };
-
     policy.status.zeroCopy = [](const deskhubp::HostSource&) { return true; };
 
     policy.onSharing = [] {
@@ -181,5 +176,5 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return target;
     };
 
-    return engine_.Start(sources, opt, std::move(policy));
+    return StartEngine(sources, opt, std::move(policy));
 }

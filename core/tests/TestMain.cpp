@@ -157,6 +157,9 @@ int main() {
     std::printf("--- media: area-average RGB downscale ---\n");
     RunRgbDownscaleTests();
 
+    std::printf("--- media: PCM ring (drop-oldest, silence padding) ---\n");
+    RunPcmRingTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 
@@ -192,6 +195,9 @@ int main() {
 
     std::printf("--- terminal: the colours every client paints with ---\n");
     RunPaletteTests();
+
+    std::printf("--- terminal: keeping the view still while output arrives ---\n");
+    RunScrollAnchorTests();
 
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();

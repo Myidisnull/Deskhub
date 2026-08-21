@@ -21,6 +21,11 @@ inline constexpr size_t kMaxQueuedWriteBytes = 1u << 20;
 
 std::filesystem::path DefaultTransferDir();
 
+inline std::string PathText(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
 class FileStore {
 public:
     FileStore() = default;

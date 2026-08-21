@@ -4,13 +4,8 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Bundle
-import android.text.InputType
 import android.view.KeyEvent
-import android.view.View
 import android.view.WindowManager
-import android.view.inputmethod.BaseInputConnection
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -100,42 +95,11 @@ class TerminalActivity : ComponentActivity() {
 
 private class TermInputView(
     context: Context,
-) : View(context) {
-    var onChar: ((Int) -> Unit)? = null
+) : ImeInputView(context) {
     var onSpecial: ((Int) -> Unit)? = null
 
-    init {
-        isFocusable = true
-        isFocusableInTouchMode = true
-    }
-
-    override fun onCheckIsTextEditor(): Boolean = true
-
-    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
-            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
-            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE or
-            EditorInfo.IME_FLAG_NO_FULLSCREEN or
-            EditorInfo.IME_FLAG_NO_EXTRACT_UI
-
-        return object : BaseInputConnection(this, false) {
-            override fun commitText(
-                text: CharSequence,
-                newCursorPosition: Int,
-            ): Boolean {
-                for (ch in text) onChar?.invoke(ch.code)
-                return true
-            }
-
-            override fun deleteSurroundingText(
-                beforeLength: Int,
-                afterLength: Int,
-            ): Boolean {
-                repeat(beforeLength) { onSpecial?.invoke(NativeTerminal.KEY_BACKSPACE) }
-                return true
-            }
-        }
+    override fun onBackspace() {
+        onSpecial?.invoke(NativeTerminal.KEY_BACKSPACE)
     }
 
     override fun onKeyDown(

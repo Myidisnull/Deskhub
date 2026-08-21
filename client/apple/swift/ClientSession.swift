@@ -1,28 +1,5 @@
 import AVFoundation
 
-nonisolated enum Phase: Int, Sendable {
-    case idle = 0
-    case connecting = 1
-    case streaming = 2
-    case ended = 3
-}
-
-nonisolated enum MouseButton: Int32, Sendable {
-    case left = 1
-    case right = 2
-    case middle = 3
-    case x1 = 4
-    case x2 = 5
-}
-
-struct Source: Identifiable, Sendable, Hashable {
-    let id: UInt8
-    let name: String
-    let displayName: String
-    let sizeLabel: String
-    let pickerLabel: String
-}
-
 nonisolated enum DeskhubClient {
     static func string(_ id: DHStringId) -> String {
         String(cString: dh_string(id))
@@ -129,6 +106,35 @@ nonisolated enum DeskhubClient {
         return (showPicker, sourceId)
     }
 
+    static func connectPlan(
+        caps: HostCaps, sources: [Source], desktop: Bool, shell: Bool, files: Bool
+    ) -> ConnectPlan {
+        let infos = sources.map { source -> DHSourceInfo in
+            var info = DHSourceInfo()
+            info.sourceId = source.id
+            return info
+        }
+        var raw = DHHostCaps()
+        raw.acceptsInput = caps.acceptsInput
+        raw.terminal = caps.terminal
+        raw.files = caps.files
+        let planned = infos.withUnsafeBufferPointer {
+            dh_connect_plan(raw, $0.baseAddress, Int32($0.count), desktop, shell, files)
+        }
+        return ConnectPlan(
+            openShell: planned.openShell,
+            openFiles: planned.openFiles,
+            openDesktop: planned.openDesktop,
+            showPicker: planned.showPicker,
+            sourceId: planned.sourceId,
+            problem: planned.problem
+        )
+    }
+
+    static func connectProblemText(_ problem: Int32, address: String) -> String {
+        buffered(320) { dh_connect_problem_text(problem, address, $0, $1) }
+    }
+
     static var maxTransferFiles: Int {
         Int(dh_max_transfer_files())
     }
@@ -171,48 +177,6 @@ nonisolated enum DeskhubClient {
     static func hostHasTerminal(address: String, passcode: String) -> Bool {
         dh_host_has_terminal(address, passcode)
     }
-}
-
-struct HostCaps: Sendable {
-    var acceptsInput = false
-    var terminal = false
-    var files = false
-}
-
-struct HostQuery: Sendable {
-    var sources: [Source] = []
-    var caps = HostCaps()
-}
-
-struct TransferState: Sendable, Equatable {
-    var active = false
-    var done = false
-    var failed = false
-    var fileIndex: UInt16 = 0
-    var fileCount: UInt16 = 0
-    var bytes: UInt64 = 0
-    var total: UInt64 = 0
-    var name = ""
-    var message = ""
-
-    var idle: Bool { !active && !done && !failed }
-
-    var fraction: Double {
-        guard total > 0 else { return active ? 0 : 1 }
-        return min(1, Double(bytes) / Double(total))
-    }
-
-    var step: String {
-        guard fileCount > 0 else { return "" }
-        return "\(min(Int(fileIndex) + 1, Int(fileCount)))/\(fileCount)"
-    }
-}
-
-struct SessionHandlers: Sendable {
-    var onStatus: @Sendable (String) -> Void = { _ in }
-    var onSize: @Sendable (UInt32, UInt32) -> Void = { _, _ in }
-    var onClosed: @Sendable (String) -> Void = { _ in }
-    var onTrustAsked: @Sendable (Int32, String) -> Void = { _, _ in }
 }
 
 private final class HandlerBox {

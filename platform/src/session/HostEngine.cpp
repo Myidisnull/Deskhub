@@ -4,6 +4,7 @@
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/session/HostSession.h"
 #include "deskhub/ui/Strings.h"
+#include "deskhubp/audio/AudioCapture.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/session/FileHost.h"
@@ -400,6 +401,15 @@ void HostEngine::DrainControlRequests() {
     }
 
     PublishStatus();
+}
+
+void UseSystemAudioCapture(HostEnginePolicy& policy) {
+    auto capture = std::make_shared<AudioCapture>();
+    policy.startAudioCapture = [capture](const deskhub::media::AudioFormat& format,
+                                   AudioCapture::FrameHandler onFrame) {
+        return capture->Start(format, std::move(onFrame));
+    };
+    policy.stopAudioCapture = [capture] { capture->Stop(); };
 }
 
 void HostEngine::StartAudio() {

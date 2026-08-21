@@ -260,6 +260,8 @@ HostSourcePolicy MakeDefaultSourcePolicy() {
     return sp;
 }
 
+void UseSystemAudioCapture(HostEnginePolicy& policy);
+
 template <class Pipeline>
 SourceStatusHooks MakeDefaultStatusHooks() {
     SourceStatusHooks hooks;

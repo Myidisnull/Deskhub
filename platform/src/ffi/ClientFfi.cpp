@@ -411,6 +411,40 @@ bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_so
     return d.showPicker;
 }
 
+DHConnectPlan dh_connect_plan(DHHostCaps caps, const DHSourceInfo* sources, int count,
+    bool want_desktop, bool want_shell, bool want_files) {
+    std::vector<deskhub::SourceInfo> list;
+    if (sources && count > 0) {
+        list.resize(size_t(count));
+        for (int i = 0; i < count; ++i) list[size_t(i)].sourceId = sources[i].sourceId;
+    }
+
+    deskhub::HostCaps hostCaps;
+    hostCaps.acceptsInput = caps.acceptsInput;
+    hostCaps.terminal = caps.terminal;
+    hostCaps.audio = caps.audio;
+    hostCaps.files = caps.files;
+
+    const deskhub::ConnectPlan planned = deskhub::PlanAfterConnect(hostCaps, list,
+        deskhub::OpenChoice{want_desktop, want_shell, want_files});
+
+    DHConnectPlan out{};
+    out.openShell = planned.openShell;
+    out.openFiles = planned.openFiles;
+    out.openDesktop = planned.openDesktop;
+    out.showPicker = planned.showPicker;
+    out.sourceId = planned.sourceId;
+    out.problem = int32_t(planned.problem);
+    return out;
+}
+
+int dh_connect_problem_text(int32_t problem, const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ConnectProblemText(deskhub::ConnectProblem(problem), address ? address : ""));
+    return int(std::strlen(out));
+}
+
 int dh_hotkeys(DHHotkey* out, int capacity) {
     if (!out || capacity <= 0) return 0;
 

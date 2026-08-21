@@ -166,6 +166,7 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ViewerTitleTests.cpp
         tests/media/FrameMailboxTests.cpp
         tests/media/RgbDownscaleTests.cpp
+        tests/media/PcmRingTests.cpp
 
         tests/session/BeaconTests.cpp
 
@@ -181,6 +182,7 @@ if(DESKHUB_CORE_TESTS)
         tests/terminal/RepaintTests.cpp
         tests/terminal/KeyEncoderTests.cpp
         tests/terminal/PaletteTests.cpp
+        tests/terminal/ScrollAnchorTests.cpp
 
         tests/ui/StringsTests.cpp
         tests/ui/HostRowsTests.cpp

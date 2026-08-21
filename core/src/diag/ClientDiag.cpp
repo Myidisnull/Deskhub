@@ -1,22 +1,11 @@
 #include "deskhub/diag/ClientDiag.h"
 
+#include "deskhub/diag/TextAppend.h"
+
 #include <cinttypes>
-#include <cstdarg>
 #include <cstdio>
 
 namespace deskhub::diag {
-namespace {
-
-void Append(char*& p, char* end, const char* fmt, ...) {
-    if (p >= end) return;
-    va_list ap;
-    va_start(ap, fmt);
-    const int n = std::vsnprintf(p, size_t(end - p), fmt, ap);
-    va_end(ap);
-    p = (n < 0 || n >= int(end - p)) ? end : p + n;
-}
-
-}
 
 const char* ClientDiag::FormatSum(char* buf, size_t cap, const char* hms, const LinkWindow& w,
     uint32_t gapMsMax, int64_t e2eUs) {

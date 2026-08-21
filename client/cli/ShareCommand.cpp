@@ -30,11 +30,6 @@ using deskhub::cli::PairingPolicy;
 
 constexpr uint32_t kPollMs = 200;
 
-std::string PathText(const std::filesystem::path& path) {
-    const std::u8string text = path.u8string();
-    return std::string(text.begin(), text.end());
-}
-
 std::filesystem::path TransferFolder(const std::string& chosen) {
     if (chosen.empty()) return deskhubp::DefaultTransferDir();
     const std::u8string wide(chosen.begin(), chosen.end());
@@ -186,7 +181,7 @@ ExitCode RunShare(const Command& command) {
             agent.SetFiles(&files);
         } else {
             PrintError(std::string(deskhub::ui::kShareStartFailed) +
-                       ": files cannot be stored in " + PathText(folder) + ".");
+                       ": files cannot be stored in " + deskhubp::PathText(folder) + ".");
             if (terminal.Running()) terminal.Stop();
             agent.Stop();
             return ExitCode::Failed;
@@ -199,7 +194,7 @@ ExitCode RunShare(const Command& command) {
         PrintError(deskhub::ui::PasscodeNote(options.passcode));
         if (!options.allowInput) PrintError(deskhub::ui::kViewOnlyNote);
         if (files.Running())
-            PrintError(deskhub::ui::TransferFolderNote(PathText(files.Directory())));
+            PrintError(deskhub::ui::TransferFolderNote(deskhubp::PathText(files.Directory())));
         const std::string bindWarning = agent.BindWarning();
         if (!bindWarning.empty()) PrintError(bindWarning);
         PrintError("Press Ctrl-C to stop sharing.");

@@ -40,9 +40,22 @@ void TestPairingRequestsSurviveASmallWindow() {
     Check(loop.TakePairingRequests(0).empty(), "a zero window takes nothing and drops nothing");
 }
 
+void TestPairingQueueCannotGrowForever() {
+    std::printf("[agentloop] a queue nobody drains stops growing instead of eating memory...\n");
+    AgentLoop loop;
+    for (uint64_t addr = 1; addr <= 100; ++addr) loop.PushPairingRequest(Request(addr));
+
+    const std::vector<PairingRequest> all = loop.TakePairingRequests();
+    Check(all.size() < 100, "the queue is bounded");
+    Check(!all.empty() && all.back().addrPacked == 100, "the newest request is always kept");
+    Check(all.front().addrPacked == 100 - all.size() + 1,
+        "and what fell off the front is the oldest, in order");
+}
+
 }
 
 void RunAgentLoopTests() {
     std::printf("--- session: the pairing queue the desktop UIs poll ---\n");
     TestPairingRequestsSurviveASmallWindow();
+    TestPairingQueueCannotGrowForever();
 }
