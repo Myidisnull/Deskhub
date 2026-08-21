@@ -8,6 +8,7 @@
 #undef Success
 #undef Always
 #undef Bool
+#undef BadName
 
 #include "ViewerRun.h"
 
