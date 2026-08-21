@@ -76,6 +76,7 @@ add_library(core STATIC
     src/terminal/Palette.cpp
 
     src/ui/HostRows.cpp
+    src/ui/TransferView.cpp
     src/ui/DeviceRows.cpp
     src/ui/RecentDevices.cpp
     src/ui/SecretText.cpp
@@ -183,6 +184,7 @@ if(DESKHUB_CORE_TESTS)
 
         tests/ui/StringsTests.cpp
         tests/ui/HostRowsTests.cpp
+        tests/ui/TransferViewTests.cpp
         tests/ui/DeviceRowsTests.cpp
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp

@@ -2,6 +2,7 @@
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/session/FileSender.h"
 #include "deskhub/session/FileTransfer.h"
+#include "deskhub/ui/TransferView.h"
 #include "deskhubp/net/SessionTransport.h"
 #include "deskhubp/session/FileUpload.h"
 
@@ -65,6 +66,7 @@ public:
     }
     std::string Message() const;
     deskhub::TransferProgress Progress() const;
+    deskhub::ui::TransferView View() const;
 
 private:
     void Loop();

@@ -12,6 +12,7 @@ final class SessionModel {
     var sources: [Source] = []
     private(set) var stream: StreamModel?
     private(set) var terminal: TerminalModel?
+    var fileSend: FileSendModel?
 
     func beginConnect(to address: String, passcode: String) {
         connect.address = address
@@ -68,6 +69,36 @@ final class SessionModel {
         stream?.disconnect()
         stream = nil
         screen = .connect
+    }
+
+    func openFileSend() {
+        guard let accepted = connect.acceptAddress() else { return }
+        connect.saveDeviceName()
+        let passcode = connect.acceptedPasscode
+        let name = connect.deviceName
+        Task {
+            connect.isConnecting = true
+            let query = await Task.detached {
+                DeskhubClient.listSources(address: accepted, passcode: passcode)
+            }.value
+            connect.isConnecting = false
+            guard let query, query.caps.files else {
+                connect.connectError = DeskhubClient.string(DHStrTransferHostNotTaking)
+                return
+            }
+            await discovery.remember(address: accepted, passcode: passcode)
+            let sender = FileSendModel()
+            sender.address = accepted
+            sender.passcode = passcode
+            sender.deviceName = name
+            fileSend = sender
+        }
+    }
+
+    func closeFileSend() {
+        fileSend?.forgetTransfer()
+        clearSendStaging()
+        fileSend = nil
     }
 
     func openShell() {

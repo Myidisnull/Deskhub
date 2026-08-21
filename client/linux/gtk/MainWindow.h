@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -23,6 +24,7 @@
 #include "deskhubp/session/AgentDriver.h"
 #include "deskhubp/session/AgentLoop.h"
 #include "deskhubp/session/ConnectDriver.h"
+#include "deskhubp/session/FileHost.h"
 #include "deskhubp/session/TerminalHost.h"
 
 class MainWindow {
@@ -82,6 +84,12 @@ private:
     void StartTerminalShare();
     void StopTerminalShare();
     void StopTerminalRow();
+    void StartFileShare();
+    void StopFileShare();
+    void StopFilesRow();
+    void RefreshTransfers();
+    std::filesystem::path TransferFolder() const;
+    void OpenFileSend(const NetAddr& server, const std::string& passcode);
     void RefreshShells();
     void KickShell(uint32_t termId);
     void StopAndAttachShell(uint32_t termId);
@@ -113,6 +121,7 @@ private:
     struct OpenChoice {
         bool desktop = false;
         bool shell = false;
+        bool files = false;
     };
 
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
@@ -139,6 +148,7 @@ private:
     void RefreshDisplayChoices();
     void ShowHostTable(bool sharing);
     bool TerminalTicked() const;
+    bool FilesTicked() const;
     std::vector<HostMonitor> TickedMonitors() const;
     static std::vector<HostMonitor> ListMonitors();
     static bool MatchesTickedMonitor(const AgentSource& source,
@@ -170,6 +180,8 @@ private:
     static void OnRefreshDevicesClicked(GtkButton* b, gpointer user);
     static void OnForgetDeviceClicked(GtkButton* b, gpointer user);
     static void OnForgetAllClicked(GtkButton* b, gpointer user);
+    static void OnFilesTickToggled(GtkToggleButton* b, gpointer user);
+    static void OnTransferDirClicked(GtkButton* b, gpointer user);
     static void OnDeviceRowActivated(GtkTreeView* view, GtkTreePath* path,
         GtkTreeViewColumn* col, gpointer user);
     static gboolean OnRescanTimer(gpointer user);
@@ -197,6 +209,8 @@ private:
     GtkWidget* shareButton_ = nullptr;
 
     GtkWidget* hostTerminalCheck_ = nullptr;
+    GtkWidget* hostFilesCheck_ = nullptr;
+    GtkWidget* hostFilesHint_ = nullptr;
 
     GtkWidget* addressEntry_ = nullptr;
     GtkWidget* portEntry_ = nullptr;
@@ -207,6 +221,7 @@ private:
     GtkWidget* controlCheck_ = nullptr;
     GtkWidget* desktopCheck_ = nullptr;
     GtkWidget* shellCheck_ = nullptr;
+    GtkWidget* filesCheck_ = nullptr;
 
     GtkWidget* pairedView_ = nullptr;
     GtkListStore* pairedStore_ = nullptr;
@@ -232,6 +247,7 @@ private:
     GtkWidget* shareAudioCheck_ = nullptr;
     GtkWidget* playAudioCheck_ = nullptr;
     GtkWidget* keepAwakeCheck_ = nullptr;
+    GtkWidget* transferDirLabel_ = nullptr;
     TrayIcon tray_;
     guint clipTimerId_ = 0;
 
@@ -250,7 +266,9 @@ private:
     AgentLoop agentLoop_;
     deskhubp::AgentDriver agentDriver_;
     deskhubp::TerminalHost terminalHost_;
+    deskhubp::FileHost fileHost_;
     std::vector<deskhub::TerminalRecord> shells_;
+    std::vector<deskhub::TransferRecord> transfers_;
     std::vector<AgentSourceStatus> hostStatus_;
 
     guint rescanTimerId_ = 0;
@@ -264,6 +282,7 @@ private:
     bool askingPairing_ = false;
     bool screenSharing_ = false;
     bool terminalRequested_ = false;
+    bool filesRequested_ = false;
     bool shareViewOnly_ = false;
     uint16_t sharePort_ = 0;
     std::string sharePasscodeNote_;

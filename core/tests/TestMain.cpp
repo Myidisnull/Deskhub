@@ -200,6 +200,9 @@ int main() {
     RunHostRowsTests();
     RunDeviceRowsTests();
 
+    std::printf("--- ui: what a file transfer looks like while it runs ---\n");
+    RunTransferViewTests();
+
     std::printf("--- ui: recent devices list (parse, touch, cap) ---\n");
     RunRecentDevicesTests();
 

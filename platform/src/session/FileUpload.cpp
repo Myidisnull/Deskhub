@@ -178,6 +178,11 @@ deskhub::TransferProgress FileUpload::Progress() const {
     return sender_->Progress();
 }
 
+deskhub::ui::TransferView FileUpload::View() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return deskhub::ui::TransferViewOf(sender_->State(), sender_->Reason(), sender_->Progress());
+}
+
 std::string FileUpload::LastError() const {
     const std::lock_guard<std::mutex> lock(mutex_);
     return error_;

@@ -63,10 +63,10 @@ Everything a host offers rides **one UDP port** (default 47777) through one
  input        audio       Streams carry framed records (RecordStream):
  clipboard                length-prefixed messages up to 16 KiB.
  terminal                 Datagrams carry one video or audio packet
-                          each (≤ 1200 B).
+ files                    each (≤ 1200 B).
 ```
 
-- **Streams** (reliable, ordered): control, input, clipboard, terminal — each
+- **Streams** (reliable, ordered): control, input, clipboard, terminal, files — each
   connection uses one bidirectional stream, opened by the client. A stuck stream on
   one connection cannot stall another connection.
 - **Datagrams** (unreliable, unordered, still encrypted): video and audio packets.
@@ -187,6 +187,15 @@ admits), `auth_salt` (non-secret verifier salt), `ui-settings.txt`,
 `recent-devices.txt` (addresses + obscured passcodes), and per-run logs. File I/O
 stays in `platform/`; the parsing and the data structures live in `core/` and are
 unit-tested.
+
+Files a viewer sends land somewhere else entirely: a folder the host picks
+(`ui-settings.txt`'s `transfer_dir`, defaulting to `Deskhub` in the user's home
+folder). `FileStore` writes each one as `<name>.deskhub-part` and renames it only
+after the whole file has arrived with a matching CRC-32, so a half-written file never
+appears under its real name, and `UniqueFileName` guarantees nothing is overwritten.
+The name on the wire is scrubbed by `core/`'s `SafeFileName` — path separators,
+control bytes, characters Windows rejects and reserved device names all go — before
+`platform/` ever touches the filesystem.
 
 ## 8. Testing
 

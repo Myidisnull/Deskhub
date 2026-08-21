@@ -34,6 +34,7 @@ private:
     void ApplyLockEffect(const deskhub::PointerLockEffect& effect);
     void GrabPointer(bool locked);
     void AskAboutKey(deskhub::TrustVerdict verdict, const std::string& fingerprint);
+    void OpenFileSend();
     void UpdateTitle();
     void SizeToVideo();
     void EndSession();
@@ -49,6 +50,7 @@ private:
     static gboolean OnScroll(GtkWidget* w, GdkEventScroll* e, gpointer user);
     static gboolean OnFocusOut(GtkWidget* w, GdkEventFocus* e, gpointer user);
     static gboolean OnTick(GtkWidget* w, GdkFrameClock* clock, gpointer user);
+    static void OnSendFilesClicked(GtkButton* b, gpointer user);
     static void OnDestroy(GtkWidget* w, gpointer user);
 
     GtkWidget* window_ = nullptr;

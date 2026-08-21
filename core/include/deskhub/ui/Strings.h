@@ -461,11 +461,21 @@ inline std::string SharingStatusLine(uint16_t port) {
            " - others can connect to this machine now.";
 }
 
-inline std::string ShareSummaryLine(bool screen, bool terminal, uint16_t port) {
-    if (!screen && !terminal) return {};
-    std::string what = screen ? "Screen" : "";
-    if (terminal) what += screen ? " \xC2\xB7 Terminal" : "Terminal";
+inline std::string ShareSummaryLine(bool screen, bool terminal, bool files, uint16_t port) {
+    if (!screen && !terminal && !files) return {};
+    std::string what;
+    const auto add = [&what](const char* name) {
+        if (!what.empty()) what += " \xC2\xB7 ";
+        what += name;
+    };
+    if (screen) add("Screen");
+    if (terminal) add("Terminal");
+    if (files) add("Files");
     return what + " on UDP port " + std::to_string(port) + ".";
+}
+
+inline std::string ShareSummaryLine(bool screen, bool terminal, uint16_t port) {
+    return ShareSummaryLine(screen, terminal, false, port);
 }
 
 inline std::string PasscodeNote(std::string_view passcode) {

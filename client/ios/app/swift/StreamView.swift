@@ -9,6 +9,7 @@ struct StreamView: View {
     @State private var layer: AVSampleBufferDisplayLayer?
     @State private var keyboardOn = false
     @State private var pickerOpen = false
+    @State private var filesOpen = false
 
     @State private var controlsOpen = false
 
@@ -66,6 +67,9 @@ struct StreamView: View {
             changed: model.trustChanged,
             fingerprint: model.trustFingerprint
         ) { model.answerTrust($0) }
+        .sheet(isPresented: $filesOpen) {
+            FileSendView(model: model, subtitle: hostTitle) { filesOpen = false }
+        }
         .task {
             guard dh_clipboard_sync() else { return }
             var lastChange = UIPasteboard.general.changeCount
@@ -241,6 +245,10 @@ struct StreamView: View {
                     Button("Display") { pickerOpen = true }
                         .buttonStyle(.bordered)
                 }
+
+                Button("Files") { filesOpen = true }
+                    .buttonStyle(.bordered)
+                    .disabled(!streaming)
 
                 Spacer()
 

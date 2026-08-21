@@ -289,6 +289,7 @@ private fun MainScreen(
     var deviceRows by remember { mutableStateOf(emptyList<NativeClient.DeviceRow>()) }
     var scanStatus by remember { mutableStateOf("") }
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
+    var sendingTo by remember { mutableStateOf<FileSendDriver?>(null) }
     var section by remember { mutableStateOf(initialSection) }
     var port by remember { mutableStateOf(NativeClient.settingsPort()) }
     val scope = rememberCoroutineScope()
@@ -395,9 +396,47 @@ private fun MainScreen(
         }
     }
 
+    val openFileSend: (String) -> Unit = sendLambda@{ addr ->
+        if (!NativeClient.parseAddress(addr)) {
+            connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
+            return@sendLambda
+        }
+        val code = passcode.trim()
+        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
+            connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
+            return@sendLambda
+        }
+        connectError = ""
+        deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
+        NativeClient.setDeviceName(deviceName)
+        val mine = Step.Querying(++querySeq)
+        step = mine
+        scope.launch {
+            val takes = NativeClient.hostTakesFiles(addr, code)
+            if (step == mine) step = Step.Address
+            if (!takes) {
+                connectError = NativeClient.string(NativeClient.STR_TRANSFER_HOST_NOT_TAKING)
+                return@launch
+            }
+            onRemember(addr, code)
+            NativeClient.recentTouch(addr, code)
+            NativeClient.watchRecent()
+            deviceRows = NativeClient.deviceRows()
+            sendingTo = StandaloneFileSendDriver(addr, code, deviceName)
+        }
+    }
+
     val pickDevice: (String, String) -> Unit = { addr, code ->
         connectError = ""
         pendingPick = PendingPick(addr, code)
+    }
+
+    sendingTo?.let { driver ->
+        FileSendDialog(
+            driver = driver,
+            subtitle = address,
+            onDismiss = { sendingTo = null },
+        )
     }
 
     when (val s = step) {
@@ -417,6 +456,7 @@ private fun MainScreen(
                 error = connectError,
                 onConnect = connect,
                 onOpenShell = openShell,
+                onOpenFileSend = openFileSend,
                 deviceRows = deviceRows,
                 scanStatus = scanStatus,
                 onPickDevice = pickDevice,
@@ -552,6 +592,7 @@ private fun HomeScreen(
     error: String,
     onConnect: (String) -> Unit,
     onOpenShell: (String) -> Unit,
+    onOpenFileSend: (String) -> Unit,
     deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
     onPickDevice: (String, String) -> Unit,
@@ -602,6 +643,7 @@ private fun HomeScreen(
                         error = error,
                         onConnect = onConnect,
                         onOpenShell = onOpenShell,
+                        onOpenFileSend = onOpenFileSend,
                         deviceRows = deviceRows,
                         scanStatus = scanStatus,
                         onPickDevice = onPickDevice,
@@ -1150,6 +1192,7 @@ private fun AddressScreen(
     error: String,
     onConnect: (String) -> Unit,
     onOpenShell: (String) -> Unit,
+    onOpenFileSend: (String) -> Unit,
     deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
     onPickDevice: (String, String) -> Unit,
@@ -1245,6 +1288,12 @@ private fun AddressScreen(
             enabled = ready,
             modifier = Modifier.fillMaxWidth(),
         ) { Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL)) }
+
+        OutlinedButton(
+            onClick = { onOpenFileSend(NativeClient.composeAddress(trimmed, connectPort)) },
+            enabled = ready,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(NativeClient.string(NativeClient.STR_OPEN_FILES_LABEL)) }
 
         if (busy) {
             Row(

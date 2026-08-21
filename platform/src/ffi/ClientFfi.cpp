@@ -390,6 +390,16 @@ bool dh_host_has_terminal(const char* address, const char* passcode) {
     return caps.terminal;
 }
 
+bool dh_host_takes_files(const char* address, const char* passcode) {
+    NetAddr server;
+    if (!address || !ParseNetAddr(address, server)) return false;
+
+    std::vector<deskhub::SourceInfo> sources;
+    deskhub::HostCaps caps{};
+    if (!QuerySources(server, sources, passcode ? passcode : "", nullptr, &caps)) return false;
+    return caps.files;
+}
+
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id) {
     std::vector<deskhub::SourceInfo> list;
     if (sources && count > 0) {

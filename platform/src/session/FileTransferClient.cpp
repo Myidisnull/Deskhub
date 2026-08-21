@@ -68,6 +68,26 @@ deskhub::TransferProgress FileTransferClient::Progress() const {
     return progress_;
 }
 
+deskhub::ui::TransferView FileTransferClient::View() const {
+    const FileTransferClientState state = State();
+    deskhub::ui::TransferView view;
+    view.active = state == FileTransferClientState::Connecting ||
+                  state == FileTransferClientState::Sending;
+    view.done = state == FileTransferClientState::Done;
+    view.failed = state == FileTransferClientState::Refused ||
+                  state == FileTransferClientState::Failed ||
+                  state == FileTransferClientState::KeyChanged;
+
+    const std::lock_guard<std::mutex> lock(mutex_);
+    view.fileIndex = progress_.fileIndex;
+    view.fileCount = progress_.fileCount;
+    view.bytes = progress_.batchBytes;
+    view.total = progress_.batchSize;
+    view.name = progress_.name;
+    view.message = message_;
+    return view;
+}
+
 void FileTransferClient::SetState(FileTransferClientState state, std::string_view message) {
     {
         const std::lock_guard<std::mutex> lock(mutex_);

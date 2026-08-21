@@ -111,6 +111,16 @@ object NativeClient {
 
     const val TRUST_CHANGED = 2
 
+    const val STR_TRANSFER_CHOOSE_BUTTON = 135
+    const val STR_TRANSFER_CANCEL_BUTTON = 136
+    const val STR_TRANSFER_SENDING = 138
+    const val STR_TRANSFER_HOST_NOT_TAKING = 140
+    const val STR_TRANSFER_SEND_HEADING = 141
+    const val STR_TRANSFER_NONE_CHOSEN = 142
+    const val STR_TRANSFER_TOO_MANY_FILES = 144
+    const val STR_OPEN_FILES_LABEL = 145
+    const val STR_TRANSFER_SENT_HEADING = 146
+
     private external fun nativeString(id: Int): String
 
     private external fun nativeVersionLine(): String
@@ -291,6 +301,66 @@ object NativeClient {
     fun keepAwake(): Boolean = nativeKeepAwake()
 
     fun setKeepAwake(on: Boolean) = nativeSetKeepAwake(on)
+
+    private external fun nativeSendFiles(paths: Array<String>): Boolean
+
+    private external fun nativeCancelFiles()
+
+    private external fun nativeMaxTransferFiles(): Int
+
+    private external fun nativeTransferError(): String
+
+    private external fun nativeTransfer(): Transfer?
+
+    fun sendFiles(paths: List<String>): Boolean = nativeSendFiles(paths.toTypedArray())
+
+    fun cancelFiles() = nativeCancelFiles()
+
+    val maxTransferFiles: Int by lazy { nativeMaxTransferFiles() }
+
+    fun transferError(): String = nativeTransferError()
+
+    fun transfer(): Transfer = nativeTransfer() ?: Transfer()
+
+    private external fun nativeHostTakesFiles(
+        addr: String,
+        passcode: String,
+    ): Boolean
+
+    private external fun nativeSendCheck(paths: Array<String>): String
+
+    private external fun nativeSendStart(
+        addr: String,
+        passcode: String,
+        name: String,
+        paths: Array<String>,
+    ): Long
+
+    private external fun nativeSendSnapshot(handle: Long): Transfer?
+
+    private external fun nativeSendCancel(handle: Long)
+
+    private external fun nativeSendStop(handle: Long)
+
+    suspend fun hostTakesFiles(
+        addr: String,
+        passcode: String,
+    ): Boolean = withContext(Dispatchers.IO) { nativeHostTakesFiles(addr, passcode) }
+
+    fun sendCheck(paths: List<String>): String = nativeSendCheck(paths.toTypedArray())
+
+    fun sendStart(
+        addr: String,
+        passcode: String,
+        name: String,
+        paths: List<String>,
+    ): Long = nativeSendStart(addr, passcode, name, paths.toTypedArray())
+
+    fun sendSnapshot(handle: Long): Transfer = nativeSendSnapshot(handle) ?: Transfer()
+
+    fun sendCancel(handle: Long) = nativeSendCancel(handle)
+
+    fun sendStop(handle: Long) = nativeSendStop(handle)
 
     private external fun nativeClipOffer(text: String)
 
@@ -722,6 +792,32 @@ object NativeClient {
         val displayName: String,
         val sizeLabel: String,
     )
+
+    data class Transfer(
+        val active: Boolean = false,
+        val done: Boolean = false,
+        val failed: Boolean = false,
+        val fileIndex: Int = 0,
+        val fileCount: Int = 0,
+        val bytes: Long = 0,
+        val total: Long = 0,
+        val name: String = "",
+        val message: String = "",
+    ) {
+        val idle: Boolean get() = !active && !done && !failed
+
+        val fraction: Float
+            get() {
+                if (total <= 0) return if (active) 0f else 1f
+                return minOf(1f, bytes.toFloat() / total.toFloat())
+            }
+
+        val step: String
+            get() {
+                if (fileCount <= 0) return ""
+                return "${minOf(fileIndex + 1, fileCount)}/$fileCount"
+            }
+    }
 
     data class Snapshot(
         val phase: Int,

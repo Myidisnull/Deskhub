@@ -289,6 +289,10 @@ public:
         return upload_ ? upload_->LastError() : std::string();
     }
 
+    deskhub::ui::TransferView uploadView() const {
+        return upload_ ? upload_->View() : deskhub::ui::TransferView{};
+    }
+
 private:
     static constexpr size_t kMaxQueuedFrames = 3;
     static constexpr uint64_t kSlowDecodeMs = 20;

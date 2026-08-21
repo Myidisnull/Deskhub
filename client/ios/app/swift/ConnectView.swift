@@ -68,6 +68,13 @@ struct ConnectView: View {
                 .controlSize(.large)
                 .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
 
+                Button(action: model.openFileSend) {
+                    Text(DeskhubClient.string(DHStrOpenFilesLabel)).deskhubPrimaryLabel()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
+
                 if model.connect.isConnecting {
                     HStack(spacing: 12) {
                         ProgressView()
@@ -101,6 +108,16 @@ struct ConnectView: View {
                 )
             }
             .padding()
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { model.fileSend != nil },
+                set: { shown in if !shown { model.closeFileSend() } }
+            )
+        ) {
+            if let sender = model.fileSend {
+                FileSendView(model: sender, subtitle: sender.address) { model.closeFileSend() }
+            }
         }
         .sheet(item: $prompting) { row in
             PasscodePromptSheet(

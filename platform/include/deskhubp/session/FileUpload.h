@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/session/FileSender.h"
 #include "deskhub/session/FileTransfer.h"
+#include "deskhub/ui/TransferView.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -47,6 +48,7 @@ public:
     deskhub::FileSenderState State() const;
     deskhub::TransferReason Reason() const;
     deskhub::TransferProgress Progress() const;
+    deskhub::ui::TransferView View() const;
     std::string LastError() const;
 
 private:

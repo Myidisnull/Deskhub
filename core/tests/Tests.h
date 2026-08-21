@@ -64,6 +64,7 @@ void RunKeyEncoderTests();
 void RunPaletteTests();
 void RunStringsTests();
 void RunHostRowsTests();
+void RunTransferViewTests();
 void RunDeviceRowsTests();
 void RunRecentDevicesTests();
 void RunUiSettingsTests();

@@ -256,6 +256,8 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
 
 bool dh_host_has_terminal(const char* address, const char* passcode);
 
+bool dh_host_takes_files(const char* address, const char* passcode);
+
 bool dh_is_valid_passcode(const char* passcode);
 
 int dh_passcode_digits(void);

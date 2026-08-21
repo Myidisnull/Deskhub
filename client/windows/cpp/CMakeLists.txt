@@ -47,12 +47,13 @@ if(MSVC)
 endif()
 
 add_library(deskhub_win_view STATIC
+    ../win32/FileSendWindow.cpp
     ../win32/Viewer.cpp
     ../win32/ViewerInput.cpp
     ClientSessionWin.cpp
 )
 target_include_directories(deskhub_win_view PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../win32")
-target_link_libraries(deskhub_win_view PUBLIC deskhub_win_core comctl32)
+target_link_libraries(deskhub_win_view PUBLIC deskhub_win_core comctl32 comdlg32)
 deskhub_target_warnings(deskhub_win_view)
 if(MSVC)
     target_compile_options(deskhub_win_view PRIVATE /sdl)

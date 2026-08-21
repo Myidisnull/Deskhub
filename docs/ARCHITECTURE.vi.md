@@ -66,10 +66,10 @@ Mọi thứ host cung cấp đi trên **một cổng UDP** (mặc định 47777)
  input        audio       Stream chở các record có tiền tố độ dài
  clipboard                (RecordStream), tối đa 16 KiB mỗi record.
  terminal                 Mỗi datagram chở đúng một gói video hoặc
-                          một gói audio (≤ 1200 B).
+ files                    một gói audio (≤ 1200 B).
 ```
 
-- **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal — mỗi kết
+- **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal, files — mỗi kết
   nối dùng một stream hai chiều do client mở. Stream nghẽn ở kết nối này không làm
   đứng kết nối khác.
 - **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video và gói audio.
@@ -185,6 +185,14 @@ Tất cả nằm trong thư mục Deskhub của người dùng (`~/.deskhub`,
 `auth_salt` (salt không bí mật), `ui-settings.txt`, `recent-devices.txt` (địa chỉ +
 passcode che đi), và log theo từng lần chạy. I/O file nằm ở `platform/`; phần phân
 tích và cấu trúc dữ liệu nằm ở `core/` và có unit test.
+
+Tệp viewer gửi tới thì nằm ở chỗ khác hẳn: một thư mục do host chọn (`transfer_dir`
+trong `ui-settings.txt`, mặc định là `Deskhub` trong thư mục nhà của người dùng).
+`FileStore` ghi mỗi tệp thành `<tên>.deskhub-part` và chỉ đổi tên khi cả tệp đã tới
+với CRC-32 khớp, nên tệp ghi dở không bao giờ xuất hiện dưới tên thật, và
+`UniqueFileName` bảo đảm không có gì bị ghi đè. Tên đi trên dây được `SafeFileName`
+của `core/` chà sạch — dấu phân cách đường dẫn, byte điều khiển, ký tự Windows không
+nhận và tên thiết bị dành riêng đều bị loại — trước khi `platform/` chạm vào hệ tệp.
 
 ## 8. Kiểm thử
 

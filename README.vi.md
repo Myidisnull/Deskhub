@@ -77,7 +77,7 @@ học trên máy Mac là biết luôn app Android.
 
 | ⚡ Nhanh | 📦 Một file | 🎛️ Đơn giản |
 | ------ | ---------- | --------- |
-| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | **Share** một màn hình hoặc **Connect** tới một IP, hết. Máy desktop còn chia sẻ được cả một **shell**. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ để xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
+| **~3.5 ms** từ lúc thu hình tới lúc hiện hình, 60 fps. Đường dữ liệu đi thẳng trong VRAM — không đụng tới CPU. | Không cài đặt, không dịch vụ chạy nền, không tài khoản. Toàn bộ app Windows là một file exe **~5.1 MB**; macOS là file dmg **1.9 MB**. | **Share** một màn hình hoặc **Connect** tới một IP, hết. Máy desktop còn chia sẻ được cả một **shell** và nhận **tệp** người xem gửi tới. Điện thoại cũng chia sẻ được màn hình, nhưng chỉ để xem, vì không hệ điều hành di động nào cho app bơm thao tác điều khiển. |
 
 Phiên làm việc được mã hoá đầu-cuối trên **QUIC/TLS**, và một máy lạ chỉ vào được khi
 chứng minh nó biết mật mã của host — bằng **SPAKE2**, nên bản thân mã đó không bao giờ

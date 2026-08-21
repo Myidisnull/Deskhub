@@ -15,6 +15,7 @@
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
+#include "deskhubp/ffi/TransferFfi.h"
 
 static_assert(DHPhaseIdle == 0 && DHPhaseConnecting == 1 && DHPhaseStreaming == 2 &&
               DHPhaseEnded == 3);
@@ -83,6 +84,7 @@ constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
 constexpr const char* kDeviceRowClass = "com/deskhub/app/NativeClient$DeviceRow";
 constexpr const char* kHotkeyClass = "com/deskhub/app/NativeClient$Hotkey";
 constexpr const char* kPairedDeviceClass = "com/deskhub/app/NativeClient$PairedDevice";
+constexpr const char* kTransferClass = "com/deskhub/app/NativeClient$Transfer";
 
 jfloatArray NewFloatArray2(JNIEnv* env, jfloat a, jfloat b) {
     const jfloat values[2] = {a, b};
@@ -289,6 +291,143 @@ Java_com_deskhub_app_NativeClient_nativeClipTake(JNIEnv* env, jobject) {
     char buf[deskhub::kMaxClipboardTextBytes + 1];
     dh_session_clip_take(g_session, buf, int(sizeof(buf)));
     return env->NewStringUTF(buf);
+}
+}
+
+namespace {
+
+std::vector<std::string> PathsFrom(JNIEnv* env, jobjectArray pathArr) {
+    std::vector<std::string> paths;
+    if (!pathArr) return paths;
+    const jsize count = env->GetArrayLength(pathArr);
+    paths.reserve(size_t(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto item = jstring(env->GetObjectArrayElement(pathArr, i));
+        paths.push_back(FromJString(env, item));
+        env->DeleteLocalRef(item);
+    }
+    return paths;
+}
+
+std::vector<const char*> PointersTo(const std::vector<std::string>& paths) {
+    std::vector<const char*> pointers;
+    pointers.reserve(paths.size());
+    for (const std::string& path : paths) pointers.push_back(path.c_str());
+    return pointers;
+}
+
+jobject NewTransfer(JNIEnv* env, bool active, bool done, bool failed, uint16_t fileIndex,
+    uint16_t fileCount, uint64_t bytes, uint64_t total, const char* name, const char* message) {
+    jclass cls = env->FindClass(kTransferClass);
+    if (!cls) return nullptr;
+    jmethodID ctor =
+        env->GetMethodID(cls, "<init>", "(ZZZIIJJLjava/lang/String;Ljava/lang/String;)V");
+    if (!ctor) return nullptr;
+
+    jstring nameText = env->NewStringUTF(name ? name : "");
+    jstring messageText = env->NewStringUTF(message ? message : "");
+    jobject item = env->NewObject(cls, ctor, active ? JNI_TRUE : JNI_FALSE,
+        done ? JNI_TRUE : JNI_FALSE, failed ? JNI_TRUE : JNI_FALSE, jint(fileIndex),
+        jint(fileCount), jlong(bytes), jlong(total), nameText, messageText);
+    env->DeleteLocalRef(messageText);
+    env->DeleteLocalRef(nameText);
+    return item;
+}
+
+}
+
+extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendFiles(JNIEnv* env, jobject, jobjectArray pathArr) {
+    if (!pathArr) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(pathArr);
+    if (count <= 0) return JNI_FALSE;
+
+    const std::vector<std::string> paths = PathsFrom(env, pathArr);
+    const std::vector<const char*> pointers = PointersTo(paths);
+    return dh_session_send_files(g_session, pointers.data(), int(pointers.size())) ? JNI_TRUE
+                                                                                   : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeCancelFiles(JNIEnv*, jobject) {
+    dh_session_cancel_files(g_session);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeMaxTransferFiles(JNIEnv*, jobject) {
+    return jint(dh_max_transfer_files());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeTransferError(JNIEnv* env, jobject) {
+    char buf[512];
+    dh_session_transfer_error(g_session, buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_deskhub_app_NativeClient_nativeTransfer(JNIEnv* env, jobject) {
+    DHTransfer raw{};
+    dh_session_transfer(g_session, &raw);
+    return NewTransfer(env, raw.active, raw.done, raw.failed, raw.fileIndex, raw.fileCount,
+        raw.bytes, raw.total, raw.name, raw.message);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeHostTakesFiles(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    return dh_host_takes_files(addr.c_str(), passcode.c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendCheck(JNIEnv* env, jobject, jobjectArray pathArr) {
+    const std::vector<std::string> paths = PathsFrom(env, pathArr);
+    const std::vector<const char*> pointers = PointersTo(paths);
+    char buf[320];
+    dh_send_check(pointers.data(), int(pointers.size()), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendStart(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr, jstring nameStr, jobjectArray pathArr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    const std::string name = FromJString(env, nameStr);
+    const std::vector<std::string> paths = PathsFrom(env, pathArr);
+    const std::vector<const char*> pointers = PointersTo(paths);
+    DHSend* handle = dh_send_start(addr.c_str(), passcode.c_str(), name.c_str(), pointers.data(),
+        int(pointers.size()));
+    return jlong(reinterpret_cast<uintptr_t>(handle));
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendSnapshot(JNIEnv* env, jobject, jlong handle) {
+    auto* send = reinterpret_cast<DHSend*>(uintptr_t(handle));
+    if (!send) return NewTransfer(env, false, false, false, 0, 0, 0, 0, "", "");
+
+    DHSendProgress raw{};
+    dh_send_snapshot(send, &raw);
+    const bool active = raw.state == DHSendConnecting || raw.state == DHSendSending;
+    const bool done = raw.state == DHSendDone;
+    const bool failed =
+        raw.state == DHSendRefused || raw.state == DHSendFailed || raw.state == DHSendKeyChanged;
+    return NewTransfer(env, active, done, failed, raw.fileIndex, raw.fileCount, raw.bytes,
+        raw.total, raw.name, raw.message);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendCancel(JNIEnv*, jobject, jlong handle) {
+    dh_send_cancel(reinterpret_cast<DHSend*>(uintptr_t(handle)));
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendStop(JNIEnv*, jobject, jlong handle) {
+    dh_send_stop(reinterpret_cast<DHSend*>(uintptr_t(handle)));
 }
 
 JNIEXPORT jstring JNICALL

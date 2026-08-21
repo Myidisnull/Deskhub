@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "deskhubp/media/DisplayEnum.h"
+#include "gtk/FileSendDialog.h"
 #include "gtk/GtkUtil.h"
 #include "gtk/PasscodeDialog.h"
 #include "gtk/TerminalWindow.h"
@@ -15,6 +16,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/HostIdentity.h"
@@ -60,6 +62,11 @@ struct HostColumn {
 const HostColumn kHostColumns[] = {{"Source", 140, 0.f}, {"Size", 80, 0.f},
     {"Viewers", 58, 1.f}, {"Client", 120, 0.f}, {"Capture", 58, 1.f}, {"Send", 50, 1.f},
     {"Mbps", 55, 1.f}, {"RTT", 55, 1.f}};
+
+std::string PathText(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
 
 constexpr const char* kOnlineColour = "#00913c";
 constexpr const char* kOfflineColour = "#c82828";
@@ -418,6 +425,7 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_box_pack_start(GTK_BOX(root), stack_, TRUE, TRUE, 0);
 
     agentLoop_.SetTerminal(&terminalHost_);
+    agentLoop_.SetFiles(&fileHost_);
 
     loadingSettings_ = false;
 
@@ -523,6 +531,10 @@ GtkWidget* MainWindow::BuildHostPage() {
     hostTerminalCheck_ = gtk_check_button_new_with_label(ui::kTerminalPickerLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(hostTerminalCheck_), TRUE);
     gtk_box_pack_start(GTK_BOX(pickerBox), hostTerminalCheck_, FALSE, FALSE, 0);
+    hostFilesCheck_ = gtk_check_button_new_with_label(ui::kFilesPickerLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(hostFilesCheck_), TRUE);
+    g_signal_connect(hostFilesCheck_, "toggled", G_CALLBACK(OnFilesTickToggled), this);
+    gtk_box_pack_start(GTK_BOX(pickerBox), hostFilesCheck_, FALSE, FALSE, 0);
     hostPickerFrame_ = ListFrame(pickerBox, kListH + 40);
     gtk_box_pack_start(GTK_BOX(box), hostPickerFrame_, TRUE, TRUE, 0);
 
@@ -536,6 +548,9 @@ GtkWidget* MainWindow::BuildHostPage() {
 
     hostHintLabel_ = Hint(ui::kPickSourcesHint);
     gtk_box_pack_start(GTK_BOX(box), hostHintLabel_, FALSE, FALSE, 0);
+
+    hostFilesHint_ = Hint(std::string());
+    gtk_box_pack_start(GTK_BOX(box), hostFilesHint_, FALSE, FALSE, 0);
 
     hostPortalNote_ = Hint(ui::kPortalConfirmNote);
     gtk_box_pack_start(GTK_BOX(box), hostPortalNote_, FALSE, FALSE, 0);
@@ -587,10 +602,26 @@ void MainWindow::ShowHostTable(bool sharing) {
     gtk_widget_set_no_show_all(hostPortalNote_, sharing);
     gtk_widget_set_visible(hostHintLabel_, !sharing);
     gtk_widget_set_visible(hostPortalNote_, !sharing);
+
+    const bool showFolder = !sharing && FilesTicked();
+    gtk_label_set_text(GTK_LABEL(hostFilesHint_),
+        (std::string(ui::kTransferFolderLabel) + " " + PathText(TransferFolder())).c_str());
+    gtk_widget_set_no_show_all(hostFilesHint_, !showFolder);
+    gtk_widget_set_visible(hostFilesHint_, showFolder);
 }
 
 bool MainWindow::TerminalTicked() const {
     return gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(hostTerminalCheck_)) != FALSE;
+}
+
+bool MainWindow::FilesTicked() const {
+    return gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(hostFilesCheck_)) != FALSE;
+}
+
+std::filesystem::path MainWindow::TransferFolder() const {
+    if (settings_.transferDir.empty()) return deskhubp::DefaultTransferDir();
+    const std::u8string wide(settings_.transferDir.begin(), settings_.transferDir.end());
+    return std::filesystem::path(wide);
 }
 
 std::vector<MainWindow::HostMonitor> MainWindow::TickedMonitors() const {
@@ -770,6 +801,11 @@ GtkWidget* MainWindow::BuildClientPage() {
     g_signal_connect(shellCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     gtk_box_pack_start(GTK_BOX(box), shellCheck_, FALSE, FALSE, 0);
 
+    filesCheck_ = gtk_check_button_new_with_label(ui::kOpenFilesLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(filesCheck_), settings_.clientFiles);
+    g_signal_connect(filesCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    gtk_box_pack_start(GTK_BOX(box), filesCheck_, FALSE, FALSE, 0);
+
     gtk_box_pack_start(GTK_BOX(box), Hint(ui::kMobileHostNote), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), Hint(ui::kOpenChoiceHint), FALSE, FALSE, 0);
 
@@ -909,6 +945,32 @@ void MainWindow::OnForgetAllClicked(GtkButton*, gpointer user) {
     static_cast<MainWindow*>(user)->ForgetEveryDevice();
 }
 
+void MainWindow::OnFilesTickToggled(GtkToggleButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (!self->Sharing()) self->ShowIdleHostState();
+}
+
+void MainWindow::OnTransferDirClicked(GtkButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    GtkWidget* chooser = gtk_file_chooser_dialog_new(ui::kTransferFolderLabel,
+        GTK_WINDOW(self->window_), GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel",
+        GTK_RESPONSE_CANCEL, ui::kTransferChooseButton, GTK_RESPONSE_ACCEPT, nullptr);
+    gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(chooser),
+        PathText(self->TransferFolder()).c_str());
+
+    if (gtk_dialog_run(GTK_DIALOG(chooser)) == GTK_RESPONSE_ACCEPT) {
+        if (gchar* picked = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser))) {
+            self->settings_.transferDir = ui::TruncateSettingsPath(picked);
+            g_free(picked);
+            gtk_label_set_text(GTK_LABEL(self->transferDirLabel_),
+                PathText(self->TransferFolder()).c_str());
+            deskhubp::SaveUiSettings(self->settings_);
+            if (!self->Sharing()) self->ShowIdleHostState();
+        }
+    }
+    gtk_widget_destroy(chooser);
+}
+
 void MainWindow::DrainPairingRequests() {
     if (askingPairing_) return;
     const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
@@ -1012,6 +1074,16 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_), settings_.keepAwake);
     gtk_box_pack_start(GTK_BOX(box), keepAwakeCheck_, FALSE, FALSE, 0);
 
+    GtkWidget* folderRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_box_pack_start(GTK_BOX(folderRow), Label(ui::kTransferFolderLabel), FALSE, FALSE, 0);
+    transferDirLabel_ = StyledLabel(PathText(TransferFolder()), "deskhub-hint");
+    gtk_label_set_ellipsize(GTK_LABEL(transferDirLabel_), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_box_pack_start(GTK_BOX(folderRow), transferDirLabel_, TRUE, TRUE, 0);
+    GtkWidget* folderButton = gtk_button_new_with_label(ui::kTransferChooseButton);
+    g_signal_connect(folderButton, "clicked", G_CALLBACK(OnTransferDirClicked), this);
+    gtk_box_pack_end(GTK_BOX(folderRow), folderButton, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), folderRow, FALSE, FALSE, 0);
+
     gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionLaunch), FALSE, FALSE, 0);
     autostartCheck_ = gtk_check_button_new_with_label(ui::kAutostartLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autostartCheck_),
@@ -1112,6 +1184,7 @@ void MainWindow::SaveSettings() {
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
     settings_.clientDesktop = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(desktopCheck_));
     settings_.clientShell = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shellCheck_));
+    settings_.clientFiles = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(filesCheck_));
     gtk_widget_set_sensitive(controlCheck_, settings_.clientDesktop);
     settings_.allowNewPairings =
         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowPairingCheck_));
@@ -1410,7 +1483,8 @@ void MainWindow::StartConnect(const std::string& addr, const std::string& passco
     }
     const bool desktop = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(desktopCheck_));
     const bool shell = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shellCheck_));
-    if (!desktop && !shell) {
+    const bool files = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(filesCheck_));
+    if (!desktop && !shell && !files) {
         ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::kOpenNothingTicked);
         return;
     }
@@ -1422,7 +1496,7 @@ void MainWindow::StartConnect(const std::string& addr, const std::string& passco
         return;
     }
 
-    const OpenChoice choice{desktop, shell};
+    const OpenChoice choice{desktop, shell, files};
     const bool started = connectDriver_.QueryAsync(
         server, passcode, [this](const std::function<void()>& fn) { PostToUi(fn); },
         [this, addr, passcode, choice](const deskhubp::ConnectOutcome& outcome) {
@@ -1441,6 +1515,16 @@ void MainWindow::OpenShell(const NetAddr& server, const std::string& passcode) {
 
     if (!OpenTerminalWindow(GTK_WINDOW(window_), launch))
         SetClientStatus(ui::kTerminalUnreachable, true);
+}
+
+void MainWindow::OpenFileSend(const NetAddr& server, const std::string& passcode) {
+    std::string clientName =
+        ui::TruncateDeviceName(gtk_entry_get_text(GTK_ENTRY(deviceNameEntry_)));
+    if (clientName.empty()) clientName = deskhubp::LocalDeviceName();
+
+    const std::string address = server.ToString();
+    OpenFileSendWindow(GTK_WINDOW(window_), address,
+        MakeStandaloneFileSendTarget(server, address, passcode, clientName));
 }
 
 void MainWindow::OnSourcesReady(const std::string& addr, const std::string& passcode,
@@ -1465,6 +1549,13 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
             OpenShell(server, passcode);
         else
             SetClientStatus(ui::kHostHasNoTerminal, true);
+    }
+
+    if (choice.files) {
+        if (outcome.caps.files)
+            OpenFileSend(server, passcode);
+        else
+            SetClientStatus(ui::kTransferHostNotTaking, true);
     }
 
     if (!choice.desktop) return;
@@ -1555,13 +1646,14 @@ void MainWindow::OnShare(ShareTrigger trigger) {
     }
     shareTrigger_ = trigger;
 
-    AgentOptions options = deskhub::ShareOptionsOf(settings_, TerminalTicked());
+    AgentOptions options = deskhub::ShareOptionsOf(settings_, TerminalTicked(), FilesTicked());
     options.port = Port();
     if (options.deviceName.empty()) options.deviceName = deskhubp::LocalDeviceName();
     terminalRequested_ = options.terminal;
+    filesRequested_ = options.files;
 
     const std::vector<HostMonitor> ticked = TickedMonitors();
-    if (ticked.empty() && !options.terminal) {
+    if (ticked.empty() && !options.terminal && !options.files) {
         ReportShareProblem("Deskhub",
             availableDisplays_.empty() ? ui::kNoDisplayFound : ui::kNoDisplayTicked);
         return;
@@ -1595,7 +1687,7 @@ void MainWindow::OnShare(ShareTrigger trigger) {
             gtk_widget_set_sensitive(shareButton_, TRUE);
 
             if (sources.empty()) {
-                if (options.terminal) {
+                if (options.terminal || options.files) {
                     StartHosting({}, options);
                     return;
                 }
@@ -1638,6 +1730,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
 
     if (!started) {
         terminalRequested_ = false;
+        filesRequested_ = false;
         ShowIdleHostState();
         ReportShareProblem("Deskhub", std::string(ui::kShareStartFailed) + ".\n\n" + error);
         return;
@@ -1651,6 +1744,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     shareViewOnly_ = !options.allowInput;
     shareBindWarning_ = agentLoop_.BindWarning();
     if (terminalRequested_) StartTerminalShare();
+    if (filesRequested_) StartFileShare();
     ApplySharingBanner();
     tray_.SetSharing(true);
 
@@ -1663,12 +1757,14 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
 }
 
 bool MainWindow::Sharing() const {
-    return hosting_ || hostStarting_ || terminalHost_.Running();
+    return hosting_ || hostStarting_ || terminalHost_.Running() || fileHost_.Running();
 }
 
 void MainWindow::ApplySharingBanner() {
-    std::string status =
-        ui::ShareSummaryLine(screenSharing_, terminalHost_.Running(), sharePort_);
+    std::string status = ui::ShareSummaryLine(screenSharing_, terminalHost_.Running(),
+        fileHost_.Running(), sharePort_);
+    if (fileHost_.Running())
+        status += "\n" + ui::TransferFolderNote(PathText(fileHost_.Directory()));
     if (!sharePasscodeNote_.empty()) status += "\n" + sharePasscodeNote_;
     if (screenSharing_ && shareViewOnly_) status += std::string("\n") + ui::kViewOnlyNote;
     if (hosting_ && !shareBindWarning_.empty()) status += "\n" + shareBindWarning_;
@@ -1701,12 +1797,45 @@ void MainWindow::StopTerminalShare() {
 
 void MainWindow::StopTerminalRow() {
     StopTerminalShare();
-    if (!screenSharing_) {
+    if (!screenSharing_ && !fileHost_.Running()) {
         StopHosting();
         return;
     }
     ApplySharingBanner();
     UpdateHostRows(hostStatus_);
+}
+
+void MainWindow::StartFileShare() {
+    if (fileHost_.Running()) return;
+
+    const std::filesystem::path folder = TransferFolder();
+    if (!fileHost_.Start(agentLoop_.Socket(), folder, deskhubp::FileHostCallbacks{})) {
+        filesRequested_ = false;
+        ShowError(GTK_WINDOW(window_), "Deskhub", ui::TransferFolderUnusable(PathText(folder)));
+        return;
+    }
+    RefreshTransfers();
+}
+
+void MainWindow::StopFileShare() {
+    if (!fileHost_.Running()) return;
+    fileHost_.Stop();
+    transfers_.clear();
+}
+
+void MainWindow::StopFilesRow() {
+    StopFileShare();
+    if (!screenSharing_ && !terminalHost_.Running()) {
+        StopHosting();
+        return;
+    }
+    ApplySharingBanner();
+    UpdateHostRows(hostStatus_);
+}
+
+void MainWindow::RefreshTransfers() {
+    transfers_ = fileHost_.Running() ? fileHost_.Transfers()
+                                     : std::vector<deskhub::TransferRecord>{};
 }
 
 void MainWindow::RefreshShells() {
@@ -1737,11 +1866,13 @@ void MainWindow::StopHosting() {
         clipTimerId_ = 0;
     }
     StopTerminalShare();
+    StopFileShare();
     agentLoop_.Stop();
     agentDriver_.Join();
     hosting_ = false;
     screenSharing_ = false;
     terminalRequested_ = false;
+    filesRequested_ = false;
     shareViewOnly_ = false;
     sharePort_ = 0;
     sharePasscodeNote_.clear();
@@ -1792,6 +1923,7 @@ gboolean MainWindow::OnHostTimer(gpointer user) {
         }
     }
     self->RefreshShells();
+    self->RefreshTransfers();
     self->UpdateHostRows(self->hostStatus_);
     return G_SOURCE_CONTINUE;
 }
@@ -1802,6 +1934,8 @@ MainWindow::HostRowWidgets MainWindow::MakeHostRowWidgets(const ui::HostRow& ref
         widgets.cells[i] = HostCell("deskhub-row-cell", kHostColumns[i].width,
             kHostColumns[i].align);
     }
+
+    if (ref.files && ref.viewer) return widgets;
 
     const bool localShell =
         ref.terminal && ref.viewer && ref.shellState == deskhub::TerminalState::Local;
@@ -1854,7 +1988,8 @@ void MainWindow::RebuildHostRowWidgets() {
         for (int c = 0; c < kHostColumnCount; ++c) {
             gtk_grid_attach(GTK_GRID(hostGrid_), widgets.cells[c], c, row, 1, 1);
         }
-        gtk_grid_attach(GTK_GRID(hostGrid_), widgets.action, kHostColumnCount, row, 1, 1);
+        if (widgets.action)
+            gtk_grid_attach(GTK_GRID(hostGrid_), widgets.action, kHostColumnCount, row, 1, 1);
         if (widgets.attach)
             gtk_grid_attach(GTK_GRID(hostGrid_), widgets.attach, kHostColumnCount + 1, row, 1,
                 1);
@@ -1881,7 +2016,8 @@ void MainWindow::FillHostRow(const HostRowWidgets& widgets, const ui::HostRowCel
 }
 
 void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, terminalHost_.Running(), shells_);
+    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, terminalHost_.Running(), shells_,
+        fileHost_.Running(), transfers_);
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
         RebuildHostRowWidgets();
@@ -1893,12 +2029,21 @@ void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
             FillHostRow(hostRowWidgets_[i], ui::TerminalRowText(ref, Port(), shells_));
             continue;
         }
+        if (ref.files) {
+            FillHostRow(hostRowWidgets_[i],
+                ui::FilesRowText(ref, PathText(fileHost_.Directory()), transfers_));
+            continue;
+        }
         const AgentSourceStatus* source = ui::FindHostSource(rows, ref.sourceId);
         if (source) FillHostRow(hostRowWidgets_[i], ui::HostRowText(ref, *source));
     }
 }
 
 void MainWindow::RunRowAction(const ui::HostRow& row) {
+    if (row.files) {
+        if (!row.viewer) StopFilesRow();
+        return;
+    }
     if (row.terminal) {
         if (row.viewer) {
             KickShell(row.termId);
