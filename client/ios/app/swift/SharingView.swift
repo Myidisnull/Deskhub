@@ -46,12 +46,35 @@ struct SharingView: View {
                 }
                 .onChange(of: model.bindIp) { _, _ in model.saveBindIp() }
 
+                Button {
+                    model.takeFiles.toggle()
+                    model.saveTakeFiles()
+                } label: {
+                    Text(
+                        DeskhubClient.string(
+                            model.takeFiles
+                                ? DHStrTransferStopTakingButton : DHStrTransferAcceptLabel
+                        )
+                    )
+                    .deskhubPrimaryLabel()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(DeskhubPalette.accent)
+                .disabled(model.status.sharing)
+
                 BroadcastPickerButton(
                     extensionBundleId: SharingModel.extensionBundleId,
                     title: DeskhubClient.string(
                         model.status.sharing ? DHStrStopSharing : DHStrStartSharing
                     )
                 )
+                .allowsHitTesting(!FilesHost.shared.receiving)
+                .opacity(FilesHost.shared.receiving ? 0.4 : 1)
+
+                if FilesHost.shared.receiving {
+                    deskhubHint(DeskhubClient.string(DHStrTransferBlocksScreenNote))
+                }
 
                 deskhubHint(model.statusLine)
                 if model.status.sharing, model.status.memoryMB > 0 {

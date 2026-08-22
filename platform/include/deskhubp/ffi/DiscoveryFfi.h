@@ -104,6 +104,9 @@ void dh_set_auto_share(bool on);
 
 bool dh_clipboard_sync(void);
 void dh_set_clipboard_sync(bool on);
+bool dh_take_files(void);
+void dh_set_take_files(bool on);
+void dh_set_transfer_dir(const char* dir);
 
 bool dh_share_audio(void);
 void dh_set_share_audio(bool on);
@@ -121,8 +124,7 @@ int dh_version_line(char* out, int capacity);
 const char* dh_local_addresses(void);
 int dh_idle_host_status(uint16_t port, char* out, int capacity);
 int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, bool screen,
-    bool terminal, char* out,
-    int capacity);
+    bool terminal, bool files, char* out, int capacity);
 
 typedef struct {
     char name[80];

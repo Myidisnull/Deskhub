@@ -203,7 +203,7 @@ void RunVideoPerf() {
     FillRandom(scalingNal);
     Packetizer scalingPacketizer;
     uint32_t scalingFrameId = 0;
-    MeasureScaling(ScalingWorkload{"video/packetize-scaling", "KB", 64, 256, 7.0,
+    MeasureScaling(ScalingWorkload{"video/packetize-scaling", "KB", 64, 256, 8.0,
         [&](uint64_t units) {
             scalingPacketizer.SendFrame(
                 std::span<const uint8_t>(scalingNal.data(), size_t(units) * 1024),

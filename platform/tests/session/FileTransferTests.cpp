@@ -421,6 +421,39 @@ void TestAHostThatTakesNoFilesRefuses() {
     host.Shutdown();
 }
 
+void TestAHostThatStopsMidBatchSaysWhy() {
+    std::printf("[files] a host that stops mid-batch tells the sender it is done taking...\n");
+    const std::filesystem::path source = Scratch("send-stopped");
+    const std::filesystem::path landing = Scratch("land-stopped");
+
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("file-test-host");
+    HostRig host;
+    Check(host.Start(identity, landing), "the host takes files in");
+
+    const std::vector<std::filesystem::path> paths{
+        WriteFile(source, "large.bin", Pattern(deskhub::kMaxFileChunkBytes * 256 + 7, 9))};
+
+    ViewerRig viewer;
+    Check(viewer.Start(identity.fingerprint), "a viewer connects");
+    Check(viewer.upload->Begin(paths), "the batch is offered");
+    Check(WaitUntil([&host] {
+        const std::vector<deskhub::TransferRecord> transfers = host.files.Transfers();
+        return !transfers.empty() && transfers[0].batchBytes > 0;
+    },
+              10000),
+        "some of it has landed on the host");
+
+    host.files.Stop();
+
+    Check(WaitUntil([&viewer] { return viewer.finished.load(std::memory_order_acquire); }, 10000),
+        "the sender settles inside the deadline");
+    Check(viewer.reason == deskhub::TransferReason::NotAccepting,
+        "and is told the host stopped taking files, not that the link died");
+
+    viewer.Shutdown();
+    host.Shutdown();
+}
+
 void TestTheSendSurfaceTheClientPageDrives() {
     std::printf("[files] the standalone send surface carries a batch on its own...\n");
     const std::filesystem::path source = Scratch("ffi-send");
@@ -514,4 +547,5 @@ void RunFileTransferPlatformTests() {
     TestTheSendSurfaceTheClientPageDrives();
     TestABatchCrossesARealConnection();
     TestAHostThatTakesNoFilesRefuses();
+    TestAHostThatStopsMidBatchSaysWhy();
 }

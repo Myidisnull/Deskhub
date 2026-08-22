@@ -313,38 +313,4 @@ final class ClientSession: @unchecked Sendable {
         let text = DeskhubClient.buffered(33000) { dh_session_clip_take(handle, $0, $1) }
         return text.isEmpty ? nil : text
     }
-
-    func sendFiles(_ paths: [String]) -> Bool {
-        guard !paths.isEmpty else { return false }
-        let copies = paths.map { strdup($0) }
-        defer { copies.forEach { free($0) } }
-        var pointers: [UnsafePointer<CChar>?] = copies.map { UnsafePointer($0) }
-        return pointers.withUnsafeMutableBufferPointer { buf in
-            dh_session_send_files(handle, buf.baseAddress, Int32(buf.count))
-        }
-    }
-
-    func cancelFiles() {
-        dh_session_cancel_files(handle)
-    }
-
-    func transfer() -> TransferState {
-        var raw = DHTransfer()
-        dh_session_transfer(handle, &raw)
-        return TransferState(
-            active: raw.active,
-            done: raw.done,
-            failed: raw.failed,
-            fileIndex: raw.fileIndex,
-            fileCount: raw.fileCount,
-            bytes: raw.bytes,
-            total: raw.total,
-            name: DeskhubClient.cString(raw.name),
-            message: DeskhubClient.cString(raw.message)
-        )
-    }
-
-    func transferError() -> String {
-        DeskhubClient.buffered(512) { dh_session_transfer_error(handle, $0, $1) }
-    }
 }

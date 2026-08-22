@@ -272,6 +272,16 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeTakeFiles(JNIEnv*, jobject) {
+    return dh_take_files() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetTakeFiles(JNIEnv*, jobject, jboolean on) {
+    dh_set_take_files(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeKeepAwake(JNIEnv*, jobject) {
     return dh_keep_awake() ? JNI_TRUE : JNI_FALSE;
 }
@@ -338,41 +348,9 @@ jobject NewTransfer(JNIEnv* env, bool active, bool done, bool failed, uint16_t f
 
 extern "C" {
 
-JNIEXPORT jboolean JNICALL
-Java_com_deskhub_app_NativeClient_nativeSendFiles(JNIEnv* env, jobject, jobjectArray pathArr) {
-    if (!pathArr) return JNI_FALSE;
-    const jsize count = env->GetArrayLength(pathArr);
-    if (count <= 0) return JNI_FALSE;
-
-    const std::vector<std::string> paths = PathsFrom(env, pathArr);
-    const std::vector<const char*> pointers = PointersTo(paths);
-    return dh_session_send_files(g_session, pointers.data(), int(pointers.size())) ? JNI_TRUE
-                                                                                   : JNI_FALSE;
-}
-
-JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeCancelFiles(JNIEnv*, jobject) {
-    dh_session_cancel_files(g_session);
-}
-
 JNIEXPORT jint JNICALL
 Java_com_deskhub_app_NativeClient_nativeMaxTransferFiles(JNIEnv*, jobject) {
     return jint(dh_max_transfer_files());
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_deskhub_app_NativeClient_nativeTransferError(JNIEnv* env, jobject) {
-    char buf[512];
-    dh_session_transfer_error(g_session, buf, int(sizeof(buf)));
-    return env->NewStringUTF(buf);
-}
-
-JNIEXPORT jobject JNICALL
-Java_com_deskhub_app_NativeClient_nativeTransfer(JNIEnv* env, jobject) {
-    DHTransfer raw{};
-    dh_session_transfer(g_session, &raw);
-    return NewTransfer(env, raw.active, raw.done, raw.failed, raw.fileIndex, raw.fileCount,
-        raw.bytes, raw.total, raw.name, raw.message);
 }
 
 JNIEXPORT jboolean JNICALL

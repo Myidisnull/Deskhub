@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
         NativeHost.publishScreenSize(this)
+        FilesHost.bind(application)
         askForNotifications()
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
         prefs.edit().remove("passcode").apply()
@@ -818,6 +819,33 @@ private fun HostScreen(
             }
         }
 
+        var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
+        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                receiving = NativeHost.filesActive()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+        Button(
+            onClick = {
+                takeFiles = !takeFiles
+                NativeClient.setTakeFiles(takeFiles)
+            },
+            enabled = !sharing && !starting,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                NativeClient.string(
+                    if (takeFiles) {
+                        NativeClient.STR_TRANSFER_STOP_TAKING_BUTTON
+                    } else {
+                        NativeClient.STR_TRANSFER_ACCEPT_LABEL
+                    },
+                ),
+            )
+        }
+
         Button(
             onClick = {
                 if (sharing) {
@@ -837,7 +865,7 @@ private fun HostScreen(
                     ),
                 )
             },
-            enabled = sharing || (ready && !starting),
+            enabled = sharing || (ready && !starting && !receiving),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -851,9 +879,17 @@ private fun HostScreen(
             )
         }
 
+        if (receiving) {
+            Text(
+                NativeClient.string(NativeClient.STR_TRANSFER_BLOCKS_SCREEN_NOTE),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedColor,
+            )
+        }
+
         Text(
-            if (sharing) {
-                NativeHost.sharingStatus(port, passcode.trim())
+            if (sharing || receiving) {
+                NativeHost.sharingStatus(port, passcode.trim(), sharing)
             } else {
                 NativeHost.idleStatus(port)
             },

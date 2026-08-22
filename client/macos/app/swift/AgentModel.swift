@@ -65,6 +65,7 @@ final class AgentModel {
     var autoShareWaitNote = ""
     private var sharingScreen = false
     private var sharingTerminal = false
+    private var sharingFiles = false
     private var lastPasteboardChange = NSPasteboard.general.changeCount
 
     func applyAutostart() {
@@ -80,7 +81,8 @@ final class AgentModel {
         }
         var line = DeskhubClient.buffered(320) {
             dh_sharing_status(
-                portNum, acceptedPasscode, allowInput, sharingScreen, sharingTerminal, $0, $1
+                portNum, acceptedPasscode, allowInput, sharingScreen, sharingTerminal,
+                sharingFiles, $0, $1
             )
         }
         let bindWarning = DeskhubClient.buffered(256) { dha_bind_warning($0, $1) }
@@ -212,10 +214,7 @@ final class AgentModel {
         isStarting = false
         isSharing = ok
         if ok {
-            sharingScreen = !picked.isEmpty
-            sharingTerminal = terminal
-            filesFolder = DeskhubAgent.filesFolder
-            startPolling()
+            noteSharingBegan(screen: !picked.isEmpty, terminal: terminal, files: files)
         } else {
             clampWarning = ""
             startError = picked.isEmpty || hasScreenRecording
@@ -225,12 +224,21 @@ final class AgentModel {
         return ok
     }
 
+    private func noteSharingBegan(screen: Bool, terminal: Bool, files: Bool) {
+        sharingScreen = screen
+        sharingTerminal = terminal
+        sharingFiles = files
+        filesFolder = DeskhubAgent.filesFolder
+        startPolling()
+    }
+
     func stopSharing() {
         stopPolling()
         DeskhubAgent.stop()
         isSharing = false
         sharingScreen = false
         sharingTerminal = false
+        sharingFiles = false
         rows = []
         Task { await refreshShareSources() }
     }
@@ -275,6 +283,7 @@ extension AgentModel {
         if row.files {
             guard !row.viewer else { return }
             DeskhubAgent.stopFiles()
+            sharingFiles = false
             if !rows.contains(where: { !$0.files }) { stopSharing() }
             return
         }

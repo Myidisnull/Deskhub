@@ -120,6 +120,10 @@ object NativeClient {
     const val STR_TRANSFER_TOO_MANY_FILES = 144
     const val STR_OPEN_FILES_LABEL = 145
     const val STR_TRANSFER_SENT_HEADING = 146
+    const val STR_TRANSFER_ACCEPT_LABEL = 147
+    const val STR_TRANSFER_BLOCKS_SCREEN_NOTE = 148
+    const val STR_TRANSFER_ARRIVED_TITLE = 149
+    const val STR_TRANSFER_STOP_TAKING_BUTTON = 150
 
     private external fun nativeString(id: Int): String
 
@@ -294,6 +298,14 @@ object NativeClient {
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
 
+    private external fun nativeTakeFiles(): Boolean
+
+    private external fun nativeSetTakeFiles(on: Boolean)
+
+    fun takeFiles(): Boolean = nativeTakeFiles()
+
+    fun setTakeFiles(on: Boolean) = nativeSetTakeFiles(on)
+
     private external fun nativeKeepAwake(): Boolean
 
     private external fun nativeSetKeepAwake(on: Boolean)
@@ -302,25 +314,9 @@ object NativeClient {
 
     fun setKeepAwake(on: Boolean) = nativeSetKeepAwake(on)
 
-    private external fun nativeSendFiles(paths: Array<String>): Boolean
-
-    private external fun nativeCancelFiles()
-
     private external fun nativeMaxTransferFiles(): Int
 
-    private external fun nativeTransferError(): String
-
-    private external fun nativeTransfer(): Transfer?
-
-    fun sendFiles(paths: List<String>): Boolean = nativeSendFiles(paths.toTypedArray())
-
-    fun cancelFiles() = nativeCancelFiles()
-
     val maxTransferFiles: Int by lazy { nativeMaxTransferFiles() }
-
-    fun transferError(): String = nativeTransferError()
-
-    fun transfer(): Transfer = nativeTransfer() ?: Transfer()
 
     private external fun nativeHostTakesFiles(
         addr: String,

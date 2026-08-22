@@ -11,6 +11,7 @@ final class SharingModel {
     var status = BroadcastStatus()
     var addresses: [LocalAddress] = []
     var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
+    var takeFiles = dh_take_files()
 
     private var lastValidPasscode: String
 
@@ -27,16 +28,26 @@ final class SharingModel {
 
     var statusLine: String {
         let port = UInt16(dh_settings_load().port)
-        guard status.sharing else {
-            return DeskhubClient.buffered(160) { dh_idle_host_status(port, $0, $1) }
+        if status.sharing {
+            return DeskhubClient.buffered(320) {
+                dh_sharing_status(port, acceptedPasscode, false, true, false, false, $0, $1)
+            }
         }
-        return DeskhubClient.buffered(320) {
-            dh_sharing_status(port, acceptedPasscode, false, true, false, $0, $1)
+        if FilesHost.shared.receiving {
+            return DeskhubClient.buffered(320) {
+                dh_sharing_status(port, acceptedPasscode, false, false, false, true, $0, $1)
+            }
         }
+        return DeskhubClient.buffered(160) { dh_idle_host_status(port, $0, $1) }
     }
 
     func saveBindIp() {
         dh_set_bind_ip(bindIp)
+    }
+
+    func saveTakeFiles() {
+        dh_set_take_files(takeFiles)
+        if takeFiles { FilesHost.askNotificationConsent() }
     }
 
     func savePasscode() {

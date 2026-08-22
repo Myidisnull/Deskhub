@@ -20,7 +20,6 @@
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/system/UiSettingsStore.h"
 #include "AppIcon.h"
-#include "FileSendWindow.h"
 #include "ViewerInput.h"
 #include "WinControls.h"
 #include "WinText.h"
@@ -36,7 +35,6 @@ constexpr UINT WM_APP_CLOSED = WM_APP + 3;
 constexpr UINT WM_APP_TRUST = WM_APP + 4;
 constexpr UINT kTimerHint = 1;
 constexpr UINT kTimerClipboard = 2;
-constexpr UINT kMenuSendFiles = 1001;
 
 std::string ReadClipboardText(HWND owner) {
     if (!OpenClipboard(owner)) return {};
@@ -151,21 +149,9 @@ LRESULT CALLBACK VideoProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(h, msg, wp, lp);
 }
 
-void OpenSendFilesWindow(ViewerFrame& frame) {
-    if (!frame.session) return;
-    const FileSendHooks hooks = SessionFileSendHooks(frame.session);
-    RunFileSendWindow(frame.hwnd, true, frame.baseTitle, hooks);
-}
-
 LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     auto* f = (ViewerFrame*)GetWindowLongPtrW(h, GWLP_USERDATA);
     switch (msg) {
-        case WM_COMMAND:
-            if (f && LOWORD(wp) == kMenuSendFiles) {
-                OpenSendFilesWindow(*f);
-                return 0;
-            }
-            break;
         case WM_SIZE:
             if (f) f->Relayout();
             return 0;
@@ -293,14 +279,6 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         GetModuleHandleW(nullptr), nullptr);
     if (!f->hwnd) return nullptr;
     SetAppWindowIcon(f->hwnd);
-
-    HMENU sessionMenu = CreatePopupMenu();
-    AppendMenuW(sessionMenu, MF_STRING, kMenuSendFiles,
-        FromUtf8(deskhub::ui::kTransferChooseButton).c_str());
-    HMENU menuBar = CreateMenu();
-    AppendMenuW(menuBar, MF_POPUP, (UINT_PTR)sessionMenu,
-        FromUtf8(deskhub::ui::kFilesSourceName).c_str());
-    SetMenu(f->hwnd, menuBar);
 
     SetWindowLongPtrW(f->hwnd, GWLP_USERDATA, (LONG_PTR)f.get());
 

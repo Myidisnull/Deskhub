@@ -117,18 +117,6 @@ interface FileSendDriver {
     fun release()
 }
 
-class SessionFileSendDriver : FileSendDriver {
-    override fun begin(paths: List<String>): Boolean = NativeClient.sendFiles(paths)
-
-    override fun cancel() = NativeClient.cancelFiles()
-
-    override fun poll(): NativeClient.Transfer = NativeClient.transfer()
-
-    override fun error(): String = NativeClient.transferError()
-
-    override fun release() = Unit
-}
-
 class StandaloneFileSendDriver(
     private val address: String,
     private val passcode: String,

@@ -12,7 +12,6 @@ struct ViewerRequest: Codable, Hashable {
 
 struct ViewerWindow: View {
     @State private var model: StreamModel
-    @State private var sharingFiles = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
 
@@ -64,20 +63,6 @@ struct ViewerWindow: View {
                 Button("OK") { closeWindow() }
             } message: {
                 Text(DeskhubClient.string(DHStrViewerOpenFailed))
-            }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        sharingFiles = true
-                    } label: {
-                        Label(DeskhubClient.string(DHStrTransferChooseButton),
-                              systemImage: "doc.badge.arrow.up")
-                    }
-                    .help(DeskhubClient.string(DHStrTransferSendHeading))
-                }
-            }
-            .sheet(isPresented: $sharingFiles) {
-                FileShareView(model: model) { sharingFiles = false }
             }
     }
 
