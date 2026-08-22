@@ -14,31 +14,33 @@ enum ReceivedFiles {
         BroadcastStatus.containerURL?.appendingPathComponent(folderName, isDirectory: true)
     }
 
-    static func sweep(sharing: Bool) async {
-        guard let dir = incomingDir else { return }
+    static func sweep(sharing: Bool) async -> [String] {
+        guard let dir = incomingDir else { return [] }
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil
-        ) else { return }
+        ) else { return [] }
 
+        var delivered: [String] = []
         for url in entries {
             if url.lastPathComponent.hasSuffix(partSuffix) {
                 if !sharing { try? manager.removeItem(at: url) }
                 continue
             }
-            await deliver(url)
+            if await deliver(url) { delivered.append(url.lastPathComponent) }
         }
+        return delivered
     }
 
-    private static func deliver(_ url: URL) async {
+    private static func deliver(_ url: URL) async -> Bool {
         let ext = url.pathExtension.lowercased()
         let isImage = imageExtensions.contains(ext)
         let isVideo = videoExtensions.contains(ext)
         if isImage || isVideo, await addToPhotoLibrary(url, isVideo: isVideo) {
             try? FileManager.default.removeItem(at: url)
-            return
+            return true
         }
-        moveToDocuments(url)
+        return moveToDocuments(url)
     }
 
     private static func addToPhotoLibrary(_ url: URL, isVideo: Bool) async -> Bool {
@@ -58,11 +60,12 @@ enum ReceivedFiles {
         }
     }
 
-    private static func moveToDocuments(_ url: URL) {
+    private static func moveToDocuments(_ url: URL) -> Bool {
         let manager = FileManager.default
         guard let documents = manager.urls(for: .documentDirectory, in: .userDomainMask).first
-        else { return }
-        try? manager.moveItem(at: url, to: freeSlot(for: url.lastPathComponent, in: documents))
+        else { return false }
+        let target = freeSlot(for: url.lastPathComponent, in: documents)
+        return (try? manager.moveItem(at: url, to: target)) != nil
     }
 
     private static func freeSlot(for name: String, in directory: URL) -> URL {

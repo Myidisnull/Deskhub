@@ -183,11 +183,9 @@ object NativeHost {
         shareState = ShareState.FAILED
     }
 
-    private external fun nativeStartFilesOnly(
-        port: Int,
-        passcode: String,
-        transferDir: String,
-    ): Boolean
+    private external fun nativeStartFilesOnly(transferDir: String): Boolean
+
+    private external fun nativeStopFilesOnly()
 
     private external fun nativeFilesActive(): Boolean
 
@@ -207,11 +205,10 @@ object NativeHost {
             ok
         }
 
-    suspend fun startFiles(
-        port: Int,
-        passcode: String,
-        transferDir: String,
-    ): Boolean = withContext(Dispatchers.IO) { nativeStartFilesOnly(port, passcode, transferDir) }
+    suspend fun startFiles(transferDir: String): Boolean =
+        withContext(Dispatchers.IO) { nativeStartFilesOnly(transferDir) }
+
+    suspend fun stopFiles() = withContext(Dispatchers.IO) { nativeStopFilesOnly() }
 
     fun stop() {
         nativeStop()

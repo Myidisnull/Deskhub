@@ -47,6 +47,7 @@ final class SharingModel {
 
     func saveTakeFiles() {
         dh_set_take_files(takeFiles)
+        if takeFiles { FilesHost.askNotificationConsent() }
     }
 
     func savePasscode() {

@@ -9,37 +9,30 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import androidx.annotation.RequiresApi
-import kotlinx.coroutines.delay
 import java.io.File
 
 object ReceivedFiles {
     const val FOLDER_NAME = "Deskhub"
     private const val PART_SUFFIX = ".deskhub-part"
-    private const val SCAN_INTERVAL_MS = 2_000L
 
     fun transferDir(context: Context): String =
         File(context.getExternalFilesDir(null) ?: context.filesDir, FOLDER_NAME).absolutePath
 
-    suspend fun exportLoop(
-        context: Context,
-        dir: String,
-    ) {
-        while (true) {
-            exportCompleted(context, dir)
-            delay(SCAN_INTERVAL_MS)
-        }
-    }
-
     fun exportCompleted(
         context: Context,
         dir: String,
-    ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val files = File(dir).listFiles() ?: return
+    ): List<String> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        val files = File(dir).listFiles() ?: return emptyList()
+        val delivered = mutableListOf<String>()
         for (file in files) {
             if (!file.isFile || file.name.endsWith(PART_SUFFIX)) continue
-            if (exportOne(context.contentResolver, file)) file.delete()
+            if (exportOne(context.contentResolver, file)) {
+                delivered.add(file.name)
+                file.delete()
+            }
         }
+        return delivered
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)

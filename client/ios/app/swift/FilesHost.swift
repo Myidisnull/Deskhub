@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UserNotifications
 
 @MainActor @Observable
 final class FilesHost {
@@ -12,10 +13,29 @@ final class FilesHost {
     func run() async {
         while !Task.isCancelled {
             sync()
-            await ReceivedFiles.sweep(sharing: BroadcastStatus.broadcastProcessAlive)
+            let delivered = await ReceivedFiles.sweep(
+                sharing: BroadcastStatus.broadcastProcessAlive
+            )
+            if !delivered.isEmpty { Self.notifyArrived(delivered) }
             try? await Task.sleep(for: .seconds(1))
         }
         stop()
+    }
+
+    static func askNotificationConsent() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) {
+            _, _ in
+        }
+    }
+
+    private static func notifyArrived(_ names: [String]) {
+        let content = UNMutableNotificationContent()
+        content.title = DeskhubClient.string(DHStrTransferArrivedTitle)
+        content.body = names.joined(separator: ", ")
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString, content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     func stop() {
@@ -40,5 +60,22 @@ final class FilesHost {
         receiving = dha_start(
             nil, 0, 0, 0, 0, UInt16(stored.port), false, passcode, false, true
         )
+    }
+}
+
+final class NotificationBanners: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationBanners()
+
+    func install() {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        willPresent _: UNNotification,
+        withCompletionHandler completionHandler:
+        @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list])
     }
 }

@@ -33,8 +33,6 @@ class HostService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob())
     private var clipboardJob: Job? = null
-    private var exportJob: Job? = null
-    private var lastTransferDir: String? = null
 
     private val projectionCallback =
         object : MediaProjection.Callback() {
@@ -53,15 +51,6 @@ class HostService : Service() {
     ): Int {
         if (intent == null || intent.action == ACTION_STOP) {
             stopEverything()
-            return START_NOT_STICKY
-        }
-
-        if (intent.action == ACTION_START_FILES) {
-            beginFilesOnly(
-                intent.getIntExtra(EXTRA_PORT, 0),
-                intent.getStringExtra(EXTRA_PASSCODE).orEmpty(),
-                intent.getStringExtra(EXTRA_TRANSFER_DIR).orEmpty(),
-            )
             return START_NOT_STICKY
         }
 
@@ -124,36 +113,10 @@ class HostService : Service() {
         stopEverything()
     }
 
-    private fun beginFilesOnly(
-        port: Int,
-        passcode: String,
-        transferDir: String,
-    ) {
-        if (transferDir.isEmpty()) {
-            stopEverything()
-            return
-        }
-        lastTransferDir = transferDir
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), filesForegroundType())
-        scope.launch {
-            if (!NativeHost.startFiles(port, passcode, transferDir)) {
-                mainHandler.post { failWith(NativeHost.lastError()) }
-            }
-        }
-        exportJob?.cancel()
-        exportJob = scope.launch(Dispatchers.IO) { ReceivedFiles.exportLoop(applicationContext, transferDir) }
-    }
-
     private fun stopEverything() {
         Log.i(TAG, "[audio] evt=share_stop caller=${Throwable().stackTrace.getOrNull(1)}")
         AudioShare.stop()
         NativeHost.stop()
-        exportJob?.cancel()
-        exportJob = null
-        lastTransferDir?.let { dir ->
-            scope.launch(Dispatchers.IO) { ReceivedFiles.exportCompleted(applicationContext, dir) }
-        }
-        lastTransferDir = null
         projection?.unregisterCallback(projectionCallback)
         projection = null
         NativeHost.releaseProjection()
@@ -164,13 +127,6 @@ class HostService : Service() {
     private fun foregroundType(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        } else {
-            0
-        }
-
-    private fun filesForegroundType(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         } else {
             0
         }
@@ -240,9 +196,7 @@ class HostService : Service() {
         private const val EXTRA_MAX_DIM = "maxDim"
         private const val EXTRA_PORT = "port"
         private const val EXTRA_PASSCODE = "passcode"
-        private const val EXTRA_TRANSFER_DIR = "transferDir"
         private const val ACTION_STOP = "com.deskhub.app.STOP_SHARING"
-        private const val ACTION_START_FILES = "com.deskhub.app.START_FILES"
 
         fun start(
             context: Context,
@@ -259,21 +213,6 @@ class HostService : Service() {
                     .putExtra(EXTRA_MAX_DIM, request.maxDim)
                     .putExtra(EXTRA_PORT, request.port)
                     .putExtra(EXTRA_PASSCODE, request.passcode)
-            ContextCompat.startForegroundService(context, intent)
-        }
-
-        fun startFiles(
-            context: Context,
-            port: Int,
-            passcode: String,
-            transferDir: String,
-        ) {
-            val intent =
-                Intent(context, HostService::class.java)
-                    .setAction(ACTION_START_FILES)
-                    .putExtra(EXTRA_PORT, port)
-                    .putExtra(EXTRA_PASSCODE, passcode)
-                    .putExtra(EXTRA_TRANSFER_DIR, transferDir)
             ContextCompat.startForegroundService(context, intent)
         }
 

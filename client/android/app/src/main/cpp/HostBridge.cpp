@@ -99,15 +99,20 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* e
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStartFilesOnly(JNIEnv* env,
-    jobject, jint port, jstring passcode, jstring transferDir) {
+    jobject, jstring transferDir) {
     const std::string dir = deskhubj::FromJString(env, transferDir);
     if (dir.empty()) return JNI_FALSE;
     dh_set_transfer_dir(dir.c_str());
 
-    const std::string code = deskhubj::FromJString(env, passcode);
-    return dha_start(nullptr, 0, 0, 0, 0, uint16_t(port), false, code.c_str(), false, true)
+    const DHUiSettings settings = dh_settings_load();
+    return dha_start(nullptr, 0, 0, 0, 0, uint16_t(settings.port), false, settings.passcode,
+               false, true)
                ? JNI_TRUE
                : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeStopFilesOnly(JNIEnv*, jobject) {
+    dha_stop();
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeFilesActive(JNIEnv*, jobject) {

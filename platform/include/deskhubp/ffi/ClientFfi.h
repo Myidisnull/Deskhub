@@ -243,6 +243,7 @@ typedef enum {
     DHStrTransferSentHeading = 146,
     DHStrTransferAcceptLabel = 147,
     DHStrTransferBlocksScreenNote = 148,
+    DHStrTransferArrivedTitle = 149,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

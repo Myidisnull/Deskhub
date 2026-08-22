@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
         NativeHost.publishScreenSize(this)
+        FilesHost.bind(application)
         askForNotifications()
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
         prefs.edit().remove("passcode").apply()
@@ -818,7 +819,6 @@ private fun HostScreen(
             }
         }
 
-        val hostContext = LocalContext.current
         var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
         var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
         LaunchedEffect(Unit) {
@@ -834,20 +834,9 @@ private fun HostScreen(
         ) {
             Checkbox(
                 checked = takeFiles,
-                onCheckedChange = { wanted ->
-                    takeFiles = wanted
-                    NativeClient.setTakeFiles(wanted)
-                    if (sharing || starting) return@Checkbox
-                    if (wanted) {
-                        HostService.startFiles(
-                            hostContext,
-                            port,
-                            passcode.trim(),
-                            ReceivedFiles.transferDir(hostContext),
-                        )
-                    } else {
-                        HostService.stop(hostContext)
-                    }
+                onCheckedChange = {
+                    takeFiles = it
+                    NativeClient.setTakeFiles(it)
                 },
                 enabled = !sharing && !starting,
             )
