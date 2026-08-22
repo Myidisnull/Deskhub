@@ -205,6 +205,73 @@ void TestARefusedStreamIsResetNotTruncated() {
     if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
 }
 
+void TestAFloodedStreamIsDrainedInBoundedSlices() {
+    std::printf("[quic] a flooded stream is drained in bounded slices, never in one gulp...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[quic] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const std::string savedCert = deskhubp::ReadAppDataFile(deskhubp::kHostCertFileName);
+    const std::string savedKey = deskhubp::ReadAppDataFile(deskhubp::kHostKeyFileName);
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    Peer server;
+    Peer client;
+
+    deskhubp::QuicSettings serverSettings;
+    serverSettings.certPemPath = identity.certPath;
+    serverSettings.keyPemPath = identity.keyPath;
+    if (!server.endpoint.Listen(serverSettings, "127.0.0.1", uint16_t(kTestPort + 2),
+            HooksFor(server)))
+        return;
+
+    const NetAddr target{0x7F000001u, uint16_t(kTestPort + 2)};
+    if (!client.endpoint.Connect(deskhubp::QuicSettings{}, target, "deskhub-test",
+            HooksFor(client)))
+        return;
+
+    for (int i = 0; i < kMaxRounds && !(server.connected && client.connected); ++i)
+        Pump(client, server, 1);
+    if (!client.connected || !server.connected) return;
+
+    constexpr size_t kFloodBytes = 512u << 10;
+    constexpr size_t kSliceBudget = 64u << 10;
+    std::string flood(kFloodBytes, '\0');
+    for (size_t i = 0; i < flood.size(); ++i) flood[i] = char('a' + i % 23);
+    Check(client.endpoint.SendStream(client.conn, deskhubp::kQuicFirstTerminalStream,
+              std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(flood.data()),
+                  flood.size())),
+        "half a megabyte is accepted for the terminal stream");
+
+    size_t biggestSlice = 0;
+    size_t passesWithData = 0;
+    for (int i = 0; i < kMaxRounds * 10 && server.stream.size() < flood.size(); ++i) {
+        for (int burst = 0; burst < 8; ++burst) client.endpoint.Poll(NowUs(), 1);
+        const size_t before = server.stream.size();
+        server.endpoint.Poll(NowUs(), 1);
+        const size_t slice = server.stream.size() - before;
+        if (slice > biggestSlice) biggestSlice = slice;
+        if (slice > 0) ++passesWithData;
+    }
+
+    Check(server.stream.size() == flood.size(), "every byte of the flood arrives");
+    Check(server.stream == flood, "in order and uncorrupted");
+    Check(biggestSlice <= kSliceBudget,
+        "no single poll pass ever hands the consumer more than the 64 KiB budget, so acks "
+        "and keepalives always get a turn between slices");
+    Check(passesWithData >= flood.size() / kSliceBudget,
+        "which forces the flood to be spread across many poll passes");
+
+    client.endpoint.Close();
+    server.endpoint.Close();
+
+    if (!savedCert.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostCertFileName, savedCert);
+    if (!savedKey.empty()) deskhubp::WriteAppDataFile(deskhubp::kHostKeyFileName, savedKey);
+}
+
 void TestUnstartedEndpointIsHarmless() {
     std::printf("[quic] an endpoint that never started refuses everything quietly...\n");
     deskhubp::QuicEndpoint idle;
@@ -227,5 +294,6 @@ void TestUnstartedEndpointIsHarmless() {
 void RunQuicEndpointTests() {
     TestHandshakeStreamAndDatagram();
     TestARefusedStreamIsResetNotTruncated();
+    TestAFloodedStreamIsDrainedInBoundedSlices();
     TestUnstartedEndpointIsHarmless();
 }

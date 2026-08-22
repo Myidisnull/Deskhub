@@ -11,6 +11,7 @@ void RunLogFileTests();
 void RunFfiTextTests();
 void RunLocalInputGateTests();
 void RunOpusCodecTests();
+void RunAudioBroadcasterTests();
 void RunHostCallbackTests();
 void RunHostProbeTests();
 void RunLanScannerTests();

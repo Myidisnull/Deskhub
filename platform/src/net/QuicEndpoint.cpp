@@ -1,5 +1,7 @@
 #include "deskhubp/net/QuicEndpoint.h"
 
+#include "deskhub/protocol/RecordStream.h"
+
 #include <quiche.h>
 
 #include <algorithm>
@@ -32,7 +34,8 @@ namespace deskhubp {
 namespace {
 
 constexpr size_t kConnIdLen = 16;
-constexpr size_t kStreamChunk = 8192;
+constexpr size_t kStreamChunk = deskhub::kMaxRecordBacklog;
+constexpr size_t kStreamReadBudgetPerService = 64u << 10;
 constexpr uint64_t kInitialMaxData = 4u << 20;
 constexpr uint64_t kInitialMaxStreamData = 1u << 20;
 constexpr uint64_t kMaxStreams = 64;
@@ -437,18 +440,25 @@ struct QuicEndpoint::Impl {
         quiche_stream_iter_free(it);
 
         std::vector<uint8_t> chunk(kStreamChunk);
+        size_t budget = kStreamReadBudgetPerService;
         for (uint64_t stream : ready) {
             for (;;) {
+                if (budget == 0) {
+                    moreToRead_.store(true, std::memory_order_relaxed);
+                    return;
+                }
                 if (cb_.pauseStream && cb_.pauseStream(stream)) break;
                 bool fin = false;
                 uint64_t err = 0;
+                const size_t want = std::min(chunk.size(), budget);
                 const ssize_t got = quiche_conn_stream_recv(entry.conn, stream, chunk.data(),
-                    chunk.size(), &fin, &err);
+                    want, &fin, &err);
                 if (got < 0) break;
+                budget -= size_t(got);
                 if (cb_.onStream)
                     cb_.onStream(id, stream, std::span<const uint8_t>(chunk.data(), size_t(got)),
                         fin);
-                if (fin || size_t(got) < chunk.size()) break;
+                if (fin || size_t(got) < want) break;
             }
         }
     }
@@ -502,6 +512,7 @@ struct QuicEndpoint::Impl {
     void Service() {
         std::vector<QuicConnId> dead;
         moreToSend_.store(false, std::memory_order_relaxed);
+        moreToRead_.store(false, std::memory_order_relaxed);
         const uint64_t nowUs = NowUs();
         for (auto& [id, entry] : connections_) {
             if (quiche_conn_is_established(entry.conn) && !entry.announced) {
@@ -538,15 +549,20 @@ struct QuicEndpoint::Impl {
             static_cast<unsigned long long>(sinceUs / 1000));
     }
 
+    bool Backlogged() const {
+        return moreToSend_.load(std::memory_order_relaxed) ||
+               moreToRead_.load(std::memory_order_relaxed);
+    }
+
     bool WaitReadable(uint32_t waitMs) {
         if (!open_) return false;
-        return socket_.WaitReadable(moreToSend_.load(std::memory_order_relaxed) ? 0 : waitMs);
+        return socket_.WaitReadable(Backlogged() ? 0 : waitMs);
     }
 
     void Poll(uint32_t waitMs) {
         if (!open_) return;
         ReportPollGap();
-        socket_.SetRecvTimeout(waitMs == 0 ? 1 : waitMs);
+        socket_.SetRecvTimeout(Backlogged() || waitMs == 0 ? 1 : waitMs);
         uint8_t buf[kQuicMaxUdpPayload];
         for (int i = 0; i < kPacketsPerPoll; ++i) {
             NetAddr from{};
@@ -580,6 +596,7 @@ struct QuicEndpoint::Impl {
     uint64_t lastStrangerLogUs_ = 0;
     uint64_t lastPollUs_ = 0;
     std::atomic<bool> moreToSend_{false};
+    std::atomic<bool> moreToRead_{false};
     Counters stats_{};
 };
 

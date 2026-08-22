@@ -21,7 +21,8 @@ private:
     struct FrameSlot {
         uint32_t frameId = 0;
         bool used = false;
-        std::vector<std::vector<uint8_t>> packets;
+        std::vector<uint8_t> bytes;
+        std::vector<uint16_t> lengths;
     };
 
     FrameSlot* FindSlot(uint32_t frameId);

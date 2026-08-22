@@ -71,7 +71,10 @@ Mọi thứ host cung cấp đi trên **một cổng UDP** (mặc định 47777)
 
 - **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal, files — mỗi kết
   nối dùng một stream hai chiều do client mở. Stream nghẽn ở kết nối này không làm
-  đứng kết nối khác.
+  đứng kết nối khác. Dữ liệu stream đến được rút theo ngân sách 64 KiB mỗi lượt phục
+  vụ: bên tiêu thụ (nặng nhất là giả lập VT của terminal) phải trả vòng lặp lại cho
+  ACK, keepalive và xử lý timeout giữa các lát, nên một trận `cat` không thể bỏ đói
+  kết nối đến mức tự rơi vào idle timeout nữa.
 - **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video và gói audio.
   QUIC không bao giờ gửi lại datagram mất; với video thì FEC/NACK của app tự xử lý,
   còn với audio thì không gì xử lý cả — xem mục 9.
@@ -127,6 +130,8 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
  │    Tick phiên theo từng nguồn, đẩy clipboard, reconfig, thống kê
  ├─ thu hình/mã hoá: theo từng nguồn, do callback thu hình của OS lái (tầng client)
  │    frame → encoder (mutex theo nguồn) → Packetizer → FEC → SendTo (datagram)
+ ├─ luồng audio worker: callback thu âm → vòng khung lock-free → mã hoá Opus →
+ │    datagram cho từng viewer (AudioBroadcaster)
  └─ TerminalHost (khách thuê, khi terminal được chia sẻ)
       ├─ HandleMessage trên luồng net-loop: TERM_OPEN/DATA/RESIZE/CLOSE → PTY
       └─ luồng bơm: đầu ra PTY → Screen mirror phía host + record TERM_DATA,
@@ -320,12 +325,21 @@ iOS Simulator.
   mà jitter buffer báo. Gửi lại còn tệ hơn vô ích, vì một khung đến muộn 200 ms thì
   không phát được nữa nhưng vẫn kịp làm chậm mười khung sau nó. `make opus-smoke` đo
   đúng những con số đó trên bất kỳ máy nào dựng được thư viện.
-- **Đồng hồ audio điều khiển jitter buffer, không phải đồng hồ tường**:
-  `AudioJitterBuffer` không có timer nào bên trong. Bộ phát kéo một khung mỗi lần gọi,
-  còn độ trễ mục tiêu chỉ là số khung nó nạp trước khi bắt đầu — 60 ms là ba khung. Nhờ
-  vậy toàn bộ phần này test được offline mà không phải ngủ, và các kiểu hỏng đều hiện
-  rõ: bùng gói thì bị chặn thay vì xếp hàng, hết gói thì nạp lại thay vì giật, số thứ
-  tự nhảy xa thì coi là luồng mới thay vì hàng nghìn khung mất.
+- **Jitter buffer không có timer nào bên trong**: `AudioJitterBuffer` là trạng thái
+  thuần, còn độ trễ mục tiêu chỉ là số khung nó nạp trước khi bắt đầu — 60 ms là ba
+  khung. Nhờ vậy toàn bộ phần này test được offline mà không phải ngủ, và các kiểu
+  hỏng đều hiện rõ: bùng gói thì bị chặn thay vì xếp hàng, hết gói thì nạp lại thay
+  vì giật, số thứ tự nhảy xa thì coi là luồng mới thay vì hàng nghìn khung mất. Phần
+  giữ nhịp nằm ở `AudioPlayer`: nó bơm một khung mỗi 20 ms đồng hồ tường vào một
+  vòng PCM mà callback phát của sink rút ra.
+- **Callback thu âm không bao giờ mã hoá**: PipeWire và ScreenCaptureKit giao audio
+  trên thread real-time với deadline vài mili giây, và trễ deadline ở đó làm xrun cả
+  phần phát của chính máy host, không riêng gì Deskhub. Mã hoá Opus mất 0.3–1.5 ms
+  kèm lúc trồi sụt, và trước đây còn kéo theo một `sendto` cho mỗi viewer trên đúng
+  thread đó. `AudioBroadcaster::Offer` giờ chỉ chép khung 20 ms vào một vòng slot
+  lock-free cấp phát sẵn và đóng dấu thời điểm thu; một thread worker lo mã hoá,
+  chẩn đoán và gửi cho từng viewer. Worker chậm chân thì tốn một lần rơi có đếm
+  (`framesRefused`), không bao giờ thành tiếng rè trên máy host.
 - **Tiếng cần cả hai đầu đồng ý, và client cũ không bao giờ nghe thấy**: viewer đặt bit
   0 của `Hello.features`, host quảng bá `kHostSharesAudio` trong phần năng lực của nó,
   và host chỉ gửi gói cho viewer nào có bit đó. Chính điều này giữ `kProtocolVersion` ở

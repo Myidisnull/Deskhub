@@ -78,14 +78,14 @@ void RunTerminalPerf() {
 
     term::Screen narrow(TermSize{kNarrowCols, kNarrowRows});
     Measure(Workload{"terminal/screen-write-80x24", "KB", plainLog.size() / kBytesPerKilobyte,
-        plainLog.size(), 32.0, [&] {
+        plainLog.size(), 4.0, [&] {
             narrow.Write(plainLog);
             Consume(narrow.Revision());
         }});
 
     term::Screen wide(TermSize{kWideCols, kWideRows});
     Measure(Workload{"terminal/screen-write-200x50", "KB", colouredLog.size() / kBytesPerKilobyte,
-        colouredLog.size(), 32.0, [&] {
+        colouredLog.size(), 4.0, [&] {
             wide.Write(colouredLog);
             Consume(wide.Revision());
         }});

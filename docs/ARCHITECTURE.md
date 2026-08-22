@@ -68,7 +68,11 @@ Everything a host offers rides **one UDP port** (default 47777) through one
 
 - **Streams** (reliable, ordered): control, input, clipboard, terminal, files — each
   connection uses one bidirectional stream, opened by the client. A stuck stream on
-  one connection cannot stall another connection.
+  one connection cannot stall another connection. Inbound stream data is drained
+  under a 64 KiB budget per service pass: whatever consumes it (the terminal's VT
+  emulation above all) hands the loop back to ACKs, keepalives and timeout
+  processing between slices, so a `cat` storm can no longer starve the connection
+  into its own idle timeout.
 - **Datagrams** (unreliable, unordered, still encrypted): video and audio packets.
   Lost ones are never retransmitted by QUIC; for video the app's own FEC/NACK
   machinery handles loss, and for audio nothing does — see section 9.
@@ -125,6 +129,8 @@ HostEngine (one per app, owns SessionTransport)
  │    per-source session Tick, clipboard flush, reconfig, stats
  ├─ capture/encode: per-source, driven by the OS capture callbacks (client layer)
  │    frame → encoder (per-source mutex) → Packetizer → FEC → SendTo (datagrams)
+ ├─ audio worker: capture callback → lock-free frame ring → Opus encode →
+ │    per-viewer datagrams (AudioBroadcaster)
  └─ TerminalHost (tenant, when the terminal is shared)
       ├─ HandleMessage on the net-loop thread: TERM_OPEN/DATA/RESIZE/CLOSE → PTY
       └─ pump thread: PTY output → host-side Screen mirror + TERM_DATA records,
@@ -327,13 +333,22 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   would be worse than useless, because a frame that arrives 200 ms late is unplayable
   yet still delays the ten behind it. `make opus-smoke` measures those numbers on any
   machine that builds the library.
-- **The audio clock drives the jitter buffer, not a wall clock**: `AudioJitterBuffer`
-  has no timer in it. The sink pulls one frame per callback and the target delay is
-  simply how many frames it fills before starting — 60 ms is three. That makes the
-  whole thing testable offline with no sleeping, and it makes the failure modes
-  explicit: a burst is capped rather than queued, an empty buffer rebuffers rather
-  than stuttering, and a sequence jump is read as a new stream rather than as
-  thousands of lost frames.
+- **The jitter buffer has no timer in it**: `AudioJitterBuffer` is pure state, and
+  the target delay is simply how many frames it fills before starting — 60 ms is
+  three. That makes the whole thing testable offline with no sleeping, and it makes
+  the failure modes explicit: a burst is capped rather than queued, an empty buffer
+  rebuffers rather than stuttering, and a sequence jump is read as a new stream
+  rather than as thousands of lost frames. The pacing lives in `AudioPlayer`, which
+  pops one frame per 20 ms of wall clock into a PCM ring that the sink's render
+  callback drains.
+- **The capture callback never encodes**: PipeWire and ScreenCaptureKit deliver
+  audio on real-time threads with a deadline of a few milliseconds, and a blown
+  deadline there xruns the host's own playback, not just Deskhub's. Opus encode is
+  0.3–1.5 ms with spikes, and one `sendto` per viewer used to ride behind it on that
+  same thread. `AudioBroadcaster::Offer` now only copies the 20 ms frame into a
+  preallocated lock-free slot ring and stamps the capture time; a worker thread does
+  the encode, the diagnostics and the per-viewer sends. A worker that falls behind
+  costs a counted drop (`framesRefused`), never a glitch in the host's audio.
 - **Sound needs both ends to say yes, and old clients never hear it**: a viewer sets
   bit 0 of `Hello.features`, a host advertises `kHostSharesAudio` in its capabilities,
   and the host sends a packet only to viewers whose bit is set. That is what keeps

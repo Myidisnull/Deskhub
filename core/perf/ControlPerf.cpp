@@ -80,7 +80,7 @@ void RunControlPerf() {
     RetransmitCache cache;
     uint32_t cachedFrameId = 0;
     Measure(Workload{"transport/retransmit-cache", "packet", kCachedFramePackets,
-        kCachedFramePackets * videoPacketBytes, 1.2, [&] {
+        kCachedFramePackets * videoPacketBytes, 0.2, [&] {
             VideoHeader header{cachedFrameId, cachedFrameId * kFrameIntervalUs, 0,
                 uint16_t(kCachedFramePackets)};
             for (uint16_t index = 0; index < kCachedFramePackets; ++index) {

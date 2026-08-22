@@ -100,6 +100,7 @@ int main() {
     std::printf("--- input: local-input gate shared by every injector ---\n");
     RunLocalInputGateTests();
     RunOpusCodecTests();
+    RunAudioBroadcasterTests();
 
     std::printf("--- session: host callbacks wired to a source pipeline ---\n");
     RunHostCallbackTests();

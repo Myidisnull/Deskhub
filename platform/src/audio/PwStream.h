@@ -24,7 +24,7 @@ struct PwStreamOptions {
 };
 
 inline pw_stream_events MakePwStreamEvents(void (*process)(void*),
-    void (*stateChanged)(void*, pw_stream_state, pw_stream_state, const char*)) {
+    void (*stateChanged)(void*, pw_stream_state, pw_stream_state, const char*)) noexcept {
     pw_stream_events events{};
     events.version = PW_VERSION_STREAM_EVENTS;
     events.state_changed = stateChanged;

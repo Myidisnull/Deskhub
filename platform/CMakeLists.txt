@@ -307,6 +307,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/ffi/FfiTextTests.cpp
         tests/ffi/TerminalFfiTests.cpp
         tests/input/LocalInputGateTests.cpp
+        tests/media/AudioBroadcasterTests.cpp
         tests/media/OpusCodecTests.cpp
         tests/net/NetAddrTests.cpp
         tests/net/SourceQueryTests.cpp

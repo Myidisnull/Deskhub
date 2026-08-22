@@ -94,10 +94,36 @@ void TestRetransmitPktCountGrows() {
     Check(!cache.Find(500, 0).empty(), "earlier packets survive the resize");
 }
 
+void TestSlotReuseDoesNotLeakStaleBytes() {
+    std::printf("[retx] a recycled slot never serves bytes of the frame it replaced...\n");
+    Packetizer pk;
+    pk.SetSessionId(42);
+    RetransmitCache cache;
+
+    for (uint32_t id = 800; id < 800 + RetransmitCache::kCacheFrames; ++id)
+        for (auto& d : Packetize(pk, MakeIdrFrame(id, 3), 1'000'000)) cache.Store(d);
+
+    const uint32_t fresh = 800 + RetransmitCache::kCacheFrames;
+    auto pkts = Packetize(pk, MakeIdrFrame(fresh, 3), 1'000'000);
+    cache.Store(pkts[0]);
+
+    Check(!cache.Find(fresh, 0).empty(), "the one stored packet of the fresh frame is served");
+    Check(cache.Find(fresh, 1).empty() && cache.Find(fresh, 2).empty(),
+        "indices never stored for the fresh frame stay empty even though the recycled slot "
+        "still holds the old frame's bytes at those offsets");
+
+    cache.Store(pkts[1]);
+    auto d = cache.Find(fresh, 1);
+    Check(!d.empty() && d.size() == pkts[1].size() &&
+              std::equal(d.begin(), d.end(), pkts[1].begin()),
+        "storing into the recycled offset serves the new bytes, byte-identical");
+}
+
 }
 
 void RunRetransmitCacheTests() {
     TestRetransmitCache();
     TestNackEndToEnd();
     TestRetransmitPktCountGrows();
+    TestSlotReuseDoesNotLeakStaleBytes();
 }

@@ -274,7 +274,11 @@ gboolean ViewerWindow::OnRender(GtkGLArea* area, GdkGLContext*, gpointer user) {
     return TRUE;
 }
 
-gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer) {
+gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer user) {
+    auto* self = static_cast<ViewerWindow*>(user);
+    const uint64_t serial = self->renderer_.FrameSerial();
+    if (serial == self->queuedFrameSerial_) return G_SOURCE_CONTINUE;
+    self->queuedFrameSerial_ = serial;
     gtk_gl_area_queue_render(GTK_GL_AREA(w));
     return G_SOURCE_CONTINUE;
 }
