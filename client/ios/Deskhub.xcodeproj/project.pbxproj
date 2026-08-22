@@ -57,13 +57,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		BBEX000100000016006CCD14 /* Exceptions for "app" folder in "app" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = BB1620BA3011D2F4006CCD14 /* app */;
-		};
 		BBEX000100000015006CCD14 /* Exceptions for "broadcast" folder in "broadcast" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -76,9 +69,6 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		BB1620BD3011D2F4006CCD14 /* app */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				BBEX000100000016006CCD14 /* Exceptions for "app" folder in "app" target */,
-			);
 			path = app;
 			sourceTree = "<group>";
 		};
@@ -487,7 +477,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Deskhub;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Deskhub needs local network access to connect to your desktop.";
-				INFOPLIST_FILE = "app/Info.plist";
+				INFOPLIST_FILE = "Deskhub-Info.plist";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "When another device sends you photos or videos over a Deskhub file transfer, Deskhub saves them into your photo library so they appear in the Photos app. Deskhub only adds new items and never reads, edits, or deletes your existing photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -539,7 +529,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Deskhub;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Deskhub needs local network access to connect to your desktop.";
-				INFOPLIST_FILE = "app/Info.plist";
+				INFOPLIST_FILE = "Deskhub-Info.plist";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "When another device sends you photos or videos over a Deskhub file transfer, Deskhub saves them into your photo library so they appear in the Photos app. Deskhub only adds new items and never reads, edits, or deletes your existing photos.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

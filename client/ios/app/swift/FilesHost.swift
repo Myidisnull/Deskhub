@@ -23,9 +23,8 @@ final class FilesHost {
     }
 
     static func askNotificationConsent() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) {
-            _, _ in
-        }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     private static func notifyArrived(_ names: [String]) {
