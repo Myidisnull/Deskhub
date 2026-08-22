@@ -312,41 +312,6 @@ void RunFileSendWindow(HWND owner, bool modal, const std::string& subtitle,
     DestroyWindow(dlg);
 }
 
-FileSendHooks SessionFileSendHooks(DHSession* session) {
-    FileSendHooks hooks;
-    hooks.begin = [session](const std::vector<std::filesystem::path>& files) {
-        std::vector<std::string> utf8;
-        utf8.reserve(files.size());
-        for (const std::filesystem::path& path : files) utf8.push_back(ToUtf8(path.wstring()));
-        std::vector<const char*> pointers;
-        pointers.reserve(utf8.size());
-        for (const std::string& text : utf8) pointers.push_back(text.c_str());
-        return dh_session_send_files(session, pointers.data(), int(pointers.size()));
-    };
-    hooks.cancel = [session] { dh_session_cancel_files(session); };
-    hooks.view = [session] {
-        DHTransfer raw{};
-        dh_session_transfer(session, &raw);
-        deskhub::ui::TransferView view;
-        view.active = raw.active;
-        view.done = raw.done;
-        view.failed = raw.failed;
-        view.fileIndex = raw.fileIndex;
-        view.fileCount = raw.fileCount;
-        view.bytes = raw.bytes;
-        view.total = raw.total;
-        view.name = raw.name;
-        view.message = raw.message;
-        return view;
-    };
-    hooks.error = [session] {
-        char buffer[512]{};
-        dh_session_transfer_error(session, buffer, int(sizeof(buffer)));
-        return std::string(buffer);
-    };
-    return hooks;
-}
-
 void RunStandaloneFileSend(const FileSendLaunch& launch) {
     NetAddr server{};
     if (!ParseNetAddr(launch.address, server)) return;

@@ -656,7 +656,6 @@ private fun ControlPanel(
     onCollapse: () -> Unit,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
-    var filesOpen by remember { mutableStateOf(false) }
 
     if (pickerOpen) {
         DisplayPickerDialog(
@@ -665,11 +664,6 @@ private fun ControlPanel(
             onPick = onSwitchSource,
             onDismiss = { pickerOpen = false },
         )
-    }
-
-    if (filesOpen) {
-        val driver = remember { SessionFileSendDriver() }
-        FileSendDialog(driver = driver, subtitle = address, onDismiss = { filesOpen = false })
     }
 
     Column(
@@ -739,7 +733,6 @@ private fun ControlPanel(
             if (sources.size > 1) {
                 OutlinedButton(onClick = { pickerOpen = true }) { Text("Display") }
             }
-            OutlinedButton(onClick = { filesOpen = true }, enabled = streaming) { Text("Files") }
             Box(modifier = Modifier.weight(1f))
             Button(onClick = onEnd) { Text("End") }
         }

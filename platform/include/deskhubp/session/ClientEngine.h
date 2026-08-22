@@ -269,10 +269,6 @@ public:
         return upload_->Begin(paths);
     }
 
-    void CancelUpload() {
-        if (upload_) upload_->Cancel();
-    }
-
     bool uploading() const {
         return upload_ && upload_->Busy();
     }
@@ -281,20 +277,8 @@ public:
         return upload_ ? upload_->State() : deskhub::FileSenderState::Idle;
     }
 
-    deskhub::TransferReason uploadReason() const {
-        return upload_ ? upload_->Reason() : deskhub::TransferReason::Accepted;
-    }
-
     deskhub::TransferProgress uploadProgress() const {
         return upload_ ? upload_->Progress() : deskhub::TransferProgress{};
-    }
-
-    std::string uploadError() const {
-        return upload_ ? upload_->LastError() : std::string();
-    }
-
-    deskhub::ui::TransferView uploadView() const {
-        return upload_ ? upload_->View() : deskhub::ui::TransferView{};
     }
 
 private:

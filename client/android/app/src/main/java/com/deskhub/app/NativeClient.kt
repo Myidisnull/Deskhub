@@ -302,25 +302,9 @@ object NativeClient {
 
     fun setKeepAwake(on: Boolean) = nativeSetKeepAwake(on)
 
-    private external fun nativeSendFiles(paths: Array<String>): Boolean
-
-    private external fun nativeCancelFiles()
-
     private external fun nativeMaxTransferFiles(): Int
 
-    private external fun nativeTransferError(): String
-
-    private external fun nativeTransfer(): Transfer?
-
-    fun sendFiles(paths: List<String>): Boolean = nativeSendFiles(paths.toTypedArray())
-
-    fun cancelFiles() = nativeCancelFiles()
-
     val maxTransferFiles: Int by lazy { nativeMaxTransferFiles() }
-
-    fun transferError(): String = nativeTransferError()
-
-    fun transfer(): Transfer = nativeTransfer() ?: Transfer()
 
     private external fun nativeHostTakesFiles(
         addr: String,

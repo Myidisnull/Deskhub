@@ -78,30 +78,6 @@ private:
     deskhubp::FileTransferClient client_;
 };
 
-class HookedTarget final : public FileSendTarget {
-public:
-    explicit HookedTarget(FileSendHooks hooks) : hooks_(std::move(hooks)) {}
-
-    bool Begin(const std::vector<std::filesystem::path>& files) override {
-        return hooks_.begin && hooks_.begin(files);
-    }
-
-    void Cancel() override {
-        if (hooks_.cancel) hooks_.cancel();
-    }
-
-    deskhub::ui::TransferView View() const override {
-        return hooks_.view ? hooks_.view() : deskhub::ui::TransferView{};
-    }
-
-    std::string LastError() const override {
-        return hooks_.error ? hooks_.error() : std::string();
-    }
-
-private:
-    FileSendHooks hooks_;
-};
-
 struct SendWindow {
     GtkWidget* window = nullptr;
     GtkWidget* chooseButton = nullptr;
@@ -294,10 +270,6 @@ std::unique_ptr<FileSendTarget> MakeStandaloneFileSendTarget(const NetAddr& serv
     config.passcode = passcode;
     config.clientName = clientName;
     return std::make_unique<StandaloneTarget>(std::move(config));
-}
-
-std::unique_ptr<FileSendTarget> MakeHookedFileSendTarget(FileSendHooks hooks) {
-    return std::make_unique<HookedTarget>(std::move(hooks));
 }
 
 void OpenFileSendWindow(GtkWindow* parent, const std::string& subtitle,

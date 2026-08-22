@@ -57,26 +57,6 @@ void dh_session_clip_offer(DHSession* s, const char* text);
 int dh_session_clip_take(DHSession* s, char* out, int capacity);
 
 typedef struct {
-    bool active;
-    bool done;
-    bool failed;
-    uint16_t fileIndex;
-    uint16_t fileCount;
-    uint64_t bytes;
-    uint64_t total;
-    char name[256];
-    char message[256];
-} DHTransfer;
-
-bool dh_session_send_files(DHSession* s, const char* const* paths, int count);
-
-void dh_session_cancel_files(DHSession* s);
-
-void dh_session_transfer(DHSession* s, DHTransfer* out);
-
-int dh_session_transfer_error(DHSession* s, char* out, int capacity);
-
-typedef struct {
     DHPhase phase;
     uint32_t videoWidth;
     uint32_t videoHeight;

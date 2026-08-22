@@ -8,7 +8,6 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/system/UiSettingsStore.h"
-#include "gtk/FileSendDialog.h"
 #include "gtk/GtkUtil.h"
 
 #include "deskhub/input/PointerLockState.h"
@@ -97,11 +96,6 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
 
     GtkWidget* header = gtk_header_bar_new();
     gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header), TRUE);
-    GtkWidget* sendFiles = gtk_button_new_with_label(deskhub::ui::kTransferChooseButton);
-    gtk_widget_set_can_focus(sendFiles, FALSE);
-    gtk_widget_set_tooltip_text(sendFiles, deskhub::ui::kTransferSendHeading);
-    g_signal_connect(sendFiles, "clicked", G_CALLBACK(OnSendFilesClicked), this);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), sendFiles);
     gtk_window_set_titlebar(GTK_WINDOW(window_), header);
 
     glArea_ = gtk_gl_area_new();
@@ -305,31 +299,6 @@ void ViewerWindow::SizeToVideo() {
         uint32_t(std::max(320, wa.width - deskhub::kViewerMarginPx)),
         uint32_t(std::max(240, wa.height - deskhub::kViewerMarginPx)));
     gtk_window_resize(GTK_WINDOW(window_), int(fitted.width), int(fitted.height));
-}
-
-void ViewerWindow::OpenFileSend() {
-    FileSendHooks hooks;
-    hooks.begin = [token = alive_](const std::vector<std::filesystem::path>& files) {
-        ViewerWindow* self = *token;
-        return self != nullptr && self->loop_.SendFiles(files);
-    };
-    hooks.cancel = [token = alive_] {
-        if (ViewerWindow* self = *token) self->loop_.CancelUpload();
-    };
-    hooks.view = [token = alive_] {
-        ViewerWindow* self = *token;
-        return self ? self->loop_.uploadView() : deskhub::ui::TransferView{};
-    };
-    hooks.error = [token = alive_] {
-        ViewerWindow* self = *token;
-        return self ? self->loop_.uploadError() : std::string();
-    };
-    OpenFileSendWindow(GTK_WINDOW(window_), baseTitle_,
-        MakeHookedFileSendTarget(std::move(hooks)));
-}
-
-void ViewerWindow::OnSendFilesClicked(GtkButton*, gpointer user) {
-    static_cast<ViewerWindow*>(user)->OpenFileSend();
 }
 
 void ViewerWindow::EndSession() {

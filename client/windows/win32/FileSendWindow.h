@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "deskhub/ui/TransferView.h"
-#include "deskhubp/ffi/ClientSession.h"
 
 struct FileSendHooks {
     std::function<bool(const std::vector<std::filesystem::path>&)> begin;
@@ -28,5 +27,3 @@ void RunFileSendWindow(HWND owner, bool modal, const std::string& subtitle,
     const FileSendHooks& hooks);
 
 void RunStandaloneFileSend(const FileSendLaunch& launch);
-
-FileSendHooks SessionFileSendHooks(DHSession* session);
