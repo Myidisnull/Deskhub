@@ -54,16 +54,18 @@ jobs:
         shell: bash
         run: |
           cmake --build --preset ${{ matrix.preset }} \
-              --target core_tests platform_tests integration_tests core_perf 2>&1 | tee build.log ||
+              --target core_tests platform_tests integration_tests core_perf platform_perf 2>&1 | tee build.log ||
             { grep -iE "error|warning C[0-9]|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
       - name: Run them through CTest
         run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
 
-      - name: Gate the hot core paths on allocation and scaling budgets (time baselines stay per-machine; MSVC's small deque blocks make its allocation counts incomparable)
+      - name: Gate the hot core and QUIC paths on allocation and scaling budgets (time baselines stay per-machine; MSVC's small deque blocks make its allocation counts incomparable)
         if: endsWith(matrix.preset, '-release') && runner.os != 'Windows'
-        run: out/build/${{ matrix.preset }}/core/core_perf
+        run: |
+          out/build/${{ matrix.preset }}/core/core_perf
+          out/build/${{ matrix.preset }}/platform/platform_perf
 
   perf-compare:
     name: perf · pull request vs base

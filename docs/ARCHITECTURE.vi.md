@@ -205,19 +205,19 @@ nhận và tên thiết bị dành riêng đều bị loại — trước khi `p
 | --- | --- | --- |
 | `make test` | offline, không socket | toàn bộ `core/`: wire, framing, FEC, phiên, bộ giả lập VT, cài đặt, chuỗi, fuzz có cấu trúc |
 | `make test-platform` | socket loopback | bắt tay QUIC thật, SPAKE2 đầu-cuối, terminal host + viewer qua mạng, PTY với shell thật, lockout, approval |
-| `make test-integration` | loopback, thu/mã hoá giả | phiên host↔client đầy đủ: thương lượng, video qua mạng, input, cổng passcode/approval, chịu gói rác |
+| `make test-integration` | loopback, thu/mã hoá giả | phiên host↔client đầy đủ: thương lượng, video qua mạng, input, cổng passcode/approval, chịu gói rác, và độ trễ dưới tải chéo — file transfer, terminal bị flood và phím gõ chạy cạnh stream đang phát, mỗi thứ bị chặn theo khoảng đứng tệ nhất quan sát được |
 | các target fuzz | 30 giây mỗi target ở mọi PR, 15 phút mỗi target hằng đêm | parser cho wire, H.264, ráp gói, byte terminal và chuỗi UI, cộng máy trạng thái phiên phía host và viewer |
-| `make test-perf` | bản release, offline | đo các đường nóng của `core/` chứ không chỉ chạy chúng: số lần cấp phát trên mỗi đơn vị, chi phí khi đầu vào gấp 4, và độ lệch so với mốc ghi ngay trên máy đó |
+| `make test-perf` | bản release, offline + loopback | đo các đường nóng chứ không chỉ chạy chúng: `core_perf` cho phần C++ thuần, `platform_perf` cho QUIC thật qua loopback; cả hai fail theo số lần cấp phát trên mỗi đơn vị, chi phí khi đầu vào gấp 4, và độ lệch so với mốc ghi ngay trên máy đó |
 
 CI còn ép clang-format và clang-tidy (đều ghim phiên bản), SwiftLint `--strict`,
 Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, CodeQL cho
 C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` ≥ 90% dòng / 80%
 nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
-iOS Simulator. Các job release trên Linux và macOS còn chạy `core_perf` với hai cổng
-chặn cấp phát và độ tuyến tính (máy CI dùng chung không có mốc thời gian), và mỗi pull
-request có thêm một lượt `core_perf` A/B — commit gốc và pull request cùng dựng, cùng đo
-trên một runner — với độ lệch chỉ báo dưới dạng cảnh báo trong tóm tắt job chứ không
-đánh trượt.
+iOS Simulator. Các job release trên Linux và macOS còn chạy `core_perf` và
+`platform_perf` với hai cổng chặn cấp phát và độ tuyến tính (máy CI dùng chung không có
+mốc thời gian), và mỗi pull request có thêm một lượt `core_perf` A/B — commit gốc và pull
+request cùng dựng, cùng đo trên một runner — với độ lệch chỉ báo dưới dạng cảnh báo trong
+tóm tắt job chứ không đánh trượt.
 
 ## 9. Các quyết định đáng nhớ
 
@@ -247,7 +247,11 @@ trên một runner — với độ lệch chỉ báo dưới dạng cảnh báo 
   build binary, vì `deque` của MSVC cấp phát một khối cho mỗi phần tử lớn hơn 16 byte,
   nên cùng đoạn mã lại ra số lần cấp phát khác. Pull request còn được so thời gian theo
   cách mà nhiễu của runner dùng chung không phá được — commit gốc và pull request đo trên
-  cùng một runner, dung sai 50%, chỉ cảnh báo.
+  cùng một runner, dung sai 50%, chỉ cảnh báo. `platform_perf` kéo dài đúng các cổng chặn
+  đó xuống QUIC thật qua loopback, nơi thời gian đo chính là nhịp của vòng service —
+  budget drain stream 64 KiB nhân với tick poll 1 ms — nên budget bị thu nhỏ, vòng drain
+  mất tuyến tính, hay một cấp phát mới trong vòng poll đều hiện thành cú nhảy, dù chi phí
+  CPU của cùng khối việc gần như không đổi.
 
 - **Client dòng lệnh là mặt tiền thứ tư, không phải bản cài đặt thứ hai**: nó phân tích cờ
   trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `AgentLoop`
