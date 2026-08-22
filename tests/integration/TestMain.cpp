@@ -39,6 +39,9 @@ int main() {
     std::printf("--- under load: a file transfer beside a live stream ---\n");
     RunTransferUnderLoadTests();
 
+    std::printf("--- under load: a terminal beside video and bulk transfer ---\n");
+    RunLagUnderCrossLoadTests();
+
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");
         return 0;
