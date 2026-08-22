@@ -62,6 +62,7 @@ final class FilesHost {
     }
 }
 
+@MainActor
 final class NotificationBanners: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationBanners()
 
@@ -69,7 +70,7 @@ final class NotificationBanners: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().delegate = self
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter,
         willPresent _: UNNotification,
         withCompletionHandler completionHandler:
