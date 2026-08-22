@@ -45,9 +45,10 @@ using load::ViewerConfig;
 using load::WriteBytes;
 
 #if defined(_WIN32)
-constexpr const char* kFloodCommand = "for /L %i in (1,1,100000) do @echo deskhub flood line %i\r";
-constexpr const char* kFloodDoneCommand = "set /a 52000+7\r";
-constexpr const char* kEchoCommand = "set /a 41000+59\r";
+constexpr const char* kFloodCommand =
+    "for ($i=0; $i -lt 30000; $i++) { echo \"deskhub flood line $i\" }\r";
+constexpr const char* kFloodDoneCommand = "echo (52000+7)\r";
+constexpr const char* kEchoCommand = "echo (41000+59)\r";
 #else
 constexpr const char* kFloodCommand =
     "i=0; while [ $i -lt 100000 ]; do echo deskhub flood line $i; i=$((i+1)); done\r";
