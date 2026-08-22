@@ -214,11 +214,7 @@ final class AgentModel {
         isStarting = false
         isSharing = ok
         if ok {
-            sharingScreen = !picked.isEmpty
-            sharingTerminal = terminal
-            sharingFiles = files
-            filesFolder = DeskhubAgent.filesFolder
-            startPolling()
+            noteSharingBegan(screen: !picked.isEmpty, terminal: terminal, files: files)
         } else {
             clampWarning = ""
             startError = picked.isEmpty || hasScreenRecording
@@ -226,6 +222,14 @@ final class AgentModel {
                 : DeskhubClient.string(DHStrScreenRecordingRequired)
         }
         return ok
+    }
+
+    private func noteSharingBegan(screen: Bool, terminal: Bool, files: Bool) {
+        sharingScreen = screen
+        sharingTerminal = terminal
+        sharingFiles = files
+        filesFolder = DeskhubAgent.filesFolder
+        startPolling()
     }
 
     func stopSharing() {
