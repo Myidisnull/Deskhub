@@ -827,20 +827,23 @@ private fun HostScreen(
                 delay(POLL_INTERVAL_MS)
             }
         }
-        Row(
+        Button(
+            onClick = {
+                takeFiles = !takeFiles
+                NativeClient.setTakeFiles(takeFiles)
+            },
+            enabled = !sharing && !starting,
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Checkbox(
-                checked = takeFiles,
-                onCheckedChange = {
-                    takeFiles = it
-                    NativeClient.setTakeFiles(it)
-                },
-                enabled = !sharing && !starting,
+            Text(
+                NativeClient.string(
+                    if (takeFiles) {
+                        NativeClient.STR_TRANSFER_STOP_TAKING_BUTTON
+                    } else {
+                        NativeClient.STR_TRANSFER_ACCEPT_LABEL
+                    },
+                ),
             )
-            Text(NativeClient.string(NativeClient.STR_TRANSFER_ACCEPT_LABEL))
         }
 
         Button(

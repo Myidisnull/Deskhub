@@ -306,6 +306,7 @@ inline constexpr const char* kTransferAcceptLabel = "Take files viewers send";
 inline constexpr const char* kTransferBlocksScreenNote =
     "Stop taking files to share the screen \xE2\x80\x94 this phone hosts one or the other.";
 inline constexpr const char* kTransferArrivedTitle = "Files received";
+inline constexpr const char* kTransferStopTakingButton = "Stop taking files";
 inline constexpr const char* kTransferFolderLabel = "Store them in";
 
 inline std::string TransferFolderNote(std::string_view folder) {

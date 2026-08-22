@@ -46,11 +46,22 @@ struct SharingView: View {
                 }
                 .onChange(of: model.bindIp) { _, _ in model.saveBindIp() }
 
-                Toggle(isOn: $model.takeFiles) {
-                    Text(DeskhubClient.string(DHStrTransferAcceptLabel))
+                Button {
+                    model.takeFiles.toggle()
+                    model.saveTakeFiles()
+                } label: {
+                    Text(
+                        DeskhubClient.string(
+                            model.takeFiles
+                                ? DHStrTransferStopTakingButton : DHStrTransferAcceptLabel
+                        )
+                    )
+                    .deskhubPrimaryLabel()
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(DeskhubPalette.accent)
                 .disabled(model.status.sharing)
-                .onChange(of: model.takeFiles) { _, _ in model.saveTakeFiles() }
 
                 BroadcastPickerButton(
                     extensionBundleId: SharingModel.extensionBundleId,
