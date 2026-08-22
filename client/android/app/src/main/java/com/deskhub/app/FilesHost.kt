@@ -118,7 +118,8 @@ object FilesHost {
             PendingIntent.getActivity(
                 context,
                 0,
-                Intent(context, MainActivity::class.java),
+                Intent(context, MainActivity::class.java)
+                    .setPackage(context.packageName),
                 PendingIntent.FLAG_IMMUTABLE,
             )
         manager.notify(
