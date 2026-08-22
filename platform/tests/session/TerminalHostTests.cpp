@@ -815,7 +815,7 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
         },
                   15000),
             "and is still stopped, because a passcode cannot answer a changed key");
-        Check(asks == 1, "the warning is raised");
+        Check(WaitFor([&asks] { return asks.load() == 1; }, 5000), "the warning is raised");
         Check(viewer.Verdict() == deskhub::TrustVerdict::Changed, "as a change, not a stranger");
         viewer.RejectFingerprint();
         viewer.Stop();
