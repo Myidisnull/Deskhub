@@ -166,6 +166,7 @@ const char* dh_string(DHStringId id) {
         case DHStrOpenFilesLabel: return deskhub::ui::kOpenFilesLabel;
         case DHStrTransferSentHeading: return deskhub::ui::kTransferSentHeading;
         case DHStrTransferAcceptLabel: return deskhub::ui::kTransferAcceptLabel;
+        case DHStrTransferBlocksScreenNote: return deskhub::ui::kTransferBlocksScreenNote;
         case DHStrOpenChoiceGroup: return deskhub::ui::kOpenChoiceGroup;
         case DHStrOpenDesktopLabel: return deskhub::ui::kOpenDesktopLabel;
         case DHStrOpenShellLabel: return deskhub::ui::kOpenShellLabel;

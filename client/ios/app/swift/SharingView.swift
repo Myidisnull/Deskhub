@@ -58,6 +58,12 @@ struct SharingView: View {
                         model.status.sharing ? DHStrStopSharing : DHStrStartSharing
                     )
                 )
+                .allowsHitTesting(!FilesHost.shared.receiving)
+                .opacity(FilesHost.shared.receiving ? 0.4 : 1)
+
+                if FilesHost.shared.receiving {
+                    deskhubHint(DeskhubClient.string(DHStrTransferBlocksScreenNote))
+                }
 
                 deskhubHint(model.statusLine)
                 if model.status.sharing, model.status.memoryMB > 0 {

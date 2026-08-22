@@ -121,6 +121,7 @@ object NativeClient {
     const val STR_OPEN_FILES_LABEL = 145
     const val STR_TRANSFER_SENT_HEADING = 146
     const val STR_TRANSFER_ACCEPT_LABEL = 147
+    const val STR_TRANSFER_BLOCKS_SCREEN_NOTE = 148
 
     private external fun nativeString(id: Int): String
 

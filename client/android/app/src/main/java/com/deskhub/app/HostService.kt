@@ -35,21 +35,12 @@ class HostService : Service() {
     private var clipboardJob: Job? = null
     private var exportJob: Job? = null
     private var lastTransferDir: String? = null
-    private var screenMode = false
-    private var lastPort = 0
-    private var lastPasscode = ""
 
     private val projectionCallback =
         object : MediaProjection.Callback() {
             override fun onStop() {
                 NativeHost.onProjectionStopped()
-                mainHandler.post {
-                    if (NativeClient.takeFiles() && lastTransferDir != null) {
-                        stopScreenKeepFiles()
-                    } else {
-                        stopEverything()
-                    }
-                }
+                mainHandler.post { stopEverything() }
             }
         }
 
@@ -61,16 +52,16 @@ class HostService : Service() {
         startId: Int,
     ): Int {
         if (intent == null || intent.action == ACTION_STOP) {
-            if (screenMode && NativeClient.takeFiles() && lastTransferDir != null) {
-                stopScreenKeepFiles()
-            } else {
-                stopEverything()
-            }
+            stopEverything()
             return START_NOT_STICKY
         }
 
         if (intent.action == ACTION_START_FILES) {
-            beginFilesOnly(ShareRequest.from(intent))
+            beginFilesOnly(
+                intent.getIntExtra(EXTRA_PORT, 0),
+                intent.getStringExtra(EXTRA_PASSCODE).orEmpty(),
+                intent.getStringExtra(EXTRA_TRANSFER_DIR).orEmpty(),
+            )
             return START_NOT_STICKY
         }
 
@@ -96,8 +87,6 @@ class HostService : Service() {
         NativeHost.publishScreenSize(this)
 
         val options = ShareRequest.from(intent)
-        screenMode = true
-        rememberRequest(options)
         scope.launch {
             val ok = NativeHost.start(options)
             if (!ok) {
@@ -106,7 +95,6 @@ class HostService : Service() {
                 AudioShare.start(applicationContext, granted)
             }
         }
-        restartExportLoop()
         clipboardJob?.cancel()
         if (NativeClient.clipboardSync()) {
             clipboardJob =
@@ -136,61 +124,24 @@ class HostService : Service() {
         stopEverything()
     }
 
-    private fun rememberRequest(request: ShareRequest) {
-        lastPort = request.port
-        lastPasscode = request.passcode
-        lastTransferDir = request.transferDir.takeIf { request.takeFiles && it.isNotEmpty() }
-    }
-
-    private fun restartExportLoop() {
-        exportJob?.cancel()
-        exportJob = null
-        lastTransferDir?.let { dir ->
-            exportJob = scope.launch(Dispatchers.IO) { ReceivedFiles.exportLoop(applicationContext, dir) }
-        }
-    }
-
-    private fun beginFilesOnly(request: ShareRequest) {
-        screenMode = false
-        rememberRequest(request)
-        val dir = lastTransferDir
-        if (dir == null) {
+    private fun beginFilesOnly(
+        port: Int,
+        passcode: String,
+        transferDir: String,
+    ) {
+        if (transferDir.isEmpty()) {
             stopEverything()
             return
         }
+        lastTransferDir = transferDir
         ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), filesForegroundType())
         scope.launch {
-            if (!NativeHost.startFiles(request.port, request.passcode, dir)) {
+            if (!NativeHost.startFiles(port, passcode, transferDir)) {
                 mainHandler.post { failWith(NativeHost.lastError()) }
             }
         }
-        restartExportLoop()
-    }
-
-    private fun stopScreenKeepFiles() {
-        AudioShare.stop()
-        clipboardJob?.cancel()
-        clipboardJob = null
-        NativeHost.stop()
-        releaseScreenCapture()
-        beginFilesOnly(
-            ShareRequest(
-                fps = 0,
-                bitrateMbps = 0,
-                maxDim = 0,
-                port = lastPort,
-                passcode = lastPasscode,
-                transferDir = lastTransferDir.orEmpty(),
-                takeFiles = true,
-            ),
-        )
-    }
-
-    private fun releaseScreenCapture() {
-        projection?.unregisterCallback(projectionCallback)
-        projection = null
-        NativeHost.releaseProjection()
-        screenMode = false
+        exportJob?.cancel()
+        exportJob = scope.launch(Dispatchers.IO) { ReceivedFiles.exportLoop(applicationContext, transferDir) }
     }
 
     private fun stopEverything() {
@@ -266,8 +217,6 @@ class HostService : Service() {
         val maxDim: Int,
         val port: Int,
         val passcode: String,
-        val transferDir: String,
-        val takeFiles: Boolean,
     ) {
         companion object {
             fun from(intent: Intent) =
@@ -277,8 +226,6 @@ class HostService : Service() {
                     maxDim = intent.getIntExtra(EXTRA_MAX_DIM, 0),
                     port = intent.getIntExtra(EXTRA_PORT, 0),
                     passcode = intent.getStringExtra(EXTRA_PASSCODE).orEmpty(),
-                    transferDir = intent.getStringExtra(EXTRA_TRANSFER_DIR).orEmpty(),
-                    takeFiles = intent.getBooleanExtra(EXTRA_TAKE_FILES, false),
                 )
         }
     }
@@ -294,7 +241,6 @@ class HostService : Service() {
         private const val EXTRA_PORT = "port"
         private const val EXTRA_PASSCODE = "passcode"
         private const val EXTRA_TRANSFER_DIR = "transferDir"
-        private const val EXTRA_TAKE_FILES = "takeFiles"
         private const val ACTION_STOP = "com.deskhub.app.STOP_SHARING"
         private const val ACTION_START_FILES = "com.deskhub.app.START_FILES"
 
@@ -313,8 +259,6 @@ class HostService : Service() {
                     .putExtra(EXTRA_MAX_DIM, request.maxDim)
                     .putExtra(EXTRA_PORT, request.port)
                     .putExtra(EXTRA_PASSCODE, request.passcode)
-                    .putExtra(EXTRA_TRANSFER_DIR, request.transferDir)
-                    .putExtra(EXTRA_TAKE_FILES, request.takeFiles)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -330,7 +274,6 @@ class HostService : Service() {
                     .putExtra(EXTRA_PORT, port)
                     .putExtra(EXTRA_PASSCODE, passcode)
                     .putExtra(EXTRA_TRANSFER_DIR, transferDir)
-                    .putExtra(EXTRA_TAKE_FILES, true)
             ContextCompat.startForegroundService(context, intent)
         }
 

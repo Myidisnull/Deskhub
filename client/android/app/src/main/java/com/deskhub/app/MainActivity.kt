@@ -870,12 +870,10 @@ private fun HostScreen(
                         maxDim = defaults.maxDim,
                         port = port,
                         passcode = trimmed,
-                        transferDir = ReceivedFiles.transferDir(hostContext),
-                        takeFiles = takeFiles,
                     ),
                 )
             },
-            enabled = sharing || (ready && !starting),
+            enabled = sharing || (ready && !starting && !receiving),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -886,6 +884,14 @@ private fun HostScreen(
                         else -> NativeClient.STR_START_SHARING
                     },
                 ),
+            )
+        }
+
+        if (receiving) {
+            Text(
+                NativeClient.string(NativeClient.STR_TRANSFER_BLOCKS_SCREEN_NOTE),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedColor,
             )
         }
 
