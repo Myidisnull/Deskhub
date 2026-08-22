@@ -35,12 +35,21 @@ class HostService : Service() {
     private var clipboardJob: Job? = null
     private var exportJob: Job? = null
     private var lastTransferDir: String? = null
+    private var screenMode = false
+    private var lastPort = 0
+    private var lastPasscode = ""
 
     private val projectionCallback =
         object : MediaProjection.Callback() {
             override fun onStop() {
                 NativeHost.onProjectionStopped()
-                mainHandler.post { stopSharing() }
+                mainHandler.post {
+                    if (NativeClient.takeFiles() && lastTransferDir != null) {
+                        stopScreenKeepFiles()
+                    } else {
+                        stopEverything()
+                    }
+                }
             }
         }
 
@@ -52,7 +61,16 @@ class HostService : Service() {
         startId: Int,
     ): Int {
         if (intent == null || intent.action == ACTION_STOP) {
-            stopSharing()
+            if (screenMode && NativeClient.takeFiles() && lastTransferDir != null) {
+                stopScreenKeepFiles()
+            } else {
+                stopEverything()
+            }
+            return START_NOT_STICKY
+        }
+
+        if (intent.action == ACTION_START_FILES) {
+            beginFilesOnly(ShareRequest.from(intent))
             return START_NOT_STICKY
         }
 
@@ -78,6 +96,8 @@ class HostService : Service() {
         NativeHost.publishScreenSize(this)
 
         val options = ShareRequest.from(intent)
+        screenMode = true
+        rememberRequest(options)
         scope.launch {
             val ok = NativeHost.start(options)
             if (!ok) {
@@ -86,11 +106,7 @@ class HostService : Service() {
                 AudioShare.start(applicationContext, granted)
             }
         }
-        exportJob?.cancel()
-        lastTransferDir = options.transferDir.takeIf { options.takeFiles && it.isNotEmpty() }
-        lastTransferDir?.let { dir ->
-            exportJob = scope.launch(Dispatchers.IO) { ReceivedFiles.exportLoop(applicationContext, dir) }
-        }
+        restartExportLoop()
         clipboardJob?.cancel()
         if (NativeClient.clipboardSync()) {
             clipboardJob =
@@ -117,10 +133,67 @@ class HostService : Service() {
 
     private fun failWith(message: String) {
         NativeHost.reportFailure(message)
-        stopSharing()
+        stopEverything()
     }
 
-    private fun stopSharing() {
+    private fun rememberRequest(request: ShareRequest) {
+        lastPort = request.port
+        lastPasscode = request.passcode
+        lastTransferDir = request.transferDir.takeIf { request.takeFiles && it.isNotEmpty() }
+    }
+
+    private fun restartExportLoop() {
+        exportJob?.cancel()
+        exportJob = null
+        lastTransferDir?.let { dir ->
+            exportJob = scope.launch(Dispatchers.IO) { ReceivedFiles.exportLoop(applicationContext, dir) }
+        }
+    }
+
+    private fun beginFilesOnly(request: ShareRequest) {
+        screenMode = false
+        rememberRequest(request)
+        val dir = lastTransferDir
+        if (dir == null) {
+            stopEverything()
+            return
+        }
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), filesForegroundType())
+        scope.launch {
+            if (!NativeHost.startFiles(request.port, request.passcode, dir)) {
+                mainHandler.post { failWith(NativeHost.lastError()) }
+            }
+        }
+        restartExportLoop()
+    }
+
+    private fun stopScreenKeepFiles() {
+        AudioShare.stop()
+        clipboardJob?.cancel()
+        clipboardJob = null
+        NativeHost.stop()
+        releaseScreenCapture()
+        beginFilesOnly(
+            ShareRequest(
+                fps = 0,
+                bitrateMbps = 0,
+                maxDim = 0,
+                port = lastPort,
+                passcode = lastPasscode,
+                transferDir = lastTransferDir.orEmpty(),
+                takeFiles = true,
+            ),
+        )
+    }
+
+    private fun releaseScreenCapture() {
+        projection?.unregisterCallback(projectionCallback)
+        projection = null
+        NativeHost.releaseProjection()
+        screenMode = false
+    }
+
+    private fun stopEverything() {
         Log.i(TAG, "[audio] evt=share_stop caller=${Throwable().stackTrace.getOrNull(1)}")
         AudioShare.stop()
         NativeHost.stop()
@@ -140,6 +213,13 @@ class HostService : Service() {
     private fun foregroundType(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        } else {
+            0
+        }
+
+    private fun filesForegroundType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         } else {
             0
         }
@@ -216,6 +296,7 @@ class HostService : Service() {
         private const val EXTRA_TRANSFER_DIR = "transferDir"
         private const val EXTRA_TAKE_FILES = "takeFiles"
         private const val ACTION_STOP = "com.deskhub.app.STOP_SHARING"
+        private const val ACTION_START_FILES = "com.deskhub.app.START_FILES"
 
         fun start(
             context: Context,
@@ -234,6 +315,22 @@ class HostService : Service() {
                     .putExtra(EXTRA_PASSCODE, request.passcode)
                     .putExtra(EXTRA_TRANSFER_DIR, request.transferDir)
                     .putExtra(EXTRA_TAKE_FILES, request.takeFiles)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun startFiles(
+            context: Context,
+            port: Int,
+            passcode: String,
+            transferDir: String,
+        ) {
+            val intent =
+                Intent(context, HostService::class.java)
+                    .setAction(ACTION_START_FILES)
+                    .putExtra(EXTRA_PORT, port)
+                    .putExtra(EXTRA_PASSCODE, passcode)
+                    .putExtra(EXTRA_TRANSFER_DIR, transferDir)
+                    .putExtra(EXTRA_TAKE_FILES, true)
             ContextCompat.startForegroundService(context, intent)
         }
 

@@ -28,12 +28,17 @@ final class SharingModel {
 
     var statusLine: String {
         let port = UInt16(dh_settings_load().port)
-        guard status.sharing else {
-            return DeskhubClient.buffered(160) { dh_idle_host_status(port, $0, $1) }
+        if status.sharing {
+            return DeskhubClient.buffered(320) {
+                dh_sharing_status(port, acceptedPasscode, false, true, false, takeFiles, $0, $1)
+            }
         }
-        return DeskhubClient.buffered(320) {
-            dh_sharing_status(port, acceptedPasscode, false, true, false, takeFiles, $0, $1)
+        if FilesHost.shared.receiving {
+            return DeskhubClient.buffered(320) {
+                dh_sharing_status(port, acceptedPasscode, false, false, false, true, $0, $1)
+            }
         }
+        return DeskhubClient.buffered(160) { dh_idle_host_status(port, $0, $1) }
     }
 
     func saveBindIp() {
@@ -58,7 +63,6 @@ final class SharingModel {
         while !Task.isCancelled {
             status = BroadcastStatus.load()
             addresses = LocalAddress.all()
-            await ReceivedFiles.sweep(sharing: status.sharing)
             try? await Task.sleep(for: SharingModel.pollInterval)
         }
     }

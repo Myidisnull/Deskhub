@@ -102,6 +102,22 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* e
                : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStartFilesOnly(JNIEnv* env,
+    jobject, jint port, jstring passcode, jstring transferDir) {
+    const std::string dir = deskhubj::FromJString(env, transferDir);
+    if (dir.empty()) return JNI_FALSE;
+    dh_set_transfer_dir(dir.c_str());
+
+    const std::string code = deskhubj::FromJString(env, passcode);
+    return dha_start(nullptr, 0, 0, 0, 0, uint16_t(port), false, code.c_str(), false, true)
+               ? JNI_TRUE
+               : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeFilesActive(JNIEnv*, jobject) {
+    return dha_files_active() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeOfferAudio(JNIEnv* env, jobject,
     jshortArray pcm, jint samples) {
     if (!pcm || samples <= 0) return;
@@ -194,11 +210,11 @@ JNIEXPORT jobjectArray JNICALL Java_com_deskhub_app_NativeHost_nativeHostRows(JN
 }
 
 JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeSharingStatus(JNIEnv* env, jobject,
-    jint port, jstring passcode) {
+    jint port, jstring passcode, jboolean screen) {
     char buf[320];
     const std::string code = deskhubj::FromJString(env, passcode);
-    dh_sharing_status(uint16_t(port), code.c_str(), false, true, false, dha_files_active(), buf,
-        int(sizeof(buf)));
+    dh_sharing_status(uint16_t(port), code.c_str(), false, screen == JNI_TRUE, false,
+        dha_files_active(), buf, int(sizeof(buf)));
     return NewString(env, buf);
 }
 

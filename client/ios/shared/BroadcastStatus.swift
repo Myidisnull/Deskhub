@@ -20,6 +20,16 @@ struct BroadcastStatus: Equatable, Sendable {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
     }
 
+    static var broadcastProcessAlive: Bool {
+        guard let url = fileURL,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let modified = attributes[.modificationDate] as? Date
+        else {
+            return false
+        }
+        return Date().timeIntervalSince(modified) < 5
+    }
+
     static func load() -> BroadcastStatus {
         guard let url = fileURL,
               let text = try? String(contentsOf: url, encoding: .utf8)

@@ -90,6 +90,7 @@ object NativeHost {
     private external fun nativeSharingStatus(
         port: Int,
         passcode: String,
+        screen: Boolean,
     ): String
 
     private external fun nativeIdleStatus(port: Int): String
@@ -184,6 +185,16 @@ object NativeHost {
         shareState = ShareState.FAILED
     }
 
+    private external fun nativeStartFilesOnly(
+        port: Int,
+        passcode: String,
+        transferDir: String,
+    ): Boolean
+
+    private external fun nativeFilesActive(): Boolean
+
+    fun filesActive(): Boolean = nativeFilesActive()
+
     suspend fun start(request: HostService.ShareRequest): Boolean =
         withContext(Dispatchers.IO) {
             val ok =
@@ -199,6 +210,12 @@ object NativeHost {
             if (ok) shareState = ShareState.SHARING
             ok
         }
+
+    suspend fun startFiles(
+        port: Int,
+        passcode: String,
+        transferDir: String,
+    ): Boolean = withContext(Dispatchers.IO) { nativeStartFilesOnly(port, passcode, transferDir) }
 
     fun stop() {
         nativeStop()
@@ -222,7 +239,8 @@ object NativeHost {
     fun sharingStatus(
         port: Int,
         passcode: String,
-    ): String = nativeSharingStatus(port, passcode)
+        screen: Boolean,
+    ): String = nativeSharingStatus(port, passcode, screen)
 
     fun idleStatus(port: Int): String = nativeIdleStatus(port)
 

@@ -818,7 +818,15 @@ private fun HostScreen(
             }
         }
 
+        val hostContext = LocalContext.current
         var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
+        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                receiving = NativeHost.filesActive()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -826,16 +834,26 @@ private fun HostScreen(
         ) {
             Checkbox(
                 checked = takeFiles,
-                onCheckedChange = {
-                    takeFiles = it
-                    NativeClient.setTakeFiles(it)
+                onCheckedChange = { wanted ->
+                    takeFiles = wanted
+                    NativeClient.setTakeFiles(wanted)
+                    if (sharing || starting) return@Checkbox
+                    if (wanted) {
+                        HostService.startFiles(
+                            hostContext,
+                            port,
+                            passcode.trim(),
+                            ReceivedFiles.transferDir(hostContext),
+                        )
+                    } else {
+                        HostService.stop(hostContext)
+                    }
                 },
                 enabled = !sharing && !starting,
             )
             Text(NativeClient.string(NativeClient.STR_TRANSFER_ACCEPT_LABEL))
         }
 
-        val hostContext = LocalContext.current
         Button(
             onClick = {
                 if (sharing) {
@@ -872,8 +890,8 @@ private fun HostScreen(
         }
 
         Text(
-            if (sharing) {
-                NativeHost.sharingStatus(port, passcode.trim())
+            if (sharing || receiving) {
+                NativeHost.sharingStatus(port, passcode.trim(), sharing)
             } else {
                 NativeHost.idleStatus(port)
             },

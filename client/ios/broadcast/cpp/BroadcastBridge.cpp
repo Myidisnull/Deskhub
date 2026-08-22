@@ -4,6 +4,7 @@
 #include <CoreVideo/CVPixelBuffer.h>
 #include <CoreVideo/CVPixelBufferPool.h>
 
+#include <chrono>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -63,10 +64,18 @@ std::string StartSharing(uint32_t width, uint32_t height) {
     const bool takeFiles = dh_take_files();
     const std::string transferDir = GroupTransferDir();
     if (takeFiles && !transferDir.empty()) dh_set_transfer_dir(transferDir.c_str());
-    const bool ok = dha_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
-        settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps,
-        settings.maxDim ? settings.maxDim : defaults.maxDim, uint16_t(settings.port), false,
-        settings.passcode, false, takeFiles && !transferDir.empty());
+
+    constexpr int kPortHandoffTries = 8;
+    constexpr auto kPortHandoffPause = std::chrono::milliseconds(500);
+    bool ok = false;
+    for (int attempt = 0; attempt < kPortHandoffTries; ++attempt) {
+        ok = dha_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
+            settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps,
+            settings.maxDim ? settings.maxDim : defaults.maxDim, uint16_t(settings.port), false,
+            settings.passcode, false, takeFiles && !transferDir.empty());
+        if (ok || !takeFiles) break;
+        std::this_thread::sleep_for(kPortHandoffPause);
+    }
     if (ok) return std::string();
 
     const char* reason = dha_last_error();
