@@ -56,6 +56,9 @@ constexpr const char* kEchoCommand = "echo $((41000+59))\r";
 #endif
 constexpr const char* kFloodDoneMarker = "52007";
 constexpr const char* kEchoMarker = "41059";
+constexpr const char* kCanaryCommand = "echo deskhub-canary\r";
+constexpr const char* kCanaryMarker = "deskhub-canary";
+constexpr uint32_t kCanaryTimeoutMs = 15'000;
 
 struct TerminalPeer {
     deskhubp::TerminalViewer viewer{};
@@ -116,6 +119,35 @@ struct TerminalPeer {
 
     bool Saw(const char* marker) {
         return SawInOutput(marker) || SeesOnScreen(marker);
+    }
+
+    void PrintScreenTail(const char* when) {
+        const deskhubp::TerminalSnapshot snap = viewer.Snapshot();
+        std::printf("        terminal screen %s:\n", when);
+        size_t printed = 0;
+        for (uint16_t row = 0; row < snap.size.rows && printed < 8; ++row) {
+            std::string line;
+            for (uint16_t col = 0; col < snap.size.cols; ++col) {
+                const size_t cell = size_t(row) * snap.size.cols + col;
+                if (cell >= snap.cells.size()) break;
+                const char32_t ch = snap.cells[cell].ch;
+                line.push_back(ch >= 32 && ch < 127 ? char(ch) : ' ');
+            }
+            while (!line.empty() && line.back() == ' ') line.pop_back();
+            if (line.empty()) continue;
+            std::printf("        | %s\n", line.c_str());
+            ++printed;
+        }
+        if (printed == 0) std::printf("        | (blank screen)\n");
+    }
+
+    bool ProveShellAnswers() {
+        viewer.SendText(kCanaryCommand);
+        const bool alive =
+            WaitFor([this] { return Saw(kCanaryMarker); }, kCanaryTimeoutMs);
+        if (!alive) PrintScreenTail("after the canary went unanswered");
+        Check(alive, "typed characters come back from the shell at all");
+        return alive;
     }
 };
 
@@ -203,6 +235,7 @@ void TestATerminalFloodNeverStallsTheVideo() {
 
     CrossSession s;
     if (!s.Open("term-flood", false)) return;
+    if (!s.term.ProveShellAnswers()) return;
 
     Continuity idle(DecodedFrames);
     idle.Begin();
@@ -241,6 +274,7 @@ void TestATerminalFloodNeverStallsTheVideo() {
         static_cast<unsigned long long>(video.worstGapMs()),
         static_cast<unsigned long long>(termFlow.worstGapMs()));
 
+    if (!floodDone) s.term.PrintScreenTail("after the flood never finished");
     Check(floodDone, "the flood ran to completion inside the deadline");
     Check(flooded > 0, "the flood genuinely crossed to the terminal viewer");
     Check(video.moved() > 0, "frames kept arriving while the terminal was flooded");
@@ -262,6 +296,7 @@ void TestTheTerminalStaysLiveDuringABigTransfer() {
 
     CrossSession s;
     if (!s.Open("term-echo", true)) return;
+    if (!s.term.ProveShellAnswers()) return;
 
     Check(s.viewer.SendFiles({s.file}), "the batch is offered");
     Check(WaitFor([&s] { return s.viewer.uploadProgress().batchBytes > kTransferBytes / 8; },
@@ -277,6 +312,7 @@ void TestTheTerminalStaysLiveDuringABigTransfer() {
     std::printf("        the shell answered %llu ms after the keystrokes\n",
         static_cast<unsigned long long>(latencyMs));
 
+    if (!echoed) s.term.PrintScreenTail("after the echo went unanswered");
     Check(stillRunning, "the upload really was in flight when the command was typed");
     Check(echoed, "the shell answered while the file lane was flooded");
     Check(latencyMs < kEchoLatencyCeilingMs,
