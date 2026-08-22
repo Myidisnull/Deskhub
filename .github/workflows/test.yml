@@ -72,6 +72,9 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,6 +118,29 @@ jobs:
             cat perf.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post the drift table as a pull-request comment (updates its own earlier comment)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- deskhub-perf-compare -->'
+          { echo "$marker"
+            echo "### core_perf: pull request vs base commit, same runner (50% tolerance)"
+            echo ''
+            echo '```'
+            cat perf.log
+            echo '```'
+          } > perf-comment.md
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" \
+              -F body=@perf-comment.md >/dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              -F body=@perf-comment.md >/dev/null
+          fi
 
   sanitizers:
     name: ${{ matrix.os }} · ${{ matrix.preset }}

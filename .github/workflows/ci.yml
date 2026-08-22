@@ -26,3 +26,6 @@ jobs:
 
   test:
     uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+      pull-requests: write
