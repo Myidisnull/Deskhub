@@ -163,7 +163,7 @@ jobs:
             echo "<details><summary>$1</summary>"
             echo ''
             echo '```'
-            cat "$2"
+            grep -v '^\[Deskhub\]' "$2" || true
             echo '```'
             echo '</details>'
           }
