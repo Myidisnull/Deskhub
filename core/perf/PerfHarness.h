@@ -25,7 +25,7 @@ struct ScalingWorkload {
     std::function<void(uint64_t units)> run{};
 };
 
-void Begin();
+void Begin(const char* title, const char* defaultBaselinePath);
 void BeginGroup(const char* title);
 void Measure(const Workload& workload);
 void MeasureScaling(const ScalingWorkload& workload);

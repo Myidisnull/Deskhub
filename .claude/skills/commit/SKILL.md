@@ -12,18 +12,22 @@ Security**. A subject is a line users read on the Releases page. Only the subjec
 
 ## Steps
 
-1. **Look at what is actually being committed** — `git status --short` and
+1. **Get off `main` first.** Commits land on a branch so they can go up as a pull
+   request: if HEAD is on `main`, create and switch to a new branch before committing —
+   short, kebab-case, named for the change (`perf-lag-tests`, `terminal-repaint-fix`).
+   Only commit directly on `main` when the user explicitly says to.
+2. **Look at what is actually being committed** — `git status --short` and
    `git diff --staged` (or `git diff` if nothing is staged yet). Never write a subject
    from the conversation alone.
-2. **Split if needed.** One change per commit; two unrelated things can only land in one
+3. **Split if needed.** One change per commit; two unrelated things can only land in one
    section. Say so and stage them separately.
-3. **Pick the type** from the table below — this is the only thing that decides the
+4. **Pick the type** from the table below — this is the only thing that decides the
    section.
-4. **Write the subject**: English, imperative, no trailing period, ~72 characters, about
+5. **Write the subject**: English, imperative, no trailing period, ~72 characters, about
    what changed for someone using Deskhub. Add a body only when the *why* is not obvious;
    the changelog ignores it.
-5. **Run the repo checks that apply** — see *Before committing* below.
-6. **Preview** when the commit is near a release: `scripts/changelog.sh` shows what the
+6. **Run the repo checks that apply** — see *Before committing* below.
+7. **Preview** when the commit is near a release: `scripts/changelog.sh` shows what the
    tag at HEAD would produce.
 
 ## Types

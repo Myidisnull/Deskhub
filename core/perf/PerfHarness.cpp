@@ -107,9 +107,9 @@ constexpr double kWarmUpNanos = 200'000'000.0;
 constexpr uint64_t kMaxBatchRuns = 1u << 22;
 constexpr int kDefaultRepeats = 7;
 constexpr double kDefaultTolerance = 0.25;
-constexpr const char* kDefaultBaselinePath = "out/perf/baseline.txt";
 
 int g_failures = 0;
+const char* g_defaultBaselinePath = "out/perf/baseline.txt";
 
 struct Row {
     std::string name;
@@ -145,7 +145,7 @@ double Tolerance() {
 
 std::map<std::string, double> LoadBaseline() {
     std::map<std::string, double> baseline;
-    const char* path = EnvOr("DESKHUB_PERF_BASELINE", kDefaultBaselinePath);
+    const char* path = EnvOr("DESKHUB_PERF_BASELINE", g_defaultBaselinePath);
     std::FILE* file = std::fopen(path, "r");
     if (file == nullptr) {
         std::printf("no baseline at %s - record one with 'make perf-baseline' on an idle machine, then this run reports every change against it\n",
@@ -288,8 +288,9 @@ void Consume(uint64_t value) {
     g_consumed = g_consumed + value;
 }
 
-void Begin() {
-    std::printf("=== core performance suite (offline: no network, no GPU) ===\n");
+void Begin(const char* title, const char* defaultBaselinePath) {
+    g_defaultBaselinePath = defaultBaselinePath;
+    std::printf("=== %s ===\n", title);
     WarmUpProcessor();
     std::printf("release build only - debug and sanitizer numbers say nothing about production speed\n");
     Baseline();

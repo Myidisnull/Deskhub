@@ -2,7 +2,8 @@
 #include "PerfHarness.h"
 
 int main() {
-    deskhub::perf::Begin();
+    deskhub::perf::Begin("core performance suite (offline: no network, no GPU)",
+        "out/perf/baseline.txt");
 
     RunVideoPerf();
     RunTransferPerf();

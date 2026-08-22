@@ -2,6 +2,7 @@
 #include "support/FakeAgent.h"
 #include "support/FakeDecoder.h"
 #include "support/FakeVideo.h"
+#include "support/LoadRig.h"
 #include "support/TestSupport.h"
 
 #include "deskhubp/session/ClientEngine.h"
@@ -21,7 +22,6 @@ using Viewer = deskhubp::ClientEngine<fake::Decoder, void*>;
 
 namespace {
 
-constexpr uint32_t kLoopbackIp = 0x7F000001u;
 constexpr uint32_t kConnectTimeoutMs = 30'000;
 constexpr uint32_t kTransferTimeoutMs = 120'000;
 constexpr uint64_t kBaselineWindowUs = 1'000'000;
@@ -31,96 +31,13 @@ constexpr uint64_t kWorstGapMs = 1500;
 
 void* const kDummySurface = reinterpret_cast<void*>(0x1);
 
-std::filesystem::path Scratch(const std::string& leaf) {
-    const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "deskhub-transfer-load";
-    std::error_code ec;
-    std::filesystem::remove_all(root / leaf, ec);
-    std::filesystem::create_directories(root / leaf, ec);
-    return root / leaf;
-}
-
-std::vector<uint8_t> Pattern(size_t size) {
-    std::vector<uint8_t> bytes(size);
-    for (size_t i = 0; i < size; ++i) bytes[i] = uint8_t(i * 131u + (i >> 13));
-    return bytes;
-}
-
-std::filesystem::path WriteBytes(const std::filesystem::path& dir, const std::string& name,
-    const std::vector<uint8_t>& bytes) {
-    const std::filesystem::path path = dir / name;
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
-    return path;
-}
-
-std::vector<uint8_t> ReadBytes(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    return std::vector<uint8_t>(std::istreambuf_iterator<char>(in),
-        std::istreambuf_iterator<char>());
-}
-
-deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, bool wantsAudio) {
-    deskhubp::ClientEngineConfig cfg;
-    cfg.server = NetAddr{kLoopbackIp, port};
-    cfg.sourceId = 0;
-    cfg.screenW = 1920;
-    cfg.screenH = 1080;
-    cfg.desiredFps = 30;
-    cfg.alwaysFocused = true;
-    cfg.passcode = kTestPasscode;
-    cfg.wantsAudio = wantsAudio;
-    return cfg;
-}
-
-class Continuity {
-public:
-    explicit Continuity(std::function<uint64_t()> count) : count_(std::move(count)) {}
-
-    void Begin() {
-        first_ = count_();
-        last_ = first_;
-        startUs_ = NowUs();
-        lastMoveUs_ = startUs_;
-        worstGapUs_ = 0;
-    }
-
-    void Sample() {
-        const uint64_t seen = count_();
-        const uint64_t now = NowUs();
-        if (seen != last_) {
-            last_ = seen;
-            lastMoveUs_ = now;
-            return;
-        }
-        if (now - lastMoveUs_ > worstGapUs_) worstGapUs_ = now - lastMoveUs_;
-    }
-
-    uint64_t moved() const {
-        return last_ - first_;
-    }
-
-    uint64_t worstGapMs() const {
-        return worstGapUs_ / 1000;
-    }
-
-    double perSecond() const {
-        const uint64_t spentUs = NowUs() - startUs_;
-        return spentUs == 0 ? 0.0 : double(moved()) * 1'000'000.0 / double(spentUs);
-    }
-
-private:
-    std::function<uint64_t()> count_;
-    uint64_t first_ = 0;
-    uint64_t last_ = 0;
-    uint64_t startUs_ = 0;
-    uint64_t lastMoveUs_ = 0;
-    uint64_t worstGapUs_ = 0;
-};
-
-uint64_t DecodedFrames() {
-    return uint64_t(fake::Decoded().frameCount());
-}
+using load::Continuity;
+using load::DecodedFrames;
+using load::Pattern;
+using load::ReadBytes;
+using load::Scratch;
+using load::ViewerConfig;
+using load::WriteBytes;
 
 struct Session {
     fake::Agent agent{};

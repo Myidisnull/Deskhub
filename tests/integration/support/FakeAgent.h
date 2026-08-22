@@ -11,6 +11,7 @@
 
 namespace deskhubp {
 class FileHost;
+class TerminalHost;
 }
 
 namespace fake {
@@ -39,6 +40,10 @@ public:
 
     void SetFiles(deskhubp::FileHost* files) {
         engine_.SetFiles(files);
+    }
+
+    void SetTerminal(deskhubp::TerminalHost* terminal) {
+        engine_.SetTerminal(terminal);
     }
 
     bool audioRunning() {

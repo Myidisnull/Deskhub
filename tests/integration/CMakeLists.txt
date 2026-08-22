@@ -5,6 +5,7 @@ add_executable(integration_tests
     WireVectorTests.cpp
     SessionFlowTests.cpp
     TransferUnderLoadTests.cpp
+    LagUnderCrossLoadTests.cpp
 
     support/TestSupport.cpp
     support/FakeVideo.cpp

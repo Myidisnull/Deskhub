@@ -209,19 +209,21 @@ control bytes, characters Windows rejects and reserved device names all go — b
 | --- | --- | --- |
 | `make test` | offline, no sockets | all of `core/`: wire, framing, FEC, sessions, VT emulator, settings, strings, deterministic structured fuzzing |
 | `make test-platform` | loopback sockets | real QUIC handshakes, SPAKE2 end-to-end, terminal host + viewer over the wire, PTY against a real shell, lockout, approval |
-| `make test-integration` | loopback, fake capture/encode | full host↔client sessions: negotiation, video across the wire, input, passcode/approval gating, junk resistance |
+| `make test-integration` | loopback, fake capture/encode | full host↔client sessions: negotiation, video across the wire, input, passcode/approval gating, junk resistance, and lag under cross-load — a file transfer, a flooded terminal and keystrokes beside a live stream, each gated on its worst observed stall |
 | fuzz targets | 30 s per target on every PR, 15 min per target nightly | parsers for wire, H.264, reassembly, terminal bytes and UI text, plus the host and viewer session state machines |
-| `make test-perf` | release build, offline | the hot paths of `core/` measured rather than only exercised: allocations per unit, the cost at 4× the input, and the drift against a baseline recorded on that machine |
+| `make test-perf` | release build, offline + loopback | the hot paths measured rather than only exercised: `core_perf` covers the pure-C++ paths, `platform_perf` covers real QUIC over loopback; both fail on allocations per unit, on the cost at 4× the input, and on drift against a baseline recorded on that machine |
 
 CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
 `--strict`, Android Lint, actionlint + shellcheck, ASan/TSan runs of all three suites,
 CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 % line /
 80 % branch coverage on `core/`. The three suites are additionally cross-built and run
 on arm64 Linux, an Android emulator and the iOS Simulator. The Linux and macOS release
-jobs also run `core_perf` with its allocation and scaling gates (no time baseline
-exists on a shared runner), and each pull request additionally gets an A/B `core_perf`
-run — base commit and pull request built and measured on the same runner — whose drift
-is reported as warnings in the job summary rather than a failure.
+jobs also run `core_perf` and `platform_perf` with their allocation and scaling gates
+(no time baseline exists on a shared runner), and each pull request additionally gets
+a perf-and-lag report posted as one self-updating comment: both perf suites A/B'd
+against the base commit on the same runner (drift as warnings, never a failure), the
+under-load integration numbers from the pull-request build, and the core coverage
+line.
 
 ## 9. Decisions worth remembering
 
@@ -240,7 +242,11 @@ is reported as warnings in the job summary rather than a failure.
   allocates a block per element for anything larger than 16 bytes, so the same code has
   a different allocation count there. Pull requests also get a timing comparison the
   shared-runner noise cannot invalidate — base commit and pull request measured on the
-  same runner, 50 % tolerance, warnings only.
+  same runner, 50 % tolerance, warnings only. `platform_perf` extends the same gates to
+  real QUIC over loopback, where wall time measures the service-loop cadence — the 64 KiB
+  stream-drain budget times the 1 ms poll tick — so a shrunken budget, a drain that stops
+  scaling linearly, or a new allocation in the poll loop all show up as a jump even
+  though the CPU cost of the same work would barely move.
 
 - **`FileHost` never sends while holding its own lock**: the QUIC service loop runs
   `QuicEndpoint::Poll` under `SessionTransport::sendMutex_`, and a connection that closes
