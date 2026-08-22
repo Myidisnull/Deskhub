@@ -337,3 +337,19 @@ if(DESKHUB_PLATFORM_TESTS)
     include(CTest)
     add_test(NAME platform_tests COMMAND platform_tests)
 endif()
+
+option(DESKHUB_PLATFORM_PERF "Build platform_perf" ${deskhub_platform_tests_default})
+
+if(DESKHUB_PLATFORM_PERF)
+    add_executable(platform_perf
+        perf/PerfMain.cpp
+        perf/QuicPerf.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../core/perf/PerfHarness.cpp
+    )
+    target_link_libraries(platform_perf PRIVATE platform)
+    target_include_directories(platform_perf PRIVATE perf ${CMAKE_CURRENT_SOURCE_DIR}/../core/perf)
+    deskhub_target_warnings(platform_perf)
+    if(MSVC)
+        target_compile_definitions(platform_perf PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endif()

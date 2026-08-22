@@ -91,17 +91,20 @@
 #   make test-ctest        run through CTest (--output-on-failure) — matches how CI runs it
 #   make test-asan         all three suites under ASan + UBSan (clang/gcc only, not MSVC)
 #   make test-tsan         all three suites under ThreadSanitizer (clang/gcc only, not MSVC)
-#   make test-perf         build core_perf with the release preset and measure the hot core
-#                          paths - packetize/reassemble/FEC, 1080p downscale, CRC + file
-#                          batches, the VT parser and screen, wire encode/decode, the audio
-#                          jitter buffer. Fails on allocations per unit, on a path that
-#                          stops scaling linearly, and on drift past DESKHUB_PERF_TOLERANCE
-#                          (25% by default) against out/perf/baseline.txt. Not part of
-#                          `make test` or CI: debug, ASan and coverage builds say nothing
-#                          about production speed
-#   make perf-baseline     record out/perf/baseline.txt from the current tree on an idle
-#                          machine - it describes this machine, so it stays out of git and
-#                          has to be re-recorded after a deliberate speed change
+#   make test-perf         build core_perf + platform_perf with the release preset and
+#                          measure the hot paths - packetize/reassemble/FEC, 1080p
+#                          downscale, CRC + file batches, the VT parser and screen, wire
+#                          encode/decode, the audio jitter buffer and PCM ring, the input
+#                          path, the record framer, and real QUIC over loopback. Fails on
+#                          allocations per unit, on a path that stops scaling linearly,
+#                          and on drift past DESKHUB_PERF_TOLERANCE (25% by default)
+#                          against out/perf/baseline.txt and platform-baseline.txt. Not
+#                          part of `make test`; CI runs only the allocation and scaling
+#                          gates on Linux/macOS release jobs
+#   make perf-baseline     record out/perf/baseline.txt + platform-baseline.txt from the
+#                          current tree on an idle machine - they describe this machine,
+#                          so they stay out of git and have to be re-recorded after a
+#                          deliberate speed change
 #   make fuzz              libFuzzer + ASan over the wire/media/ui parsers and the session
 #                          state machines (clang only, Linux/macOS; FUZZ_SECONDS=N per
 #                          target, corpus in out/fuzz/corpus). Each target first replays
