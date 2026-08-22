@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include <cstdio>
+#include <string_view>
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -25,16 +26,20 @@ void KeepTestLogsOutOfTheDeveloperHome() {}
 }
 #endif
 
-int main() {
+int main(int argc, char** argv) {
     KeepTestLogsOutOfTheDeveloperHome();
+
+    const bool onlyUnderLoad = argc > 1 && std::string_view(argv[1]) == "--under-load";
 
     std::printf("=== integration self-test (host + viewer over loopback, fake codecs) ===\n");
 
-    std::printf("--- wire: golden byte vectors (same on every OS) ---\n");
-    RunWireVectorTests();
+    if (!onlyUnderLoad) {
+        std::printf("--- wire: golden byte vectors (same on every OS) ---\n");
+        RunWireVectorTests();
 
-    std::printf("--- end to end: connect, stream, input, disconnect ---\n");
-    RunSessionFlowTests();
+        std::printf("--- end to end: connect, stream, input, disconnect ---\n");
+        RunSessionFlowTests();
+    }
 
     std::printf("--- under load: a file transfer beside a live stream ---\n");
     RunTransferUnderLoadTests();

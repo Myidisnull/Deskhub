@@ -215,9 +215,10 @@ C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` �
 nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
 iOS Simulator. Các job release trên Linux và macOS còn chạy `core_perf` và
 `platform_perf` với hai cổng chặn cấp phát và độ tuyến tính (máy CI dùng chung không có
-mốc thời gian), và mỗi pull request có thêm một lượt `core_perf` A/B — commit gốc và pull
-request cùng dựng, cùng đo trên một runner — với độ lệch chỉ báo dưới dạng cảnh báo trong
-tóm tắt job chứ không đánh trượt.
+mốc thời gian), và mỗi pull request có thêm một báo cáo perf-và-lag đăng thành một
+comment tự cập nhật: cả hai suite perf được A/B với commit gốc trên cùng một runner (độ
+lệch chỉ là cảnh báo, không bao giờ đánh trượt), số đo tích hợp dưới tải của chính bản
+pull request, và dòng coverage của `core/`.
 
 ## 9. Các quyết định đáng nhớ
 

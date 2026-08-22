@@ -220,8 +220,10 @@ CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 
 on arm64 Linux, an Android emulator and the iOS Simulator. The Linux and macOS release
 jobs also run `core_perf` and `platform_perf` with their allocation and scaling gates
 (no time baseline exists on a shared runner), and each pull request additionally gets
-an A/B `core_perf` run — base commit and pull request built and measured on the same
-runner — whose drift is reported as warnings in the job summary rather than a failure.
+a perf-and-lag report posted as one self-updating comment: both perf suites A/B'd
+against the base commit on the same runner (drift as warnings, never a failure), the
+under-load integration numbers from the pull-request build, and the core coverage
+line.
 
 ## 9. Decisions worth remembering
 
