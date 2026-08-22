@@ -71,7 +71,7 @@ struct LoopbackPair {
             ++i)
             Pump();
         return serverSink.connected && clientSink.connected &&
-            client.Established(clientSink.conn);
+               client.Established(clientSink.conn);
     }
 
     void Pump() {
@@ -144,9 +144,9 @@ void RunQuicPerf() {
     FillRandom(record);
     uint64_t expectedBytes = pair.serverSink.streamBytes;
     Measure(Workload{"quic/terminal-record-delivery", "record", 1, record.size(), 10.0, [&] {
-            expectedBytes += SendOnTerminalStream(pair, record);
-            pair.PumpUntilStreamed(expectedBytes);
-        }});
+                         expectedBytes += SendOnTerminalStream(pair, record);
+                         pair.PumpUntilStreamed(expectedBytes);
+                     }});
 
     std::vector<uint8_t> chunk(kThroughputChunkBytes);
     FillRandom(chunk);
