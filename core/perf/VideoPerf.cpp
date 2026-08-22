@@ -1,6 +1,7 @@
 #include "Perf.h"
 #include "PerfHarness.h"
 
+#include "deskhub/media/FrameMailbox.h"
 #include "deskhub/media/RgbDownscale.h"
 #include "deskhub/protocol/ByteOrder.h"
 #include "deskhub/protocol/Wire.h"
@@ -186,6 +187,16 @@ void RunVideoPerf() {
     Measure(Workload{"video/downscale-1080p-to-720p", "frame", 1, source.size(), 0.0, [&] {
                          downscaler.Scale(source.data(), kSourceWidth * media::kPackedPixelBytes, scaled.data(),
                              kScaledWidth * media::kPackedPixelBytes);
+                     }});
+
+    media::FrameMailbox<std::vector<uint8_t>> mailbox;
+    std::vector<uint8_t> decoded(kIdrFrameBytes);
+    std::vector<uint8_t> presented;
+    Measure(Workload{"video/frame-mailbox-handoff", "frame", 1, 0, 0.0, [&] {
+                         mailbox.Put(std::move(decoded));
+                         mailbox.TakeWait(presented);
+                         decoded = std::move(presented);
+                         Consume(decoded.size());
                      }});
 
     std::vector<uint8_t> scalingNal(kScalingFrameBytes);

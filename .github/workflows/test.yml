@@ -61,6 +61,59 @@ jobs:
       - name: Run them through CTest
         run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
 
+      - name: Gate the hot core paths on allocation and scaling budgets (time baselines stay per-machine; MSVC's small deque blocks make its allocation counts incomparable)
+        if: endsWith(matrix.preset, '-release') && runner.os != 'Windows'
+        run: out/build/${{ matrix.preset }}/core/core_perf
+
+  perf-compare:
+    name: perf · pull request vs base
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Ninja
+        run: scripts/apt-install.sh ninja-build
+
+      - uses: ./.github/actions/third-party
+        with:
+          cache-key: host-ubuntu-latest
+
+      - name: Build the base commit and record it as this runner's baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git -c advice.detachedHead=false checkout --force "$BASE_SHA"
+          git submodule update --init --recursive
+          cmake --preset x64-release -DDESKHUB_LINUX_APP=OFF
+          cmake --build --preset x64-release --target core_perf
+          DESKHUB_PERF_WRITE="$RUNNER_TEMP/base-perf.txt" out/build/x64-release/core/core_perf ||
+            echo "::warning::the base commit failed its own perf budgets - drift below is still measured against it"
+
+      - name: Build the pull request and report drift against the base run (warnings only - a shared runner is too noisy to fail on time)
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          git checkout --force "$HEAD_SHA"
+          git submodule update --init --recursive
+          cmake --preset x64-release -DDESKHUB_LINUX_APP=OFF
+          cmake --build --preset x64-release --target core_perf
+          set -o pipefail
+          if ! DESKHUB_PERF_BASELINE="$RUNNER_TEMP/base-perf.txt" DESKHUB_PERF_TOLERANCE=0.5 \
+              out/build/x64-release/core/core_perf 2>&1 | tee perf.log; then
+            echo "::warning::core_perf drifted from the base commit or failed a budget - details in the step summary"
+            grep "FAIL:" perf.log | sed -e 's/^ *//' -e 's/^/::warning::/' || true
+          fi
+          { echo "## core_perf: pull request vs base commit, same runner (50% tolerance)"
+            echo '```'
+            cat perf.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   sanitizers:
     name: ${{ matrix.os }} · ${{ matrix.preset }}
     strategy:

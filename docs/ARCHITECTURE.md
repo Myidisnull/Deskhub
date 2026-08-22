@@ -217,7 +217,11 @@ CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
 `--strict`, Android Lint, actionlint + shellcheck, ASan/TSan runs of all three suites,
 CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 % line /
 80 % branch coverage on `core/`. The three suites are additionally cross-built and run
-on arm64 Linux, an Android emulator and the iOS Simulator.
+on arm64 Linux, an Android emulator and the iOS Simulator. The Linux and macOS release
+jobs also run `core_perf` with its allocation and scaling gates (no time baseline
+exists on a shared runner), and each pull request additionally gets an A/B `core_perf`
+run — base commit and pull request built and measured on the same runner — whose drift
+is reported as warnings in the job summary rather than a failure.
 
 ## 9. Decisions worth remembering
 
@@ -231,7 +235,12 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   `make perf-baseline` and never committed. That split is what lets the suite fail a
   regression like "the reassembler now copies every piece twice" on a laptop, a CI
   runner or a phone alike, while still printing ns per unit and MB/s for the paths where
-  the number itself is the point.
+  the number itself is the point. CI runs those two machine-independent gates on the
+  Linux and macOS release jobs; Windows only builds the binary, because MSVC's deque
+  allocates a block per element for anything larger than 16 bytes, so the same code has
+  a different allocation count there. Pull requests also get a timing comparison the
+  shared-runner noise cannot invalidate — base commit and pull request measured on the
+  same runner, 50 % tolerance, warnings only.
 
 - **`FileHost` never sends while holding its own lock**: the QUIC service loop runs
   `QuicEndpoint::Poll` under `SessionTransport::sendMutex_`, and a connection that closes

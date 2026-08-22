@@ -218,6 +218,9 @@ if(DESKHUB_CORE_PERF)
         perf/TransferPerf.cpp
         perf/TerminalPerf.cpp
         perf/ControlPerf.cpp
+        perf/AudioPerf.cpp
+        perf/InputPerf.cpp
+        perf/StreamPerf.cpp
     )
     target_link_libraries(core_perf PRIVATE core)
     target_include_directories(core_perf PRIVATE perf)

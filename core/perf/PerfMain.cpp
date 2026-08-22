@@ -8,6 +8,9 @@ int main() {
     RunTransferPerf();
     RunTerminalPerf();
     RunControlPerf();
+    RunAudioPerf();
+    RunInputPerf();
+    RunStreamPerf();
 
     return deskhub::perf::Summary();
 }

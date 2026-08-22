@@ -213,7 +213,11 @@ CI còn ép clang-format và clang-tidy (đều ghim phiên bản), SwiftLint `-
 Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, CodeQL cho
 C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` ≥ 90% dòng / 80%
 nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
-iOS Simulator.
+iOS Simulator. Các job release trên Linux và macOS còn chạy `core_perf` với hai cổng
+chặn cấp phát và độ tuyến tính (máy CI dùng chung không có mốc thời gian), và mỗi pull
+request có thêm một lượt `core_perf` A/B — commit gốc và pull request cùng dựng, cùng đo
+trên một runner — với độ lệch chỉ báo dưới dạng cảnh báo trong tóm tắt job chứ không
+đánh trượt.
 
 ## 9. Các quyết định đáng nhớ
 
@@ -238,7 +242,12 @@ iOS Simulator.
   `out/perf/baseline.txt`, ghi riêng cho từng máy bằng `make perf-baseline` và không bao
   giờ commit. Chính cách chia đó cho phép bộ đo bắt được hồi quy kiểu "khâu ghép gói giờ
   chép mỗi mảnh hai lần" trên laptop, trên máy CI hay trên điện thoại như nhau, mà vẫn in
-  ra ns mỗi đơn vị và MB/s cho những đường mà bản thân con số mới là thứ ta cần.
+  ra ns mỗi đơn vị và MB/s cho những đường mà bản thân con số mới là thứ ta cần. CI chạy
+  đúng hai cổng chặn độc-lập-với-máy đó trên các job release Linux và macOS; Windows chỉ
+  build binary, vì `deque` của MSVC cấp phát một khối cho mỗi phần tử lớn hơn 16 byte,
+  nên cùng đoạn mã lại ra số lần cấp phát khác. Pull request còn được so thời gian theo
+  cách mà nhiễu của runner dùng chung không phá được — commit gốc và pull request đo trên
+  cùng một runner, dung sai 50%, chỉ cảnh báo.
 
 - **Client dòng lệnh là mặt tiền thứ tư, không phải bản cài đặt thứ hai**: nó phân tích cờ
   trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `AgentLoop`
