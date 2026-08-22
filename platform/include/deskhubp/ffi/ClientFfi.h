@@ -241,6 +241,7 @@ typedef enum {
     DHStrTransferTooManyFiles = 144,
     DHStrOpenFilesLabel = 145,
     DHStrTransferSentHeading = 146,
+    DHStrTransferAcceptLabel = 147,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

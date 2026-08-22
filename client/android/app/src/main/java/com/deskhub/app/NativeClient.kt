@@ -120,6 +120,7 @@ object NativeClient {
     const val STR_TRANSFER_TOO_MANY_FILES = 144
     const val STR_OPEN_FILES_LABEL = 145
     const val STR_TRANSFER_SENT_HEADING = 146
+    const val STR_TRANSFER_ACCEPT_LABEL = 147
 
     private external fun nativeString(id: Int): String
 
@@ -293,6 +294,14 @@ object NativeClient {
     fun clipboardSync(): Boolean = nativeClipboardSync()
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
+
+    private external fun nativeTakeFiles(): Boolean
+
+    private external fun nativeSetTakeFiles(on: Boolean)
+
+    fun takeFiles(): Boolean = nativeTakeFiles()
+
+    fun setTakeFiles(on: Boolean) = nativeSetTakeFiles(on)
 
     private external fun nativeKeepAwake(): Boolean
 

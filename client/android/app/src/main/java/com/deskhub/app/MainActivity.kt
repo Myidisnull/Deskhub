@@ -818,6 +818,24 @@ private fun HostScreen(
             }
         }
 
+        var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = takeFiles,
+                onCheckedChange = {
+                    takeFiles = it
+                    NativeClient.setTakeFiles(it)
+                },
+                enabled = !sharing && !starting,
+            )
+            Text(NativeClient.string(NativeClient.STR_TRANSFER_ACCEPT_LABEL))
+        }
+
+        val hostContext = LocalContext.current
         Button(
             onClick = {
                 if (sharing) {
@@ -834,6 +852,8 @@ private fun HostScreen(
                         maxDim = defaults.maxDim,
                         port = port,
                         passcode = trimmed,
+                        transferDir = ReceivedFiles.transferDir(hostContext),
+                        takeFiles = takeFiles,
                     ),
                 )
             },

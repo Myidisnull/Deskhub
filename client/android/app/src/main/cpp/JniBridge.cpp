@@ -272,6 +272,16 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeTakeFiles(JNIEnv*, jobject) {
+    return dh_take_files() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetTakeFiles(JNIEnv*, jobject, jboolean on) {
+    dh_set_take_files(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeKeepAwake(JNIEnv*, jobject) {
     return dh_keep_awake() ? JNI_TRUE : JNI_FALSE;
 }

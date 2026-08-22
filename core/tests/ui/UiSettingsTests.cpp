@@ -27,6 +27,7 @@ void TestRoundTrip() {
     s.clipboardSync = true;
     s.startHidden = true;
     s.keepAwake = false;
+    s.takeFiles = true;
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
 }
@@ -59,6 +60,9 @@ void TestBehaviorTogglesPersist() {
     Check(ui::ParseUiSettings("clipboard_sync=1").clipboardSync,
         "clipboard sync round-trips on");
     Check(ui::ParseUiSettings("start_hidden=1").startHidden, "start hidden round-trips on");
+    Check(!defaults.takeFiles, "a host takes no files until its owner says so");
+    Check(ui::ParseUiSettings("take_files=1").takeFiles, "take files round-trips on");
+    Check(!ui::ParseUiSettings("take_files=0").takeFiles, "and off");
     Check(!ui::ParseUiSettings("autostart=x").autostart,
         "junk in a toggle falls back to off");
     Check(defaults.keepAwake, "keep awake defaults on");

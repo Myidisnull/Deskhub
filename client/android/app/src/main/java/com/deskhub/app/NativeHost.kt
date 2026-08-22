@@ -47,6 +47,8 @@ object NativeHost {
         maxDim: Int,
         port: Int,
         passcode: String,
+        transferDir: String,
+        takeFiles: Boolean,
     ): Boolean
 
     private external fun nativeOfferAudio(
@@ -191,6 +193,8 @@ object NativeHost {
                     request.maxDim,
                     request.port,
                     request.passcode,
+                    request.transferDir,
+                    request.takeFiles,
                 )
             if (ok) shareState = ShareState.SHARING
             ok

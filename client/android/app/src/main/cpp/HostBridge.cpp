@@ -87,13 +87,17 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSetScreenSize(JNIEn
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* env, jobject,
-    jint fps, jint bitrateMbps, jint maxDim, jint port, jstring passcode) {
+    jint fps, jint bitrateMbps, jint maxDim, jint port, jstring passcode, jstring transferDir,
+    jboolean takeFiles) {
     DHShareSource source{};
     if (dha_list_share_sources(&source, 1) != 1) return JNI_FALSE;
 
+    const std::string dir = deskhubj::FromJString(env, transferDir);
+    if (takeFiles == JNI_TRUE && !dir.empty()) dh_set_transfer_dir(dir.c_str());
+
     const std::string code = deskhubj::FromJString(env, passcode);
     return dha_start(&source, 1, uint32_t(fps), uint32_t(bitrateMbps), uint32_t(maxDim),
-               uint16_t(port), false, code.c_str(), false, false)
+               uint16_t(port), false, code.c_str(), false, takeFiles == JNI_TRUE)
                ? JNI_TRUE
                : JNI_FALSE;
 }
@@ -193,7 +197,8 @@ JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeSharingStatus(JN
     jint port, jstring passcode) {
     char buf[320];
     const std::string code = deskhubj::FromJString(env, passcode);
-    dh_sharing_status(uint16_t(port), code.c_str(), false, true, false, buf, int(sizeof(buf)));
+    dh_sharing_status(uint16_t(port), code.c_str(), false, true, false, dha_files_active(), buf,
+        int(sizeof(buf)));
     return NewString(env, buf);
 }
 

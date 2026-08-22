@@ -29,6 +29,7 @@ struct UiSettings {
     bool startHidden = false;
     bool keepAwake = true;
     bool allowNewPairings = true;
+    bool takeFiles = false;
     std::string transferDir{};
 
     bool operator==(const UiSettings&) const = default;

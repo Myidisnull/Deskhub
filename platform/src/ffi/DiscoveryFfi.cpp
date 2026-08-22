@@ -487,6 +487,22 @@ void dh_set_clipboard_sync(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+bool dh_take_files(void) {
+    return deskhubp::LoadUiSettings().takeFiles;
+}
+
+void dh_set_take_files(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.takeFiles = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+void dh_set_transfer_dir(const char* dir) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.transferDir = ui::TruncateSettingsPath(dir ? dir : "");
+    deskhubp::SaveUiSettings(out);
+}
+
 bool dh_share_audio(void) {
     return deskhubp::LoadUiSettings().shareAudio;
 }
@@ -547,8 +563,8 @@ int dh_idle_host_status(uint16_t port, char* out, int capacity) {
 }
 
 int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, bool screen,
-    bool terminal, char* out, int capacity) {
-    std::string text = ui::ShareSummaryLine(screen, terminal, port);
+    bool terminal, bool files, char* out, int capacity) {
+    std::string text = ui::ShareSummaryLine(screen, terminal, files, port);
     text += "\n" + ui::PasscodeNote(passcode ? passcode : "");
     if (screen && !allow_input) text += std::string("\n") + ui::kViewOnlyNote;
     return FillText(out, capacity, text);

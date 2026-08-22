@@ -65,6 +65,7 @@ final class AgentModel {
     var autoShareWaitNote = ""
     private var sharingScreen = false
     private var sharingTerminal = false
+    private var sharingFiles = false
     private var lastPasteboardChange = NSPasteboard.general.changeCount
 
     func applyAutostart() {
@@ -80,7 +81,8 @@ final class AgentModel {
         }
         var line = DeskhubClient.buffered(320) {
             dh_sharing_status(
-                portNum, acceptedPasscode, allowInput, sharingScreen, sharingTerminal, $0, $1
+                portNum, acceptedPasscode, allowInput, sharingScreen, sharingTerminal,
+                sharingFiles, $0, $1
             )
         }
         let bindWarning = DeskhubClient.buffered(256) { dha_bind_warning($0, $1) }
@@ -214,6 +216,7 @@ final class AgentModel {
         if ok {
             sharingScreen = !picked.isEmpty
             sharingTerminal = terminal
+            sharingFiles = files
             filesFolder = DeskhubAgent.filesFolder
             startPolling()
         } else {
@@ -231,6 +234,7 @@ final class AgentModel {
         isSharing = false
         sharingScreen = false
         sharingTerminal = false
+        sharingFiles = false
         rows = []
         Task { await refreshShareSources() }
     }
@@ -275,6 +279,7 @@ extension AgentModel {
         if row.files {
             guard !row.viewer else { return }
             DeskhubAgent.stopFiles()
+            sharingFiles = false
             if !rows.contains(where: { !$0.files }) { stopSharing() }
             return
         }
