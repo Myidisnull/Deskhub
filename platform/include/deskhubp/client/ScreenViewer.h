@@ -84,6 +84,11 @@ public:
     ScreenViewer& operator=(const ScreenViewer&) = delete;
 
     bool Start(const ScreenViewerConfig& cfg) {
+        if (netThread_.joinable() || decodeThread_.joinable()) {
+            if (!finished_.load(std::memory_order_acquire)) return false;
+            if (netThread_.joinable()) netThread_.join();
+            if (decodeThread_.joinable()) decodeThread_.join();
+        }
         cfg_ = cfg;
         if (!channel_)
             channel_ = link_.Open({deskhub::Chan::Control, deskhub::Chan::Video,
