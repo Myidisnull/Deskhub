@@ -23,7 +23,7 @@ final class StreamModel {
     var trustChanged = false
     var trustFingerprint = ""
 
-    private var session: ClientSession?
+    private var session: ScreenSession?
     private var layer: AVSampleBufferDisplayLayer?
 
     init(address: String, passcode: String, sourceId: UInt8, sourceName: String,
@@ -42,7 +42,7 @@ final class StreamModel {
         let code = passcode
         let handlers = makeHandlers()
         let opened = await Task.detached {
-            ClientSession.start(address: addr, sourceId: sid, passcode: code, handlers: handlers)
+            ScreenSession.start(address: addr, sourceId: sid, passcode: code, handlers: handlers)
         }.value
         guard let opened else {
             failedToStart = true
@@ -157,8 +157,8 @@ final class StreamModel {
         }
     }
 
-    private func makeHandlers() -> SessionHandlers {
-        SessionHandlers(
+    private func makeHandlers() -> ScreenSessionHandlers {
+        ScreenSessionHandlers(
             onStatus: { [weak self] line in
                 Task { @MainActor in
                     guard let self else { return }

@@ -10,7 +10,7 @@
 #include "capture/ScreenCapture.h"
 
 #include "deskhub/protocol/Wire.h"
-#include "deskhubp/ffi/AgentSession.h"
+#include "deskhubp/ffi/ShareFfi.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/media/DisplayEnum.h"
@@ -89,10 +89,10 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSetScreenSize(JNIEn
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* env, jobject,
     jint fps, jint bitrateMbps, jint maxDim, jint port, jstring passcode) {
     DHShareSource source{};
-    if (dha_list_share_sources(&source, 1) != 1) return JNI_FALSE;
+    if (dh_share_list_sources(&source, 1) != 1) return JNI_FALSE;
 
     const std::string code = deskhubj::FromJString(env, passcode);
-    return dha_start(&source, 1, uint32_t(fps), uint32_t(bitrateMbps), uint32_t(maxDim),
+    return dh_share_start(&source, 1, uint32_t(fps), uint32_t(bitrateMbps), uint32_t(maxDim),
                uint16_t(port), false, code.c_str(), false, false)
                ? JNI_TRUE
                : JNI_FALSE;
@@ -105,18 +105,18 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStartFilesOnly(
     dh_set_transfer_dir(dir.c_str());
 
     const DHUiSettings settings = dh_settings_load();
-    return dha_start(nullptr, 0, 0, 0, 0, uint16_t(settings.port), false, settings.passcode,
+    return dh_share_start(nullptr, 0, 0, 0, 0, uint16_t(settings.port), false, settings.passcode,
                false, true)
                ? JNI_TRUE
                : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeStopFilesOnly(JNIEnv*, jobject) {
-    dha_stop();
+    dh_share_stop();
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeFilesActive(JNIEnv*, jobject) {
-    return dha_files_active() ? JNI_TRUE : JNI_FALSE;
+    return dh_share_files_active() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeOfferAudio(JNIEnv* env, jobject,
@@ -124,34 +124,34 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeOfferAudio(JNIEnv* 
     if (!pcm || samples <= 0) return;
     jshort* frame = env->GetShortArrayElements(pcm, nullptr);
     if (!frame) return;
-    dha_offer_audio(reinterpret_cast<const int16_t*>(frame), samples);
+    dh_share_offer_audio(reinterpret_cast<const int16_t*>(frame), samples);
     env->ReleaseShortArrayElements(pcm, frame, JNI_ABORT);
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeAudioRunning(JNIEnv*, jobject) {
-    return dha_audio_running() ? JNI_TRUE : JNI_FALSE;
+    return dh_share_audio_running() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeStop(JNIEnv*, jobject) {
-    dha_stop();
+    dh_share_stop();
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeRunning(JNIEnv*, jobject) {
-    return dha_running() ? JNI_TRUE : JNI_FALSE;
+    return dh_share_running() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeLastError(JNIEnv* env, jobject) {
-    return NewString(env, dha_last_error());
+    return NewString(env, dh_share_last_error());
 }
 
 JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeLocalAddresses(JNIEnv* env,
     jobject) {
-    return NewString(env, dha_local_addresses());
+    return NewString(env, dh_share_local_addresses());
 }
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeKickViewer(JNIEnv* env, jobject,
     jint sourceId, jstring viewerAddr) {
-    dha_kick_viewer(uint8_t(sourceId), deskhubj::FromJString(env, viewerAddr).c_str());
+    dh_share_kick_viewer(uint8_t(sourceId), deskhubj::FromJString(env, viewerAddr).c_str());
 }
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeProjectionStopped(JNIEnv*, jobject) {
@@ -166,7 +166,7 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeDisplayResized(JNIE
 JNIEXPORT jobjectArray JNICALL Java_com_deskhub_app_NativeHost_nativeHostRows(JNIEnv* env,
     jobject) {
     std::vector<DHHostRow> rows(kMaxHostRows);
-    const int count = dha_host_rows(rows.data(), kMaxHostRows);
+    const int count = dh_share_rows(rows.data(), kMaxHostRows);
 
     jclass cls = env->FindClass(kHostRowClass);
     if (!cls) return nullptr;
@@ -215,7 +215,7 @@ JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeSharingStatus(JN
     char buf[320];
     const std::string code = deskhubj::FromJString(env, passcode);
     dh_sharing_status(uint16_t(port), code.c_str(), false, screen == JNI_TRUE, false,
-        dha_files_active(), buf, int(sizeof(buf)));
+        dh_share_files_active(), buf, int(sizeof(buf)));
     return NewString(env, buf);
 }
 
@@ -252,12 +252,12 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSetBindIp(JNIEnv* e
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeClipOffer(JNIEnv* env, jobject,
     jstring text) {
-    dha_clip_offer(deskhubj::FromJString(env, text).c_str());
+    dh_share_clip_offer(deskhubj::FromJString(env, text).c_str());
 }
 
 JNIEXPORT jstring JNICALL Java_com_deskhub_app_NativeHost_nativeClipTake(JNIEnv* env, jobject) {
     char buf[deskhub::kMaxClipboardTextBytes + 1];
-    dha_clip_take(buf, int(sizeof(buf)));
+    dh_share_clip_take(buf, int(sizeof(buf)));
     return NewString(env, buf);
 }
 
@@ -270,7 +270,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_deskhub_app_NativeHost_nativeTakePairing
 
     DHPairingRequest requests[16];
     const int count =
-        dha_take_pairing_requests(requests, int(sizeof(requests) / sizeof(requests[0])));
+        dh_share_take_pairing_requests(requests, int(sizeof(requests) / sizeof(requests[0])));
 
     DHPairedDevice paired[128];
     const int pairedCount = dh_paired_devices(paired, int(sizeof(paired) / sizeof(paired[0])));
@@ -283,7 +283,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_deskhub_app_NativeHost_nativeTakePairing
     std::vector<DHPairingRequest> ask;
     for (int i = 0; i < count; ++i) {
         if (alreadyPaired(requests[i].shortKey)) {
-            dha_answer_pairing(requests[i].addrPacked, true);
+            dh_share_answer_pairing(requests[i].addrPacked, true);
         } else {
             ask.push_back(requests[i]);
         }
@@ -310,13 +310,13 @@ JNIEXPORT jobjectArray JNICALL Java_com_deskhub_app_NativeHost_nativeTakePairing
 
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeAnswerPairing(JNIEnv*, jobject,
     jlong addrPacked, jboolean allow) {
-    dha_answer_pairing(uint64_t(addrPacked), allow == JNI_TRUE);
+    dh_share_answer_pairing(uint64_t(addrPacked), allow == JNI_TRUE);
 }
 
 JNIEXPORT jintArray JNICALL Java_com_deskhub_app_NativeHost_nativeShareDefaults(JNIEnv* env,
     jobject) {
     const DHUiSettings stored = dh_settings_load();
-    const DHShareDefaults defaults = dha_default_options();
+    const DHShareDefaults defaults = dh_share_default_options();
     const jint values[3] = {
         jint(stored.fps ? stored.fps : defaults.fps),
         jint(stored.bitrateMbps ? stored.bitrateMbps : defaults.bitrateMbps),

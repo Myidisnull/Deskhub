@@ -15,9 +15,9 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/TerminalFeed.h"
-#include "deskhubp/session/TerminalHost.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/client/TerminalFeed.h"
+#include "deskhubp/host/TerminalHost.h"
+#include "deskhubp/client/TerminalViewer.h"
 
 namespace {
 
@@ -318,7 +318,7 @@ public:
 
     bool StartLocal(deskhubp::TerminalHost& host, uint32_t termId) {
         if (!host.LocalAlive(termId)) return false;
-        feed_ = std::make_unique<deskhubp::LocalShellFeed>(host, termId);
+        feed_ = std::make_unique<deskhubp::LocalTerminalFeed>(host, termId);
         StartFeeding(ui::kTerminalAttachedHere);
         return true;
     }

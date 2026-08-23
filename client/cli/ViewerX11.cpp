@@ -33,7 +33,7 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientFfi.h"
-#include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/client/ScreenViewer.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {
@@ -53,7 +53,7 @@ constexpr int kFrameSleepMs = 8;
 constexpr int32_t kWheelDelta = deskhub::kWheelDeltaPerNotch;
 constexpr unsigned kEvdevKeycodeOffset = 8;
 
-using Engine = deskhubp::ClientEngine<AvDecoder, VideoSink*>;
+using Engine = deskhubp::ScreenViewer<AvDecoder, VideoSink*>;
 
 struct EglConfigChoice {
     EGLConfig config = nullptr;
@@ -245,7 +245,7 @@ bool ViewerSession::OpenWindow(const deskhub::SourceInfo& source, const ViewRequ
     raw->realized = true;
     eglSwapInterval(egl_, 0);
 
-    deskhubp::ClientEngineConfig config;
+    deskhubp::ScreenViewerConfig config;
     config.server = request.server;
     config.sourceId = source.sourceId;
     config.screenW = uint32_t(DisplayWidth(display_, DefaultScreen(display_)));

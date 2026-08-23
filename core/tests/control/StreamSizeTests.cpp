@@ -2,7 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/control/StreamSize.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/session/host/SourcePipeline.h"
 
 #include <cmath>
 #include <cstdio>

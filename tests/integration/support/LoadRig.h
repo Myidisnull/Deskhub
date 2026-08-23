@@ -2,7 +2,7 @@
 #include "support/FakeDecoder.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/client/ScreenViewer.h"
 #include "deskhubp/system/Clock.h"
 
 #include <cstdint>
@@ -50,8 +50,8 @@ inline uint64_t DecodedFrames() {
     return uint64_t(fake::Decoded().frameCount());
 }
 
-inline deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, bool wantsAudio) {
-    deskhubp::ClientEngineConfig cfg;
+inline deskhubp::ScreenViewerConfig ViewerConfig(uint16_t port, bool wantsAudio) {
+    deskhubp::ScreenViewerConfig cfg;
     cfg.server = NetAddr{0x7F000001u, port};
     cfg.sourceId = 0;
     cfg.screenW = 1920;

@@ -30,13 +30,15 @@ client/     app theo từng OS: windows, linux, macos, ios, android (phụ thu�
 | --- | --- |
 | `core/protocol` | Định dạng gói (`Wire.h`), cắt khung record cho stream (`RecordStream.h`), bộ phân loại gói QUIC với gói beacon |
 | `core/transport` | Packetizer/Reassembler cho video, FEC, cache gửi lại, bộ điều tốc gửi |
-| `core/session` | Máy trạng thái phiên host/client, bảng viewer, đồng bộ clipboard, bảng phiên terminal, bộ khoá đếm lần đoán mã |
+| `core/session` | Máy trạng thái phiên, chia theo vai trò: `session/host` (phiên theo viewer, bảng viewer, beacon, bên nhận file, khoá đếm lần đoán mã), `session/client` (screen client, bên gửi file, terminal client, luồng connect), và các mảnh dùng chung nằm cạnh (kiểu dữ liệu transfer, bảng phiên terminal, đồng bộ clipboard, khôi phục kết nối) |
 | `core/control` | Điều khiển bitrate, thang chất lượng, cỡ luồng, lệch đồng hồ |
 | `core/terminal` | Bộ giả lập VT mọi client dùng chung: `VtParser`, `Screen`, `KeyEncoder`, `Palette` |
 | `core/net` | Trust store (phía client), danh sách máy đã ghép (phía host), chọn địa chỉ bind, logic quét LAN |
 | `core/ui` | Mọi chuỗi hiển thị, đọc/ghi cài đặt, dựng dòng bảng — để cả năm client nói giống hệt nhau |
-| `platform/net` | `UdpSocket` (theo OS), `QuicEndpoint` (quiche sau pimpl), `SessionTransport`, truy vấn nguồn, dò host, quét LAN |
-| `platform/session` | `HostEngine`, `HostNetLoop`, `ClientEngine`, `TerminalHost`, `TerminalViewer`, `AuthNegotiation` |
+| `platform/net` | `UdpSocket` (theo OS), `QuicEndpoint` (quiche sau pimpl), `SessionTransport` |
+| `platform/auth` | `AuthNegotiation` — một bắt tay ghép cặp/passcode duy nhất cả hai phía cùng nói |
+| `platform/client` | `HostLink` (quay số + tin cậy + auth + kênh, mọi bề mặt dùng chung), `ScreenViewer`, `TerminalViewer`, `FileTransferClient`, `SourceQuery`, dò host, quét LAN |
+| `platform/host` | `HostEngine`, `HostNetLoop`, `SharingHost`, `TerminalHost`, `FileHost`, `ViewerBroadcast` |
 | `platform/system` | Đồng hồ, ngẫu nhiên, PTY (ConPTY / forkpty), danh tính máy (khoá), file trust/paired, autostart, giữ máy thức |
 | `core/cli` | Ngữ pháp dòng lệnh và bộ ghi JSON của nó — vào là văn bản thuần, ra là một lệnh đã kiểm tra hợp lệ |
 | `client/<os>` | Thu hình, mã hoá, giải mã, vẽ, cửa sổ, hộp thoại — không có gì mang hình dạng giao thức |
@@ -140,7 +142,7 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 
 - Engine chạy khi bất kỳ thứ gì được chia sẻ. Không có nguồn màn hình mà terminal
   được tick thì nó chạy không-nguồn; vòng lặp sống chừng nào terminal còn sống.
-- Mỗi nguồn màn hình là một `SourcePipelineState`: `HostSession` riêng (bảng viewer,
+- Mỗi nguồn màn hình là một `SourcePipelineState`: `ScreenHostSession` riêng (bảng viewer,
   thương lượng, phân xử input), encoder, thang chất lượng và chẩn đoán riêng. Một
   lần mã hoá nuôi mọi viewer của nguồn đó.
 - Vòng phản hồi: viewer gửi `Feedback` (loss/RTT) mỗi giây; `BitrateController`
@@ -159,18 +161,36 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 
 ## 5. Phía client
 
+Mọi bề mặt client đi tới host qua cùng một mảnh, `HostLink`
+(`platform/client/HostLink`): nó quay số kết nối QUIC, kiểm tra kho tin cậy, chạy
+bắt tay auth, giữ kết nối sống bằng keepalive, và — với bề mặt nào yêu cầu — tự quay
+số lại theo backoff khi kết nối rơi. Không dịch vụ nào còn tự quay số hay tự auth;
+mỗi dịch vụ mở một kênh theo `Chan` trên dây, nhận hàng đợi inbox riêng, và tự rút
+trên luồng của chính nó:
+
 ```
-ClientEngine (một cho mỗi cửa sổ xem)         TerminalViewer (một cho mỗi cửa sổ shell)
- ├─ luồng net: kiểm tra tin cậy → auth →      ├─ luồng riêng: kết nối → kiểm tra tin cậy →
- │   HELLO/thương lượng → nhận video          │   auth → TERM_OPEN → bơm record
- │   (Reassembler+FEC), NACK, feedback        ├─ Screen của core/terminal giữ lưới ký tự
- └─ luồng giải mã: decoder + hàng đợi vẽ      └─ UI poll Snapshot(), post phím vào
+HostLink (một cho mỗi bề mặt đang mở)
+ ├─ luồng link: quay số → kiểm tra tin cậy → auth → bơm
+ │   (chia record và datagram vào hàng đợi theo Chan của từng kênh;
+ │    keepalive; quay số lại theo backoff nơi bật khôi phục)
+ ├─ Chan::Control/Video/Audio ─> ScreenViewer
+ │    ├─ luồng net: HELLO/thương lượng, nhận video (Reassembler+FEC),
+ │    │   NACK, feedback, clipboard
+ │    └─ luồng giải mã: decoder + hàng đợi vẽ
+ ├─ Chan::Terminal ─> luồng dịch vụ của TerminalViewer
+ │    ├─ Screen của core/terminal giữ lưới ký tự
+ │    └─ UI poll Snapshot(), post phím vào hàng đợi lệnh
+ └─ Chan::File ─> luồng dịch vụ của FileTransferClient (vòng FileUpload)
 ```
 
-Cả hai theo cùng quy tắc với host: kết nối QUIC sống trên một luồng; UI đăng ý định
-(phím, đổi cỡ, chấp nhận dấu vân tay) vào hàng đợi lệnh. Cửa sổ terminal không bao
-giờ tự phân tích escape sequence — `core/terminal` biến luồng byte thành lưới ô, cửa
-sổ chỉ vẽ ô và chuyển tiếp sự kiện phím.
+Truy vấn nguồn (`QuerySources`) đi cùng loại link đó ở dạng một-lần, chờ-kết-quả.
+UI vẫn đăng ý định (phím, đổi cỡ, chấp nhận dấu vân tay) vào hàng đợi lệnh; key của
+host đổi thì link đỗ ở `Deciding` cho tới khi người dùng chấp nhận hay từ chối. Cửa
+sổ terminal không bao giờ tự phân tích escape sequence — `core/terminal` biến luồng
+byte thành lưới ô, cửa sổ chỉ vẽ ô và chuyển tiếp sự kiện phím. Hiện mỗi cửa sổ vẫn
+giữ link riêng; dùng chung một link đã được nhận vào cho mọi cửa sổ nhắm tới cùng
+host là bước kế tiếp dự kiến, và nó cắm vào `HostLink` — một registry cộng fan-out
+observer — chứ không phải thêm một bắt tay nữa.
 
 ## 6. Dò tìm
 
@@ -255,8 +275,8 @@ pull request, và dòng coverage của `core/`.
   CPU của cùng khối việc gần như không đổi.
 
 - **Client dòng lệnh là mặt tiền thứ tư, không phải bản cài đặt thứ hai**: nó phân tích cờ
-  trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `AgentLoop`
-  để làm host, `ClientEngine` để xem, `TerminalViewer` để mở shell. Thứ duy nhất của riêng
+  trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `SharingHost`
+  để làm host, `ScreenViewer` để xem, `TerminalViewer` để mở shell. Thứ duy nhất của riêng
   nó là cửa sổ: X11 + EGL trên Linux, còn trên Windows là chính `RunViewer` của app để bàn.
   Đó là lý do phần `cpp/` của mỗi client được tách thành thư viện tĩnh
   (`deskhub_linux_core`, `deskhub_win_core`, `deskhub_win_view`, `deskhub_mac_core`) và
@@ -271,7 +291,7 @@ pull request, và dòng coverage của `core/`.
 
 - **Host chỉ chia sẻ shell mà không có màn hình vẫn phải sống**: vòng lặp mạng kết thúc
   phiên khi không còn nguồn nào sống, mà phiên chỉ có shell thì theo định nghĩa là không có
-  nguồn nào. `keepAlive` nay trả lời theo ý định của người gọi (`AgentOptions::terminal`),
+  nguồn nào. `keepAlive` nay trả lời theo ý định của người gọi (`ShareOptions::terminal`),
   chứ không theo con trỏ `TerminalHost` vốn chỉ được gắn vào sau khi vòng lặp đã chạy.
 
 - **Cổng khung hình đếm tới một mốc hạn, không đếm từ khung nó vừa giữ**: một compositor
@@ -512,6 +532,25 @@ pull request, và dòng coverage của `core/`.
 - **Một cổng**: beacon, màn hình và terminal dùng chung một listener; QUIC ghép kênh
   kết nối và stream. Cổng thứ hai ngày trước tồn tại chỉ vì đường màn hình tiền-QUIC
   chiếm trọn socket.
+- **Một `HostLink`, bốn bắt tay ngày trước**: quay số + kiểm tra tin cậy + auth +
+  khôi phục từng được viết bốn lần ở phía client — truy vấn nguồn, viewer, bên gửi
+  file, và terminal trên một `QuicEndpoint` thô của riêng nó — và đó là lý do cửa sổ
+  gửi file biết đến chuyện key host đổi muộn hơn viewer tận ba lần sửa. Giờ
+  `HostLink` là mảnh code phía client duy nhất quay số hay auth; mỗi dịch vụ mở
+  `Chan` của nó, nhận hàng đợi inbox riêng và tự rút trên luồng của mình. Quay-số-lại
+  theo backoff của terminal chuyển vào link để mọi bề mặt bật khôi phục đều hưởng, và
+  luật tin cậy nằm ở đúng một chỗ: key đổi thì link đỗ ở `Deciding` chờ người trả lời
+  (chỉ truy vấn nguồn cho đi qua, `trustGate=false`, không ghi nhớ gì — nơi gọi nó
+  không có prompt để hiện), và chỉ passcode được host chứng minh bằng mật mã mới tự
+  ghim key.
+- **`HostLink` gửi qua `Send`, không phải `SendMessage`**: trên Windows, các header
+  hệ điều hành phía sau tầng platform định nghĩa `SendMessage` là macro thay cho
+  `SendMessageA`, và trong `HostLink.cpp` chúng vào sau phần khai báo class nhưng
+  trước phần định nghĩa method — MSVC khi đó đòi định nghĩa cho một thành viên
+  `SendMessageA` mà không header nào khai báo. Các tên API Win32 (`SendMessage`,
+  `PostMessage`, `CreateWindow`, `GetObject`, …) không bao giờ an toàn làm tên method
+  trong bất kỳ translation unit nào một header hệ điều hành với tới được; cách sửa là
+  đổi tên, không phải `#undef`.
 - **Phiên ScreenCast của portal sống chết theo một kết nối D-Bus**: GLib cache session
   bus dùng chung bằng tham chiếu yếu, nên `g_object_unref` trên handle cuối cùng sẽ huỷ
   luôn kết nối. `xdg-desktop-portal` khi đó bỏ phiên, compositor xoá node PipeWire, và

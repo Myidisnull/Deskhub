@@ -534,11 +534,15 @@ struct QuicEndpoint::Impl {
             if (quiche_conn_is_closed(entry.conn)) dead.push_back(id);
         }
         for (QuicConnId id : dead) {
-            Connection& entry = connections_[id];
-            if (entry.announced) ReportClose(entry);
-            if (entry.announced && cb_.onClosed) cb_.onClosed(id, entry.peer);
-            quiche_conn_free(entry.conn);
-            connections_.erase(id);
+            const auto at = connections_.find(id);
+            if (at == connections_.end()) continue;
+            const NetAddr peer = at->second.peer;
+            const bool announced = at->second.announced;
+            if (announced) ReportClose(at->second);
+            quiche_conn* conn = at->second.conn;
+            connections_.erase(at);
+            if (announced && cb_.onClosed) cb_.onClosed(id, peer);
+            quiche_conn_free(conn);
         }
     }
 
@@ -633,7 +637,10 @@ bool QuicEndpoint::SendStream(QuicConnId conn, uint64_t streamId, std::span<cons
     Impl::Connection* entry = impl_->Lookup(conn);
     if (entry == nullptr || !quiche_conn_is_established(entry->conn)) return false;
     if (bytes.empty()) return true;
-    if (!impl_->QueueStream(*entry, streamId, bytes, fin)) return false;
+    const bool queued = impl_->QueueStream(*entry, streamId, bytes, fin);
+    entry = impl_->Lookup(conn);
+    if (entry == nullptr) return false;
+    if (!queued) return false;
     impl_->Flush(*entry);
     return true;
 }

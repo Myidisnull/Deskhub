@@ -70,6 +70,7 @@ object FilesHost {
             scope.launch {
                 while (true) {
                     sync(application)
+                    PairingAsks.drain()
                     val delivered =
                         withContext(Dispatchers.IO) {
                             ReceivedFiles.exportCompleted(

@@ -1,12 +1,12 @@
 #include "Tests.h"
-#include "support/FakeAgent.h"
+#include "support/FakeHost.h"
 #include "support/FakeDecoder.h"
 #include "support/FakeVideo.h"
 #include "support/LoadRig.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/session/ClientEngine.h"
-#include "deskhubp/session/FileHost.h"
+#include "deskhubp/client/ScreenViewer.h"
+#include "deskhubp/host/FileHost.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/PairedDevicesFile.h"
 
@@ -18,7 +18,7 @@
 #include <system_error>
 #include <vector>
 
-using Viewer = deskhubp::ClientEngine<fake::Decoder, void*>;
+using Viewer = deskhubp::ScreenViewer<fake::Decoder, void*>;
 
 namespace {
 
@@ -40,7 +40,7 @@ using load::ViewerConfig;
 using load::WriteBytes;
 
 struct Session {
-    fake::Agent agent{};
+    fake::SharingHost host{};
     deskhubp::FileHost files{};
     Viewer viewer{};
     std::filesystem::path landing{};
@@ -51,7 +51,7 @@ struct Session {
     ~Session() {
         viewer.Stop();
         files.Stop();
-        agent.Stop();
+        host.Stop();
     }
 
     bool Open(const std::string& leaf, bool audio) {
@@ -65,18 +65,18 @@ struct Session {
         file = WriteBytes(source, "bulk.bin", payload);
 
         const uint16_t port = NextTestPort();
-        if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920,
+        if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920,
                 kTestPasscode, true, audio)) {
             Check(false, "the host could not start");
             return false;
         }
-        if (!files.Start(agent.socket(), landing, deskhubp::FileHostCallbacks{})) {
+        if (!files.Start(host.socket(), landing, deskhubp::FileHostCallbacks{})) {
             Check(false, "the host could not take files in");
             return false;
         }
-        agent.SetFiles(&files);
+        host.SetFiles(&files);
 
-        deskhubp::ClientEngineConfig cfg = ViewerConfig(port, audio);
+        deskhubp::ScreenViewerConfig cfg = ViewerConfig(port, audio);
         cfg.onTrustAsked = [this](deskhub::TrustVerdict, std::string_view) {
             viewer.AcceptFingerprint();
         };
@@ -125,7 +125,7 @@ void TestABigTransferNeverStallsTheStream() {
     for (uint32_t waited = 0; waited < kTransferTimeoutMs * 1000 / kSampleUs; ++waited) {
         SleepUs(kSampleUs);
         busy.Sample();
-        const size_t depth = s.agent.socket().BulkQueued();
+        const size_t depth = s.host.socket().BulkQueued();
         if (depth > deepestLane) deepestLane = depth;
         if (!s.viewer.uploading()) {
             finished = true;

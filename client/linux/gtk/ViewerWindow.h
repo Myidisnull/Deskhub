@@ -8,7 +8,7 @@
 #include "decode/AvDecoder.h"
 #include "deskhub/input/PointerLockState.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/client/ScreenViewer.h"
 #include "render/VideoRenderer.h"
 
 class ViewerWindow {
@@ -72,7 +72,7 @@ private:
     std::function<void()> onClosed_;
 
     VideoRenderer renderer_;
-    deskhubp::ClientEngine<AvDecoder, VideoSink*> loop_;
+    deskhubp::ScreenViewer<AvDecoder, VideoSink*> loop_;
 
     deskhub::PointerLockState pointer_;
     double lastPx_ = 0, lastPy_ = 0;

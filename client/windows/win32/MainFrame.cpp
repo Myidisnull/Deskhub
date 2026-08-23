@@ -37,8 +37,8 @@
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/net/BindAddress.h"
 #include "deskhub/net/TrustStore.h"
-#include "deskhub/session/ConnectFlow.h"
-#include "deskhub/session/ShareFlow.h"
+#include "deskhub/session/client/ConnectFlow.h"
+#include "deskhub/session/host/ShareFlow.h"
 #include "deskhub/net/PairedDevices.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
@@ -48,14 +48,14 @@
 #include "deskhub/ui/UiSettings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/media/DisplayEnum.h"
-#include "deskhubp/net/DeviceStatusPoller.h"
-#include "deskhubp/net/LanScanner.h"
+#include "deskhubp/client/DeviceStatusPoller.h"
+#include "deskhubp/client/LanScanner.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/AgentDriver.h"
-#include "deskhubp/session/AgentLoop.h"
-#include "deskhubp/session/ConnectDriver.h"
-#include "deskhubp/session/HostShareController.h"
+#include "deskhubp/host/ShareDriver.h"
+#include "deskhubp/host/SharingHost.h"
+#include "deskhubp/client/SourceQueryAsync.h"
+#include "deskhubp/host/ShareController.h"
 #include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Clock.h"
@@ -320,7 +320,7 @@ private:
     bool TerminalTicked() const;
     bool FilesTicked() const;
     std::filesystem::path TransferFolder() const;
-    void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
+    void StartHosting(const std::vector<ShareSource>& sources, const ShareOptions& options);
     void OnHostStarted(bool started, const std::string& error, uint16_t port,
         bool allowInput, const std::string& passcode);
     void StopHosting();
@@ -332,7 +332,7 @@ private:
     void OnClipboardTimer(wxTimerEvent& event);
     void RefreshDisplayChoices();
     void OnDisplayChanged(wxDisplayChangedEvent& event);
-    void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
+    void UpdateHostRows(const std::vector<ShareSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
     wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
     wxButton* MakeRowAttach(wxWindow* parent, const ui::HostRow& ref);
@@ -422,8 +422,8 @@ private:
     std::vector<std::string> bindChoices_;
 
     deskhub::ui::UiSettings settings_;
-    std::vector<AgentSource> availableDisplays_;
-    std::vector<AgentSourceStatus> hostStatus_;
+    std::vector<ShareSource> availableDisplays_;
+    std::vector<ShareSourceStatus> hostStatus_;
     std::optional<std::string> pendingClipboard_;
     bool screenSharing_ = false;
     bool terminalRequested_ = false;
@@ -438,11 +438,11 @@ private:
     std::vector<ui::DeviceRow> deviceRows_;
     std::vector<std::string> scannedThisRound_;
     std::map<uint64_t, ProbeResult> probes_;
-    deskhubp::ConnectDriver connectDriver_;
+    deskhubp::SourceQueryAsync connectDriver_;
     deskhubp::DeviceStatusPoller poller_;
     deskhubp::LanScanner scanner_;
-    deskhubp::HostShareController share_;
-    deskhubp::AgentDriver agentDriver_;
+    deskhubp::ShareController share_;
+    deskhubp::ShareDriver shareDriver_;
     wxTimer hostTimer_;
     wxTimer scanTimer_;
     wxTimer clipTimer_;
@@ -487,10 +487,10 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     Bind(wxEVT_DISPLAY_CHANGED, &MainFrame::OnDisplayChanged, this);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
-    share_.agentLoop().SetTerminal(&share_.terminalHost());
-    share_.agentLoop().SetFiles(&share_.fileHost());
+    share_.sharingHost().SetTerminal(&share_.terminalHost());
+    share_.sharingHost().SetFiles(&share_.fileHost());
 
-    deskhubp::HostShareController::Hooks hooks;
+    deskhubp::ShareController::Hooks hooks;
     hooks.onError = [this](const std::string& message) {
         wxMessageBox(ToWx(message), "Deskhub", wxOK | wxICON_ERROR, this);
     };
@@ -1127,7 +1127,7 @@ void MainFrame::RefreshDisplayChoices() {
     hostPicker_->DeleteAllItems();
     hostPicker_->EnableCheckBoxes(true);
     for (size_t i = 0; i < availableDisplays_.size(); ++i) {
-        const AgentSource& source = availableDisplays_[i];
+        const ShareSource& source = availableDisplays_[i];
         const long row = hostPicker_->InsertItem(long(i),
             ToWx(deskhub::media::SourcePickerLabel(source.name, uint8_t(i), source.width,
                 source.height)));
@@ -1489,7 +1489,7 @@ void MainFrame::OnShare(ShareTrigger trigger) {
         return;
     }
 
-    std::vector<AgentSource> chosen;
+    std::vector<ShareSource> chosen;
     for (size_t i = 0; i < availableDisplays_.size(); ++i) {
         if (long(i) >= hostPicker_->GetItemCount()) break;
         if (hostPicker_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
@@ -1502,9 +1502,9 @@ void MainFrame::OnShare(ShareTrigger trigger) {
     const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(chosen);
     if (clamp.clamped) ReportShareProblem(ToWx(ui::ShareClampWarning()), "Deskhub");
 
-    const std::vector<AgentSource>& sources = clamp.sources;
+    const std::vector<ShareSource>& sources = clamp.sources;
 
-    const AgentOptions options = deskhub::ShareOptionsOf(settings_, terminal, files);
+    const ShareOptions options = deskhub::ShareOptionsOf(settings_, terminal, files);
 
     terminalRequested_ = terminal;
     filesRequested_ = files;
@@ -1516,7 +1516,7 @@ void MainFrame::StartFileShare() {
 }
 
 void MainFrame::ApplySharingBanner() {
-    deskhubp::HostShareBanner banner;
+    deskhubp::ShareBanner banner;
     banner.screenSharing = screenSharing_;
     banner.hosting = hosting_;
     banner.port = sharePort_;
@@ -1526,8 +1526,8 @@ void MainFrame::ApplySharingBanner() {
     ApplyHostState(HostShareState::kSharing, ToWx(share_.BannerText(banner)));
 }
 
-void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
-    const AgentOptions& options) {
+void MainFrame::StartHosting(const std::vector<ShareSource>& sources,
+    const ShareOptions& options) {
     hostStarting_ = true;
     shareBtn_->Disable();
     ApplyHostState(HostShareState::kStarting, wxString());
@@ -1535,9 +1535,9 @@ void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
     RebuildHostTable();
     ShowHostTable(true);
 
-    agentDriver_.Join();
-    agentDriver_.StartAsync(
-        share_.agentLoop(), sources, options,
+    shareDriver_.Join();
+    shareDriver_.StartAsync(
+        share_.sharingHost(), sources, options,
         [alive = alive_](std::function<void()> fn) {
             if (!wxTheApp) return;
             wxTheApp->CallAfter([alive, fn = std::move(fn)] {
@@ -1565,23 +1565,23 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     }
 
     hosting_ = true;
-    screenSharing_ = !share_.agentLoop().Status().empty();
+    screenSharing_ = !share_.sharingHost().Status().empty();
     sharePort_ = port;
     sharePasscodeNote_ = ui::PasscodeNote(passcode);
     shareViewOnly_ = !allowInput;
-    shareBindWarning_ = share_.agentLoop().BindWarning();
+    shareBindWarning_ = share_.sharingHost().BindWarning();
     if (terminalRequested_) share_.StartTerminalShare();
     if (filesRequested_) StartFileShare();
     ApplySharingBanner();
     ShowHostTable(true);
-    hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
+    hostTimer_.Start(int(deskhubp::kShareStatusPollMs));
     if (settings_.clipboardSync) clipTimer_.Start(1000);
 }
 
 void MainFrame::OnClipboardTimer(wxTimerEvent&) {
     if (!hosting_) return;
     const wxLogNull quietWhileClipboardIsBusy;
-    if (!pendingClipboard_) pendingClipboard_ = share_.agentLoop().TakeRemoteClipboard();
+    if (!pendingClipboard_) pendingClipboard_ = share_.sharingHost().TakeRemoteClipboard();
     if (pendingClipboard_) {
         if (!wxTheClipboard->Open()) return;
         const bool put =
@@ -1595,7 +1595,7 @@ void MainFrame::OnClipboardTimer(wxTimerEvent&) {
         wxTextDataObject data;
         wxTheClipboard->GetData(data);
         const std::string text(data.GetText().utf8_str());
-        if (!text.empty()) share_.agentLoop().OfferLocalClipboard(text);
+        if (!text.empty()) share_.sharingHost().OfferLocalClipboard(text);
     }
     wxTheClipboard->Close();
 }
@@ -1605,8 +1605,8 @@ void MainFrame::StopHosting() {
     clipTimer_.Stop();
     share_.StopTerminalShare();
     share_.StopFileShare();
-    share_.agentLoop().Stop();
-    agentDriver_.Join();
+    share_.sharingHost().Stop();
+    shareDriver_.Join();
     hosting_ = false;
     screenSharing_ = false;
     terminalRequested_ = false;
@@ -1628,13 +1628,13 @@ void MainFrame::OnHostTimer(wxTimerEvent&) {
     }
 
     if (hosting_) {
-        std::vector<AgentSourceStatus> rows;
-        const deskhubp::AgentDriveState state = agentDriver_.Poll(share_.agentLoop(), rows);
-        if (state == deskhubp::AgentDriveState::Stopped) {
+        std::vector<ShareSourceStatus> rows;
+        const deskhubp::ShareDriveState state = shareDriver_.Poll(share_.sharingHost(), rows);
+        if (state == deskhubp::ShareDriveState::Stopped) {
             StopHosting();
             return;
         }
-        if (state == deskhubp::AgentDriveState::Running) {
+        if (state == deskhubp::ShareDriveState::Running) {
             hostStatus_ = std::move(rows);
             if (screenSharing_ && hostStatus_.empty()) {
                 screenSharing_ = false;
@@ -1648,7 +1648,7 @@ void MainFrame::OnHostTimer(wxTimerEvent&) {
     UpdateHostRows(hostStatus_);
 }
 
-void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
+void MainFrame::UpdateHostRows(const std::vector<ShareSourceStatus>& rows) {
     std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, share_.terminalHost().Running(), share_.shells(),
         share_.fileHost().Running(), share_.transfers());
 
@@ -1666,7 +1666,7 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
         } else if (ref.terminal) {
             cells = ui::TerminalRowText(ref, uint16_t(settings_.port), share_.shells());
         } else {
-            const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
+            const ShareSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
             if (!s) continue;
             cells = ui::HostRowText(ref, *s);
         }
@@ -1695,14 +1695,14 @@ void MainFrame::RelayoutHostPage() {
 
 void MainFrame::StopDisplay(uint8_t sourceId) {
     if (!hosting_) return;
-    share_.agentLoop().StopSource(sourceId);
+    share_.sharingHost().StopSource(sourceId);
 }
 
 void MainFrame::KickViewer(uint8_t sourceId, const std::string& viewerAddr) {
     if (!hosting_) return;
     NetAddr addr{};
     if (!ParseNetAddr(viewerAddr, addr)) return;
-    share_.agentLoop().KickViewer(sourceId, addr.Pack());
+    share_.sharingHost().KickViewer(sourceId, addr.Pack());
 }
 
 void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
@@ -2015,8 +2015,8 @@ void MainFrame::OnClose(wxCloseEvent& event) {
     scanTimer_.Stop();
     autoShareTimer_.Stop();
     scanner_.Cancel();
-    share_.agentLoop().Stop();
-    agentDriver_.Join();
+    share_.sharingHost().Stop();
+    shareDriver_.Join();
     poller_.Stop();
     event.Skip();
 }

@@ -81,6 +81,20 @@ void TestIdleTransferIsFullyBlank() {
     Check(view == ui::TransferView{}, "an idle view equals a default-built one");
 }
 
+void TestAChangedKeyIsItsOwnKindOfStop() {
+    std::printf("[transferview] a changed host key is distinguishable from a plain failure...\n");
+    const ui::TransferView plain = ui::TransferViewOf(FileSenderState::Failed,
+        TransferReason::LinkLost, TransferProgress{});
+    Check(!plain.keyChanged && plain.fingerprint.empty(),
+        "an ordinary failure carries no key question");
+
+    ui::TransferView asked = plain;
+    asked.keyChanged = true;
+    asked.fingerprint = "SHA256:abc";
+    Check(!(asked == plain), "the key question changes what the view is");
+    Check(asked.failed, "and it still reads as a stopped transfer");
+}
+
 void TestProgressBeyondTheBatchSizeStaysWhole() {
     std::printf("[transferview] a batch that overruns its estimate still caps at full...\n");
     const ui::TransferView view = ui::TransferViewOf(FileSenderState::Sending,
@@ -123,6 +137,7 @@ void RunTransferViewTests() {
     TestDoneCarriesTheHappyOutcome();
     TestRefusalAndFailureBothReadAsFailed();
     TestIdleTransferIsFullyBlank();
+    TestAChangedKeyIsItsOwnKindOfStop();
     TestProgressBeyondTheBatchSizeStaysWhole();
     TestFileSizesReadLikeAFileManager();
     TestShareSummaryNamesEveryTenant();

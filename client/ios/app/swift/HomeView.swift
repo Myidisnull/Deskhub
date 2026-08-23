@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HomeView: View {
-    @Bindable var model: SessionModel
+    @Bindable var model: AppModel
     @State private var page = StartPage.index() ?? 0
 
     var body: some View {

@@ -124,7 +124,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     uint32_t sw = 0, sh = 0;
     LargestScreenPixels(window_, sw, sh);
 
-    deskhubp::ClientEngineConfig cfg;
+    deskhubp::ScreenViewerConfig cfg;
     cfg.server = server;
     cfg.sourceId = sourceId;
     cfg.screenW = sw;

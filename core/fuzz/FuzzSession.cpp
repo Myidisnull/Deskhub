@@ -1,6 +1,6 @@
-#include "deskhub/session/Beacon.h"
-#include "deskhub/session/ClientSession.h"
-#include "deskhub/session/HostSession.h"
+#include "deskhub/session/host/Beacon.h"
+#include "deskhub/session/client/ScreenClientSession.h"
+#include "deskhub/session/host/ScreenHostSession.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -20,12 +20,12 @@ bool FillPattern(std::span<uint8_t> out) {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-    HostCallbacks hostCb;
+    ScreenHostCallbacks hostCb;
     hostCb.randomBytes = FillPattern;
-    HostSession host(std::move(hostCb), StreamParams{1280, 720, 30, 8'000'000});
+    ScreenHostSession host(std::move(hostCb), StreamParams{1280, 720, 30, 8'000'000});
     host.SetPasscode("0417");
 
-    ClientSession client(ClientCallbacks{});
+    ScreenClientSession client(ScreenClientSessionCallbacks{});
     client.Start(Hello{7, 1, 1920, 1080, 30, 0, 0, "0417"}, 1);
 
     Beacon beacon;

@@ -1,5 +1,5 @@
 #pragma once
-#include "deskhub/media/AgentTypes.h"
+#include "deskhub/media/ShareTypes.h"
 #include "deskhub/session/FileTransfer.h"
 #include "deskhub/session/TerminalSession.h"
 
@@ -44,21 +44,21 @@ struct HostRowCells {
     bool online = false;
 };
 
-std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources);
+std::vector<HostRow> BuildHostRows(const std::vector<media::ShareSourceStatus>& sources);
 
-std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources,
+std::vector<HostRow> BuildHostRows(const std::vector<media::ShareSourceStatus>& sources,
     bool terminalShared, const std::vector<TerminalRecord>& shells);
 
-std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources,
+std::vector<HostRow> BuildHostRows(const std::vector<media::ShareSourceStatus>& sources,
     bool terminalShared, const std::vector<TerminalRecord>& shells, bool filesShared,
     const std::vector<TransferRecord>& transfers);
 
-const media::AgentSourceStatus* FindHostSource(
-    const std::vector<media::AgentSourceStatus>& sources, uint8_t sourceId);
+const media::ShareSourceStatus* FindHostSource(
+    const std::vector<media::ShareSourceStatus>& sources, uint8_t sourceId);
 
 const TerminalRecord* FindShell(const std::vector<TerminalRecord>& shells, uint32_t termId);
 
-HostRowCells HostRowText(const HostRow& row, const media::AgentSourceStatus& source);
+HostRowCells HostRowText(const HostRow& row, const media::ShareSourceStatus& source);
 
 HostRowCells TerminalRowText(const HostRow& row, uint16_t port,
     const std::vector<TerminalRecord>& shells);

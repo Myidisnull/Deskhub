@@ -26,22 +26,22 @@ int main() {
     RunPacerTests();
 
     std::printf("--- session ---\n");
-    RunSessionTests();
+    RunScreenSessionTests();
 
     std::printf("--- session: client pump (ingest + keyframes + reporting) ---\n");
-    RunClientPumpTests();
+    RunScreenClientTests();
 
     std::printf("--- session: clipboard sync (chunking, dedupe, echo suppression) ---\n");
     RunClipboardSyncTests();
 
     std::printf("--- session: host feedback policy (bitrate, FEC, quality, NACK) ---\n");
-    RunHostFeedbackTests();
+    RunViewerFeedbackTests();
 
     std::printf("--- session: host router (demux, re-offer, keepalive timing) ---\n");
-    RunHostRouterTests();
+    RunSourcePipelineTests();
 
     std::printf("--- session: many viewers per source (fan-out, input priority) ---\n");
-    RunHostViewersTests();
+    RunViewerTableTests();
 
     std::printf("--- session: viewer connect flow ---\n");
     RunConnectFlowTests();

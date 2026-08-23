@@ -1,5 +1,5 @@
 add_library(deskhub_mac_core STATIC
-    AgentLoop.cpp
+    SharingHost.cpp
     Permissions.mm
     capture/ScreenCapture.mm
     input/InputInjector.mm

@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/session/AuthThrottle.h"
+#include "deskhub/session/host/AuthThrottle.h"
 
 #include <cstdio>
 

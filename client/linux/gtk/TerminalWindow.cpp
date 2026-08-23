@@ -16,9 +16,9 @@
 #include "deskhub/terminal/VtParser.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/TerminalFeed.h"
-#include "deskhubp/session/TerminalHost.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/client/TerminalFeed.h"
+#include "deskhubp/host/TerminalHost.h"
+#include "deskhubp/client/TerminalViewer.h"
 
 namespace {
 
@@ -200,7 +200,7 @@ private:
 
         BuildShell(parent, ui::kTerminalLocalWindowTitle);
         gtk_label_set_text(GTK_LABEL(statusLabel_), ui::kTerminalAttachedHere);
-        feed_ = std::make_unique<deskhubp::LocalShellFeed>(host, termId);
+        feed_ = std::make_unique<deskhubp::LocalTerminalFeed>(host, termId);
 
         ShowBuilt();
         return true;

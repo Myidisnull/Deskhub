@@ -11,6 +11,8 @@ namespace deskhubp {
 
 namespace {
 
+constexpr DWORD kShellReapWaitMs = 5000;
+
 COORD ToCoord(deskhub::TermSize size) {
     const deskhub::TermSize clamped = deskhub::ClampTermSize(size);
     COORD out{};
@@ -65,10 +67,6 @@ struct Pty::Impl {
     }
 
     void Shutdown() {
-        if (console != nullptr) {
-            ClosePseudoConsole(console);
-            console = nullptr;
-        }
         if (inputWrite != nullptr) {
             CloseHandle(inputWrite);
             inputWrite = nullptr;
@@ -77,9 +75,20 @@ struct Pty::Impl {
             CloseHandle(outputRead);
             outputRead = nullptr;
         }
+        if (console != nullptr) {
+            ClosePseudoConsole(console);
+            console = nullptr;
+        }
         if (startup.lpAttributeList != nullptr) {
             DeleteProcThreadAttributeList(startup.lpAttributeList);
             startup.lpAttributeList = nullptr;
+        }
+        if (process.hProcess != nullptr) {
+            DWORD code = 0;
+            if (GetExitCodeProcess(process.hProcess, &code) && code == STILL_ACTIVE) {
+                TerminateProcess(process.hProcess, 1);
+                WaitForSingleObject(process.hProcess, kShellReapWaitMs);
+            }
         }
         if (process.hThread != nullptr) {
             CloseHandle(process.hThread);
@@ -178,7 +187,7 @@ bool Pty::Running() const {
 int Pty::Read(uint8_t* buf, size_t cap, uint32_t waitMs) {
     if (impl_->outputRead == nullptr) return -1;
     DWORD available = 0;
-    const DWORD deadline = GetTickCount() + waitMs;
+    const ULONGLONG deadline = GetTickCount64() + waitMs;
     for (;;) {
         if (!PeekNamedPipe(impl_->outputRead, nullptr, 0, nullptr, &available, nullptr)) {
             impl_->Poll();
@@ -188,7 +197,7 @@ int Pty::Read(uint8_t* buf, size_t cap, uint32_t waitMs) {
         if (available > 0) break;
         impl_->Poll();
         if (impl_->exited) return -1;
-        if (GetTickCount() >= deadline) return 0;
+        if (GetTickCount64() >= deadline) return 0;
         Sleep(1);
     }
 

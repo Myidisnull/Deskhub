@@ -1,8 +1,8 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/session/FileReceiver.h"
-#include "deskhub/session/FileSender.h"
+#include "deskhub/session/host/FileReceiver.h"
+#include "deskhub/session/client/FileSender.h"
 #include "deskhub/transfer/Crc32.h"
 #include "deskhub/transfer/SafeName.h"
 
@@ -430,6 +430,19 @@ void TestLimitsRefuseOversizedBatches() {
     Check(third.sender.Reason() == TransferReason::TooLarge, "and refused for the total");
 }
 
+void TestAnOfferOfNoFilesIsIgnored() {
+    std::printf("[xfer] an offer carrying zero files never opens a batch...\n");
+    Rig rig;
+    const auto files = rig.Stage({{"a", 4}});
+    Check(rig.sender.Offer(1, files), "a real offer leaves the sender");
+    Message offer = rig.link.toReceiver.front();
+    rig.link.toReceiver.clear();
+    offer[kCommonHeaderSize + 4] = 0;
+    rig.receiver.HandleMessage(offer);
+    Check(rig.receiver.State() == FileReceiverState::Idle, "the receiver stays idle");
+    Check(rig.link.Quiet(), "and answers nothing");
+}
+
 void TestTheOfferIsGuardedBeforeItLeaves() {
     std::printf("[xfer] the sender refuses to offer what it cannot carry...\n");
     Rig rig;
@@ -524,6 +537,7 @@ void RunFileTransferTests() {
     TestLinkLossEndsBothSides();
     TestAFullStreamIsRetriedNotSkipped();
     TestLimitsRefuseOversizedBatches();
+    TestAnOfferOfNoFilesIsIgnored();
     TestTheOfferIsGuardedBeforeItLeaves();
     TestAuditTrailNamesTheFiles();
 }

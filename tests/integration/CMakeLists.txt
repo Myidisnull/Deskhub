@@ -10,7 +10,7 @@ add_executable(integration_tests
     support/TestSupport.cpp
     support/FakeVideo.cpp
     support/FakeDecoder.cpp
-    support/FakeAgent.cpp
+    support/FakeHost.cpp
 )
 target_link_libraries(integration_tests PRIVATE platform)
 target_include_directories(integration_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -18,6 +18,9 @@ target_compile_features(integration_tests PRIVATE cxx_std_20)
 
 find_package(Threads REQUIRED)
 target_link_libraries(integration_tests PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(integration_tests PRIVATE dbghelp)
+endif()
 
 deskhub_target_warnings(integration_tests)
 

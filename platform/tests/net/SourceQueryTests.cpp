@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/client/SourceQuery.h"
 #include "deskhubp/system/Clock.h"
 
 #include <cstdio>

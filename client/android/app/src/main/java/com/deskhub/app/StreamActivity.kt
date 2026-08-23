@@ -133,6 +133,7 @@ class StreamActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
+                PairingPrompt()
                 StreamScreen(
                     address = address,
                     sessionKey = session,

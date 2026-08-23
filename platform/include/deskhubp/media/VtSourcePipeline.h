@@ -1,9 +1,9 @@
 #pragma once
-#include "deskhub/diag/AgentDiag.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/diag/ShareDiag.h"
+#include "deskhub/session/host/SourcePipeline.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/media/VtEncoder.h"
-#include "deskhubp/session/HostEngine.h"
+#include "deskhubp/host/HostEngine.h"
 
 #include <CoreVideo/CVPixelBuffer.h>
 
@@ -19,7 +19,7 @@ template <class Capture, class Injector>
 struct VtSourcePipeline : HostSourceBase<Capture, Injector, VtEncoder> {
     using Base = HostSourceBase<Capture, Injector, VtEncoder>;
 
-    VtSourcePipeline(uint32_t startBps, uint32_t minBps, deskhub::diag::AgentDiagCaps caps)
+    VtSourcePipeline(uint32_t startBps, uint32_t minBps, deskhub::diag::ShareDiagCaps caps)
         : Base(startBps, minBps, caps) {}
 
     ~VtSourcePipeline() override {
@@ -54,7 +54,7 @@ void InstallVtEncoderFactory(Pipeline* p, uint32_t fps, deskhub::media::PacketHa
         cfg.onPacket = onPacket;
         auto enc = std::make_unique<VtEncoder>();
         if (!enc->Init(cfg)) {
-            LOGE("[Agent][%s] VideoToolbox refused to start an encoder.", p->name.c_str());
+            LOGE("[Host][%s] VideoToolbox refused to start an encoder.", p->name.c_str());
             p->failed.store(true);
             return false;
         }
@@ -76,8 +76,8 @@ void OfferVtFrame(Pipeline* p, uint32_t maxDim, const Frame& fi) {
         p->encoder.reset();
         p->ReleaseCached();
     }
-    if (!adm.sizeNote.empty()) LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
-    if (!adm.pauseNote.empty()) LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
+    if (!adm.sizeNote.empty()) LOGI("[Host][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
+    if (!adm.pauseNote.empty()) LOGI("[Host][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
     if (adm.drop) return;
 
     if (p->cachedPb) CVPixelBufferRelease(static_cast<CVPixelBufferRef>(p->cachedPb));

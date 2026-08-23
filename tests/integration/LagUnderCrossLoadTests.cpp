@@ -1,14 +1,14 @@
 #include "Tests.h"
-#include "support/FakeAgent.h"
+#include "support/FakeHost.h"
 #include "support/FakeDecoder.h"
 #include "support/FakeVideo.h"
 #include "support/LoadRig.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/session/ClientEngine.h"
-#include "deskhubp/session/FileHost.h"
-#include "deskhubp/session/TerminalHost.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/client/ScreenViewer.h"
+#include "deskhubp/host/FileHost.h"
+#include "deskhubp/host/TerminalHost.h"
+#include "deskhubp/client/TerminalViewer.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/Pty.h"
@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-using Viewer = deskhubp::ClientEngine<fake::Decoder, void*>;
+using Viewer = deskhubp::ScreenViewer<fake::Decoder, void*>;
 
 namespace {
 
@@ -153,7 +153,7 @@ struct TerminalPeer {
 };
 
 struct CrossSession {
-    fake::Agent agent{};
+    fake::SharingHost host{};
     deskhubp::TerminalHost terminals{};
     deskhubp::FileHost files{};
     Viewer viewer{};
@@ -167,7 +167,7 @@ struct CrossSession {
         viewer.Stop();
         files.Stop();
         terminals.Stop();
-        agent.Stop();
+        host.Stop();
     }
 
     bool Open(const std::string& leaf, bool withFiles) {
@@ -176,28 +176,28 @@ struct CrossSession {
         deskhubp::ForgetAllPairedDevices();
 
         const uint16_t port = NextTestPort();
-        if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+        if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
             Check(false, "the host could not start");
             return false;
         }
-        if (!terminals.Start(agent.socket(), "", deskhubp::TerminalHostCallbacks{})) {
+        if (!terminals.Start(host.socket(), "", deskhubp::TerminalHostCallbacks{})) {
             Check(false, "the host could not open its terminal service");
             return false;
         }
-        agent.SetTerminal(&terminals);
+        host.SetTerminal(&terminals);
 
         if (withFiles) {
             landing = Scratch(leaf + "-land");
             payload = Pattern(kTransferBytes);
             file = WriteBytes(Scratch(leaf + "-send"), "bulk.bin", payload);
-            if (!files.Start(agent.socket(), landing, deskhubp::FileHostCallbacks{})) {
+            if (!files.Start(host.socket(), landing, deskhubp::FileHostCallbacks{})) {
                 Check(false, "the host could not take files in");
                 return false;
             }
-            agent.SetFiles(&files);
+            host.SetFiles(&files);
         }
 
-        deskhubp::ClientEngineConfig cfg = ViewerConfig(port, false);
+        deskhubp::ScreenViewerConfig cfg = ViewerConfig(port, false);
         cfg.onTrustAsked = [this](deskhub::TrustVerdict, std::string_view) {
             viewer.AcceptFingerprint();
         };

@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include "deskhub/session/HostSession.h"
+#include "deskhub/session/host/ScreenHostSession.h"
 
 namespace deskhub {
 

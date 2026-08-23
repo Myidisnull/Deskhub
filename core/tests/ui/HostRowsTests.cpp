@@ -12,9 +12,9 @@ using namespace deskhub;
 
 namespace {
 
-media::AgentSourceStatus MakeSource(uint8_t id, std::vector<std::string> viewers,
+media::ShareSourceStatus MakeSource(uint8_t id, std::vector<std::string> viewers,
     std::vector<std::string> names = {}) {
-    media::AgentSourceStatus s;
+    media::ShareSourceStatus s;
     s.sourceId = id;
     s.name = "Display " + std::to_string(id);
     s.width = 1920;
@@ -33,7 +33,7 @@ media::AgentSourceStatus MakeSource(uint8_t id, std::vector<std::string> viewers
 
 void TestEverySourceGetsARowFollowedByItsViewers() {
     std::printf("[hostrows] each shared display lists its viewers underneath it...\n");
-    const std::vector<media::AgentSourceStatus> sources{
+    const std::vector<media::ShareSourceStatus> sources{
         MakeSource(1, {"192.168.1.7:47777", "192.168.1.9:47777"}),
         MakeSource(2, {}),
     };
@@ -50,18 +50,18 @@ void TestEverySourceGetsARowFollowedByItsViewers() {
 
 void TestRowsCompareEqualWhileNothingChanges() {
     std::printf("[hostrows] an unchanged host rebuilds the same row list...\n");
-    const std::vector<media::AgentSourceStatus> sources{MakeSource(3, {"10.0.0.4:47777"})};
+    const std::vector<media::ShareSourceStatus> sources{MakeSource(3, {"10.0.0.4:47777"})};
     Check(ui::BuildHostRows(sources) == ui::BuildHostRows(sources),
         "polling twice with the same status yields identical rows");
 
-    const std::vector<media::AgentSourceStatus> joined{MakeSource(3, {"10.0.0.5:47777"})};
+    const std::vector<media::ShareSourceStatus> joined{MakeSource(3, {"10.0.0.5:47777"})};
     Check(!(ui::BuildHostRows(sources) == ui::BuildHostRows(joined)),
         "a different viewer address is a different row list");
 }
 
 void TestSourceCellsReadLikeTheTable() {
     std::printf("[hostrows] a display row spells out size, rate and ping...\n");
-    const media::AgentSourceStatus source = MakeSource(1, {"192.168.1.7:47777"});
+    const media::ShareSourceStatus source = MakeSource(1, {"192.168.1.7:47777"});
     const ui::HostRowCells cells = ui::HostRowText(ui::HostRow{false, 1, {}}, source);
 
     Check(cells.source == "Display 1", "the first column names the display");
@@ -76,7 +76,7 @@ void TestSourceCellsReadLikeTheTable() {
 
 void TestIdleSourceHasNoPing() {
     std::printf("[hostrows] a display nobody watches shows a dash instead of a ping...\n");
-    const media::AgentSourceStatus source = MakeSource(1, {});
+    const media::ShareSourceStatus source = MakeSource(1, {});
     const ui::HostRowCells cells = ui::HostRowText(ui::HostRow{false, 1, {}}, source);
 
     Check(cells.rtt == "-", "no viewer means no round trip to report");
@@ -86,7 +86,7 @@ void TestIdleSourceHasNoPing() {
 
 void TestViewerRowOnlyNamesTheClient() {
     std::printf("[hostrows] a viewer row is indented and carries just the address...\n");
-    const media::AgentSourceStatus source = MakeSource(1, {"192.168.1.7:47777"});
+    const media::ShareSourceStatus source = MakeSource(1, {"192.168.1.7:47777"});
     const ui::HostRowCells cells =
         ui::HostRowText(ui::HostRow{true, 1, "192.168.1.7:47777"}, source);
 
@@ -100,7 +100,7 @@ void TestViewerRowOnlyNamesTheClient() {
 
 void TestViewerRowShowsTheClientName() {
     std::printf("[hostrows] a named viewer shows its name in front of the address...\n");
-    const std::vector<media::AgentSourceStatus> sources{
+    const std::vector<media::ShareSourceStatus> sources{
         MakeSource(1, {"192.168.1.7:47777", "192.168.1.9:47777"}, {"Anh's laptop", ""}),
     };
     const std::vector<ui::HostRow> rows = ui::BuildHostRows(sources);
@@ -118,14 +118,14 @@ void TestViewerRowShowsTheClientName() {
     Check(rows[1].viewerAddr == "192.168.1.7:47777",
         "the row still keys on the address for kicks");
 
-    const std::vector<media::AgentSourceStatus> fewerNames{
+    const std::vector<media::ShareSourceStatus> fewerNames{
         MakeSource(1, {"192.168.1.7:47777", "192.168.1.9:47777"}, {"Anh's laptop"}),
     };
     const std::vector<ui::HostRow> partial = ui::BuildHostRows(fewerNames);
     Check(partial.size() == 3 && partial[2].viewerName.empty(),
         "a short name list never misaligns the rows");
 
-    const std::vector<media::AgentSourceStatus> renamed{
+    const std::vector<media::ShareSourceStatus> renamed{
         MakeSource(1, {"192.168.1.7:47777"}, {"Bob's phone"}),
     };
     Check(!(ui::BuildHostRows(sources) == ui::BuildHostRows(renamed)),
@@ -145,7 +145,7 @@ TerminalRecord MakeShell(uint32_t termId, std::string endpoint, std::string name
 
 void TestTerminalIsARowInTheSameTable() {
     std::printf("[hostrows] a shared terminal sits in the table beside the displays...\n");
-    const std::vector<media::AgentSourceStatus> sources{MakeSource(1, {"192.168.1.7:47777"})};
+    const std::vector<media::ShareSourceStatus> sources{MakeSource(1, {"192.168.1.7:47777"})};
     const std::vector<TerminalRecord> shells{
         MakeShell(4, "192.168.1.9:51000", "Anh's laptop"),
         MakeShell(5, "192.168.1.9:51001", "", TerminalState::Detached),
@@ -233,9 +233,9 @@ void TestShellLookupByTermId() {
 
 void TestSourceLookupByIdIgnoresOrder() {
     std::printf("[hostrows] a row finds its display whatever order the host reports...\n");
-    const std::vector<media::AgentSourceStatus> sources{MakeSource(5, {}), MakeSource(2, {})};
+    const std::vector<media::ShareSourceStatus> sources{MakeSource(5, {}), MakeSource(2, {})};
 
-    const media::AgentSourceStatus* found = ui::FindHostSource(sources, 2);
+    const media::ShareSourceStatus* found = ui::FindHostSource(sources, 2);
     Check(found && found->sourceId == 2, "the second display is found by id");
     Check(ui::FindHostSource(sources, 9) == nullptr, "an unknown id finds nothing");
 }
@@ -260,7 +260,7 @@ TransferRecord MakeTransfer(uint64_t peer, std::string endpoint, std::string nam
 
 void TestFileTransferIsARowInTheSameTable() {
     std::printf("[hostrows] file transfer sits in the table like any other source...\n");
-    const std::vector<media::AgentSourceStatus> sources{MakeSource(1, {"192.168.1.7:47777"})};
+    const std::vector<media::ShareSourceStatus> sources{MakeSource(1, {"192.168.1.7:47777"})};
     const std::vector<TransferRecord> transfers{
         MakeTransfer(0xAB01, "192.168.1.9:51000", "Anh's laptop", 0, 3, 50, 200, true),
         MakeTransfer(0xAB02, "192.168.1.4:51001", "", 2, 3, 200, 200, false),

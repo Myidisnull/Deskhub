@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 struct StreamView: View {
-    @Bindable var session: SessionModel
+    @Bindable var session: AppModel
     @Bindable var model: StreamModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var layer: AVSampleBufferDisplayLayer?

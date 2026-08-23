@@ -15,9 +15,9 @@
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/media/DisplayEnum.h"
-#include "deskhubp/net/HostProbe.h"
-#include "deskhubp/net/LanScanner.h"
-#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/client/HostProbe.h"
+#include "deskhubp/client/LanScanner.h"
+#include "deskhubp/client/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/HostIdentity.h"
 

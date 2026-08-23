@@ -32,18 +32,28 @@ bool ParseNetAddr(const std::string& s, NetAddr& out) {
     return true;
 }
 
+namespace {
+
+bool WinsockReady() {
+    static const bool ready = [] {
+        WSADATA wsa{};
+        return WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
+    }();
+    return ready;
+}
+
+}
+
 UdpSocket::~UdpSocket() {
     Close();
 }
 
 bool UdpSocket::Open(uint16_t localPort, const std::string& bindIp) {
     lastBindAddrInUse_ = false;
-    WSADATA wsa{};
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+    if (!WinsockReady()) {
         LOGE("[UDP] WSAStartup failed.");
         return false;
     }
-    wsaInit_ = true;
 
     const SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) {
@@ -138,9 +148,5 @@ void UdpSocket::Close() {
     if (IsOpen()) {
         closesocket(SOCKET(sock_));
         sock_ = ~0ull;
-    }
-    if (wsaInit_) {
-        WSACleanup();
-        wsaInit_ = false;
     }
 }

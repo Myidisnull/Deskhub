@@ -5,7 +5,7 @@
 #include <string>
 
 #include "deskhub/media/SourceLabel.h"
-#include "deskhub/session/ConnectFlow.h"
+#include "deskhub/session/client/ConnectFlow.h"
 #include "deskhub/ui/Strings.h"
 #include "WinControls.h"
 #include "WinText.h"

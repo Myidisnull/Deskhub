@@ -27,13 +27,15 @@ client/     per-OS apps: windows, linux, macos, ios, android (depend on platform
 | --- | --- |
 | `core/protocol` | Wire format (`Wire.h`), record framing for streams (`RecordStream.h`), packet classifier that tells QUIC from Deskhub beacon datagrams |
 | `core/transport` | Packetizer/Reassembler for video, FEC, retransmit cache, send pacer |
-| `core/session` | Host/client session state machines, viewer table, clipboard sync, terminal session table, auth attempt throttle |
+| `core/session` | Session state machines, split by role: `session/host` (per-viewer sessions, viewer table, beacon, file receiver, auth throttle), `session/client` (screen client, file sender, terminal client, connect flow), and shared pieces beside them (transfer types, terminal session table, clipboard sync, link recovery) |
 | `core/control` | Bitrate controller, quality ladder, stream sizing, clock offset |
 | `core/terminal` | The VT emulator every client shares: `VtParser`, `Screen`, `KeyEncoder`, `Palette` |
 | `core/net` | Trust store (client side), paired devices (host side), bind-address selection, LAN scan logic |
 | `core/ui` | Every user-visible string, settings parsing, table-row builders — so all five clients say the same things |
-| `platform/net` | `UdpSocket` (per-OS), `QuicEndpoint` (quiche behind a pimpl), `SessionTransport`, source query, host probe, LAN scanner |
-| `platform/session` | `HostEngine`, `HostNetLoop`, `ClientEngine`, `TerminalHost`, `TerminalViewer`, `AuthNegotiation` |
+| `platform/net` | `UdpSocket` (per-OS), `QuicEndpoint` (quiche behind a pimpl), `SessionTransport` |
+| `platform/auth` | `AuthNegotiation` — the one pairing/passcode handshake both sides speak |
+| `platform/client` | `HostLink` (dial + trust + auth + channels, shared by every surface), `ScreenViewer`, `TerminalViewer`, `FileTransferClient`, `SourceQuery`, host probe, LAN scanner |
+| `platform/host` | `HostEngine`, `HostNetLoop`, `SharingHost`, `TerminalHost`, `FileHost`, `ViewerBroadcast` |
 | `platform/system` | Clock, random, PTY (ConPTY / forkpty), host identity (keys), trust/paired-device files, autostart, keep-awake |
 | `core/cli` | The command-line grammar and its JSON writer — pure text in, validated command out |
 | `client/<os>` | Capture, encode, decode, render, windowing, dialogs — nothing protocol-shaped |
@@ -139,7 +141,7 @@ HostEngine (one per app, owns SessionTransport)
 
 - The engine runs whenever anything is shared. With zero screen sources and the
   terminal ticked it runs source-less; the loop stays alive while the terminal does.
-- Each screen source is a `SourcePipelineState`: its own `HostSession` (viewer table,
+- Each screen source is a `SourcePipelineState`: its own `ScreenHostSession` (viewer table,
   negotiation, input arbitration), encoder, quality ladder and diagnostics. One
   encode feeds every viewer of that source.
 - The feedback loop: viewers send `Feedback` (loss/RTT) once a second; the host's
@@ -160,18 +162,36 @@ HostEngine (one per app, owns SessionTransport)
 
 ## 5. Client side
 
+Every client surface reaches a host through the same piece, `HostLink`
+(`platform/client/HostLink`): it dials the QUIC connection, checks the trust store,
+runs the auth handshake, keeps the link alive with keepalives, and — for surfaces
+that ask for it — redials with backoff when the link drops. No service dials or
+authenticates on its own any more; a service opens a channel per wire `Chan`, gets
+its own inbox queue, and drains it on its own thread:
+
 ```
-ClientEngine (one per viewer window)          TerminalViewer (one per shell window)
- ├─ net thread: trust check → auth →          ├─ own thread: connect → trust check →
- │   HELLO/negotiation → video ingest         │   auth → TERM_OPEN → record pump
- │   (Reassembler+FEC), NACKs, feedback       ├─ core/terminal Screen holds the grid
- └─ decode thread: decoder + render queue     └─ UI polls Snapshot(), posts keys
+HostLink (one per open surface)
+ ├─ link thread: dial → trust check → auth → pump
+ │   (routes inbound records and datagrams by Chan into per-channel
+ │    queues; keepalives; redial with backoff where recovery is on)
+ ├─ Chan::Control/Video/Audio ─> ScreenViewer
+ │    ├─ net thread: HELLO/negotiation, video ingest (Reassembler+FEC),
+ │    │   NACKs, feedback, clipboard
+ │    └─ decode thread: decoder + render queue
+ ├─ Chan::Terminal ─> TerminalViewer service thread
+ │    ├─ core/terminal Screen holds the grid
+ │    └─ UI polls Snapshot(), posts keys into a command queue
+ └─ Chan::File ─> FileTransferClient service thread (FileUpload ring)
 ```
 
-Both follow the same rule as the host: the QUIC connection lives on one thread; the
-UI posts intents (keys, resize, accept-fingerprint) into a command queue. The
-terminal window never parses escape sequences — `core/terminal` turns the byte
-stream into a cell grid, and the window only draws cells and forwards key events.
+The source query (`QuerySources`) rides the same link in a one-shot, blocking form.
+The UI still posts intents (keys, resize, accept-fingerprint) into command queues;
+a changed host key parks the link in `Deciding` until the person accepts or rejects
+it. The terminal window never parses escape sequences — `core/terminal` turns the
+byte stream into a cell grid, and the window only draws cells and forwards key
+events. Today each window still holds its own link; sharing one admitted link across
+every window aimed at the same host is the intended next step, and it slots in at
+`HostLink` — a registry and observer fan-out — not as another handshake.
 
 ## 6. Discovery
 
@@ -262,7 +282,7 @@ line.
 
 - **The command-line client is a fourth front-end, not a second implementation**: it
   parses flags in `core/cli`, then drives exactly the pieces the desktop apps drive —
-  `AgentLoop` to host, `ClientEngine` to watch, `TerminalViewer` to open a shell. The
+  `SharingHost` to host, `ScreenViewer` to watch, `TerminalViewer` to open a shell. The
   only thing it owns is a window: X11 + EGL on Linux, the desktop app's own `RunViewer`
   on Windows. That is why each client's `cpp/` tree is a static library
   (`deskhub_linux_core`, `deskhub_win_core`, `deskhub_win_view`, `deskhub_mac_core`) and
@@ -277,7 +297,7 @@ line.
 
 - **A host with a shell and no screen stays alive**: the net loop ends a session once no
   source is alive, and a terminal-only share has none by definition. `keepAlive` answers
-  from the caller's intent (`AgentOptions::terminal`), not from a `TerminalHost` pointer
+  from the caller's intent (`ShareOptions::terminal`), not from a `TerminalHost` pointer
   that is only attached after the loop is already running.
 
 - **The frame gate counts to a deadline, not from the last frame it kept**: a compositor
@@ -523,6 +543,25 @@ line.
 - **One port**: beacon, screen and terminal share a single listener; QUIC
   multiplexes connections and streams. The old second port existed only because the
   pre-QUIC screen path monopolised the socket.
+- **One `HostLink`, four former handshakes**: dial + trust check + auth + recovery
+  used to be written four times on the client side — source query, viewer, file
+  sender, and the terminal on a raw `QuicEndpoint` of its own — which is how the
+  send window learned about a changed host key three fixes later than the viewer
+  did. `HostLink` is now the only client-side code that dials or authenticates; a
+  service opens its `Chan`, gets its own inbox queue, and drains it on its own
+  thread. The terminal's redial-with-backoff moved into the link so every surface
+  that asks for recovery inherits it, and the trust rules live in one place: a
+  changed key parks the link in `Deciding` until a person answers (only the source
+  query passes it through, `trustGate=false`, remembering nothing — its callers
+  have no prompt to show), and only a passcode the host cryptographically proved
+  pins a key automatically.
+- **`HostLink` sends through `Send`, not `SendMessage`**: on Windows the OS headers
+  behind the platform layer define `SendMessage` as a macro for `SendMessageA`, and
+  in `HostLink.cpp` they landed after the class declaration but before the method
+  definition — MSVC then required a definition for a `SendMessageA` member no header
+  had declared. Win32 API names (`SendMessage`, `PostMessage`, `CreateWindow`,
+  `GetObject`, …) are never safe as method names in any translation unit an OS
+  header can reach; the rename is the fix, not an `#undef`.
 - **The portal ScreenCast session lives and dies with a D-Bus connection**: GLib caches
   the shared session bus by weak reference, so `g_object_unref` on the last handle
   disposes the connection outright. `xdg-desktop-portal` then drops the session, the

@@ -12,19 +12,19 @@
 
 #include "TrayIcon.h"
 #include "deskhub/net/PairedDevices.h"
-#include "deskhub/session/ConnectFlow.h"
-#include "deskhub/session/OpenViewers.h"
+#include "deskhub/session/client/ConnectFlow.h"
+#include "deskhub/session/client/OpenViewers.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/UiSettings.h"
-#include "deskhubp/net/DeviceStatusPoller.h"
-#include "deskhubp/net/LanScanner.h"
-#include "deskhubp/session/AgentDriver.h"
-#include "deskhubp/session/AgentLoop.h"
-#include "deskhubp/session/ConnectDriver.h"
-#include "deskhubp/session/HostShareController.h"
+#include "deskhubp/client/DeviceStatusPoller.h"
+#include "deskhubp/client/LanScanner.h"
+#include "deskhubp/host/ShareDriver.h"
+#include "deskhubp/host/SharingHost.h"
+#include "deskhubp/client/SourceQueryAsync.h"
+#include "deskhubp/host/ShareController.h"
 
 class MainWindow {
 public:
@@ -116,10 +116,10 @@ private:
     static gboolean OnAutoShareTimer(gpointer user);
     void ReportShareProblem(const char* title, const std::string& text);
     static void OnMonitorsChanged(GdkScreen* screen, gpointer user);
-    void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
-    void OnHostStarted(bool started, const std::string& error, const AgentOptions& options);
+    void StartHosting(const std::vector<ShareSource>& sources, const ShareOptions& options);
+    void OnHostStarted(bool started, const std::string& error, const ShareOptions& options);
     void StopHosting();
-    void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
+    void UpdateHostRows(const std::vector<ShareSourceStatus>& rows);
     void ClearHostRows();
     void RebuildHostRowWidgets();
     HostRowWidgets MakeHostRowWidgets(const deskhub::ui::HostRow& ref, size_t index);
@@ -134,9 +134,9 @@ private:
     bool FilesTicked() const;
     std::vector<HostMonitor> TickedMonitors() const;
     static std::vector<HostMonitor> ListMonitors();
-    static bool MatchesTickedMonitor(const AgentSource& source,
+    static bool MatchesTickedMonitor(const ShareSource& source,
         const std::vector<HostMonitor>& ticked);
-    static std::vector<AgentSource> FilterToTickedMonitors(std::vector<AgentSource> sources,
+    static std::vector<ShareSource> FilterToTickedMonitors(std::vector<ShareSource> sources,
         const std::vector<HostMonitor>& ticked);
 
     void ShowAfterSession();
@@ -246,9 +246,9 @@ private:
 
     deskhubp::LanScanner scanner_;
     deskhubp::DeviceStatusPoller poller_;
-    deskhubp::HostShareController share_;
-    deskhubp::AgentDriver agentDriver_;
-    std::vector<AgentSourceStatus> hostStatus_;
+    deskhubp::ShareController share_;
+    deskhubp::ShareDriver shareDriver_;
+    std::vector<ShareSourceStatus> hostStatus_;
 
     guint rescanTimerId_ = 0;
     guint hostTimerId_ = 0;
@@ -267,7 +267,7 @@ private:
     std::string shareBindWarning_;
 
     deskhub::OpenViewerCount openViewers_;
-    deskhubp::ConnectDriver connectDriver_;
+    deskhubp::SourceQueryAsync connectDriver_;
 
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 };

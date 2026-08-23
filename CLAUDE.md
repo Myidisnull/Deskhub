@@ -69,7 +69,14 @@ Hard constraints:
   API on every OS.
 - Use the shared helpers rather than raw OS calls: `LOGI`/`LOGW`/`LOGE` from
   `deskhubp/diag/Log.h`, plus `deskhubp/system/Clock.h`, `deskhubp/system/Random.h`,
-  `deskhubp/net/UdpSocket.h`, `deskhubp/net/SourceQuery.h`.
+  `deskhubp/net/UdpSocket.h`, `deskhubp/client/SourceQuery.h`.
+- Platform code is split by role: `deskhubp/auth` (the one handshake),
+  `deskhubp/client` (`HostLink`, `ScreenViewer`, `TerminalViewer`,
+  `FileTransferClient`), `deskhubp/host` (`HostEngine`, `SharingHost`,
+  `TerminalHost`, `FileHost`). Core session machines mirror it:
+  `deskhub/session/client` and `deskhub/session/host`, with shared types beside
+  them in `deskhub/session`. Put new code on the right side, or beside them if
+  both sides genuinely share it.
 
 ## Commands
 

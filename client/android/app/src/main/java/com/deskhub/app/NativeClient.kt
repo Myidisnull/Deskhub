@@ -334,6 +334,10 @@ object NativeClient {
 
     private external fun nativeSendSnapshot(handle: Long): Transfer?
 
+    private external fun nativeSendChangedKey(handle: Long): String
+
+    private external fun nativeSendAcceptKey(handle: Long): Boolean
+
     private external fun nativeSendCancel(handle: Long)
 
     private external fun nativeSendStop(handle: Long)
@@ -353,6 +357,10 @@ object NativeClient {
     ): Long = nativeSendStart(addr, passcode, name, paths.toTypedArray())
 
     fun sendSnapshot(handle: Long): Transfer = nativeSendSnapshot(handle) ?: Transfer()
+
+    fun sendChangedKey(handle: Long): String = nativeSendChangedKey(handle)
+
+    fun sendAcceptKey(handle: Long): Boolean = nativeSendAcceptKey(handle)
 
     fun sendCancel(handle: Long) = nativeSendCancel(handle)
 

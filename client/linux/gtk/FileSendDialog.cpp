@@ -4,8 +4,8 @@
 #include <utility>
 
 #include "deskhub/ui/Strings.h"
-#include "deskhubp/session/FileTransferClient.h"
-#include "deskhubp/session/FileUpload.h"
+#include "deskhubp/client/FileTransferClient.h"
+#include "deskhubp/client/FileUpload.h"
 #include "gtk/GtkUtil.h"
 
 namespace {
@@ -62,6 +62,10 @@ public:
 
     void Cancel() override {
         client_.Cancel();
+    }
+
+    bool AcceptChangedKey() override {
+        return client_.AcceptKeyAndRetry();
     }
 
     deskhub::ui::TransferView View() const override {
@@ -173,6 +177,29 @@ void Settle(SendWindow& self) {
     ShowChosen(self);
 }
 
+bool AskAboutChangedKey(SendWindow& self) {
+    std::string body(ui::kTrustChangedBody);
+    body += "\n\n";
+    body += ui::kTrustFingerprintLabel;
+    body += " ";
+    body += self.view.fingerprint;
+
+    GtkWidget* dlg = gtk_message_dialog_new(GTK_WINDOW(self.window), GTK_DIALOG_MODAL,
+        GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, "%s", ui::kTrustChangedTitle);
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s", body.c_str());
+    gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kTrustReject, GTK_RESPONSE_NO);
+    gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kTrustAccept, GTK_RESPONSE_YES);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_NO);
+    const bool accepted = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_YES;
+    gtk_widget_destroy(dlg);
+    if (!accepted || !self.target->AcceptChangedKey()) return false;
+
+    self.view = deskhub::ui::TransferView{};
+    self.view.active = true;
+    Refresh(self);
+    return true;
+}
+
 gboolean OnPollTimer(gpointer user) {
     auto* self = static_cast<SendWindow*>(user);
     const deskhub::ui::TransferView view = self->target->View();
@@ -181,6 +208,9 @@ gboolean OnPollTimer(gpointer user) {
         Refresh(*self);
     }
     if (self->view.active) return G_SOURCE_CONTINUE;
+
+    if (self->view.keyChanged && !self->settled && AskAboutChangedKey(*self))
+        return G_SOURCE_CONTINUE;
 
     Settle(*self);
     Refresh(*self);

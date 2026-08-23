@@ -53,6 +53,8 @@ enum class Chan : uint8_t { Control = 0,
     Terminal = 4,
     File = 5 };
 
+inline constexpr size_t kChanCount = 6;
+
 enum class MsgType : uint8_t {
     Hello = 0x01,
     HelloAck = 0x02,

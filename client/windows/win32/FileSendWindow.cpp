@@ -12,8 +12,8 @@
 
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/FileTransferClient.h"
-#include "deskhubp/session/FileUpload.h"
+#include "deskhubp/client/FileTransferClient.h"
+#include "deskhubp/client/FileUpload.h"
 #include "WinControls.h"
 #include "WinText.h"
 
@@ -136,11 +136,56 @@ void Settle(State& st) {
     ShowChosen(st);
 }
 
+bool AskAboutChangedKey(const State& st) {
+    std::wstring body = FromUtf8(ui::kTrustChangedBody);
+    body += L"\n\n";
+    body += FromUtf8(ui::kTrustFingerprintLabel);
+    body += L" ";
+    body += FromUtf8(st.view.fingerprint);
+
+    const std::wstring title = FromUtf8(ui::kTrustChangedTitle);
+    const std::wstring accept = FromUtf8(ui::kTrustAccept);
+    const std::wstring reject = FromUtf8(ui::kTrustReject);
+    const TASKDIALOG_BUTTON choices[] = {{IDYES, accept.c_str()}, {IDNO, reject.c_str()}};
+    TASKDIALOGCONFIG dialog{};
+    dialog.cbSize = sizeof(dialog);
+    dialog.hwndParent = st.hwnd;
+    dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    dialog.pszWindowTitle = L"Deskhub";
+    dialog.pszMainIcon = TD_WARNING_ICON;
+    dialog.pszMainInstruction = title.c_str();
+    dialog.pszContent = body.c_str();
+    dialog.pButtons = choices;
+    dialog.cButtons = 2;
+    dialog.nDefaultButton = IDNO;
+    int answer = IDNO;
+    if (FAILED(TaskDialogIndirect(&dialog, &answer, nullptr, nullptr)))
+        answer = MessageBoxW(st.hwnd, body.c_str(), title.c_str(),
+            MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING);
+    return answer == IDYES;
+}
+
+void SettleChangedKey(State& st) {
+    if (AskAboutChangedKey(st) && st.hooks->acceptKey && st.hooks->acceptKey()) {
+        st.view = deskhub::ui::TransferView{};
+        st.view.active = true;
+        Refresh(st);
+        return;
+    }
+    Settle(st);
+    Refresh(st);
+}
+
 void Poll(State& st) {
     const deskhub::ui::TransferView view = st.hooks->view ? st.hooks->view()
                                                           : deskhub::ui::TransferView{};
     if (view == st.view) return;
     st.view = view;
+    if (st.view.keyChanged && !st.settled) {
+        Refresh(st);
+        SettleChangedKey(st);
+        return;
+    }
     Settle(st);
     Refresh(st);
 }
@@ -345,6 +390,7 @@ void RunStandaloneFileSend(const FileSendLaunch& launch) {
     hooks.cancel = [&client] { client.Cancel(); };
     hooks.view = [&client] { return client.View(); };
     hooks.error = [&error] { return error; };
+    hooks.acceptKey = [&client] { return client.AcceptKeyAndRetry(); };
 
     RunFileSendWindow(nullptr, false, launch.address, hooks);
     client.Stop();

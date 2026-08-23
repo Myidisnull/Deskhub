@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/session/ConnectFlow.h"
+#include "deskhub/session/client/ConnectFlow.h"
 
 #include <cstdio>
 #include <string>

@@ -19,14 +19,120 @@ void KeepTestLogsOutOfTheDeveloperHome() {
     if (mkdir(kTestHome, 0700) == 0 || errno == EEXIST) setenv("HOME", kTestHome, 1);
 }
 
+void ReportCrashesWithAStack() {}
+
 }
 #else
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
+#include <dbghelp.h>
+
+#include <cstdint>
+#include <exception>
+
 namespace {
+
 void KeepTestLogsOutOfTheDeveloperHome() {}
+
+#if defined(_M_X64)
+
+void PrintCrashFrame(HANDLE process, int index, uint64_t address) {
+    alignas(SYMBOL_INFO) char buffer[sizeof(SYMBOL_INFO) + 256] = {};
+    auto* symbol = reinterpret_cast<SYMBOL_INFO*>(buffer);
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol->MaxNameLen = 255;
+    uint64_t displacement = 0;
+    if (SymFromAddr(process, address, &displacement, symbol) != 0) {
+        IMAGEHLP_LINE64 line{};
+        line.SizeOfStruct = sizeof(line);
+        DWORD lineShift = 0;
+        if (SymGetLineFromAddr64(process, address, &lineShift, &line) != 0) {
+            std::printf("  #%02d %s+0x%llx (%s:%lu)\n", index, symbol->Name,
+                static_cast<unsigned long long>(displacement), line.FileName, line.LineNumber);
+            return;
+        }
+        std::printf("  #%02d %s+0x%llx\n", index, symbol->Name,
+            static_cast<unsigned long long>(displacement));
+        return;
+    }
+    HMODULE module = nullptr;
+    char moduleName[MAX_PATH] = "?";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(address), &module) != 0)
+        GetModuleFileNameA(module, moduleName, sizeof(moduleName));
+    std::printf("  #%02d %s+0x%llx\n", index, moduleName,
+        static_cast<unsigned long long>(address - reinterpret_cast<uint64_t>(module)));
+}
+
+LONG WINAPI ReportFatalException(EXCEPTION_POINTERS* info) {
+    const HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(process, nullptr, TRUE);
+
+    const EXCEPTION_RECORD* record = info->ExceptionRecord;
+    std::printf(
+        "=== FATAL: unhandled exception 0x%08lx at 0x%llx on thread %lu - the stack below "
+        "is the crash CI cannot otherwise show ===\n",
+        record->ExceptionCode,
+        static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(record->ExceptionAddress)),
+        GetCurrentThreadId());
+
+    CONTEXT context = *info->ContextRecord;
+    STACKFRAME64 frame{};
+    frame.AddrPC.Offset = context.Rip;
+    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = context.Rbp;
+    frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = context.Rsp;
+    frame.AddrStack.Mode = AddrModeFlat;
+
+    for (int i = 0; i < 48; ++i) {
+        if (StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, GetCurrentThread(), &frame,
+                &context, nullptr, SymFunctionTableAccess64, SymGetModuleBase64,
+                nullptr) == 0)
+            break;
+        if (frame.AddrPC.Offset == 0) break;
+        PrintCrashFrame(process, i, frame.AddrPC.Offset);
+    }
+    std::fflush(stdout);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void ReportTerminate() {
+    const HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(process, nullptr, TRUE);
+    std::printf(
+        "=== FATAL: std::terminate on thread %lu - usually a joinable std::thread destroyed "
+        "or assigned over, or an exception nothing caught ===\n",
+        GetCurrentThreadId());
+    void* frames[48] = {};
+    const USHORT taken = CaptureStackBackTrace(0, 48, frames, nullptr);
+    for (USHORT i = 0; i < taken; ++i)
+        PrintCrashFrame(process, int(i), reinterpret_cast<uint64_t>(frames[i]));
+    std::fflush(stdout);
+    TerminateProcess(process, 3);
+}
+
+void ReportCrashesWithAStack() {
+    SetUnhandledExceptionFilter(ReportFatalException);
+    std::set_terminate(ReportTerminate);
+}
+
+#else
+
+void ReportCrashesWithAStack() {}
+
+#endif
+
 }
 #endif
 
 int main(int argc, char** argv) {
+    ReportCrashesWithAStack();
     KeepTestLogsOutOfTheDeveloperHome();
 
     const bool onlyUnderLoad = argc > 1 && std::string_view(argv[1]) == "--under-load";

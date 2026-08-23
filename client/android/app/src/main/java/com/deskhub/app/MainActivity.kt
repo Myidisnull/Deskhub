@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+                    PairingPrompt()
                     Column(modifier = Modifier.safeDrawingPadding()) {
                         MainScreen(
                             initialSection = startSection,
@@ -678,7 +679,6 @@ private fun HostScreen(
     var error by remember { mutableStateOf(NativeHost.shareError) }
     var rows by remember { mutableStateOf(emptyList<NativeHost.HostRow>()) }
     var addresses by remember { mutableStateOf(NativeHost.localAddresses()) }
-    var pairingQueue by remember { mutableStateOf(emptyList<NativeHost.PairingRequest>()) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -686,42 +686,9 @@ private fun HostScreen(
             error = NativeHost.shareError
             rows = if (state == NativeHost.ShareState.SHARING) NativeHost.hostRows() else emptyList()
             addresses = NativeHost.localAddresses()
-            if (state == NativeHost.ShareState.SHARING) {
-                val fresh = NativeHost.takePairingRequests()
-                if (fresh.isNotEmpty()) {
-                    val queued = pairingQueue.map { it.addrPacked }.toSet()
-                    pairingQueue = pairingQueue + fresh.filter { it.addrPacked !in queued }
-                }
-            } else if (pairingQueue.isNotEmpty()) {
-                pairingQueue = emptyList()
-            }
             if (state == NativeHost.ShareState.SHARING && !NativeHost.isRunning()) onStopSharing()
             delay(POLL_INTERVAL_MS)
         }
-    }
-
-    pairingQueue.firstOrNull()?.let { request ->
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(NativeClient.string(NativeClient.STR_PAIRING_REQUEST_TITLE)) },
-            text = { Text(request.body) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        NativeHost.answerPairing(request.addrPacked, true)
-                        pairingQueue = pairingQueue.drop(1)
-                    },
-                ) { Text(NativeClient.string(NativeClient.STR_PAIRING_ALLOW)) }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        NativeHost.answerPairing(request.addrPacked, false)
-                        pairingQueue = pairingQueue.drop(1)
-                    },
-                ) { Text(NativeClient.string(NativeClient.STR_PAIRING_DENY)) }
-            },
-        )
     }
 
     val sharing = state == NativeHost.ShareState.SHARING
