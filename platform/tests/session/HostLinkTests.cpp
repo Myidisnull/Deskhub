@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdio>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -147,16 +148,25 @@ void TestALinkStopsOnAChangedKeyUntilAccepted() {
     Check(deskhubp::RememberTrustedHost(config.hostLabel, "127.0.0.1", stale, NowUnixSeconds()),
         "another machine's key is on record");
 
+    std::mutex askedMutex;
     std::string asked;
+    const auto askedCopy = [&askedMutex, &asked] {
+        const std::lock_guard<std::mutex> lock(askedMutex);
+        return asked;
+    };
     deskhubp::HostLink link;
     deskhubp::HostLinkCallbacks hooks;
-    hooks.onTrustAsked = [&asked](deskhub::TrustVerdict, std::string_view fingerprint) {
+    hooks.onTrustAsked = [&askedMutex, &asked](deskhub::TrustVerdict,
+                             std::string_view fingerprint) {
+        const std::lock_guard<std::mutex> lock(askedMutex);
         asked.assign(fingerprint);
     };
     Check(link.Start(config, std::move(hooks)), "the link starts");
     Check(WaitUntil([&link] { return link.State() == deskhubp::HostLinkState::Deciding; }, 10000),
         "the link parks on Deciding");
-    Check(asked == deskhub::FormatFingerprint(identity.fingerprint),
+    Check(WaitUntil([&askedCopy] { return !askedCopy().empty(); }, 10000),
+        "and asks inside the deadline");
+    Check(askedCopy() == deskhub::FormatFingerprint(identity.fingerprint),
         "and shows the host's real fingerprint");
     Check(link.Message() == deskhub::ui::kTrustChangedBody, "with the shared warning text");
 
