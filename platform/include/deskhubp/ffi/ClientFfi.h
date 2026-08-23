@@ -245,6 +245,8 @@ typedef enum {
     DHStrTransferBlocksScreenNote = 148,
     DHStrTransferArrivedTitle = 149,
     DHStrTransferStopTakingButton = 150,
+    DHStrConnectedPickSession = 151,
+    DHStrConnectFirstHint = 152,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

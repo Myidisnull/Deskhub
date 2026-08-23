@@ -238,6 +238,10 @@ inline constexpr const char* kShareNoQuicLibrary =
 inline constexpr const char* kShareNoHostIdentity =
     "This machine could not create the key it identifies itself with, so it cannot share.";
 inline constexpr const char* kOpenChoiceGroup = "What to open on that machine";
+inline constexpr const char* kConnectedPickSession =
+    "Connected \xE2\x80\x94 choose what to open.";
+inline constexpr const char* kConnectFirstHint =
+    "Connect first \xE2\x80\x94 each button lights up only with what that machine shares.";
 inline constexpr const char* kOpenDesktopLabel = "Remote desktop \xE2\x80\x94 view its screen";
 inline constexpr const char* kOpenShellLabel = "Terminal \xE2\x80\x94 open a shell";
 inline constexpr const char* kOpenNothingTicked =

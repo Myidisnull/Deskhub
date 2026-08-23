@@ -54,26 +54,37 @@ struct ConnectView: View {
                     .disabled(model.connect.isConnecting)
 
                 Button(action: model.beginConnect) {
-                    Text("Connect").deskhubPrimaryLabel()
+                    Text(DeskhubClient.string(DHStrConnectButton)).deskhubPrimaryLabel()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(DeskhubPalette.accent)
                 .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
 
+                Button(action: model.openDesktop) {
+                    Text(DeskhubClient.string(DHStrOpenDesktopLabel)).deskhubPrimaryLabel()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(!model.connect.canOpenDesktop || model.connect.isConnecting)
+
                 Button(action: model.openShell) {
                     Text(DeskhubClient.string(DHStrOpenShellLabel)).deskhubPrimaryLabel()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-                .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
+                .disabled(!model.connect.canOpenShell || model.connect.isConnecting)
 
                 Button(action: model.openFileSend) {
                     Text(DeskhubClient.string(DHStrOpenFilesLabel)).deskhubPrimaryLabel()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-                .disabled(model.connect.address.isEmpty || model.connect.isConnecting)
+                .disabled(!model.connect.canOpenFiles || model.connect.isConnecting)
+
+                Text(DeskhubClient.string(DHStrConnectFirstHint))
+                    .font(.caption)
+                    .foregroundStyle(DeskhubPalette.muted)
 
                 if model.connect.isConnecting {
                     HStack(spacing: 12) {
@@ -81,6 +92,11 @@ struct ConnectView: View {
                         Text(DeskhubClient.string(DHStrQueryingSources))
                             .foregroundStyle(DeskhubPalette.muted)
                     }
+                }
+
+                if model.connect.authed != nil {
+                    Text(DeskhubClient.string(DHStrConnectedPickSession))
+                        .foregroundStyle(DeskhubPalette.muted)
                 }
 
                 Toggle(
