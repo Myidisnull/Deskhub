@@ -199,6 +199,20 @@ void FileHost::HandleMessage(const NetAddr& from, std::span<const uint8_t> messa
 }
 
 void FileHost::OnPeerGone(const NetAddr& peer) {
+    const std::lock_guard<std::mutex> lock(goneMutex_);
+    gone_.push_back(peer);
+}
+
+void FileHost::DrainGone() {
+    std::vector<NetAddr> gone;
+    {
+        const std::lock_guard<std::mutex> lock(goneMutex_);
+        gone.swap(gone_);
+    }
+    for (const NetAddr& peer : gone) DropPeer(peer);
+}
+
+void FileHost::DropPeer(const NetAddr& peer) {
     std::vector<std::string> lines;
     bool changed = false;
     {

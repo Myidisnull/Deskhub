@@ -444,6 +444,7 @@ void HostEngine::RecvLoop() {
             files() != nullptr && files()->Accepting()});
         DrainControlRequests();
         DrainLocalClipboard();
+        if (FileHost* f = files()) f->DrainGone();
     };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.onFile = [this](const NetAddr& from, std::span<const uint8_t> message) {

@@ -47,11 +47,12 @@ public:
 
     void HandleMessage(const NetAddr& from, std::span<const uint8_t> message);
     void OnPeerGone(const NetAddr& peer);
+    void DrainGone();
 
     std::vector<deskhub::TransferRecord> Transfers() const;
 
     bool DiskKeepingUp() const {
-        return diskBacklog_.load(std::memory_order_relaxed) < kMaxQueuedWriteBytes;
+        return diskBacklog_.load(std::memory_order_relaxed) < kMaxQueuedWriteBytes / 2;
     }
 
 private:
@@ -73,6 +74,7 @@ private:
 
     Peer* PeerFor(const NetAddr& from);
     void RefreshLimits(Peer& peer);
+    void DropPeer(const NetAddr& peer);
     std::vector<std::string> TakeAudit();
     std::vector<OutboundRecord> TakeOutbox();
     static void SendOutbox(SessionTransport* sock, const std::vector<OutboundRecord>& records);
@@ -83,6 +85,8 @@ private:
     std::map<uint64_t, std::unique_ptr<Peer>> peers_{};
     std::vector<std::string> audit_{};
     std::vector<OutboundRecord> outbox_{};
+    std::vector<NetAddr> gone_{};
+    std::mutex goneMutex_{};
     std::mutex outboxMutex_{};
     mutable std::mutex mutex_{};
     std::atomic<bool> running_{false};
