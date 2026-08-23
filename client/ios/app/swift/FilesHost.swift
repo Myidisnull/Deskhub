@@ -23,7 +23,6 @@ final class FilesHost {
             if !delivered.isEmpty { Self.notifyArrived(delivered) }
             try? await Task.sleep(for: .seconds(1))
         }
-        stop()
     }
 
     static func askNotificationConsent() {
