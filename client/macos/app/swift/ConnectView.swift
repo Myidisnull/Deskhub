@@ -31,11 +31,7 @@ struct MainMenuView: View {
     @State private var page: DeskhubPage =
         StartPage.index().flatMap(DeskhubPage.init(rawValue:)) ?? .client
     @State private var shareAlert = ""
-    @State private var connectAlert = ""
     @State private var accessibilityWarning = false
-    @State private var openDesktop = dh_client_desktop()
-    @State private var openShell = dh_client_shell()
-    @State private var openTransfer = dh_client_files()
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""
     @State private var promptPort = ""
@@ -80,11 +76,6 @@ struct MainMenuView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(shareAlert)
-        }
-        .alert("Deskhub", isPresented: showingConnectAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(connectAlert)
         }
         .sheet(item: $prompting) { row in
             PasscodePromptSheet(
@@ -161,34 +152,6 @@ struct MainMenuView: View {
                 }
             }
 
-            GroupBox(DeskhubClient.string(DHStrOpenChoiceGroup)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle(
-                        DeskhubClient.string(DHStrOpenDesktopLabel), isOn: $openDesktop
-                    )
-                    .toggleStyle(.checkbox)
-                    .onChange(of: openDesktop) { _, on in dh_set_client_desktop(on) }
-                    Toggle(
-                        DeskhubClient.string(DHStrRequestControlLabel),
-                        isOn: $sharing.clientControl
-                    )
-                    .toggleStyle(.checkbox)
-                    .disabled(!openDesktop)
-                    .padding(.leading, 24)
-                    .onChange(of: sharing.clientControl) { _, _ in sharing.save() }
-                    Toggle(DeskhubClient.string(DHStrOpenShellLabel), isOn: $openShell)
-                        .toggleStyle(.checkbox)
-                        .onChange(of: openShell) { _, on in dh_set_client_shell(on) }
-                    Toggle(DeskhubClient.string(DHStrOpenFilesLabel), isOn: $openTransfer)
-                        .toggleStyle(.checkbox)
-                        .onChange(of: openTransfer) { _, on in dh_set_client_files(on) }
-                    deskhubHint(DeskhubClient.string(DHStrMobileHostNote))
-                    deskhubHint(DeskhubClient.string(DHStrOpenChoiceHint))
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             Button(action: beginConnect) {
                 Text(DeskhubClient.string(DHStrConnectButton)).deskhubPrimaryLabel()
             }
@@ -206,6 +169,11 @@ struct MainMenuView: View {
                     }
                 }
 
+                if connect.authed != nil {
+                    Text(DeskhubClient.string(DHStrConnectedPickSession))
+                        .foregroundStyle(.secondary)
+                }
+
                 if !connect.connectError.isEmpty {
                     Text(connect.connectError)
                         .foregroundStyle(.red)
@@ -213,6 +181,34 @@ struct MainMenuView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+
+            GroupBox(DeskhubClient.string(DHStrOpenChoiceGroup)) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(action: openDesktopSession) {
+                        Text(DeskhubClient.string(DHStrOpenDesktopLabel))
+                    }
+                    .disabled(!connect.canOpenDesktop || connect.isConnecting)
+                    Toggle(
+                        DeskhubClient.string(DHStrRequestControlLabel),
+                        isOn: $sharing.clientControl
+                    )
+                    .toggleStyle(.checkbox)
+                    .padding(.leading, 24)
+                    .onChange(of: sharing.clientControl) { _, _ in sharing.save() }
+                    Button(action: openTerminalSession) {
+                        Text(DeskhubClient.string(DHStrOpenShellLabel))
+                    }
+                    .disabled(!connect.canOpenShell || connect.isConnecting)
+                    Button(action: openFilesSession) {
+                        Text(DeskhubClient.string(DHStrOpenFilesLabel))
+                    }
+                    .disabled(!connect.canOpenFiles || connect.isConnecting)
+                    deskhubHint(DeskhubClient.string(DHStrConnectFirstHint))
+                    deskhubHint(DeskhubClient.string(DHStrMobileHostNote))
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             deskhubHeadingRow(DeskhubClient.string(DHStrDevicesHeading)) {
                 discovery.refreshStatus()
@@ -229,10 +225,6 @@ struct MainMenuView: View {
 
     private var showingShareAlert: Binding<Bool> {
         Binding(get: { !shareAlert.isEmpty }, set: { if !$0 { shareAlert = "" } })
-    }
-
-    private var showingConnectAlert: Binding<Bool> {
-        Binding(get: { !connectAlert.isEmpty }, set: { if !$0 { connectAlert = "" } })
     }
 }
 
@@ -291,42 +283,40 @@ extension MainMenuView {
 
     private func beginConnect() {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
-        if !openDesktop, !openShell, !openTransfer {
-            connectAlert = DeskhubClient.string(DHStrOpenNothingTicked)
-            return
-        }
         guard connect.acceptAddress() != nil else { return }
         connect.saveDeviceName()
         Task {
-            guard let found = await connect.queryHost() else { return }
-            let accepted = connect.acceptedAddress
-            let passcode = connect.acceptedPasscode
-            guard !accepted.isEmpty else { return }
-            await discovery.remember(address: accepted, passcode: passcode)
-
-            let plan = DeskhubClient.connectPlan(
-                caps: found.caps, sources: found.sources,
-                desktop: openDesktop, shell: openShell, files: openTransfer
+            guard await connect.connectAuth() != nil else { return }
+            await discovery.remember(
+                address: connect.acceptedAddress, passcode: connect.acceptedPasscode
             )
-            if plan.openShell {
-                openWindow(value: TerminalRequest(address: accepted, passcode: passcode))
-            }
-            if plan.openFiles {
-                openWindow(value: TransferRequest(address: accepted, passcode: passcode,
-                                                  name: connect.deviceName))
-            }
-            if plan.hasProblem {
-                connect.connectError =
-                    DeskhubClient.connectProblemText(plan.problem, address: accepted)
-            }
-            guard plan.openDesktop else { return }
-            if plan.showPicker {
-                route = .sourcePicker(found.sources)
-            } else {
-                openViewers(found.sources, address: accepted, passcode: passcode,
-                            openWindow: openWindow)
-            }
         }
+    }
+
+    private func openDesktopSession() {
+        guard let found = connect.authed else { return }
+        let decision = DeskhubClient.connectDecision(found.sources)
+        if decision.showPicker {
+            route = .sourcePicker(found.sources)
+        } else {
+            openViewers(found.sources, address: connect.acceptedAddress,
+                        passcode: connect.acceptedPasscode, openWindow: openWindow)
+        }
+    }
+
+    private func openTerminalSession() {
+        guard connect.canOpenShell else { return }
+        openWindow(value: TerminalRequest(
+            address: connect.acceptedAddress, passcode: connect.acceptedPasscode
+        ))
+    }
+
+    private func openFilesSession() {
+        guard connect.canOpenFiles else { return }
+        openWindow(value: TransferRequest(
+            address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
+            name: connect.deviceName
+        ))
     }
 }
 

@@ -24,18 +24,22 @@ final class AppModel {
         guard !connect.isConnecting else { return }
         connect.saveDeviceName()
         Task {
-            let found = await connect.listSources()
-            guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
+            guard let found = await connect.connectAuth() else { return }
             await discovery.remember(
                 address: connect.acceptedAddress, passcode: connect.acceptedPasscode
             )
-            sources = found
-            let decision = DeskhubClient.connectDecision(found)
-            if decision.showPicker {
-                screen = .sourcePicker(found)
-            } else {
-                startStream(sourceId: decision.sourceId)
-            }
+            sources = found.sources
+        }
+    }
+
+    func openDesktop() {
+        guard let found = connect.authed, !found.sources.isEmpty else { return }
+        sources = found.sources
+        let decision = DeskhubClient.connectDecision(found.sources)
+        if decision.showPicker {
+            screen = .sourcePicker(found.sources)
+        } else {
+            startStream(sourceId: decision.sourceId)
         }
     }
 
@@ -72,27 +76,13 @@ final class AppModel {
     }
 
     func openFileSend() {
-        guard let accepted = connect.acceptAddress() else { return }
+        guard connect.canOpenFiles else { return }
         connect.saveDeviceName()
-        let passcode = connect.acceptedPasscode
-        let name = connect.deviceName
-        Task {
-            connect.isConnecting = true
-            let query = await Task.detached {
-                DeskhubClient.listSources(address: accepted, passcode: passcode)
-            }.value
-            connect.isConnecting = false
-            guard let query, query.caps.files else {
-                connect.connectError = DeskhubClient.string(DHStrTransferHostNotTaking)
-                return
-            }
-            await discovery.remember(address: accepted, passcode: passcode)
-            let sender = FileSendModel()
-            sender.address = accepted
-            sender.passcode = passcode
-            sender.deviceName = name
-            fileSend = sender
-        }
+        let sender = FileSendModel()
+        sender.address = connect.acceptedAddress
+        sender.passcode = connect.acceptedPasscode
+        sender.deviceName = connect.deviceName
+        fileSend = sender
     }
 
     func closeFileSend() {
@@ -102,28 +92,16 @@ final class AppModel {
     }
 
     func openShell() {
-        guard let accepted = connect.acceptAddress() else { return }
+        guard connect.canOpenShell else { return }
         connect.saveDeviceName()
-        let passcode = connect.acceptedPasscode
-        Task {
-            connect.isConnecting = true
-            let shared = await Task.detached {
-                DeskhubClient.hostHasTerminal(address: accepted, passcode: passcode)
-            }.value
-            connect.isConnecting = false
-            guard shared else {
-                connect.connectError = DeskhubClient.string(DHStrHostHasNoTerminal)
-                return
-            }
-            await discovery.remember(address: accepted, passcode: passcode)
-            let model = TerminalModel()
-            guard model.open(address: accepted, passcode: passcode) else {
-                connect.connectError = DeskhubClient.couldNotConnect(accepted)
-                return
-            }
-            terminal = model
-            screen = .terminal
+        let address = connect.acceptedAddress
+        let model = TerminalModel()
+        guard model.open(address: address, passcode: connect.acceptedPasscode) else {
+            connect.connectError = DeskhubClient.couldNotConnect(address)
+            return
         }
+        terminal = model
+        screen = .terminal
     }
 
     func closeShell() {

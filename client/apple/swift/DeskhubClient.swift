@@ -17,10 +17,6 @@ nonisolated enum DeskhubClient {
         buffered(320) { dh_source_query_failed(address, $0, $1) }
     }
 
-    static func sourceQueryEmpty(_ address: String) -> String {
-        buffered(320) { dh_source_query_empty(address, $0, $1) }
-    }
-
     static func hostTitle(_ address: String, width: UInt32, height: UInt32) -> String {
         buffered(320) { dh_host_title(address, width, height, $0, $1) }
     }
@@ -106,35 +102,6 @@ nonisolated enum DeskhubClient {
         return (showPicker, sourceId)
     }
 
-    static func connectPlan(
-        caps: HostCaps, sources: [Source], desktop: Bool, shell: Bool, files: Bool
-    ) -> ConnectPlan {
-        let infos = sources.map { source -> DHSourceInfo in
-            var info = DHSourceInfo()
-            info.sourceId = source.id
-            return info
-        }
-        var raw = DHHostCaps()
-        raw.acceptsInput = caps.acceptsInput
-        raw.terminal = caps.terminal
-        raw.files = caps.files
-        let planned = infos.withUnsafeBufferPointer {
-            dh_connect_plan(raw, $0.baseAddress, Int32($0.count), desktop, shell, files)
-        }
-        return ConnectPlan(
-            openShell: planned.openShell,
-            openFiles: planned.openFiles,
-            openDesktop: planned.openDesktop,
-            showPicker: planned.showPicker,
-            sourceId: planned.sourceId,
-            problem: planned.problem
-        )
-    }
-
-    static func connectProblemText(_ problem: Int32, address: String) -> String {
-        buffered(320) { dh_connect_problem_text(problem, address, $0, $1) }
-    }
-
     static var maxTransferFiles: Int {
         Int(dh_max_transfer_files())
     }
@@ -172,9 +139,5 @@ nonisolated enum DeskhubClient {
             caps: HostCaps(acceptsInput: caps.acceptsInput, terminal: caps.terminal,
                            files: caps.files)
         )
-    }
-
-    static func hostHasTerminal(address: String, passcode: String) -> Bool {
-        dh_host_has_terminal(address, passcode)
     }
 }

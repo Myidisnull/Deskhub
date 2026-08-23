@@ -30,13 +30,27 @@ final class ConnectModel {
         return stored.isEmpty ? ConnectModel.defaultDeviceName : stored
     }
 
-    var address: String = DeskhubClient.addressHost(ConnectModel.lastAddress)
-    var port: String = DeskhubClient.addressPortText(ConnectModel.lastAddress)
-    var passcode: String = DeskhubDiscovery.passcode(for: ConnectModel.lastAddress)
+    var address: String = DeskhubClient.addressHost(ConnectModel.lastAddress) {
+        didSet { if address != oldValue { authed = nil } }
+    }
+
+    var port: String = DeskhubClient.addressPortText(ConnectModel.lastAddress) {
+        didSet { if port != oldValue { authed = nil } }
+    }
+
+    var passcode: String = DeskhubDiscovery.passcode(for: ConnectModel.lastAddress) {
+        didSet { if passcode != oldValue { authed = nil } }
+    }
+
     var deviceName: String = ConnectModel.initialDeviceName
     var isConnecting = false
     var connectError = ""
     private(set) var acceptedAddress = ""
+    private(set) var authed: HostQuery?
+
+    var canOpenDesktop: Bool { !(authed?.sources.isEmpty ?? true) }
+    var canOpenShell: Bool { authed?.caps.terminal ?? false }
+    var canOpenFiles: Bool { authed?.caps.files ?? false }
 
     var acceptedPasscode: String {
         DeskhubClient.isValidPasscode(passcode) ? passcode : ""
@@ -84,12 +98,10 @@ final class ConnectModel {
         return found
     }
 
-    func listSources() async -> [Source] {
-        guard let found = await queryHost() else { return [] }
-        guard !found.sources.isEmpty else {
-            connectError = DeskhubClient.sourceQueryEmpty(acceptedAddress)
-            return []
-        }
-        return found.sources
+    func connectAuth() async -> HostQuery? {
+        authed = nil
+        guard let found = await queryHost() else { return nil }
+        authed = found
+        return found
     }
 }

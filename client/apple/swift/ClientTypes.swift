@@ -23,17 +23,6 @@ struct Source: Identifiable, Sendable, Hashable {
     let pickerLabel: String
 }
 
-struct ConnectPlan: Sendable {
-    var openShell = false
-    var openFiles = false
-    var openDesktop = false
-    var showPicker = false
-    var sourceId: UInt8 = 0
-    var problem: Int32 = 0
-
-    var hasProblem: Bool { problem != 0 }
-}
-
 struct HostCaps: Sendable {
     var acceptsInput = false
     var terminal = false

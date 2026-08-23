@@ -18,12 +18,11 @@ final class FilesHost {
             sync()
             if receiving { pairing.drain() }
             let delivered = await ReceivedFiles.sweep(
-                sharing: BroadcastStatus.broadcastProcessAlive
+                keepPartFiles: receiving || BroadcastStatus.broadcastProcessAlive
             )
             if !delivered.isEmpty { Self.notifyArrived(delivered) }
             try? await Task.sleep(for: .seconds(1))
         }
-        stop()
     }
 
     static func askNotificationConsent() {
@@ -64,6 +63,7 @@ final class FilesHost {
     private func start() {
         guard let dir = ReceivedFiles.incomingDir else { return }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        ReceivedFiles.removeStaleParts()
         dh_set_transfer_dir(dir.path)
         let stored = dh_settings_load()
         let passcode = DeskhubClient.cString(stored.passcode)

@@ -29,7 +29,7 @@ struct ContentView: View {
         .task(id: scenePhase) {
             if scenePhase == .active {
                 await FilesHost.shared.run()
-            } else {
+            } else if scenePhase == .background {
                 FilesHost.shared.stop()
             }
         }

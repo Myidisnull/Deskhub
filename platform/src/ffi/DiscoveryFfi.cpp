@@ -406,36 +406,6 @@ void dh_set_client_control(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
-bool dh_client_desktop(void) {
-    return deskhubp::LoadUiSettings().clientDesktop;
-}
-
-void dh_set_client_desktop(bool on) {
-    ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.clientDesktop = on;
-    deskhubp::SaveUiSettings(out);
-}
-
-bool dh_client_shell(void) {
-    return deskhubp::LoadUiSettings().clientShell;
-}
-
-void dh_set_client_shell(bool on) {
-    ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.clientShell = on;
-    deskhubp::SaveUiSettings(out);
-}
-
-bool dh_client_files(void) {
-    return deskhubp::LoadUiSettings().clientFiles;
-}
-
-void dh_set_client_files(bool on) {
-    ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.clientFiles = on;
-    deskhubp::SaveUiSettings(out);
-}
-
 int dh_device_name(char* out, int capacity) {
     return FillText(out, capacity, deskhubp::LoadUiSettings().deviceName);
 }
