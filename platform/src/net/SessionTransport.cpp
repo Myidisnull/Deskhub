@@ -345,20 +345,23 @@ void SessionTransport::SetHostAuth(HostAuthConfig config, TransportAuthCallbacks
 }
 
 void SessionTransport::ApproveConnection(const NetAddr& peer, bool allowed) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     const auto at = hostAuth_.find(peer.Pack());
     if (at == hostAuth_.end()) return;
-    const std::lock_guard<std::mutex> lock(sendMutex_);
     SettleHostAuth(peer, *at->second, at->second->Approve(allowed, NowUnix()));
 }
 
 bool SessionTransport::Authenticated(const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     const auto at = authenticated_.find(peer.Pack());
     return at != authenticated_.end() && at->second;
 }
 
 bool SessionTransport::PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp,
     std::string& name) const {
-    if (!Authenticated(peer)) return false;
+    const std::lock_guard<std::mutex> lock(sendMutex_);
+    const auto authed = authenticated_.find(peer.Pack());
+    if (authed == authenticated_.end() || !authed->second) return false;
     const auto at = hostAuth_.find(peer.Pack());
     if (at == hostAuth_.end()) return false;
     fp = at->second->PeerFingerprint();
