@@ -83,7 +83,7 @@ public:
     void AcceptFingerprint();
     void RejectFingerprint();
 
-    bool SendMessage(std::span<const uint8_t> message);
+    bool Send(std::span<const uint8_t> message);
     bool SendRecordOn(uint64_t streamId, std::span<const uint8_t> message);
 
     HostLinkState State() const {

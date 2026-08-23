@@ -555,6 +555,13 @@ line.
   query passes it through, `trustGate=false`, remembering nothing — its callers
   have no prompt to show), and only a passcode the host cryptographically proved
   pins a key automatically.
+- **`HostLink` sends through `Send`, not `SendMessage`**: on Windows the OS headers
+  behind the platform layer define `SendMessage` as a macro for `SendMessageA`, and
+  in `HostLink.cpp` they landed after the class declaration but before the method
+  definition — MSVC then required a definition for a `SendMessageA` member no header
+  had declared. Win32 API names (`SendMessage`, `PostMessage`, `CreateWindow`,
+  `GetObject`, …) are never safe as method names in any translation unit an OS
+  header can reach; the rename is the fix, not an `#undef`.
 - **The portal ScreenCast session lives and dies with a D-Bus connection**: GLib caches
   the shared session bus by weak reference, so `g_object_unref` on the last handle
   disposes the connection outright. `xdg-desktop-portal` then drops the session, the

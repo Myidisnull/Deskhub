@@ -543,6 +543,14 @@ pull request, và dòng coverage của `core/`.
   (chỉ truy vấn nguồn cho đi qua, `trustGate=false`, không ghi nhớ gì — nơi gọi nó
   không có prompt để hiện), và chỉ passcode được host chứng minh bằng mật mã mới tự
   ghim key.
+- **`HostLink` gửi qua `Send`, không phải `SendMessage`**: trên Windows, các header
+  hệ điều hành phía sau tầng platform định nghĩa `SendMessage` là macro thay cho
+  `SendMessageA`, và trong `HostLink.cpp` chúng vào sau phần khai báo class nhưng
+  trước phần định nghĩa method — MSVC khi đó đòi định nghĩa cho một thành viên
+  `SendMessageA` mà không header nào khai báo. Các tên API Win32 (`SendMessage`,
+  `PostMessage`, `CreateWindow`, `GetObject`, …) không bao giờ an toàn làm tên method
+  trong bất kỳ translation unit nào một header hệ điều hành với tới được; cách sửa là
+  đổi tên, không phải `#undef`.
 - **Phiên ScreenCast của portal sống chết theo một kết nối D-Bus**: GLib cache session
   bus dùng chung bằng tham chiếu yếu, nên `g_object_unref` trên handle cuối cùng sẽ huỷ
   luôn kết nối. `xdg-desktop-portal` khi đó bỏ phiên, compositor xoá node PipeWire, và

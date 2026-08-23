@@ -480,7 +480,7 @@ private:
 
     deskhub::ScreenClientCallbacks MakeScreenClientCallbacks() {
         deskhub::ScreenClientCallbacks cb;
-        cb.send = [this](std::span<const uint8_t> d) { link_.SendMessage(d); };
+        cb.send = [this](std::span<const uint8_t> d) { link_.Send(d); };
         cb.onFrame = [this](deskhub::Reassembler::Frame&& f) {
             {
                 std::lock_guard<std::mutex> lk(decMutex_);

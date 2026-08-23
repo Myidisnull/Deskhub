@@ -59,7 +59,7 @@ bool QuerySources(const NetAddr& server, std::vector<deskhub::SourceInfo>& out,
     uint8_t query[deskhub::kMaxDatagram];
     const size_t qn = deskhub::BuildListSources(query);
     if (!qn) return false;
-    link.SendMessage(std::span<const uint8_t>(query, qn));
+    link.Send(std::span<const uint8_t>(query, qn));
 
     const uint64_t deadline = NowUs() + kListTimeoutUs;
     while (NowUs() < deadline) {

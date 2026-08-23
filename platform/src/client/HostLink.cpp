@@ -120,7 +120,7 @@ void HostLink::RejectFingerprint() {
     trustDecision_.store(int(TrustDecision::Rejected), std::memory_order_release);
 }
 
-bool HostLink::SendMessage(std::span<const uint8_t> message) {
+bool HostLink::Send(std::span<const uint8_t> message) {
     NoteSent();
     return sock_.SendTo(config_.host, message.data(), message.size());
 }
