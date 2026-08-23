@@ -3,15 +3,15 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class AgentModel {
+final class SharingModel {
     private static let stored = dh_settings_load()
 
-    var fps = Int(AgentModel.stored.fps)
-    var bitrateMbps = Int(AgentModel.stored.bitrateMbps)
-    var maxDim = Int(AgentModel.stored.maxDim)
-    var port = Int(AgentModel.stored.port)
-    var allowInput = AgentModel.stored.allowInput
-    var passcode = DeskhubClient.cString(AgentModel.stored.passcode) {
+    var fps = Int(SharingModel.stored.fps)
+    var bitrateMbps = Int(SharingModel.stored.bitrateMbps)
+    var maxDim = Int(SharingModel.stored.maxDim)
+    var port = Int(SharingModel.stored.port)
+    var allowInput = SharingModel.stored.allowInput
+    var passcode = DeskhubClient.cString(SharingModel.stored.passcode) {
         didSet {
             if passcode.isEmpty || DeskhubClient.isValidPasscode(passcode) {
                 lastValidPasscode = passcode
@@ -19,7 +19,7 @@ final class AgentModel {
         }
     }
 
-    private var lastValidPasscode = DeskhubClient.cString(AgentModel.stored.passcode)
+    private var lastValidPasscode = DeskhubClient.cString(SharingModel.stored.passcode)
 
     var addresses: [LocalAddress] = []
 
@@ -32,16 +32,8 @@ final class AgentModel {
     var tickedSources: Set<UInt32> = []
     var shareTerminal = true
     var shareFiles = true
-    var filesFolder = DeskhubAgent.filesFolder
-    var pairingAsks: [PairingAsk] = []
-
-    struct PairingAsk: Identifiable {
-        let addrPacked: UInt64
-        let shortKey: String
-        let body: String
-
-        var id: UInt64 { addrPacked }
-    }
+    var filesFolder = DeskhubShare.filesFolder
+    let pairing = PairingAskModel()
 
     var hasScreenRecording = false
     var hasAccessibility = false
@@ -52,7 +44,7 @@ final class AgentModel {
             ? passcode : lastValidPasscode
     }
 
-    var clientControl = AgentModel.stored.clientControl
+    var clientControl = SharingModel.stored.clientControl
     var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
     var autoShare = dh_auto_share()
     var autostart = dh_autostart_enabled()
@@ -85,7 +77,7 @@ final class AgentModel {
                 sharingFiles, $0, $1
             )
         }
-        let bindWarning = DeskhubClient.buffered(256) { dha_bind_warning($0, $1) }
+        let bindWarning = DeskhubClient.buffered(256) { dh_share_bind_warning($0, $1) }
         if !bindWarning.isEmpty { line += "\n" + bindWarning }
         return line
     }
@@ -112,20 +104,20 @@ final class AgentModel {
     private var pollTimer: Timer?
 
     func refreshPermissions() {
-        hasScreenRecording = DeskhubAgent.hasScreenRecording
-        hasAccessibility = DeskhubAgent.hasAccessibility
+        hasScreenRecording = DeskhubShare.hasScreenRecording
+        hasAccessibility = DeskhubShare.hasAccessibility
         if hasScreenRecording {
             screenRecordingNeedsRelaunch = false
         }
     }
 
     func requestScreenRecording() {
-        hasScreenRecording = DeskhubAgent.requestScreenRecording()
+        hasScreenRecording = DeskhubShare.requestScreenRecording()
         screenRecordingNeedsRelaunch = !hasScreenRecording
     }
 
     func requestAccessibility() {
-        hasAccessibility = DeskhubAgent.requestAccessibility()
+        hasAccessibility = DeskhubShare.requestAccessibility()
     }
 
     func loadAddresses() {
@@ -188,7 +180,7 @@ final class AgentModel {
             return false
         }
 
-        let picked = Array(pickedSources.prefix(DeskhubAgent.maxSources))
+        let picked = Array(pickedSources.prefix(DeskhubShare.maxSources))
         clampWarning = picked.count < pickedSources.count
             ? DeskhubClient.string(DHStrShareClampWarning) : ""
 
@@ -208,7 +200,7 @@ final class AgentModel {
         )
 
         let ok = await Task.detached {
-            DeskhubAgent.start(sources: picked, options: options)
+            DeskhubShare.start(sources: picked, options: options)
         }.value
 
         isStarting = false
@@ -218,7 +210,7 @@ final class AgentModel {
         } else {
             clampWarning = ""
             startError = picked.isEmpty || hasScreenRecording
-                ? DeskhubClient.string(DHStrShareStartFailed) + ". " + DeskhubAgent.lastError
+                ? DeskhubClient.string(DHStrShareStartFailed) + ". " + DeskhubShare.lastError
                 : DeskhubClient.string(DHStrScreenRecordingRequired)
         }
         return ok
@@ -228,13 +220,14 @@ final class AgentModel {
         sharingScreen = screen
         sharingTerminal = terminal
         sharingFiles = files
-        filesFolder = DeskhubAgent.filesFolder
+        filesFolder = DeskhubShare.filesFolder
         startPolling()
     }
 
     func stopSharing() {
         stopPolling()
-        DeskhubAgent.stop()
+        DeskhubShare.stop()
+        pairing.clear()
         isSharing = false
         sharingScreen = false
         sharingTerminal = false
@@ -257,24 +250,24 @@ final class AgentModel {
     }
 
     private func poll() {
-        rows = DeskhubAgent.hostRows()
-        if !DeskhubAgent.isRunning {
+        rows = DeskhubShare.hostRows()
+        if !DeskhubShare.isRunning {
             stopSharing()
             return
         }
-        drainPairingRequests()
+        pairing.drain()
         if clipboardSync { pumpClipboard() }
     }
 }
 
-extension AgentModel {
+extension SharingModel {
     func runRowAction(_ row: HostRow) {
         guard isSharing else { return }
         if row.terminal {
             if row.viewer {
-                dha_kick_shell(row.termId)
+                dh_share_kick_shell(row.termId)
             } else {
-                dha_stop_terminal()
+                dh_share_stop_terminal()
                 sharingTerminal = false
                 if !rows.contains(where: { !$0.terminal }) { stopSharing() }
             }
@@ -282,63 +275,23 @@ extension AgentModel {
         }
         if row.files {
             guard !row.viewer else { return }
-            DeskhubAgent.stopFiles()
+            DeskhubShare.stopFiles()
             sharingFiles = false
             if !rows.contains(where: { !$0.files }) { stopSharing() }
             return
         }
         if row.viewer {
-            DeskhubAgent.kickViewer(row.sourceId, address: row.viewerAddr)
+            DeskhubShare.kickViewer(row.sourceId, address: row.viewerAddr)
         } else {
-            DeskhubAgent.stopSource(row.sourceId)
+            DeskhubShare.stopSource(row.sourceId)
         }
     }
 
     func stopAndAttachShell(_ row: HostRow) -> Bool {
         guard isSharing, row.canAttachLocally else { return false }
-        guard DeskhubAgent.attachShell(row.termId) else { return false }
-        rows = DeskhubAgent.hostRows()
+        guard DeskhubShare.attachShell(row.termId) else { return false }
+        rows = DeskhubShare.hostRows()
         return true
-    }
-
-    func answerPairing(_ ask: PairingAsk, allow: Bool) {
-        dha_answer_pairing(ask.addrPacked, allow)
-        pairingAsks.removeAll { $0.addrPacked == ask.addrPacked }
-    }
-
-    private func drainPairingRequests() {
-        let requests = DeskhubClient.ffiList(
-            16, DHPairingRequest(),
-            { dha_take_pairing_requests($0, $1) },
-            { $0 }
-        )
-        guard !requests.isEmpty else { return }
-
-        let paired = Set(DeskhubClient.ffiList(
-            128, DHPairedDevice(),
-            { dh_paired_devices($0, $1) },
-            { DeskhubClient.cString($0.shortKey) }
-        ))
-
-        for request in requests {
-            let shortKey = DeskhubClient.cString(request.shortKey)
-            if paired.contains(shortKey) {
-                dha_answer_pairing(request.addrPacked, true)
-                continue
-            }
-            guard !pairingAsks.contains(where: { $0.addrPacked == request.addrPacked })
-            else { continue }
-            let address = DeskhubClient.buffered(64) {
-                dh_format_address(request.addrPacked, $0, $1)
-            }
-            let name = DeskhubClient.cString(request.name)
-            let body = DeskhubClient.buffered(512) {
-                dh_pairing_request_body(name, address, shortKey, $0, $1)
-            }
-            pairingAsks.append(
-                PairingAsk(addrPacked: request.addrPacked, shortKey: shortKey, body: body)
-            )
-        }
     }
 
     private func loadShareSources() async {
@@ -349,14 +302,14 @@ extension AgentModel {
             tickedSources = []
             return
         }
-        let found = await Task.detached { DeskhubAgent.listShareSources() }.value
+        let found = await Task.detached { DeskhubShare.listShareSources() }.value
         shareSources = found
         tickedSources = Set(found.map(\.id))
     }
 
     private func pumpClipboard() {
         let board = NSPasteboard.general
-        let remote = DeskhubClient.buffered(33000) { dha_clip_take($0, $1) }
+        let remote = DeskhubClient.buffered(33000) { dh_share_clip_take($0, $1) }
         if !remote.isEmpty {
             board.clearContents()
             board.setString(remote, forType: .string)
@@ -366,7 +319,7 @@ extension AgentModel {
         guard board.changeCount != lastPasteboardChange else { return }
         lastPasteboardChange = board.changeCount
         if let text = board.string(forType: .string), !text.isEmpty {
-            dha_clip_offer(text)
+            dh_share_clip_offer(text)
         }
     }
 }

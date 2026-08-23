@@ -71,6 +71,7 @@ class TerminalActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
+                PairingPrompt()
                 var attempt by remember { mutableIntStateOf(0) }
                 val opened =
                     remember(attempt) {

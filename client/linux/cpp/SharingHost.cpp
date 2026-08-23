@@ -1,4 +1,4 @@
-#include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/host/SharingHost.h"
 
 #include <functional>
 #include <memory>
@@ -17,10 +17,10 @@
 
 #include "deskhub/control/FrameGate.h"
 #include "deskhub/control/StreamSize.h"
-#include "deskhub/diag/AgentDiag.h"
+#include "deskhub/diag/ShareDiag.h"
 #include "deskhub/media/FrameMailbox.h"
 #include "deskhub/media/RgbDownscale.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/session/host/SourcePipeline.h"
 
 namespace {
 
@@ -28,7 +28,7 @@ using LinuxSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, H
 
 struct SourcePipeline : LinuxSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : LinuxSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true, true}) {}
+        : LinuxSourceBase(startBps, minBps, deskhub::diag::ShareDiagCaps{false, true, true}) {}
 
     uint32_t nodeId = 0;
     int32_t srcX = 0, srcY = 0;
@@ -70,7 +70,7 @@ const SourcePipeline& Pipeline(const deskhubp::HostSource& st) {
 
 }
 
-bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
+bool SharingHost::Start(const std::vector<ShareSource>& sources, const ShareOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
@@ -91,7 +91,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         return Pipeline(st).capture.usingDmaBuf();
     };
 
-    policy.source.create = [engine](const AgentSource& s,
+    policy.source.create = [engine](const ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
         auto p = deskhubp::MakeHostSource<SourcePipeline>(*engine, s, sourceId);
         p->nodeId = uint32_t(s.targetId);
@@ -117,12 +117,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             cfg.onPacket = onPacket;
             auto enc = std::make_unique<HwEncoder>();
             if (!enc->Init(cfg, frameKind, drmFormat)) {
-                LOGE("[Agent][%s] No hardware encoder would start (NVENC or VA-API).",
+                LOGE("[Host][%s] No hardware encoder would start (NVENC or VA-API).",
                     p->name.c_str());
                 p->failed.store(true);
                 return false;
             }
-            LOGI("[Agent][%s] Encoding with %s.", p->name.c_str(), enc->BackendName());
+            LOGI("[Host][%s] Encoding with %s.", p->name.c_str(), enc->BackendName());
             p->encoder = std::move(enc);
             p->encoderW = w;
             p->encoderH = h;
@@ -158,9 +158,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(*p, fi.meta.width,
                 fi.meta.height, maxDim);
             if (!adm.sizeNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
+                LOGI("[Host][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
             if (!adm.pauseNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
+                LOGI("[Host][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
             if (adm.drop) return;
 
             p->lastFrameUs.store(fi.meta.timestampUs, std::memory_order_relaxed);
@@ -201,7 +201,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         });
 
         if (!p->capture.Start(p->nodeId, deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
-            LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
+            LOGE("[Host][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
                 p->name.c_str());
             p->failed.store(true);
             p->encodeBox.Close();
@@ -221,7 +221,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.source.attachInput = [engine](deskhubp::HostSource& st) {
         SourcePipeline& p = Pipeline(st);
-        const AgentOptions& o = engine->options();
+        const ShareOptions& o = engine->options();
         p.injector.SetLocalMonitor(&engine->localInput());
         p.injector.SetEnabled(p.injector.Init(p.srcX, p.srcY, p.nativeW.load(), p.nativeH.load(),
             o.desktopX, o.desktopY, o.desktopW, o.desktopH));

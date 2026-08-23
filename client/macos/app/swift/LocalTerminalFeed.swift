@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class LocalShellFeed: TerminalFeed {
+final class LocalTerminalFeed: TerminalFeed {
     private let termId: UInt32
     private var closed = false
 
@@ -10,7 +10,7 @@ final class LocalShellFeed: TerminalFeed {
     }
 
     private var alive: Bool {
-        !closed && dha_local_shell_alive(termId)
+        !closed && dh_share_local_shell_alive(termId)
     }
 
     var state: Int32 {
@@ -30,15 +30,15 @@ final class LocalShellFeed: TerminalFeed {
         scrollOffset: UInt32, into cells: UnsafeMutablePointer<DHTermCell>?, capacity: UInt32,
         info: inout DHTermGrid
     ) -> Bool {
-        dha_local_grid(termId, scrollOffset, cells, capacity, &info)
+        dh_share_local_grid(termId, scrollOffset, cells, capacity, &info)
     }
 
     func sendKey(_ key: Int32, codepoint: UInt32, shift: Bool, alt: Bool, ctrl: Bool) {
-        dha_local_send_key(termId, key, codepoint, shift, alt, ctrl)
+        dh_share_local_send_key(termId, key, codepoint, shift, alt, ctrl)
     }
 
     func sendText(_ text: String) {
-        dha_local_send_text(termId, text)
+        dh_share_local_send_text(termId, text)
     }
 
     func paste(_ text: String) {
@@ -46,12 +46,12 @@ final class LocalShellFeed: TerminalFeed {
     }
 
     func resize(cols: UInt16, rows: UInt16) {
-        dha_local_resize(termId, cols, rows)
+        dh_share_local_resize(termId, cols, rows)
     }
 
     func stop() {
         guard !closed else { return }
         closed = true
-        dha_close_local_shell(termId)
+        dh_share_close_local_shell(termId)
     }
 }

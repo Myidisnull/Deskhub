@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class SessionModel {
+final class AppModel {
     var connect = ConnectModel()
     var discovery = DiscoveryModel()
     var settings = SettingsModel()

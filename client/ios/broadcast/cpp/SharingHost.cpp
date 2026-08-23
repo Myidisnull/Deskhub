@@ -1,4 +1,4 @@
-#include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/host/SharingHost.h"
 
 #include <functional>
 #include <memory>
@@ -9,8 +9,8 @@
 #include "capture/ScreenCapture.h"
 
 #include "deskhub/control/StreamSize.h"
-#include "deskhub/diag/AgentDiag.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/diag/ShareDiag.h"
+#include "deskhub/session/host/SourcePipeline.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/NullInputInjector.h"
 #include "deskhubp/media/VtSourcePipeline.h"
@@ -21,7 +21,7 @@ using IosSourceBase = deskhubp::VtSourcePipeline<ScreenCapture, deskhubp::NullIn
 
 struct SourcePipeline : IosSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : IosSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, false}) {}
+        : IosSourceBase(startBps, minBps, deskhub::diag::ShareDiagCaps{false, false}) {}
 };
 
 SourcePipeline& Pipeline(deskhubp::HostSource& st) {
@@ -35,7 +35,7 @@ bool AudioArrivesFromReplayKit(const deskhub::media::AudioFormat&,
 
 }
 
-bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
+bool SharingHost::Start(const std::vector<ShareSource>& sources, const ShareOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
@@ -47,11 +47,11 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.onSharing = [] {
         LOGI(
-            "[Agent] Viewers can watch this screen but cannot control it \xE2\x80\x94 iOS does "
+            "[Host] Viewers can watch this screen but cannot control it \xE2\x80\x94 iOS does "
             "not let an app inject input system-wide.");
     };
 
-    policy.source.create = [engine](const AgentSource& s,
+    policy.source.create = [engine](const ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
         auto p = deskhubp::MakeHostSource<SourcePipeline>(*engine, s, sourceId);
         p->nativeW.store(s.width, std::memory_order_relaxed);
@@ -74,7 +74,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         };
 
         if (!p->capture.Start(deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
-            LOGE("[Agent][%s] Failed to hook the broadcast frame stream.", p->name.c_str());
+            LOGE("[Host][%s] Failed to hook the broadcast frame stream.", p->name.c_str());
             p->failed.store(true);
         }
     };

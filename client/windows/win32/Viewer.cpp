@@ -15,9 +15,9 @@
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/media/ViewerTitle.h"
-#include "deskhub/session/OpenViewers.h"
+#include "deskhub/session/client/OpenViewers.h"
 #include "deskhub/ui/Strings.h"
-#include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/ffi/ScreenFfi.h"
 #include "deskhubp/system/UiSettingsStore.h"
 #include "AppIcon.h"
 #include "ViewerInput.h"
@@ -69,7 +69,7 @@ void WriteClipboardText(HWND owner, const std::string& utf8) {
 struct ViewerFrame {
     HWND hwnd = nullptr;
     HWND video = nullptr;
-    DHSession* session = nullptr;
+    DHScreen* session = nullptr;
     deskhub::OpenViewerCount* openCount = nullptr;
     bool viewOnly = false;
     ViewerInput input;
@@ -159,11 +159,11 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             if (f && wp == kTimerHint) f->UpdateTitle();
             if (f && wp == kTimerClipboard && f->session) {
                 char remote[deskhub::kMaxClipboardTextBytes + 1];
-                if (dh_session_clip_take(f->session, remote, sizeof(remote)) > 0) {
+                if (dh_screen_clip_take(f->session, remote, sizeof(remote)) > 0) {
                     WriteClipboardText(h, remote);
                 } else {
                     const std::string local = ReadClipboardText(h);
-                    if (!local.empty()) dh_session_clip_offer(f->session, local.c_str());
+                    if (!local.empty()) dh_screen_clip_offer(f->session, local.c_str());
                 }
             }
             return 0;
@@ -214,9 +214,9 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 answer = MessageBoxW(h, body.c_str(), title.c_str(),
                     MB_YESNO | MB_DEFBUTTON2 | (changed ? MB_ICONWARNING : MB_ICONQUESTION));
             if (answer == IDYES)
-                dh_session_accept_key(f->session);
+                dh_screen_accept_key(f->session);
             else
-                dh_session_reject_key(f->session);
+                dh_screen_reject_key(f->session);
             return 0;
         }
         case WM_APP_CLOSED: {
@@ -286,7 +286,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         f->hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     SetWindowLongPtrW(f->video, GWLP_USERDATA, (LONG_PTR)f.get());
 
-    DHSessionCallbacks callbacks{};
+    DHScreenCallbacks callbacks{};
     callbacks.user = f.get();
     callbacks.onStatus = [](const char* line, void* user) {
         auto* fr = (ViewerFrame*)user;
@@ -323,7 +323,7 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
         PostMessageW(fr->hwnd, WM_APP_CLOSED, 0, 0);
     };
 
-    f->session = dh_session_start(addr.c_str(), sourceId, f->video, &callbacks,
+    f->session = dh_screen_start(addr.c_str(), sourceId, f->video, &callbacks,
         passcode.c_str());
     if (!f->session) {
         DestroyWindow(f->hwnd);
@@ -363,5 +363,5 @@ void RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInf
     PumpMessagesUntil(nullptr, [] { return true; });
 
     for (auto& f : frames)
-        if (f->session) dh_session_stop(f->session);
+        if (f->session) dh_screen_stop(f->session);
 }

@@ -6,7 +6,7 @@
 #include <objbase.h>
 #include <wrl/client.h>
 
-#include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/ffi/ScreenFfi.h"
 
 #include <atomic>
 #include <memory>
@@ -16,10 +16,10 @@
 #include "decode/PanelRenderer.h"
 #include "decode/WinVideoDecoder.h"
 #include "deskhubp/diag/Log.h"
-#include "deskhubp/ffi/ClientSessionForward.h"
-#include "deskhubp/ffi/ClientSessionShell.h"
+#include "deskhubp/ffi/ScreenFfiForward.h"
+#include "deskhubp/ffi/ScreenFfiShell.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/client/ScreenViewer.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -29,12 +29,12 @@ constexpr const char* kStatusSeparator = " \xC2\xB7 ";
 constexpr uint32_t kInitialPanelWidth = 1280;
 constexpr uint32_t kInitialPanelHeight = 720;
 
-using WinClientEngine = deskhubp::ClientEngine<WinVideoDecoder, WinRenderTarget>;
+using WinScreenViewer = deskhubp::ScreenViewer<WinVideoDecoder, WinRenderTarget>;
 
 }
 
-struct DHSession : deskhubp::FfiClientSession<WinClientEngine> {
-    DHSession() : FfiClientSession(deskhub::diag::ClientDiagCaps{true, false}) {}
+struct DHScreen : deskhubp::FfiScreenSession<WinScreenViewer> {
+    DHScreen() : FfiScreenSession(deskhub::diag::ScreenClientDiagCaps{true, false}) {}
 
     GpuChoice gpu;
     PanelRenderer renderer;
@@ -44,20 +44,20 @@ struct DHSession : deskhubp::FfiClientSession<WinClientEngine> {
 
 namespace {
 
-WinClientEngine& EngineOf(DHSession* s) {
+WinScreenViewer& EngineOf(DHScreen* s) {
     return s->engine;
 }
 
 }
 
-DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface,
-    const DHSessionCallbacks* callbacks, const char* passcode) {
+DHScreen* dh_screen_start(const char* address, uint8_t sourceId, void* surface,
+    const DHScreenCallbacks* callbacks, const char* passcode) {
     if (!surface) return nullptr;
 
     NetAddr server{};
-    if (!deskhubp::ParseSessionAddress(address, server)) return nullptr;
+    if (!deskhubp::ParseScreenAddress(address, server)) return nullptr;
 
-    auto session = std::make_unique<DHSession>();
+    auto session = std::make_unique<DHScreen>();
     session->AdoptCallbacks(callbacks);
 
     if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, session->gpu))
@@ -70,9 +70,9 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
             kInitialPanelHeight))
         return nullptr;
 
-    DHSession* raw = session.get();
+    DHScreen* raw = session.get();
 
-    deskhubp::ClientEngineConfig cfg;
+    deskhubp::ScreenViewerConfig cfg;
     cfg.server = server;
     cfg.sourceId = sourceId;
     cfg.screenW = uint32_t(GetSystemMetrics(SM_CXVIRTUALSCREEN));
@@ -104,10 +104,10 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     return session.release();
 }
 
-void dh_session_stop(DHSession* s) {
-    deskhubp::StopFfiClientSession(s);
+void dh_screen_stop(DHScreen* s) {
+    deskhubp::StopFfiScreenSession(s);
 }
 
-void dh_session_set_layer(DHSession*, void*) {}
+void dh_screen_set_layer(DHScreen*, void*) {}
 
 DESKHUB_DEFINE_CLIENT_SESSION_FORWARDERS(EngineOf)

@@ -114,6 +114,10 @@ interface FileSendDriver {
 
     fun error(): String
 
+    fun changedKeyFingerprint(): String
+
+    fun acceptChangedKey(): Boolean
+
     fun release()
 }
 
@@ -146,6 +150,10 @@ class StandaloneFileSendDriver(
 
     override fun error(): String = lastError
 
+    override fun changedKeyFingerprint(): String = if (handle == 0L) "" else NativeClient.sendChangedKey(handle)
+
+    override fun acceptChangedKey(): Boolean = handle != 0L && NativeClient.sendAcceptKey(handle)
+
     override fun release() {
         if (handle != 0L) NativeClient.sendStop(handle)
         handle = 0L
@@ -172,6 +180,29 @@ fun FileSendDialog(
     var history by remember { mutableStateOf(emptyList<SentRow>()) }
     var settled by remember { mutableStateOf(true) }
     var staging by remember { mutableStateOf(false) }
+    var keyFingerprint by remember { mutableStateOf("") }
+
+    val settleNow = {
+        if (!settled && (transfer.done || transfer.failed)) {
+            history =
+                history +
+                chosen.mapIndexed { index, file ->
+                    val sent = transfer.done || index < transfer.fileIndex
+                    SentRow(
+                        name = file.name,
+                        detail =
+                            if (sent) {
+                                Formatter.formatFileSize(context, file.length())
+                            } else {
+                                transfer.message
+                            },
+                        ok = sent,
+                    )
+                }
+            chosen = emptyList()
+            settled = true
+        }
+    }
 
     val adopt: (List<Uri>) -> Unit = { uris ->
         if (uris.isNotEmpty()) {
@@ -202,25 +233,14 @@ fun FileSendDialog(
 
     LaunchedEffect(transfer.active) {
         if (!transfer.active) {
-            if (!settled && (transfer.done || transfer.failed)) {
-                history =
-                    history +
-                    chosen.mapIndexed { index, file ->
-                        val sent = transfer.done || index < transfer.fileIndex
-                        SentRow(
-                            name = file.name,
-                            detail =
-                                if (sent) {
-                                    Formatter.formatFileSize(context, file.length())
-                                } else {
-                                    transfer.message
-                                },
-                            ok = sent,
-                        )
-                    }
-                chosen = emptyList()
-                settled = true
+            if (!settled && transfer.failed) {
+                val fingerprint = driver.changedKeyFingerprint()
+                if (fingerprint.isNotEmpty()) {
+                    keyFingerprint = fingerprint
+                    return@LaunchedEffect
+                }
             }
+            settleNow()
             return@LaunchedEffect
         }
         while (true) {
@@ -337,6 +357,40 @@ fun FileSendDialog(
             }
         },
     )
+
+    if (keyFingerprint.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(NativeClient.string(NativeClient.STR_TRUST_CHANGED_TITLE)) },
+            text = {
+                Text(
+                    NativeClient.string(NativeClient.STR_TRUST_CHANGED_BODY) + "\n\n" +
+                        NativeClient.string(NativeClient.STR_TRUST_FINGERPRINT_LABEL) + " " +
+                        keyFingerprint,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        keyFingerprint = ""
+                        if (driver.acceptChangedKey()) {
+                            transfer = NativeClient.Transfer(active = true)
+                        } else {
+                            settleNow()
+                        }
+                    },
+                ) { Text(NativeClient.string(NativeClient.STR_TRUST_ACCEPT)) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        keyFingerprint = ""
+                        settleNow()
+                    },
+                ) { Text(NativeClient.string(NativeClient.STR_TRUST_REJECT)) }
+            },
+        )
+    }
 }
 
 private const val POLL_MS = 200L

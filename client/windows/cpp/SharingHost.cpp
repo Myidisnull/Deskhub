@@ -6,7 +6,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
-#include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/host/SharingHost.h"
 
 #include <atomic>
 #include <functional>
@@ -29,8 +29,8 @@
 
 #include "deskhub/control/FrameGate.h"
 #include "deskhub/control/StreamSize.h"
-#include "deskhub/diag/AgentDiag.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/diag/ShareDiag.h"
+#include "deskhub/session/host/SourcePipeline.h"
 
 namespace {
 
@@ -38,7 +38,7 @@ using WinSourceBase = deskhubp::HostSourceBase<ScreenCapture, InputInjector, IVi
 
 struct SourcePipeline : WinSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : WinSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{}) {}
+        : WinSourceBase(startBps, minBps, deskhub::diag::ShareDiagCaps{}) {}
 
     HMONITOR monitor = nullptr;
     GpuChoice gpu;
@@ -72,7 +72,7 @@ SourcePipeline& Pipeline(deskhubp::HostSource& st) {
 
 }
 
-bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
+bool SharingHost::Start(const std::vector<ShareSource>& sources, const ShareOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
     auto gpu = std::make_shared<GpuChoice>();
 
@@ -86,16 +86,16 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             return std::string("Failed to create a D3D11 device.");
         Microsoft::WRL::ComPtr<ID3D10Multithread> mt;
         if (SUCCEEDED(gpu->device.As(&mt))) mt->SetMultithreadProtected(TRUE);
-        LOGI("[Agent] GPU: %ls [%s]", gpu->description.c_str(), GpuVendorName(gpu->vendor));
+        LOGI("[Host] GPU: %ls [%s]", gpu->description.c_str(), GpuVendorName(gpu->vendor));
         return std::string();
     };
 
     policy.afterSocket = [] {
         if (EnsureHostFirewallRule())
-            LOGI("[Agent] Windows Firewall: inbound rule verified (all profiles).");
+            LOGI("[Host] Windows Firewall: inbound rule verified (all profiles).");
         else
             LOGW(
-                "[Agent] Could not add/verify a Windows Firewall rule (needs admin). "
+                "[Host] Could not add/verify a Windows Firewall rule (needs admin). "
                 "If the other machine cannot connect, allow Deskhub.exe through Windows "
                 "Firewall for the current network.");
         return std::string();
@@ -103,12 +103,12 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.onSharing = [] {
         const bool elevated = IsProcessElevated();
-        LOGI("[Agent] Client control allowed (mouse + keyboard). Host elevated: %s%s",
+        LOGI("[Host] Client control allowed (mouse + keyboard). Host elevated: %s%s",
             elevated ? "YES" : "NO",
             elevated ? "" : " \xE2\x80\x94 input will NOT reach apps running as administrator");
     };
 
-    policy.source.create = [engine](const AgentSource& s,
+    policy.source.create = [engine](const ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
         auto p = deskhubp::MakeHostSource<SourcePipeline>(*engine, s, sourceId);
         p->monitor = (HMONITOR)(uintptr_t)s.targetId;
@@ -121,7 +121,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         const uint32_t maxDim = engine->options().maxDim;
 
         if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, p->gpu)) {
-            LOGE("[Agent][%s] Failed to create a D3D11 device for this source.",
+            LOGE("[Host][%s] Failed to create a D3D11 device for this source.",
                 p->name.c_str());
             p->failed.store(true);
             return;
@@ -145,7 +145,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
             p->encoder = CreateEncoder(p->gpu.device.Get(), cfg);
             if (!p->encoder) {
                 LOGE(
-                    "[Agent][%s] No usable encoder backend (NVENC + Media Foundation"
+                    "[Host][%s] No usable encoder backend (NVENC + Media Foundation"
                     " both failed).",
                     p->name.c_str());
                 p->failed.store(true);
@@ -167,9 +167,9 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                 p->ReleaseCached();
             }
             if (!adm.sizeNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
+                LOGI("[Host][%s] %s", p->name.c_str(), adm.sizeNote.c_str());
             if (!adm.pauseNote.empty())
-                LOGI("[Agent][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
+                LOGI("[Host][%s] %s", p->name.c_str(), adm.pauseNote.c_str());
             if (adm.drop) return;
             const uint32_t encW = adm.encode.width, encH = adm.encode.height;
 
@@ -212,7 +212,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
         p->capture.SetDevice(p->gpu.device.Get());
         if (!p->capture.Start(uint64_t(uintptr_t(p->monitor)),
                 deskhub::media::CaptureOptions{fps, maxDim}, onFrame)) {
-            LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
+            LOGE("[Host][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
                 p->name.c_str());
             p->failed.store(true);
         }

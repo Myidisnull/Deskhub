@@ -56,11 +56,11 @@ struct QualityPreset: Identifiable, Sendable {
     var id: Int { maxDim }
 }
 
-nonisolated enum DeskhubAgent {
+nonisolated enum DeskhubShare {
     static let qualityPresets: [QualityPreset] =
         DeskhubClient.ffiList(
             8, DHQualityPreset(),
-            { dha_quality_presets($0, $1) },
+            { dh_share_quality_presets($0, $1) },
             { raw in QualityPreset(label: DeskhubClient.cString(raw.label), maxDim: Int(raw.maxDim)) }
         )
 
@@ -76,7 +76,7 @@ nonisolated enum DeskhubAgent {
     static func listShareSources() -> [ShareSource] {
         DeskhubClient.ffiList(
             128, DHShareSource(),
-            { dha_list_share_sources($0, $1) },
+            { dh_share_list_sources($0, $1) },
             { info in
                 ShareSource(
                     rawId: info.id,
@@ -92,7 +92,7 @@ nonisolated enum DeskhubAgent {
     static func start(sources: [ShareSource], options: ShareOptions) -> Bool {
         var raw = sources.map(toRaw)
         return raw.withUnsafeMutableBufferPointer { ptr in
-            dha_start(
+            dh_share_start(
                 ptr.baseAddress, Int32(ptr.count), options.fps, options.bitrateMbps,
                 options.maxDim, options.port, options.allowInput, options.passcode,
                 options.terminal, options.files
@@ -100,23 +100,23 @@ nonisolated enum DeskhubAgent {
         }
     }
 
-    static func stop() { dha_stop() }
-    static var isRunning: Bool { dha_running() }
+    static func stop() { dh_share_stop() }
+    static var isRunning: Bool { dh_share_running() }
 
-    static func stopSource(_ sourceId: UInt8) { dha_stop_source(sourceId) }
+    static func stopSource(_ sourceId: UInt8) { dh_share_stop_source(sourceId) }
 
     static func kickViewer(_ sourceId: UInt8, address: String) {
-        dha_kick_viewer(sourceId, address)
+        dh_share_kick_viewer(sourceId, address)
     }
 
-    static func attachShell(_ termId: UInt32) -> Bool { dha_attach_shell(termId) }
+    static func attachShell(_ termId: UInt32) -> Bool { dh_share_attach_shell(termId) }
 
-    static var filesActive: Bool { dha_files_active() }
+    static var filesActive: Bool { dh_share_files_active() }
 
-    static func stopFiles() { dha_stop_files() }
+    static func stopFiles() { dh_share_stop_files() }
 
     static var filesFolder: String {
-        DeskhubClient.buffered(1024) { dha_files_dir($0, $1) }
+        DeskhubClient.buffered(1024) { dh_share_files_dir($0, $1) }
     }
 
     static var maxSources: Int { Int(dh_max_sources()) }
@@ -124,7 +124,7 @@ nonisolated enum DeskhubAgent {
     static func hostRows() -> [HostRow] {
         DeskhubClient.ffiList(
             64, DHHostRow(),
-            { dha_host_rows($0, $1) },
+            { dh_share_rows($0, $1) },
             { row in
                 HostRow(
                     viewer: row.viewer,
@@ -148,7 +148,7 @@ nonisolated enum DeskhubAgent {
         )
     }
 
-    static var lastError: String { String(cString: dha_last_error()) }
+    static var lastError: String { String(cString: dh_share_last_error()) }
 
     private static func toRaw(_ source: ShareSource) -> DHShareSource {
         var raw = DHShareSource()

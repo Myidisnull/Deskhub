@@ -69,7 +69,7 @@ struct TransferState: Sendable, Equatable {
     }
 }
 
-struct SessionHandlers: Sendable {
+struct ScreenSessionHandlers: Sendable {
     var onStatus: @Sendable (String) -> Void = { _ in }
     var onSize: @Sendable (UInt32, UInt32) -> Void = { _, _ in }
     var onClosed: @Sendable (String) -> Void = { _ in }

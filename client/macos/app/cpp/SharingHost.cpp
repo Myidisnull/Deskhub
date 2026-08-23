@@ -1,4 +1,4 @@
-#include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/host/SharingHost.h"
 
 #include <functional>
 #include <memory>
@@ -15,8 +15,8 @@
 #include "input/InputInjector.h"
 
 #include "deskhub/control/StreamSize.h"
-#include "deskhub/diag/AgentDiag.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/diag/ShareDiag.h"
+#include "deskhub/session/host/SourcePipeline.h"
 
 namespace {
 
@@ -24,7 +24,7 @@ using MacSourceBase = deskhubp::VtSourcePipeline<ScreenCapture, InputInjector>;
 
 struct SourcePipeline : MacSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : MacSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{true, false}) {}
+        : MacSourceBase(startBps, minBps, deskhub::diag::ShareDiagCaps{true, false}) {}
 
     uint32_t displayId = 0;
 };
@@ -45,7 +45,7 @@ bool ForEachLiveCapture(deskhubp::HostEngine& engine,
 
 }
 
-bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
+bool SharingHost::Start(const std::vector<ShareSource>& sources, const ShareOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
@@ -66,19 +66,19 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     policy.preflight = [] {
         if (!macperm::HasScreenRecording())
             LOGW(
-                "[Agent] Screen Recording permission not detected \xE2\x80\x94 "
+                "[Host] Screen Recording permission not detected \xE2\x80\x94 "
                 "capture will likely fail. Grant it in System Settings and restart.");
         return std::string();
     };
 
     policy.onSharing = [] {
         const bool ax = macperm::HasAccessibility();
-        LOGI("[Agent] Client control allowed (mouse + keyboard). Accessibility: %s%s",
+        LOGI("[Host] Client control allowed (mouse + keyboard). Accessibility: %s%s",
             ax ? "YES" : "NO",
             ax ? "" : " \xE2\x80\x94 input will be silently dropped until it is granted");
     };
 
-    policy.source.create = [engine](const AgentSource& s,
+    policy.source.create = [engine](const ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
         auto p = deskhubp::MakeHostSource<SourcePipeline>(*engine, s, sourceId);
         p->displayId = uint32_t(s.targetId);
@@ -103,7 +103,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
                 deskhub::media::CaptureOptions{fps, engine->options().maxDim,
                     engine->options().audio},
                 onFrame)) {
-            LOGE("[Agent][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
+            LOGE("[Host][%s] Failed to start capture \xE2\x80\x94 skipping this source.",
                 p->name.c_str());
             p->failed.store(true);
         }

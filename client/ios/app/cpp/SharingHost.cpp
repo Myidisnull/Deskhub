@@ -1,6 +1,6 @@
-#include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/host/SharingHost.h"
 
-bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
+bool SharingHost::Start(const std::vector<ShareSource>& sources, const ShareOptions& opt) {
     deskhubp::HostEnginePolicy policy;
     policy.noSourceError = "Nothing to share.";
     policy.preflight = [] {

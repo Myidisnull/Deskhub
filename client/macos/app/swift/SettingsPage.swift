@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsPage: View {
-    @Bindable var agent: AgentModel
+    @Bindable var sharing: SharingModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -12,18 +12,18 @@ struct SettingsPage: View {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text(DeskhubClient.string(DHStrFpsLabel))
-                    TextField("", value: $agent.fps, format: .number)
+                    TextField("", value: $sharing.fps, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: 90)
                 }
                 GridRow {
                     Text(DeskhubClient.string(DHStrBitrateLabel))
-                    TextField("", value: $agent.bitrateMbps, format: .number)
+                    TextField("", value: $sharing.bitrateMbps, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: 90)
                 }
                 GridRow {
                     Text(DeskhubClient.string(DHStrQualityLabel))
-                    Picker("", selection: $agent.maxDim) {
-                        ForEach(DeskhubAgent.qualityPresets) { preset in
+                    Picker("", selection: $sharing.maxDim) {
+                        ForEach(DeskhubShare.qualityPresets) { preset in
                             Text(preset.label).tag(preset.maxDim)
                         }
                     }
@@ -36,7 +36,7 @@ struct SettingsPage: View {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text(DeskhubClient.string(DHStrUdpPortLabel))
-                    TextField("", value: $agent.port, format: .number.grouping(.never))
+                    TextField("", value: $sharing.port, format: .number.grouping(.never))
                         .textFieldStyle(.roundedBorder).frame(width: 90)
                 }
             }
@@ -45,45 +45,45 @@ struct SettingsPage: View {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
                     Text(DeskhubClient.string(DHStrPasscodeLabel))
-                    PasscodeField(passcode: $agent.passcode, width: 64)
+                    PasscodeField(passcode: $sharing.passcode, width: 64)
                 }
             }
             deskhubHint(DeskhubClient.string(DHStrPasscodeHint))
-            Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $agent.allowInput)
+            Toggle(DeskhubClient.string(DHStrAllowControlLabel), isOn: $sharing.allowInput)
                 .toggleStyle(.checkbox)
 
             deskhubSection(DeskhubClient.string(DHStrSettingsSectionSession))
-            Toggle(DeskhubClient.string(DHStrClipboardSyncLabel), isOn: $agent.clipboardSync)
+            Toggle(DeskhubClient.string(DHStrClipboardSyncLabel), isOn: $sharing.clipboardSync)
                 .toggleStyle(.checkbox)
-            Toggle(DeskhubClient.string(DHStrShareAudioLabel), isOn: $agent.shareAudio)
+            Toggle(DeskhubClient.string(DHStrShareAudioLabel), isOn: $sharing.shareAudio)
                 .toggleStyle(.checkbox)
-            Toggle(DeskhubClient.string(DHStrPlayAudioLabel), isOn: $agent.playAudio)
+            Toggle(DeskhubClient.string(DHStrPlayAudioLabel), isOn: $sharing.playAudio)
                 .toggleStyle(.checkbox)
-            Toggle(DeskhubClient.string(DHStrKeepAwakeLabel), isOn: $agent.keepAwake)
+            Toggle(DeskhubClient.string(DHStrKeepAwakeLabel), isOn: $sharing.keepAwake)
                 .toggleStyle(.checkbox)
 
-            PermissionsSection(agent: agent)
+            PermissionsSection(sharing: sharing)
 
             deskhubSection(DeskhubClient.string(DHStrSettingsSectionLaunch))
-            Toggle(DeskhubClient.string(DHStrAutostartLabel), isOn: $agent.autostart)
+            Toggle(DeskhubClient.string(DHStrAutostartLabel), isOn: $sharing.autostart)
                 .toggleStyle(.checkbox)
-            Toggle(DeskhubClient.string(DHStrAutoShareLabel), isOn: $agent.autoShare)
+            Toggle(DeskhubClient.string(DHStrAutoShareLabel), isOn: $sharing.autoShare)
                 .toggleStyle(.checkbox)
-            Toggle(DeskhubClient.string(DHStrCloseToTrayLabel), isOn: $agent.startHidden)
+            Toggle(DeskhubClient.string(DHStrCloseToTrayLabel), isOn: $sharing.startHidden)
                 .toggleStyle(.checkbox)
         }
-        .onChange(of: agent.fps) { _, _ in agent.save() }
-        .onChange(of: agent.bitrateMbps) { _, _ in agent.save() }
-        .onChange(of: agent.maxDim) { _, _ in agent.save() }
-        .onChange(of: agent.port) { _, _ in agent.save() }
-        .onChange(of: agent.passcode) { _, _ in agent.save() }
-        .onChange(of: agent.allowInput) { _, _ in agent.save() }
-        .onChange(of: agent.autoShare) { _, _ in agent.save() }
-        .onChange(of: agent.autostart) { _, _ in agent.applyAutostart() }
-        .onChange(of: agent.startHidden) { _, _ in agent.save() }
-        .onChange(of: agent.clipboardSync) { _, _ in agent.save() }
-        .onChange(of: agent.shareAudio) { _, _ in agent.save() }
-        .onChange(of: agent.playAudio) { _, _ in agent.save() }
-        .onChange(of: agent.keepAwake) { _, _ in agent.save() }
+        .onChange(of: sharing.fps) { _, _ in sharing.save() }
+        .onChange(of: sharing.bitrateMbps) { _, _ in sharing.save() }
+        .onChange(of: sharing.maxDim) { _, _ in sharing.save() }
+        .onChange(of: sharing.port) { _, _ in sharing.save() }
+        .onChange(of: sharing.passcode) { _, _ in sharing.save() }
+        .onChange(of: sharing.allowInput) { _, _ in sharing.save() }
+        .onChange(of: sharing.autoShare) { _, _ in sharing.save() }
+        .onChange(of: sharing.autostart) { _, _ in sharing.applyAutostart() }
+        .onChange(of: sharing.startHidden) { _, _ in sharing.save() }
+        .onChange(of: sharing.clipboardSync) { _, _ in sharing.save() }
+        .onChange(of: sharing.shareAudio) { _, _ in sharing.save() }
+        .onChange(of: sharing.playAudio) { _, _ in sharing.save() }
+        .onChange(of: sharing.keepAwake) { _, _ in sharing.save() }
     }
 }

@@ -1,4 +1,4 @@
-#include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/host/SharingHost.h"
 
 #include <atomic>
 #include <cstddef>
@@ -13,9 +13,9 @@
 #include "encode/MediaCodecEncoder.h"
 
 #include "deskhub/control/StreamSize.h"
-#include "deskhub/diag/AgentDiag.h"
+#include "deskhub/diag/ShareDiag.h"
 #include "deskhub/media/H264Encode.h"
-#include "deskhub/session/HostRouter.h"
+#include "deskhub/session/host/SourcePipeline.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/NullInputInjector.h"
 
@@ -26,7 +26,7 @@ using AndroidSourceBase =
 
 struct SourcePipeline : AndroidSourceBase {
     SourcePipeline(uint32_t startBps, uint32_t minBps)
-        : AndroidSourceBase(startBps, minBps, deskhub::diag::AgentDiagCaps{false, true}) {}
+        : AndroidSourceBase(startBps, minBps, deskhub::diag::ShareDiagCaps{false, true}) {}
 
     std::atomic<uint32_t> displayW{0}, displayH{0};
     deskhub::media::PacketHandler sink;
@@ -62,8 +62,8 @@ bool RebuildPipeline(SourcePipeline& p) {
     const deskhub::FrameAdmission adm = deskhub::AdmitCapturedFrame(p,
         p.displayW.load(std::memory_order_relaxed), p.displayH.load(std::memory_order_relaxed),
         p.maxDim);
-    if (!adm.sizeNote.empty()) LOGI("[Agent][%s] %s", p.name.c_str(), adm.sizeNote.c_str());
-    if (!adm.pauseNote.empty()) LOGI("[Agent][%s] %s", p.name.c_str(), adm.pauseNote.c_str());
+    if (!adm.sizeNote.empty()) LOGI("[Host][%s] %s", p.name.c_str(), adm.sizeNote.c_str());
+    if (!adm.pauseNote.empty()) LOGI("[Host][%s] %s", p.name.c_str(), adm.pauseNote.c_str());
 
     if (p.encoder && p.encoder->IsOpen() && !adm.rebuildEncoder) return true;
 
@@ -75,7 +75,7 @@ bool RebuildPipeline(SourcePipeline& p) {
     EncoderConfig cfg = deskhub::MakeEncoderConfig(p, adm.encode, p.fps);
     cfg.onPacket = MakeEncoderSink(p, *encoder);
     if (!encoder->Init(cfg)) {
-        LOGE("[Agent][%s] MediaCodec refused to start an encoder.", p.name.c_str());
+        LOGE("[Host][%s] MediaCodec refused to start an encoder.", p.name.c_str());
         p.failed.store(true);
         return false;
     }
@@ -101,7 +101,7 @@ bool AudioArrivesFromMediaProjection(const deskhub::media::AudioFormat&,
 
 }
 
-bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
+bool SharingHost::Start(const std::vector<ShareSource>& sources, const ShareOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
@@ -115,11 +115,11 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
     policy.onSharing = [] {
         LOGI(
-            "[Agent] Viewers can watch this screen but cannot control it \xE2\x80\x94 Android "
+            "[Host] Viewers can watch this screen but cannot control it \xE2\x80\x94 Android "
             "does not let an app inject input system-wide.");
     };
 
-    policy.source.create = [engine](const AgentSource& s,
+    policy.source.create = [engine](const ShareSource& s,
                                uint8_t sourceId) -> std::unique_ptr<deskhubp::HostSource> {
         auto p = deskhubp::MakeHostSource<SourcePipeline>(*engine, s, sourceId);
         p->displayW.store(s.width, std::memory_order_relaxed);
@@ -145,7 +145,7 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
 
         if (!p->capture.Start(deskhub::media::CaptureOptions{p->fps, p->maxDim},
                 onDisplaySize)) {
-            LOGE("[Agent][%s] Failed to start screen capture.", p->name.c_str());
+            LOGE("[Host][%s] Failed to start screen capture.", p->name.c_str());
             p->failed.store(true);
             return;
         }

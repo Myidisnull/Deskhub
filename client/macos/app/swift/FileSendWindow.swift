@@ -6,7 +6,7 @@ struct TransferRequest: Codable, Hashable {
     var name: String
 }
 
-struct FileTransferWindow: View {
+struct FileSendWindow: View {
     @State private var sender = FileSendModel()
     @Environment(\.dismiss) private var dismiss
     private let request: TransferRequest
@@ -16,7 +16,7 @@ struct FileTransferWindow: View {
     }
 
     var body: some View {
-        FileShareView(model: sender) { dismiss() }
+        FileSendView(model: sender) { dismiss() }
             .navigationTitle(DeskhubClient.string(DHStrTransferSendHeading))
             .navigationSubtitle(request.address)
             .onAppear {

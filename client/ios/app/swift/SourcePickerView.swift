@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SourcePickerView: View {
-    @Bindable var model: SessionModel
+    @Bindable var model: AppModel
     let sources: [Source]
 
     @State private var picked: UInt8?

@@ -43,7 +43,7 @@ if(DESKHUB_NVENC AND NOT EXISTS ${NVENC_HEADERS_DIR}/ffnvcodec/nvEncodeAPI.h)
 endif()
 
 add_library(deskhub_linux_core STATIC
-    AgentLoop.cpp
+    SharingHost.cpp
 
     capture/ScreenCapture.cpp
 

@@ -14,8 +14,8 @@ add_library(deskhub SHARED
     JniEnv.cpp
     HostBridge.cpp
     TerminalBridge.cpp
-    AgentLoop.cpp
-    ClientSessionAndroid.cpp
+    SharingHost.cpp
+    ScreenFfiAndroid.cpp
 
     capture/ScreenCapture.cpp
     decode/MediaCodecDecoder.cpp

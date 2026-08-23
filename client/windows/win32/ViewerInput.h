@@ -6,11 +6,11 @@
 #include "deskhub/input/PointerLockState.h"
 #include "deskhub/protocol/Wire.h"
 
-struct DHSession;
+struct DHScreen;
 
 class ViewerInput {
 public:
-    bool Attach(HWND hwnd, DHSession* session);
+    bool Attach(HWND hwnd, DHScreen* session);
     void Detach();
 
     bool OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
@@ -27,7 +27,7 @@ private:
     void EmitButton(deskhub::MouseButton button, bool down);
 
     HWND hwnd_ = nullptr;
-    DHSession* session_ = nullptr;
+    DHScreen* session_ = nullptr;
     deskhub::PointerLockState pointer_;
     bool attached_ = false;
     int buttonsDown_ = 0;

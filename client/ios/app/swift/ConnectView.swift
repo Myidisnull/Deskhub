@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ConnectView: View {
-    @Bindable var model: SessionModel
+    @Bindable var model: AppModel
 
     @State private var prompting: DeviceListRow?
     @State private var promptPasscode = ""

@@ -15,8 +15,8 @@
 #include "deskhub/cli/Json.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/FileTransferClient.h"
-#include "deskhubp/session/FileUpload.h"
+#include "deskhubp/client/FileTransferClient.h"
+#include "deskhubp/client/FileUpload.h"
 #include "deskhubp/system/HostIdentity.h"
 #include "deskhubp/system/UiSettingsStore.h"
 

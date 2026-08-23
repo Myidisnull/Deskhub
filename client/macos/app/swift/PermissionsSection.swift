@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct PermissionsSection: View {
-    @Bindable var agent: AgentModel
+    @Bindable var sharing: SharingModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -14,13 +14,13 @@ struct PermissionsSection: View {
 
             PermissionRow(
                 title: "Screen Recording",
-                granted: agent.hasScreenRecording,
+                granted: sharing.hasScreenRecording,
                 detail: "Needed to share this Mac's display.",
-                grant: { agent.requestScreenRecording() },
-                openSettings: DeskhubAgent.openScreenRecordingSettings
+                grant: { sharing.requestScreenRecording() },
+                openSettings: DeskhubShare.openScreenRecordingSettings
             )
 
-            if agent.screenRecordingNeedsRelaunch {
+            if sharing.screenRecordingNeedsRelaunch {
                 Text("Deskhub is now listed under Privacy & Security \u{2192} Screen & System "
                     + "Audio Recording. Turn it on there, then quit and reopen Deskhub.")
                     .foregroundStyle(DeskhubPalette.muted)
@@ -29,16 +29,16 @@ struct PermissionsSection: View {
 
             PermissionRow(
                 title: "Accessibility",
-                granted: agent.hasAccessibility,
+                granted: sharing.hasAccessibility,
                 detail: "Needed for the other machine to move the mouse and type.",
-                grant: { agent.requestAccessibility() },
-                openSettings: DeskhubAgent.openAccessibilitySettings
+                grant: { sharing.requestAccessibility() },
+                openSettings: DeskhubShare.openAccessibilitySettings
             )
         }
         .onReceive(
             NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
         ) { _ in
-            agent.refreshPermissions()
+            sharing.refreshPermissions()
         }
     }
 }
