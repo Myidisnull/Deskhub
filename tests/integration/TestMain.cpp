@@ -30,6 +30,7 @@ void ReportCrashesWithAStack() {}
 #include <dbghelp.h>
 
 #include <cstdint>
+#include <exception>
 
 namespace {
 
@@ -100,8 +101,25 @@ LONG WINAPI ReportFatalException(EXCEPTION_POINTERS* info) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+void ReportTerminate() {
+    const HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(process, nullptr, TRUE);
+    std::printf(
+        "=== FATAL: std::terminate on thread %lu - usually a joinable std::thread destroyed "
+        "or assigned over, or an exception nothing caught ===\n",
+        GetCurrentThreadId());
+    void* frames[48] = {};
+    const USHORT taken = CaptureStackBackTrace(0, 48, frames, nullptr);
+    for (USHORT i = 0; i < taken; ++i)
+        PrintCrashFrame(process, int(i), reinterpret_cast<uint64_t>(frames[i]));
+    std::fflush(stdout);
+    TerminateProcess(process, 3);
+}
+
 void ReportCrashesWithAStack() {
     SetUnhandledExceptionFilter(ReportFatalException);
+    std::set_terminate(ReportTerminate);
 }
 
 #else
