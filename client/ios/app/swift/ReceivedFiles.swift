@@ -14,7 +14,18 @@ enum ReceivedFiles {
         BroadcastStatus.containerURL?.appendingPathComponent(folderName, isDirectory: true)
     }
 
-    static func sweep(sharing: Bool) async -> [String] {
+    static func removeStaleParts() {
+        guard let dir = incomingDir else { return }
+        let manager = FileManager.default
+        guard let entries = try? manager.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil
+        ) else { return }
+        for url in entries where url.lastPathComponent.hasSuffix(partSuffix) {
+            try? manager.removeItem(at: url)
+        }
+    }
+
+    static func sweep(keepPartFiles: Bool) async -> [String] {
         guard let dir = incomingDir else { return [] }
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(
@@ -24,7 +35,7 @@ enum ReceivedFiles {
         var delivered: [String] = []
         for url in entries {
             if url.lastPathComponent.hasSuffix(partSuffix) {
-                if !sharing { try? manager.removeItem(at: url) }
+                if !keepPartFiles { try? manager.removeItem(at: url) }
                 continue
             }
             if await deliver(url) { delivered.append(url.lastPathComponent) }
