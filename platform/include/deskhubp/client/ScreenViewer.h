@@ -163,12 +163,13 @@ public:
     }
 
     void Stop() {
-        player_.Stop();
         quit_.store(true);
+        if (channel_) channel_->Kick();
         decCv_.notify_all();
         surfaceCv_.notify_all();
         if (netThread_.joinable()) netThread_.join();
         if (decodeThread_.joinable()) decodeThread_.join();
+        player_.Stop();
         link_.Stop();
         if (keepAwakeHeld_) {
             ReleaseKeepAwake();

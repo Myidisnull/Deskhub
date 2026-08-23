@@ -43,29 +43,35 @@ FileUpload::~FileUpload() {
     StopReader();
 }
 
-void FileUpload::StartReader() {
+void FileUpload::StartReader(std::vector<std::ifstream> sources,
+    std::vector<deskhub::TransferFile> plan) {
     ring_.clear();
     ringBytes_ = 0;
     readerStop_ = false;
     readerEof_ = false;
     readerFailed_ = false;
-    reader_ = std::thread([this] { ReaderThread(); });
+    reader_ = std::thread(
+        [this, sources = std::move(sources), plan = std::move(plan)]() mutable {
+            ReaderThread(sources, plan);
+        });
 }
 
 void FileUpload::StopReader() {
-    if (!reader_.joinable()) return;
+    std::thread reaped;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         readerStop_ = true;
+        reaped.swap(reader_);
     }
     roomCv_.notify_all();
-    reader_.join();
+    if (reaped.joinable()) reaped.join();
 }
 
-void FileUpload::ReaderThread() {
-    for (size_t at = 0; at < plan_.size(); ++at) {
+void FileUpload::ReaderThread(std::vector<std::ifstream>& sources,
+    const std::vector<deskhub::TransferFile>& plan) {
+    for (size_t at = 0; at < plan.size(); ++at) {
         const uint16_t index = uint16_t(at);
-        const uint64_t size = plan_[at].size;
+        const uint64_t size = plan[at].size;
         uint64_t offset = 0;
         while (offset < size) {
             const uint64_t left = size - offset;
@@ -77,7 +83,7 @@ void FileUpload::ReaderThread() {
             chunk.offset = offset;
             chunk.data.resize(want);
 
-            std::ifstream& in = sources_[index];
+            std::ifstream& in = sources[index];
             in.clear();
             in.seekg(std::streamoff(offset), std::ios::beg);
             if (!in) {
@@ -156,14 +162,16 @@ FileBatch InspectFiles(const std::vector<std::filesystem::path>& paths) {
 }
 
 bool FileUpload::Begin(const std::vector<std::filesystem::path>& paths) {
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        error_.clear();
+        if (sender_->Busy()) {
+            error_ = "A transfer is already running.";
+            return false;
+        }
+    }
     StopReader();
     const std::lock_guard<std::mutex> lock(mutex_);
-    error_.clear();
-
-    if (sender_->Busy()) {
-        error_ = "A transfer is already running.";
-        return false;
-    }
 
     FileBatch batch = InspectFiles(paths);
     if (!batch.Ok()) {
@@ -182,16 +190,13 @@ bool FileUpload::Begin(const std::vector<std::filesystem::path>& paths) {
         opened.push_back(std::move(in));
     }
 
-    sources_ = std::move(opened);
-    plan_ = batch.files;
+    std::vector<deskhub::TransferFile> plan = batch.files;
     if (!sender_->Offer(nextBatchId_, std::move(batch.files))) {
-        sources_.clear();
-        plan_.clear();
         error_ = "The batch is more than one transfer can carry.";
         return false;
     }
     ++nextBatchId_;
-    StartReader();
+    StartReader(std::move(opened), std::move(plan));
     return true;
 }
 
@@ -222,8 +227,6 @@ void FileUpload::Flush() {
     if (ready.haveFinish) {
         StopReader();
         const std::lock_guard<std::mutex> lock(mutex_);
-        sources_.clear();
-        plan_.clear();
         ring_.clear();
         ringBytes_ = 0;
     }

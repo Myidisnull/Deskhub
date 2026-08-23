@@ -63,6 +63,7 @@ TransferReason FileReceiver::Admit(const FileOffer& offer,
     std::vector<std::string>& safeNames) const {
     if (!accepting_) return TransferReason::NotAccepting;
     if (state_ == FileReceiverState::Receiving) return TransferReason::Busy;
+    if (offer.files.empty()) return TransferReason::Corrupt;
     if (offer.files.size() > limits_.maxFiles) return TransferReason::TooManyFiles;
 
     uint64_t total = 0;

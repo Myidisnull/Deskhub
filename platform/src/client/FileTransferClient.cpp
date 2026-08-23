@@ -24,6 +24,7 @@ FileTransferClient::~FileTransferClient() {
 bool FileTransferClient::Start(const FileTransferClientConfig& config,
     FileTransferClientCallbacks callbacks) {
     if (running_.load(std::memory_order_acquire)) return false;
+    if (thread_.joinable()) thread_.join();
     if (config.files.empty()) return false;
 
     config_ = config;

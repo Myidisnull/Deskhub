@@ -105,24 +105,31 @@ QuicCallbacks SessionTransport::MakeCallbacks() {
 
 bool SessionTransport::Listen(const QuicSettings& settings, uint16_t port,
     const std::string& bindIp) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.Listen(settings, bindIp, port, MakeCallbacks());
 }
 
 bool SessionTransport::Connect(const QuicSettings& settings, const NetAddr& server,
     std::string_view serverName) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.Connect(settings, server, serverName, MakeCallbacks());
 }
 
 bool SessionTransport::WaitEstablished(const NetAddr& peer, uint32_t timeoutMs) {
     const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
-    while (NowUs() < deadline) {
-        if (endpoint_.Established(peer.Pack())) return true;
-        endpoint_.Poll(NowUs(), kEstablishPollMs);
+    for (;;) {
+        {
+            const std::lock_guard<std::mutex> lock(sendMutex_);
+            endpoint_.Poll(NowUs(), 0);
+            if (endpoint_.Established(peer.Pack())) return true;
+        }
+        if (NowUs() >= deadline) return false;
+        endpoint_.WaitReadable(kEstablishPollMs);
     }
-    return endpoint_.Established(peer.Pack());
 }
 
 void SessionTransport::Close() {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     endpoint_.Close();
     framers_.clear();
     for (std::deque<TransportMessage>& lane : inbox_) lane.clear();
@@ -340,6 +347,7 @@ void SessionTransport::SetHostAuth(HostAuthConfig config, TransportAuthCallbacks
 void SessionTransport::ApproveConnection(const NetAddr& peer, bool allowed) {
     const auto at = hostAuth_.find(peer.Pack());
     if (at == hostAuth_.end()) return;
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     SettleHostAuth(peer, *at->second, at->second->Approve(allowed, NowUnix()));
 }
 
@@ -387,7 +395,10 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
     std::vector<uint8_t> out(deskhub::kMaxRecordSize);
     out.resize(deskhub::BuildAuthStart(out, client.Begin()));
     if (out.empty()) return false;
-    SendAuth(server, out);
+    {
+        const std::lock_guard<std::mutex> lock(sendMutex_);
+        SendAuth(server, out);
+    }
 
     const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
     bool answered = false;
@@ -427,7 +438,10 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
             }
             std::vector<uint8_t> reply(deskhub::kMaxRecordSize);
             reply.resize(deskhub::BuildAuthResponse(reply, *response));
-            SendAuth(server, reply);
+            {
+                const std::lock_guard<std::mutex> lock(sendMutex_);
+                SendAuth(server, reply);
+            }
             answered = true;
             continue;
         }
@@ -493,10 +507,12 @@ int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
 
 std::optional<deskhub::Fingerprint> SessionTransport::PeerFingerprint(
     const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.PeerFingerprint(peer.Pack());
 }
 
 bool SessionTransport::Established(const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.Established(peer.Pack());
 }
 
@@ -505,6 +521,7 @@ QuicSendStats SessionTransport::SendStats() const {
 }
 
 size_t SessionTransport::MaxDatagramSize(const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.MaxDatagramSize(peer.Pack());
 }
 

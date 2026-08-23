@@ -70,6 +70,7 @@ void FileStore::StopWriter() {
         stopping_ = true;
     }
     workCv_.notify_all();
+    roomCv_.notify_all();
     writer_.join();
 }
 

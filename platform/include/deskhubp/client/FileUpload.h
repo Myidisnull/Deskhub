@@ -75,15 +75,16 @@ private:
 
     size_t ReadAt(uint16_t index, uint64_t offset, std::span<uint8_t> out);
     void Flush();
-    void StartReader();
+    void StartReader(std::vector<std::ifstream> sources,
+        std::vector<deskhub::TransferFile> plan);
     void StopReader();
-    void ReaderThread();
+    void ReaderThread(std::vector<std::ifstream>& sources,
+        const std::vector<deskhub::TransferFile>& plan);
     size_t Pumpable() const;
 
     mutable std::mutex mutex_{};
     FileUploadCallbacks cb_{};
     std::unique_ptr<deskhub::FileSender> sender_{};
-    std::vector<std::ifstream> sources_{};
     std::string error_{};
     Pending pending_{};
     uint32_t nextBatchId_ = 1;
@@ -92,7 +93,6 @@ private:
     std::condition_variable roomCv_{};
     std::condition_variable readyCv_{};
     std::deque<ReadChunk> ring_{};
-    std::vector<deskhub::TransferFile> plan_{};
     size_t ringBytes_ = 0;
     bool readerStop_ = false;
     bool readerEof_ = false;

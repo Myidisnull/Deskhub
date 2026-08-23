@@ -63,6 +63,7 @@ HostLink::~HostLink() {
 
 bool HostLink::Start(const HostLinkConfig& config, HostLinkCallbacks callbacks) {
     if (running_.load(std::memory_order_acquire)) return false;
+    if (thread_.joinable()) thread_.join();
     if (!QuicAvailable()) {
         SetState(HostLinkState::Failed, deskhub::ui::kTerminalUnreachable);
         return false;
