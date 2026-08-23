@@ -10,7 +10,7 @@ namespace deskhubp {
 
 namespace {
 
-constexpr uint32_t kAuthTimeoutMs = 10'000;
+constexpr uint32_t kAuthTimeoutMs = 65'000;
 constexpr uint64_t kOfferTimeoutUs = 10'000'000;
 constexpr uint32_t kIdleWaitMs = 20;
 constexpr uint32_t kPumpWaitMs = 5;
