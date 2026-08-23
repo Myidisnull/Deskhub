@@ -10,7 +10,7 @@ add_executable(integration_tests
     support/TestSupport.cpp
     support/FakeVideo.cpp
     support/FakeDecoder.cpp
-    support/FakeAgent.cpp
+    support/FakeHost.cpp
 )
 target_link_libraries(integration_tests PRIVATE platform)
 target_include_directories(integration_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

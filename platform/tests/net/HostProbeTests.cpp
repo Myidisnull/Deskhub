@@ -1,8 +1,8 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/net/DeviceStatusPoller.h"
-#include "deskhubp/net/HostProbe.h"
+#include "deskhubp/client/DeviceStatusPoller.h"
+#include "deskhubp/client/HostProbe.h"
 #include "deskhubp/system/Clock.h"
 
 #include <chrono>

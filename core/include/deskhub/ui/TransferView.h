@@ -1,5 +1,5 @@
 #pragma once
-#include "deskhub/session/FileSender.h"
+#include "deskhub/session/client/FileSender.h"
 #include "deskhub/session/FileTransfer.h"
 
 #include <cstdint>
@@ -11,12 +11,14 @@ struct TransferView {
     bool active = false;
     bool done = false;
     bool failed = false;
+    bool keyChanged = false;
     uint16_t fileIndex = 0;
     uint16_t fileCount = 0;
     uint64_t bytes = 0;
     uint64_t total = 0;
     std::string name{};
     std::string message{};
+    std::string fingerprint{};
 
     bool Idle() const;
     double Fraction() const;

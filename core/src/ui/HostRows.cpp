@@ -49,20 +49,20 @@ std::string ViewerLabel(const std::string& name, const std::string& addr) {
     return name + " (" + addr + ")";
 }
 
-std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources) {
+std::vector<HostRow> BuildHostRows(const std::vector<media::ShareSourceStatus>& sources) {
     return BuildHostRows(sources, false, {});
 }
 
-std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources,
+std::vector<HostRow> BuildHostRows(const std::vector<media::ShareSourceStatus>& sources,
     bool terminalShared, const std::vector<TerminalRecord>& shells) {
     return BuildHostRows(sources, terminalShared, shells, false, {});
 }
 
-std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& sources,
+std::vector<HostRow> BuildHostRows(const std::vector<media::ShareSourceStatus>& sources,
     bool terminalShared, const std::vector<TerminalRecord>& shells, bool filesShared,
     const std::vector<TransferRecord>& transfers) {
     std::vector<HostRow> rows;
-    for (const media::AgentSourceStatus& source : sources) {
+    for (const media::ShareSourceStatus& source : sources) {
         rows.push_back(HostRow{false, source.sourceId, {}, {}});
         for (size_t i = 0; i < source.viewerAddrs.size(); ++i) {
             const std::string name =
@@ -90,9 +90,9 @@ std::vector<HostRow> BuildHostRows(const std::vector<media::AgentSourceStatus>& 
     return AppendFileRows(std::move(rows), filesShared, transfers);
 }
 
-const media::AgentSourceStatus* FindHostSource(
-    const std::vector<media::AgentSourceStatus>& sources, uint8_t sourceId) {
-    for (const media::AgentSourceStatus& source : sources)
+const media::ShareSourceStatus* FindHostSource(
+    const std::vector<media::ShareSourceStatus>& sources, uint8_t sourceId) {
+    for (const media::ShareSourceStatus& source : sources)
         if (source.sourceId == sourceId) return &source;
     return nullptr;
 }
@@ -172,7 +172,7 @@ HostRowCells FilesRowText(const HostRow& row, std::string_view folder,
     return cells;
 }
 
-HostRowCells HostRowText(const HostRow& row, const media::AgentSourceStatus& source) {
+HostRowCells HostRowText(const HostRow& row, const media::ShareSourceStatus& source) {
     HostRowCells cells;
     if (row.viewer) {
         cells.source = kViewerRowLabel;

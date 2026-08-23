@@ -141,7 +141,7 @@ else()
         list(APPEND deskhub_platform_os
             src/media/VtDecoderApple.mm
             src/media/VtEncoderApple.mm
-            src/ffi/ClientSessionApple.mm
+            src/ffi/ScreenFfiApple.mm
         )
     endif()
 
@@ -189,26 +189,27 @@ add_library(platform STATIC
     src/audio/AudioBroadcaster.cpp
     src/system/TrustStoreFile.cpp
     src/system/PairedDevicesFile.cpp
-    src/session/AuthNegotiation.cpp
-    src/session/TerminalHost.cpp
-    src/session/TerminalViewer.cpp
-    src/session/FileHost.cpp
-    src/session/FileTransferClient.cpp
-    src/session/FileUpload.cpp
+    src/auth/AuthNegotiation.cpp
+    src/client/HostLink.cpp
+    src/host/TerminalHost.cpp
+    src/client/TerminalViewer.cpp
+    src/host/FileHost.cpp
+    src/client/FileTransferClient.cpp
+    src/client/FileUpload.cpp
     src/system/FileStore.cpp
     src/net/SessionTransport.cpp
-    src/net/SourceQuery.cpp
-    src/net/HostProbe.cpp
-    src/net/DeviceStatusPoller.cpp
-    src/net/LanScanner.cpp
-    src/net/ClientNetLoop.cpp
-    src/session/HostNetLoop.cpp
-    src/session/HostAgent.cpp
-    src/session/HostEngine.cpp
+    src/client/SourceQuery.cpp
+    src/client/HostProbe.cpp
+    src/client/DeviceStatusPoller.cpp
+    src/client/LanScanner.cpp
+    src/client/ScreenViewerLoop.cpp
+    src/host/HostNetLoop.cpp
+    src/host/ViewerBroadcast.cpp
+    src/host/HostEngine.cpp
     src/ffi/ClientFfi.cpp
-    src/ffi/AgentSession.cpp
+    src/ffi/ShareFfi.cpp
     src/ffi/DiscoveryFfi.cpp
-    src/ffi/TransferFfi.cpp
+    src/ffi/SendFfi.cpp
     src/ffi/TerminalFfi.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -320,9 +321,10 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/system/PtyTests.cpp
         tests/net/QuicEndpointTests.cpp
         tests/net/SessionTransportTests.cpp
-        tests/session/AgentLoopTests.cpp
-        tests/session/HostCallbackTests.cpp
+        tests/session/SharingHostTests.cpp
+        tests/session/ScreenHostCallbackTests.cpp
         tests/session/AuthNegotiationTests.cpp
+        tests/session/HostLinkTests.cpp
         tests/session/TerminalHostTests.cpp
         tests/session/FileTransferTests.cpp
         tests/system/ClockTests.cpp

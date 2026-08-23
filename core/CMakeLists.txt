@@ -20,18 +20,18 @@ add_library(core STATIC
     src/transport/AudioJitterBuffer.cpp
     src/transport/RetransmitCache.cpp
 
-    src/session/HostSession.cpp
-    src/session/HostViewers.cpp
-    src/session/ClientSession.cpp
-    src/session/ClientPump.cpp
-    src/session/HostFeedback.cpp
-    src/session/HostRouter.cpp
+    src/session/host/ScreenHostSession.cpp
+    src/session/host/ViewerTable.cpp
+    src/session/client/ScreenClientSession.cpp
+    src/session/client/ScreenClient.cpp
+    src/session/host/ViewerFeedback.cpp
+    src/session/host/SourcePipeline.cpp
     src/session/ClipboardSync.cpp
     src/session/TerminalSession.cpp
-    src/session/TerminalClient.cpp
+    src/session/client/TerminalClient.cpp
     src/session/FileTransfer.cpp
-    src/session/FileSender.cpp
-    src/session/FileReceiver.cpp
+    src/session/client/FileSender.cpp
+    src/session/host/FileReceiver.cpp
 
     src/transfer/Crc32.cpp
     src/transfer/SafeName.cpp
@@ -57,10 +57,10 @@ add_library(core STATIC
     src/media/RatePlan.cpp
     src/media/H264Encode.cpp
 
-    src/diag/ClientDiag.cpp
-    src/diag/AgentDiag.cpp
+    src/diag/ScreenClientDiag.cpp
+    src/diag/ShareDiag.cpp
 
-    src/session/Beacon.cpp
+    src/session/host/Beacon.cpp
 
     src/net/LanScan.cpp
     src/net/Ipv4.cpp
@@ -117,12 +117,12 @@ if(DESKHUB_CORE_TESTS)
         tests/transport/RetransmitCacheTests.cpp
         tests/transport/PacerTests.cpp
 
-        tests/session/SessionTests.cpp
-        tests/session/ClientPumpTests.cpp
+        tests/session/ScreenSessionTests.cpp
+        tests/session/ScreenClientTests.cpp
         tests/session/ClipboardSyncTests.cpp
-        tests/session/HostFeedbackTests.cpp
-        tests/session/HostRouterTests.cpp
-        tests/session/HostViewersTests.cpp
+        tests/session/ViewerFeedbackTests.cpp
+        tests/session/SourcePipelineTests.cpp
+        tests/session/ViewerTableTests.cpp
         tests/session/ConnectFlowTests.cpp
         tests/session/ShareFlowTests.cpp
         tests/session/OpenViewersTests.cpp

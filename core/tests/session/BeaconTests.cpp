@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/session/Beacon.h"
+#include "deskhub/session/host/Beacon.h"
 
 #include <cstdio>
 
@@ -130,7 +130,7 @@ void TestBeaconIgnoresSessionTraffic() {
     hello.clientId = 5;
     hello.codecMask = kCodecMaskH264;
     size_t rn = BuildHello(req, hello);
-    Check(Ask(b, std::span<const uint8_t>(req, rn)).empty(), "HELLO belongs to HostSession");
+    Check(Ask(b, std::span<const uint8_t>(req, rn)).empty(), "HELLO belongs to ScreenHostSession");
 
     rn = BuildRequestKeyframe(req, 9);
     Check(Ask(b, std::span<const uint8_t>(req, rn)).empty(), "REQUEST_KEYFRAME ignored");

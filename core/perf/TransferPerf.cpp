@@ -2,8 +2,8 @@
 #include "PerfHarness.h"
 
 #include "deskhub/protocol/Wire.h"
-#include "deskhub/session/FileReceiver.h"
-#include "deskhub/session/FileSender.h"
+#include "deskhub/session/host/FileReceiver.h"
+#include "deskhub/session/client/FileSender.h"
 #include "deskhub/transfer/Crc32.h"
 
 #include <algorithm>

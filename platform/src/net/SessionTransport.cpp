@@ -369,8 +369,14 @@ bool SessionTransport::SendRecordOn(const NetAddr& to, uint64_t streamId,
     return SendReliable(to, streamId, message);
 }
 
+bool SessionTransport::SendKeepalive(const NetAddr& peer) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
+    return endpoint_.SendKeepalive(peer.Pack());
+}
+
 bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig config,
-    uint32_t timeoutMs, deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode) {
+    uint32_t timeoutMs, deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode,
+    const std::atomic<bool>* cancel) {
     clientAuthOn_ = true;
     outCode = deskhub::AuthResultCode::NotPaired;
     outHostProvedPasscode = false;
@@ -386,6 +392,7 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
     const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
     bool answered = false;
     while (NowUs() < deadline) {
+        if (cancel != nullptr && cancel->load(std::memory_order_acquire)) break;
         if (authInbox_.empty()) {
             const std::lock_guard<std::mutex> lock(sendMutex_);
             endpoint_.Poll(NowUs(), kAuthPollMs);

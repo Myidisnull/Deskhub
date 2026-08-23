@@ -55,7 +55,7 @@ void TestSharedLabelCallsOutAViewer() {
 
 void TestShareTooltipCoversBothStates() {
     std::printf("[label] the share tooltip tells the whole story in both states...\n");
-    deskhub::media::AgentSourceStatus s;
+    deskhub::media::ShareSourceStatus s;
     s.captureFps = 33;
     s.zeroCopy = true;
 

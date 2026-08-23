@@ -26,7 +26,7 @@ void TestTopRungOnAHealthyLink() {
     QualityLadder q(kW, kH, kFps);
     Check(q.current() == QualityStep{kW, kH, kFps}, "starts at the ceiling rung");
     const uint32_t need = q.requiredBps();
-    Check(need < 20'000'000u, "the ceiling rung needs under 20 Mbps (the agent default)");
+    Check(need < 20'000'000u, "the ceiling rung needs under 20 Mbps (the host default)");
     Hold(q, 20'000'000, 30, 0);
     Check(q.current() == QualityStep{kW, kH, kFps}, "20 Mbps: nothing changes");
 }

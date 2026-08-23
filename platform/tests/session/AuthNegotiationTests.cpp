@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/session/AuthNegotiation.h"
+#include "deskhubp/auth/AuthNegotiation.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/PairedDevicesFile.h"
 

@@ -4,9 +4,9 @@
 #include "deskhub/media/AnnexB.h"
 #include "deskhub/media/BitWriter.h"
 #include "deskhub/media/H264Sps.h"
-#include "deskhub/session/Beacon.h"
-#include "deskhub/session/ClientSession.h"
-#include "deskhub/session/HostSession.h"
+#include "deskhub/session/host/Beacon.h"
+#include "deskhub/session/client/ScreenClientSession.h"
+#include "deskhub/session/host/ScreenHostSession.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/SecretText.h"
 #include "deskhub/ui/UiSettings.h"
@@ -789,16 +789,16 @@ void TestSessionChaosFuzz() {
             outboundOk = outboundOk && ValidOutbound(d);
         };
 
-        HostCallbacks hostCb;
+        ScreenHostCallbacks hostCb;
         hostCb.send = witness;
         hostCb.sendTo = [&](uint64_t, std::span<const uint8_t> d) { witness(d); };
         hostCb.randomBytes = TestRandomBytes;
-        HostSession host(std::move(hostCb), StreamParams{1280, 720, 30, 8'000'000});
+        ScreenHostSession host(std::move(hostCb), StreamParams{1280, 720, 30, 8'000'000});
         host.SetPasscode(kTestPasscode);
 
-        ClientCallbacks clientCb;
+        ScreenClientSessionCallbacks clientCb;
         clientCb.send = witness;
-        ClientSession client(std::move(clientCb));
+        ScreenClientSession client(std::move(clientCb));
         client.Start(Hello{1, 1, 1920, 1080, 30, 0, 0, kTestPasscode}, 1);
 
         Beacon beacon;
@@ -828,8 +828,8 @@ void TestSessionChaosFuzz() {
             host.Tick(now);
             client.Tick(now);
             ok = ok && host.viewerCount() <= kMaxViewersPerHost;
-            ok = ok && uint8_t(host.state()) <= uint8_t(HostSession::State::Streaming);
-            ok = ok && uint8_t(client.state()) <= uint8_t(ClientSession::State::Dead);
+            ok = ok && uint8_t(host.state()) <= uint8_t(ScreenHostSession::State::Streaming);
+            ok = ok && uint8_t(client.state()) <= uint8_t(ScreenClientSession::State::Dead);
         }
         Check(ok && outboundOk,
             "session chaos: replies well-formed, viewer table bounded, states sane");

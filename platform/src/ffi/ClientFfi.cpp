@@ -9,15 +9,15 @@
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
-#include "deskhub/session/ConnectFlow.h"
-#include "deskhub/session/OpenViewers.h"
+#include "deskhub/session/client/ConnectFlow.h"
+#include "deskhub/session/client/OpenViewers.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/input/NativeKeyMap.h"
-#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/client/SourceQuery.h"
 
 #include <cstdio>
 #include <cstring>

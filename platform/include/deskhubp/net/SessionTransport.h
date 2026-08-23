@@ -1,9 +1,9 @@
 #pragma once
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/protocol/RecordStream.h"
-#include "deskhub/session/AuthThrottle.h"
+#include "deskhub/session/host/AuthThrottle.h"
 #include "deskhubp/net/QuicEndpoint.h"
-#include "deskhubp/session/AuthNegotiation.h"
+#include "deskhubp/auth/AuthNegotiation.h"
 
 #include <array>
 #include <atomic>
@@ -68,7 +68,9 @@ public:
 
     void SetHostAuth(HostAuthConfig config, TransportAuthCallbacks callbacks);
     bool RunClientAuth(const NetAddr& server, ClientAuthConfig config, uint32_t timeoutMs,
-        deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode);
+        deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode,
+        const std::atomic<bool>* cancel = nullptr);
+    bool SendKeepalive(const NetAddr& peer);
     void ApproveConnection(const NetAddr& peer, bool allowed);
     bool Authenticated(const NetAddr& peer) const;
     bool PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp, std::string& name) const;

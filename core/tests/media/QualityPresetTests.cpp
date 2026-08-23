@@ -1,17 +1,17 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/media/AgentTypes.h"
+#include "deskhub/media/ShareTypes.h"
 #include "deskhub/media/QualityPreset.h"
 
 #include <cstdio>
 #include <cstring>
 
-using deskhub::media::AgentOptions;
 using deskhub::media::kNativeMaxDim;
 using deskhub::media::kQualityPresets;
 using deskhub::media::QualityPresetIndex;
 using deskhub::media::QualityPresetMaxDim;
+using deskhub::media::ShareOptions;
 
 namespace {
 
@@ -37,8 +37,8 @@ void TestIndexRoundTrips() {
 
 void TestSharedDefaultIsOffered() {
     std::printf("[quality] the default every host starts from is one of the rungs...\n");
-    const size_t i = QualityPresetIndex(AgentOptions{}.maxDim);
-    Check(kQualityPresets[i].maxDim == AgentOptions{}.maxDim,
+    const size_t i = QualityPresetIndex(ShareOptions{}.maxDim);
+    Check(kQualityPresets[i].maxDim == ShareOptions{}.maxDim,
         "the share UI can preselect the built-in default instead of silently changing it");
 }
 

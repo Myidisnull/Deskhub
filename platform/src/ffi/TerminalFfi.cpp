@@ -6,7 +6,7 @@
 
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/ffi/TermGridFill.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/client/TerminalViewer.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 namespace {

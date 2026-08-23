@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/session/SourcePipelineState.h"
+#include "deskhub/session/host/SourcePipelineState.h"
 
 #include <cstdio>
 #include <type_traits>
@@ -63,7 +63,7 @@ void TestDiagCapabilitiesAreCarriedThrough() {
     const char* line = plain.diag.FormatSum(buf, sizeof(buf), "00:00:00", "src", 0, false);
     Check(line && *line, "a source with no special capability still produces a diag line");
 
-    SourcePipelineState fancy(kStartBps, kMinBps, diag::AgentDiagCaps{true, true});
+    SourcePipelineState fancy(kStartBps, kMinBps, diag::ShareDiagCaps{true, true});
     line = fancy.diag.FormatSum(buf, sizeof(buf), "00:00:00", "src", 3, true);
     Check(line && *line, "so does one that reports idle frames and zero-copy");
 }

@@ -4,10 +4,11 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/net/SessionTransport.h"
-#include "deskhubp/session/AuthNegotiation.h"
-#include "deskhubp/session/FileHost.h"
-#include "deskhubp/ffi/TransferFfi.h"
-#include "deskhubp/session/FileUpload.h"
+#include "deskhubp/auth/AuthNegotiation.h"
+#include "deskhubp/host/FileHost.h"
+#include "deskhubp/client/FileTransferClient.h"
+#include "deskhubp/ffi/SendFfi.h"
+#include "deskhubp/client/FileUpload.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/HostIdentity.h"
@@ -520,6 +521,112 @@ void TestTheSendSurfaceTheClientPageDrives() {
     host.Shutdown();
 }
 
+void TestASenderAcceptsAChangedHostKey() {
+    std::printf("[files] a changed host key stops the send until it is accepted...\n");
+    const std::filesystem::path source = Scratch("send-key-change");
+    const std::filesystem::path landing = Scratch("land-key-change");
+
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("file-test-host");
+    HostRig host;
+    Check(host.Start(identity, landing), "the host takes files in");
+
+    const std::string endpoint = std::string("127.0.0.1:") + std::to_string(kFileTestPort);
+    deskhub::Fingerprint stale;
+    stale.bytes.fill(0x5A);
+    Check(deskhubp::RememberTrustedHost(endpoint, "127.0.0.1", stale, NowUnixSeconds()),
+        "another machine's key is on record for the host's address");
+
+    const std::vector<uint8_t> bytes = Pattern(deskhub::kMaxFileChunkBytes + 11, 4);
+    const std::filesystem::path file = WriteFile(source, "guarded.bin", bytes);
+    const std::string path = file.string();
+    const char* paths[] = {path.c_str()};
+
+    DHSend* send = dh_send_start(endpoint.c_str(), kFilePasscode, "client-page", paths, 1);
+    Check(send != nullptr, "the batch starts");
+    if (send == nullptr) return;
+
+    DHSendProgress progress{};
+    const auto settled = [send, &progress] {
+        dh_send_snapshot(send, &progress);
+        return progress.finished;
+    };
+    Check(WaitUntil(settled, 20000), "the sender settles inside the deadline");
+    Check(progress.state == DHSendKeyChanged, "and stops on the changed key");
+    std::error_code ec;
+    Check(std::filesystem::is_empty(landing, ec), "before a byte is offered");
+
+    char fingerprint[96] = {};
+    Check(dh_send_fingerprint(send, fingerprint, int(sizeof(fingerprint))) > 0,
+        "the new fingerprint is there to show");
+    Check(std::string(fingerprint) == deskhub::FormatFingerprint(identity.fingerprint),
+        "and it is the host's real key");
+
+    Check(!dh_send_accept_key(nullptr), "a null handle accepts nothing");
+    Check(dh_send_accept_key(send), "accepting the key retries the batch");
+    Check(!dh_send_accept_key(send), "and cannot be accepted twice");
+
+    progress = DHSendProgress{};
+    Check(WaitUntil(settled, 20000), "the retried batch finishes inside the deadline");
+    Check(progress.state == DHSendDone, "and every file arrives");
+    dh_send_stop(send);
+
+    Check(ReadFile(landing / "guarded.bin") == bytes, "the file landed byte for byte");
+    Check(deskhubp::CheckTrustedHost(endpoint, identity.fingerprint) ==
+              deskhub::TrustVerdict::Trusted,
+        "and the accepted key is now the one on record");
+
+    host.Shutdown();
+}
+
+void TestTheDesktopSendSurfaceSeesTheChangedKey() {
+    std::printf("[files] the desktop send window is told about the key and can retry...\n");
+    const std::filesystem::path source = Scratch("send-key-view");
+    const std::filesystem::path landing = Scratch("land-key-view");
+
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("file-test-host");
+    HostRig host;
+    Check(host.Start(identity, landing), "the host takes files in");
+
+    const std::string endpoint = std::string("127.0.0.1:") + std::to_string(kFileTestPort);
+    deskhub::Fingerprint stale;
+    stale.bytes.fill(0x3C);
+    Check(deskhubp::RememberTrustedHost(endpoint, "127.0.0.1", stale, NowUnixSeconds()),
+        "another machine's key is on record for the host's address");
+
+    const std::vector<uint8_t> bytes = Pattern(2048, 6);
+    const std::filesystem::path file = WriteFile(source, "window.bin", bytes);
+
+    NetAddr server{};
+    Check(ParseNetAddr(endpoint, server), "the test address parses");
+    deskhubp::FileTransferClientConfig config;
+    config.host = server;
+    config.hostLabel = endpoint;
+    config.passcode = kFilePasscode;
+    config.clientName = "file-test-window";
+    config.files = {file};
+
+    deskhubp::FileTransferClient client;
+    Check(client.Start(config, deskhubp::FileTransferClientCallbacks{}), "the batch starts");
+    Check(WaitUntil([&client] { return client.Finished(); }, 20000),
+        "the sender settles inside the deadline");
+
+    const deskhub::ui::TransferView asked = client.View();
+    Check(asked.failed && asked.keyChanged, "the view carries the key question");
+    Check(asked.fingerprint == deskhub::FormatFingerprint(identity.fingerprint),
+        "with the host's real fingerprint");
+
+    Check(client.AcceptKeyAndRetry(), "accepting the key retries the batch");
+    Check(WaitUntil([&client] { return client.Finished(); }, 20000),
+        "the retried batch finishes inside the deadline");
+    const deskhub::ui::TransferView settled = client.View();
+    Check(settled.done && !settled.keyChanged && settled.fingerprint.empty(),
+        "a finished view asks nothing anymore");
+    client.Stop();
+
+    Check(ReadFile(landing / "window.bin") == bytes, "the file landed byte for byte");
+    host.Shutdown();
+}
+
 void TestBeginRefusesWhatItCannotSend() {
     std::printf("[files] the viewer checks the files before it offers anything...\n");
     const std::filesystem::path dir = Scratch("begin");
@@ -548,4 +655,6 @@ void RunFileTransferPlatformTests() {
     TestABatchCrossesARealConnection();
     TestAHostThatTakesNoFilesRefuses();
     TestAHostThatStopsMidBatchSaysWhy();
+    TestASenderAcceptsAChangedHostKey();
+    TestTheDesktopSendSurfaceSeesTheChangedKey();
 }

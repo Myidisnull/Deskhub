@@ -3,8 +3,8 @@
 
 #include "deskhub/protocol/ByteOrder.h"
 #include "deskhub/protocol/RecordStream.h"
-#include "deskhub/session/HostSession.h"
-#include "deskhub/session/TerminalClient.h"
+#include "deskhub/session/host/ScreenHostSession.h"
+#include "deskhub/session/client/TerminalClient.h"
 #include "deskhub/session/TerminalSession.h"
 
 #include <algorithm>
