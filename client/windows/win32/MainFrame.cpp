@@ -37,7 +37,6 @@
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/net/BindAddress.h"
 #include "deskhub/net/TrustStore.h"
-#include "deskhub/session/client/ConnectFlow.h"
 #include "deskhub/session/host/ShareFlow.h"
 #include "deskhub/net/PairedDevices.h"
 #include "deskhub/ui/AutoShareGate.h"
@@ -113,7 +112,6 @@ enum class ShareTrigger { kUser,
 
 struct HostStateStyle {
     const char* label;
-    const char* action;
     wxColour tint;
     wxColour background;
 };
@@ -161,12 +159,12 @@ void PaintButton(wxButton* button, const wxColour& background) {
 HostStateStyle StyleFor(HostShareState state) {
     switch (state) {
         case HostShareState::kSharing:
-            return {ui::kShareStateOn, ui::kStopSharing, kOnline, kBannerLiveBg};
+            return {ui::kShareStateOn, kOnline, kBannerLiveBg};
         case HostShareState::kStarting:
-            return {ui::kStartingShare, ui::kStartSharing, kAccent, kBannerBusyBg};
+            return {ui::kStartingShare, kAccent, kBannerBusyBg};
         case HostShareState::kIdle: break;
     }
-    return {ui::kShareStateOff, ui::kStartSharing, kMutedText, kBannerIdleBg};
+    return {ui::kShareStateOff, kMutedText, kBannerIdleBg};
 }
 
 struct ProbeResult {
@@ -313,10 +311,14 @@ private:
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
 
     void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
+    void StartTenants();
     void BeginAutoShare();
     void OnAutoShareTimer(wxTimerEvent& event);
     void ReportShareProblem(const wxString& text, const wxString& title);
     bool Sharing() const;
+    bool ScreenSharing() const {
+        return screenSharing_;
+    }
     bool TerminalTicked() const;
     bool FilesTicked() const;
     std::filesystem::path TransferFolder() const;
@@ -346,7 +348,6 @@ private:
 
     void StartConnect(const std::string& addr);
     void OpenShell(const NetAddr& server, const std::string& passcode);
-    void SaveOpenChoices();
     void SetClientStatus(const wxString& text, const wxColour& colour);
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartScan();
@@ -359,8 +360,11 @@ private:
     void OnScanFinished(const deskhubp::ScanProgress& progress);
     void OnListClick(wxMouseEvent& event);
     void ConnectRow(long row);
+    void ForgetHost();
+    void ApplyConnectedState();
+    void OpenDesktopSession();
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
+        const deskhubp::ConnectOutcome& outcome);
     void OpenViewerSession(const std::string& addr, const std::string& passcode,
         std::vector<deskhub::SourceInfo> picked);
     void DeselectAllRows();
@@ -375,14 +379,25 @@ private:
     NavItem* pageButtons_[kPageCount] = {};
     wxTextCtrl* addrCtrl_ = nullptr;
     wxTextCtrl* connectPortCtrl_ = nullptr;
-    wxCheckBox* desktopCtrl_ = nullptr;
-    wxCheckBox* shellCtrl_ = nullptr;
-    wxCheckBox* filesCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
     wxStaticText* clientStatus_ = nullptr;
     wxCheckBox* controlCtrl_ = nullptr;
     wxListCtrl* deviceList_ = nullptr;
     wxStaticText* deviceHint_ = nullptr;
+    wxWindow* addressForm_ = nullptr;
+    wxWindow* connectedPanel_ = nullptr;
+    wxStaticText* connectedAddressLabel_ = nullptr;
+    wxStaticText* connectedStateLabel_ = nullptr;
+    wxStaticText* connectedPingLabel_ = nullptr;
+    wxButton* openDesktopBtn_ = nullptr;
+    wxButton* openShellBtn_ = nullptr;
+    wxButton* openFilesBtn_ = nullptr;
+    wxWindow* devicesPanel_ = nullptr;
+    bool connected_ = false;
+    deskhub::HostCaps connectedCaps_{};
+    std::vector<deskhub::SourceInfo> connectedSources_;
+    std::string connectedAddress_;
+    std::string connectedPasscode_;
     wxListCtrl* pairedList_ = nullptr;
     wxStaticText* pairedHint_ = nullptr;
     wxCheckBox* allowPairingCtrl_ = nullptr;
@@ -513,6 +528,8 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     if (settings_.autoShare) {
         SelectPage(kPageHost);
         CallAfter([this] { BeginAutoShare(); });
+    } else {
+        CallAfter([this] { StartTenants(); });
     }
 }
 
@@ -755,103 +772,138 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
         StartConnect(ui::AddressWithPort(std::string(addrCtrl_->GetValue().utf8_str()), port));
     };
 
+    auto* form = new wxPanel(panel);
+    form->SetBackgroundColour(*wxWHITE);
+    auto* formSizer = new wxBoxSizer(wxVERTICAL);
+    addressForm_ = form;
+
     auto* grid = new wxFlexGridSizer(2, FromDIP(wxSize(12, 12)));
 
-    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kClientIpPrompt)),
+    grid->Add(new wxStaticText(form, wxID_ANY, ToWx(ui::kClientIpPrompt)),
         wxSizerFlags().CentreVertical());
-    addrCtrl_ = new wxTextCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition,
+    addrCtrl_ = new wxTextCtrl(form, wxID_ANY, wxString(), wxDefaultPosition,
         FromDIP(wxSize(260, -1)), wxTE_PROCESS_ENTER);
     addrCtrl_->SetName("address-field");
     addrCtrl_->SetHint(ToWx(ui::kClientIpPlaceholder));
     addrCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(addrCtrl_, wxSizerFlags().CentreVertical());
 
-    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kUdpPortLabel)),
+    grid->Add(new wxStaticText(form, wxID_ANY, ToWx(ui::kUdpPortLabel)),
         wxSizerFlags().CentreVertical());
-    connectPortCtrl_ = new wxTextCtrl(panel, wxID_ANY,
+    connectPortCtrl_ = new wxTextCtrl(form, wxID_ANY,
         ToWx(std::to_string(deskhub::kDeskhubPort)), wxDefaultPosition,
         FromDIP(wxSize(80, -1)), wxTE_PROCESS_ENTER);
     connectPortCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(connectPortCtrl_, wxSizerFlags().CentreVertical());
 
-    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kClientPasscodePrompt)),
+    grid->Add(new wxStaticText(form, wxID_ANY, ToWx(ui::kClientPasscodePrompt)),
         wxSizerFlags().CentreVertical());
-    clientPasscodeCtrl_ = MakePasscodeCtrl(panel);
+    clientPasscodeCtrl_ = MakePasscodeCtrl(form);
     clientPasscodeCtrl_->SetName("passcode-field");
     clientPasscodeCtrl_->SetToolTip(ToWx(ui::kClientPasscodeHint));
     clientPasscodeCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(clientPasscodeCtrl_, wxSizerFlags().CentreVertical());
 
-    grid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kDeviceNameLabel)),
+    grid->Add(new wxStaticText(form, wxID_ANY, ToWx(ui::kDeviceNameLabel)),
         wxSizerFlags().CentreVertical());
     const std::string initialName =
         settings_.deviceName.empty() ? deskhubp::LocalDeviceName() : settings_.deviceName;
-    deviceNameCtrl_ = new wxTextCtrl(panel, wxID_ANY, ToWx(initialName), wxDefaultPosition,
+    deviceNameCtrl_ = new wxTextCtrl(form, wxID_ANY, ToWx(initialName), wxDefaultPosition,
         FromDIP(wxSize(260, -1)), wxTE_PROCESS_ENTER);
     deviceNameCtrl_->SetName("name-field");
     deviceNameCtrl_->Bind(wxEVT_TEXT_ENTER, connectNow);
     grid->Add(deviceNameCtrl_, wxSizerFlags().CentreVertical());
 
-    sizer->Add(grid, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    formSizer->Add(grid, wxSizerFlags().Border(wxTOP, FromDIP(16)));
 
-    auto* openBox = new wxStaticBox(panel, wxID_ANY, ToWx(ui::kOpenChoiceGroup));
-    auto* openSizer = new wxStaticBoxSizer(openBox, wxVERTICAL);
+    connectBtn_ = new wxButton(form, wxID_ANY, ToWx(ui::kConnectButton));
+    connectBtn_->SetName("connect-button");
+    connectBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
+    PaintButton(connectBtn_, kAccent);
+    connectBtn_->Bind(wxEVT_BUTTON, connectNow);
+    formSizer->Add(connectBtn_, wxSizerFlags().Expand().Border(wxTOP, FromDIP(16)));
+    form->SetSizer(formSizer);
+    sizer->Add(form, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT, FromDIP(16)));
 
-    desktopCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kOpenDesktopLabel));
-    desktopCtrl_->SetName("open-desktop");
-    desktopCtrl_->SetValue(settings_.clientDesktop);
-    desktopCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
-    openSizer->Add(desktopCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+    auto* connected = new wxPanel(panel);
+    connected->SetBackgroundColour(*wxWHITE);
+    auto* connectedSizer = new wxBoxSizer(wxVERTICAL);
+    connectedPanel_ = connected;
+
+    auto* addressRow = new wxBoxSizer(wxHORIZONTAL);
+    connectedAddressLabel_ = MakeSection(connected, "");
+    addressRow->Add(connectedAddressLabel_, wxSizerFlags(1).CentreVertical());
+    auto* disconnectBtn = new wxButton(connected, wxID_ANY, ToWx(ui::kDisconnectButton));
+    disconnectBtn->SetName("disconnect-button");
+    PaintButton(disconnectBtn, kOffline);
+    disconnectBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ForgetHost(); });
+    addressRow->Add(disconnectBtn, wxSizerFlags().CentreVertical());
+    connectedSizer->Add(addressRow, wxSizerFlags().Expand().Border(wxTOP, FromDIP(16)));
+
+    auto* stateRow = new wxBoxSizer(wxHORIZONTAL);
+    connectedStateLabel_ = new wxStaticText(connected, wxID_ANY, ToWx(ui::kConnectedPickSession));
+    connectedStateLabel_->SetForegroundColour(kOnline);
+    stateRow->Add(connectedStateLabel_, wxSizerFlags(1).CentreVertical());
+    connectedPingLabel_ = new wxStaticText(connected, wxID_ANY, wxString());
+    connectedPingLabel_->SetForegroundColour(kOnline);
+    stateRow->Add(connectedPingLabel_, wxSizerFlags().CentreVertical());
+    connectedSizer->Add(stateRow, wxSizerFlags().Expand().Border(wxTOP, FromDIP(8)));
+
+    openDesktopBtn_ = new wxButton(connected, wxID_ANY, ToWx(ui::kOpenDesktopLabel));
+    openDesktopBtn_->SetName("open-desktop");
+    openDesktopBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OpenDesktopSession(); });
+    connectedSizer->Add(openDesktopBtn_, wxSizerFlags().Expand().Border(wxTOP, FromDIP(12)));
 
     auto* controlRow = new wxBoxSizer(wxHORIZONTAL);
     controlRow->AddSpacer(FromDIP(24));
-    controlCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kRequestControlLabel));
+    controlCtrl_ = new wxCheckBox(connected, wxID_ANY, ToWx(ui::kRequestControlLabel));
     controlCtrl_->SetName("request-control");
     controlCtrl_->SetValue(settings_.clientControl);
     controlCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
         settings_.clientControl = controlCtrl_->GetValue();
         deskhubp::SaveUiSettings(settings_);
     });
-    controlCtrl_->Enable(settings_.clientDesktop);
     controlRow->Add(controlCtrl_, wxSizerFlags().CentreVertical());
-    openSizer->Add(controlRow, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+    connectedSizer->Add(controlRow, wxSizerFlags().Border(wxTOP, FromDIP(8)));
 
-    shellCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kOpenShellLabel));
-    shellCtrl_->SetName("open-shell");
-    shellCtrl_->SetValue(settings_.clientShell);
-    shellCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
-    openSizer->Add(shellCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+    openShellBtn_ = new wxButton(connected, wxID_ANY, ToWx(ui::kOpenShellLabel));
+    openShellBtn_->SetName("open-shell");
+    openShellBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        NetAddr server{};
+        if (connected_ && ParseNetAddr(connectedAddress_, server))
+            OpenShell(server, connectedPasscode_);
+    });
+    connectedSizer->Add(openShellBtn_, wxSizerFlags().Expand().Border(wxTOP, FromDIP(8)));
 
-    filesCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kOpenFilesLabel));
-    filesCtrl_->SetName("open-files");
-    filesCtrl_->SetValue(settings_.clientFiles);
-    filesCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
-    openSizer->Add(filesCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+    openFilesBtn_ = new wxButton(connected, wxID_ANY, ToWx(ui::kOpenFilesLabel));
+    openFilesBtn_->SetName("open-files");
+    openFilesBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        NetAddr server{};
+        if (connected_ && ParseNetAddr(connectedAddress_, server))
+            OpenFileSend(server, connectedPasscode_);
+    });
+    connectedSizer->Add(openFilesBtn_, wxSizerFlags().Expand().Border(wxTOP, FromDIP(8)));
 
-    openSizer->Add(MakeHint(openBox, ToWx(ui::kMobileHostNote)),
-        wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
-    openSizer->Add(MakeHint(openBox, ToWx(ui::kOpenChoiceHint)),
-        wxSizerFlags().Border(wxALL, FromDIP(8)));
-    sizer->Add(openSizer, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
-
-    connectBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kConnectButton));
-    connectBtn_->SetName("connect-button");
-    connectBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
-    PaintButton(connectBtn_, kAccent);
-    connectBtn_->Bind(wxEVT_BUTTON, connectNow);
-    sizer->Add(connectBtn_,
-        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    connectedSizer->Add(MakeHint(connected, ToWx(ui::kMobileHostNote)),
+        wxSizerFlags().Border(wxTOP, FromDIP(8)));
+    connected->SetSizer(connectedSizer);
+    sizer->Add(connected, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT, FromDIP(16)));
 
     clientStatus_ = new wxStaticText(panel, wxID_ANY, wxString());
     clientStatus_->SetName("client-status");
     clientStatus_->SetForegroundColour(kMutedText);
     sizer->Add(clientStatus_, wxSizerFlags().Centre().Border(wxTOP, FromDIP(8)));
 
-    sizer->Add(MakeHeadingRow(panel, ui::kDevicesHeading, ToWx(ui::kRefreshNow),
-                   [this] { RefreshDevicesNow(); }),
-        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    auto* devices = new wxPanel(panel);
+    devices->SetBackgroundColour(*wxWHITE);
+    auto* devicesSizer = new wxBoxSizer(wxVERTICAL);
+    devicesPanel_ = devices;
 
-    deviceList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+    devicesSizer->Add(MakeHeadingRow(devices, ui::kDevicesHeading, ToWx(ui::kRefreshNow),
+                          [this] { RefreshDevicesNow(); }),
+        wxSizerFlags().Expand().Border(wxTOP, FromDIP(16)));
+
+    deviceList_ = new wxListCtrl(devices, wxID_ANY, wxDefaultPosition, wxDefaultSize,
         wxLC_REPORT | wxLC_SINGLE_SEL);
     deviceList_->InsertColumn(0, "Device", wxLIST_FORMAT_LEFT, FromDIP(170));
     deviceList_->InsertColumn(1, ToWx(ui::kDeviceColumnWhere), wxLIST_FORMAT_LEFT, FromDIP(120));
@@ -860,14 +912,16 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     deviceList_->InsertColumn(4, "Last connected", wxLIST_FORMAT_LEFT, FromDIP(150));
     deviceList_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
     deviceList_->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& event) { OnListClick(event); });
-    sizer->Add(deviceList_,
-        wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    devicesSizer->Add(deviceList_, wxSizerFlags(1).Expand().Border(wxTOP, FromDIP(16)));
 
-    deviceHint_ = MakeHint(panel, ToWx(ui::kLanDevicesEmpty));
-    sizer->Add(deviceHint_, wxSizerFlags().Border(wxALL, FromDIP(16)));
+    deviceHint_ = MakeHint(devices, ToWx(ui::kLanDevicesEmpty));
+    devicesSizer->Add(deviceHint_, wxSizerFlags().Border(wxTOP | wxBOTTOM, FromDIP(16)));
+    devices->SetSizer(devicesSizer);
+    sizer->Add(devices, wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT, FromDIP(16)));
 
     panel->SetSizer(sizer);
     panel->FitInside();
+    ApplyConnectedState();
     return panel;
 }
 
@@ -1402,6 +1456,7 @@ void MainFrame::StartPoller() {
 void MainFrame::OnDeviceStatus(const deskhubp::DeviceStatus& status) {
     RecordProbe(status.addr, status.online, status.rttMs);
     ApplyProbeToRows(status.addr);
+    if (connected_ && status.addr == connectedAddress_) ApplyConnectedState();
 }
 
 void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
@@ -1420,11 +1475,13 @@ void MainFrame::ApplyHostState(HostShareState state, const wxString& detail) {
     if (wxWindow* page = hostBanner_->GetParent()) page->Layout();
     hostBanner_->Refresh();
 
-    shareBtn_->SetLabel(ToWx(style.action));
-    PaintButton(shareBtn_, state == HostShareState::kSharing ? kOffline : kAccent);
+    const bool screen = screenSharing_ || state == HostShareState::kStarting;
+    shareBtn_->SetLabel(ToWx(screen ? ui::kStopSharing : ui::kStartSharing));
+    PaintButton(shareBtn_, screen ? kOffline : kAccent);
     shareBtn_->Refresh();
 
-    bindChoice_->Enable(state == HostShareState::kIdle);
+    bindChoice_->Enable(!screen);
+    ShowHostTable(screen);
 }
 
 void MainFrame::ShowIdleHostState() {
@@ -1472,12 +1529,24 @@ void MainFrame::OnDisplayChanged(wxDisplayChangedEvent& event) {
     RefreshDisplayChoices();
 }
 
+void MainFrame::StartTenants() {
+    if (hostStarting_ || Sharing()) return;
+    const bool terminal = TerminalTicked();
+    const bool files = FilesTicked();
+    if (!terminal && !files) return;
+    terminalRequested_ = terminal;
+    filesRequested_ = files;
+    StartHosting({}, deskhub::ShareOptionsOf(settings_, terminal, files));
+}
+
 void MainFrame::OnShare(ShareTrigger trigger) {
     if (hostStarting_) return;
-    if (Sharing()) {
+    if (screenSharing_) {
         StopHosting();
+        StartTenants();
         return;
     }
+    if (Sharing()) StopHosting();
     shareTrigger_ = trigger;
 
     const bool terminal = TerminalTicked();
@@ -1533,7 +1602,6 @@ void MainFrame::StartHosting(const std::vector<ShareSource>& sources,
     ApplyHostState(HostShareState::kStarting, wxString());
     hostRows_.clear();
     RebuildHostTable();
-    ShowHostTable(true);
 
     shareDriver_.Join();
     shareDriver_.StartAsync(
@@ -1573,7 +1641,6 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     if (terminalRequested_) share_.StartTerminalShare();
     if (filesRequested_) StartFileShare();
     ApplySharingBanner();
-    ShowHostTable(true);
     hostTimer_.Start(int(deskhubp::kShareStatusPollMs));
     if (settings_.clipboardSync) clipTimer_.Start(1000);
 }
@@ -1712,14 +1779,6 @@ void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
     clientStatus_->GetParent()->Layout();
 }
 
-void MainFrame::SaveOpenChoices() {
-    settings_.clientDesktop = desktopCtrl_->GetValue();
-    settings_.clientShell = shellCtrl_->GetValue();
-    settings_.clientFiles = filesCtrl_->GetValue();
-    controlCtrl_->Enable(settings_.clientDesktop);
-    deskhubp::SaveUiSettings(settings_);
-}
-
 void MainFrame::OpenFileSend(const NetAddr& server, const std::string& passcode) {
     FileSendLaunch launch;
     launch.address = server.ToString();
@@ -1754,11 +1813,6 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         settings_.deviceName = deviceName;
         deskhubp::SaveUiSettings(settings_);
     }
-    if (!desktopCtrl_->GetValue() && !shellCtrl_->GetValue() && !filesCtrl_->GetValue()) {
-        wxMessageBox(ToWx(ui::kOpenNothingTicked), "Deskhub", wxOK | wxICON_WARNING, this);
-        return;
-    }
-
     const std::string addr = ui::TrimAscii(rawAddr);
     if (addr.empty()) {
         wxMessageBox("Enter the host machine's IP address first (e.g., 192.168.1.10).",
@@ -1781,8 +1835,7 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         return;
     }
 
-    const deskhub::OpenChoice choice{desktopCtrl_->GetValue(), shellCtrl_->GetValue(),
-        filesCtrl_->GetValue()};
+    ForgetHost();
     const bool started = connectDriver_.QueryAsync(
         server, passcode,
         [alive = alive_](std::function<void()> fn) {
@@ -1791,8 +1844,8 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
                 if (*alive) fn();
             });
         },
-        [this, addr, passcode, choice](const deskhubp::ConnectOutcome& outcome) {
-            OnSourcesReady(addr, passcode, choice, outcome);
+        [this, addr, passcode](const deskhubp::ConnectOutcome& outcome) {
+            OnSourcesReady(addr, passcode, outcome);
         });
     if (!started) {
         SetClientStatus(ToWx(ui::kQueryingSources), kMutedText);
@@ -1908,43 +1961,72 @@ void MainFrame::ConnectWithPrompt(const std::string& addr, std::string passcode)
 }
 
 void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passcode,
-    const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
+    const deskhubp::ConnectOutcome& outcome) {
     connectBtn_->Enable();
+    SetClientStatus(wxString(), kMutedText);
+    DeselectAllRows();
 
     if (!outcome.ok) {
-        SetClientStatus(ToWx(ui::SourceQueryFailed(addr)), kOffline);
-        DeselectAllRows();
+        wxMessageBox(ToWx(ui::SourceQueryFailed(addr)), "Deskhub", wxOK | wxICON_ERROR, this);
         return;
     }
 
-    SetClientStatus(wxString(), kMutedText);
     ui::TouchRecentDevice(recent_, addr, NowUnixSeconds(), passcode);
     SaveRecentDevices();
     poller_.SetAddresses(ui::AddressesOf(recent_));
     RefreshDeviceList();
 
-    const deskhub::ConnectPlan plan =
-        deskhub::PlanAfterConnect(outcome.caps, outcome.sources, choice);
-    NetAddr server{};
-    if ((plan.openShell || plan.openFiles) && ParseNetAddr(addr, server)) {
-        if (plan.openShell) OpenShell(server, passcode);
-        if (plan.openFiles) OpenFileSend(server, passcode);
-    }
-    if (plan.problem != deskhub::ConnectProblem::None)
-        SetClientStatus(ToWx(deskhub::ConnectProblemText(plan.problem, addr)), kOffline);
-    if (!plan.openDesktop) {
-        DeselectAllRows();
-        return;
+    connected_ = true;
+    connectedCaps_ = outcome.caps;
+    connectedSources_ = outcome.sources;
+    connectedAddress_ = addr;
+    connectedPasscode_ = passcode;
+    ApplyConnectedState();
+}
+
+void MainFrame::ForgetHost() {
+    connected_ = false;
+    connectedCaps_ = deskhub::HostCaps{};
+    connectedSources_.clear();
+    connectedAddress_.clear();
+    connectedPasscode_.clear();
+    SetClientStatus(wxString(), kMutedText);
+    ApplyConnectedState();
+}
+
+void MainFrame::ApplyConnectedState() {
+    if (!connectedPanel_ || !addressForm_ || !devicesPanel_) return;
+    connectedPanel_->Show(connected_);
+    addressForm_->Show(!connected_);
+    devicesPanel_->Show(!connected_);
+
+    if (connected_) {
+        connectedAddressLabel_->SetLabel(ToWx(connectedAddress_));
+        openDesktopBtn_->Enable(!connectedSources_.empty());
+        controlCtrl_->Enable(!connectedSources_.empty());
+        openShellBtn_->Enable(connectedCaps_.terminal);
+        openFilesBtn_->Enable(connectedCaps_.files);
+
+        const ProbeResult* probe = ProbeFor(connectedAddress_);
+        const bool online = probe && probe->online;
+        const wxColour tint = probe && !probe->online ? kOffline : kOnline;
+        connectedStateLabel_->SetForegroundColour(tint);
+        connectedPingLabel_->SetForegroundColour(tint);
+        connectedPingLabel_->SetLabel(online ? ToWx(ui::PingMs(probe->rttMs)) : wxString());
     }
 
+    if (connectedPanel_->GetParent()) {
+        connectedPanel_->GetParent()->Layout();
+        auto* scrolled = dynamic_cast<wxScrolledWindow*>(connectedPanel_->GetParent());
+        if (scrolled) scrolled->FitInside();
+    }
+}
+
+void MainFrame::OpenDesktopSession() {
+    if (!connected_ || connectedSources_.empty()) return;
     std::vector<deskhub::SourceInfo> picked;
-    if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
-        DeselectAllRows();
-        return;
-    }
-
-    OpenViewerSession(addr, passcode, std::move(picked));
-    DeselectAllRows();
+    if (!ShowSourcePickerDialog(HWND(GetHandle()), connectedSources_, picked)) return;
+    OpenViewerSession(connectedAddress_, connectedPasscode_, std::move(picked));
 }
 
 void MainFrame::OpenViewerSession(const std::string& addr, const std::string& passcode,
@@ -2028,7 +2110,7 @@ wxMenu* DeskhubTrayIcon::CreatePopupMenu() {
                 ToWx(frame_.IsShown() ? ui::kTrayHideWindow : ui::kTrayShowWindow))
             ->GetId();
     const int toggleShareId =
-        menu->Append(wxID_ANY, ToWx(frame_.Sharing() ? ui::kStopSharing : ui::kStartSharing))
+        menu->Append(wxID_ANY, ToWx(frame_.ScreenSharing() ? ui::kStopSharing : ui::kStartSharing))
             ->GetId();
     menu->AppendSeparator();
     const int quitId = menu->Append(wxID_ANY, ToWx(ui::kTrayQuit))->GetId();
