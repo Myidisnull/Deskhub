@@ -26,12 +26,17 @@ struct NegotiatedParams {
     uint64_t timebaseUs = 0;
 };
 
+enum class ScreenSessionEnd : uint8_t { HostBye = 0,
+    Timeout = 1,
+    Rejected = 2,
+    ConnectTimeout = 3 };
+
 struct ScreenClientSessionCallbacks {
     std::function<void(std::span<const uint8_t>)> send;
     std::function<void(const NegotiatedParams&)> onReady;
     std::function<void(const NegotiatedParams&)> onReconfig;
     std::function<void(uint32_t rttUs)> onRtt;
-    std::function<void(const char* reason)> onDisconnect;
+    std::function<void(const char* reason, ScreenSessionEnd cause)> onDisconnect;
     std::function<void(std::string_view text)> onClipboardText;
 };
 
@@ -94,7 +99,7 @@ public:
 private:
     void SendHello();
     void SendStart();
-    void Die(const char* reason);
+    void Die(const char* reason, ScreenSessionEnd cause);
 
     ScreenClientSessionCallbacks cb_;
     InputSender input_;

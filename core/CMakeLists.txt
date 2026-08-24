@@ -36,6 +36,7 @@ add_library(core STATIC
     src/transfer/Crc32.cpp
     src/transfer/SafeName.cpp
     src/session/LinkRecovery.cpp
+    src/session/LinkPulse.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
@@ -130,6 +131,7 @@ if(DESKHUB_CORE_TESTS)
         tests/session/TerminalSessionTests.cpp
         tests/session/FileTransferTests.cpp
         tests/session/LinkRecoveryTests.cpp
+        tests/session/LinkPulseTests.cpp
         tests/session/AuthThrottleTests.cpp
 
         tests/transfer/Crc32Tests.cpp

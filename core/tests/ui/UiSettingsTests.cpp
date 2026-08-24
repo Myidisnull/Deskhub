@@ -27,7 +27,6 @@ void TestRoundTrip() {
     s.clipboardSync = true;
     s.startHidden = true;
     s.keepAwake = false;
-    s.takeFiles = true;
     Check(ui::ParseUiSettings(ui::SerializeUiSettings(s)) == s,
         "serialize then parse is identity");
 }
@@ -60,9 +59,6 @@ void TestBehaviorTogglesPersist() {
     Check(ui::ParseUiSettings("clipboard_sync=1").clipboardSync,
         "clipboard sync round-trips on");
     Check(ui::ParseUiSettings("start_hidden=1").startHidden, "start hidden round-trips on");
-    Check(!defaults.takeFiles, "a host takes no files until its owner says so");
-    Check(ui::ParseUiSettings("take_files=1").takeFiles, "take files round-trips on");
-    Check(!ui::ParseUiSettings("take_files=0").takeFiles, "and off");
     Check(!ui::ParseUiSettings("autostart=x").autostart,
         "junk in a toggle falls back to off");
     Check(defaults.keepAwake, "keep awake defaults on");
@@ -176,16 +172,10 @@ void TestTerminalSharePersistence() {
     std::printf("[settings] the terminal is a source of its own, on the shared network...\n");
     ui::UiSettings s;
     s.bindIp = "192.168.1.10";
-    s.clientShell = true;
     const ui::UiSettings back = ui::ParseUiSettings(ui::SerializeUiSettings(s));
     Check(back.bindIp == "192.168.1.10",
         "the terminal shares on the one network the host picked");
     Check(back == s, "nothing else changed on the way through");
-
-    const ui::UiSettings fresh;
-    Check(back.clientShell, "what the client opens on connect round-trips too");
-    Check(fresh.clientDesktop && !fresh.clientShell,
-        "and by default connecting opens the desktop, not a shell");
 
     Check(ui::SerializeUiSettings(s).find("terminal_share") == std::string::npos,
         "which source is ticked is not a saved setting: the terminal starts ticked every time, "
@@ -210,7 +200,7 @@ void TestTerminalSharePersistence() {
     const ui::UiSettings old = ui::ParseUiSettings(fourX);
     Check(old.fps == 30 && old.autoShare && old.deviceName == "Old machine",
         "an older settings file still reads back everything it used to hold");
-    Check(old.clientDesktop && !old.clientShell,
+    Check(old.transferDir.empty() && old.allowNewPairings,
         "and the fields it never heard of come out at their defaults");
     Check(ui::SerializeUiSettings(old).find("terminal_port") == std::string::npos,
         "the retired terminal-port key is dropped rather than written back");

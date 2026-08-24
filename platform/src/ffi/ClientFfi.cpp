@@ -171,6 +171,12 @@ const char* dh_string(DHStringId id) {
         case DHStrTransferStopTakingButton: return deskhub::ui::kTransferStopTakingButton;
         case DHStrConnectedPickSession: return deskhub::ui::kConnectedPickSession;
         case DHStrConnectFirstHint: return deskhub::ui::kConnectFirstHint;
+        case DHStrDisconnectButton: return deskhub::ui::kDisconnectButton;
+        case DHStrLinkQualityGood: return deskhub::ui::kLinkQualityGood;
+        case DHStrLinkQualityFair: return deskhub::ui::kLinkQualityFair;
+        case DHStrLinkQualityPoor: return deskhub::ui::kLinkQualityPoor;
+        case DHStrLinkNoReading: return deskhub::ui::kLinkNoReading;
+        case DHStrLinkReattaching: return deskhub::ui::kTerminalReattaching;
         case DHStrOpenChoiceGroup: return deskhub::ui::kOpenChoiceGroup;
         case DHStrOpenDesktopLabel: return deskhub::ui::kOpenDesktopLabel;
         case DHStrOpenShellLabel: return deskhub::ui::kOpenShellLabel;
@@ -234,6 +240,20 @@ int dh_pairing_request_body(const char* name, const char* address, const char* s
 int dh_connecting_to(const char* address, char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     deskhubp::CopyToBuf(out, size_t(capacity), deskhub::ui::ConnectingTo(address ? address : ""));
+    return int(std::strlen(out));
+}
+
+int dh_link_quality_text(DHLinkQuality quality, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ui::LinkQualityText(deskhub::LinkQuality(quality)));
+    return int(std::strlen(out));
+}
+
+int dh_link_ping_text(bool haveRtt, uint32_t rttMs, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        haveRtt ? deskhub::ui::PingMs(rttMs) : std::string(deskhub::ui::kLinkNoReading));
     return int(std::strlen(out));
 }
 

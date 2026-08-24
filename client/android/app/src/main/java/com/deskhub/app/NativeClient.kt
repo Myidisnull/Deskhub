@@ -16,6 +16,7 @@ object NativeClient {
     const val PHASE_IDLE = 0
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
+    const val PHASE_REATTACHING = 5
 
     init {
         System.loadLibrary("deskhub")
@@ -105,8 +106,10 @@ object NativeClient {
     const val STR_TRUST_FINGERPRINT_LABEL = 99
     const val STR_TRUST_ACCEPT = 100
     const val STR_TRUST_REJECT = 101
+    const val STR_OPEN_DESKTOP_LABEL = 105
     const val STR_OPEN_SHELL_LABEL = 106
-    const val STR_HOST_HAS_NO_TERMINAL = 127
+    const val STR_CONNECT_BUTTON = 116
+    const val STR_CONNECTED_PICK_SESSION = 151
     const val STR_TERMINAL_EXTRA_KEYS_HINT = 108
 
     const val TRUST_CHANGED = 2
@@ -114,16 +117,14 @@ object NativeClient {
     const val STR_TRANSFER_CHOOSE_BUTTON = 135
     const val STR_TRANSFER_CANCEL_BUTTON = 136
     const val STR_TRANSFER_SENDING = 138
-    const val STR_TRANSFER_HOST_NOT_TAKING = 140
     const val STR_TRANSFER_SEND_HEADING = 141
     const val STR_TRANSFER_NONE_CHOSEN = 142
     const val STR_TRANSFER_TOO_MANY_FILES = 144
     const val STR_OPEN_FILES_LABEL = 145
     const val STR_TRANSFER_SENT_HEADING = 146
-    const val STR_TRANSFER_ACCEPT_LABEL = 147
-    const val STR_TRANSFER_BLOCKS_SCREEN_NOTE = 148
     const val STR_TRANSFER_ARRIVED_TITLE = 149
-    const val STR_TRANSFER_STOP_TAKING_BUTTON = 150
+    const val STR_DISCONNECT_BUTTON = 153
+    const val STR_LINK_REATTACHING = 158
 
     private external fun nativeString(id: Int): String
 
@@ -167,8 +168,6 @@ object NativeClient {
 
     private external fun nativeSourceQueryFailed(addr: String): String
 
-    private external fun nativeSourceQueryEmpty(addr: String): String
-
     private external fun nativeHostTitle(
         addr: String,
         width: Int,
@@ -189,8 +188,6 @@ object NativeClient {
 
     fun sourceQueryFailed(addr: String): String = nativeSourceQueryFailed(addr)
 
-    fun sourceQueryEmpty(addr: String): String = nativeSourceQueryEmpty(addr)
-
     fun hostTitle(
         addr: String,
         width: Int,
@@ -204,12 +201,8 @@ object NativeClient {
     private external fun nativeListSources(
         addr: String,
         passcode: String,
+        capsOut: BooleanArray,
     ): Array<Source>?
-
-    private external fun nativeHostHasTerminal(
-        addr: String,
-        passcode: String,
-    ): Boolean
 
     private external fun nativeIsValidPasscode(passcode: String): Boolean
 
@@ -298,14 +291,6 @@ object NativeClient {
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
 
-    private external fun nativeTakeFiles(): Boolean
-
-    private external fun nativeSetTakeFiles(on: Boolean)
-
-    fun takeFiles(): Boolean = nativeTakeFiles()
-
-    fun setTakeFiles(on: Boolean) = nativeSetTakeFiles(on)
-
     private external fun nativeKeepAwake(): Boolean
 
     private external fun nativeSetKeepAwake(on: Boolean)
@@ -317,11 +302,6 @@ object NativeClient {
     private external fun nativeMaxTransferFiles(): Int
 
     val maxTransferFiles: Int by lazy { nativeMaxTransferFiles() }
-
-    private external fun nativeHostTakesFiles(
-        addr: String,
-        passcode: String,
-    ): Boolean
 
     private external fun nativeSendCheck(paths: Array<String>): String
 
@@ -341,11 +321,6 @@ object NativeClient {
     private external fun nativeSendCancel(handle: Long)
 
     private external fun nativeSendStop(handle: Long)
-
-    suspend fun hostTakesFiles(
-        addr: String,
-        passcode: String,
-    ): Boolean = withContext(Dispatchers.IO) { nativeHostTakesFiles(addr, passcode) }
 
     fun sendCheck(paths: List<String>): String = nativeSendCheck(paths.toTypedArray())
 
@@ -833,13 +808,19 @@ object NativeClient {
 
     external fun nativeSnapshot(): Snapshot?
 
-    suspend fun listSources(
-        addr: String,
-        passcode: String,
-    ): List<Source>? = withContext(Dispatchers.IO) { nativeListSources(addr, passcode)?.toList() }
+    data class HostQuery(
+        val sources: List<Source>,
+        val terminal: Boolean,
+        val files: Boolean,
+    )
 
-    suspend fun hostHasTerminal(
+    suspend fun queryHost(
         addr: String,
         passcode: String,
-    ): Boolean = withContext(Dispatchers.IO) { nativeHostHasTerminal(addr, passcode) }
+    ): HostQuery? =
+        withContext(Dispatchers.IO) {
+            val caps = BooleanArray(2)
+            val sources = nativeListSources(addr, passcode, caps) ?: return@withContext null
+            HostQuery(sources.toList(), caps[0], caps[1])
+        }
 }

@@ -87,13 +87,16 @@ JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeSetScreenSize(JNIEn
 }
 
 JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* env, jobject,
-    jint fps, jint bitrateMbps, jint maxDim, jint port, jstring passcode) {
+    jint fps, jint bitrateMbps, jint maxDim, jint port, jstring passcode, jstring transferDir) {
     DHShareSource source{};
     if (dh_share_list_sources(&source, 1) != 1) return JNI_FALSE;
 
+    const std::string dir = deskhubj::FromJString(env, transferDir);
+    if (!dir.empty()) dh_set_transfer_dir(dir.c_str());
+
     const std::string code = deskhubj::FromJString(env, passcode);
     return dh_share_start(&source, 1, uint32_t(fps), uint32_t(bitrateMbps), uint32_t(maxDim),
-               uint16_t(port), false, code.c_str(), false, false)
+               uint16_t(port), false, code.c_str(), false, !dir.empty())
                ? JNI_TRUE
                : JNI_FALSE;
 }

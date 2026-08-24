@@ -4,7 +4,7 @@ import UIKit
 struct TouchInputView: UIViewRepresentable {
     let model: StreamModel
     let videoRect: CGRect
-    var blockedRect: CGRect = .zero
+    var blockedRects: [CGRect] = []
     var panMode = false
     var zoomed = false
     var onTransform: (CGFloat, CGPoint, CGSize) -> Void = { _, _, _ in }
@@ -18,7 +18,7 @@ struct TouchInputView: UIViewRepresentable {
     func updateUIView(_ uiView: TouchCaptureUIView, context _: Context) {
         uiView.model = model
         uiView.videoRect = videoRect
-        uiView.blockedRect = blockedRect
+        uiView.blockedRects = blockedRects
         uiView.panMode = panMode
         uiView.zoomed = zoomed
         uiView.onTransform = onTransform
@@ -36,7 +36,7 @@ final class TouchCaptureUIView: UIView {
         }
     }
 
-    var blockedRect: CGRect = .zero
+    var blockedRects: [CGRect] = []
 
     var panMode = false
 
@@ -99,8 +99,8 @@ final class TouchCaptureUIView: UIView {
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         guard super.point(inside: point, with: event) else { return false }
-        guard !blockedRect.isEmpty else { return true }
-        return !blockedRect.contains(convert(point, to: nil))
+        let global = convert(point, to: nil)
+        return !blockedRects.contains { !$0.isEmpty && $0.contains(global) }
     }
 
     private func layoutCursor() {

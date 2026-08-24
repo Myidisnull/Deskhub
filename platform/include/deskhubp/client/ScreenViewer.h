@@ -4,6 +4,7 @@
 #include "deskhub/input/ClientInputQueue.h"
 #include "deskhub/media/VideoContract.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/LinkRecovery.h"
 #include "deskhub/session/client/ScreenClient.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/ui/Strings.h"
@@ -40,7 +41,8 @@ enum class ClientPhase : int32_t { Idle = 0,
     Connecting = 1,
     Streaming = 2,
     Ended = 3,
-    Deciding = 4 };
+    Deciding = 4,
+    Reattaching = 5 };
 
 struct ScreenViewerConfig {
     NetAddr server{};
@@ -109,6 +111,8 @@ public:
         linkConfig.connectTimeoutMs = kHandshakeTimeoutMs;
         linkConfig.authTimeoutMs = kAuthTimeoutMs;
         linkConfig.recvWaitMs = 10;
+        linkConfig.recoverLink = true;
+        linkConfig.recoverGraceUs = deskhub::kViewerReattachGraceUs;
 
         HostLinkCallbacks linkHooks;
         linkHooks.onState = [this](HostLinkState state, std::string_view message) {
@@ -121,9 +125,15 @@ public:
         linkHooks.onStreamBroken = [this](uint64_t stream) {
             if (stream == kQuicFileStream && upload_) upload_->LinkLost();
         };
+        linkHooks.onReady = [this](bool resumed) {
+            if (resumed) relink_.store(true, std::memory_order_release);
+        };
 
         quit_.store(false);
         finished_.store(false);
+        reattaching_.store(false);
+        relink_.store(false);
+        endedNotified_.store(false);
         phase_.store(ClientPhase::Connecting, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lk(textMutex_);
@@ -223,6 +233,10 @@ public:
     std::string StatusLine() {
         std::lock_guard<std::mutex> lk(textMutex_);
         return statusLine_;
+    }
+
+    deskhub::LinkPulseView LinkHealth() const {
+        return link_.Pulse();
     }
 
     std::string EndReason() {
@@ -444,10 +458,28 @@ private:
         return cfg_.hostLabel.empty() ? cfg_.server.ToString() : cfg_.hostLabel;
     }
 
+    void EnterReattach() {
+        if (reattaching_.exchange(true, std::memory_order_acq_rel)) return;
+        phase_.store(ClientPhase::Reattaching, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lk(textMutex_);
+            statusLine_ = deskhub::ui::kTerminalReattaching;
+        }
+        if (cfg_.onStatus) cfg_.onStatus(deskhub::ui::kTerminalReattaching);
+    }
+
+    void NotifyEnded(const char* reason) {
+        if (endedNotified_.exchange(true, std::memory_order_acq_rel)) return;
+        if (cfg_.onEnded) cfg_.onEnded(reason && *reason ? reason : deskhub::ui::kDisconnected);
+    }
+
     void OnLinkState(HostLinkState state, std::string_view message) {
         switch (state) {
             case HostLinkState::Deciding:
                 phase_.store(ClientPhase::Deciding, std::memory_order_release);
+                return;
+            case HostLinkState::Recovering:
+                EnterReattach();
                 return;
             case HostLinkState::Connecting:
             case HostLinkState::Authing: {
@@ -511,12 +543,18 @@ private:
             if (reconfigured) rebuildDecoder_.store(true);
             if (cfg_.onParams) cfg_.onParams(np.width, np.height, np.fps);
         };
-        cb.onEnded = [this](const char* reason) {
+        cb.onEnded = [this](const char* reason, deskhub::ScreenSessionEnd cause) {
+            if (cause == deskhub::ScreenSessionEnd::Timeout && !quit_.load() &&
+                !link_.Settled()) {
+                EnterReattach();
+                link_.RequestRedial();
+                return;
+            }
             {
                 std::lock_guard<std::mutex> lk(textMutex_);
                 endReason_ = reason;
             }
-            if (cfg_.onEnded) cfg_.onEnded(reason ? reason : "disconnected");
+            NotifyEnded(reason);
             quit_.store(true);
         };
         cb.takeRenderedCount = [this] {
@@ -553,7 +591,7 @@ private:
                 if (endReason_.empty()) endReason_ = deskhub::ui::kTrustReject;
                 reason = endReason_;
             }
-            if (cfg_.onEnded) cfg_.onEnded(reason.c_str());
+            NotifyEnded(reason.c_str());
             if (cfg_.onFinished) cfg_.onFinished(reason.c_str());
             return;
         }
@@ -592,7 +630,11 @@ private:
             if (queueOverflow_.exchange(false, std::memory_order_acq_rel))
                 p.RequestKeyframe("q_overflow", now);
         };
-        hooks.beforeTick = [this, &batch](deskhub::ScreenClient& p, uint64_t now) {
+        hooks.beforeTick = [this, &batch, pcfg](deskhub::ScreenClient& p, uint64_t now) {
+            if (relink_.exchange(false, std::memory_order_acq_rel)) {
+                rebuildDecoder_.store(true);
+                p.Start(pcfg, now);
+            }
             input_.Drain(now, batch);
             for (const auto& e : batch) p.QueueInput(e);
             if (cfg_.alwaysFocused || input_.wantsFocus()) p.SetFocused(true);
@@ -604,13 +646,24 @@ private:
             if (clip) p.QueueClipboard(*clip);
         };
         hooks.onPhase = [this](bool streaming) {
-            phase_.store(streaming ? ClientPhase::Streaming : ClientPhase::Connecting,
+            if (streaming) {
+                reattaching_.store(false, std::memory_order_release);
+                phase_.store(ClientPhase::Streaming, std::memory_order_release);
+                return;
+            }
+            phase_.store(reattaching_.load(std::memory_order_acquire)
+                             ? ClientPhase::Reattaching
+                             : ClientPhase::Connecting,
                 std::memory_order_release);
         };
         hooks.onSocketError = [this] {
             LOGE("[Client] Socket error.");
             std::lock_guard<std::mutex> lk(textMutex_);
             if (endReason_.empty()) endReason_ = "socket error";
+        };
+        hooks.onSessionDead = [this] {
+            return reattaching_.load(std::memory_order_acquire) && !quit_.load() &&
+                   !link_.Settled();
         };
 
         RunScreenViewerLoop(
@@ -625,20 +678,16 @@ private:
         if (upload_) upload_->LinkLost();
         quit_.store(true);
         decCv_.notify_all();
+        std::string reason;
         {
             std::lock_guard<std::mutex> lk(textMutex_);
             if (endReason_.empty()) endReason_ = "stopped";
+            reason = endReason_;
         }
         phase_.store(ClientPhase::Ended, std::memory_order_release);
         finished_.store(true, std::memory_order_release);
-        if (cfg_.onFinished) {
-            std::string reason;
-            {
-                std::lock_guard<std::mutex> lk(textMutex_);
-                reason = endReason_;
-            }
-            cfg_.onFinished(reason.c_str());
-        }
+        NotifyEnded(reason.c_str());
+        if (cfg_.onFinished) cfg_.onFinished(reason.c_str());
         LOGI("[Client] Session ended.");
     }
 
@@ -656,6 +705,9 @@ private:
 
     std::atomic<bool> quit_{false};
     std::atomic<bool> finished_{false};
+    std::atomic<bool> reattaching_{false};
+    std::atomic<bool> relink_{false};
+    std::atomic<bool> endedNotified_{false};
     std::atomic<ClientPhase> phase_{ClientPhase::Idle};
 
     mutable std::mutex textMutex_;

@@ -42,7 +42,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -81,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+
+private const val LINK_POLL_MS = 1000L
 
 class StreamActivity : ComponentActivity() {
     private var session by mutableStateOf(0L)
@@ -256,6 +257,20 @@ private fun StreamScreen(
     }
 
     val streaming = sessionPhase == NativeClient.PHASE_STREAMING
+    val reattaching = sessionPhase == NativeClient.PHASE_REATTACHING
+
+    LaunchedEffect(sessionKey) {
+        if (!started) return@LaunchedEffect
+        while (sessionPhase != NativeClient.PHASE_ENDED) {
+            NativeClient.nativeSnapshot()?.let { snap ->
+                sessionPhase = snap.phase
+                if (snap.phase == NativeClient.PHASE_ENDED && endReason.isEmpty()) {
+                    endReason = snap.endReason
+                }
+            }
+            delay(LINK_POLL_MS)
+        }
+    }
 
     trustAsk?.let { (verdict, fingerprint) ->
         val changed = verdict == NativeClient.TRUST_CHANGED
@@ -483,10 +498,22 @@ private fun StreamScreen(
                     reason = if (!started) NativeClient.couldNotConnect(address) else endReason,
                     onBack = onDismiss,
                 )
+            } else if (reattaching) {
+                ReattachingBanner()
             } else if (!streaming) {
                 ConnectingOverlay(address = address)
             }
         }
+
+        SessionCloseButton(
+            onClick = onDismiss,
+            modifier =
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .safeDrawingPadding()
+                    .consumeTouches()
+                    .padding(12.dp),
+        )
 
         Column(
             modifier =
@@ -520,7 +547,6 @@ private fun StreamScreen(
                     currentSourceId = currentSourceId,
                     onToggleKeyboard = { keyboardOn = !keyboardOn },
                     onSwitchSource = onSwitchSource,
-                    onEnd = onDismiss,
                     onCollapse = { controlsOpen = false },
                 )
             } else {
@@ -653,7 +679,6 @@ private fun ControlPanel(
     currentSourceId: Int,
     onToggleKeyboard: () -> Unit,
     onSwitchSource: (Int) -> Unit,
-    onEnd: () -> Unit,
     onCollapse: () -> Unit,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
@@ -703,7 +728,7 @@ private fun ControlPanel(
                         .clickable(onClick = onCollapse),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = "✕", color = Color.White)
+                Text(text = "⌄", color = Color.White)
             }
         }
 
@@ -734,9 +759,25 @@ private fun ControlPanel(
             if (sources.size > 1) {
                 OutlinedButton(onClick = { pickerOpen = true }) { Text("Display") }
             }
-            Box(modifier = Modifier.weight(1f))
-            Button(onClick = onEnd) { Text("End") }
         }
+    }
+}
+
+@Composable
+private fun ReattachingBanner() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Text(
+            NativeClient.string(NativeClient.STR_LINK_REATTACHING),
+            color = Color.White,
+            modifier =
+                Modifier
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }
 

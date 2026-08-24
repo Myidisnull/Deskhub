@@ -108,10 +108,18 @@ private:
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartConnect(const std::string& addr, const std::string& passcode);
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
+        const deskhubp::ConnectOutcome& outcome);
+    void ForgetHost();
+    void ApplyConnectedState();
+    void OpenDesktopSession();
+    static void OnDisconnectClicked(GtkButton* b, gpointer user);
+    static void OnOpenDesktopClicked(GtkButton* b, gpointer user);
+    static void OnOpenShellClicked(GtkButton* b, gpointer user);
+    static void OnOpenFilesClicked(GtkButton* b, gpointer user);
     bool ReadPasscode(GtkWidget* entry, std::string& out);
 
     void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
+    void StartTenants();
     void BeginAutoShare();
     static gboolean OnAutoShareTimer(gpointer user);
     void ReportShareProblem(const char* title, const std::string& text);
@@ -202,9 +210,15 @@ private:
     GtkWidget* connectButton_ = nullptr;
     GtkWidget* clientStatusLabel_ = nullptr;
     GtkWidget* controlCheck_ = nullptr;
-    GtkWidget* desktopCheck_ = nullptr;
-    GtkWidget* shellCheck_ = nullptr;
-    GtkWidget* filesCheck_ = nullptr;
+    GtkWidget* addressFormBox_ = nullptr;
+    GtkWidget* connectedBox_ = nullptr;
+    GtkWidget* connectedAddressLabel_ = nullptr;
+    GtkWidget* connectedStateLabel_ = nullptr;
+    GtkWidget* connectedPingLabel_ = nullptr;
+    GtkWidget* openDesktopButton_ = nullptr;
+    GtkWidget* openShellButton_ = nullptr;
+    GtkWidget* openFilesButton_ = nullptr;
+    GtkWidget* devicesBox_ = nullptr;
 
     GtkWidget* pairedView_ = nullptr;
     GtkListStore* pairedStore_ = nullptr;
@@ -268,6 +282,13 @@ private:
 
     deskhub::OpenViewerCount openViewers_;
     deskhubp::SourceQueryAsync connectDriver_;
+
+    bool connected_ = false;
+    deskhub::HostCaps connectedCaps_{};
+    std::vector<deskhub::SourceInfo> connectedSources_;
+    NetAddr connectedServer_{};
+    std::string connectedAddress_;
+    std::string connectedPasscode_;
 
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 };

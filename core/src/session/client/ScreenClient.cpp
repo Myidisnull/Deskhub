@@ -37,11 +37,11 @@ ScreenClientSessionCallbacks ScreenClient::MakeSessionCallbacks() {
     sc.onClipboardText = [this](std::string_view text) {
         if (cb_.onClipboardText) cb_.onClipboardText(text);
     };
-    sc.onDisconnect = [this](const char* reason) {
+    sc.onDisconnect = [this](const char* reason, ScreenSessionEnd cause) {
         std::snprintf(line_, sizeof(line_), "[Client] Disconnected: %s",
             reason ? reason : "disconnected");
         Log(line_);
-        if (cb_.onEnded) cb_.onEnded(reason ? reason : "disconnected");
+        if (cb_.onEnded) cb_.onEnded(reason ? reason : "disconnected", cause);
     };
     return sc;
 }
@@ -50,6 +50,7 @@ void ScreenClient::Start(const ScreenClientConfig& cfg, uint64_t nowUs) {
     cfg_ = cfg;
     linkStats_ = LinkStats(nowUs);
     windowBytes_ = 0;
+    reasm_.reset();
 
     Hello hello;
     hello.clientId = cfg.clientId;

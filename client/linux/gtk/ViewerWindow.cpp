@@ -27,6 +27,8 @@ constexpr int32_t kWheelDelta = deskhub::kWheelDeltaPerNotch;
 constexpr int kInitialW = 1024;
 constexpr int kInitialH = 600;
 
+constexpr const char* kStatusSeparator = " \xC2\xB7 ";
+
 GdkRectangle WorkArea(GtkWidget* w) {
     GdkRectangle wa{0, 0, kInitialW, kInitialH};
     GdkDisplay* d = gtk_widget_get_display(w);
@@ -96,6 +98,11 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
 
     GtkWidget* header = gtk_header_bar_new();
     gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header), TRUE);
+    GtkWidget* disconnectButton = gtk_button_new_with_label(deskhub::ui::kDisconnectButton);
+    g_signal_connect(disconnectButton, "clicked", G_CALLBACK(OnDisconnectClicked), this);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), disconnectButton);
+    linkLabel_ = gtk_label_new("");
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), linkLabel_);
     gtk_window_set_titlebar(GTK_WINDOW(window_), header);
 
     glArea_ = gtk_gl_area_new();
@@ -167,6 +174,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
 
     clipboardSync_ = deskhubp::LoadUiSettings().clipboardSync;
     if (clipboardSync_) clipTimerId_ = g_timeout_add(1000, OnClipboardTimer, this);
+    linkTimerId_ = g_timeout_add(1000, OnLinkTimer, this);
 
     UpdateTitle();
     gtk_widget_show_all(window_);
@@ -285,6 +293,19 @@ void ViewerWindow::UpdateTitle() {
     if (title == shownTitle_) return;
     shownTitle_ = std::move(title);
     gtk_window_set_title(GTK_WINDOW(window_), shownTitle_.c_str());
+}
+
+void ViewerWindow::UpdateLinkLabel() {
+    if (!linkLabel_) return;
+    const bool reattaching = loop_.phase() == deskhubp::ClientPhase::Reattaching;
+    gtk_label_set_text(
+        GTK_LABEL(linkLabel_), reattaching ? deskhub::ui::kTerminalReattaching : "");
+}
+
+gboolean ViewerWindow::OnLinkTimer(gpointer user) {
+    auto* self = static_cast<ViewerWindow*>(user);
+    self->UpdateLinkLabel();
+    return G_SOURCE_CONTINUE;
 }
 
 void ViewerWindow::SizeToVideo() {
@@ -435,12 +456,21 @@ gboolean ViewerWindow::OnFocusOut(GtkWidget*, GdkEventFocus*, gpointer user) {
     return FALSE;
 }
 
+void ViewerWindow::OnDisconnectClicked(GtkWidget*, gpointer user) {
+    auto* self = static_cast<ViewerWindow*>(user);
+    gtk_window_close(GTK_WINDOW(self->window_));
+}
+
 void ViewerWindow::OnDestroy(GtkWidget*, gpointer user) {
     auto* self = static_cast<ViewerWindow*>(user);
     self->tickId_ = 0;
     if (self->clipTimerId_) {
         g_source_remove(self->clipTimerId_);
         self->clipTimerId_ = 0;
+    }
+    if (self->linkTimerId_) {
+        g_source_remove(self->linkTimerId_);
+        self->linkTimerId_ = 0;
     }
     self->window_ = nullptr;
     auto done = std::move(self->onClosed_);

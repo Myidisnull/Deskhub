@@ -56,7 +56,7 @@ void RunScreenViewerLoop(const ScreenViewerRecv& recv, deskhub::ScreenClient& sc
         screen.PlanNacks(now);
         if (hooks.beforeTick) hooks.beforeTick(screen, now);
 
-        if (!screen.Tick(now)) break;
+        if (!screen.Tick(now) && !(hooks.onSessionDead && hooks.onSessionDead())) break;
         if (hooks.onPhase) hooks.onPhase(screen.streaming());
 
         screen.CountLoopBusy(now, NowUs());

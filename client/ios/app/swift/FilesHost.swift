@@ -48,7 +48,7 @@ final class FilesHost {
     }
 
     private func sync() {
-        let wanted = dh_take_files() && !BroadcastStatus.broadcastProcessAlive
+        let wanted = !BroadcastStatus.broadcastProcessAlive
         if wanted, receiving, activeSettings != FilesHost.settingsSignature() { stop() }
         if wanted, !receiving { start() }
         if !wanted, receiving { stop() }

@@ -76,11 +76,14 @@ bool HostLink::Start(const HostLinkConfig& config, HostLinkCallbacks callbacks) 
     trustDecision_.store(int(TrustDecision::Pending), std::memory_order_release);
     authCode_.store(deskhub::AuthResultCode::NotPaired, std::memory_order_release);
     autoTrustPending_.store(false, std::memory_order_release);
+    redial_.store(false, std::memory_order_release);
+    pulse_.Reset();
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         fingerprint_ = deskhub::Fingerprint{};
         verdict_ = deskhub::TrustVerdict::Unknown;
         message_.clear();
+        pulseView_ = deskhub::LinkPulseView{};
     }
     keepaliveIntervalUs_ = deskhub::KeepaliveIntervalUs(QuicSettings{}.idleTimeoutMs);
     linkLostAtUs_ = 0;
@@ -119,6 +122,15 @@ void HostLink::AcceptFingerprint() {
 
 void HostLink::RejectFingerprint() {
     trustDecision_.store(int(TrustDecision::Rejected), std::memory_order_release);
+}
+
+void HostLink::RequestRedial() {
+    redial_.store(true, std::memory_order_release);
+}
+
+deskhub::LinkPulseView HostLink::Pulse() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return pulseView_;
 }
 
 bool HostLink::Send(std::span<const uint8_t> message) {
@@ -173,6 +185,22 @@ void HostLink::NoteSent() {
     lastSendUs_.store(NowUs(), std::memory_order_relaxed);
 }
 
+void HostLink::SendLinkPing(uint64_t nowUs) {
+    uint8_t buf[deskhub::kMaxDatagram];
+    const size_t n = deskhub::BuildPing(buf, 0, pulse_.MakePing(nowUs));
+    if (n) Send(std::span<const uint8_t>(buf, n));
+    PublishPulse(nowUs);
+}
+
+void HostLink::PublishPulse(uint64_t nowUs) {
+    const deskhub::LinkPulseView view = pulse_.View(nowUs);
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        pulseView_ = view;
+    }
+    if (cb_.onPulse) cb_.onPulse(view);
+}
+
 void HostLink::Loop() {
     bool resumed = false;
     while (!stop_.load(std::memory_order_acquire)) {
@@ -182,6 +210,9 @@ void HostLink::Loop() {
             resumed ? deskhub::ui::kTerminalReattached : std::string_view{});
         linkLostAtUs_ = 0;
         redialAttempts_ = 0;
+        redial_.store(false, std::memory_order_release);
+        pulse_.Reset();
+        PublishPulse(NowUs());
         if (cb_.onReady) cb_.onReady(resumed);
 
         PumpReady();
@@ -353,8 +384,21 @@ void HostLink::PumpReady() {
         if (n < 0) return;
         if (n > 0 && from == config_.host) Route(std::span<const uint8_t>(buf, size_t(n)));
         if (peerGone_.load(std::memory_order_acquire)) return;
+        if (redial_.exchange(false, std::memory_order_acq_rel)) {
+            LOGW("link: a redial of %s was asked for \xE2\x80\x94 dropping this connection",
+                config_.host.ToString().c_str());
+            return;
+        }
 
         const uint64_t nowUs = NowUs();
+        if (pulse_.PingDue(nowUs)) SendLinkPing(nowUs);
+        if (config_.recoverLink && pulse_.Stalled(nowUs)) {
+            LOGW("link: no pong from %s for %llu ms \xE2\x80\x94 treating the link as lost",
+                config_.host.ToString().c_str(),
+                (unsigned long long)(deskhub::kLinkStallAfterUs / 1000));
+            return;
+        }
+
         const uint64_t lastSendUs = lastSendUs_.load(std::memory_order_relaxed);
         const uint64_t idleSinceUs = lastSendUs > lastKeepaliveUs ? lastSendUs : lastKeepaliveUs;
         if (deskhub::KeepaliveDue(nowUs, idleSinceUs, keepaliveIntervalUs_)) {
@@ -367,6 +411,11 @@ void HostLink::PumpReady() {
 void HostLink::Route(std::span<const uint8_t> message) {
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
     if (!header || size_t(header->chan) >= deskhub::kChanCount) return;
+    if (header->type == deskhub::MsgType::Pong && header->sessionId == 0) {
+        const auto pong = deskhub::ParsePingPong(deskhub::PayloadOf(message));
+        if (pong && pulse_.OnPong(*pong, NowUs())) PublishPulse(NowUs());
+        return;
+    }
     const std::lock_guard<std::mutex> lock(routeMutex_);
     std::vector<std::weak_ptr<HostLinkChannel>>& lane = routes_[size_t(header->chan)];
     for (auto at = lane.begin(); at != lane.end();) {

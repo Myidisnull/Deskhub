@@ -164,16 +164,16 @@ HostEngine (one per app, owns SessionTransport)
 
 Every client surface reaches a host through the same piece, `HostLink`
 (`platform/client/HostLink`): it dials the QUIC connection, checks the trust store,
-runs the auth handshake, keeps the link alive with keepalives, and — for surfaces
-that ask for it — redials with backoff when the link drops. No service dials or
-authenticates on its own any more; a service opens a channel per wire `Chan`, gets
-its own inbox queue, and drains it on its own thread:
+runs the auth handshake, keeps the link alive, and — for surfaces that ask for it —
+redials with backoff when the link drops. No service dials or authenticates on its
+own any more; a service opens a channel per wire `Chan`, gets its own inbox queue,
+and drains it on its own thread:
 
 ```
 HostLink (one per open surface)
  ├─ link thread: dial → trust check → auth → pump
  │   (routes inbound records and datagrams by Chan into per-channel
- │    queues; keepalives; redial with backoff where recovery is on)
+ │    queues; link pulse; redial with backoff where recovery is on)
  ├─ Chan::Control/Video/Audio ─> ScreenViewer
  │    ├─ net thread: HELLO/negotiation, video ingest (Reassembler+FEC),
  │    │   NACKs, feedback, clipboard
@@ -183,6 +183,30 @@ HostLink (one per open surface)
  │    └─ UI polls Snapshot(), posts keys into a command queue
  └─ Chan::File ─> FileTransferClient service thread (FileUpload ring)
 ```
+
+Once admitted, the link takes its own pulse (`core/session/LinkPulse`): a
+`Ping` datagram with session id 0 goes out once a second, the host's beacon answers
+it over the same connection with no session required, and the echoed timestamp
+becomes a smoothed RTT while the ids of pongs that never came back become a loss
+percentage. `ClassifyLinkQuality` folds the two into Good / Fair / Poor for the
+device list and the connect page — the session windows no longer carry it —
+`HostLink` hands the reading out through `onPulse` and `Pulse()`, and
+because a ping is ack-eliciting it doubles as the keepalive; the plain keepalive
+timer only still matters while the link is parked in `Deciding`. A host too old to
+answer session-0 pings simply leaves the reading at Unknown — nothing regresses.
+On a recovering link the pulse is also the liveness check: five seconds without a
+pong (only ever after a first pong proved the host answers) drops the connection
+into the existing redial path.
+
+The screen viewer now opts into that recovery like the terminal always has: a
+dropped or silent link, or a session that stops receiving for five seconds, parks
+the window in `Reattaching` (the last frame stays up, the status line flips to the
+reattaching text) instead of ending it. `HostLink::RequestRedial` forces the
+redial when the session noticed first, and once the link is readmitted the viewer
+re-runs `HELLO` with the same client id — the host rebinds the viewer slot — and
+streaming resumes off the fresh keyframe. After sixty seconds
+(`kViewerReattachGraceUs`) without getting back in, the window ends with the usual
+reason.
 
 The source query (`QuerySources`) rides the same link in a one-shot, blocking form.
 The UI still posts intents (keys, resize, accept-fingerprint) into command queues;
