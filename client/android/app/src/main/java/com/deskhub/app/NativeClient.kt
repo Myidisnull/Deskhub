@@ -106,8 +106,10 @@ object NativeClient {
     const val STR_TRUST_FINGERPRINT_LABEL = 99
     const val STR_TRUST_ACCEPT = 100
     const val STR_TRUST_REJECT = 101
+    const val STR_OPEN_DESKTOP_LABEL = 105
     const val STR_OPEN_SHELL_LABEL = 106
-    const val STR_HOST_HAS_NO_TERMINAL = 127
+    const val STR_CONNECT_BUTTON = 116
+    const val STR_CONNECTED_PICK_SESSION = 151
     const val STR_TERMINAL_EXTRA_KEYS_HINT = 108
 
     const val TRUST_CHANGED = 2
@@ -174,8 +176,6 @@ object NativeClient {
 
     private external fun nativeSourceQueryFailed(addr: String): String
 
-    private external fun nativeSourceQueryEmpty(addr: String): String
-
     private external fun nativeHostTitle(
         addr: String,
         width: Int,
@@ -196,8 +196,6 @@ object NativeClient {
 
     fun sourceQueryFailed(addr: String): String = nativeSourceQueryFailed(addr)
 
-    fun sourceQueryEmpty(addr: String): String = nativeSourceQueryEmpty(addr)
-
     fun hostTitle(
         addr: String,
         width: Int,
@@ -211,12 +209,8 @@ object NativeClient {
     private external fun nativeListSources(
         addr: String,
         passcode: String,
+        capsOut: BooleanArray,
     ): Array<Source>?
-
-    private external fun nativeHostHasTerminal(
-        addr: String,
-        passcode: String,
-    ): Boolean
 
     private external fun nativeIsValidPasscode(passcode: String): Boolean
 
@@ -325,11 +319,6 @@ object NativeClient {
 
     val maxTransferFiles: Int by lazy { nativeMaxTransferFiles() }
 
-    private external fun nativeHostTakesFiles(
-        addr: String,
-        passcode: String,
-    ): Boolean
-
     private external fun nativeSendCheck(paths: Array<String>): String
 
     private external fun nativeSendStart(
@@ -348,11 +337,6 @@ object NativeClient {
     private external fun nativeSendCancel(handle: Long)
 
     private external fun nativeSendStop(handle: Long)
-
-    suspend fun hostTakesFiles(
-        addr: String,
-        passcode: String,
-    ): Boolean = withContext(Dispatchers.IO) { nativeHostTakesFiles(addr, passcode) }
 
     fun sendCheck(paths: List<String>): String = nativeSendCheck(paths.toTypedArray())
 
@@ -840,40 +824,19 @@ object NativeClient {
 
     external fun nativeSnapshot(): Snapshot?
 
-    const val LINK_QUALITY_UNKNOWN = 0
-    const val LINK_QUALITY_GOOD = 1
-    const val LINK_QUALITY_FAIR = 2
-    const val LINK_QUALITY_POOR = 3
-
-    data class LinkHealth(
-        val haveRtt: Boolean = false,
-        val rttMs: Int = 0,
-        val lossPct: Int = 0,
-        val quality: Int = LINK_QUALITY_UNKNOWN,
+    data class HostQuery(
+        val sources: List<Source>,
+        val terminal: Boolean,
+        val files: Boolean,
     )
 
-    private external fun nativeLinkHealth(): IntArray
-
-    fun linkHealth(): LinkHealth {
-        val raw = nativeLinkHealth()
-        if (raw.size < 4) return LinkHealth()
-        return LinkHealth(raw[0] != 0, raw[1], raw[2], raw[3])
-    }
-
-    private external fun nativeLinkPingText(
-        haveRtt: Boolean,
-        rttMs: Int,
-    ): String
-
-    fun linkPingText(health: LinkHealth): String = nativeLinkPingText(health.haveRtt, health.rttMs)
-
-    suspend fun listSources(
+    suspend fun queryHost(
         addr: String,
         passcode: String,
-    ): List<Source>? = withContext(Dispatchers.IO) { nativeListSources(addr, passcode)?.toList() }
-
-    suspend fun hostHasTerminal(
-        addr: String,
-        passcode: String,
-    ): Boolean = withContext(Dispatchers.IO) { nativeHostHasTerminal(addr, passcode) }
+    ): HostQuery? =
+        withContext(Dispatchers.IO) {
+            val caps = BooleanArray(2)
+            val sources = nativeListSources(addr, passcode, caps) ?: return@withContext null
+            HostQuery(sources.toList(), caps[0], caps[1])
+        }
 }
