@@ -1222,7 +1222,7 @@ bool MainWindow::EnsureTrayAttached() {
     actions.onToggleShare = [this] { OnShare(); };
     actions.onQuit = [this] { gtk_widget_destroy(window_); };
     if (!tray_.Attach(actions)) return false;
-    tray_.SetSharing(hosting_);
+    tray_.SetSharing(screenSharing_);
     tray_.SetWindowVisible(gtk_widget_get_visible(window_));
     return true;
 }
@@ -1240,7 +1240,8 @@ void MainWindow::ShowMainWindow() {
     gtk_widget_show_all(window_);
     gtk_window_present(GTK_WINDOW(window_));
     tray_.SetWindowVisible(true);
-    ShowHostTable(Sharing());
+    ApplyConnectedState();
+    ShowHostTable(screenSharing_);
 }
 
 void MainWindow::OnSettingChanged(GtkWidget*, gpointer user) {
@@ -1783,7 +1784,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     if (terminalRequested_) share_.StartTerminalShare();
     if (filesRequested_) StartFileShare();
     ApplySharingBanner();
-    tray_.SetSharing(true);
+    tray_.SetSharing(screenSharing_);
 
     if (hostTimerId_) g_source_remove(hostTimerId_);
     hostTimerId_ = g_timeout_add(deskhubp::kShareStatusPollMs, OnHostTimer, this);
