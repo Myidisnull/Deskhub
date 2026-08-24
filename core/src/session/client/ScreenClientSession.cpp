@@ -27,16 +27,18 @@ bool ScreenClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t no
                 rejectReason_ = m->reason;
                 switch (m->reason) {
                     case RejectReason::CodecMismatch:
-                        Die("host rejected (codec mismatch)");
+                        Die("host rejected (codec mismatch)", ScreenSessionEnd::Rejected);
                         return false;
                     case RejectReason::Busy:
-                        Die("the host already has as many viewers as it can take");
+                        Die("the host already has as many viewers as it can take",
+                            ScreenSessionEnd::Rejected);
                         return false;
                     case RejectReason::WrongPasscode:
-                        Die("wrong passcode — check the 4-digit code on the host");
+                        Die("wrong passcode — check the 4-digit code on the host",
+                            ScreenSessionEnd::Rejected);
                         return false;
                     default:
-                        Die("host rejected (busy or codec mismatch)");
+                        Die("host rejected (busy or codec mismatch)", ScreenSessionEnd::Rejected);
                         return false;
                 }
             }
@@ -81,7 +83,7 @@ bool ScreenClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t no
         }
         case MsgType::Bye:
             if (h->sessionId != sessionId_ || sessionId_ == 0) return false;
-            Die("host ended the session (BYE)");
+            Die("host ended the session (BYE)", ScreenSessionEnd::HostBye);
             return false;
         case MsgType::Clipboard: {
             if (h->sessionId != sessionId_ || sessionId_ == 0) return false;
@@ -131,7 +133,7 @@ void ScreenClientSession::Tick(uint64_t nowUs) {
             return;
         case State::Hello:
             if (nowUs - startedUs_ > kHelloGiveUpUs) {
-                Die("could not connect (timed out)");
+                Die("could not connect (timed out)", ScreenSessionEnd::ConnectTimeout);
                 return;
             }
             if (nowUs - lastSentUs_ >= kHelloRetryUs) {
@@ -150,7 +152,7 @@ void ScreenClientSession::Tick(uint64_t nowUs) {
     }
 
     if (nowUs - lastRecvUs_ > kSessionTimeoutUs) {
-        Die("lost contact with host (timeout)");
+        Die("lost contact with host (timeout)", ScreenSessionEnd::Timeout);
         return;
     }
 
@@ -219,9 +221,9 @@ void ScreenClientSession::SendStart() {
     if (n && cb_.send) cb_.send(std::span<const uint8_t>(buf_, n));
 }
 
-void ScreenClientSession::Die(const char* reason) {
+void ScreenClientSession::Die(const char* reason, ScreenSessionEnd cause) {
     state_ = State::Dead;
-    if (cb_.onDisconnect) cb_.onDisconnect(reason);
+    if (cb_.onDisconnect) cb_.onDisconnect(reason, cause);
 }
 
 }
