@@ -124,6 +124,8 @@ an alternative face on the behaviour in this document, never a different behavio
 | V-4 | Titled windows | Each viewer window is titled with the source it is showing plus its current status, so multiple sessions are distinguishable. |
 | V-5 | Disconnect | The viewer can end the session at any time. |
 | V-6 | Sound | Where both machines support it (section 3), the viewer hears what the shared machine is playing, in step with the picture to within about a frame. Sound is carried on its own channel: losing a packet costs a fraction of a second of audio and never disturbs the picture, and a machine playing nothing costs almost no bandwidth. It is off for a viewer that turns it off (T-23) and never sent by a host that turns it off (T-22). |
+| V-7 | Connection health | The session window says where it is connected and how the link is doing: a **Good / Fair / Poor** rating and the ping, measured once a second on the session's own connection, next to a **Disconnect** control (V-5). Before the first reply — or against a host too old to answer — the reading is a dash, never a guess. |
+| V-8 | Auto-reconnect | A session that loses its host — the network drops, the stream goes silent — does not end. The window keeps its last picture, states that it is reattaching, and redials with backoff for up to a minute; when the host answers again the picture resumes on its own. Only after that minute, or when the host deliberately ends or refuses the session, does the window close with the reason. A shell window keeps its own two-minute reattach grace as before. |
 
 ## 8. Controlling the remote machine
 

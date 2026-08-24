@@ -35,6 +35,7 @@ private:
     void GrabPointer(bool locked);
     void AskAboutKey(deskhub::TrustVerdict verdict, const std::string& fingerprint);
     void UpdateTitle();
+    void UpdateLinkLabel();
     void SizeToVideo();
     void EndSession();
 
@@ -50,15 +51,19 @@ private:
     static gboolean OnFocusOut(GtkWidget* w, GdkEventFocus* e, gpointer user);
     static gboolean OnTick(GtkWidget* w, GdkFrameClock* clock, gpointer user);
     static void OnDestroy(GtkWidget* w, gpointer user);
+    static void OnDisconnectClicked(GtkWidget* w, gpointer user);
 
     GtkWidget* window_ = nullptr;
     GtkWidget* glArea_ = nullptr;
+    GtkWidget* linkLabel_ = nullptr;
     guint tickId_ = 0;
     uint64_t queuedFrameSerial_ = 0;
     guint clipTimerId_ = 0;
+    guint linkTimerId_ = 0;
     bool clipboardSync_ = false;
 
     static gboolean OnClipboardTimer(gpointer user);
+    static gboolean OnLinkTimer(gpointer user);
 
     std::shared_ptr<ViewerWindow*> alive_;
 

@@ -128,6 +128,8 @@ mô tả trong tài liệu này, không bao giờ là hành vi khác.
 | V-4 | Cửa sổ có tiêu đề | Mỗi cửa sổ xem có tiêu đề gồm tên nguồn đang xem và trạng thái hiện tại, để phân biệt được khi mở nhiều phiên. |
 | V-5 | Ngắt kết nối | Viewer có thể kết thúc phiên bất cứ lúc nào. |
 | V-6 | Âm thanh | Ở những nơi cả hai máy đều hỗ trợ (mục 3), viewer nghe được thứ máy đang chia sẻ phát ra, lệch hình chừng một khung. Âm thanh đi trên kênh riêng: mất một gói chỉ mất một phần nhỏ của giây tiếng và không bao giờ làm hỏng hình, còn máy không phát gì thì gần như không tốn băng thông. Viewer tắt (T-23) thì không nghe, host tắt (T-22) thì không gửi. |
+| V-7 | Sức khỏe kết nối | Cửa sổ phiên cho biết đang nối tới đâu và đường truyền ra sao: xếp hạng **Tốt / Khá / Kém** cùng ping, đo mỗi giây một lần trên chính kết nối của phiên, đặt cạnh nút **Ngắt kết nối** (V-5). Trước khi có hồi âm đầu tiên — hay gặp host quá cũ không trả lời — số đo là một dấu gạch, không bao giờ là phỏng đoán. |
+| V-8 | Tự nối lại | Phiên mất host — mạng rơi, luồng hình câm lặng — không kết thúc. Cửa sổ giữ khung hình cuối, báo đang nối lại, và quay số lại theo backoff trong tối đa một phút; host trả lời lại là hình tự chạy tiếp. Chỉ sau một phút đó, hoặc khi host chủ động kết thúc hay từ chối phiên, cửa sổ mới đóng kèm lý do. Cửa sổ shell giữ nguyên hai phút ân hạn nối lại như trước. |
 
 ## 8. Điều khiển máy từ xa
 

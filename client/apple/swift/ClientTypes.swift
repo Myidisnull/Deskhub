@@ -5,6 +5,8 @@ nonisolated enum Phase: Int, Sendable {
     case connecting = 1
     case streaming = 2
     case ended = 3
+    case deciding = 4
+    case reattaching = 5
 }
 
 nonisolated enum MouseButton: Int32, Sendable {

@@ -99,16 +99,19 @@ struct StreamView: View {
     let onEnd: () -> Void
 
     var body: some View {
-        RemoteView(
-            model: model,
-            videoSize: videoSize,
-            mouseLocked: model.mouseLocked,
-            onLayerReady: { layer in model.setLayer(layer) },
-            onLockChanged: { model.mouseLocked = $0 }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
-        .environment(\.colorScheme, .dark)
+        VStack(spacing: 0) {
+            ConnectionStatusBar(model: model, onDisconnect: onEnd)
+            RemoteView(
+                model: model,
+                videoSize: videoSize,
+                mouseLocked: model.mouseLocked,
+                onLayerReady: { layer in model.setLayer(layer) },
+                onLockChanged: { model.mouseLocked = $0 }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+        }
         .trustPrompt(
             isPresented: $model.askingTrust,
             changed: model.trustChanged,

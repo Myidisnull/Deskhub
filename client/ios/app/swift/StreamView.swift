@@ -197,6 +197,9 @@ struct StreamView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    LinkHealthRow(health: model.linkHealth)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.8))
                     if streaming, !model.statusLine.isEmpty {
                         Text(model.statusLine)
                             .font(.caption)
