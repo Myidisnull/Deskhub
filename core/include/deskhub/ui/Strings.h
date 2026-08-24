@@ -1,5 +1,6 @@
 #pragma once
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/LinkPulse.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -38,6 +39,21 @@ inline constexpr const char* kViewerOpenFailed =
 inline constexpr const char* kConnectionEndedTitle = "Connection ended";
 inline constexpr const char* kDisconnected = "disconnected";
 inline constexpr const char* kSessionEnded = "Session ended";
+inline constexpr const char* kDisconnectButton = "Disconnect";
+inline constexpr const char* kLinkQualityGood = "Good";
+inline constexpr const char* kLinkQualityFair = "Fair";
+inline constexpr const char* kLinkQualityPoor = "Poor";
+inline constexpr const char* kLinkNoReading = "\xE2\x80\x94";
+
+inline const char* LinkQualityText(LinkQuality quality) {
+    switch (quality) {
+        case LinkQuality::Good: return kLinkQualityGood;
+        case LinkQuality::Fair: return kLinkQualityFair;
+        case LinkQuality::Poor: return kLinkQualityPoor;
+        case LinkQuality::Unknown: break;
+    }
+    return kLinkNoReading;
+}
 inline constexpr const char* kScreenRecordingRequired =
     "Screen Recording permission is required. Grant it in System Settings, then quit and "
     "reopen Deskhub.";
@@ -462,6 +478,11 @@ inline std::string PortCell(uint16_t port) {
 
 inline std::string PingMs(uint32_t ms) {
     return std::to_string(ms) + " ms";
+}
+
+inline std::string LinkPingText(bool haveRtt, uint32_t rttUs) {
+    if (!haveRtt) return kLinkNoReading;
+    return PingMs((rttUs + 500) / 1000);
 }
 
 inline std::string SharingStatusLine(uint16_t port) {

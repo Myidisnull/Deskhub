@@ -70,6 +70,9 @@ int main() {
     std::printf("--- session: keeping a link alive and getting it back ---\n");
     RunLinkRecoveryTests();
 
+    std::printf("--- session: the link's own ping, loss and quality reading ---\n");
+    RunLinkPulseTests();
+
     std::printf("--- session: passcode attempt throttle ---\n");
     RunAuthThrottleTests();
 
