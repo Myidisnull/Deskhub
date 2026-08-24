@@ -506,6 +506,26 @@ void dh_set_clipboard_sync(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+bool dh_share_audio(void) {
+    return deskhubp::LoadUiSettings().shareAudio;
+}
+
+void dh_set_share_audio(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.shareAudio = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_play_audio(void) {
+    return deskhubp::LoadUiSettings().playAudio;
+}
+
+void dh_set_play_audio(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.playAudio = on;
+    deskhubp::SaveUiSettings(out);
+}
+
 bool dh_keep_awake(void) {
     return deskhubp::LoadUiSettings().keepAwake;
 }

@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -28,8 +29,15 @@ namespace {
 
 std::unique_ptr<AgentLoop> g_agent;
 std::mutex g_agentMutex;
+std::mutex g_audioMutex;
+AgentLoop* g_audioTarget = nullptr;
 
 char g_errorBuf[512];
+
+void PublishAudioTarget(AgentLoop* target) {
+    std::lock_guard<std::mutex> lk(g_audioMutex);
+    g_audioTarget = target;
+}
 
 AgentSource ToAgentSource(const DHShareSource& s) {
     AgentSource a;
@@ -91,6 +99,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
         deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
         opt.bindIp = stored.bindIp;
         opt.clipboardSync = stored.clipboardSync;
+        opt.audio = stored.shareAudio;
         if (!deskhubp::ApplyEncryptToAgentOptions(stored, opt)) return false;
     }
 
@@ -100,6 +109,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
         g_agent->Stop();
+        PublishAudioTarget(nullptr);
         g_agent.reset();
     }
     g_agent = std::make_unique<AgentLoop>();
@@ -108,6 +118,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
         g_agent.reset();
         return false;
     }
+    PublishAudioTarget(g_agent.get());
     g_errorBuf[0] = '\0';
     return true;
 }
@@ -119,6 +130,7 @@ void dha_stop(void) {
     std::lock_guard<std::mutex> lk(g_agentMutex);
     if (g_agent) {
         g_agent->Stop();
+        PublishAudioTarget(nullptr);
         g_agent.reset();
     }
     deskhubp::LogStopPhase("ui", "dha_stop", t0);
@@ -211,4 +223,16 @@ int dha_bind_warning(char* out, int capacity) {
     if (lk.owns_lock() && g_agent)
         deskhubp::CopyToBuf(out, size_t(capacity), g_agent->BindWarning());
     return int(std::strlen(out));
+}
+
+void dha_offer_audio(const int16_t* pcm, int samples) {
+    if (!pcm || samples <= 0) return;
+    std::lock_guard<std::mutex> lk(g_audioMutex);
+    if (!g_audioTarget) return;
+    g_audioTarget->OfferAudio(std::span<const int16_t>(pcm, size_t(samples)));
+}
+
+bool dha_audio_running(void) {
+    std::lock_guard<std::mutex> lk(g_audioMutex);
+    return g_audioTarget != nullptr && g_audioTarget->audioRunning();
 }

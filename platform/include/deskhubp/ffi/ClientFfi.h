@@ -10,6 +10,12 @@ extern "C" {
 #define DH_SOURCE_QUERY_FAILED (-1)
 
 typedef enum {
+    DHAutoShareKeepWaiting = 0,
+    DHAutoShareShareNow = 1,
+    DHAutoShareGiveUpWaiting = 2,
+} DHAutoShareStep;
+
+typedef enum {
     DHPhaseIdle = 0,
     DHPhaseConnecting = 1,
     DHPhaseStreaming = 2,
@@ -29,6 +35,7 @@ typedef struct {
 typedef struct {
     bool acceptsInput;
     bool terminal;
+    bool audio;
 } DHHostCaps;
 
 typedef struct {
@@ -201,6 +208,10 @@ typedef enum {
     DHStrForgetDevice = 121,
     DHStrCopied = 122,
     DHStrCopy = 123,
+    DHStrWaitingForDisplays = 125,
+    DHStrNoDisplayFound = 126,
+    DHStrShareAudioLabel = 127,
+    DHStrPlayAudioLabel = 128,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -225,6 +236,10 @@ bool dh_is_valid_passcode(const char* passcode);
 int dh_passcode_digits(void);
 
 int dh_max_sources(void);
+
+uint32_t dh_auto_share_probe_ms(void);
+
+DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms);
 
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id);
 

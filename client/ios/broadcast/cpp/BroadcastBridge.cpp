@@ -226,6 +226,10 @@ void dhb_start_broadcast(const char* containerPath, const char* screenName) {
     g_startError.clear();
 }
 
+void dhb_push_audio(const int16_t* pcm, int samples) {
+    dha_offer_audio(pcm, samples);
+}
+
 void dhb_push_frame(void* pixelBuffer, uint32_t cgOrientation) {
     if (!pixelBuffer) return;
     auto pb = static_cast<CVPixelBufferRef>(pixelBuffer);

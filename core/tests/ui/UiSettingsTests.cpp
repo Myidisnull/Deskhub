@@ -195,6 +195,8 @@ void TestDefaultsMatchShareDefaults() {
     Check(!defaults.hideTrayIcon, "the tray icon is shown unless the user hides it");
     Check(!defaults.autoShare, "sharing still waits for an explicit start by default");
     Check(defaults.keepAwake, "keep awake defaults on");
+    Check(defaults.shareAudio, "share audio defaults on");
+    Check(defaults.playAudio, "play audio defaults on");
     Check(defaults.logMaxFileMb == 10 && defaults.logCompressAfterDays == 7 &&
               defaults.logDeleteAfterDays == 30,
         "log retention defaults match common desktop logging practice");
@@ -204,6 +206,10 @@ void TestDefaultsMatchShareDefaults() {
     Check(ui::ParseUiSettings("keep_awake=1").keepAwake, "and on");
     Check(ui::ParseUiSettings("keep_awake=x").keepAwake,
         "junk leaves the keep-awake default alone");
+    Check(!ui::ParseUiSettings("share_audio=0").shareAudio, "share audio round-trips off");
+    Check(ui::ParseUiSettings("share_audio=1").shareAudio, "and on");
+    Check(!ui::ParseUiSettings("play_audio=0").playAudio, "play audio round-trips off");
+    Check(ui::ParseUiSettings("play_audio=1").playAudio, "and on");
 }
 
 void TestNativeQualityIsPreserved() {

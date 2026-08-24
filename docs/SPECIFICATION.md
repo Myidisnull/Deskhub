@@ -42,13 +42,13 @@ A single machine can be host and client at the same time.
 
 ## 3. Roles by platform
 
-| Platform | Can host | Can view |
-| --- | :--: | :--: |
-| Windows | ✅ | ✅ |
-| macOS | ✅ | ✅ |
-| Linux | ✅ | ✅ |
-| Android | ✅ view-only | ✅ |
-| iOS | ✅ view-only | ✅ |
+| Platform | Can host | Can view | Sound |
+| --- | :--: | :--: | :--: |
+| Windows | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ |
+| Linux | ✅ | ✅ | ✅ |
+| Android | ✅ view-only | ✅ | ⚠️ Android 10+ |
+| iOS | ✅ view-only | ✅ | ⚠️ app audio only |
 
 Every platform offers the same client feature set unless stated otherwise in section 12.
 Phones and tablets host in **view-only** mode: they stream their screen but never accept
@@ -110,6 +110,7 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 | V-3 | Session status | The window shows a live status line: frame rate, bandwidth, round-trip time and end-to-end latency. |
 | V-4 | Titled windows | Each viewer window is titled with the source it is showing plus its current status, so multiple sessions are distinguishable. |
 | V-5 | Disconnect | The viewer can end the session at any time. |
+| V-6 | Sound | Where both machines support it (section 3), the viewer hears what the shared machine is playing, in step with the picture to within about a frame. Sound is carried on its own channel: losing a packet costs a fraction of a second of audio and never disturbs the picture, and a machine playing nothing costs almost no bandwidth. It is off for a viewer that turns it off (T-35) and never sent by a host that turns it off (T-34). |
 
 ## 8. Controlling the remote machine
 
@@ -131,7 +132,7 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 
 | ID | Feature | Description |
 | --- | --- | --- |
-| S-1 | Optional session encryption | The host may turn on *Encrypt session traffic* (off by default). When on, video, input and clipboard for the session are encrypted end-to-end between host and viewers. Network discovery probes stay unencrypted. Intended for networks that are not fully trusted; a trusted LAN or VPN may leave it off. Details and residual risks are in [`SECURITY.md`](../SECURITY.md). |
+| S-1 | Optional session encryption | The host may turn on *Encrypt session traffic* (off by default). When on, video, audio, input and clipboard for the session are encrypted end-to-end between host and viewers. Network discovery probes stay unencrypted. Intended for networks that are not fully trusted; a trusted LAN or VPN may leave it off. Details and residual risks are in [`SECURITY.md`](../SECURITY.md). |
 | S-2 | Mandatory passcode | Every host requires a 4-digit passcode. One is generated at random on first launch; the user can change it but cannot leave it blank or switch it off. The passcode admits viewers and gates discovery; it is not the session encryption key. |
 | S-3 | Passcode gates discovery | A host will not reveal what it is sharing without the correct passcode. |
 | S-4 | Lockout on repeated failure | Wrong passcode or session-key attempts from the same source are counted. After **5** failures inside a **60-second** window the host refuses further attempts from that source for **30 seconds**. |
@@ -148,9 +149,10 @@ The app is organised into the same named sections everywhere: **Host**, **Client
 
 Settings are per machine, persist across restarts, and apply the next time sharing
 starts. Phones and tablets expose the network port (T-4) — which also decides which
-port the network scan knocks on — clipboard sync (T-17), the passcode (T-5), optional
-session encryption and its related controls (T-29–T-32), and the network to share on
-(T-14) on their sharing screen; they host with the built-in defaults for everything else.
+port the network scan knocks on — clipboard sync (T-17), share/play sound (T-34–T-35),
+the passcode (T-5), optional session encryption and its related controls (T-29–T-32),
+and the network to share on (T-14) on their sharing screen; they host with the built-in
+defaults for everything else.
 
 | ID | Setting | Range | Default |
 | --- | --- | --- | --- |
@@ -166,6 +168,8 @@ session encryption and its related controls (T-29–T-32), and the network to sh
 | T-15 | Start sharing when the app opens | on / off | off |
 | T-16 | Start System Runtime when you log in | on / off | off |
 | T-17 | Sync clipboard text | on / off | off |
+| T-34 | Share this device's sound with viewers | on / off | on |
+| T-35 | Play the sound of the device you are watching | on / off | on |
 | T-22 | Split log when larger than | 1 – 1024 MB (Windows, macOS, Linux) | 10 |
 | T-23 | Compress logs older than | 0 – 3650 days; 0 means never (Windows, macOS, Linux) | 7 |
 | T-24 | Delete logs older than | 0 – 3650 days; 0 means never; cannot be earlier than T-23 (Windows, macOS, Linux) | 30 |
@@ -187,6 +191,7 @@ session encryption and its related controls (T-29–T-32), and the network to sh
 | T-19 | Auto-share on launch | Desktop only. With T-15 on, opening the app goes straight to the Host page and starts sharing with the saved settings, exactly as if the user had pressed Share. The platform rules still apply: Linux first shows the desktop's screen-sharing dialog (P-3), and macOS still requires its permissions (P-2). |
 | T-20 | Launch at login | Desktop only. With T-16 on: Linux writes an autostart entry into `~/.config/autostart`; Windows registers a scheduled task named *System Runtime* that starts the app elevated at logon, so no UAC prompt appears; macOS registers a Login Item the user can also see in System Settings. Turning it off removes that artifact again. The checkbox always shows what the operating system reports, not merely what was last saved. |
 | T-21 | Clipboard sync | With T-17 on, plain text copied on any machine in the session appears on the others within a couple of seconds, in both directions; the host relays a viewer's copy to the other viewers. Text is capped at 32 KiB (longer copies are cut at a whole character); images, files and formatting are never transferred. The host's toggle governs the session: with it off, the host ignores and never sends clipboard data. Each machine also needs its own toggle on to read or write its local clipboard. On Android and iOS the operating system constrains this: an Android device picks up its own copies only while System Runtime is the app in the foreground, though incoming text is applied at any time; an iOS viewer may show the system paste prompt when System Runtime reads a fresh copy; and an iOS device that is hosting does not take part at all, because its broadcast runs in a separate process without clipboard access. |
+| T-36 | What sound is shared | With T-34 on, the host shares what its own speakers are playing — the mix every application on it produces. It never captures a microphone: System Runtime has no two-way audio, and asks for no microphone permission on any platform (Android's recording permission is only for capturing other apps' playback). A viewer only receives sound if it asked for it (T-35), so a host with T-34 on sends nothing to a viewer that is not listening, and both toggles take effect the next time a session starts. |
 | T-26 | Log details | On Windows, macOS and Linux the Settings page lists local log files, shows their contents, and can open the log folder. Compressed `.log.gz` files appear in the list but are opened from the folder rather than shown inline. |
 | T-28 | Language preference | The Settings page offers a language choice (T-27). **System default** follows the operating system's locale and maps common tags such as `zh-CN`, `fr-FR` and `ja` onto the supported list, falling back to English when the tag is unknown. An explicit choice is stored and applied the next time the app starts; changing it while the app is open updates newly shown strings immediately, while labels already drawn on the main window may need a restart. |
 | T-33 | Session encryption controls | With T-29 on, Settings (and the sharing screen on phones and tablets) show the current session key (T-32), lifetime (T-30) and escrow (T-31). Turning encryption off hides those controls and forces escrow off. Copy places the key on the local clipboard; Refresh follows S-8. |
@@ -208,14 +213,15 @@ session encryption and its related controls (T-29–T-32), and the network to sh
 | P-2 | macOS | Shows a **Permissions** panel with the live grant state of *Screen Recording* (needed to share) and *Accessibility* (needed to accept remote input), a button to request each, and a shortcut into System Settings. Some keystrokes are silently blocked by macOS unless Accessibility is granted. Only one instance may run; a second launch shows a notice and exits. When the background setting is on, a menu-bar icon is always shown; left-click restores the window and right-click offers **Restore** / **Exit**. Closing the window while background is on shows a short notice that System Runtime is still running. |
 | P-3 | Linux | Displays are chosen in the desktop's own screen-sharing dialog after pressing Share, rather than in the app. Sharing additionally requires the system to permit input injection. |
 | P-4 | Android / iOS | Hosting is **view-only**: the device streams its screen and silently drops every control packet, because neither OS lets an app inject input system-wide. The whole screen is shared as a single source, so the display picker, multi-display sharing and per-display stop (H-1, H-2, H-3, H-5) do not apply. Turning the device turns the stream with it: what viewers see stays the right way up, and their window re-fits to the new shape (V-1). The session UI is touch-first: trackpad gestures, zoom controls, hotkey bar, on-screen keyboard, display switcher and **End**. |
-| P-5 | Android | Sharing needs the system screen-recording consent dialog, which is granted per share and cannot be remembered. While sharing, an ongoing notification is shown and the stream survives the app going to the background or the screen turning off. Stopping the share from the system notification ends the session. |
+| P-5 | Android | Sharing needs the system screen-recording consent dialog, which is granted per share and cannot be remembered. Sharing sound (T-34) additionally needs the recording permission so the app can capture other apps' playback on Android 10 and later; declining it shares the screen without sound. While sharing, an ongoing notification is shown and the stream survives the app going to the background or the screen turning off. Stopping the share from the system notification ends the session. |
 | P-6 | iOS | Sharing is started from an in-app **Start sharing** button which opens the system broadcast sheet, because iOS requires that sheet to confirm every broadcast, and runs in a separate broadcast process so it continues after the app is closed. The sharing screen reports the number of connected viewers — listing the names of those that have set one (C-7) — and the broadcast process's current memory use — iOS ends a broadcast that grows past its memory limit — without the per-viewer table of H-7, and viewers cannot be dropped individually (H-8). A system event that ends the broadcast — an incoming call, for instance — ends the session. |
 
 ## 13. Explicitly out of scope
 
 System Runtime does **not** provide, and this specification does not cover:
 
-- Audio streaming.
+- Microphone capture, two-way audio, or any voice channel. Sound travels one way only,
+  from the shared machine to the people watching it (V-6).
 - File transfer or remote printing.
 - Clipboard sync beyond plain text (images, files, rich text).
 - Any account, directory, presence or invitation system.

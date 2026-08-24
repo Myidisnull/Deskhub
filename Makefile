@@ -36,6 +36,10 @@
 # release-linux run it automatically, it is a no-op once built):
 #   make ffmpeg-min
 #
+# Static libopus for audio (build-linux / release-linux run opus-host automatically;
+# Windows bootstrap.ps1 builds the MSVC target; otherwise: bash scripts/build-opus.sh windows):
+#   make opus-host
+#
 # Distribution:
 #   make dist-macos     macOS dmg signed with Developer ID + notarized + stapled
 #   make verify-macos   check that Gatekeeper accepts the build that was just produced

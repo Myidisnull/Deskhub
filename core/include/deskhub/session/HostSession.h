@@ -113,6 +113,9 @@ public:
     size_t SnapshotViewerAddrs(std::span<uint64_t> out) const {
         return viewers_.SnapshotAddrs(out);
     }
+    size_t SnapshotAudioViewerAddrs(std::span<uint64_t> out) const {
+        return viewers_.SnapshotAudioAddrs(out);
+    }
     size_t SnapshotViewerInfos(std::span<ViewerInfo> out) const {
         return viewers_.SnapshotInfos(out);
     }

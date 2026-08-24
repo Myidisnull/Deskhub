@@ -52,11 +52,56 @@ struct SettingsView: View {
                 .onChange(of: settings.clipboardSync) { _, _ in
                     settings.save()
                 }
+                Toggle(isOn: $settings.shareAudio) {
+                    Text(DeskhubClient.string(DHStrShareAudioLabel))
+                }
+                .onChange(of: settings.shareAudio) { _, _ in
+                    settings.save()
+                }
+                Toggle(isOn: $settings.playAudio) {
+                    Text(DeskhubClient.string(DHStrPlayAudioLabel))
+                }
+                .onChange(of: settings.playAudio) { _, _ in
+                    settings.save()
+                }
                 Toggle(isOn: $settings.keepAwake) {
                     Text(DeskhubClient.string(DHStrKeepAwakeLabel))
                 }
                 .onChange(of: settings.keepAwake) { _, _ in
                     settings.save()
+                }
+
+                deskhubSection("Logs")
+                HStack(spacing: 12) {
+                    Text(DeskhubClient.string(DHStrLogMaxFileMbLabel))
+                    Spacer(minLength: 0)
+                    TextField("", value: $settings.logMaxFileMb, format: .number.grouping(.never))
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 110)
+                }
+                HStack(spacing: 12) {
+                    Text(DeskhubClient.string(DHStrLogCompressAfterDaysLabel))
+                    Spacer(minLength: 0)
+                    TextField(
+                        "", value: $settings.logCompressAfterDays, format: .number.grouping(.never)
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 110)
+                }
+                HStack(spacing: 12) {
+                    Text(DeskhubClient.string(DHStrLogDeleteAfterDaysLabel))
+                    Spacer(minLength: 0)
+                    TextField(
+                        "", value: $settings.logDeleteAfterDays, format: .number.grouping(.never)
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 110)
                 }
 
                 ProjectFooter()
@@ -68,6 +113,21 @@ struct SettingsView: View {
             guard !Task.isCancelled else { return }
             settings.save()
             onPortChange(settings.acceptedPort)
+        }
+        .task(id: settings.logMaxFileMb) {
+            try? await Task.sleep(for: SettingsView.portSettle)
+            guard !Task.isCancelled else { return }
+            settings.save()
+        }
+        .task(id: settings.logCompressAfterDays) {
+            try? await Task.sleep(for: SettingsView.portSettle)
+            guard !Task.isCancelled else { return }
+            settings.save()
+        }
+        .task(id: settings.logDeleteAfterDays) {
+            try? await Task.sleep(for: SettingsView.portSettle)
+            guard !Task.isCancelled else { return }
+            settings.save()
         }
     }
 }

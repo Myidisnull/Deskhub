@@ -51,7 +51,7 @@ jobs:
       - name: Install clang-tidy 22.1.8 (pinned) + ninja
         run: |
           pipx install clang-tidy==22.1.8
-          sudo apt-get update -qq && sudo apt-get install -y ninja-build
+          scripts/apt-install.sh ninja-build
 
       - name: Generate the compile database
         run: cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install shellcheck
-        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+        run: scripts/apt-install.sh shellcheck
 
       - name: Install actionlint
         run: |

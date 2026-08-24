@@ -17,11 +17,11 @@
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-2563eb)](CMakeLists.txt)
 [![Platforms](https://img.shields.io/badge/runs%20on-Windows%20·%20macOS%20·%20Linux%20·%20Android%20·%20iOS-2563eb)](#-平台)
 
-[![build](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml)
-[![tests](https://github.com/manhpham90vn/Deskhub/actions/workflow/status/manhpham90vn/Deskhub/build.yml?branch=main&label=tests)](https://github.com/manhpham90vn/Deskhub/actions/workflows/build.yml)
+[![ci](https://github.com/manhpham90vn/Deskhub/actions/workflows/ci.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/ci.yml)
+[![tests](https://github.com/manhpham90vn/Deskhub/actions/workflow/status/manhpham90vn/Deskhub/ci.yml?branch=main&label=test)](https://github.com/manhpham90vn/Deskhub/actions/workflows/ci.yml)
 [![lint](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/lint.yml)
 [![codeql](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/codeql.yml)
-[![fuzz-nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/fuzz-nightly.yml)
+[![nightly](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml/badge.svg)](https://github.com/manhpham90vn/Deskhub/actions/workflows/nightly.yml)
 
 <img src="docs/imgs/macos_1.png" alt="macOS 上的 System Runtime：正在共享显示器，实时采集/发送速率，一名已连接观众，往返时延 0 ms" width="850">
 

@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -81,6 +82,9 @@ class HostService : Service() {
                 mainHandler.post { failWith(NativeHost.lastError()) }
                 return@launch
             }
+            if (NativeHost.audioRunning()) {
+                AudioShare.start(applicationContext, granted)
+            }
             mainHandler.post { acquireWakeLockIfNeeded() }
         }
         clipboardJob?.cancel()
@@ -113,6 +117,8 @@ class HostService : Service() {
     }
 
     private fun stopSharing() {
+        Log.i(TAG, "[audio] evt=share_stop caller=${Throwable().stackTrace.getOrNull(1)}")
+        AudioShare.stop()
         releaseWakeLock()
         NativeHost.stop()
         projection?.unregisterCallback(projectionCallback)
@@ -203,6 +209,7 @@ class HostService : Service() {
     }
 
     companion object {
+        private const val TAG = "Deskhub"
         private const val CHANNEL_ID = "deskhub-sharing"
         private const val NOTIFICATION_ID = 1
         private const val EXTRA_RESULT_CODE = "resultCode"

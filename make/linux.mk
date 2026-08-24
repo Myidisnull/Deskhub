@@ -5,10 +5,13 @@ LINUX_APP_RELEASE := out/build/x64-release/client/linux/deskhub
 ffmpeg-min:
 	@scripts/build-ffmpeg.sh
 
-build-linux: ffmpeg-min
+opus-host:
+	@scripts/build-opus.sh host
+
+build-linux: ffmpeg-min opus-host
 	@cmake --preset x64-debug -DDESKHUB_LINUX_APP=ON -DDESKHUB_REQUIRE_LINUX_APP=ON && cmake --build --preset x64-debug --target deskhub_app
 
-release-linux: ffmpeg-min
+release-linux: ffmpeg-min opus-host
 	@cmake --preset x64-release -DDESKHUB_LINUX_APP=ON -DDESKHUB_REQUIRE_LINUX_APP=ON && cmake --build --preset x64-release --target deskhub_app
 
 run-linux: build-linux
@@ -21,8 +24,8 @@ dist-linux: release-linux
 setup-linux-permissions:
 	@sudo scripts/setup-uinput.sh
 else
-build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min:
+build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min opus-host:
 	@echo "make $@: needs Ubuntu/Linux"; exit 1
 endif
 
-.PHONY: build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min
+.PHONY: build-linux release-linux run-linux dist-linux setup-linux-permissions ffmpeg-min opus-host

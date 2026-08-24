@@ -187,6 +187,13 @@ void TestSourceDiag() {
         ubu.FormatSum(buf, sizeof(buf), "01:02:03", "HDMI-1", 42, false);
         Check(Has(buf, "zerocopy=0"), "source evt=sum: Ubuntu has zerocopy, printing a real 0");
         Check(!Has(buf, "cap_idle"), "source evt=sum: Ubuntu has NO cap_idle");
+        Check(!Has(buf, "q_drop"), "source evt=sum: Ubuntu without queueDrop omits q_drop");
+
+        SourceDiag queued(AgentDiagCaps{false, true, true});
+        queued.queueDrop.Add();
+        queued.queueDrop.Add();
+        queued.FormatSum(buf, sizeof(buf), "01:02:03", "HDMI-1", 0, true);
+        Check(Has(buf, "q_drop=2"), "source evt=sum: queueDrop prints how many latest-wins drops");
     }
 }
 

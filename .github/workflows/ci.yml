@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-desktop:
+    uses: ./.github/workflows/build-desktop.yml
+
+  build-mobile:
+    uses: ./.github/workflows/build-mobile.yml
+
+  test:
+    uses: ./.github/workflows/test.yml

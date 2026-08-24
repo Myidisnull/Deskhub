@@ -1,4 +1,4 @@
-name: tests
+name: test
 
 on:
   workflow_call:
@@ -38,10 +38,26 @@ jobs:
         shell: bash
         run: |
           case "$RUNNER_OS" in
-            Linux)   sudo apt-get update -qq && sudo apt-get install -y ninja-build ;;
+            Linux)   scripts/apt-install.sh ninja-build ;;
             macOS)   brew install ninja ;;
             Windows) choco install ninja -y ;;
           esac
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus
+            !third_party/opus/src
+          key: opus-host-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        shell: bash
+        run: |
+          scripts/build-opus.sh host 2>&1 | tee opus-build.log ||
+            { grep -iE "error|LNK[0-9]" opus-build.log | tail -30 | sed 's/^/::error::/' || true
+              tail -15 opus-build.log | sed 's/^/::error::/' || true
+              exit 1; }
 
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
@@ -69,11 +85,23 @@ jobs:
 
       - name: Install clang + ninja
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y clang ninja-build
+        run: scripts/apt-install.sh clang ninja-build
 
       - name: Install ninja
         if: runner.os == 'macOS'
         run: brew install ninja
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus
+            !third_party/opus/src
+          key: opus-host-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        shell: bash
+        run: scripts/build-opus.sh host
 
       - name: Configure (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
@@ -98,7 +126,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install clang + ninja
-        run: sudo apt-get update -qq && sudo apt-get install -y clang ninja-build
+        run: scripts/apt-install.sh clang ninja-build
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus
+            !third_party/opus/src
+          key: opus-host-ubuntu-latest-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: scripts/build-opus.sh host
 
       - name: Build + run the libFuzzer targets (make fuzz)
         run: make fuzz
@@ -142,7 +181,19 @@ jobs:
         run: sdkmanager "ndk;$NDK_VERSION"
 
       - name: Install Ninja
-        run: sudo apt-get update -qq && sudo apt-get install -y ninja-build
+        run: scripts/apt-install.sh ninja-build
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-linux-android
+            third_party/opus/x86_64-linux-android
+          key: opus-android-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus for every ABI (static audio codec)
+        run: scripts/build-opus.sh android
 
       - name: Cross-compile the test binaries for android-${{ matrix.abi }}
         run: |
@@ -186,6 +237,19 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus/include
+            third_party/opus/aarch64-apple-ios-sim
+          key: opus-ios-sim-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: |
+          scripts/build-opus.sh aarch64-apple-ios-sim
+          test -f third_party/opus/aarch64-apple-ios-sim/libopus.a
+
       - name: Build the test binaries for the iOS Simulator
         run: |
           cmake -B out/build/ios-sim -G Ninja \
@@ -223,7 +287,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install clang + llvm + ninja
-        run: sudo apt-get update -qq && sudo apt-get install -y clang llvm ninja-build
+        run: scripts/apt-install.sh clang llvm ninja-build
+
+      - name: Cache opus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            third_party/opus
+            !third_party/opus/src
+          key: opus-host-ubuntu-latest-${{ hashFiles('scripts/build-opus.sh') }}
+
+      - name: Build opus (static audio codec)
+        run: scripts/build-opus.sh host
 
       - name: Build + measure coverage (make coverage)
         run: make coverage

@@ -78,6 +78,8 @@ object NativeClient {
     const val STR_BIND_INTERFACE_LABEL = 76
     const val STR_BIND_ALL_INTERFACES = 77
     const val STR_CLIPBOARD_SYNC_LABEL = 80
+    const val STR_SHARE_AUDIO_LABEL = 127
+    const val STR_PLAY_AUDIO_LABEL = 128
     const val STR_KEEP_AWAKE_LABEL = 124
     const val STR_BIND_NOT_CONNECTED = 85
     const val STR_SECTION_CONNECTION = 87
@@ -102,6 +104,9 @@ object NativeClient {
     const val STR_LANGUAGE_RESTART_HINT = 120
     const val STR_COPIED = 122
     const val STR_COPY = 123
+    const val STR_LOG_MAX_FILE_MB = 91
+    const val STR_LOG_COMPRESS_AFTER_DAYS = 92
+    const val STR_LOG_DELETE_AFTER_DAYS = 93
 
     private external fun nativeString(id: Int): String
 
@@ -226,6 +231,22 @@ object NativeClient {
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
 
+    private external fun nativeShareAudio(): Boolean
+
+    private external fun nativeSetShareAudio(on: Boolean)
+
+    private external fun nativePlayAudio(): Boolean
+
+    private external fun nativeSetPlayAudio(on: Boolean)
+
+    fun shareAudio(): Boolean = nativeShareAudio()
+
+    fun setShareAudio(on: Boolean) = nativeSetShareAudio(on)
+
+    fun playAudio(): Boolean = nativePlayAudio()
+
+    fun setPlayAudio(on: Boolean) = nativeSetPlayAudio(on)
+
     private external fun nativeKeepAwake(): Boolean
 
     private external fun nativeSetKeepAwake(on: Boolean)
@@ -301,6 +322,30 @@ object NativeClient {
     fun settingsPort(): Int = nativeSettingsPort()
 
     fun setSettingsPort(port: Int) = nativeSetSettingsPort(port)
+
+    private external fun nativeLogMaxFileMb(): Int
+
+    private external fun nativeLogCompressAfterDays(): Int
+
+    private external fun nativeLogDeleteAfterDays(): Int
+
+    private external fun nativeSetLogPolicy(
+        maxFileMb: Int,
+        compressAfterDays: Int,
+        deleteAfterDays: Int,
+    )
+
+    fun logMaxFileMb(): Int = nativeLogMaxFileMb()
+
+    fun logCompressAfterDays(): Int = nativeLogCompressAfterDays()
+
+    fun logDeleteAfterDays(): Int = nativeLogDeleteAfterDays()
+
+    fun setLogPolicy(
+        maxFileMb: Int,
+        compressAfterDays: Int,
+        deleteAfterDays: Int,
+    ) = nativeSetLogPolicy(maxFileMb, compressAfterDays, deleteAfterDays)
 
     private external fun nativeScanStart(port: Int): Boolean
 

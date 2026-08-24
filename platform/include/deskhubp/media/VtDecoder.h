@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "deskhub/control/VideoPacer.h"
 #include "deskhub/media/PresentCounters.h"
 #include "deskhub/media/VideoContract.h"
 #include <vector>
@@ -33,9 +34,27 @@ public:
         return counters_.lastRenderedPtsUs();
     }
 
+    uint32_t TakePresentDelayMs() {
+        return counters_.TakePresentDelayMs();
+    }
+
+    uint64_t lastRenderedAtUs() const {
+        return counters_.lastRenderedAtUs();
+    }
+
 private:
+    static constexpr uint32_t kPacedStallDrops = 30;
+
+    bool EnsurePacedTimebase(uint64_t ptsUs, uint64_t nowUs);
+    void DisablePacing();
+
     void* layer_ = nullptr;
     void* formatDesc_ = nullptr;
+    void* timebase_ = nullptr;
+    deskhub::VideoPacer pacer_;
+    bool timebaseRunning_ = false;
+    bool paceDisabled_ = false;
+    uint32_t pacedCongestionRun_ = 0;
     deskhub::media::PresentCounters counters_;
 
     uint8_t sps_[256] = {};
@@ -52,3 +71,5 @@ static_assert(deskhub::media::RenderCountingDecoder<VtDecoder>,
     "VtDecoder counts presented frames itself — the enqueue is async so Decode cannot count them");
 static_assert(deskhub::media::CongestionAwareDecoder<VtDecoder>,
     "VtDecoder must report frames swallowed by the display layer — that is where disp_drop comes from");
+static_assert(deskhub::media::PresentTimingDecoder<VtDecoder>,
+    "VtDecoder paces presentation, so e2e must be measured at the scheduled display time");

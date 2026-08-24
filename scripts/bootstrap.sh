@@ -155,6 +155,7 @@ Linux)
     sudo apt-get install -y va-driver-all vainfo xdg-desktop-portal xdg-desktop-portal-gnome || true
 
     scripts/build-ffmpeg.sh
+    scripts/build-opus.sh host
 
     install_clang_format
     install_format_tools

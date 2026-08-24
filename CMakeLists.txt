@@ -3,6 +3,7 @@ project(Deskhub LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(DeskhubWarnings)
+include(DeskhubOpus)
 
 option(DESKHUB_MSVC_STATIC_RUNTIME "Link the MSVC runtime statically" ON)
 if(MSVC AND DESKHUB_MSVC_STATIC_RUNTIME)

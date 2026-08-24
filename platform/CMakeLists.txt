@@ -4,6 +4,40 @@ if(NOT COMMAND deskhub_target_warnings)
     include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubWarnings.cmake)
 endif()
 
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/DeskhubOpus.cmake)
+
+option(DESKHUB_AUDIO "Build audio streaming (requires third_party/opus)" ON)
+if(DESKHUB_AUDIO AND NOT DESKHUB_OPUS_FOUND)
+    message(STATUS
+        "System Runtime: third_party/opus/${DESKHUB_OPUS_TARGET} is missing — "
+        "building the silent stub (DESKHUB_AUDIO=OFF). Run scripts/build-opus.sh to enable sound.")
+    set(DESKHUB_AUDIO OFF CACHE BOOL "Build audio streaming (requires third_party/opus)" FORCE)
+endif()
+if(DESKHUB_AUDIO)
+    set(deskhub_platform_audio src/media/OpusCodec.cpp)
+else()
+    set(deskhub_platform_audio src/media/OpusCodecNone.cpp)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(DESKHUB_PIPEWIRE IMPORTED_TARGET libpipewire-0.3)
+    endif()
+endif()
+if(WIN32)
+    set(deskhub_platform_sink src/audio/AudioSinkWasapi.cpp)
+elseif(APPLE)
+    set(deskhub_platform_sink src/audio/AudioSinkCoreAudio.mm)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Android" AND ANDROID_PLATFORM_LEVEL GREATER_EQUAL 26)
+    set(deskhub_platform_sink src/audio/AudioSinkAAudio.cpp)
+    set(deskhub_platform_sink_libs aaudio)
+elseif(DESKHUB_PIPEWIRE_FOUND)
+    set(deskhub_platform_sink src/audio/AudioSinkPipewire.cpp)
+else()
+    set(deskhub_platform_sink src/audio/AudioSinkNone.cpp)
+endif()
+
 if(WIN32)
     set(deskhub_platform_os
         src/net/UdpSocketWin.cpp
@@ -95,6 +129,10 @@ endif()
 
 add_library(platform STATIC
     ${deskhub_platform_os}
+    ${deskhub_platform_audio}
+    ${deskhub_platform_sink}
+    src/audio/AudioPlayer.cpp
+    src/audio/AudioBroadcaster.cpp
     src/diag/LogFile.cpp
     src/net/SourceQuery.cpp
     src/net/HostProbe.cpp
@@ -111,6 +149,18 @@ add_library(platform STATIC
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)
 target_link_libraries(platform PUBLIC core)
+
+if(DESKHUB_AUDIO)
+    target_link_libraries(platform PRIVATE deskhub::opus)
+endif()
+
+if(DESKHUB_PIPEWIRE_FOUND)
+    target_link_libraries(platform PRIVATE PkgConfig::DESKHUB_PIPEWIRE)
+endif()
+
+if(deskhub_platform_sink_libs)
+    target_link_libraries(platform PRIVATE ${deskhub_platform_sink_libs})
+endif()
 
 if(APPLE)
     target_compile_options(platform PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
@@ -158,7 +208,7 @@ endif()
 option(DESKHUB_PLATFORM_TESTS "Build platform_tests" ${deskhub_platform_tests_default})
 
 if(DESKHUB_PLATFORM_TESTS)
-    add_executable(platform_tests
+    set(_platform_test_sources
         tests/TestMain.cpp
         tests/support/TestSupport.cpp
 
@@ -177,8 +227,15 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/system/MemoryFootprintTests.cpp
         tests/system/RandomTests.cpp
     )
+    if(DESKHUB_AUDIO)
+        list(APPEND _platform_test_sources tests/media/OpusCodecTests.cpp)
+    endif()
+    add_executable(platform_tests ${_platform_test_sources})
     target_link_libraries(platform_tests PRIVATE platform)
     target_include_directories(platform_tests PRIVATE tests)
+    if(DESKHUB_AUDIO)
+        target_compile_definitions(platform_tests PRIVATE DESKHUB_AUDIO=1)
+    endif()
     deskhub_target_warnings(platform_tests)
 
     include(CTest)

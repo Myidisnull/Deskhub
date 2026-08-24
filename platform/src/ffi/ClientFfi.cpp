@@ -11,6 +11,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ConnectFlow.h"
 #include "deskhub/session/OpenViewers.h"
+#include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
@@ -140,6 +141,8 @@ const char* dh_string(DHStringId id) {
         case DHStrAutostartLabel: return deskhub::ui::kAutostartLabel;
         case DHStrAutoShareLabel: return deskhub::ui::kAutoShareLabel;
         case DHStrClipboardSyncLabel: return deskhub::ui::kClipboardSyncLabel;
+        case DHStrShareAudioLabel: return deskhub::ui::kShareAudioLabel;
+        case DHStrPlayAudioLabel: return deskhub::ui::kPlayAudioLabel;
         case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;
         case DHStrEncryptSessionLabel: return deskhub::ui::kEncryptSessionLabel;
         case DHStrEncryptSessionHint: return deskhub::ui::kEncryptSessionHint;
@@ -148,6 +151,8 @@ const char* dh_string(DHStringId id) {
         case DHStrCopySessionKey: return deskhub::ui::kCopySessionKey;
         case DHStrCopied: return deskhub::ui::kCopied;
         case DHStrCopy: return deskhub::ui::kCopy;
+        case DHStrWaitingForDisplays: return deskhub::ui::kWaitingForDisplays;
+        case DHStrNoDisplayFound: return deskhub::ui::kNoDisplayFound;
         case DHStrRefreshSessionKey: return deskhub::ui::kRefreshSessionKey;
         case DHStrEscrowSessionKeyLabel: return deskhub::ui::kEscrowSessionKeyLabel;
         case DHStrEscrowSessionKeyHint: return deskhub::ui::kEscrowSessionKeyHint;
@@ -295,9 +300,23 @@ int dh_max_sources(void) {
     return int(deskhub::kMaxSources);
 }
 
+uint32_t dh_auto_share_probe_ms(void) {
+    return deskhub::ui::kAutoShareProbeMs;
+}
+
+DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms) {
+    switch (deskhub::ui::NextAutoShareStep(displays_ready, waited_ms,
+        deskhub::ui::kAutoShareProbeMs, deskhub::ui::kAutoShareGiveUpMs)) {
+        case deskhub::ui::AutoShareStep::ShareNow: return DHAutoShareShareNow;
+        case deskhub::ui::AutoShareStep::GiveUpWaiting: return DHAutoShareGiveUpWaiting;
+        case deskhub::ui::AutoShareStep::KeepWaiting: break;
+    }
+    return DHAutoShareKeepWaiting;
+}
+
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,
     DHHostCaps* out_caps) {
-    if (out_caps) *out_caps = DHHostCaps{false, false};
+    if (out_caps) *out_caps = DHHostCaps{false, false, false};
     if (!address || !out || capacity <= 0) return DH_SOURCE_QUERY_FAILED;
 
     NetAddr server;
@@ -312,7 +331,7 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
     deskhub::HostCaps caps{};
     if (!QuerySources(server, sources, passcode ? passcode : "", &caps))
         return DH_SOURCE_QUERY_FAILED;
-    if (out_caps) *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal};
+    if (out_caps) *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal, caps.audio};
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {

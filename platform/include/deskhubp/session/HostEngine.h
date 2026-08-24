@@ -8,6 +8,7 @@
 #include "deskhub/session/SourcePipelineState.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/input/LocalInput.h"
+#include "deskhubp/audio/AudioBroadcaster.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/HostAgent.h"
 #include "deskhubp/session/HostNetLoop.h"
@@ -55,6 +56,11 @@ struct HostEnginePolicy {
     std::function<void()> onSharing;
     std::function<std::string(const UdpSocket&)> portError;
 
+    std::function<bool(const deskhub::media::AudioFormat&,
+        std::function<void(std::span<const int16_t>)>)>
+        startAudioCapture;
+    std::function<void()> stopAudioCapture;
+
     std::string noSourceError = "No source selected.";
     std::string noUsableSourceError = "No usable source \xE2\x80\x94 stopping.";
 
@@ -85,6 +91,25 @@ public:
     std::vector<deskhub::media::AgentSourceStatus> Status();
     std::string LastError();
     std::string BindWarning();
+
+    void OfferAudio(std::span<const int16_t> pcm) {
+        audio_.Offer(pcm);
+    }
+
+    bool audioRunning() const {
+        return audio_.running();
+    }
+
+    const deskhub::media::AudioFormat& audioFormat() const {
+        return audio_.format();
+    }
+
+    template <class Fn>
+    void ForEachLiveSource(Fn&& fn) {
+        for (HostSource* st : live_) {
+            if (st) fn(*st);
+        }
+    }
 
     void OfferLocalClipboard(std::string text);
     std::optional<std::string> TakeRemoteClipboard();
@@ -118,6 +143,7 @@ private:
     void DrainControlRequests();
     void DrainLocalClipboard();
     HostSource* FindLiveSource(uint8_t sourceId);
+    void StartAudio();
 
     deskhub::media::AgentOptions opt_;
     HostEnginePolicy policy_;
@@ -150,6 +176,7 @@ private:
     std::recursive_mutex lifeMutex_;
 
     LocalInputMonitor localInputMon_;
+    AudioBroadcaster audio_;
     deskhub::Beacon beacon_;
 
     uint32_t startBitrateBps_ = 0;

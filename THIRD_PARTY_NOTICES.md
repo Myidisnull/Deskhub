@@ -81,10 +81,23 @@ resolved at runtime; it is not bundled.
 | [Kotlin](https://kotlinlang.org) standard library | Apache-2.0 | dynamic |
 | MediaCodec, NDK media APIs | Android SDK / NDK | OS component |
 
+## Audio codec (all apps)
+
+| Component | License | Linkage |
+| --- | --- | --- |
+| [libopus](https://opus-codec.org) 1.5.2 | BSD-3-Clause | **static** |
+
+System Runtime embeds libopus for audio streaming, built from unmodified upstream sources
+pinned to an exact version and checksum by [`scripts/build-opus.sh`](scripts/build-opus.sh)
+and linked statically into every app. The same encoder runs on the sharing machine and the
+same decoder on every viewer. Licence text:
+[`licenses/BSD-3-Clause-opus.txt`](licenses/BSD-3-Clause-opus.txt).
+
 ## Patents
 
 H.264/AVC is covered by patents licensed through [Via LA](https://www.via-la.com/).
 Patent rights are separate from the copyright licenses above and are not granted by the
-MIT License. On Windows, macOS, iOS, and Android, encoding and decoding are performed by
+MIT License. On Windows, macOS, iOS, and Android, video encoding and decoding are performed by
 the operating system's own codecs. On Linux, they are performed by the GPU vendor's
-VA-API driver. Deskhub ships no codec implementation of its own.
+VA-API driver. Opus audio is royalty-free and is the only codec implementation shipped in
+this tree (static libopus).

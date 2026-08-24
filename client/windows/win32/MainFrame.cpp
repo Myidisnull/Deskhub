@@ -36,6 +36,7 @@
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/session/ShareFlow.h"
+#include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/Brand.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/Locale.h"
@@ -76,6 +77,7 @@ constexpr int kHostTimerId = 1;
 constexpr int kScanTimerId = 2;
 constexpr int kClipTimerId = 3;
 constexpr int kCopyKeyFeedbackTimerId = 4;
+constexpr int kAutoShareTimerId = 5;
 constexpr int kRescanDelayMs = int(deskhubp::kLanRescanSecs) * 1000;
 constexpr int kCopyKeyFeedbackMs = 1500;
 constexpr int kHintWrapDip = 620;
@@ -156,6 +158,9 @@ void TintTagged(wxWindow* root) {
 enum class HostShareState { kIdle,
     kStarting,
     kSharing };
+
+enum class ShareTrigger { kUser,
+    kAutomatic };
 
 struct HostStateStyle {
     const char* label;
@@ -428,7 +433,10 @@ private:
     void StartPoller();
     void OnDeviceStatus(const deskhubp::DeviceStatus& status);
 
-    void OnShare();
+    void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
+    void BeginAutoShare();
+    void OnAutoShareTimer(wxTimerEvent& event);
+    void ReportShareProblem(const wxString& text, const wxString& title);
     void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
     void OnHostStarted(bool started, const std::string& error, uint16_t port,
         bool allowInput, const std::string& passcode);
@@ -438,6 +446,7 @@ private:
     void OnCopyKeyFeedbackTimer(wxTimerEvent& event);
     void FlashCopyFeedback(wxButton* button, const char* restoreLabel);
     void RefreshDisplayChoices();
+    void OnDisplayChanged(wxDisplayChangedEvent& event);
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
     wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
@@ -543,6 +552,8 @@ private:
     wxCheckBox* autoShareCtrl_ = nullptr;
     wxCheckBox* autostartCtrl_ = nullptr;
     wxCheckBox* clipboardCtrl_ = nullptr;
+    wxCheckBox* shareAudioCtrl_ = nullptr;
+    wxCheckBox* playAudioCtrl_ = nullptr;
     wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* encryptSessionCtrl_ = nullptr;
     wxCheckBox* escrowSessionKeyCtrl_ = nullptr;
@@ -575,6 +586,9 @@ private:
     wxTimer scanTimer_;
     wxTimer clipTimer_;
     wxTimer copyKeyFeedbackTimer_;
+    wxTimer autoShareTimer_;
+    ui::AutoShareGate autoShareGate_;
+    ShareTrigger shareTrigger_ = ShareTrigger::kUser;
     wxButton* copyFeedbackBtn_ = nullptr;
     const char* copyFeedbackRestore_ = ui::kCopySessionKey;
     bool hostStarting_ = false;
@@ -636,10 +650,13 @@ MainFrame::MainFrame()
     scanTimer_.SetOwner(this, kScanTimerId);
     clipTimer_.SetOwner(this, kClipTimerId);
     copyKeyFeedbackTimer_.SetOwner(this, kCopyKeyFeedbackTimerId);
+    autoShareTimer_.SetOwner(this, kAutoShareTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnHostTimer, this, kHostTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnScanTimer, this, kScanTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnClipboardTimer, this, kClipTimerId);
     Bind(wxEVT_TIMER, &MainFrame::OnCopyKeyFeedbackTimer, this, kCopyKeyFeedbackTimerId);
+    Bind(wxEVT_TIMER, &MainFrame::OnAutoShareTimer, this, kAutoShareTimerId);
+    Bind(wxEVT_DISPLAY_CHANGED, &MainFrame::OnDisplayChanged, this);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
     Bind(wxEVT_SYS_COLOUR_CHANGED, &MainFrame::OnSysColourChanged, this);
 
@@ -654,7 +671,7 @@ MainFrame::MainFrame()
         CallAfter([this, alive = alive_] {
             if (!*alive) return;
             SelectPage(kPageHost);
-            OnShare();
+            BeginAutoShare();
         });
     }
 }
@@ -1066,6 +1083,12 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     clipboardCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kClipboardSyncLabel));
     clipboardCtrl_->SetValue(settings_.clipboardSync);
     sizer->Add(clipboardCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    shareAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kShareAudioLabel));
+    shareAudioCtrl_->SetValue(settings_.shareAudio);
+    sizer->Add(shareAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    playAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kPlayAudioLabel));
+    playAudioCtrl_->SetValue(settings_.playAudio);
+    sizer->Add(playAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     keepAwakeCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kKeepAwakeLabel));
     keepAwakeCtrl_->SetValue(settings_.keepAwake);
     sizer->Add(keepAwakeCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1210,6 +1233,8 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     languageChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { SaveSettings(); });
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    shareAudioCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    playAudioCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     keepAwakeCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     encryptSessionCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
         SaveSettings();
@@ -1509,18 +1534,58 @@ void MainFrame::ShowIdleHostState() {
     ApplyHostState(HostShareState::kIdle, ToWx(HostPortDetail()));
 }
 
-void MainFrame::OnShare() {
+void MainFrame::BeginAutoShare() {
+    if (hosting_ || hostStarting_ || autoShareGate_.Decided()) {
+        autoShareTimer_.Stop();
+        return;
+    }
+
+    RefreshDisplayChoices();
+    const ui::AutoShareStep step = autoShareGate_.Advance(!availableDisplays_.empty());
+    if (step == ui::AutoShareStep::KeepWaiting) {
+        ApplyHostState(HostShareState::kIdle, ToWx(ui::kWaitingForDisplays));
+        if (!autoShareTimer_.IsRunning()) autoShareTimer_.Start(int(autoShareGate_.ProbeMs()));
+        return;
+    }
+
+    autoShareTimer_.Stop();
+    if (step == ui::AutoShareStep::GiveUpWaiting)
+        LOGW("[Share] No display showed up in the %u ms after launch; sharing without one.",
+            autoShareGate_.WaitedMs());
+    OnShare(ShareTrigger::kAutomatic);
+}
+
+void MainFrame::OnAutoShareTimer(wxTimerEvent&) {
+    BeginAutoShare();
+}
+
+void MainFrame::ReportShareProblem(const wxString& text, const wxString& title) {
+    if (shareTrigger_ == ShareTrigger::kAutomatic) {
+        LOGW("[Share] %s", std::string(text.utf8_str()).c_str());
+        ApplyHostState(HostShareState::kIdle, text);
+        return;
+    }
+    wxMessageBox(text, title, wxOK | wxICON_WARNING, this);
+}
+
+void MainFrame::OnDisplayChanged(wxDisplayChangedEvent& event) {
+    event.Skip();
+    if (hosting_ || hostStarting_) return;
+    RefreshDisplayChoices();
+}
+
+void MainFrame::OnShare(ShareTrigger trigger) {
     if (hostStarting_ || hostStopping_) return;
     if (hosting_) {
         LOGI("[UI] Share stop requested.");
         StopHosting();
         return;
     }
+    shareTrigger_ = trigger;
 
     if (availableDisplays_.empty()) {
         const std::string err = deskhubp::ListDisplaysError();
-        wxMessageBox(err.empty() ? wxString("No display found to share.") : ToWx(err),
-            ToWx(ui::kAppTitle), wxOK | wxICON_WARNING, this);
+        ReportShareProblem(err.empty() ? ToWx(ui::kNoDisplayFound) : ToWx(err), ToWx(ui::kAppTitle));
         return;
     }
 
@@ -1530,13 +1595,12 @@ void MainFrame::OnShare() {
         if (hostPicker_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
     }
     if (chosen.empty()) {
-        wxMessageBox(ToWx(ui::kNoDisplayTicked), ToWx(ui::kAppTitle), wxOK | wxICON_WARNING, this);
+        ReportShareProblem(ToWx(ui::kNoDisplayTicked), ToWx(ui::kAppTitle));
         return;
     }
 
     const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(chosen);
-    if (clamp.clamped)
-        wxMessageBox(ToWx(ui::ShareClampWarning()), ToWx(ui::kAppTitle), wxOK | wxICON_WARNING, this);
+    if (clamp.clamped) ReportShareProblem(ToWx(ui::ShareClampWarning()), ToWx(ui::kAppTitle));
 
     const std::vector<AgentSource>& sources = clamp.sources;
 
@@ -1550,7 +1614,7 @@ void MainFrame::OnShare() {
     options.bindIp = settings_.bindIp;
     options.clipboardSync = settings_.clipboardSync;
     if (!deskhubp::ApplyEncryptToAgentOptions(settings_, options)) {
-        wxMessageBox(ToWx(ui::kShareStartFailed), ToWx(ui::kAppTitle), wxOK | wxICON_ERROR, this);
+        ReportShareProblem(ToWx(ui::kShareStartFailed), ToWx(ui::kAppTitle));
         return;
     }
     SaveSettings();
@@ -1593,8 +1657,8 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     if (!started) {
         ShowIdleHostState();
         RefreshDisplayChoices();
-        wxMessageBox(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), ToWx(ui::kAppTitle),
-            wxOK | wxICON_ERROR, this);
+        ReportShareProblem(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error),
+            ToWx(ui::kAppTitle));
         return;
     }
 
@@ -2059,6 +2123,8 @@ void MainFrame::SaveSettings() {
     settings_.hideTrayIcon =
         settings_.runInBackground && hideTrayIconCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();
+    settings_.shareAudio = shareAudioCtrl_->GetValue();
+    settings_.playAudio = playAudioCtrl_->GetValue();
     settings_.keepAwake = keepAwakeCtrl_->GetValue();
     settings_.encryptSession = encryptSessionCtrl_->GetValue();
     settings_.escrowSessionKey =
@@ -2272,6 +2338,7 @@ void MainFrame::Teardown() {
     hostTimer_.Stop();
     clipTimer_.Stop();
     scanTimer_.Stop();
+    autoShareTimer_.Stop();
     scanner_.Cancel();
     agentDriver_.Join();
     if (stopWorker_.joinable()) stopWorker_.join();

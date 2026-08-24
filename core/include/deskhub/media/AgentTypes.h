@@ -23,6 +23,7 @@ struct AgentOptions {
     bool clipboardSync = false;
     bool encryptSession = false;
     bool escrowSessionKey = false;
+    bool audio = false;
     std::vector<uint8_t> sessionKey{};
     std::vector<uint8_t> hostStaticSk{};
 };

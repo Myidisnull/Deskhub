@@ -39,6 +39,16 @@ target_link_libraries(ffmpeg_min INTERFACE
     ${FFMPEG_MIN_DIR}/lib/libavutil.a
 )
 
+option(DESKHUB_NVENC "Encode on NVIDIA GPUs through NVENC when one is present" ON)
+set(NVENC_HEADERS_DIR ${CMAKE_SOURCE_DIR}/third_party/nvenc-13.0/include)
+if(DESKHUB_NVENC AND NOT EXISTS ${NVENC_HEADERS_DIR}/ffnvcodec/nvEncodeAPI.h)
+    message(${deskhub_skip_level}
+        "System Runtime: skipping the Ubuntu app — the third_party/nvenc-13.0 submodule is "
+        "not checked out. Run 'git submodule update --init', or pass "
+        "-DDESKHUB_NVENC=OFF to build an app that can only encode through VA-API.")
+    return()
+endif()
+
 pkg_check_modules(DESKHUB_TRAY IMPORTED_TARGET ayatana-appindicator3-0.1)
 if(NOT DESKHUB_TRAY_FOUND)
     message(STATUS
@@ -56,9 +66,11 @@ add_executable(deskhub_app
     cpp/AgentLoop.cpp
 
     cpp/capture/ScreenCapture.cpp
+    cpp/capture/AudioCapture.cpp
 
     cpp/encode/VaDisplay.cpp
     cpp/encode/VaEncoder.cpp
+    $<$<BOOL:${DESKHUB_NVENC}>:cpp/encode/NvEncoder.cpp>
 
     cpp/decode/AvDecoder.cpp
     cpp/render/VideoRenderer.cpp
@@ -75,6 +87,11 @@ target_include_directories(deskhub_app PRIVATE
 )
 
 target_link_libraries(deskhub_app PRIVATE core platform PkgConfig::DESKHUB_DEPS ffmpeg_min)
+if(DESKHUB_NVENC)
+    target_compile_definitions(deskhub_app PRIVATE DESKHUB_HAVE_NVENC)
+    target_include_directories(deskhub_app SYSTEM PRIVATE ${NVENC_HEADERS_DIR})
+    target_link_libraries(deskhub_app PRIVATE ${CMAKE_DL_LIBS})
+endif()
 if(DESKHUB_TRAY_FOUND)
     target_compile_definitions(deskhub_app PRIVATE DESKHUB_HAVE_APPINDICATOR)
     target_link_libraries(deskhub_app PRIVATE PkgConfig::DESKHUB_TRAY)

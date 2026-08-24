@@ -68,6 +68,9 @@ int dha_bind_warning(char* out, int capacity);
 void dha_clip_offer(const char* text);
 int dha_clip_take(char* out, int capacity);
 
+void dha_offer_audio(const int16_t* pcm, int samples);
+bool dha_audio_running(void);
+
 #ifdef __cplusplus
 }
 #endif

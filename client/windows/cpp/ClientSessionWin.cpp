@@ -83,6 +83,7 @@ DHSession* dh_session_start(const char* address, uint8_t sourceId, void* surface
     cfg.screenW = uint32_t(GetSystemMetrics(SM_CXVIRTUALSCREEN));
     cfg.screenH = uint32_t(GetSystemMetrics(SM_CYVIRTUALSCREEN));
     cfg.alwaysFocused = true;
+    cfg.wantsAudio = deskhubp::LoadUiSettings().playAudio;
     cfg.statusSeparator = kStatusSeparator;
     cfg.passcode = passcode ? passcode : "";
     cfg.sessionKeyHex = session_key ? session_key : "";

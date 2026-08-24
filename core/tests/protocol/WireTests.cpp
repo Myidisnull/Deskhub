@@ -129,17 +129,25 @@ void TestSourceListWire() {
                out[i].height == in[i].height && out[i].name == in[i].name;
     Check(same, "SOURCE_LIST entries survive round-trip (including UTF-8 names)");
 
-    n = BuildSourceList(buf, in, HostCaps{true, true});
+    n = BuildSourceList(buf, in, HostCaps{true, true, false});
     ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
-    Check(ch && HostCapsOfFlags(ch->flags).acceptsInput && HostCapsOfFlags(ch->flags).terminal,
+    Check(ch && HostCapsOfFlags(ch->flags).acceptsInput && HostCapsOfFlags(ch->flags).terminal &&
+              !HostCapsOfFlags(ch->flags).audio,
         "SOURCE_LIST carries what the host can do");
-    n = BuildSourceList(buf, in, HostCaps{false, true});
+    n = BuildSourceList(buf, in, HostCaps{false, true, false});
     ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
-    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput && HostCapsOfFlags(ch->flags).terminal,
+    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput && HostCapsOfFlags(ch->flags).terminal &&
+              !HostCapsOfFlags(ch->flags).audio,
         "a host that takes no input says so while still offering a terminal");
+    n = BuildSourceList(buf, in, HostCaps{true, false, true});
+    ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(ch && HostCapsOfFlags(ch->flags).acceptsInput && !HostCapsOfFlags(ch->flags).terminal &&
+              HostCapsOfFlags(ch->flags).audio,
+        "SOURCE_LIST carries audio when the host shares sound");
     n = BuildSourceList(buf, in);
     ch = ParseCommonHeader(std::span<const uint8_t>(buf, n));
-    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput && !HostCapsOfFlags(ch->flags).terminal,
+    Check(ch && !HostCapsOfFlags(ch->flags).acceptsInput && !HostCapsOfFlags(ch->flags).terminal &&
+              !HostCapsOfFlags(ch->flags).audio,
         "a host that says nothing promises nothing");
 
     std::vector<SourceInfo> longName;
@@ -394,6 +402,31 @@ void TestWireCoverage() {
     }
 }
 
+void TestAudioWire() {
+    std::printf("[wire] AUDIO_PACKET build/parse round-trip...\n");
+    uint8_t buf[kMaxDatagram];
+    const uint8_t payload[] = {0xDE, 0xAD, 0xBE, 0xEF};
+
+    AudioHeader ah{42, 1'234'567'890ull};
+    const size_t n = BuildAudioPacket(buf, 0xCAFE0003, ah, std::span<const uint8_t>(payload));
+    Check(n == kCommonHeaderSize + kAudioHeaderSize + sizeof(payload), "AUDIO_PACKET size");
+    const auto h = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(h && h->type == MsgType::AudioPacket && h->chan == Chan::Audio &&
+              h->sessionId == 0xCAFE0003,
+        "AUDIO_PACKET header");
+    const auto v = ParseAudioPacket(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(v && v->hdr.seq == ah.seq && v->hdr.timestampUs == ah.timestampUs &&
+              v->payload.size() == sizeof(payload) &&
+              std::memcmp(v->payload.data(), payload, sizeof(payload)) == 0,
+        "AUDIO_PACKET payload");
+
+    Check(BuildAudioPacket(buf, 1, ah, {}) == 0, "empty audio payload is refused");
+    std::vector<uint8_t> huge(kMaxAudioPayload + 1, 0xAB);
+    Check(BuildAudioPacket(buf, 1, ah, huge) == 0, "oversized audio payload is refused");
+    Check(!ParseAudioPacket(std::span<const uint8_t>(buf, kAudioHeaderSize)).has_value(),
+        "audio header-only payload fails to parse");
+}
+
 void TestFecWireErrors() {
     std::printf("[wire] FEC build/parse error paths...\n");
     uint8_t buf[kMaxDatagram];
@@ -543,6 +576,7 @@ void RunWireTests() {
     TestNackWire();
     TestInvalidateRefWire();
     TestClipboardWire();
+    TestAudioWire();
     TestWireCoverage();
     TestFecWireErrors();
     TestSourceListTruncation();

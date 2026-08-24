@@ -148,6 +148,17 @@ if (-not $sdkmanager) {
     }
 }
 
+$bash = Get-Command bash -ErrorAction SilentlyContinue
+if ($bash) {
+    Write-Host "[install] opus (static audio codec for Windows builds)..."
+    & $bash.Source scripts/build-opus.sh windows
+    if ($LASTEXITCODE -ne 0) { throw "scripts/build-opus.sh windows failed (exit $LASTEXITCODE)" }
+} else {
+    Write-Host "[action]  Git Bash not on PATH — skip opus. Install Git for Windows, then:"
+    Write-Host "          bash scripts/build-opus.sh windows"
+    Write-Host "          (builds without opus still compile; audio is a silent stub)"
+}
+
 Write-Host ""
 Write-Host "bootstrap: DONE"
 Write-Host "  Next: 'make' (list every target), 'make test', 'make lint', 'make build-windows'"

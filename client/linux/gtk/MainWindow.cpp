@@ -581,13 +581,16 @@ void MainWindow::Build(GtkApplication* app) {
     gtk_widget_show_all(window_);
     SelectPage(kPageClient);
 
+    g_signal_connect(gtk_widget_get_screen(window_), "monitors-changed",
+        G_CALLBACK(OnMonitorsChanged), this);
+
     if (settings_.autoShare) {
         g_idle_add(
             [](gpointer user) -> gboolean {
                 auto* self = static_cast<MainWindow*>(user);
                 if (!self->alive_->load()) return G_SOURCE_REMOVE;
                 self->SelectPage(kPageHost);
-                self->OnShare();
+                self->BeginAutoShare();
                 return G_SOURCE_REMOVE;
             },
             this);
@@ -938,6 +941,14 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(clipboardCheck_), settings_.clipboardSync);
     gtk_box_pack_start(GTK_BOX(box), clipboardCheck_, FALSE, FALSE, 0);
 
+    shareAudioCheck_ = gtk_check_button_new_with_label(ui::kShareAudioLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shareAudioCheck_), settings_.shareAudio);
+    gtk_box_pack_start(GTK_BOX(box), shareAudioCheck_, FALSE, FALSE, 0);
+
+    playAudioCheck_ = gtk_check_button_new_with_label(ui::kPlayAudioLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(playAudioCheck_), settings_.playAudio);
+    gtk_box_pack_start(GTK_BOX(box), playAudioCheck_, FALSE, FALSE, 0);
+
     keepAwakeCheck_ = gtk_check_button_new_with_label(ui::kKeepAwakeLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_), settings_.keepAwake);
     gtk_box_pack_start(GTK_BOX(box), keepAwakeCheck_, FALSE, FALSE, 0);
@@ -1075,6 +1086,8 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(hostPasscodeEntry_, "changed", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(allowInputCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(shareAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(playAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(keepAwakeCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(encryptSessionCheck_, "toggled", G_CALLBACK(OnEncryptToggled), this);
     g_signal_connect(escrowSessionKeyCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
@@ -1167,6 +1180,8 @@ void MainWindow::SaveSettings() {
     settings_.allowInput = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowInputCheck_));
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
+    settings_.shareAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shareAudioCheck_));
+    settings_.playAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(playAudioCheck_));
     settings_.keepAwake = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_));
     settings_.encryptSession =
         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(encryptSessionCheck_));
@@ -1878,13 +1893,62 @@ void MainWindow::OnShareClicked(GtkButton*, gpointer user) {
     static_cast<MainWindow*>(user)->OnShare();
 }
 
-void MainWindow::OnShare() {
+bool MainWindow::MonitorsPresent() {
+    GdkDisplay* display = gdk_display_get_default();
+    return display != nullptr && gdk_display_get_n_monitors(display) > 0;
+}
+
+void MainWindow::BeginAutoShare() {
+    if (hosting_ || hostStarting_ || autoShareGate_.Decided()) {
+        autoShareTimerId_ = 0;
+        return;
+    }
+
+    const ui::AutoShareStep step = autoShareGate_.Advance(MonitorsPresent());
+    if (step == ui::AutoShareStep::KeepWaiting) {
+        ApplyHostState(HostShareState::kIdle, ui::kWaitingForDisplays);
+        if (!autoShareTimerId_)
+            autoShareTimerId_ = g_timeout_add(autoShareGate_.ProbeMs(), OnAutoShareTimer, this);
+        return;
+    }
+
+    autoShareTimerId_ = 0;
+    if (step == ui::AutoShareStep::GiveUpWaiting)
+        LOGW("[Share] No monitor showed up in the %u ms after launch; sharing without one.",
+            autoShareGate_.WaitedMs());
+    OnShare(ShareTrigger::kAutomatic);
+}
+
+gboolean MainWindow::OnAutoShareTimer(gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    self->BeginAutoShare();
+    if (self->autoShareTimerId_) return G_SOURCE_CONTINUE;
+    return G_SOURCE_REMOVE;
+}
+
+void MainWindow::ReportShareProblem(const char* title, const std::string& text) {
+    if (shareTrigger_ == ShareTrigger::kAutomatic) {
+        LOGW("[Share] %s", text.c_str());
+        ApplyHostState(HostShareState::kIdle, text);
+        return;
+    }
+    ShowWarning(GTK_WINDOW(window_), title, text);
+}
+
+void MainWindow::OnMonitorsChanged(GdkScreen*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->hosting_ || self->hostStarting_) return;
+    if (self->settings_.autoShare && !self->autoShareGate_.Decided()) self->BeginAutoShare();
+}
+
+void MainWindow::OnShare(ShareTrigger trigger) {
     if (hostStarting_ || hostStopping_) return;
     if (hosting_) {
         LOGI("[UI] Share stop requested.");
         StopHosting();
         return;
     }
+    shareTrigger_ = trigger;
 
     AgentOptions options;
     options.fps = settings_.fps;
@@ -1896,7 +1960,7 @@ void MainWindow::OnShare() {
     options.bindIp = settings_.bindIp;
     options.clipboardSync = settings_.clipboardSync;
     if (!deskhubp::ApplyEncryptToAgentOptions(settings_, options)) {
-        ShowError(GTK_WINDOW(window_), ui::kAppTitle, ui::kShareStartFailed);
+        ReportShareProblem(ui::kAppTitle, ui::kShareStartFailed);
         return;
     }
     SaveSettings();
@@ -1917,13 +1981,14 @@ void MainWindow::OnShare() {
             if (sources.empty()) {
                 ShowIdleHostState();
                 if (!err.empty() && err != "cancelled by the user")
-                    ShowError(GTK_WINDOW(window_), "Screen capture is not available", err);
+                    ReportShareProblem("Screen capture is not available", err);
+                else if (err.empty())
+                    ReportShareProblem(ui::kAppTitle, ui::kNoDisplayFound);
                 return;
             }
 
             const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(std::move(sources));
-            if (clamp.clamped)
-                ShowWarning(GTK_WINDOW(window_), ui::kAppTitle, ui::ShareClampWarning());
+            if (clamp.clamped) ReportShareProblem(ui::kAppTitle, ui::ShareClampWarning());
 
             StartHosting(clamp.sources, options);
         });
@@ -1958,7 +2023,7 @@ void MainWindow::OnHostStarted(bool started, const std::string& error,
     if (!started) {
         ShowIdleHostState();
         gtk_widget_show(hostHintLabel_);
-        ShowError(GTK_WINDOW(window_), ui::kAppTitle,
+        ReportShareProblem(ui::kAppTitle,
             std::string(ui::kShareStartFailed) + ".\n\n" + error);
         return;
     }
@@ -2177,6 +2242,7 @@ void MainWindow::OnDestroy(GtkWidget*, gpointer user) {
     self->tray_.Detach();
     if (self->rescanTimerId_) g_source_remove(self->rescanTimerId_);
     if (self->hostTimerId_) g_source_remove(self->hostTimerId_);
+    if (self->autoShareTimerId_) g_source_remove(self->autoShareTimerId_);
     if (self->clipTimerId_) g_source_remove(self->clipTimerId_);
     self->scanner_.Cancel();
     self->agentDriver_.Join();

@@ -1,7 +1,9 @@
 #pragma once
 #include "deskhubp/session/HostEngine.h"
 
+#include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,6 +36,10 @@ public:
         return engine_.running();
     }
 
+    bool audioRunning() const {
+        return engine_.audioRunning();
+    }
+
     std::vector<AgentSourceStatus> Status() {
         return engine_.Status();
     }
@@ -48,6 +54,10 @@ public:
 
     void OfferLocalClipboard(std::string text) {
         engine_.OfferLocalClipboard(std::move(text));
+    }
+
+    void OfferAudio(std::span<const int16_t> pcm) {
+        engine_.OfferAudio(pcm);
     }
 
     std::optional<std::string> TakeRemoteClipboard() {

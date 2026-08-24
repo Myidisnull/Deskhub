@@ -53,7 +53,7 @@ struct MainMenuView: View {
             if agent.autoShare, !agent.didAutoShare, !agent.isSharing, !agent.isStarting {
                 agent.didAutoShare = true
                 page = .host
-                await share()
+                await autoShare()
             }
         }
         .task(id: agent.port) {
@@ -270,6 +270,13 @@ struct MainMenuView: View {
             return
         }
         await doShare()
+    }
+
+    private func autoShare() async {
+        agent.refreshPermissions()
+        guard agent.hasScreenRecording else { return }
+        guard await agent.waitForShareSources() else { return }
+        _ = await agent.startSharing()
     }
 
     private func doShare() async {

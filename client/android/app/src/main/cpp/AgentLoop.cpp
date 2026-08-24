@@ -3,8 +3,10 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <utility>
 
 #include "capture/ScreenCapture.h"
@@ -94,12 +96,18 @@ bool RebuildLocked(SourcePipeline& p) {
     return RebuildPipeline(p);
 }
 
+bool AudioArrivesFromMediaProjection(const deskhub::media::AudioFormat&,
+    std::function<void(std::span<const int16_t>)>) {
+    return true;
+}
+
 }
 
 bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOptions& opt) {
     deskhubp::HostEngine* engine = &engine_;
 
     deskhubp::HostEnginePolicy policy;
+    policy.startAudioCapture = AudioArrivesFromMediaProjection;
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
     policy.noSourceError = "No screen to share.";

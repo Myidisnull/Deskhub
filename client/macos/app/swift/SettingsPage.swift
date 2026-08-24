@@ -87,6 +87,10 @@ struct SettingsPage: View {
             deskhubSection(DeskhubClient.string(DHStrSettingsSectionSession))
             Toggle(DeskhubClient.string(DHStrClipboardSyncLabel), isOn: $agent.clipboardSync)
                 .toggleStyle(.checkbox)
+            Toggle(DeskhubClient.string(DHStrShareAudioLabel), isOn: $agent.shareAudio)
+                .toggleStyle(.checkbox)
+            Toggle(DeskhubClient.string(DHStrPlayAudioLabel), isOn: $agent.playAudio)
+                .toggleStyle(.checkbox)
             Toggle(DeskhubClient.string(DHStrKeepAwakeLabel), isOn: $agent.keepAwake)
                 .toggleStyle(.checkbox)
             Toggle(DeskhubClient.string(DHStrEncryptSessionLabel), isOn: $agent.encryptSession)
@@ -221,6 +225,8 @@ struct SettingsPage: View {
         .onChange(of: agent.autoShare) { _, _ in agent.save() }
         .onChange(of: agent.autostart) { _, _ in agent.applyAutostart() }
         .onChange(of: agent.clipboardSync) { _, _ in agent.save() }
+        .onChange(of: agent.shareAudio) { _, _ in agent.save() }
+        .onChange(of: agent.playAudio) { _, _ in agent.save() }
         .onChange(of: agent.keepAwake) { _, _ in agent.save() }
         .onChange(of: agent.encryptSession) { _, _ in agent.save() }
         .onChange(of: agent.logDir) { _, _ in saveLogDir() }

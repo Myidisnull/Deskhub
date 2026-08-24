@@ -86,11 +86,23 @@ nó không được đóng gói kèm.
 | Thư viện chuẩn [Kotlin](https://kotlinlang.org) | Apache-2.0 | động |
 | MediaCodec, các API media của NDK | Android SDK / NDK | thành phần hệ điều hành |
 
+## Codec âm thanh (mọi app)
+
+| Thành phần | Giấy phép | Cách liên kết |
+| --- | --- | --- |
+| [libopus](https://opus-codec.org) 1.5.2 | BSD-3-Clause | **tĩnh** |
+
+System Runtime nhúng libopus cho luồng âm thanh, xây từ mã nguồn upstream không sửa đổi,
+ghim đúng phiên bản và checksum bởi [`scripts/build-opus.sh`](scripts/build-opus.sh), và
+liên kết tĩnh vào mọi app. Cùng một encoder chạy trên máy chia sẻ và cùng một decoder trên
+mọi máy xem. Văn bản giấy phép:
+[`licenses/BSD-3-Clause-opus.txt`](licenses/BSD-3-Clause-opus.txt).
+
 ## Bằng sáng chế
 
 H.264/AVC được bảo hộ bởi các bằng sáng chế cấp phép qua
 [Via LA](https://www.via-la.com/). Quyền sáng chế tách biệt với các giấy phép bản quyền ở
 trên và không được cấp bởi Giấy phép MIT. Trên Windows, macOS, iOS và Android, việc mã
-hoá và giải mã do chính codec của hệ điều hành thực hiện. Trên Linux, chúng do driver
-VA-API của hãng GPU thực hiện. Deskhub không đóng gói kèm bất kỳ bản hiện thực codec nào
-của riêng mình.
+hoá và giải mã **video** do chính codec của hệ điều hành thực hiện. Trên Linux, chúng do
+driver VA-API của hãng GPU thực hiện. Âm thanh Opus miễn phí bản quyền và là bản hiện thực
+codec duy nhất được đóng gói trong cây mã nguồn này (libopus tĩnh).

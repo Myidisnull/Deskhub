@@ -73,6 +73,7 @@ Session* StartFfiClientSession(const char* address, uint8_t sourceId, void* surf
     cfg.passcode = passcode ? passcode : "";
     cfg.sessionKeyHex = sessionKey ? sessionKey : "";
     cfg.displayName = SessionDeviceName();
+    cfg.wantsAudio = LoadUiSettings().playAudio;
     cfg.onParams = [raw](uint32_t width, uint32_t height, uint8_t) {
         if (raw->callbacks.onSize) raw->callbacks.onSize(width, height, raw->callbacks.user);
     };

@@ -51,6 +51,20 @@ object NativeHost {
         passcode: String,
     ): Boolean
 
+    private external fun nativeOfferAudio(
+        pcm: ShortArray,
+        samples: Int,
+    )
+
+    private external fun nativeAudioRunning(): Boolean
+
+    fun offerAudio(
+        pcm: ShortArray,
+        samples: Int,
+    ) = nativeOfferAudio(pcm, samples)
+
+    fun audioRunning(): Boolean = nativeAudioRunning()
+
     private external fun nativeStop()
 
     private external fun nativeRunning(): Boolean

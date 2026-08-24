@@ -35,6 +35,9 @@ int main() {
     std::printf("--- transport: send pacer ---\n");
     RunPacerTests();
 
+    std::printf("--- transport: audio jitter buffer ---\n");
+    RunAudioJitterBufferTests();
+
     std::printf("--- session ---\n");
     std::fflush(stdout);
     RunSessionTests();
@@ -114,6 +117,9 @@ int main() {
     std::printf("--- control: clock offset / one-way latency ---\n");
     RunClockOffsetTests();
 
+    std::printf("--- control: paced video display from host PTS ---\n");
+    RunVideoPacerTests();
+
     std::printf("--- control: quality ladder (fps + resolution vs bandwidth) ---\n");
     RunQualityLadderTests();
 
@@ -153,6 +159,12 @@ int main() {
     std::printf("--- media: viewer window title (status + lock hint) ---\n");
     RunViewerTitleTests();
 
+    std::printf("--- media: latest-wins encode mailbox ---\n");
+    RunFrameMailboxTests();
+
+    std::printf("--- media: packed-RGB area downscale ---\n");
+    RunRgbDownscaleTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 
@@ -182,6 +194,9 @@ int main() {
 
     std::printf("--- ui: launch-at-login artifacts ---\n");
     RunAutostartConfigTests();
+
+    std::printf("--- ui: waiting for the desktop before an automatic share ---\n");
+    RunAutoShareGateTests();
 
     std::printf("--- ui: passcodes stored on disk ---\n");
     RunSecretTextTests();

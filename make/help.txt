@@ -42,6 +42,7 @@ Deskhub - no platform is built by default, name the one you want:
     make reset-macos-permissions    macOS: clear the TCC grants when the local build and
                                     a downloaded build conflict (ARGS="--purge")
     make ffmpeg-min                 Ubuntu: build the static minimal FFmpeg (auto-run by build-linux)
+    make opus-host                  build static libopus for this host (Linux/macOS; Windows: bash scripts/build-opus.sh windows)
     make clean                      remove out/
 
   Every target is documented in full at the top of the Makefile.

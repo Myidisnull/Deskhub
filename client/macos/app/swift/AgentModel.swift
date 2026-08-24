@@ -50,6 +50,8 @@ final class AgentModel {
     var autoShare = dh_auto_share()
     var autostart = dh_autostart_enabled()
     var clipboardSync = dh_clipboard_sync()
+    var shareAudio = dh_share_audio()
+    var playAudio = dh_play_audio()
     var keepAwake = dh_keep_awake()
     var encryptSession = dh_encrypt_session()
     var escrowSessionKey = dh_escrow_session_key()
@@ -57,6 +59,7 @@ final class AgentModel {
     var sessionKeyHex = DeskhubClient.buffered(DH_SESSION_KEY_CAP) { dh_session_key_hex($0, $1) }
     var language = AppLanguage.fromStored(DeskhubClient.buffered(32) { dh_language($0, $1) })
     var didAutoShare = false
+    var autoShareWaitNote = ""
     private var lastPasteboardChange = NSPasteboard.general.changeCount
 
     func applyAutostart() {
@@ -67,6 +70,7 @@ final class AgentModel {
     var statusLine: String {
         let portNum = UInt16(max(1, min(65535, port)))
         guard isSharing else {
+            if !autoShareWaitNote.isEmpty { return autoShareWaitNote }
             return DeskhubClient.buffered(128) { dh_idle_host_status(portNum, $0, $1) }
         }
         var line = DeskhubClient.buffered(320) {
@@ -104,6 +108,8 @@ final class AgentModel {
         )
         dh_set_bind_ip(bindIp)
         dh_set_clipboard_sync(clipboardSync)
+        dh_set_share_audio(shareAudio)
+        dh_set_play_audio(playAudio)
         dh_set_keep_awake(keepAwake)
         dh_set_encrypt_session(encryptSession)
         if !encryptSession { escrowSessionKey = false }
@@ -164,6 +170,26 @@ final class AgentModel {
         tickedSources = Set(found.map(\.id))
     }
 
+    func waitForShareSources() async -> Bool {
+        let probeMs = dh_auto_share_probe_ms()
+        var waitedMs: UInt32 = 0
+        while true {
+            await refreshShareSources()
+            switch dh_auto_share_step(!shareSources.isEmpty, waitedMs) {
+            case DHAutoShareShareNow:
+                autoShareWaitNote = ""
+                return true
+            case DHAutoShareGiveUpWaiting:
+                autoShareWaitNote = DeskhubClient.string(DHStrNoDisplayFound)
+                return false
+            default:
+                autoShareWaitNote = DeskhubClient.string(DHStrWaitingForDisplays)
+                try? await Task.sleep(for: .milliseconds(Int(probeMs)))
+                waitedMs += probeMs
+            }
+        }
+    }
+
     var pickedSources: [ShareSource] {
         shareSources.filter { tickedSources.contains($0.id) }
     }
@@ -179,6 +205,7 @@ final class AgentModel {
 
     func startSharing() async -> Bool {
         guard !isStarting, !isSharing, !isStopping else { return false }
+        autoShareWaitNote = ""
         guard DeskhubClient.isValidPasscode(passcode) else {
             startError = DeskhubClient.string(DHStrPasscodeInvalid)
             return false

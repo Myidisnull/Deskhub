@@ -116,6 +116,12 @@ void dh_set_auto_share(bool on);
 bool dh_clipboard_sync(void);
 void dh_set_clipboard_sync(bool on);
 
+bool dh_share_audio(void);
+void dh_set_share_audio(bool on);
+
+bool dh_play_audio(void);
+void dh_set_play_audio(bool on);
+
 bool dh_keep_awake(void);
 void dh_set_keep_awake(bool on);
 

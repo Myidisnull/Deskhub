@@ -11,6 +11,7 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/diag/StallLog.h"
+#include "deskhubp/audio/AudioPlayer.h"
 #include "deskhubp/net/ClientNetLoop.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/Clock.h"
@@ -48,6 +49,7 @@ struct ClientEngineConfig {
     bool sendNacks = true;
     bool logLossRuns = true;
     bool alwaysFocused = false;
+    bool wantsAudio = false;
     const char* statusSeparator = "  ";
     std::string passcode;
     std::string displayName;
@@ -104,6 +106,8 @@ public:
             surfaceAckGen_ = surfaceGen_;
         }
         SyncKeepAwakeHeld(true);
+        if (cfg_.wantsAudio && !player_.Start())
+            LOGW("[Client] Watching without sound: no audio device could be opened.");
         decodeThread_ = std::thread([this] { DecodeThread(); });
         netThread_ = std::thread([this] { NetThread(); });
         LOGI("[Client] Connecting to %s (source %u) ...", cfg_.server.ToString().c_str(),
@@ -126,6 +130,7 @@ public:
         userStop_.store(true);
         sessionDone_.store(true);
         quit_.store(true);
+        player_.Stop();
         decCv_.notify_all();
         surfaceCv_.notify_all();
         {
@@ -379,6 +384,7 @@ private:
             }
             decCv_.notify_one();
         };
+        cb.onAudioPacket = [this](const deskhub::AudioPacketView& v) { player_.Push(v); };
         cb.onClipboardText = [this](std::string_view text) {
             std::lock_guard<std::mutex> lk(clipMutex_);
             remoteClips_.emplace_back(text);
@@ -502,6 +508,7 @@ private:
             pcfg.sourceId = cfg_.sourceId;
             pcfg.desiredFps = cfg_.desiredFps;
             pcfg.sendNacks = cfg_.sendNacks;
+            pcfg.wantsAudio = cfg_.wantsAudio;
             pcfg.logLossRuns = cfg_.logLossRuns;
             pcfg.statusSeparator = cfg_.statusSeparator;
             pcfg.passcode = cfg_.passcode;
@@ -645,6 +652,7 @@ private:
 
     deskhub::ClientInputQueue input_;
     deskhub::diag::ClientDiag diag_;
+    AudioPlayer player_;
 
     bool keepAwakeHeld_ = false;
 

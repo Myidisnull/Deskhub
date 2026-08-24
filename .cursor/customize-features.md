@@ -3,7 +3,7 @@
 权威说明：本文件记录 **`develop` 相对 `main` 的产品客制**。同步上游时不得破坏下列功能、配置、布局与 UI（见 `.cursor/rules/develop-main-parallel.mdc`）。  
 版本锚点：`VERSION` = **4.0.2** · 品牌文件 `brand/Brand.json` · 对照 tip 时以本文件 + `customize-main-base.md` 为准。
 
-上次整理：2026-08-17
+上次整理：2026-08-21
 
 ---
 
@@ -50,7 +50,7 @@
 ### 2.5 日志策略 UI
 
 - `logMaxFileMb` / `logCompressAfterDays` / `logDeleteAfterDays` / `logDir`
-- 设置页「日志」区块（各桌面端）
+- 设置页「日志」区块：各桌面端完整（含目录/浏览/查看）；Android / iOS 提供保留三字段（目录浏览与日志查看仍为桌面向）
 
 ### 2.6 Windows 主题与体验
 
@@ -61,6 +61,10 @@
 
 - 多端 `AgentLoop`、Windows 采集 / NVENC·MF 编码、HostEngine / StallLog 等稳定性改动
 - 协议侧已按需吸收：`HostCaps`（`terminal` 在本分支恒为 false）、InputApplier 接管仍放键
+- 启动自动共享：`AutoShareGate`（等显示器就绪再分享；超时放弃后仍尝试 / 软失败）；Win / Linux / macOS；不含 terminal link recovery
+- 视频节流：`FrameGate` due-time 节奏（非整倍采集帧率仍贴近目标）
+- Linux Host：mapped 帧经 `FrameMailbox` 异步编码（dma-buf 仍同步）；`HwEncoder` 在 mapped 路径优先 NVENC、dma-buf 走 VA-API；采集线程 `RgbDownscale` 后再入队；诊断 `q_drop`
+- Apple 观看端：`VideoPacer` + `VtDecoder` 按 PTS 控制 timebase 平滑出帧（拥堵则回退立即显示）
 
 ### 2.8 会话期间防休眠（keepAwake）
 
@@ -71,6 +75,16 @@
 - Android Host：`HostService` 在分享成功后按设置持有 `PARTIAL_WAKE_LOCK`
 - iOS Host：主 App 在 Broadcast 分享中按设置禁用 idle timer（`SharingModel.poll`）
 - 与品牌/加密/托盘/三页导航无冲突；相对 main 为误砍后补回
+
+### 2.9 音频共享 / 播放（Adapt from main）
+
+- 协议：`MsgType::AudioPacket`；`HostCaps.audio` / `kHostSharesAudio`
+- **特征位**：`kClientWantsAudio = 1u << 1`（`kFeatureEncryptCapable` 仍占 bit 0，避免与 main 冲突）
+- 设置：`UiSettings.shareAudio` / `playAudio`（默认开），键名 `share_audio` / `play_audio`
+- 共享层：`AudioJitterBuffer`、Opus（`DESKHUB_AUDIO` + `scripts/build-opus.sh`）、`AudioBroadcaster` / `AudioPlayer` + 各 OS sink
+- Host：`HostEngine` StartAudio / beacon caps；Win/Linux `AudioCapture`；macOS SCStream audio；iOS ReplayKit `audioApp`；Android `AudioShare`（playback capture）
+- 观看：`ClientEngine` / `ClientSessionShell` 按 `playAudio` 置 `wantsAudio`
+- 设置 UI：Win / Linux / macOS / iOS / Android 三页设置中的 Session 区开关 + i18n
 
 ---
 
@@ -130,7 +144,7 @@
 
 ### Android / iOS
 
-- 保留：System Runtime 品牌、语言、口令 + session key 连接/分享设置、keepAwake（观看页常亮；Android Host WakeLock；iOS 分享中 idle timer）
+- 保留：System Runtime 品牌、语言、口令 + session key 连接/分享设置、keepAwake（观看页常亮；Android Host WakeLock；iOS 分享中 idle timer）、日志保留三字段
 - 禁止默认加回：Terminal Activity / NativeTerminal、iOS Devices 页、TrustPrompt、Terminal 屏
 
 ---

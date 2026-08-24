@@ -239,6 +239,7 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 
     localInputMon_.Start();
     SyncKeepAwakeHeld(true);
+    StartAudio();
     if (policy_.onSharing) policy_.onSharing();
     LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live_.size());
 
@@ -266,6 +267,9 @@ void HostEngine::StopLocked() {
     const uint64_t tAll = NowUs();
     LOGI("[DIAG][agent] evt=stop_begin sources=%zu recv_joinable=%d", pipes_.size(),
         recvThread_.joinable() ? 1 : 0);
+
+    if (policy_.stopAudioCapture) policy_.stopAudioCapture();
+    audio_.Stop();
 
     quit_.store(true);
     {
@@ -382,15 +386,34 @@ void HostEngine::SyncKeepAwakeHeld(bool sessionActive) {
     keepAwakeHeld_ = want;
 }
 
+void HostEngine::StartAudio() {
+    if (!opt_.audio) return;
+    if (!policy_.startAudioCapture) {
+        LOGW("[Agent] Sharing without sound: this build captures no audio.");
+        return;
+    }
+    if (!audio_.Start([this](std::span<const uint8_t> frame, uint32_t seq, uint64_t timestampUs) {
+            for (HostSource* st : live_) SendAudioFrame(*st, sock_, frame, seq, timestampUs);
+        })) {
+        LOGW("[Agent] Sharing without sound: the audio encoder did not start.");
+        return;
+    }
+    if (!policy_.startAudioCapture(audio_.format(),
+            [this](std::span<const int16_t> pcm) { audio_.Offer(pcm); })) {
+        LOGW("[Agent] Sharing without sound: nothing to capture it from.");
+        audio_.Stop();
+    }
+}
+
 void HostEngine::RecvLoop() {
     beacon_.SetPasscode(opt_.passcode);
-    beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false});
+    beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false, audio_.running()});
 
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
-        beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false});
+        beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false, audio_.running()});
         DrainControlRequests();
         DrainLocalClipboard();
         SyncKeepAwakeHeld(true);

@@ -75,6 +75,11 @@ int main() {
     std::printf("--- session: host callbacks wired to a source pipeline ---\n");
     RunHostCallbackTests();
 
+#ifdef DESKHUB_AUDIO
+    std::printf("--- media: opus encode/decode + playout ---\n");
+    RunOpusCodecTests();
+#endif
+
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");
         return 0;

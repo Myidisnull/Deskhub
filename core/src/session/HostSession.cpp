@@ -256,6 +256,7 @@ bool HostSession::CompletePendingAdmit(PendingAdmit& pending, uint64_t nowUs) {
         return false;
     }
     admitted->aeadRecvCounter = aeadRecvCounter;
+    viewers_.SetWantsAudio(*admitted, (m.features & kClientWantsAudio) != 0);
     RefreshState();
     if (firstViewer && cb_.onHello) cb_.onHello(m);
     if (cb_.onViewerJoin) cb_.onViewerJoin(fromPacked, viewers_.viewerCount(), m.clientName);
@@ -279,6 +280,7 @@ bool HostSession::AdmitHello(const Hello& m, uint64_t nowUs, uint64_t fromPacked
     if (known) {
         viewers_.Rebind(*known, fromPacked);
         viewers_.SetName(*known, m.clientName);
+        viewers_.SetWantsAudio(*known, (m.features & kClientWantsAudio) != 0);
         known->lastRecvUs = nowUs;
         ClearPendingAdmit(fromPacked);
         SendHelloAck(nowUs);
@@ -289,10 +291,12 @@ bool HostSession::AdmitHello(const Hello& m, uint64_t nowUs, uint64_t fromPacked
     if (firstViewer && sessionId() == 0 && !BeginSession()) return false;
     if (encryptRequired_ && !EnsureTrafficKey()) return false;
 
-    if (!viewers_.Admit(m.clientId, fromPacked, nowUs, m.clientName)) {
+    ViewerSlot* admitted = viewers_.Admit(m.clientId, fromPacked, nowUs, m.clientName);
+    if (!admitted) {
         SendReject(RejectReason::Busy);
         return false;
     }
+    viewers_.SetWantsAudio(*admitted, (m.features & kClientWantsAudio) != 0);
 
     ClearPendingAdmit(fromPacked);
     RefreshState();

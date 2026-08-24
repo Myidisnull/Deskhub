@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "ElevatedShare.h"
+#include "capture/AudioCapture.h"
 #include "capture/Downscaler.h"
 #include "gpu/GpuSelect.h"
 #include "capture/ScreenCapture.h"
@@ -98,6 +99,13 @@ bool AgentLoop::Start(const std::vector<AgentSource>& sources, const AgentOption
     deskhubp::HostEnginePolicy policy;
     policy.source = deskhubp::MakeDefaultSourcePolicy<SourcePipeline>();
     policy.status = deskhubp::MakeDefaultStatusHooks<SourcePipeline>();
+
+    auto audioCapture = std::make_shared<AudioCapture>();
+    policy.startAudioCapture = [audioCapture](const deskhub::media::AudioFormat& format,
+                                   std::function<void(std::span<const int16_t>)> onFrame) {
+        return audioCapture->Start(format, std::move(onFrame));
+    };
+    policy.stopAudioCapture = [audioCapture] { audioCapture->Stop(); };
 
     policy.preflight = [gpu] {
         if (!CreateBestDevice({GpuVendor::Nvidia, GpuVendor::Intel, GpuVendor::Amd}, *gpu))

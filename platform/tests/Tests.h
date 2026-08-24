@@ -14,3 +14,4 @@ void RunHostCallbackTests();
 void RunHostProbeTests();
 void RunLanScannerTests();
 void RunAppDataFileTests();
+void RunOpusCodecTests();

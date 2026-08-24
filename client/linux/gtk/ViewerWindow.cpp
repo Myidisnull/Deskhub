@@ -124,6 +124,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     cfg.sourceId = sourceId;
     cfg.screenW = sw;
     cfg.screenH = sh;
+    cfg.wantsAudio = deskhubp::LoadUiSettings().playAudio;
     cfg.passcode = passcode;
     cfg.sessionKeyHex = sessionKey;
     cfg.displayName = deskhubp::SessionDeviceName();

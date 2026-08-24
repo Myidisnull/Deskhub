@@ -103,6 +103,10 @@ inline constexpr LStr kViewOnlyNote{"View-only: viewers can watch but not contro
 inline constexpr LStr kPickDisplaysHint{"Tick the displays to share, then press Share."};
 inline constexpr LStr kPickDisplaysPortalHint{"Press Share, then pick the displays in your desktop's screen-sharing dialog."};
 inline constexpr LStr kNoDisplayTicked{"Tick at least one display to share."};
+inline constexpr LStr kNoDisplayFound{"No display found to share."};
+inline constexpr LStr kWaitingForDisplays{
+    "No display yet \xE2\x80\x94 waiting for the desktop to finish starting before sharing"
+    "\xE2\x80\xA6"};
 inline constexpr LStr kStopSelectedDisplay{"Stop selected display"};
 inline constexpr LStr kDisconnectSelectedViewer{"Disconnect selected viewer"};
 inline constexpr LStr kStopDisplayAction{"Stop"};
@@ -124,6 +128,8 @@ inline constexpr LStr kSettingsSectionLaunch{"Launch & background"};
 inline constexpr LStr kAutostartLabel{"Start {app} when you log in"};
 inline constexpr LStr kAutoShareLabel = kShareOnLaunchLabel;
 inline constexpr LStr kClipboardSyncLabel{"Sync clipboard text with connected devices"};
+inline constexpr LStr kShareAudioLabel{"Share this device's sound with viewers"};
+inline constexpr LStr kPlayAudioLabel{"Play the sound of the device you are watching"};
 inline constexpr LStr kKeepAwakeLabel{"Keep this device awake while a session is active"};
 inline constexpr LStr kEncryptSessionLabel{"Encrypt session traffic"};
 inline constexpr LStr kEncryptSessionHint{

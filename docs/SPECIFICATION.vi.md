@@ -45,13 +45,13 @@ Một máy có thể vừa là host vừa là client cùng lúc.
 
 ## 3. Vai trò theo nền tảng
 
-| Nền tảng | Chia sẻ được | Xem được |
-| --- | :--: | :--: |
-| Windows | ✅ | ✅ |
-| macOS | ✅ | ✅ |
-| Linux | ✅ | ✅ |
-| Android | ✅ chỉ xem | ✅ |
-| iOS | ✅ chỉ xem | ✅ |
+| Nền tảng | Chia sẻ được | Xem được | Âm thanh |
+| --- | :--: | :--: | :--: |
+| Windows | ✅ | ✅ | ✅ |
+| macOS | ✅ | ✅ | ✅ |
+| Linux | ✅ | ✅ | ✅ |
+| Android | ✅ chỉ xem | ✅ | ⚠️ Android 10+ |
+| iOS | ✅ chỉ xem | ✅ | ⚠️ chỉ âm thanh ứng dụng |
 
 Mọi nền tảng đều có cùng bộ tính năng phía client, trừ những khác biệt nêu ở mục 12.
 Điện thoại và máy tính bảng chia sẻ ở chế độ **chỉ xem**: chúng phát màn hình nhưng không
@@ -114,6 +114,7 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 | V-3 | Trạng thái phiên | Cửa sổ hiển thị dòng trạng thái trực tiếp: tốc độ khung hình, băng thông, độ trễ khứ hồi và độ trễ đầu-cuối. |
 | V-4 | Cửa sổ có tiêu đề | Mỗi cửa sổ xem có tiêu đề gồm tên nguồn đang xem và trạng thái hiện tại, để phân biệt được khi mở nhiều phiên. |
 | V-5 | Ngắt kết nối | Viewer có thể kết thúc phiên bất cứ lúc nào. |
+| V-6 | Âm thanh | Khi cả hai máy đều hỗ trợ (mục 3), viewer nghe được những gì máy đang chia sẻ đang phát, đồng bộ với hình trong khoảng một khung hình. Âm thanh đi trên kênh riêng: mất một gói chỉ mất một phần giây âm thanh và không làm hỏng hình; máy không phát gì thì hầu như không tốn băng thông. Tắt nếu viewer tắt (T-35), và host tắt thì không bao giờ gửi (T-34). |
 
 ## 8. Điều khiển máy từ xa
 
@@ -135,7 +136,7 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 
 | ID | Tính năng | Mô tả |
 | --- | --- | --- |
-| S-1 | Mã hoá phiên tuỳ chọn | Host có thể bật *Encrypt session traffic* (mặc định tắt). Khi bật, video, thao tác và clipboard của phiên được mã hoá đầu-cuối giữa host và viewer. Gói dò tìm mạng vẫn không mã hoá. Dành cho mạng chưa hoàn toàn tin cậy; LAN hoặc VPN đáng tin có thể để tắt. Chi tiết và rủi ro còn lại nằm ở [`SECURITY.vi.md`](../SECURITY.vi.md). |
+| S-1 | Mã hoá phiên tuỳ chọn | Host có thể bật *Encrypt session traffic* (mặc định tắt). Khi bật, video, âm thanh, thao tác và clipboard của phiên được mã hoá đầu-cuối giữa host và viewer. Gói dò tìm mạng vẫn không mã hoá. Dành cho mạng chưa hoàn toàn tin cậy; LAN hoặc VPN đáng tin có thể để tắt. Chi tiết và rủi ro còn lại nằm ở [`SECURITY.vi.md`](../SECURITY.vi.md). |
 | S-2 | Passcode bắt buộc | Mọi host đều yêu cầu passcode 4 chữ số. Mã được sinh ngẫu nhiên ở lần chạy đầu tiên; người dùng đổi được nhưng không thể để trống hay tắt đi. Passcode cho viewer vào và chặn việc dò; nó không phải khoá mã hoá phiên. |
 | S-3 | Passcode chặn cả việc dò | Host sẽ không tiết lộ đang chia sẻ những gì nếu chưa có mã đúng. |
 | S-4 | Khoá khi sai nhiều lần | Các lần sai passcode hoặc khoá phiên từ cùng một nguồn được đếm. Sau **5** lần thất bại trong cửa sổ **60 giây**, host từ chối thêm lần thử từ nguồn đó trong **30 giây**. |
@@ -152,9 +153,9 @@ bao giờ nhận điều khiển từ xa, vì không hệ điều hành di độ
 
 Cài đặt thuộc về từng máy, được lưu lại qua các lần khởi động, và có hiệu lực từ lần bắt
 đầu chia sẻ kế tiếp. Điện thoại và máy tính bảng hiện cổng mạng (T-4) — cũng chính là
-cổng mà việc quét mạng gõ vào — đồng bộ clipboard (T-17), mã passcode (T-5), mã hoá phiên
-tuỳ chọn và các điều khiển liên quan (T-29–T-32), cùng mạng để chia sẻ (T-14) trên màn
-hình chia sẻ; mọi thứ còn lại chúng dùng giá trị mặc định dựng sẵn.
+cổng mà việc quét mạng gõ vào — đồng bộ clipboard (T-17), chia sẻ/phát âm thanh (T-34–T-35),
+mã passcode (T-5), mã hoá phiên tuỳ chọn và các điều khiển liên quan (T-29–T-32), cùng mạng
+để chia sẻ (T-14) trên màn hình chia sẻ; mọi thứ còn lại chúng dùng giá trị mặc định dựng sẵn.
 
 | ID | Cài đặt | Khoảng giá trị | Mặc định |
 | --- | --- | --- | --- |
@@ -170,6 +171,8 @@ hình chia sẻ; mọi thứ còn lại chúng dùng giá trị mặc định d�
 | T-15 | Bắt đầu chia sẻ khi mở app | bật / tắt | tắt |
 | T-16 | Khởi động System Runtime khi đăng nhập | bật / tắt | tắt |
 | T-17 | Đồng bộ văn bản clipboard | bật / tắt | tắt |
+| T-34 | Chia sẻ âm thanh thiết bị này với viewer | bật / tắt | bật |
+| T-35 | Phát âm thanh của thiết bị đang xem | bật / tắt | bật |
 | T-22 | Tách tệp log khi lớn hơn | 1 – 1024 MB (Windows, macOS, Linux) | 10 |
 | T-23 | Nén log cũ hơn | 0 – 3650 ngày; 0 nghĩa là không bao giờ (Windows, macOS, Linux) | 7 |
 | T-24 | Xoá log cũ hơn | 0 – 3650 ngày; 0 nghĩa là không bao giờ; không được sớm hơn T-23 (Windows, macOS, Linux) | 30 |
@@ -191,6 +194,7 @@ hình chia sẻ; mọi thứ còn lại chúng dùng giá trị mặc định d�
 | T-19 | Tự chia sẻ khi mở app | Chỉ desktop. Khi bật T-15, mở app sẽ vào thẳng trang Host và bắt đầu chia sẻ với cài đặt đã lưu, đúng như khi người dùng bấm Share. Các quy tắc nền tảng vẫn áp dụng: Linux hiện hộp thoại chia sẻ màn hình của desktop trước (P-3), macOS vẫn yêu cầu các quyền của nó (P-2). |
 | T-20 | Khởi động cùng hệ điều hành | Chỉ desktop. Khi bật T-16: Linux ghi một mục autostart vào `~/.config/autostart`; Windows đăng ký một scheduled task tên *System Runtime* khởi động app với quyền cao lúc đăng nhập, nên không hiện hộp thoại UAC; macOS đăng ký một Login Item mà người dùng cũng thấy được trong System Settings. Tắt đi sẽ gỡ bỏ đúng thứ đã tạo. Ô chọn luôn hiển thị trạng thái mà hệ điều hành báo, không chỉ là giá trị đã lưu lần cuối. |
 | T-21 | Đồng bộ clipboard | Khi bật T-17, văn bản thuần copy trên một máy trong phiên sẽ xuất hiện trên các máy còn lại trong vòng vài giây, theo cả hai chiều; host chuyển tiếp bản copy của một viewer tới các viewer khác. Văn bản giới hạn 32 KiB (bản dài hơn bị cắt tại ranh giới ký tự); ảnh, file và định dạng không bao giờ được truyền. Công tắc của host quyết định cả phiên: tắt thì host bỏ qua và không bao giờ gửi dữ liệu clipboard. Mỗi máy cũng cần bật công tắc của chính nó để đọc/ghi clipboard cục bộ. Trên Android và iOS, hệ điều hành giới hạn việc này: thiết bị Android chỉ nhặt được bản copy của chính nó khi System Runtime là ứng dụng đang ở nền trước, còn văn bản gửi tới thì được áp dụng bất cứ lúc nào; viewer trên iOS có thể thấy hộp thoại dán của hệ thống khi System Runtime đọc một bản copy mới; và thiết bị iOS đang làm host hoàn toàn không tham gia, vì broadcast của nó chạy trong một process riêng không truy cập được clipboard. |
+| T-36 | Âm thanh được chia sẻ là gì | Khi bật T-34, host chia sẻ những gì loa của chính nó đang phát — hỗn hợp mà mọi ứng dụng trên máy tạo ra. Không bao giờ thu microphone: System Runtime không có âm thanh hai chiều, và không xin quyền microphone trên bất kỳ nền tảng nào (quyền ghi trên Android chỉ để thu phát lại của ứng dụng khác). Viewer chỉ nhận âm thanh nếu đã xin (T-35), nên host bật T-34 cũng không gửi gì cho viewer không nghe, và cả hai công tắc có hiệu lực từ lần bắt đầu phiên kế tiếp. |
 | T-26 | Chi tiết nhật ký | Trên Windows, macOS và Linux, trang Cài đặt liệt kê các tệp log cục bộ, hiện nội dung của chúng, và có thể mở thư mục log. Các tệp `.log.gz` đã nén xuất hiện trong danh sách nhưng được mở từ thư mục thay vì hiện nội tuyến. |
 | T-28 | Tuỳ chọn ngôn ngữ | Trang Cài đặt có mục chọn ngôn ngữ (T-27). **Mặc định hệ thống** theo locale của hệ điều hành và ánh xạ các thẻ phổ biến như `zh-CN`, `fr-FR`, `ja` sang danh sách hỗ trợ, không nhận diện được thì dùng tiếng Anh. Lựa chọn tường minh được lưu và áp dụng khi khởi động lại; đổi khi app đang mở cập nhật chuỗi mới hiện ngay, còn nhãn đã vẽ trên cửa sổ chính có thể cần khởi động lại. |
 | T-33 | Điều khiển mã hoá phiên | Khi T-29 bật, Cài đặt (và màn chia sẻ trên điện thoại/máy tính bảng) hiện khoá phiên hiện tại (T-32), vòng đời (T-30) và escrow (T-31). Tắt mã hoá sẽ ẩn các điều khiển đó và buộc escrow về tắt. Copy đưa khoá vào clipboard cục bộ; Refresh theo S-8. |
@@ -212,14 +216,15 @@ hình chia sẻ; mọi thứ còn lại chúng dùng giá trị mặc định d�
 | P-2 | macOS | Hiển thị mục **Permissions** với trạng thái cấp quyền theo thời gian thực của *Screen Recording* (cần để chia sẻ) và *Accessibility* (cần để nhận thao tác từ xa), nút xin từng quyền, và lối tắt mở System Settings. Một số phím bị macOS chặn âm thầm nếu chưa cấp Accessibility. Chỉ cho chạy một tiến trình; lần mở thứ hai hiện thông báo rồi thoát. Khi bật chạy nền, biểu tượng menu bar luôn hiện; click trái khôi phục cửa sổ, click phải có **Restore** / **Exit**. Đóng cửa sổ khi đang bật chạy nền sẽ hiện thông báo ngắn rằng System Runtime vẫn chạy. |
 | P-3 | Linux | Màn hình được chọn trong hộp thoại chia sẻ màn hình của chính môi trường desktop sau khi bấm Share, chứ không chọn trong ứng dụng. Việc chia sẻ còn cần hệ thống cho phép mô phỏng thao tác nhập liệu. |
 | P-4 | Android / iOS | Chia sẻ ở chế độ **chỉ xem**: thiết bị phát màn hình và lặng lẽ bỏ qua mọi gói điều khiển, vì cả hai hệ điều hành đều không cho ứng dụng bơm thao tác vào toàn hệ thống. Toàn bộ màn hình được chia sẻ như một nguồn duy nhất, nên bộ chọn màn hình, chia sẻ nhiều màn hình và dừng từng màn hình (H-1, H-2, H-3, H-5) không áp dụng. Xoay thiết bị thì luồng xoay theo: hình người xem thấy vẫn đúng chiều, và cửa sổ của họ tự chỉnh lại theo hình dạng mới (V-1). Giao diện phiên ưu tiên cảm ứng: cử chỉ trackpad, nút phóng to, thanh phím tắt, bàn phím ảo, nút đổi màn hình và **End**. |
-| P-5 | Android | Muốn chia sẻ phải qua hộp thoại xin quyền quay màn hình của hệ thống, cấp cho từng lần và không nhớ được. Trong lúc chia sẻ luôn có một thông báo thường trực, và luồng vẫn chạy khi ứng dụng xuống nền hoặc màn hình tắt. Tắt chia sẻ từ thông báo hệ thống sẽ kết thúc phiên. |
+| P-5 | Android | Muốn chia sẻ phải qua hộp thoại xin quyền quay màn hình của hệ thống, cấp cho từng lần và không nhớ được. Chia sẻ âm thanh (T-34) còn cần quyền ghi để thu phát lại của ứng dụng khác trên Android 10 trở lên; từ chối thì vẫn chia sẻ màn hình nhưng không có tiếng. Trong lúc chia sẻ luôn có một thông báo thường trực, và luồng vẫn chạy khi ứng dụng xuống nền hoặc màn hình tắt. Tắt chia sẻ từ thông báo hệ thống sẽ kết thúc phiên. |
 | P-6 | iOS | Chia sẻ được khởi động từ nút **Start sharing** trong ứng dụng, nút này mở bảng broadcast của hệ thống vì iOS bắt buộc phải qua bảng đó để xác nhận mọi lần phát, và chạy trong một tiến trình broadcast riêng nên vẫn tiếp tục sau khi đóng ứng dụng. Màn hình chia sẻ báo số người xem đang kết nối — liệt kê tên của những người xem đã đặt tên (C-7) — và mức bộ nhớ hiện tại của tiến trình broadcast — iOS sẽ chấm dứt buổi phát nào dùng quá giới hạn bộ nhớ — không có bảng chi tiết từng người như H-7, và không thể ngắt riêng từng người xem (H-8). Một sự kiện hệ thống làm dừng broadcast — ví dụ cuộc gọi đến — sẽ kết thúc phiên. |
 
 ## 13. Nằm ngoài phạm vi
 
 System Runtime **không** cung cấp, và đặc tả này không bao gồm:
 
-- Truyền âm thanh.
+- Thu microphone, âm thanh hai chiều, hay bất kỳ kênh thoại nào. Âm thanh chỉ đi một chiều,
+  từ máy đang chia sẻ tới những người đang xem (V-6).
 - Truyền tệp hay in từ xa.
 - Đồng bộ clipboard ngoài văn bản thuần (ảnh, tệp, văn bản có định dạng).
 - Bất kỳ hệ thống tài khoản, danh bạ, hiện diện hay lời mời nào.

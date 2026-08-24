@@ -31,24 +31,28 @@ jobs:
       - name: Tag must match VERSION
         run: scripts/check-version.sh
 
-  tests:
+  test:
     needs: version-check
-    uses: ./.github/workflows/tests.yml
+    uses: ./.github/workflows/test.yml
 
-  apps:
-    needs: tests
-    uses: ./.github/workflows/apps.yml
+  build-desktop:
+    needs: test
+    uses: ./.github/workflows/build-desktop.yml
     with:
       for_release: true
 
   github-release:
-    needs: apps
+    needs: build-desktop
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -63,6 +67,36 @@ jobs:
           mv dist/deskhub-linux-deb/deskhub_*.deb "out/deskhub-${GITHUB_REF_NAME}-amd64.deb"
           mv dist/deskhub-linux-rpm/deskhub-*.rpm "out/deskhub-${GITHUB_REF_NAME}-x86_64.rpm"
 
+      - name: Write release notes
+        run: |
+          scripts/changelog.sh "$GITHUB_REF_NAME" > out/release-notes.md
+          cat >> out/release-notes.md <<EOF
+          ---
+
+          ## 📦 Get it
+
+          | Platform | File | Install |
+          | --- | --- | --- |
+          | 🪟 Windows | \`deskhub-${GITHUB_REF_NAME}-windows.exe\` | Single file — just run it. Sharing prompts for admin once and the app configures the firewall by itself. |
+          | 🍎 macOS | \`deskhub-${GITHUB_REF_NAME}-macos.dmg\` | Notarized — opens without warnings. |
+          | 🐧 Ubuntu, Kubuntu, Debian, Mint | \`deskhub-${GITHUB_REF_NAME}-amd64.deb\` | \`sudo apt install ./deskhub-${GITHUB_REF_NAME}-amd64.deb\` |
+          | 🐧 Fedora (Workstation & KDE spin) | \`deskhub-${GITHUB_REF_NAME}-x86_64.rpm\` | \`sudo dnf install ./deskhub-${GITHUB_REF_NAME}-x86_64.rpm\` |
+          | 🐧 openSUSE | \`deskhub-${GITHUB_REF_NAME}-x86_64.rpm\` | \`sudo zypper install ./deskhub-${GITHUB_REF_NAME}-x86_64.rpm\` |
+          | 🐧 Arch, anything else | \`deskhub-${GITHUB_REF_NAME}-linux-x86_64\` | \`chmod +x deskhub-${GITHUB_REF_NAME}-linux-x86_64 && ./deskhub-${GITHUB_REF_NAME}-linux-x86_64\` |
+          | 🤖 Android | \`deskhub-${GITHUB_REF_NAME}-android.apk\` | Release-signed, same key as the Google Play build — or join the [Play beta](https://play.google.com/apps/testing/com.manhpham.deskhub). |
+          | 📱 iOS | — | [TestFlight](https://testflight.apple.com/join/7qY7wgpd) / App Store (an ipa cannot be sideloaded) |
+
+          The macOS dmg and the Android apk are attached by their own jobs — they may show up a few minutes later.
+
+          ## 🔒 Before you share a screen
+
+          **Deskhub has no password and no encryption of its own. Anyone who can reach UDP 47777 on a sharing
+          machine gets full mouse and keyboard control of it.** Run it on a network you trust, or over a VPN —
+          install [Tailscale](https://tailscale.com) on both machines and connect to the \`100.x.y.z\` address.
+          **Never port-forward UDP 47777.** Full threat model in
+          [SECURITY.md](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
+          EOF
+
       - name: Create release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
@@ -71,84 +105,10 @@ jobs:
             out/deskhub-${{ github.ref_name }}-linux-x86_64
             out/deskhub-${{ github.ref_name }}-amd64.deb
             out/deskhub-${{ github.ref_name }}-x86_64.rpm
-          body: |
-            ## 📦 Get it
-
-            | Platform | File | Install |
-            | --- | --- | --- |
-            | 🪟 Windows | `deskhub-${{ github.ref_name }}-windows.exe` | Single file — just run it. Sharing prompts for admin once and the app configures the firewall by itself. |
-            | 🍎 macOS | `deskhub-${{ github.ref_name }}-macos.dmg` | Notarized — opens without warnings. |
-            | 🐧 Ubuntu, Kubuntu, Debian, Mint | `deskhub-${{ github.ref_name }}-amd64.deb` | `sudo apt install ./deskhub-${{ github.ref_name }}-amd64.deb` |
-            | 🐧 Fedora (Workstation & KDE spin) | `deskhub-${{ github.ref_name }}-x86_64.rpm` | `sudo dnf install ./deskhub-${{ github.ref_name }}-x86_64.rpm` |
-            | 🐧 openSUSE | `deskhub-${{ github.ref_name }}-x86_64.rpm` | `sudo zypper install ./deskhub-${{ github.ref_name }}-x86_64.rpm` |
-            | 🐧 Arch, anything else | `deskhub-${{ github.ref_name }}-linux-x86_64` | `chmod +x deskhub-${{ github.ref_name }}-linux-x86_64 && ./deskhub-${{ github.ref_name }}-linux-x86_64` |
-            | 🤖 Android | `deskhub-${{ github.ref_name }}-android.apk` | Release-signed, same key as the Google Play build — or join the [Play beta](https://play.google.com/apps/testing/com.manhpham.deskhub). |
-            | 📱 iOS | — | [TestFlight](https://testflight.apple.com/join/7qY7wgpd) / App Store (an ipa cannot be sideloaded) |
-
-            The macOS dmg and the Android apk are attached by their own jobs — they may show up a few minutes later.
-
-            ## 🐧 Linux notes
-
-            **To connect and view, installing is all it takes.** The app links only against GTK3, PipeWire and libva,
-            which every stock desktop already has; the H.264 decoder is compiled in, so no FFmpeg package is involved.
-            The deb and the rpm carry identical content — pick the one your package manager understands. The portable
-            binary runs on any x86_64 distro with glibc 2.35+ (Ubuntu 22.04, Fedora 36, openSUSE 15.5, any current Arch).
-
-            **To share this machine's screen**, three more things must be in place:
-
-            1. **A screen-capture portal.** GNOME and KDE ship theirs out of the box — **nothing to do** on
-               Ubuntu, Kubuntu, Fedora, openSUSE or Arch with GNOME/KDE. Standalone wlroots compositors
-               (sway / river / Wayfire) need one; Hyprland has its own `xdg-desktop-portal-hyprland`:
-
-               ```bash
-               sudo apt install xdg-desktop-portal-wlr      # sway / river / Wayfire on Debian-family
-               sudo dnf install xdg-desktop-portal-wlr      # …on Fedora
-               sudo pacman -S xdg-desktop-portal-wlr        # …on Arch
-               ```
-
-            2. **A VA-API driver.** H.264 is encoded on the GPU; there is no software fallback:
-
-               ```bash
-               # Ubuntu / Debian / Mint
-               sudo apt install va-driver-all vainfo        # NVIDIA also needs: nvidia-vaapi-driver
-
-               # Fedora — stock Mesa has H.264 disabled; the working drivers live in RPM Fusion:
-               sudo dnf install libva-utils
-               sudo dnf install mesa-va-drivers-freeworld   # AMD (RPM Fusion)
-               sudo dnf install intel-media-driver          # Intel (RPM Fusion)
-               sudo dnf install nvidia-vaapi-driver         # NVIDIA (RPM Fusion)
-
-               # openSUSE
-               sudo zypper install libva-utils              # plus your GPU vendor's VA-API driver
-
-               # Arch
-               sudo pacman -S libva-utils
-               sudo pacman -S libva-mesa-driver             # AMD · Intel: intel-media-driver · NVIDIA: libva-nvidia-driver
-
-               # then on every distro:
-               vainfo | grep -E 'H264.*Enc'                 # must print ≥1 line, or this machine cannot host
-               ```
-
-            3. **Write access to `/dev/uinput`** — how mouse and keyboard get injected. The deb/rpm installs
-               this udev rule for you — nothing to do. On the portable binary, one command sets it up:
-
-               ```bash
-               curl -fsSL https://raw.githubusercontent.com/manhpham90vn/Deskhub/main/scripts/setup-uinput.sh | sudo bash
-               ```
-
-            If you enabled a firewall, also open UDP 47777 (`sudo ufw allow 47777/udp` /
-            `sudo firewall-cmd --add-port=47777/udp --permanent`).
-
-            ## 🔒 Before you share a screen
-
-            **Deskhub has no password and no encryption of its own. Anyone who can reach UDP 47777 on a sharing
-            machine gets full mouse and keyboard control of it.** Run it on a network you trust, or over a VPN —
-            install [Tailscale](https://tailscale.com) on both machines and connect to the `100.x.y.z` address.
-            **Never port-forward UDP 47777.** Full threat model in
-            [SECURITY.md](https://github.com/manhpham90vn/Deskhub/blob/main/SECURITY.md).
+          body_path: out/release-notes.md
 
   ios:
-    needs: apps
+    needs: test
     runs-on: macos-latest
     timeout-minutes: 60
     environment: stg
@@ -182,7 +142,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    needs: apps
+    needs: test
     runs-on: macos-latest
     timeout-minutes: 60
     environment: stg
@@ -231,7 +191,7 @@ jobs:
           files: out/dist/macos/deskhub-${{ github.ref_name }}-macos.dmg
 
   android:
-    needs: apps
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: stg

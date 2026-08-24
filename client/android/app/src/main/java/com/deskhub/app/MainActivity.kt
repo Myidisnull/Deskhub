@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -75,6 +76,10 @@ import kotlin.time.Duration.Companion.milliseconds
 class MainActivity : ComponentActivity() {
     private var pendingShare: HostService.ShareRequest? = null
 
+    companion object {
+        private const val TAG = "Deskhub"
+    }
+
     private val projectionConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val consent = result.data
@@ -89,6 +94,15 @@ class MainActivity : ComponentActivity() {
 
     private val notificationConsent =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val audioConsent =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val request = pendingShare
+            if (!granted) {
+                Log.i(TAG, "[audio] evt=capture_skip reason=viewer declined the recording prompt")
+            }
+            if (request != null) startProjectionConsent(request)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,9 +154,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestSharing(request: HostService.ShareRequest) {
-        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
         pendingShare = request
         NativeHost.awaitStart()
+        if (AudioShare.isSupported && !AudioShare.permissionGranted(this)) {
+            audioConsent.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startProjectionConsent(request)
+    }
+
+    private fun startProjectionConsent(request: HostService.ShareRequest) {
+        val manager = getSystemService(MediaProjectionManager::class.java) ?: return
+        pendingShare = request
         projectionConsent.launch(manager.createScreenCaptureIntent())
     }
 
@@ -959,6 +982,36 @@ private fun SettingsScreen(
             )
             Text(NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL))
         }
+        var shareAudio by remember { mutableStateOf(NativeClient.shareAudio()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = shareAudio,
+                onCheckedChange = {
+                    shareAudio = it
+                    NativeClient.setShareAudio(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_SHARE_AUDIO_LABEL))
+        }
+        var playAudio by remember { mutableStateOf(NativeClient.playAudio()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = playAudio,
+                onCheckedChange = {
+                    playAudio = it
+                    NativeClient.setPlayAudio(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_PLAY_AUDIO_LABEL))
+        }
         var keepAwake by remember { mutableStateOf(NativeClient.keepAwake()) }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1080,6 +1133,58 @@ private fun SettingsScreen(
                 }
             }
         }
+
+        SectionLabel("Logs")
+        var logMaxMb by remember { mutableStateOf(NativeClient.logMaxFileMb().toString()) }
+        var logCompressDays by remember {
+            mutableStateOf(NativeClient.logCompressAfterDays().toString())
+        }
+        var logDeleteDays by remember {
+            mutableStateOf(NativeClient.logDeleteAfterDays().toString())
+        }
+        LaunchedEffect(logMaxMb, logCompressDays, logDeleteDays) {
+            val maxMb = logMaxMb.toIntOrNull() ?: return@LaunchedEffect
+            val compress = logCompressDays.toIntOrNull() ?: return@LaunchedEffect
+            val delete = logDeleteDays.toIntOrNull() ?: return@LaunchedEffect
+            if (maxMb < 1) return@LaunchedEffect
+            delay(PORT_SETTLE_MS.milliseconds)
+            if (maxMb == NativeClient.logMaxFileMb() &&
+                compress == NativeClient.logCompressAfterDays() &&
+                delete == NativeClient.logDeleteAfterDays()
+            ) {
+                return@LaunchedEffect
+            }
+            NativeClient.setLogPolicy(maxMb, compress, delete)
+            logMaxMb = NativeClient.logMaxFileMb().toString()
+            logCompressDays = NativeClient.logCompressAfterDays().toString()
+            logDeleteDays = NativeClient.logDeleteAfterDays().toString()
+        }
+        OutlinedTextField(
+            value = logMaxMb,
+            onValueChange = { entered -> logMaxMb = entered.filter { it.isDigit() }.take(4) },
+            label = { Text(NativeClient.string(NativeClient.STR_LOG_MAX_FILE_MB)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+        OutlinedTextField(
+            value = logCompressDays,
+            onValueChange = { entered ->
+                logCompressDays = entered.filter { it.isDigit() }.take(4)
+            },
+            label = { Text(NativeClient.string(NativeClient.STR_LOG_COMPRESS_AFTER_DAYS)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+        OutlinedTextField(
+            value = logDeleteDays,
+            onValueChange = { entered -> logDeleteDays = entered.filter { it.isDigit() }.take(4) },
+            label = { Text(NativeClient.string(NativeClient.STR_LOG_DELETE_AFTER_DAYS)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
 
         ProjectFooter()
     }

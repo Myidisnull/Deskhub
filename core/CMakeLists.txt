@@ -24,6 +24,7 @@ add_library(core STATIC
     src/transport/Packetizer.cpp
     src/transport/Reassembler.cpp
     src/transport/RetransmitCache.cpp
+    src/transport/AudioJitterBuffer.cpp
 
     src/session/HostSession.cpp
     src/session/HostViewers.cpp
@@ -43,6 +44,7 @@ add_library(core STATIC
     src/control/StreamSize.cpp
     src/control/FrameGate.cpp
     src/control/ClockOffset.cpp
+    src/control/VideoPacer.cpp
     src/control/QualityLadder.cpp
 
     src/media/ViewFit.cpp
@@ -50,6 +52,7 @@ add_library(core STATIC
     src/media/AnnexB.cpp
     src/media/RatePlan.cpp
     src/media/H264Encode.cpp
+    src/media/RgbDownscale.cpp
 
     src/diag/ClientDiag.cpp
     src/diag/AgentDiag.cpp
@@ -65,6 +68,7 @@ add_library(core STATIC
     src/ui/SecretText.cpp
     src/ui/UiSettings.cpp
     src/ui/AutostartConfig.cpp
+    src/ui/AutoShareGate.cpp
     src/ui/Locale.cpp
     src/ui/LocaleCatalog.cpp
 )
@@ -104,6 +108,7 @@ if(DESKHUB_CORE_TESTS)
         tests/transport/FecTests.cpp
         tests/transport/RetransmitCacheTests.cpp
         tests/transport/PacerTests.cpp
+        tests/transport/AudioJitterBufferTests.cpp
 
         tests/session/SessionTests.cpp
         tests/session/ClientPumpTests.cpp
@@ -132,6 +137,7 @@ if(DESKHUB_CORE_TESTS)
         tests/control/StreamSizeTests.cpp
         tests/control/FrameGateTests.cpp
         tests/control/ClockOffsetTests.cpp
+        tests/control/VideoPacerTests.cpp
         tests/control/QualityLadderTests.cpp
 
         tests/diag/DiagTests.cpp
@@ -147,6 +153,8 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ViewFitTests.cpp
         tests/media/SourceLabelTests.cpp
         tests/media/ViewerTitleTests.cpp
+        tests/media/FrameMailboxTests.cpp
+        tests/media/RgbDownscaleTests.cpp
 
         tests/session/BeaconTests.cpp
 
@@ -161,6 +169,7 @@ if(DESKHUB_CORE_TESTS)
         tests/ui/SecretTextTests.cpp
         tests/ui/UiSettingsTests.cpp
         tests/ui/AutostartConfigTests.cpp
+        tests/ui/AutoShareGateTests.cpp
 
         tests/fuzz/FuzzTests.cpp
     )

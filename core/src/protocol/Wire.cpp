@@ -230,6 +230,19 @@ size_t BuildFecPacket(std::span<uint8_t> out, uint32_t sessionId, const FecHeade
     return total;
 }
 
+size_t BuildAudioPacket(std::span<uint8_t> out, uint32_t sessionId, const AudioHeader& ah,
+    std::span<const uint8_t> payload) {
+    if (payload.empty() || payload.size() > kMaxAudioPayload) return 0;
+    const size_t total = WriteCommon(out, MsgType::AudioPacket, 0, Chan::Audio, sessionId,
+        kAudioHeaderSize + payload.size());
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, ah.seq);
+    PutU64(p + 4, ah.timestampUs);
+    std::memcpy(p + kAudioHeaderSize, payload.data(), payload.size());
+    return total;
+}
+
 size_t BuildInputEvents(std::span<uint8_t> out, uint32_t sessionId, uint32_t firstSeq,
     std::span<const InputEvent> events) {
     if (events.empty() || events.size() > kMaxInputEvents) return 0;
@@ -485,6 +498,17 @@ std::optional<FecPacketView> ParseFecPacket(const CommonHeader& h,
     if (v.hdr.pktCount == 0) return std::nullopt;
     const size_t numGroups = (size_t(v.hdr.pktCount) + kFecGroupSize - 1) / kFecGroupSize;
     if (v.hdr.groupIndex >= numGroups) return std::nullopt;
+    return v;
+}
+
+std::optional<AudioPacketView> ParseAudioPacket(std::span<const uint8_t> payload) {
+    if (payload.size() <= kAudioHeaderSize) return std::nullopt;
+    if (payload.size() > kAudioHeaderSize + kMaxAudioPayload) return std::nullopt;
+    const uint8_t* p = payload.data();
+    AudioPacketView v;
+    v.hdr.seq = GetU32(p);
+    v.hdr.timestampUs = GetU64(p + 4);
+    v.payload = payload.subspan(kAudioHeaderSize);
     return v;
 }
 

@@ -12,6 +12,7 @@
 #include "deskhub/input/Hotkeys.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/diag/LogPolicy.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
@@ -230,6 +231,26 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeShareAudio(JNIEnv*, jobject) {
+    return dh_share_audio() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetShareAudio(JNIEnv*, jobject, jboolean on) {
+    dh_set_share_audio(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativePlayAudio(JNIEnv*, jobject) {
+    return dh_play_audio() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetPlayAudio(JNIEnv*, jobject, jboolean on) {
+    dh_set_play_audio(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeKeepAwake(JNIEnv*, jobject) {
     return dh_keep_awake() ? JNI_TRUE : JNI_FALSE;
 }
@@ -352,6 +373,37 @@ Java_com_deskhub_app_NativeClient_nativeSetSettingsPort(JNIEnv*, jobject, jint p
         stored.runInBackgroundChoiceMade, stored.hideTrayIcon, stored.shareOnLaunch,
         stored.logMaxFileMb, stored.logCompressAfterDays, stored.logDeleteAfterDays,
         stored.logDir, stored.passcode);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeLogMaxFileMb(JNIEnv*, jobject) {
+    return jint(dh_settings_load().logMaxFileMb);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeLogCompressAfterDays(JNIEnv*, jobject) {
+    return jint(dh_settings_load().logCompressAfterDays);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeLogDeleteAfterDays(JNIEnv*, jobject) {
+    return jint(dh_settings_load().logDeleteAfterDays);
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetLogPolicy(JNIEnv*, jobject, jint maxFileMb,
+    jint compressAfterDays, jint deleteAfterDays) {
+    const DHUiSettings stored = dh_settings_load();
+    const deskhub::diag::LogPolicy policy = deskhub::diag::ClampLogPolicy(deskhub::diag::LogPolicy{
+        uint32_t(maxFileMb),
+        uint32_t(compressAfterDays),
+        uint32_t(deleteAfterDays),
+    });
+    dh_settings_save(stored.fps, stored.bitrateMbps, stored.maxDim, stored.port,
+        stored.allowInput, stored.clientControl, stored.runInBackground,
+        stored.runInBackgroundChoiceMade, stored.hideTrayIcon, stored.shareOnLaunch,
+        policy.maxFileMb, policy.compressAfterDays, policy.deleteAfterDays, stored.logDir,
+        stored.passcode);
 }
 
 JNIEXPORT void JNICALL
