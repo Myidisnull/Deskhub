@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -11,19 +12,19 @@
 
 #include "TrayIcon.h"
 #include "deskhub/net/PairedDevices.h"
-#include "deskhub/session/OpenViewers.h"
-#include "deskhub/session/TerminalSession.h"
+#include "deskhub/session/client/ConnectFlow.h"
+#include "deskhub/session/client/OpenViewers.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/RecentDevices.h"
 #include "deskhub/ui/UiSettings.h"
-#include "deskhubp/net/DeviceStatusPoller.h"
-#include "deskhubp/net/LanScanner.h"
-#include "deskhubp/session/AgentDriver.h"
-#include "deskhubp/session/AgentLoop.h"
-#include "deskhubp/session/ConnectDriver.h"
-#include "deskhubp/session/TerminalHost.h"
+#include "deskhubp/client/DeviceStatusPoller.h"
+#include "deskhubp/client/LanScanner.h"
+#include "deskhubp/host/ShareDriver.h"
+#include "deskhubp/host/SharingHost.h"
+#include "deskhubp/client/SourceQueryAsync.h"
+#include "deskhubp/host/ShareController.h"
 
 class MainWindow {
 public:
@@ -73,18 +74,14 @@ private:
     void SelectPage(int page);
 
     void RefreshPairedDevices();
-    void DrainPairingRequests();
     bool AskPairing(const PairingRequest& request);
     void ForgetSelectedDevice();
     void ForgetEveryDevice();
 
     bool Sharing() const;
-    void StartTerminalShare();
-    void StopTerminalShare();
-    void StopTerminalRow();
-    void RefreshShells();
-    void KickShell(uint32_t termId);
-    void StopAndAttachShell(uint32_t termId);
+    void StartFileShare();
+    std::filesystem::path TransferFolder() const;
+    void OpenFileSend(const NetAddr& server, const std::string& passcode);
     void ApplySharingBanner();
     void OpenShell(const NetAddr& server, const std::string& passcode);
 
@@ -110,13 +107,8 @@ private:
 
     void ConnectWithPrompt(const std::string& addr, std::string passcode);
     void StartConnect(const std::string& addr, const std::string& passcode);
-    struct OpenChoice {
-        bool desktop = false;
-        bool shell = false;
-    };
-
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
+        const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
     bool ReadPasscode(GtkWidget* entry, std::string& out);
 
     void OnShare(ShareTrigger trigger = ShareTrigger::kUser);
@@ -124,10 +116,10 @@ private:
     static gboolean OnAutoShareTimer(gpointer user);
     void ReportShareProblem(const char* title, const std::string& text);
     static void OnMonitorsChanged(GdkScreen* screen, gpointer user);
-    void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
-    void OnHostStarted(bool started, const std::string& error, const AgentOptions& options);
+    void StartHosting(const std::vector<ShareSource>& sources, const ShareOptions& options);
+    void OnHostStarted(bool started, const std::string& error, const ShareOptions& options);
     void StopHosting();
-    void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
+    void UpdateHostRows(const std::vector<ShareSourceStatus>& rows);
     void ClearHostRows();
     void RebuildHostRowWidgets();
     HostRowWidgets MakeHostRowWidgets(const deskhub::ui::HostRow& ref, size_t index);
@@ -139,11 +131,12 @@ private:
     void RefreshDisplayChoices();
     void ShowHostTable(bool sharing);
     bool TerminalTicked() const;
+    bool FilesTicked() const;
     std::vector<HostMonitor> TickedMonitors() const;
     static std::vector<HostMonitor> ListMonitors();
-    static bool MatchesTickedMonitor(const AgentSource& source,
+    static bool MatchesTickedMonitor(const ShareSource& source,
         const std::vector<HostMonitor>& ticked);
-    static std::vector<AgentSource> FilterToTickedMonitors(std::vector<AgentSource> sources,
+    static std::vector<ShareSource> FilterToTickedMonitors(std::vector<ShareSource> sources,
         const std::vector<HostMonitor>& ticked);
 
     void ShowAfterSession();
@@ -170,6 +163,8 @@ private:
     static void OnRefreshDevicesClicked(GtkButton* b, gpointer user);
     static void OnForgetDeviceClicked(GtkButton* b, gpointer user);
     static void OnForgetAllClicked(GtkButton* b, gpointer user);
+    static void OnFilesTickToggled(GtkToggleButton* b, gpointer user);
+    static void OnTransferDirClicked(GtkButton* b, gpointer user);
     static void OnDeviceRowActivated(GtkTreeView* view, GtkTreePath* path,
         GtkTreeViewColumn* col, gpointer user);
     static gboolean OnRescanTimer(gpointer user);
@@ -197,6 +192,8 @@ private:
     GtkWidget* shareButton_ = nullptr;
 
     GtkWidget* hostTerminalCheck_ = nullptr;
+    GtkWidget* hostFilesCheck_ = nullptr;
+    GtkWidget* hostFilesHint_ = nullptr;
 
     GtkWidget* addressEntry_ = nullptr;
     GtkWidget* portEntry_ = nullptr;
@@ -207,6 +204,7 @@ private:
     GtkWidget* controlCheck_ = nullptr;
     GtkWidget* desktopCheck_ = nullptr;
     GtkWidget* shellCheck_ = nullptr;
+    GtkWidget* filesCheck_ = nullptr;
 
     GtkWidget* pairedView_ = nullptr;
     GtkListStore* pairedStore_ = nullptr;
@@ -232,6 +230,7 @@ private:
     GtkWidget* shareAudioCheck_ = nullptr;
     GtkWidget* playAudioCheck_ = nullptr;
     GtkWidget* keepAwakeCheck_ = nullptr;
+    GtkWidget* transferDirLabel_ = nullptr;
     TrayIcon tray_;
     guint clipTimerId_ = 0;
 
@@ -247,11 +246,9 @@ private:
 
     deskhubp::LanScanner scanner_;
     deskhubp::DeviceStatusPoller poller_;
-    AgentLoop agentLoop_;
-    deskhubp::AgentDriver agentDriver_;
-    deskhubp::TerminalHost terminalHost_;
-    std::vector<deskhub::TerminalRecord> shells_;
-    std::vector<AgentSourceStatus> hostStatus_;
+    deskhubp::ShareController share_;
+    deskhubp::ShareDriver shareDriver_;
+    std::vector<ShareSourceStatus> hostStatus_;
 
     guint rescanTimerId_ = 0;
     guint hostTimerId_ = 0;
@@ -261,16 +258,16 @@ private:
     bool hosting_ = false;
     bool hostStarting_ = false;
     bool loadingSettings_ = false;
-    bool askingPairing_ = false;
     bool screenSharing_ = false;
     bool terminalRequested_ = false;
+    bool filesRequested_ = false;
     bool shareViewOnly_ = false;
     uint16_t sharePort_ = 0;
     std::string sharePasscodeNote_;
     std::string shareBindWarning_;
 
     deskhub::OpenViewerCount openViewers_;
-    deskhubp::ConnectDriver connectDriver_;
+    deskhubp::SourceQueryAsync connectDriver_;
 
     std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
 };

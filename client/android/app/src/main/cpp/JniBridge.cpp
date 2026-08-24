@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "ClientSessionAndroid.h"
+#include "ScreenFfiAndroid.h"
 #include "HostBridge.h"
 #include "JniEnv.h"
 
@@ -15,6 +15,7 @@
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
+#include "deskhubp/ffi/SendFfi.h"
 
 static_assert(DHPhaseIdle == 0 && DHPhaseConnecting == 1 && DHPhaseStreaming == 2 &&
               DHPhaseEnded == 3);
@@ -25,7 +26,7 @@ static_assert(int32_t(deskhub::MouseButton::Left) == 1 &&
 
 namespace {
 
-DHSession* g_session = nullptr;
+DHScreen* g_session = nullptr;
 ANativeWindow* g_window = nullptr;
 
 jclass g_nativeClientClass = nullptr;
@@ -33,7 +34,7 @@ jmethodID g_onSessionStatus = nullptr;
 jmethodID g_onSessionSize = nullptr;
 jmethodID g_onSessionEnded = nullptr;
 jmethodID g_onSessionTrustAsked = nullptr;
-std::atomic<DHSession*> g_callbackSession{nullptr};
+std::atomic<DHScreen*> g_callbackSession{nullptr};
 
 template <class Call>
 void CallIntoJava(Call&& call) {
@@ -45,7 +46,7 @@ void CallIntoJava(Call&& call) {
 
 void NotifySessionStatus(const char* statusUtf8, void*) {
     const jint phase =
-        jint(dh_session_phase(g_callbackSession.load(std::memory_order_acquire)));
+        jint(dh_screen_phase(g_callbackSession.load(std::memory_order_acquire)));
     CallIntoJava([statusUtf8, phase](JNIEnv* env) {
         jstring line = env->NewStringUTF(statusUtf8 ? statusUtf8 : "");
         env->CallStaticVoidMethod(g_nativeClientClass, g_onSessionStatus, line, phase);
@@ -83,6 +84,7 @@ constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
 constexpr const char* kDeviceRowClass = "com/deskhub/app/NativeClient$DeviceRow";
 constexpr const char* kHotkeyClass = "com/deskhub/app/NativeClient$Hotkey";
 constexpr const char* kPairedDeviceClass = "com/deskhub/app/NativeClient$PairedDevice";
+constexpr const char* kTransferClass = "com/deskhub/app/NativeClient$Transfer";
 
 jfloatArray NewFloatArray2(JNIEnv* env, jfloat a, jfloat b) {
     const jfloat values[2] = {a, b};
@@ -93,7 +95,7 @@ jfloatArray NewFloatArray2(JNIEnv* env, jfloat a, jfloat b) {
 
 void DropWindow() {
     if (!g_window) return;
-    dh_session_set_layer(g_session, nullptr);
+    dh_screen_set_layer(g_session, nullptr);
     ANativeWindow_release(g_window);
     g_window = nullptr;
 }
@@ -270,6 +272,16 @@ Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jbool
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeTakeFiles(JNIEnv*, jobject) {
+    return dh_take_files() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetTakeFiles(JNIEnv*, jobject, jboolean on) {
+    dh_set_take_files(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativeKeepAwake(JNIEnv*, jobject) {
     return dh_keep_awake() ? JNI_TRUE : JNI_FALSE;
 }
@@ -281,14 +293,137 @@ Java_com_deskhub_app_NativeClient_nativeSetKeepAwake(JNIEnv*, jobject, jboolean 
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeClipOffer(JNIEnv* env, jobject, jstring textStr) {
-    dh_session_clip_offer(g_session, FromJString(env, textStr).c_str());
+    dh_screen_clip_offer(g_session, FromJString(env, textStr).c_str());
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeClipTake(JNIEnv* env, jobject) {
     char buf[deskhub::kMaxClipboardTextBytes + 1];
-    dh_session_clip_take(g_session, buf, int(sizeof(buf)));
+    dh_screen_clip_take(g_session, buf, int(sizeof(buf)));
     return env->NewStringUTF(buf);
+}
+}
+
+namespace {
+
+std::vector<std::string> PathsFrom(JNIEnv* env, jobjectArray pathArr) {
+    std::vector<std::string> paths;
+    if (!pathArr) return paths;
+    const jsize count = env->GetArrayLength(pathArr);
+    paths.reserve(size_t(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto item = jstring(env->GetObjectArrayElement(pathArr, i));
+        paths.push_back(FromJString(env, item));
+        env->DeleteLocalRef(item);
+    }
+    return paths;
+}
+
+std::vector<const char*> PointersTo(const std::vector<std::string>& paths) {
+    std::vector<const char*> pointers;
+    pointers.reserve(paths.size());
+    for (const std::string& path : paths) pointers.push_back(path.c_str());
+    return pointers;
+}
+
+jobject NewTransfer(JNIEnv* env, bool active, bool done, bool failed, uint16_t fileIndex,
+    uint16_t fileCount, uint64_t bytes, uint64_t total, const char* name, const char* message) {
+    jclass cls = env->FindClass(kTransferClass);
+    if (!cls) return nullptr;
+    jmethodID ctor =
+        env->GetMethodID(cls, "<init>", "(ZZZIIJJLjava/lang/String;Ljava/lang/String;)V");
+    if (!ctor) return nullptr;
+
+    jstring nameText = env->NewStringUTF(name ? name : "");
+    jstring messageText = env->NewStringUTF(message ? message : "");
+    jobject item = env->NewObject(cls, ctor, active ? JNI_TRUE : JNI_FALSE,
+        done ? JNI_TRUE : JNI_FALSE, failed ? JNI_TRUE : JNI_FALSE, jint(fileIndex),
+        jint(fileCount), jlong(bytes), jlong(total), nameText, messageText);
+    env->DeleteLocalRef(messageText);
+    env->DeleteLocalRef(nameText);
+    return item;
+}
+
+}
+
+extern "C" {
+
+JNIEXPORT jint JNICALL
+Java_com_deskhub_app_NativeClient_nativeMaxTransferFiles(JNIEnv*, jobject) {
+    return jint(dh_max_transfer_files());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeHostTakesFiles(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    return dh_host_takes_files(addr.c_str(), passcode.c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendCheck(JNIEnv* env, jobject, jobjectArray pathArr) {
+    const std::vector<std::string> paths = PathsFrom(env, pathArr);
+    const std::vector<const char*> pointers = PointersTo(paths);
+    char buf[320];
+    dh_send_check(pointers.data(), int(pointers.size()), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendStart(JNIEnv* env, jobject, jstring addrStr,
+    jstring passcodeStr, jstring nameStr, jobjectArray pathArr) {
+    const std::string addr = FromJString(env, addrStr);
+    const std::string passcode = FromJString(env, passcodeStr);
+    const std::string name = FromJString(env, nameStr);
+    const std::vector<std::string> paths = PathsFrom(env, pathArr);
+    const std::vector<const char*> pointers = PointersTo(paths);
+    DHSend* handle = dh_send_start(addr.c_str(), passcode.c_str(), name.c_str(), pointers.data(),
+        int(pointers.size()));
+    return jlong(reinterpret_cast<uintptr_t>(handle));
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendSnapshot(JNIEnv* env, jobject, jlong handle) {
+    auto* send = reinterpret_cast<DHSend*>(uintptr_t(handle));
+    if (!send) return NewTransfer(env, false, false, false, 0, 0, 0, 0, "", "");
+
+    DHSendProgress raw{};
+    dh_send_snapshot(send, &raw);
+    const bool active = raw.state == DHSendConnecting || raw.state == DHSendSending;
+    const bool done = raw.state == DHSendDone;
+    const bool failed =
+        raw.state == DHSendRefused || raw.state == DHSendFailed || raw.state == DHSendKeyChanged;
+    return NewTransfer(env, active, done, failed, raw.fileIndex, raw.fileCount, raw.bytes,
+        raw.total, raw.name, raw.message);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendChangedKey(JNIEnv* env, jobject, jlong handle) {
+    auto* send = reinterpret_cast<DHSend*>(uintptr_t(handle));
+    char text[96] = {};
+    if (send) {
+        DHSendProgress raw{};
+        dh_send_snapshot(send, &raw);
+        if (raw.state == DHSendKeyChanged) dh_send_fingerprint(send, text, int(sizeof(text)));
+    }
+    return env->NewStringUTF(text);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendAcceptKey(JNIEnv*, jobject, jlong handle) {
+    return dh_send_accept_key(reinterpret_cast<DHSend*>(uintptr_t(handle))) ? JNI_TRUE
+                                                                            : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendCancel(JNIEnv*, jobject, jlong handle) {
+    dh_send_cancel(reinterpret_cast<DHSend*>(uintptr_t(handle)));
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSendStop(JNIEnv*, jobject, jlong handle) {
+    dh_send_stop(reinterpret_cast<DHSend*>(uintptr_t(handle)));
 }
 
 JNIEXPORT jstring JNICALL
@@ -545,20 +680,20 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
     const std::string addr = FromJString(env, addrStr);
     const std::string passcode = FromJString(env, passcodeStr);
 
-    dh_session_set_screen_hint(screenW > 0 ? uint32_t(screenW) : 0,
+    dh_screen_set_screen_hint(screenW > 0 ? uint32_t(screenW) : 0,
         screenH > 0 ? uint32_t(screenH) : 0);
 
-    dh_session_stop(g_session);
+    dh_screen_stop(g_session);
     g_callbackSession.store(nullptr, std::memory_order_release);
     g_session = nullptr;
 
-    DHSessionCallbacks callbacks{};
+    DHScreenCallbacks callbacks{};
     callbacks.onStatus = NotifySessionStatus;
     callbacks.onSize = NotifySessionSize;
     callbacks.onClosed = NotifySessionClosed;
     callbacks.onTrustAsked = NotifySessionTrustAsked;
 
-    g_session = dh_session_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks,
+    g_session = dh_screen_start(addr.c_str(), uint8_t(sourceId), g_window, &callbacks,
         passcode.c_str());
     g_callbackSession.store(g_session, std::memory_order_release);
     return jlong(reinterpret_cast<uintptr_t>(g_session));
@@ -566,19 +701,19 @@ Java_com_deskhub_app_NativeClient_nativeStart(JNIEnv* env, jobject, jstring addr
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeAcceptKey(JNIEnv*, jobject) {
-    dh_session_accept_key(g_session);
+    dh_screen_accept_key(g_session);
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeRejectKey(JNIEnv*, jobject) {
-    dh_session_reject_key(g_session);
+    dh_screen_reject_key(g_session);
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeStop(JNIEnv*, jobject, jlong handle) {
     if (!g_session) return;
     if (handle != 0 && reinterpret_cast<uintptr_t>(g_session) != uintptr_t(handle)) return;
-    dh_session_stop(g_session);
+    dh_screen_stop(g_session);
     g_callbackSession.store(nullptr, std::memory_order_release);
     g_session = nullptr;
 }
@@ -596,7 +731,7 @@ Java_com_deskhub_app_NativeClient_nativeSetSurface(JNIEnv* env, jobject, jobject
         DropWindow();
         g_window = w;
     }
-    if (g_window) dh_session_set_layer(g_session, g_window);
+    if (g_window) dh_screen_set_layer(g_session, g_window);
 }
 
 JNIEXPORT void JNICALL
@@ -611,7 +746,7 @@ Java_com_deskhub_app_NativeClient_nativeReleaseSurface(JNIEnv* env, jobject, job
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeKey(JNIEnv*, jobject, jint vk, jint scan,
     jboolean down) {
-    dh_session_key(g_session, int32_t(vk), int32_t(scan), down == JNI_TRUE);
+    dh_screen_key(g_session, int32_t(vk), int32_t(scan), down == JNI_TRUE);
 }
 
 JNIEXPORT jint JNICALL
@@ -627,8 +762,8 @@ Java_com_deskhub_app_NativeClient_nativeSnapshot(JNIEnv* env, jobject) {
         env->GetMethodID(cls, "<init>", "(ILjava/lang/String;Ljava/lang/String;II)V");
     if (!ctor) return nullptr;
 
-    DHSessionState state{};
-    dh_session_snapshot(g_session, &state);
+    DHScreenState state{};
+    dh_screen_snapshot(g_session, &state);
     jstring statusLine = env->NewStringUTF(state.statusLine);
     jstring endReason = env->NewStringUTF(state.endReason);
     jobject out = env->NewObject(cls, ctor, jint(state.phase), statusLine, endReason,
@@ -665,33 +800,33 @@ Java_com_deskhub_app_NativeClient_nativeKeyToVk(JNIEnv*, jobject, jint keyCode) 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeHotkey(JNIEnv*, jobject, jint vk, jint scan, jint modVk,
     jint modScan) {
-    dh_session_hotkey(g_session, int32_t(vk), int32_t(scan), int32_t(modVk), int32_t(modScan));
+    dh_screen_hotkey(g_session, int32_t(vk), int32_t(scan), int32_t(modVk), int32_t(modScan));
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeCharTap(JNIEnv*, jobject, jint codepoint) {
-    if (codepoint > 0) dh_session_char_tap(g_session, uint32_t(codepoint));
+    if (codepoint > 0) dh_screen_char_tap(g_session, uint32_t(codepoint));
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeReleaseAllInput(JNIEnv*, jobject) {
-    dh_session_release_all_input(g_session);
+    dh_screen_release_all_input(g_session);
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeMouseMove(JNIEnv*, jobject, jint nx, jint ny) {
-    dh_session_mouse_move(g_session, int32_t(nx), int32_t(ny));
+    dh_screen_mouse_move(g_session, int32_t(nx), int32_t(ny));
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeMouseButton(JNIEnv*, jobject, jint button,
     jboolean down) {
-    dh_session_mouse_button(g_session, int32_t(button), down == JNI_TRUE);
+    dh_screen_mouse_button(g_session, int32_t(button), down == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeMouseWheel(JNIEnv*, jobject, jint notches) {
-    dh_session_mouse_wheel_notches(g_session, int32_t(notches));
+    dh_screen_mouse_wheel_notches(g_session, int32_t(notches));
 }
 
 JNIEXPORT jfloatArray JNICALL

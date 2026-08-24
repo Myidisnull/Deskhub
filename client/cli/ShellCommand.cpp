@@ -12,7 +12,7 @@
 
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/client/TerminalViewer.h"
 #include "deskhubp/system/Console.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/HostIdentity.h"

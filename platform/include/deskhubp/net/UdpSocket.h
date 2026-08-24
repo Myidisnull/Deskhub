@@ -23,6 +23,18 @@ using deskhub::kDeskhubPort;
 
 bool ParseNetAddr(const std::string& s, NetAddr& out);
 
+inline bool HostKeyOf(const std::string& addr, uint64_t& key) {
+    NetAddr parsed{};
+    if (!ParseNetAddr(addr, parsed)) return false;
+    key = parsed.Pack();
+    return true;
+}
+
+inline bool SameHost(const std::string& addr, uint64_t key) {
+    uint64_t other = 0;
+    return HostKeyOf(addr, other) && other == key;
+}
+
 class UdpSocket {
 public:
     UdpSocket() = default;
@@ -59,7 +71,6 @@ public:
 private:
 #ifdef _WIN32
     uint64_t sock_ = ~0ull;
-    bool wsaInit_ = false;
 #else
     int fd_ = -1;
 #endif

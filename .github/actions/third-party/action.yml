@@ -1,0 +1,56 @@
+name: third-party
+description: Build the pinned quiche and opus static libraries for one target set, restored from cache when neither build script changed.
+
+inputs:
+  targets:
+    description: Target groups or Rust triples, exactly as scripts/build-quiche.sh takes them.
+    required: false
+    default: host
+  cache-key:
+    description: What tells two caches of these libraries apart — the target set, plus the runner image when the same triple is built on more than one.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-ndk
+      if: contains(inputs.targets, 'android')
+      shell: bash
+      run: |
+        [ -n "${ANDROID_NDK_HOME:-}" ] || {
+          echo "::error::ANDROID_NDK_HOME is unset — run ./.github/actions/android-sdk before this action, or cargo cannot cross-compile quiche for Android"
+          exit 1
+        }
+        command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+
+    - name: Cache quiche
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          third_party/quiche
+          !third_party/quiche/src
+        key: quiche-${{ inputs.cache-key }}-${{ hashFiles('scripts/build-quiche.sh') }}
+
+    - name: Build quiche (static QUIC + TLS)
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        read -ra resolved <<<"$TARGETS"
+        "$GITHUB_WORKSPACE/scripts/build-third-party.sh" quiche "${resolved[@]}"
+
+    - name: Cache opus
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          third_party/opus
+          !third_party/opus/src
+        key: opus-${{ inputs.cache-key }}-${{ hashFiles('scripts/build-opus.sh') }}
+
+    - name: Build opus (static audio codec)
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        read -ra resolved <<<"$TARGETS"
+        "$GITHUB_WORKSPACE/scripts/build-third-party.sh" opus "${resolved[@]}"

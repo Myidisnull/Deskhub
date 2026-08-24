@@ -35,6 +35,9 @@ public:
     bool hasFrame() const {
         return hasFrame_.load(std::memory_order_acquire);
     }
+    uint64_t FrameSerial() const {
+        return frameSerial_.load(std::memory_order_acquire);
+    }
 
 private:
     void ClearSlotLocked();
@@ -46,6 +49,8 @@ private:
     VADRMPRIMESurfaceDescriptor desc_{};
     uint64_t ptsUs_ = 0;
     std::atomic<bool> hasFrame_{false};
+    std::atomic<uint64_t> frameSerial_{0};
+    uint64_t uploadedSerial_ = 0;
 
     void* vaDisplay_ = nullptr;
     std::atomic<bool> dmaImportBroken_{false};

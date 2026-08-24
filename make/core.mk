@@ -7,6 +7,10 @@ COV_RAW    := out\build\coverage\core_tests.profraw
 COV_DATA   := out\build\coverage\core_tests.profdata
 COV_OUT    := out\coverage
 COV_SRC    := core\src core\include
+PERF_BIN   := out\build\x64-release\core\core_perf.exe
+PERF_BASE  := out\perf\baseline.txt
+PLAT_PERF_BIN  := out\build\x64-release\platform\platform_perf.exe
+PLAT_PERF_BASE := out\perf\platform-baseline.txt
 else
 CORE_TESTS := out/build/x64-debug/core/core_tests
 PLAT_TESTS := out/build/x64-debug/platform/platform_tests
@@ -16,6 +20,10 @@ COV_RAW    := out/build/coverage/core_tests.profraw
 COV_DATA   := out/build/coverage/core_tests.profdata
 COV_OUT    := out/coverage
 COV_SRC    := core/src core/include
+PERF_BIN   := out/build/x64-release/core/core_perf
+PERF_BASE  := out/perf/baseline.txt
+PLAT_PERF_BIN  := out/build/x64-release/platform/platform_perf
+PLAT_PERF_BASE := out/perf/platform-baseline.txt
 endif
 
 quiche:
@@ -46,6 +54,33 @@ test-integration:
 	$(INTEG_TESTS)
 
 test-all: test test-platform test-integration
+
+perf-build: quiche opus
+	@$(DEVCMD) cmake --preset x64-release >$(NULDEV) && cmake --build --preset x64-release --target core_perf platform_perf
+
+ifeq ($(OS),Windows_NT)
+test-perf: perf-build
+	@echo ===== Running core_perf against $(PERF_BASE) =====
+	$(PERF_BIN)
+	@echo ===== Running platform_perf against $(PLAT_PERF_BASE) =====
+	$(PLAT_PERF_BIN)
+
+perf-baseline: perf-build
+	@$(DEVCMD) cmake -E make_directory out\perf
+	@$(DEVCMD) set "DESKHUB_PERF_BASELINE=$(NULDEV)" && set "DESKHUB_PERF_WRITE=$(PERF_BASE)" && $(PERF_BIN)
+	@$(DEVCMD) set "DESKHUB_PERF_BASELINE=$(NULDEV)" && set "DESKHUB_PERF_WRITE=$(PLAT_PERF_BASE)" && $(PLAT_PERF_BIN)
+else
+test-perf: perf-build
+	@echo "===== Running core_perf against $(PERF_BASE) ====="
+	$(PERF_BIN)
+	@echo "===== Running platform_perf against $(PLAT_PERF_BASE) ====="
+	$(PLAT_PERF_BIN)
+
+perf-baseline: perf-build
+	@cmake -E make_directory out/perf
+	DESKHUB_PERF_BASELINE=$(NULDEV) DESKHUB_PERF_WRITE=$(PERF_BASE) $(PERF_BIN)
+	DESKHUB_PERF_BASELINE=$(NULDEV) DESKHUB_PERF_WRITE=$(PLAT_PERF_BASE) $(PLAT_PERF_BIN)
+endif
 
 FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext fuzz_term
 FUZZ_SECONDS ?= 30
@@ -113,4 +148,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: quiche opus debug release test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage
+.PHONY: quiche opus debug release test test-platform test-integration test-all perf-build test-perf perf-baseline test-asan test-tsan test-ctest coverage fuzz fuzz-coverage

@@ -43,51 +43,152 @@ jobs:
             Windows) choco install ninja nasm -y ;;
           esac
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-host-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        shell: bash
-        run: |
-          scripts/build-quiche.sh host 2>&1 | tee quiche-build.log ||
-            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 quiche-build.log | sed 's/^/::error::/' || true
-              exit 1; }
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-host-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        shell: bash
-        run: |
-          scripts/build-opus.sh host 2>&1 | tee opus-build.log ||
-            { grep -iE "error|LNK[0-9]" opus-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 opus-build.log | sed 's/^/::error::/' || true
-              exit 1; }
+          cache-key: host-${{ matrix.os }}
 
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
 
-      - name: Build the three test binaries
+      - name: Build the three test binaries and the perf harness
         shell: bash
         run: |
           cmake --build --preset ${{ matrix.preset }} \
-              --target core_tests platform_tests integration_tests 2>&1 | tee build.log ||
-            { grep -iE "error|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
+              --target core_tests platform_tests integration_tests core_perf platform_perf 2>&1 | tee build.log ||
+            { grep -iE "error|warning C[0-9]|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
       - name: Run them through CTest
         run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
+
+      - name: Gate the hot core and QUIC paths on allocation and scaling budgets (time baselines stay per-machine; MSVC's small deque blocks make its allocation counts incomparable)
+        if: endsWith(matrix.preset, '-release') && runner.os != 'Windows'
+        run: |
+          out/build/${{ matrix.preset }}/core/core_perf
+          out/build/${{ matrix.preset }}/platform/platform_perf
+
+  perf-compare:
+    name: perf · pull request vs base
+    if: github.event_name == 'pull_request'
+    needs: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Ninja
+        run: scripts/apt-install.sh ninja-build
+
+      - uses: ./.github/actions/third-party
+        with:
+          cache-key: host-ubuntu-latest
+
+      - name: Build the base commit and record both perf suites as this runner's baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git -c advice.detachedHead=false checkout --force "$BASE_SHA"
+          git submodule update --init --recursive
+          cmake --preset x64-release -DDESKHUB_LINUX_APP=OFF
+          cmake --build --preset x64-release --target core_perf
+          DESKHUB_PERF_WRITE="$RUNNER_TEMP/base-core.txt" out/build/x64-release/core/core_perf ||
+            echo "::warning::the base commit failed its own core_perf budgets - drift is still measured against it"
+          if cmake --build --preset x64-release --target platform_perf; then
+            DESKHUB_PERF_WRITE="$RUNNER_TEMP/base-platform.txt" out/build/x64-release/platform/platform_perf ||
+              echo "::warning::the base commit failed its own platform_perf budgets - drift is still measured against it"
+          else
+            echo "the base commit has no platform_perf target - its table will carry no drift column"
+          fi
+
+      - name: Build the pull request and measure drift against the base run (warnings only - a shared runner is too noisy to fail on time)
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          git checkout --force "$HEAD_SHA"
+          git submodule update --init --recursive
+          cmake --preset x64-release -DDESKHUB_LINUX_APP=OFF
+          cmake --build --preset x64-release --target core_perf platform_perf integration_tests
+          set -o pipefail
+          if ! DESKHUB_PERF_BASELINE="$RUNNER_TEMP/base-core.txt" DESKHUB_PERF_TOLERANCE=0.5 \
+              out/build/x64-release/core/core_perf 2>&1 | tee core-perf.log; then
+            echo "::warning::core_perf drifted from the base commit or failed a budget"
+            grep "FAIL:" core-perf.log | sed -e 's/^ *//' -e 's/^/::warning::/' || true
+          fi
+          if ! DESKHUB_PERF_BASELINE="$RUNNER_TEMP/base-platform.txt" DESKHUB_PERF_TOLERANCE=0.5 \
+              out/build/x64-release/platform/platform_perf 2>&1 | tee platform-perf.log; then
+            echo "::warning::platform_perf drifted from the base commit or failed a budget"
+            grep "FAIL:" platform-perf.log | sed -e 's/^ *//' -e 's/^/::warning::/' || true
+          fi
+
+      - name: Measure lag under cross-load on the pull-request build
+        run: |
+          set -o pipefail
+          out/build/x64-release/tests/integration/integration_tests --under-load 2>&1 |
+              tee integration.log ||
+            echo "::warning::the under-load integration run failed on this runner - its numbers below are incomplete"
+          grep -E '^\[(load|lag)\]|^        ' integration.log > lag-lines.txt || true
+
+      - name: Post the report as a pull-request comment (updates its own earlier comment)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          digest() {
+            awk '$NF ~ /^[+-][0-9.]+%$/ {
+                v = $NF + 0
+                if (!n++) { hi = v; hin = $1; lo = v; lon = $1 }
+                if (v > hi) { hi = v; hin = $1 }
+                if (v < lo) { lo = v; lon = $1 }
+              }
+              END {
+                if (!n) { print "no drift rows (the base commit has no such suite)"; exit }
+                printf "%d rows · biggest slowdown %s %+.1f%% · biggest speedup %s %+.1f%%", n, hin, hi, lon, lo
+              }' "$1"
+          }
+          budget_fails() {
+            grep -c "FAIL:" "$1" || true
+          }
+          coverage_line="not measured on this run"
+          if gh run download "$GITHUB_RUN_ID" -n coverage-summary -D "$RUNNER_TEMP/cov"; then
+            coverage_line=$(head -1 "$RUNNER_TEMP/cov/coverage-summary.txt")
+          fi
+          table() {
+            echo "<details><summary>$1</summary>"
+            echo ''
+            echo '```'
+            grep -v '^\[Deskhub\]' "$2" || true
+            echo '```'
+            echo '</details>'
+          }
+          marker='<!-- deskhub-perf-compare -->'
+          { echo "$marker"
+            echo "### Perf and lag report - pull request vs base commit, same runner, 50% tolerance"
+            echo ''
+            echo "- core_perf: $(digest core-perf.log) · $(budget_fails core-perf.log) beyond budget"
+            echo "- platform_perf: $(digest platform-perf.log) · $(budget_fails platform-perf.log) beyond budget"
+            echo "- coverage: $coverage_line"
+            echo ''
+            table 'core_perf drift' core-perf.log
+            table 'platform_perf drift' platform-perf.log
+            table 'lag under cross-load (this pull request only)' lag-lines.txt
+          } > perf-comment.md
+          cat perf-comment.md >> "$GITHUB_STEP_SUMMARY"
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" \
+              -F body=@perf-comment.md >/dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              -F body=@perf-comment.md >/dev/null
+          fi
 
   sanitizers:
     name: ${{ matrix.os }} · ${{ matrix.preset }}
@@ -111,27 +212,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-host-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: scripts/build-quiche.sh host
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-host-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: scripts/build-opus.sh host
+          cache-key: host-${{ matrix.os }}
 
       - name: Configure (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
@@ -188,51 +271,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      NDK_VERSION: 26.1.10909125
       BUILD_DIR: out/build/android-${{ matrix.abi }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-
-      - name: Install NDK
-        run: sdkmanager "ndk;$NDK_VERSION"
+      - uses: ./.github/actions/android-sdk
 
       - name: Install Ninja
         run: scripts/apt-install.sh ninja-build
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-${{ matrix.rust_target }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: |
-          command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
-          scripts/build-quiche.sh ${{ matrix.rust_target }}
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-${{ matrix.rust_target }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
-          scripts/build-opus.sh ${{ matrix.rust_target }}
+          targets: ${{ matrix.rust_target }}
+          cache-key: ${{ matrix.rust_target }}
 
       - name: Cross-compile the test binaries for android-${{ matrix.abi }}
         run: |
           cmake -B "$BUILD_DIR" -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=${{ matrix.abi }} \
             -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_static \
@@ -271,31 +327,10 @@ jobs:
       - name: Install Ninja
         run: brew install ninja
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/aarch64-apple-ios-sim
-          key: quiche-ios-sim-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: |
-          scripts/build-quiche.sh aarch64-apple-ios-sim
-          test -f third_party/quiche/aarch64-apple-ios-sim/libquiche.a
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/aarch64-apple-ios-sim
-          key: opus-ios-sim-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: |
-          scripts/build-opus.sh aarch64-apple-ios-sim
-          test -f third_party/opus/aarch64-apple-ios-sim/libopus.a
+          targets: aarch64-apple-ios-sim
+          cache-key: ios-sim
 
       - name: Build the test binaries for the iOS Simulator
         run: |
@@ -340,7 +375,17 @@ jobs:
         run: make coverage
 
       - name: Fail if core coverage regressed
-        run: scripts/check-coverage.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/check-coverage.sh | tee coverage-summary.txt
+
+      - name: Share the coverage line with the pull-request report
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-summary
+          path: coverage-summary.txt
 
       - name: Upload coverage report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

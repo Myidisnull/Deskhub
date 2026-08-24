@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var model = SessionModel()
+    @State private var model = AppModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -24,5 +25,13 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .pairingPrompt(FilesHost.shared.pairing)
+        .task(id: scenePhase) {
+            if scenePhase == .active {
+                await FilesHost.shared.run()
+            } else if scenePhase == .background {
+                FilesHost.shared.stop()
+            }
+        }
     }
 }

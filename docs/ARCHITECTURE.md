@@ -27,13 +27,15 @@ client/     per-OS apps: windows, linux, macos, ios, android (depend on platform
 | --- | --- |
 | `core/protocol` | Wire format (`Wire.h`), record framing for streams (`RecordStream.h`), packet classifier that tells QUIC from Deskhub beacon datagrams |
 | `core/transport` | Packetizer/Reassembler for video, FEC, retransmit cache, send pacer |
-| `core/session` | Host/client session state machines, viewer table, clipboard sync, terminal session table, auth attempt throttle |
+| `core/session` | Session state machines, split by role: `session/host` (per-viewer sessions, viewer table, beacon, file receiver, auth throttle), `session/client` (screen client, file sender, terminal client, connect flow), and shared pieces beside them (transfer types, terminal session table, clipboard sync, link recovery) |
 | `core/control` | Bitrate controller, quality ladder, stream sizing, clock offset |
 | `core/terminal` | The VT emulator every client shares: `VtParser`, `Screen`, `KeyEncoder`, `Palette` |
 | `core/net` | Trust store (client side), paired devices (host side), bind-address selection, LAN scan logic |
 | `core/ui` | Every user-visible string, settings parsing, table-row builders — so all five clients say the same things |
-| `platform/net` | `UdpSocket` (per-OS), `QuicEndpoint` (quiche behind a pimpl), `SessionTransport`, source query, host probe, LAN scanner |
-| `platform/session` | `HostEngine`, `HostNetLoop`, `ClientEngine`, `TerminalHost`, `TerminalViewer`, `AuthNegotiation` |
+| `platform/net` | `UdpSocket` (per-OS), `QuicEndpoint` (quiche behind a pimpl), `SessionTransport` |
+| `platform/auth` | `AuthNegotiation` — the one pairing/passcode handshake both sides speak |
+| `platform/client` | `HostLink` (dial + trust + auth + channels, shared by every surface), `ScreenViewer`, `TerminalViewer`, `FileTransferClient`, `SourceQuery`, host probe, LAN scanner |
+| `platform/host` | `HostEngine`, `HostNetLoop`, `SharingHost`, `TerminalHost`, `FileHost`, `ViewerBroadcast` |
 | `platform/system` | Clock, random, PTY (ConPTY / forkpty), host identity (keys), trust/paired-device files, autostart, keep-awake |
 | `core/cli` | The command-line grammar and its JSON writer — pure text in, validated command out |
 | `client/<os>` | Capture, encode, decode, render, windowing, dialogs — nothing protocol-shaped |
@@ -63,12 +65,16 @@ Everything a host offers rides **one UDP port** (default 47777) through one
  input        audio       Streams carry framed records (RecordStream):
  clipboard                length-prefixed messages up to 16 KiB.
  terminal                 Datagrams carry one video or audio packet
-                          each (≤ 1200 B).
+ files                    each (≤ 1200 B).
 ```
 
-- **Streams** (reliable, ordered): control, input, clipboard, terminal — each
+- **Streams** (reliable, ordered): control, input, clipboard, terminal, files — each
   connection uses one bidirectional stream, opened by the client. A stuck stream on
-  one connection cannot stall another connection.
+  one connection cannot stall another connection. Inbound stream data is drained
+  under a 64 KiB budget per service pass: whatever consumes it (the terminal's VT
+  emulation above all) hands the loop back to ACKs, keepalives and timeout
+  processing between slices, so a `cat` storm can no longer starve the connection
+  into its own idle timeout.
 - **Datagrams** (unreliable, unordered, still encrypted): video and audio packets.
   Lost ones are never retransmitted by QUIC; for video the app's own FEC/NACK
   machinery handles loss, and for audio nothing does — see section 9.
@@ -125,6 +131,8 @@ HostEngine (one per app, owns SessionTransport)
  │    per-source session Tick, clipboard flush, reconfig, stats
  ├─ capture/encode: per-source, driven by the OS capture callbacks (client layer)
  │    frame → encoder (per-source mutex) → Packetizer → FEC → SendTo (datagrams)
+ ├─ audio worker: capture callback → lock-free frame ring → Opus encode →
+ │    per-viewer datagrams (AudioBroadcaster)
  └─ TerminalHost (tenant, when the terminal is shared)
       ├─ HandleMessage on the net-loop thread: TERM_OPEN/DATA/RESIZE/CLOSE → PTY
       └─ pump thread: PTY output → host-side Screen mirror + TERM_DATA records,
@@ -133,7 +141,7 @@ HostEngine (one per app, owns SessionTransport)
 
 - The engine runs whenever anything is shared. With zero screen sources and the
   terminal ticked it runs source-less; the loop stays alive while the terminal does.
-- Each screen source is a `SourcePipelineState`: its own `HostSession` (viewer table,
+- Each screen source is a `SourcePipelineState`: its own `ScreenHostSession` (viewer table,
   negotiation, input arbitration), encoder, quality ladder and diagnostics. One
   encode feeds every viewer of that source.
 - The feedback loop: viewers send `Feedback` (loss/RTT) once a second; the host's
@@ -154,18 +162,36 @@ HostEngine (one per app, owns SessionTransport)
 
 ## 5. Client side
 
+Every client surface reaches a host through the same piece, `HostLink`
+(`platform/client/HostLink`): it dials the QUIC connection, checks the trust store,
+runs the auth handshake, keeps the link alive with keepalives, and — for surfaces
+that ask for it — redials with backoff when the link drops. No service dials or
+authenticates on its own any more; a service opens a channel per wire `Chan`, gets
+its own inbox queue, and drains it on its own thread:
+
 ```
-ClientEngine (one per viewer window)          TerminalViewer (one per shell window)
- ├─ net thread: trust check → auth →          ├─ own thread: connect → trust check →
- │   HELLO/negotiation → video ingest         │   auth → TERM_OPEN → record pump
- │   (Reassembler+FEC), NACKs, feedback       ├─ core/terminal Screen holds the grid
- └─ decode thread: decoder + render queue     └─ UI polls Snapshot(), posts keys
+HostLink (one per open surface)
+ ├─ link thread: dial → trust check → auth → pump
+ │   (routes inbound records and datagrams by Chan into per-channel
+ │    queues; keepalives; redial with backoff where recovery is on)
+ ├─ Chan::Control/Video/Audio ─> ScreenViewer
+ │    ├─ net thread: HELLO/negotiation, video ingest (Reassembler+FEC),
+ │    │   NACKs, feedback, clipboard
+ │    └─ decode thread: decoder + render queue
+ ├─ Chan::Terminal ─> TerminalViewer service thread
+ │    ├─ core/terminal Screen holds the grid
+ │    └─ UI polls Snapshot(), posts keys into a command queue
+ └─ Chan::File ─> FileTransferClient service thread (FileUpload ring)
 ```
 
-Both follow the same rule as the host: the QUIC connection lives on one thread; the
-UI posts intents (keys, resize, accept-fingerprint) into a command queue. The
-terminal window never parses escape sequences — `core/terminal` turns the byte
-stream into a cell grid, and the window only draws cells and forwards key events.
+The source query (`QuerySources`) rides the same link in a one-shot, blocking form.
+The UI still posts intents (keys, resize, accept-fingerprint) into command queues;
+a changed host key parks the link in `Deciding` until the person accepts or rejects
+it. The terminal window never parses escape sequences — `core/terminal` turns the
+byte stream into a cell grid, and the window only draws cells and forwards key
+events. Today each window still holds its own link; sharing one admitted link across
+every window aimed at the same host is the intended next step, and it slots in at
+`HostLink` — a registry and observer fan-out — not as another handshake.
 
 ## 6. Discovery
 
@@ -188,26 +214,75 @@ admits), `auth_salt` (non-secret verifier salt), `ui-settings.txt`,
 stays in `platform/`; the parsing and the data structures live in `core/` and are
 unit-tested.
 
+Files a viewer sends land somewhere else entirely: a folder the host picks
+(`ui-settings.txt`'s `transfer_dir`, defaulting to `Deskhub` in the user's home
+folder). `FileStore` writes each one as `<name>.deskhub-part` and renames it only
+after the whole file has arrived with a matching CRC-32, so a half-written file never
+appears under its real name, and `UniqueFileName` guarantees nothing is overwritten.
+The name on the wire is scrubbed by `core/`'s `SafeFileName` — path separators,
+control bytes, characters Windows rejects and reserved device names all go — before
+`platform/` ever touches the filesystem.
+
 ## 8. Testing
 
 | Suite | Runs | Covers |
 | --- | --- | --- |
 | `make test` | offline, no sockets | all of `core/`: wire, framing, FEC, sessions, VT emulator, settings, strings, deterministic structured fuzzing |
 | `make test-platform` | loopback sockets | real QUIC handshakes, SPAKE2 end-to-end, terminal host + viewer over the wire, PTY against a real shell, lockout, approval |
-| `make test-integration` | loopback, fake capture/encode | full host↔client sessions: negotiation, video across the wire, input, passcode/approval gating, junk resistance |
+| `make test-integration` | loopback, fake capture/encode | full host↔client sessions: negotiation, video across the wire, input, passcode/approval gating, junk resistance, and lag under cross-load — a file transfer, a flooded terminal and keystrokes beside a live stream, each gated on its worst observed stall |
 | fuzz targets | 30 s per target on every PR, 15 min per target nightly | parsers for wire, H.264, reassembly, terminal bytes and UI text, plus the host and viewer session state machines |
+| `make test-perf` | release build, offline + loopback | the hot paths measured rather than only exercised: `core_perf` covers the pure-C++ paths, `platform_perf` covers real QUIC over loopback; both fail on allocations per unit, on the cost at 4× the input, and on drift against a baseline recorded on that machine |
 
 CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
 `--strict`, Android Lint, actionlint + shellcheck, ASan/TSan runs of all three suites,
 CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 % line /
 80 % branch coverage on `core/`. The three suites are additionally cross-built and run
-on arm64 Linux, an Android emulator and the iOS Simulator.
+on arm64 Linux, an Android emulator and the iOS Simulator. The Linux and macOS release
+jobs also run `core_perf` and `platform_perf` with their allocation and scaling gates
+(no time baseline exists on a shared runner), and each pull request additionally gets
+a perf-and-lag report posted as one self-updating comment: both perf suites A/B'd
+against the base commit on the same runner (drift as warnings, never a failure), the
+under-load integration numbers from the pull-request build, and the core coverage
+line.
 
 ## 9. Decisions worth remembering
 
+- **The performance suite gates on allocations and shape, not on milliseconds**: the
+  three test suites build debug, and CI runs them again under ASan, TSan and coverage,
+  where a wall-clock budget measures the sanitizer rather than the code. So `core_perf`
+  (release preset, `make test-perf`) fails on two machine-independent things —
+  allocations per packet, frame or KB, counted by replacing the global `operator new`,
+  and a `-scaling` row whose time grows far faster than its input — and keeps the timing
+  half as a comparison against `out/perf/baseline.txt`, recorded per machine by
+  `make perf-baseline` and never committed. That split is what lets the suite fail a
+  regression like "the reassembler now copies every piece twice" on a laptop, a CI
+  runner or a phone alike, while still printing ns per unit and MB/s for the paths where
+  the number itself is the point. CI runs those two machine-independent gates on the
+  Linux and macOS release jobs; Windows only builds the binary, because MSVC's deque
+  allocates a block per element for anything larger than 16 bytes, so the same code has
+  a different allocation count there. Pull requests also get a timing comparison the
+  shared-runner noise cannot invalidate — base commit and pull request measured on the
+  same runner, 50 % tolerance, warnings only. `platform_perf` extends the same gates to
+  real QUIC over loopback, where wall time measures the service-loop cadence — the 64 KiB
+  stream-drain budget times the 1 ms poll tick — so a shrunken budget, a drain that stops
+  scaling linearly, or a new allocation in the poll loop all show up as a jump even
+  though the CPU cost of the same work would barely move.
+
+- **`FileHost` never sends while holding its own lock**: the QUIC service loop runs
+  `QuicEndpoint::Poll` under `SessionTransport::sendMutex_`, and a connection that closes
+  there calls straight back into `FileHost::OnPeerGone`, which takes `FileHost::mutex_`.
+  So `sendMutex_ -> mutex_` is fixed by the transport. Any path that took `mutex_` first
+  and then sent — `FileReceiver` emitting an accept, an ack or a cancel through
+  `hooks.send` — closed the cycle, and TSan caught it as a lock-order inversion between
+  the receive loop and a UI thread flipping `SetAccepting(false)` on a live transfer.
+  Records the receiver emits are therefore queued into `outbox_` under `mutex_` and sent
+  only after it is released, with `outboxMutex_` held across both halves so a peer still
+  sees them in the order they were produced. `OnPeerGone` cannot send at all: it already
+  runs under `sendMutex_`, so it drops whatever it queued.
+
 - **The command-line client is a fourth front-end, not a second implementation**: it
   parses flags in `core/cli`, then drives exactly the pieces the desktop apps drive —
-  `AgentLoop` to host, `ClientEngine` to watch, `TerminalViewer` to open a shell. The
+  `SharingHost` to host, `ScreenViewer` to watch, `TerminalViewer` to open a shell. The
   only thing it owns is a window: X11 + EGL on Linux, the desktop app's own `RunViewer`
   on Windows. That is why each client's `cpp/` tree is a static library
   (`deskhub_linux_core`, `deskhub_win_core`, `deskhub_win_view`, `deskhub_mac_core`) and
@@ -222,7 +297,7 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 
 - **A host with a shell and no screen stays alive**: the net loop ends a session once no
   source is alive, and a terminal-only share has none by definition. `keepAlive` answers
-  from the caller's intent (`AgentOptions::terminal`), not from a `TerminalHost` pointer
+  from the caller's intent (`ShareOptions::terminal`), not from a `TerminalHost` pointer
   that is only attached after the loop is already running.
 
 - **The frame gate counts to a deadline, not from the last frame it kept**: a compositor
@@ -293,13 +368,22 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   would be worse than useless, because a frame that arrives 200 ms late is unplayable
   yet still delays the ten behind it. `make opus-smoke` measures those numbers on any
   machine that builds the library.
-- **The audio clock drives the jitter buffer, not a wall clock**: `AudioJitterBuffer`
-  has no timer in it. The sink pulls one frame per callback and the target delay is
-  simply how many frames it fills before starting — 60 ms is three. That makes the
-  whole thing testable offline with no sleeping, and it makes the failure modes
-  explicit: a burst is capped rather than queued, an empty buffer rebuffers rather
-  than stuttering, and a sequence jump is read as a new stream rather than as
-  thousands of lost frames.
+- **The jitter buffer has no timer in it**: `AudioJitterBuffer` is pure state, and
+  the target delay is simply how many frames it fills before starting — 60 ms is
+  three. That makes the whole thing testable offline with no sleeping, and it makes
+  the failure modes explicit: a burst is capped rather than queued, an empty buffer
+  rebuffers rather than stuttering, and a sequence jump is read as a new stream
+  rather than as thousands of lost frames. The pacing lives in `AudioPlayer`, which
+  pops one frame per 20 ms of wall clock into a PCM ring that the sink's render
+  callback drains.
+- **The capture callback never encodes**: PipeWire and ScreenCaptureKit deliver
+  audio on real-time threads with a deadline of a few milliseconds, and a blown
+  deadline there xruns the host's own playback, not just Deskhub's. Opus encode is
+  0.3–1.5 ms with spikes, and one `sendto` per viewer used to ride behind it on that
+  same thread. `AudioBroadcaster::Offer` now only copies the 20 ms frame into a
+  preallocated lock-free slot ring and stamps the capture time; a worker thread does
+  the encode, the diagnostics and the per-viewer sends. A worker that falls behind
+  costs a counted drop (`framesRefused`), never a glitch in the host's audio.
 - **Sound needs both ends to say yes, and old clients never hear it**: a viewer sets
   bit 0 of `Hello.features`, a host advertises `kHostSharesAudio` in its capabilities,
   and the host sends a packet only to viewers whose bit is set. That is what keeps
@@ -420,6 +504,22 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
   `com.deskhub.macos` row — System Settings shows the permission granted while the
   copy just launched is denied, silently for Accessibility.
   `make reset-macos-permissions` clears every grant so the next launch asks again.
+- **macOS is a desktop build in CI and a signed one at release, never both at once**:
+  `build-desktop` compiles the app ad-hoc-signed on every push, so a Cocoa change that
+  no longer builds fails its own pull request; `deploy` reaches the same app through
+  `release-macos`, the fastlane path — Developer ID, notarization, dmg — that produces
+  something a user can actually open. The reusable workflow therefore skips its macOS
+  job when `for_release` is set, or a tag would pay for a second macOS runner to make a
+  bundle nobody ships. `build-mobile` carries iOS and Android only, for the same reason
+  and with the same split.
+- **Every workflow gets quiche and opus from one action, and the cache key is the whole
+  contract**: `.github/actions/third-party` builds both libraries for whatever targets a
+  job names, which is why nineteen copies of the same cache-then-build block are down to
+  one line per job. Its `cache-key` input is not decoration — it is the only thing
+  keeping two jobs from restoring each other's libraries. Two target sets differ,
+  and so do two runner images building the same triple: a `libquiche.a` compiled on
+  ubuntu-latest and restored on ubuntu-22.04 links a glibc the release exists to avoid.
+  Anything that changes what the build produces belongs in that key.
 - **One static release CRT on Windows, every configuration**: cargo builds quiche
   against the static release CRT (the msvc default — never force it through
   `RUSTFLAGS`, that leaks into proc-macros and kills cargo), and the whole CMake
@@ -443,6 +543,25 @@ on arm64 Linux, an Android emulator and the iOS Simulator.
 - **One port**: beacon, screen and terminal share a single listener; QUIC
   multiplexes connections and streams. The old second port existed only because the
   pre-QUIC screen path monopolised the socket.
+- **One `HostLink`, four former handshakes**: dial + trust check + auth + recovery
+  used to be written four times on the client side — source query, viewer, file
+  sender, and the terminal on a raw `QuicEndpoint` of its own — which is how the
+  send window learned about a changed host key three fixes later than the viewer
+  did. `HostLink` is now the only client-side code that dials or authenticates; a
+  service opens its `Chan`, gets its own inbox queue, and drains it on its own
+  thread. The terminal's redial-with-backoff moved into the link so every surface
+  that asks for recovery inherits it, and the trust rules live in one place: a
+  changed key parks the link in `Deciding` until a person answers (only the source
+  query passes it through, `trustGate=false`, remembering nothing — its callers
+  have no prompt to show), and only a passcode the host cryptographically proved
+  pins a key automatically.
+- **`HostLink` sends through `Send`, not `SendMessage`**: on Windows the OS headers
+  behind the platform layer define `SendMessage` as a macro for `SendMessageA`, and
+  in `HostLink.cpp` they landed after the class declaration but before the method
+  definition — MSVC then required a definition for a `SendMessageA` member no header
+  had declared. Win32 API names (`SendMessage`, `PostMessage`, `CreateWindow`,
+  `GetObject`, …) are never safe as method names in any translation unit an OS
+  header can reach; the rename is the fix, not an `#undef`.
 - **The portal ScreenCast session lives and dies with a D-Bus connection**: GLib caches
   the shared session bus by weak reference, so `g_object_unref` on the last handle
   disposes the connection outright. `xdg-desktop-portal` then drops the session, the

@@ -1,14 +1,14 @@
 #include "Tests.h"
-#include "support/FakeAgent.h"
+#include "support/FakeHost.h"
 #include "support/FakeDecoder.h"
 #include "support/FakeVideo.h"
 #include "support/TestSupport.h"
 
 #include "deskhub/input/VirtualKeys.h"
-#include "deskhubp/net/HostProbe.h"
-#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/client/HostProbe.h"
+#include "deskhubp/client/SourceQuery.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/client/ScreenViewer.h"
 #include "deskhubp/system/HostIdentity.h"
 #include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/TrustStoreFile.h"
@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-using Viewer = deskhubp::ClientEngine<fake::Decoder, void*>;
+using Viewer = deskhubp::ScreenViewer<fake::Decoder, void*>;
 
 namespace {
 
@@ -32,8 +32,8 @@ NetAddr HostAddr(uint16_t port) {
     return NetAddr{kLoopbackIp, port};
 }
 
-deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, uint8_t sourceId) {
-    deskhubp::ClientEngineConfig cfg;
+deskhubp::ScreenViewerConfig ViewerConfig(uint16_t port, uint8_t sourceId) {
+    deskhubp::ScreenViewerConfig cfg;
     cfg.server = HostAddr(port);
     cfg.sourceId = sourceId;
     cfg.screenW = 1920;
@@ -44,7 +44,7 @@ deskhubp::ClientEngineConfig ViewerConfig(uint16_t port, uint8_t sourceId) {
     return cfg;
 }
 
-bool StartViewer(Viewer& viewer, deskhubp::ClientEngineConfig cfg) {
+bool StartViewer(Viewer& viewer, deskhubp::ScreenViewerConfig cfg) {
     cfg.onTrustAsked = [&viewer](deskhub::TrustVerdict, std::string_view) {
         viewer.AcceptFingerprint();
     };
@@ -72,10 +72,10 @@ void TestAViewerConnectsAndSeesTheFramesTheHostEncoded() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
-        std::printf("  host error: %s\n", agent.LastError().c_str());
+        std::printf("  host error: %s\n", host.LastError().c_str());
         return;
     }
 
@@ -111,7 +111,7 @@ void TestAViewerConnectsAndSeesTheFramesTheHostEncoded() {
     }
 
     viewer.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestKeystrokesReachTheHostInjector() {
@@ -119,8 +119,8 @@ void TestKeystrokesReachTheHostInjector() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
         return;
     }
@@ -131,7 +131,7 @@ void TestKeystrokesReachTheHostInjector() {
     if (!WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs)) {
         Check(false, "the session never reached Streaming");
         viewer.Stop();
-        agent.Stop();
+        host.Stop();
         return;
     }
 
@@ -158,7 +158,7 @@ void TestKeystrokesReachTheHostInjector() {
     }
 
     viewer.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestPauseArrivesWithoutAScancode() {
@@ -166,8 +166,8 @@ void TestPauseArrivesWithoutAScancode() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
         return;
     }
@@ -178,7 +178,7 @@ void TestPauseArrivesWithoutAScancode() {
     if (!WaitFor([&] { return Streaming(viewer); }, kConnectTimeoutMs)) {
         Check(false, "the session never reached Streaming");
         viewer.Stop();
-        agent.Stop();
+        host.Stop();
         return;
     }
 
@@ -192,7 +192,7 @@ void TestPauseArrivesWithoutAScancode() {
             "the host is told which key it is, not a scancode that means NumLock");
 
     viewer.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestTheHostReportsWhoIsWatching() {
@@ -200,13 +200,13 @@ void TestTheHostReportsWhoIsWatching() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
         return;
     }
 
-    const auto idle = agent.Status();
+    const auto idle = host.Status();
     Check(idle.size() == 1, "one shared source is listed");
     if (!idle.empty()) {
         Check(!idle[0].viewerConnected, "with nobody watching it yet");
@@ -215,19 +215,19 @@ void TestTheHostReportsWhoIsWatching() {
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    deskhubp::ClientEngineConfig named = ViewerConfig(port, 0);
+    deskhubp::ScreenViewerConfig named = ViewerConfig(port, 0);
     named.displayName = "Anh's laptop";
     StartViewer(viewer, named);
 
     Check(WaitFor(
               [&] {
-                  const auto rows = agent.Status();
+                  const auto rows = host.Status();
                   return !rows.empty() && rows[0].viewerConnected;
               },
               kConnectTimeoutMs),
         "once the viewer connects the host reports it as connected");
 
-    const auto watching = agent.Status();
+    const auto watching = host.Status();
     Check(!watching.empty() && watching[0].viewerNames.size() == 1 &&
               watching[0].viewerNames[0] == "Anh's laptop",
         "and shows the name the viewer chose for itself");
@@ -239,13 +239,13 @@ void TestTheHostReportsWhoIsWatching() {
 
     Check(WaitFor(
               [&] {
-                  const auto rows = agent.Status();
+                  const auto rows = host.Status();
                   return !rows.empty() && !rows[0].viewerConnected;
               },
               kStreamTimeoutMs),
         "and after BYE the host reports the source as free again");
 
-    agent.Stop();
+    host.Stop();
 }
 
 void TestTwoSourcesStayApart() {
@@ -253,15 +253,15 @@ void TestTwoSourcesStayApart() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    const bool started = agent.Start(
+    fake::SharingHost host;
+    const bool started = host.Start(
         {fake::Source("Display 1", 1280, 720, 1), fake::Source("Display 2", 800, 600, 2)}, port);
     if (!started) {
         Check(false, "the host could not start");
         return;
     }
 
-    const auto rows = agent.Status();
+    const auto rows = host.Status();
     Check(rows.size() == 2, "both sources are shared");
 
     Viewer viewer;
@@ -278,14 +278,14 @@ void TestTwoSourcesStayApart() {
 
     Check(WaitFor(
               [&] {
-                  const auto live = agent.Status();
+                  const auto live = host.Status();
                   return live.size() == 2 && live[1].viewerConnected && !live[0].viewerConnected;
               },
               kStreamTimeoutMs),
         "only the source that was asked for reports a viewer");
 
     viewer.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestOneMachineWatchesBothDisplaysAtOnce() {
@@ -293,12 +293,12 @@ void TestOneMachineWatchesBothDisplaysAtOnce() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    const bool started = agent.Start(
+    fake::SharingHost host;
+    const bool started = host.Start(
         {fake::Source("Display 1", 1280, 720, 1), fake::Source("Display 2", 800, 600, 2)}, port);
     if (!started) {
         Check(false, "the host could not start");
-        std::printf("  host error: %s\n", agent.LastError().c_str());
+        std::printf("  host error: %s\n", host.LastError().c_str());
         return;
     }
 
@@ -319,7 +319,7 @@ void TestOneMachineWatchesBothDisplaysAtOnce() {
 
     Check(WaitFor(
               [&] {
-                  const auto rows = agent.Status();
+                  const auto rows = host.Status();
                   return rows.size() == 2 && rows[0].viewerConnected && rows[1].viewerConnected;
               },
               kStreamTimeoutMs),
@@ -336,7 +336,7 @@ void TestOneMachineWatchesBothDisplaysAtOnce() {
         "closing one window leaves the other one streaming");
 
     secondDisplay.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestSourceDiscoveryBeforeAnySession() {
@@ -344,8 +344,8 @@ void TestSourceDiscoveryBeforeAnySession() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    const bool started = agent.Start(
+    fake::SharingHost host;
+    const bool started = host.Start(
         {fake::Source("Display 1", 1280, 720, 1), fake::Source("Display 2", 800, 600, 2)}, port);
     if (!started) {
         Check(false, "the host could not start");
@@ -364,7 +364,7 @@ void TestSourceDiscoveryBeforeAnySession() {
             "the picker is told the size it would be watching");
     }
 
-    agent.Stop();
+    host.Stop();
 }
 
 void TestAViewerLearnsWhatTheHostCannotDo() {
@@ -372,8 +372,8 @@ void TestAViewerLearnsWhatTheHostCannotDo() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Pixel", 1080, 2400, 1)}, port, 30, 1920, kTestPasscode,
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Pixel", 1080, 2400, 1)}, port, 30, 1920, kTestPasscode,
             false)) {
         Check(false, "the host could not start");
         return;
@@ -388,10 +388,10 @@ void TestAViewerLearnsWhatTheHostCannotDo() {
     Check(!caps.terminal,
         "and it offers no shell, so no terminal window is opened against it");
 
-    agent.Stop();
+    host.Stop();
 
     const uint16_t deskPort = NextTestPort();
-    fake::Agent desktop;
+    fake::SharingHost desktop;
     if (!desktop.Start({fake::Source("Display 1", 1280, 720, 1)}, deskPort, 30, 1920,
             kTestPasscode, true)) {
         Check(false, "the desktop host could not start");
@@ -411,8 +411,8 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
         return;
     }
@@ -423,7 +423,7 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
     if (!WaitFor([&] { return Streaming(first); }, kConnectTimeoutMs)) {
         Check(false, "the first viewer never reached Streaming");
         first.Stop();
-        agent.Stop();
+        host.Stop();
         return;
     }
 
@@ -435,7 +435,7 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
 
     Check(WaitFor(
               [&] {
-                  const auto rows = agent.Status();
+                  const auto rows = host.Status();
                   return !rows.empty() && rows[0].viewerCount == 2;
               },
               kStreamTimeoutMs),
@@ -467,7 +467,7 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
     first.Stop();
     Check(WaitFor(
               [&] {
-                  const auto rows = agent.Status();
+                  const auto rows = host.Status();
                   return !rows.empty() && rows[0].viewerCount == 1;
               },
               kStreamTimeoutMs),
@@ -481,7 +481,7 @@ void TestTwoViewersShareOneSourceAndOneEncoder() {
         "control passes to it, so its keys now reach the host");
 
     second.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestTheHostSurvivesAViewerThatVanishes() {
@@ -489,8 +489,8 @@ void TestTheHostSurvivesAViewerThatVanishes() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
         return;
     }
@@ -513,8 +513,8 @@ void TestTheHostSurvivesAViewerThatVanishes() {
         "and receives video of its own");
 
     second.Stop();
-    agent.Stop();
-    Check(!agent.running(), "and the host shuts down cleanly");
+    host.Stop();
+    Check(!host.running(), "and the host shuts down cleanly");
 }
 
 void TestPasscodeGatesTheStream() {
@@ -522,17 +522,17 @@ void TestPasscodeGatesTheStream() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920, "4726")) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920, "4726")) {
         Check(false, "the host could not start");
-        std::printf("  host error: %s\n", agent.LastError().c_str());
+        std::printf("  host error: %s\n", host.LastError().c_str());
         return;
     }
 
     {
         Viewer wrong;
         wrong.SetSurface(kDummySurface);
-        deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+        deskhubp::ScreenViewerConfig cfg = ViewerConfig(port, 0);
         cfg.passcode = "1111";
         StartViewer(wrong, cfg);
 
@@ -548,20 +548,20 @@ void TestPasscodeGatesTheStream() {
     {
         Viewer blank;
         blank.SetSurface(kDummySurface);
-        deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+        deskhubp::ScreenViewerConfig cfg = ViewerConfig(port, 0);
         cfg.passcode.clear();
         StartViewer(blank, cfg);
 
         std::vector<uint64_t> asks;
         Check(WaitFor(
                   [&] {
-                      const std::vector<uint64_t> got = agent.TakePairingRequests();
+                      const std::vector<uint64_t> got = host.TakePairingRequests();
                       asks.insert(asks.end(), got.begin(), got.end());
                       return !asks.empty();
                   },
                   kConnectTimeoutMs),
             "a viewer that sends no passcode is put to the person at the host");
-        if (!asks.empty()) agent.AnswerPairing(asks[0], false);
+        if (!asks.empty()) host.AnswerPairing(asks[0], false);
         Check(WaitFor([&] { return blank.phase() == deskhubp::ClientPhase::Ended; },
                   kConnectTimeoutMs),
             "and saying no turns it away");
@@ -572,7 +572,7 @@ void TestPasscodeGatesTheStream() {
     ResetObservations();
     Viewer right;
     right.SetSurface(kDummySurface);
-    deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+    deskhubp::ScreenViewerConfig cfg = ViewerConfig(port, 0);
     cfg.passcode = "4726";
     StartViewer(right, cfg);
 
@@ -582,7 +582,7 @@ void TestPasscodeGatesTheStream() {
         "and receives real video once past the gate");
 
     right.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestDiscoveryIsGatedByThePasscode() {
@@ -590,8 +590,8 @@ void TestDiscoveryIsGatedByThePasscode() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("DELL U2723QE", 1280, 720, 1)}, port, 30, 1920, "4726")) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("DELL U2723QE", 1280, 720, 1)}, port, 30, 1920, "4726")) {
         Check(false, "the host could not start");
         return;
     }
@@ -611,7 +611,7 @@ void TestDiscoveryIsGatedByThePasscode() {
     Check(sources.size() == 1 && sources[0].name == "DELL U2723QE",
         "and gets the real display list");
 
-    agent.Stop();
+    host.Stop();
 }
 
 void TestAHostWithoutAPasscodeServesNobody() {
@@ -619,15 +619,15 @@ void TestAHostWithoutAPasscodeServesNobody() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920, "")) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port, 30, 1920, "")) {
         Check(false, "the host could not start");
         return;
     }
 
     Viewer viewer;
     viewer.SetSurface(kDummySurface);
-    deskhubp::ClientEngineConfig cfg = ViewerConfig(port, 0);
+    deskhubp::ScreenViewerConfig cfg = ViewerConfig(port, 0);
     cfg.passcode = "0000";
     StartViewer(viewer, cfg);
 
@@ -640,7 +640,7 @@ void TestAHostWithoutAPasscodeServesNobody() {
         "and discovery gives up nothing either while the request is unanswered");
 
     viewer.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 void TestJunkDatagramsDoNotDisturbTheStream() {
@@ -648,8 +648,8 @@ void TestJunkDatagramsDoNotDisturbTheStream() {
     ResetObservations();
     const uint16_t port = NextTestPort();
 
-    fake::Agent agent;
-    if (!agent.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
+    fake::SharingHost host;
+    if (!host.Start({fake::Source("Display 1", 1280, 720, 1)}, port)) {
         Check(false, "the host could not start");
         return;
     }
@@ -688,10 +688,10 @@ void TestJunkDatagramsDoNotDisturbTheStream() {
     Check(WaitFor([&] { return fake::Decoded().frameCount() >= before + 3; }, kStreamTimeoutMs),
         "the viewer keeps decoding fresh frames through the noise");
     Check(Streaming(viewer), "the session is still Streaming");
-    Check(agent.running(), "the host is still running");
+    Check(host.running(), "the host is still running");
 
     viewer.Stop();
-    agent.Stop();
+    host.Stop();
 }
 
 }

@@ -220,6 +220,246 @@ void TestAStrangerIsStillAnsweredInThePlain() {
     host.Close();
 }
 
+struct Link {
+    deskhubp::SessionTransport host{};
+    deskhubp::SessionTransport viewer{};
+    NetAddr target{};
+
+    bool Open(const deskhubp::HostIdentity& identity, uint16_t port) {
+        host.SetRecvTimeout(1);
+        viewer.SetRecvTimeout(1);
+        deskhubp::QuicSettings hostSettings;
+        hostSettings.certPemPath = identity.certPath;
+        hostSettings.keyPemPath = identity.keyPath;
+        if (!host.Listen(hostSettings, port, "127.0.0.1")) return false;
+        target = NetAddr{0x7F000001u, port};
+        if (!viewer.Connect(deskhubp::QuicSettings{}, target, "deskhub-test")) return false;
+
+        uint8_t buf[deskhub::kMaxRecordSize];
+        NetAddr from;
+        for (int i = 0; i < kMaxRounds && !viewer.Established(target); ++i) {
+            viewer.RecvFrom(buf, sizeof(buf), from);
+            host.RecvFrom(buf, sizeof(buf), from);
+        }
+        return viewer.Established(target);
+    }
+
+    ~Link() {
+        host.Close();
+        viewer.Close();
+    }
+};
+
+size_t QueueFileBacklog(Link& link, int chunks, size_t payloadBytes) {
+    const std::vector<uint8_t> payload(payloadBytes, 0xA5);
+    std::vector<uint8_t> record(deskhub::kMaxRecordSize);
+    size_t queued = 0;
+    for (int i = 0; i < chunks; ++i) {
+        const size_t n =
+            deskhub::BuildFileChunk(record, 1, 0, uint64_t(i) * payloadBytes, payload);
+        if (n == 0) break;
+        if (!link.viewer.SendRecordOn(link.target, deskhubp::kQuicFileStream,
+                std::span<const uint8_t>(record.data(), n)))
+            break;
+        ++queued;
+    }
+    return queued;
+}
+
+deskhub::Chan ChanOf(const uint8_t* bytes, size_t len) {
+    const auto header = deskhub::ParseCommonHeader(std::span<const uint8_t>(bytes, len));
+    return header ? header->chan : deskhub::Chan::Control;
+}
+
+void TestAFileBacklogNeverDelaysTheStream() {
+    std::printf("[transport] a file backlog is braked, and live traffic passes it...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[transport] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    bool diskBusy = true;
+
+    const SavedIdentity guard;
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    Link link;
+    if (!link.Open(identity, uint16_t(kTestPort + 3))) return;
+    link.host.SetBulkReady([&diskBusy] { return !diskBusy; });
+
+    const size_t queued = QueueFileBacklog(link, 24, 512);
+    Check(queued == 24, "a viewer queues a deep run of file chunks");
+
+    uint8_t control[deskhub::kMaxDatagram];
+    const size_t controlSize = deskhub::BuildListSources(control);
+    Check(link.viewer.SendTo(link.target, control, controlSize),
+        "a control message follows the backlog onto the wire");
+
+    deskhub::VideoHeader vh{};
+    vh.frameId = 3;
+    vh.pktCount = 1;
+    uint8_t video[deskhub::kMaxDatagram];
+    const size_t videoSize =
+        deskhub::BuildVideoPacket(video, 77, vh, true, true, std::vector<uint8_t>(200, 0x11));
+    Check(link.viewer.SendTo(link.target, video, videoSize), "and so does a video packet");
+
+    uint8_t buf[deskhub::kMaxRecordSize];
+    NetAddr from;
+    bool sawControl = false;
+    bool sawVideo = false;
+    bool sawFile = false;
+    for (int i = 0; i < 2; ++i) {
+        const int got = PumpFor(link.host, link.viewer, buf, sizeof(buf), from);
+        if (got <= 0) break;
+        const deskhub::Chan chan = ChanOf(buf, size_t(got));
+        if (chan == deskhub::Chan::Control) sawControl = true;
+        if (chan == deskhub::Chan::Video) sawVideo = true;
+        if (chan == deskhub::Chan::File) sawFile = true;
+    }
+    Check(sawControl && sawVideo,
+        "both the control message and the video packet are read before anything else");
+    Check(!sawFile, "not one of the 24 file chunks was allowed to get in front of them");
+    Check(link.host.BulkQueued() == 0,
+        "and with the disk behind, nothing was pulled off the file stream at all, so the "
+        "sender is braked by QUIC flow control instead of the host growing a queue");
+
+    diskBusy = false;
+    const int backlog = PumpFor(link.host, link.viewer, buf, sizeof(buf), from);
+    Check(backlog > 0 && ChanOf(buf, size_t(backlog)) == deskhub::Chan::File,
+        "once the disk keeps up the file backlog is taken in");
+}
+
+void TestTheFileLaneNeverGrowsPastItsCap() {
+    std::printf("[transport] the file lane is capped, however hard a sender pushes...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[transport] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const SavedIdentity guard;
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    Link link;
+    if (!link.Open(identity, uint16_t(kTestPort + 4))) return;
+
+    uint8_t buf[deskhub::kMaxRecordSize];
+    NetAddr from;
+    size_t deepest = 0;
+    size_t delivered = 0;
+    size_t sent = 0;
+
+    for (int round = 0; round < 12; ++round) {
+        sent += QueueFileBacklog(link, 64, 4096);
+        for (int i = 0; i < 200; ++i) {
+            if (link.host.BulkQueued() > deepest) deepest = link.host.BulkQueued();
+            const int got = link.host.RecvFrom(buf, sizeof(buf), from);
+            if (got > 0 && ChanOf(buf, size_t(got)) == deskhub::Chan::File) ++delivered;
+            NetAddr ignored;
+            uint8_t drain[deskhub::kMaxRecordSize];
+            link.viewer.RecvFrom(drain, sizeof(drain), ignored);
+        }
+    }
+
+    Check(sent > deskhubp::kMaxBulkQueued * 2,
+        "the sender pushed far more chunks than the lane is allowed to hold");
+    Check(delivered > 0, "chunks did keep flowing through");
+    Check(deepest <= deskhubp::kMaxBulkQueued,
+        "yet the file lane never grew past its cap, so a slow consumer cannot be turned "
+        "into unbounded memory on the receiver");
+}
+
+void TestSendBurstsStayBounded() {
+    std::printf("[transport] no single flush dumps the whole congestion window...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[transport] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const SavedIdentity guard;
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    Link link;
+    if (!link.Open(identity, uint16_t(kTestPort + 5))) return;
+
+    uint8_t buf[deskhub::kMaxRecordSize];
+    NetAddr from;
+    size_t sent = 0;
+    size_t delivered = 0;
+
+    for (int round = 0; round < 16; ++round) {
+        sent += QueueFileBacklog(link, 64, deskhub::kMaxFileChunkBytes - 1);
+        for (int i = 0; i < 400; ++i) {
+            const int got = link.host.RecvFrom(buf, sizeof(buf), from);
+            if (got > 0 && ChanOf(buf, size_t(got)) == deskhub::Chan::File) ++delivered;
+            NetAddr ignored;
+            uint8_t drain[deskhub::kMaxRecordSize];
+            link.viewer.RecvFrom(drain, sizeof(drain), ignored);
+        }
+    }
+
+    const deskhubp::QuicSendStats stats = link.viewer.SendStats();
+    Check(delivered == sent, "every chunk the sender queued arrives");
+    Check(stats.packets > 0, "and a real amount of traffic crossed the wire");
+    Check(stats.maxBurst <= deskhubp::kMaxFlushBurst,
+        "yet no single flush wrote more than the burst cap, so a bulk transfer cannot "
+        "overrun a switch buffer in one go and take the live stream down with it");
+    Check(stats.capped > 0,
+        "and the cap really engaged, so this is measuring the brake, not an idle link");
+}
+
+void TestAudioRidesDatagramsNotTheControlStream() {
+    std::printf("[transport] audio crosses as a datagram, never on the reliable stream...\n");
+    if (!deskhubp::QuicAvailable()) {
+        std::printf("[transport] skipped: this build has no QUIC library\n");
+        return;
+    }
+
+    const SavedIdentity guard;
+    deskhubp::ForgetHostIdentity();
+    const deskhubp::HostIdentity identity = deskhubp::LoadOrCreateHostIdentity("deskhub-test");
+    if (!identity.Valid()) return;
+
+    Link link;
+    if (!link.Open(identity, uint16_t(kTestPort + 6))) return;
+
+    const deskhubp::QuicSendStats before = link.viewer.SendStats();
+
+    const std::vector<uint8_t> opus(180, 0x3C);
+    const deskhub::AudioHeader ah{9, 2'000'000};
+    uint8_t audio[deskhub::kMaxDatagram];
+    const size_t audioSize = deskhub::BuildAudioPacket(audio, 4321, ah, opus);
+    Check(audioSize > 0, "an audio packet is built");
+    Check(link.viewer.SendTo(link.target, audio, audioSize), "the transport accepts it");
+
+    const deskhubp::QuicSendStats afterAudio = link.viewer.SendStats();
+    Check(afterAudio.datagrams == before.datagrams + 1,
+        "it went out as one QUIC datagram, the way a lost frame is meant to stay lost");
+    Check(afterAudio.streamBytes == before.streamBytes,
+        "and not one byte of it was written to the reliable control stream, where a single "
+        "loss would hold every later frame behind a retransmit");
+
+    uint8_t buf[deskhub::kMaxRecordSize];
+    NetAddr from;
+    const int got = PumpFor(link.host, link.viewer, buf, sizeof(buf), from);
+    Check(got == int(audioSize) && std::equal(audio, audio + audioSize, buf),
+        "and it arrives whole");
+
+    uint8_t control[deskhub::kMaxDatagram];
+    const size_t controlSize = deskhub::BuildListSources(control);
+    Check(link.viewer.SendTo(link.target, control, controlSize), "a control message follows");
+    const deskhubp::QuicSendStats afterControl = link.viewer.SendStats();
+    Check(afterControl.datagrams == afterAudio.datagrams,
+        "control traffic did not take the datagram path");
+    Check(afterControl.streamBytes > afterAudio.streamBytes,
+        "it took the reliable stream, so the split is by channel and nothing else");
+}
+
 void TestAnUnopenedTransportIsHarmless() {
     std::printf("[transport] a transport that never opened refuses everything quietly...\n");
     deskhubp::SessionTransport idle;
@@ -278,6 +518,10 @@ void RunSessionTransportTests() {
     TestControlTravelsOnAStream();
     TestVideoRidesEncryptedDatagrams();
     TestAStrangerIsStillAnsweredInThePlain();
+    TestAFileBacklogNeverDelaysTheStream();
+    TestTheFileLaneNeverGrowsPastItsCap();
+    TestSendBurstsStayBounded();
+    TestAudioRidesDatagramsNotTheControlStream();
     TestAnUnopenedTransportIsHarmless();
     TestAnIdleTransportWaitsInsteadOfSpinning();
 }

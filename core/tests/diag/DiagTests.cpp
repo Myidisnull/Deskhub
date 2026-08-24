@@ -1,8 +1,8 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/diag/AgentDiag.h"
-#include "deskhub/diag/ClientDiag.h"
+#include "deskhub/diag/ShareDiag.h"
+#include "deskhub/diag/ScreenClientDiag.h"
 
 #include <cstdio>
 #include <cstring>
@@ -86,10 +86,10 @@ LinkWindow MakeWindow() {
 void TestClientSum() {
     std::printf("[diag] client evt=sum: per-platform fields, read-and-clear...\n");
     const LinkWindow w = MakeWindow();
-    char buf[ClientDiag::kSumBufBytes];
+    char buf[ScreenClientDiag::kSumBufBytes];
 
     {
-        ClientDiag d;
+        ScreenClientDiag d;
         d.asmMs.Add(4);
         d.asmMs.Add(6);
         d.decMs.Add(12);
@@ -119,7 +119,7 @@ void TestClientSum() {
     }
 
     {
-        ClientDiag d(ClientDiagCaps{true, false});
+        ScreenClientDiag d(ScreenClientDiagCaps{true, false});
         d.presentMs.Add(16);
         d.FormatSum(buf, sizeof(buf), "01:02:03", w, 0, 0);
         Check(Has(buf, "present_ms=16.0/16"), "client evt=sum: Windows has present_ms");
@@ -127,7 +127,7 @@ void TestClientSum() {
     }
 
     {
-        ClientDiag d(ClientDiagCaps{false, true});
+        ScreenClientDiag d(ScreenClientDiagCaps{false, true});
         d.dispDrop.Add(4);
         d.FormatSum(buf, sizeof(buf), "01:02:03", w, 0, 0);
         Check(Has(buf, "disp_drop=4"), "client evt=sum: Apple/Android has disp_drop");
@@ -138,8 +138,8 @@ void TestClientSum() {
 void TestClientStatus() {
     std::printf("[diag] client: the once-a-second status line...\n");
     const LinkWindow w = MakeWindow();
-    char buf[ClientDiag::kStatusBufBytes];
-    ClientDiag::FormatStatus(buf, sizeof(buf), "08:30:00", w, 2400, 17'000);
+    char buf[ScreenClientDiag::kStatusBufBytes];
+    ScreenClientDiag::FormatStatus(buf, sizeof(buf), "08:30:00", w, 2400, 17'000);
     Check(Has(buf, "[Client t=08:30:00]"), "client status: timestamp in the prefix");
     Check(Has(buf, "59 fps"), "client status: fps");
     Check(Has(buf, "dropped 3 frame"), "client status: dropped frames");
@@ -148,7 +148,7 @@ void TestClientStatus() {
     Check(Has(buf, "RTT 2.4 ms"), "client status: latest RTT in ms");
     Check(Has(buf, "e2e ~17.0 ms"), "client status: e2e");
 
-    ClientDiag::FormatStatus(buf, sizeof(buf), "08:30:01", w, 0, -1);
+    ScreenClientDiag::FormatStatus(buf, sizeof(buf), "08:30:01", w, 0, -1);
     Check(Has(buf, "e2e ~0.0 ms"), "client status: e2e with no samples prints as 0");
 }
 
@@ -178,12 +178,12 @@ void TestSourceDiag() {
     }
 
     {
-        SourceDiag mac(AgentDiagCaps{true, false});
+        SourceDiag mac(ShareDiagCaps{true, false});
         mac.FormatSum(buf, sizeof(buf), "01:02:03", "Built-in", 42, true);
         Check(Has(buf, "cap_idle=42"), "source evt=sum: macOS has cap_idle");
         Check(!Has(buf, "zerocopy"), "source evt=sum: macOS has NO zerocopy");
 
-        SourceDiag ubu(AgentDiagCaps{false, true});
+        SourceDiag ubu(ShareDiagCaps{false, true});
         ubu.FormatSum(buf, sizeof(buf), "01:02:03", "HDMI-1", 42, false);
         Check(Has(buf, "zerocopy=0"), "source evt=sum: Ubuntu has zerocopy, printing a real 0");
         Check(!Has(buf, "cap_idle"), "source evt=sum: Ubuntu has NO cap_idle");
@@ -221,12 +221,12 @@ void TestAgentStatus() {
     w.inputSkipped = 4;
 
     SourceDiag::FormatStatus(buf, sizeof(buf), "08:30:00", "Screen 1", "STREAMING", w, {});
-    Check(Has(buf, "[Agent t=08:30:00][Screen 1]"), "agent status: prefix + timestamp + source name");
-    Check(Has(buf, "STREAMING"), "agent status: session state");
-    Check(Has(buf, "capture 60 fps"), "agent status: capture rate");
-    Check(Has(buf, "send 59 fps, 8000 kbps"), "agent status: send rate");
-    Check(Has(buf, "input 120 (lost 1, skipped 4)"), "agent status: the three input counters");
-    Check(Has(buf, "| client -"), "agent status: prints a dash when there is no feedback yet");
+    Check(Has(buf, "[Host t=08:30:00][Screen 1]"), "host status: prefix + timestamp + source name");
+    Check(Has(buf, "STREAMING"), "host status: session state");
+    Check(Has(buf, "capture 60 fps"), "host status: capture rate");
+    Check(Has(buf, "send 59 fps, 8000 kbps"), "host status: send rate");
+    Check(Has(buf, "input 120 (lost 1, skipped 4)"), "host status: the three input counters");
+    Check(Has(buf, "| client -"), "host status: prints a dash when there is no feedback yet");
 
     SourceDiag::LinkView link;
     link.have = true;
@@ -235,27 +235,27 @@ void TestAgentStatus() {
     link.recvKbps = 7600;
     SourceDiag::FormatStatus(buf, sizeof(buf), "08:30:01", "Screen 1", "STREAMING", w, link);
     Check(Has(buf, "| client loss 3%, RTT 12 ms, recv 7600 kbps"),
-        "agent status: with feedback it prints the other end numbers");
+        "host status: with feedback it prints the other end numbers");
 }
 
-void TestAgentLoopSum() {
+void TestSharingHostSum() {
     std::printf("[diag] host evt=sum: Recv loop health...\n");
-    AgentDiag a;
-    char buf[AgentDiag::kSumBufBytes];
+    ShareDiag a;
+    char buf[ShareDiag::kSumBufBytes];
     a.loopBusyMs.Add(180);
     a.FormatSum(buf, sizeof(buf), "01:02:03");
-    Check(Has(buf, "[DIAG][agent] evt=sum t=01:02:03 loop_busy_ms_max=180"),
-        "agent evt=sum: Recv loop health");
+    Check(Has(buf, "[DIAG][host] evt=sum t=01:02:03 loop_busy_ms_max=180"),
+        "host evt=sum: Recv loop health");
     a.FormatSum(buf, sizeof(buf), "01:02:04");
-    Check(Has(buf, "loop_busy_ms_max=0"), "agent evt=sum: read-and-clear");
+    Check(Has(buf, "loop_busy_ms_max=0"), "host evt=sum: read-and-clear");
 }
 
 void TestClientCompact() {
     std::printf("[diag] client compact line: the short form the UI overlays...\n");
     const LinkWindow w = MakeWindow();
-    char buf[ClientDiag::kCompactBufBytes];
+    char buf[ScreenClientDiag::kCompactBufBytes];
 
-    ClientDiag::FormatCompact(buf, sizeof(buf), w, 2400, 17'000);
+    ScreenClientDiag::FormatCompact(buf, sizeof(buf), w, 2400, 17'000);
     Check(Has(buf, "59 fps"), "compact: fps");
     Check(Has(buf, "8.0 Mbps"), "compact: bitrate in Mbps, not kbps");
     Check(Has(buf, "loss 2.5%"), "compact: loss");
@@ -263,7 +263,7 @@ void TestClientCompact() {
     Check(Has(buf, "e2e 17 ms"), "compact: e2e");
     Check(Has(buf, "fps  8.0"), "compact: the default separator is two spaces");
 
-    ClientDiag::FormatCompact(buf, sizeof(buf), w, 0, -1, " | ");
+    ScreenClientDiag::FormatCompact(buf, sizeof(buf), w, 0, -1, " | ");
     Check(Has(buf, "fps | "), "compact: a custom separator is used");
     Check(Has(buf, "e2e 0 ms"), "compact: e2e with no samples prints as 0");
 }
@@ -284,9 +284,9 @@ Reassembler::FrameDropInfo MakeDrop(Reassembler::DropReason reason, uint16_t mis
 
 void TestFrameDropLine() {
     std::printf("[diag] evt=frame_drop: reason names and where the hole sits...\n");
-    char buf[ClientDiag::kFrameDropBufBytes];
+    char buf[ScreenClientDiag::kFrameDropBufBytes];
 
-    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+    ScreenClientDiag::FormatFrameDrop(buf, sizeof(buf),
         MakeDrop(Reassembler::DropReason::Timeout, 2, 10, 3, 5));
     Check(Has(buf, "evt=frame_drop id=42"), "frame_drop: the frame id is named");
     Check(Has(buf, "reason=timeout"), "frame_drop: timeout is spelled out");
@@ -295,28 +295,28 @@ void TestFrameDropLine() {
     Check(Has(buf, "waited_ms=33"), "frame_drop: how long we waited");
     Check(Has(buf, "got_bytes=900"), "frame_drop: how much did arrive");
 
-    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+    ScreenClientDiag::FormatFrameDrop(buf, sizeof(buf),
         MakeDrop(Reassembler::DropReason::Overtaken, 1, 8, 0, 0));
     Check(Has(buf, "reason=overtaken") && Has(buf, "pos=head"),
         "frame_drop: a missing first packet reads as head");
 
-    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+    ScreenClientDiag::FormatFrameDrop(buf, sizeof(buf),
         MakeDrop(Reassembler::DropReason::Evicted, 1, 8, 7, 7));
     Check(Has(buf, "reason=evicted") && Has(buf, "pos=tail"),
         "frame_drop: a missing last packet reads as tail");
 
-    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+    ScreenClientDiag::FormatFrameDrop(buf, sizeof(buf),
         MakeDrop(Reassembler::DropReason::PreIdr, 8, 8, 0, 7));
     Check(Has(buf, "reason=pre_idr") && Has(buf, "pos=all"),
         "frame_drop: nothing arrived reads as all");
 
     Reassembler::FrameDropInfo none = MakeDrop(Reassembler::DropReason::Timeout, 0, 4, 0, 0);
     none.idr = true;
-    ClientDiag::FormatFrameDrop(buf, sizeof(buf), none);
+    ScreenClientDiag::FormatFrameDrop(buf, sizeof(buf), none);
     Check(Has(buf, "pos=-"), "frame_drop: no hole prints a dash");
     Check(Has(buf, "idr=1"), "frame_drop: an IDR drop is flagged");
 
-    ClientDiag::FormatFrameDrop(buf, sizeof(buf),
+    ScreenClientDiag::FormatFrameDrop(buf, sizeof(buf),
         MakeDrop(Reassembler::DropReason(9), 1, 4, 1, 1));
     Check(Has(buf, "reason=?"), "frame_drop: an unknown reason never indexes off the table");
 }
@@ -349,10 +349,10 @@ void TestKeyframeRequestLog() {
 
 void TestStateNameAndSourceRate() {
     std::printf("[diag] StateName + SourceRate windows...\n");
-    Check(Has(StateName(HostSession::State::Idle), "IDLE"), "StateName: Idle");
-    Check(Has(StateName(HostSession::State::Ready), "READY"), "StateName: Ready");
-    Check(Has(StateName(HostSession::State::Streaming), "STREAMING"), "StateName: Streaming");
-    Check(Has(StateName(HostSession::State(200)), "?"), "StateName: garbage prints ?");
+    Check(Has(StateName(ScreenHostSession::State::Idle), "IDLE"), "StateName: Idle");
+    Check(Has(StateName(ScreenHostSession::State::Ready), "READY"), "StateName: Ready");
+    Check(Has(StateName(ScreenHostSession::State::Streaming), "STREAMING"), "StateName: Streaming");
+    Check(Has(StateName(ScreenHostSession::State(200)), "?"), "StateName: garbage prints ?");
 
     SourceRate rate;
     SourceRate::Window w = rate.Close(60, 60, 1'000'000, 10'000'000);
@@ -372,7 +372,7 @@ void TestStateNameAndSourceRate() {
 
 void TestZeroCapacityBuffers() {
     std::printf("[diag] a zero-byte buffer is legal and writes nothing...\n");
-    ClientDiag d;
+    ScreenClientDiag d;
     char one = 0x55;
     Check(d.FormatSum(&one, 0, "01:02:03", MakeWindow(), 0, 0) == &one,
         "client evt=sum: cap=0 returns without writing");
@@ -396,7 +396,7 @@ void TestTruncation() {
     } g;
     std::memset(&g, 0x7E, sizeof(g));
 
-    ClientDiag d;
+    ScreenClientDiag d;
     d.FormatSum(g.buf, sizeof(g.buf), "01:02:03", MakeWindow(), 0, 0);
     Check(std::strlen(g.buf) < sizeof(g.buf), "truncation: the string always terminates inside the buffer");
     bool intact = true;
@@ -423,7 +423,7 @@ void RunDiagTests() {
     TestSourceDiag();
     TestSourceIdr();
     TestAgentStatus();
-    TestAgentLoopSum();
+    TestSharingHostSum();
     TestClientCompact();
     TestFrameDropLine();
     TestKeyframeRequestLog();

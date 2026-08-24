@@ -238,6 +238,10 @@ inline constexpr const char* kShareNoQuicLibrary =
 inline constexpr const char* kShareNoHostIdentity =
     "This machine could not create the key it identifies itself with, so it cannot share.";
 inline constexpr const char* kOpenChoiceGroup = "What to open on that machine";
+inline constexpr const char* kConnectedPickSession =
+    "Connected \xE2\x80\x94 choose what to open.";
+inline constexpr const char* kConnectFirstHint =
+    "Connect first \xE2\x80\x94 each button lights up only with what that machine shares.";
 inline constexpr const char* kOpenDesktopLabel = "Remote desktop \xE2\x80\x94 view its screen";
 inline constexpr const char* kOpenShellLabel = "Terminal \xE2\x80\x94 open a shell";
 inline constexpr const char* kOpenNothingTicked =
@@ -265,6 +269,83 @@ inline constexpr const char* kTerminalNoSuchSession =
 inline constexpr const char* kTerminalUnreachable = "Could not reach that machine.";
 inline constexpr const char* kTerminalReattaching = "Connection lost \xE2\x80\x94 reattaching\xE2\x80\xA6";
 inline constexpr const char* kTerminalReattached = "Reattached to the shell you had open.";
+
+inline constexpr const char* kTransferConnecting = "Connecting\xE2\x80\xA6";
+inline constexpr const char* kTransferSending = "Sending\xE2\x80\xA6";
+inline constexpr const char* kTransferDone = "Every file arrived.";
+inline constexpr const char* kTransferNotAccepting =
+    "That machine is not taking files right now.";
+inline constexpr const char* kTransferBusy = "That machine is already taking files from here.";
+inline constexpr const char* kTransferTooManyFiles = "That is more files than one batch carries.";
+inline constexpr const char* kTransferTooLarge = "That machine has no room for this much.";
+inline constexpr const char* kTransferBadName = "One of those names cannot be stored.";
+inline constexpr const char* kTransferWriteFailed = "That machine could not write the file.";
+inline constexpr const char* kTransferCorrupt =
+    "A file arrived damaged and was thrown away, so the batch stopped.";
+inline constexpr const char* kTransferCancelled = "The transfer was stopped.";
+inline constexpr const char* kTransferLinkLost = "The connection went before the files did.";
+inline constexpr const char* kTransferReadFailed = "A file could not be read from this machine.";
+inline constexpr const char* kTransferHostNotTaking =
+    "That machine is not taking files \xE2\x80\x94 it was not started with file transfer on.";
+inline constexpr const char* kFilesSourceName = "File transfer";
+inline std::string NoDisplaySharedNote(bool terminal, bool files) {
+    if (terminal && files) return "No display is shared - only the shell and file transfer.";
+    if (files) return "No display is shared - only file transfer.";
+    return "No display is shared - only the shell.";
+}
+
+inline constexpr const char* kOpenFilesLabel =
+    "File transfer \xE2\x80\x94 send files to it";
+inline constexpr const char* kFilesPickerLabel =
+    "File transfer \xE2\x80\x94 files viewers send";
+inline constexpr const char* kTransferHeading = "Files viewers send";
+inline constexpr const char* kTransferSendHeading = "Send files to this machine";
+inline constexpr const char* kTransferNoneChosen = "No file chosen yet.";
+inline constexpr const char* kTransferSentHeading = "Sent from this window";
+inline constexpr const char* kTransferBusyNote =
+    "One batch at a time \xE2\x80\x94 wait for this one to finish.";
+inline constexpr const char* kTransferChooseButton = "Choose files\xE2\x80\xA6";
+inline constexpr const char* kTransferCancelButton = "Stop sending";
+inline constexpr const char* kTransferAcceptLabel = "Take files viewers send";
+inline constexpr const char* kTransferBlocksScreenNote =
+    "Stop taking files to share the screen \xE2\x80\x94 this phone hosts one or the other.";
+inline constexpr const char* kTransferArrivedTitle = "Files received";
+inline constexpr const char* kTransferStopTakingButton = "Stop taking files";
+inline constexpr const char* kTransferFolderLabel = "Store them in";
+
+inline std::string TransferFolderNote(std::string_view folder) {
+    return "Files viewers send land in " + std::string(folder) + ".";
+}
+
+inline std::string TransferFolderUnusable(std::string_view folder) {
+    return "Taking no files: they cannot be stored in " + std::string(folder) + ".";
+}
+
+inline const char* TransferReasonText(TransferReason reason) {
+    switch (reason) {
+        case TransferReason::Accepted: return kTransferDone;
+        case TransferReason::NotAccepting: return kTransferNotAccepting;
+        case TransferReason::Busy: return kTransferBusy;
+        case TransferReason::TooManyFiles: return kTransferTooManyFiles;
+        case TransferReason::TooLarge: return kTransferTooLarge;
+        case TransferReason::BadName: return kTransferBadName;
+        case TransferReason::WriteFailed: return kTransferWriteFailed;
+        case TransferReason::Corrupt: return kTransferCorrupt;
+        case TransferReason::Cancelled: return kTransferCancelled;
+        case TransferReason::LinkLost: return kTransferLinkLost;
+        case TransferReason::ReadFailed: return kTransferReadFailed;
+    }
+    return kTransferLinkLost;
+}
+
+inline std::string TransferProgressLine(std::string_view name, uint16_t index, uint16_t count,
+    uint64_t bytes, uint64_t total) {
+    std::string out = "[" + std::to_string(index + 1) + "/" + std::to_string(count) + "] ";
+    out += name.empty() ? std::string("\xE2\x80\xA6") : std::string(name);
+    if (total == 0) return out;
+    out += "  " + std::to_string(bytes * 100 / total) + "%";
+    return out;
+}
 
 inline constexpr const char* kTrustNewHostTitle = "Is this the right machine?";
 inline constexpr const char* kTrustNewHostBody =
@@ -388,11 +469,21 @@ inline std::string SharingStatusLine(uint16_t port) {
            " - others can connect to this machine now.";
 }
 
-inline std::string ShareSummaryLine(bool screen, bool terminal, uint16_t port) {
-    if (!screen && !terminal) return {};
-    std::string what = screen ? "Screen" : "";
-    if (terminal) what += screen ? " \xC2\xB7 Terminal" : "Terminal";
+inline std::string ShareSummaryLine(bool screen, bool terminal, bool files, uint16_t port) {
+    if (!screen && !terminal && !files) return {};
+    std::string what;
+    const auto add = [&what](const char* name) {
+        if (!what.empty()) what += " \xC2\xB7 ";
+        what += name;
+    };
+    if (screen) add("Screen");
+    if (terminal) add("Terminal");
+    if (files) add("Files");
     return what + " on UDP port " + std::to_string(port) + ".";
+}
+
+inline std::string ShareSummaryLine(bool screen, bool terminal, uint16_t port) {
+    return ShareSummaryLine(screen, terminal, false, port);
 }
 
 inline std::string PasscodeNote(std::string_view passcode) {

@@ -94,6 +94,10 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     gtk_window_set_title(GTK_WINDOW(window_), baseTitle_.c_str());
     gtk_window_set_default_size(GTK_WINDOW(window_), kInitialW, kInitialH);
 
+    GtkWidget* header = gtk_header_bar_new();
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header), TRUE);
+    gtk_window_set_titlebar(GTK_WINDOW(window_), header);
+
     glArea_ = gtk_gl_area_new();
     gtk_gl_area_set_has_depth_buffer(GTK_GL_AREA(glArea_), FALSE);
     gtk_gl_area_set_has_stencil_buffer(GTK_GL_AREA(glArea_), FALSE);
@@ -120,7 +124,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     uint32_t sw = 0, sh = 0;
     LargestScreenPixels(window_, sw, sh);
 
-    deskhubp::ClientEngineConfig cfg;
+    deskhubp::ScreenViewerConfig cfg;
     cfg.server = server;
     cfg.sourceId = sourceId;
     cfg.screenW = sw;
@@ -264,7 +268,11 @@ gboolean ViewerWindow::OnRender(GtkGLArea* area, GdkGLContext*, gpointer user) {
     return TRUE;
 }
 
-gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer) {
+gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer user) {
+    auto* self = static_cast<ViewerWindow*>(user);
+    const uint64_t serial = self->renderer_.FrameSerial();
+    if (serial == self->queuedFrameSerial_) return G_SOURCE_CONTINUE;
+    self->queuedFrameSerial_ = serial;
     gtk_gl_area_queue_render(GTK_GL_AREA(w));
     return G_SOURCE_CONTINUE;
 }

@@ -39,6 +39,22 @@ bool CarriesVideo(std::span<const uint8_t> message) {
     return header.has_value() && header->chan == deskhub::Chan::Video;
 }
 
+bool CarriesAudio(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    return header.has_value() && header->chan == deskhub::Chan::Audio;
+}
+
+Lane LaneOf(std::span<const uint8_t> message) {
+    const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
+    if (!header) return Lane::Interactive;
+    switch (header->chan) {
+        case deskhub::Chan::Video:
+        case deskhub::Chan::Audio: return Lane::Realtime;
+        case deskhub::Chan::File: return Lane::Bulk;
+        default: return Lane::Interactive;
+    }
+}
+
 bool IsBeaconMessage(std::span<const uint8_t> message) {
     const std::optional<deskhub::CommonHeader> header = deskhub::ParseCommonHeader(message);
     if (!header) return false;
@@ -69,6 +85,12 @@ QuicCallbacks SessionTransport::MakeCallbacks() {
     hooks.onForeignDatagram = [this](const NetAddr& from, std::span<const uint8_t> bytes) {
         Deliver(from, bytes, false);
     };
+    hooks.pauseStream = [this](uint64_t stream) {
+        return stream == kQuicFileStream && BulkBlocked();
+    };
+    hooks.onStreamBroken = [this](QuicConnId conn, uint64_t stream) {
+        brokenStreams_.emplace_back(NetAddr::Unpack(conn), stream);
+    };
     hooks.onClosed = [this](QuicConnId conn, const NetAddr& peer) {
         for (auto it = framers_.begin(); it != framers_.end();) {
             if ((it->first ^ (it->first >> 48 << 48)) == conn)
@@ -83,28 +105,37 @@ QuicCallbacks SessionTransport::MakeCallbacks() {
 
 bool SessionTransport::Listen(const QuicSettings& settings, uint16_t port,
     const std::string& bindIp) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.Listen(settings, bindIp, port, MakeCallbacks());
 }
 
 bool SessionTransport::Connect(const QuicSettings& settings, const NetAddr& server,
     std::string_view serverName) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.Connect(settings, server, serverName, MakeCallbacks());
 }
 
 bool SessionTransport::WaitEstablished(const NetAddr& peer, uint32_t timeoutMs) {
     const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
-    while (NowUs() < deadline) {
-        if (endpoint_.Established(peer.Pack())) return true;
-        endpoint_.Poll(NowUs(), kEstablishPollMs);
+    for (;;) {
+        {
+            const std::lock_guard<std::mutex> lock(sendMutex_);
+            endpoint_.Poll(NowUs(), 0);
+            if (endpoint_.Established(peer.Pack())) return true;
+        }
+        if (NowUs() >= deadline) return false;
+        endpoint_.WaitReadable(kEstablishPollMs);
     }
-    return endpoint_.Established(peer.Pack());
 }
 
 void SessionTransport::Close() {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     endpoint_.Close();
     framers_.clear();
-    inbox_.clear();
+    for (std::deque<TransportMessage>& lane : inbox_) lane.clear();
+    bulkDepth_.store(0, std::memory_order_relaxed);
     authInbox_.clear();
+    brokenStreams_.clear();
     hostAuth_.clear();
     authenticated_.clear();
 }
@@ -124,6 +155,21 @@ VideoPath SessionTransport::videoPath() const {
 
 void SessionTransport::SetOnPeerGone(std::function<void(const NetAddr&)> fn) {
     onPeerGone_ = std::move(fn);
+}
+
+void SessionTransport::SetOnStreamBroken(
+    std::function<void(const NetAddr&, uint64_t streamId)> fn) {
+    onStreamBroken_ = std::move(fn);
+}
+
+void SessionTransport::ReportBrokenStreams() {
+    std::vector<std::pair<NetAddr, uint64_t>> broken;
+    {
+        const std::lock_guard<std::mutex> lock(sendMutex_);
+        broken.swap(brokenStreams_);
+    }
+    if (!onStreamBroken_) return;
+    for (const auto& [peer, stream] : broken) onStreamBroken_(peer, stream);
 }
 
 void SessionTransport::OnStream(QuicConnId conn, uint64_t stream,
@@ -163,7 +209,49 @@ void SessionTransport::Deliver(const NetAddr& from, std::span<const uint8_t> mes
     TransportMessage queued;
     queued.from = from;
     queued.bytes.assign(message.begin(), message.end());
-    inbox_.push_back(std::move(queued));
+    const Lane lane = LaneOf(message);
+    inbox_[size_t(lane)].push_back(std::move(queued));
+    if (lane == Lane::Bulk)
+        bulkDepth_.store(inbox_[size_t(Lane::Bulk)].size(), std::memory_order_relaxed);
+}
+
+void SessionTransport::SetBulkReady(std::function<bool()> fn) {
+    bulkReady_ = std::move(fn);
+}
+
+size_t SessionTransport::BulkQueued() const {
+    return bulkDepth_.load(std::memory_order_relaxed);
+}
+
+bool SessionTransport::BulkBlocked() const {
+    if (inbox_[size_t(Lane::Bulk)].size() >= kMaxBulkQueued) return true;
+    return bulkReady_ && !bulkReady_();
+}
+
+bool SessionTransport::BulkServable() const {
+    if (inbox_[size_t(Lane::Bulk)].empty()) return false;
+    return !bulkReady_ || bulkReady_();
+}
+
+bool SessionTransport::AnythingServable() const {
+    return !inbox_[size_t(Lane::Realtime)].empty() ||
+           !inbox_[size_t(Lane::Interactive)].empty() || BulkServable();
+}
+
+std::deque<TransportMessage>* SessionTransport::NextLane() {
+    const bool bulkDue = sinceBulkPop_ >= kBulkEveryNthPop;
+    if (bulkDue && BulkServable()) {
+        sinceBulkPop_ = 0;
+        return &inbox_[size_t(Lane::Bulk)];
+    }
+    for (const Lane lane : {Lane::Realtime, Lane::Interactive}) {
+        if (inbox_[size_t(lane)].empty()) continue;
+        ++sinceBulkPop_;
+        return &inbox_[size_t(lane)];
+    }
+    if (!BulkServable()) return nullptr;
+    sinceBulkPop_ = 0;
+    return &inbox_[size_t(Lane::Bulk)];
 }
 
 bool SessionTransport::HandleHostAuth(const NetAddr& from, std::span<const uint8_t> message) {
@@ -247,7 +335,7 @@ void SessionTransport::SettleHostAuth(const NetAddr& peer, HostAuth& auth,
 
 void SessionTransport::SendAuth(const NetAddr& to, std::span<const uint8_t> message) {
     if (message.empty()) return;
-    SendReliable(to, message);
+    SendReliable(to, kQuicControlStream, message);
 }
 
 void SessionTransport::SetHostAuth(HostAuthConfig config, TransportAuthCallbacks callbacks) {
@@ -257,19 +345,23 @@ void SessionTransport::SetHostAuth(HostAuthConfig config, TransportAuthCallbacks
 }
 
 void SessionTransport::ApproveConnection(const NetAddr& peer, bool allowed) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     const auto at = hostAuth_.find(peer.Pack());
     if (at == hostAuth_.end()) return;
     SettleHostAuth(peer, *at->second, at->second->Approve(allowed, NowUnix()));
 }
 
 bool SessionTransport::Authenticated(const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     const auto at = authenticated_.find(peer.Pack());
     return at != authenticated_.end() && at->second;
 }
 
 bool SessionTransport::PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp,
     std::string& name) const {
-    if (!Authenticated(peer)) return false;
+    const std::lock_guard<std::mutex> lock(sendMutex_);
+    const auto authed = authenticated_.find(peer.Pack());
+    if (authed == authenticated_.end() || !authed->second) return false;
     const auto at = hostAuth_.find(peer.Pack());
     if (at == hostAuth_.end()) return false;
     fp = at->second->PeerFingerprint();
@@ -278,13 +370,24 @@ bool SessionTransport::PeerAuth(const NetAddr& peer, deskhub::Fingerprint& fp,
 }
 
 bool SessionTransport::SendRecord(const NetAddr& to, std::span<const uint8_t> message) {
+    return SendRecordOn(to, kQuicControlStream, message);
+}
+
+bool SessionTransport::SendRecordOn(const NetAddr& to, uint64_t streamId,
+    std::span<const uint8_t> message) {
     const std::lock_guard<std::mutex> lock(sendMutex_);
     if (!endpoint_.Established(to.Pack())) return false;
-    return SendReliable(to, message);
+    return SendReliable(to, streamId, message);
+}
+
+bool SessionTransport::SendKeepalive(const NetAddr& peer) {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
+    return endpoint_.SendKeepalive(peer.Pack());
 }
 
 bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig config,
-    uint32_t timeoutMs, deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode) {
+    uint32_t timeoutMs, deskhub::AuthResultCode& outCode, bool& outHostProvedPasscode,
+    const std::atomic<bool>* cancel) {
     clientAuthOn_ = true;
     outCode = deskhub::AuthResultCode::NotPaired;
     outHostProvedPasscode = false;
@@ -295,11 +398,15 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
     std::vector<uint8_t> out(deskhub::kMaxRecordSize);
     out.resize(deskhub::BuildAuthStart(out, client.Begin()));
     if (out.empty()) return false;
-    SendAuth(server, out);
+    {
+        const std::lock_guard<std::mutex> lock(sendMutex_);
+        SendAuth(server, out);
+    }
 
     const uint64_t deadline = NowUs() + uint64_t(timeoutMs) * 1000;
     bool answered = false;
     while (NowUs() < deadline) {
+        if (cancel != nullptr && cancel->load(std::memory_order_acquire)) break;
         if (authInbox_.empty()) {
             const std::lock_guard<std::mutex> lock(sendMutex_);
             endpoint_.Poll(NowUs(), kAuthPollMs);
@@ -334,7 +441,10 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
             }
             std::vector<uint8_t> reply(deskhub::kMaxRecordSize);
             reply.resize(deskhub::BuildAuthResponse(reply, *response));
-            SendAuth(server, reply);
+            {
+                const std::lock_guard<std::mutex> lock(sendMutex_);
+                SendAuth(server, reply);
+            }
             answered = true;
             continue;
         }
@@ -354,11 +464,12 @@ bool SessionTransport::RunClientAuth(const NetAddr& server, ClientAuthConfig con
     return false;
 }
 
-bool SessionTransport::SendReliable(const NetAddr& to, std::span<const uint8_t> message) {
+bool SessionTransport::SendReliable(const NetAddr& to, uint64_t streamId,
+    std::span<const uint8_t> message) {
     std::vector<uint8_t> record(deskhub::kRecordPrefixSize + message.size());
     const size_t written = deskhub::BuildRecord(record, message);
     if (written == 0) return false;
-    return endpoint_.SendStream(to.Pack(), kQuicControlStream,
+    return endpoint_.SendStream(to.Pack(), streamId,
         std::span<const uint8_t>(record.data(), written));
 }
 
@@ -373,20 +484,24 @@ bool SessionTransport::SendTo(const NetAddr& to, const uint8_t* data, size_t len
 
     const std::lock_guard<std::mutex> lock(sendMutex_);
     if (!endpoint_.Established(to.Pack())) return endpoint_.SendRaw(to, message);
-    return SendReliable(to, message);
+    if (CarriesAudio(message)) return endpoint_.SendDatagram(to.Pack(), message);
+    return SendReliable(to, kQuicControlStream, message);
 }
 
 int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
     if (!endpoint_.IsOpen()) return -1;
-    if (inbox_.empty()) {
+    if (!AnythingServable()) {
         endpoint_.WaitReadable(recvWaitMs_);
         const std::lock_guard<std::mutex> lock(sendMutex_);
         endpoint_.Poll(NowUs(), 0);
     }
-    if (inbox_.empty()) return 0;
+    ReportBrokenStreams();
+    std::deque<TransportMessage>* lane = NextLane();
+    if (lane == nullptr) return 0;
 
-    const TransportMessage message = std::move(inbox_.front());
-    inbox_.pop_front();
+    const TransportMessage message = std::move(lane->front());
+    lane->pop_front();
+    bulkDepth_.store(inbox_[size_t(Lane::Bulk)].size(), std::memory_order_relaxed);
     from = message.from;
     const size_t take = std::min(cap, message.bytes.size());
     std::copy_n(message.bytes.begin(), take, buf);
@@ -395,14 +510,21 @@ int SessionTransport::RecvFrom(uint8_t* buf, size_t cap, NetAddr& from) {
 
 std::optional<deskhub::Fingerprint> SessionTransport::PeerFingerprint(
     const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.PeerFingerprint(peer.Pack());
 }
 
 bool SessionTransport::Established(const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.Established(peer.Pack());
 }
 
+QuicSendStats SessionTransport::SendStats() const {
+    return endpoint_.SendStats();
+}
+
 size_t SessionTransport::MaxDatagramSize(const NetAddr& peer) const {
+    const std::lock_guard<std::mutex> lock(sendMutex_);
     return endpoint_.MaxDatagramSize(peer.Pack());
 }
 

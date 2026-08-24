@@ -38,7 +38,7 @@ class HostService : Service() {
         object : MediaProjection.Callback() {
             override fun onStop() {
                 NativeHost.onProjectionStopped()
-                mainHandler.post { stopSharing() }
+                mainHandler.post { stopEverything() }
             }
         }
 
@@ -50,7 +50,7 @@ class HostService : Service() {
         startId: Int,
     ): Int {
         if (intent == null || intent.action == ACTION_STOP) {
-            stopSharing()
+            stopEverything()
             return START_NOT_STICKY
         }
 
@@ -110,10 +110,10 @@ class HostService : Service() {
 
     private fun failWith(message: String) {
         NativeHost.reportFailure(message)
-        stopSharing()
+        stopEverything()
     }
 
-    private fun stopSharing() {
+    private fun stopEverything() {
         Log.i(TAG, "[audio] evt=share_stop caller=${Throwable().stackTrace.getOrNull(1)}")
         AudioShare.stop()
         NativeHost.stop()

@@ -55,6 +55,7 @@ client/     the five apps: android, ios, linux, macos, windows.
 third_party/  quiche (QUIC), opus (audio), the nvenc headers, the minimal FFmpeg build
 make/       one .mk per platform, included by the root Makefile
 scripts/    bootstrap, packaging, coverage, style and CI helpers
+.github/    workflows, and actions/ — the composite steps they all reuse
 ```
 
 Write logic once and share it: before adding anything under `client/*`, check whether it
@@ -149,6 +150,7 @@ that could never connect.
 | `make test-ctest` | the same tests through CTest | exactly how CI invokes them |
 | `make test-asan` | all three under ASan + UBSan | clang/gcc only, not MSVC |
 | `make test-tsan` | all three under ThreadSanitizer | clang/gcc only, not MSVC |
+| `make test-perf` | release build, offline | the hot paths of `core/` measured, not just exercised: packetize/reassemble/FEC, 1080p downscale, CRC and file batches, the VT parser and screen, wire encode/decode, the audio jitter buffer |
 
 Nothing in the test suites needs a remote peer, a GPU or a network.
 
@@ -162,6 +164,24 @@ Linux/macOS; `FUZZ_SECONDS=N` per target). Each target first replays
 `core/fuzz/regressions/<target>` so fixed crashes cannot come back, then fuzzes from the
 committed seeds and dictionary. `make fuzz-coverage` shows which core lines the corpus
 actually reaches. Every crash found becomes a regression input.
+
+**Performance.** `make test-perf` builds `core_perf` with the release preset and measures
+the hot paths — 27 workloads, a few seconds. Three things fail it, and none of them is a
+millisecond figure picked out of the air:
+
+- **Allocations per unit**, counted exactly by replacing the global `operator new`. A
+  path that starts allocating per packet or per frame fails on every machine, in every
+  run.
+- **How the cost scales**: each `-scaling` row runs the same work at 4× the input and
+  fails when the time grows far faster than the input — the shape an accidental O(n²)
+  has.
+- **Drift against the recorded baseline**: `make perf-baseline` writes
+  `out/perf/baseline.txt` on an idle machine, later runs report the change on every row
+  and fail past 25 %. The file describes that one machine, so it stays out of git.
+
+`DESKHUB_PERF_TOLERANCE`, `DESKHUB_PERF_REPEATS`, `DESKHUB_PERF_BASELINE` and
+`DESKHUB_PERF_WRITE` tune the timing half. Neither `make test` nor CI runs any of it:
+debug, ASan and coverage builds say nothing about production speed.
 
 ## 6. Style and static analysis
 

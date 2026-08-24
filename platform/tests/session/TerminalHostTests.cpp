@@ -2,14 +2,14 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/protocol/RecordStream.h"
-#include "deskhub/session/TerminalClient.h"
+#include "deskhub/session/client/TerminalClient.h"
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Screen.h"
 #include "deskhubp/net/QuicEndpoint.h"
 #include "deskhubp/net/SessionTransport.h"
-#include "deskhubp/session/AuthNegotiation.h"
-#include "deskhubp/session/TerminalHost.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/auth/AuthNegotiation.h"
+#include "deskhubp/host/TerminalHost.h"
+#include "deskhubp/client/TerminalViewer.h"
 #include "deskhubp/system/TrustStoreFile.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/PairedDevicesFile.h"
@@ -815,7 +815,7 @@ void TestTheTwoCasesAPasscodeCannotSettle() {
         },
                   15000),
             "and is still stopped, because a passcode cannot answer a changed key");
-        Check(asks == 1, "the warning is raised");
+        Check(WaitFor([&asks] { return asks.load() == 1; }, 5000), "the warning is raised");
         Check(viewer.Verdict() == deskhub::TrustVerdict::Changed, "as a change, not a stranger");
         viewer.RejectFingerprint();
         viewer.Stop();

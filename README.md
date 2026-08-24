@@ -77,7 +77,7 @@ teaches you the Android app too.
 
 | ⚡ Fast | 📦 One file | 🎛️ Simple |
 | ------ | ---------- | --------- |
-| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | **Share** a display or **Connect** to an IP, and that's it. Desktops can also share a **shell**. Phones host too, view-only, since no mobile OS lets an app inject input. |
+| **~3.5 ms** capture→display, 60 fps. Zero-copy VRAM pipeline — the hot path never touches the CPU. | No installer, no background service, no account. The entire Windows app is one **~5.1 MB** exe; macOS is a **1.9 MB** dmg. | **Share** a display or **Connect** to an IP, and that's it. Desktops can also share a **shell** and take **files** viewers send. Phones host too, view-only, since no mobile OS lets an app inject input. |
 
 Sessions are encrypted end to end over **QUIC/TLS**, and an unknown machine only gets in
 by proving it knows the host's passcode — via **SPAKE2**, so the code itself never travels

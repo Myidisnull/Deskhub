@@ -58,6 +58,7 @@ client/     năm app: android, ios, linux, macos, windows.
 third_party/  quiche (QUIC), opus (âm thanh), header nvenc, bản FFmpeg tối giản
 make/       mỗi nền tảng một file .mk, được Makefile gốc include
 scripts/    bootstrap, đóng gói, coverage, định dạng và các tiện ích cho CI
+.github/    workflows, và actions/ — những bước dùng chung mà tất cả chúng tái sử dụng
 ```
 
 Viết một lần rồi dùng chung: trước khi thêm bất cứ thứ gì vào `client/*`, hãy xem nó có
@@ -154,6 +155,7 @@ nối được.
 | `make test-ctest` | cùng các bài đó qua CTest | đúng cách CI gọi chúng |
 | `make test-asan` | cả ba bộ dưới ASan + UBSan | chỉ clang/gcc, không có MSVC |
 | `make test-tsan` | cả ba bộ dưới ThreadSanitizer | chỉ clang/gcc, không có MSVC |
+| `make test-perf` | bản release, offline | đo chứ không chỉ chạy các đường nóng của `core/`: đóng gói/ghép gói/FEC, hạ kích thước 1080p, CRC và lô tệp, bộ phân tích VT và màn hình, mã hoá/giải mã gói tin, bộ đệm chống giật âm thanh |
 
 Không bài kiểm thử nào cần máy đối diện, GPU hay mạng.
 
@@ -166,6 +168,24 @@ ghép gói, byte terminal, chuỗi giao diện, cùng máy trạng thái phiên 
 `core/fuzz/regressions/<target>` trước để các cú crash đã sửa không quay lại, rồi mới fuzz
 từ bộ hạt giống và từ điển đã commit. `make fuzz-coverage` cho biết corpus thực sự chạm
 tới những dòng nào trong core. Mỗi cú crash tìm được đều trở thành một đầu vào hồi quy.
+
+**Hiệu năng.** `make test-perf` dựng `core_perf` bằng preset release rồi đo các đường
+nóng — 27 phép đo, hết vài giây. Có ba thứ làm nó fail, và không thứ nào là một con số
+mili-giây bịa ra:
+
+- **Số lần cấp phát trên mỗi đơn vị**, đếm chính xác bằng cách thay `operator new` toàn
+  cục. Một đường bắt đầu cấp phát cho từng gói hay từng khung hình sẽ fail trên mọi máy,
+  trong mọi lần chạy.
+- **Chi phí giãn ra sao theo đầu vào**: mỗi dòng `-scaling` chạy đúng phần việc đó với đầu
+  vào gấp 4 lần và fail khi thời gian tăng nhanh hơn đầu vào rất nhiều — đúng hình dạng
+  của một O(n²) lỡ tay.
+- **Độ lệch so với mốc đã ghi**: `make perf-baseline` ghi `out/perf/baseline.txt` trên máy
+  đang rảnh, các lần chạy sau báo mức thay đổi của từng dòng và fail khi vượt 25 %. Tệp đó
+  mô tả riêng máy ấy nên không nằm trong git.
+
+`DESKHUB_PERF_TOLERANCE`, `DESKHUB_PERF_REPEATS`, `DESKHUB_PERF_BASELINE` và
+`DESKHUB_PERF_WRITE` điều chỉnh phần đo thời gian. Cả `make test` lẫn CI đều không chạy bộ
+này: bản debug, ASan và coverage không nói lên điều gì về tốc độ thật.
 
 ## 6. Định dạng và phân tích tĩnh
 

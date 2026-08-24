@@ -30,13 +30,15 @@ client/     app theo từng OS: windows, linux, macos, ios, android (phụ thu�
 | --- | --- |
 | `core/protocol` | Định dạng gói (`Wire.h`), cắt khung record cho stream (`RecordStream.h`), bộ phân loại gói QUIC với gói beacon |
 | `core/transport` | Packetizer/Reassembler cho video, FEC, cache gửi lại, bộ điều tốc gửi |
-| `core/session` | Máy trạng thái phiên host/client, bảng viewer, đồng bộ clipboard, bảng phiên terminal, bộ khoá đếm lần đoán mã |
+| `core/session` | Máy trạng thái phiên, chia theo vai trò: `session/host` (phiên theo viewer, bảng viewer, beacon, bên nhận file, khoá đếm lần đoán mã), `session/client` (screen client, bên gửi file, terminal client, luồng connect), và các mảnh dùng chung nằm cạnh (kiểu dữ liệu transfer, bảng phiên terminal, đồng bộ clipboard, khôi phục kết nối) |
 | `core/control` | Điều khiển bitrate, thang chất lượng, cỡ luồng, lệch đồng hồ |
 | `core/terminal` | Bộ giả lập VT mọi client dùng chung: `VtParser`, `Screen`, `KeyEncoder`, `Palette` |
 | `core/net` | Trust store (phía client), danh sách máy đã ghép (phía host), chọn địa chỉ bind, logic quét LAN |
 | `core/ui` | Mọi chuỗi hiển thị, đọc/ghi cài đặt, dựng dòng bảng — để cả năm client nói giống hệt nhau |
-| `platform/net` | `UdpSocket` (theo OS), `QuicEndpoint` (quiche sau pimpl), `SessionTransport`, truy vấn nguồn, dò host, quét LAN |
-| `platform/session` | `HostEngine`, `HostNetLoop`, `ClientEngine`, `TerminalHost`, `TerminalViewer`, `AuthNegotiation` |
+| `platform/net` | `UdpSocket` (theo OS), `QuicEndpoint` (quiche sau pimpl), `SessionTransport` |
+| `platform/auth` | `AuthNegotiation` — một bắt tay ghép cặp/passcode duy nhất cả hai phía cùng nói |
+| `platform/client` | `HostLink` (quay số + tin cậy + auth + kênh, mọi bề mặt dùng chung), `ScreenViewer`, `TerminalViewer`, `FileTransferClient`, `SourceQuery`, dò host, quét LAN |
+| `platform/host` | `HostEngine`, `HostNetLoop`, `SharingHost`, `TerminalHost`, `FileHost`, `ViewerBroadcast` |
 | `platform/system` | Đồng hồ, ngẫu nhiên, PTY (ConPTY / forkpty), danh tính máy (khoá), file trust/paired, autostart, giữ máy thức |
 | `core/cli` | Ngữ pháp dòng lệnh và bộ ghi JSON của nó — vào là văn bản thuần, ra là một lệnh đã kiểm tra hợp lệ |
 | `client/<os>` | Thu hình, mã hoá, giải mã, vẽ, cửa sổ, hộp thoại — không có gì mang hình dạng giao thức |
@@ -66,12 +68,15 @@ Mọi thứ host cung cấp đi trên **một cổng UDP** (mặc định 47777)
  input        audio       Stream chở các record có tiền tố độ dài
  clipboard                (RecordStream), tối đa 16 KiB mỗi record.
  terminal                 Mỗi datagram chở đúng một gói video hoặc
-                          một gói audio (≤ 1200 B).
+ files                    một gói audio (≤ 1200 B).
 ```
 
-- **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal — mỗi kết
+- **Stream** (tin cậy, đúng thứ tự): control, input, clipboard, terminal, files — mỗi kết
   nối dùng một stream hai chiều do client mở. Stream nghẽn ở kết nối này không làm
-  đứng kết nối khác.
+  đứng kết nối khác. Dữ liệu stream đến được rút theo ngân sách 64 KiB mỗi lượt phục
+  vụ: bên tiêu thụ (nặng nhất là giả lập VT của terminal) phải trả vòng lặp lại cho
+  ACK, keepalive và xử lý timeout giữa các lát, nên một trận `cat` không thể bỏ đói
+  kết nối đến mức tự rơi vào idle timeout nữa.
 - **Datagram** (không tin cậy, không thứ tự, vẫn mã hoá): gói video và gói audio.
   QUIC không bao giờ gửi lại datagram mất; với video thì FEC/NACK của app tự xử lý,
   còn với audio thì không gì xử lý cả — xem mục 9.
@@ -127,6 +132,8 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
  │    Tick phiên theo từng nguồn, đẩy clipboard, reconfig, thống kê
  ├─ thu hình/mã hoá: theo từng nguồn, do callback thu hình của OS lái (tầng client)
  │    frame → encoder (mutex theo nguồn) → Packetizer → FEC → SendTo (datagram)
+ ├─ luồng audio worker: callback thu âm → vòng khung lock-free → mã hoá Opus →
+ │    datagram cho từng viewer (AudioBroadcaster)
  └─ TerminalHost (khách thuê, khi terminal được chia sẻ)
       ├─ HandleMessage trên luồng net-loop: TERM_OPEN/DATA/RESIZE/CLOSE → PTY
       └─ luồng bơm: đầu ra PTY → Screen mirror phía host + record TERM_DATA,
@@ -135,7 +142,7 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 
 - Engine chạy khi bất kỳ thứ gì được chia sẻ. Không có nguồn màn hình mà terminal
   được tick thì nó chạy không-nguồn; vòng lặp sống chừng nào terminal còn sống.
-- Mỗi nguồn màn hình là một `SourcePipelineState`: `HostSession` riêng (bảng viewer,
+- Mỗi nguồn màn hình là một `SourcePipelineState`: `ScreenHostSession` riêng (bảng viewer,
   thương lượng, phân xử input), encoder, thang chất lượng và chẩn đoán riêng. Một
   lần mã hoá nuôi mọi viewer của nguồn đó.
 - Vòng phản hồi: viewer gửi `Feedback` (loss/RTT) mỗi giây; `BitrateController`
@@ -154,18 +161,36 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 
 ## 5. Phía client
 
+Mọi bề mặt client đi tới host qua cùng một mảnh, `HostLink`
+(`platform/client/HostLink`): nó quay số kết nối QUIC, kiểm tra kho tin cậy, chạy
+bắt tay auth, giữ kết nối sống bằng keepalive, và — với bề mặt nào yêu cầu — tự quay
+số lại theo backoff khi kết nối rơi. Không dịch vụ nào còn tự quay số hay tự auth;
+mỗi dịch vụ mở một kênh theo `Chan` trên dây, nhận hàng đợi inbox riêng, và tự rút
+trên luồng của chính nó:
+
 ```
-ClientEngine (một cho mỗi cửa sổ xem)         TerminalViewer (một cho mỗi cửa sổ shell)
- ├─ luồng net: kiểm tra tin cậy → auth →      ├─ luồng riêng: kết nối → kiểm tra tin cậy →
- │   HELLO/thương lượng → nhận video          │   auth → TERM_OPEN → bơm record
- │   (Reassembler+FEC), NACK, feedback        ├─ Screen của core/terminal giữ lưới ký tự
- └─ luồng giải mã: decoder + hàng đợi vẽ      └─ UI poll Snapshot(), post phím vào
+HostLink (một cho mỗi bề mặt đang mở)
+ ├─ luồng link: quay số → kiểm tra tin cậy → auth → bơm
+ │   (chia record và datagram vào hàng đợi theo Chan của từng kênh;
+ │    keepalive; quay số lại theo backoff nơi bật khôi phục)
+ ├─ Chan::Control/Video/Audio ─> ScreenViewer
+ │    ├─ luồng net: HELLO/thương lượng, nhận video (Reassembler+FEC),
+ │    │   NACK, feedback, clipboard
+ │    └─ luồng giải mã: decoder + hàng đợi vẽ
+ ├─ Chan::Terminal ─> luồng dịch vụ của TerminalViewer
+ │    ├─ Screen của core/terminal giữ lưới ký tự
+ │    └─ UI poll Snapshot(), post phím vào hàng đợi lệnh
+ └─ Chan::File ─> luồng dịch vụ của FileTransferClient (vòng FileUpload)
 ```
 
-Cả hai theo cùng quy tắc với host: kết nối QUIC sống trên một luồng; UI đăng ý định
-(phím, đổi cỡ, chấp nhận dấu vân tay) vào hàng đợi lệnh. Cửa sổ terminal không bao
-giờ tự phân tích escape sequence — `core/terminal` biến luồng byte thành lưới ô, cửa
-sổ chỉ vẽ ô và chuyển tiếp sự kiện phím.
+Truy vấn nguồn (`QuerySources`) đi cùng loại link đó ở dạng một-lần, chờ-kết-quả.
+UI vẫn đăng ý định (phím, đổi cỡ, chấp nhận dấu vân tay) vào hàng đợi lệnh; key của
+host đổi thì link đỗ ở `Deciding` cho tới khi người dùng chấp nhận hay từ chối. Cửa
+sổ terminal không bao giờ tự phân tích escape sequence — `core/terminal` biến luồng
+byte thành lưới ô, cửa sổ chỉ vẽ ô và chuyển tiếp sự kiện phím. Hiện mỗi cửa sổ vẫn
+giữ link riêng; dùng chung một link đã được nhận vào cho mọi cửa sổ nhắm tới cùng
+host là bước kế tiếp dự kiến, và nó cắm vào `HostLink` — một registry cộng fan-out
+observer — chứ không phải thêm một bắt tay nữa.
 
 ## 6. Dò tìm
 
@@ -186,26 +211,72 @@ Tất cả nằm trong thư mục Deskhub của người dùng (`~/.deskhub`,
 passcode che đi), và log theo từng lần chạy. I/O file nằm ở `platform/`; phần phân
 tích và cấu trúc dữ liệu nằm ở `core/` và có unit test.
 
+Tệp viewer gửi tới thì nằm ở chỗ khác hẳn: một thư mục do host chọn (`transfer_dir`
+trong `ui-settings.txt`, mặc định là `Deskhub` trong thư mục nhà của người dùng).
+`FileStore` ghi mỗi tệp thành `<tên>.deskhub-part` và chỉ đổi tên khi cả tệp đã tới
+với CRC-32 khớp, nên tệp ghi dở không bao giờ xuất hiện dưới tên thật, và
+`UniqueFileName` bảo đảm không có gì bị ghi đè. Tên đi trên dây được `SafeFileName`
+của `core/` chà sạch — dấu phân cách đường dẫn, byte điều khiển, ký tự Windows không
+nhận và tên thiết bị dành riêng đều bị loại — trước khi `platform/` chạm vào hệ tệp.
+
 ## 8. Kiểm thử
 
 | Bộ | Chạy | Phủ |
 | --- | --- | --- |
 | `make test` | offline, không socket | toàn bộ `core/`: wire, framing, FEC, phiên, bộ giả lập VT, cài đặt, chuỗi, fuzz có cấu trúc |
 | `make test-platform` | socket loopback | bắt tay QUIC thật, SPAKE2 đầu-cuối, terminal host + viewer qua mạng, PTY với shell thật, lockout, approval |
-| `make test-integration` | loopback, thu/mã hoá giả | phiên host↔client đầy đủ: thương lượng, video qua mạng, input, cổng passcode/approval, chịu gói rác |
+| `make test-integration` | loopback, thu/mã hoá giả | phiên host↔client đầy đủ: thương lượng, video qua mạng, input, cổng passcode/approval, chịu gói rác, và độ trễ dưới tải chéo — file transfer, terminal bị flood và phím gõ chạy cạnh stream đang phát, mỗi thứ bị chặn theo khoảng đứng tệ nhất quan sát được |
 | các target fuzz | 30 giây mỗi target ở mọi PR, 15 phút mỗi target hằng đêm | parser cho wire, H.264, ráp gói, byte terminal và chuỗi UI, cộng máy trạng thái phiên phía host và viewer |
+| `make test-perf` | bản release, offline + loopback | đo các đường nóng chứ không chỉ chạy chúng: `core_perf` cho phần C++ thuần, `platform_perf` cho QUIC thật qua loopback; cả hai fail theo số lần cấp phát trên mỗi đơn vị, chi phí khi đầu vào gấp 4, và độ lệch so với mốc ghi ngay trên máy đó |
 
 CI còn ép clang-format và clang-tidy (đều ghim phiên bản), SwiftLint `--strict`,
 Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, CodeQL cho
 C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` ≥ 90% dòng / 80%
 nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
-iOS Simulator.
+iOS Simulator. Các job release trên Linux và macOS còn chạy `core_perf` và
+`platform_perf` với hai cổng chặn cấp phát và độ tuyến tính (máy CI dùng chung không có
+mốc thời gian), và mỗi pull request có thêm một báo cáo perf-và-lag đăng thành một
+comment tự cập nhật: cả hai suite perf được A/B với commit gốc trên cùng một runner (độ
+lệch chỉ là cảnh báo, không bao giờ đánh trượt), số đo tích hợp dưới tải của chính bản
+pull request, và dòng coverage của `core/`.
 
 ## 9. Các quyết định đáng nhớ
 
+- **`FileHost` không bao giờ gửi khi đang giữ khoá của chính nó**: vòng lặp phục vụ QUIC
+  chạy `QuicEndpoint::Poll` dưới `SessionTransport::sendMutex_`, và một kết nối đóng lại ở
+  đó sẽ gọi thẳng ngược vào `FileHost::OnPeerGone`, nơi lấy `FileHost::mutex_`. Nghĩa là
+  thứ tự `sendMutex_ -> mutex_` đã bị tầng vận chuyển ấn định. Bất kỳ đường nào lấy
+  `mutex_` trước rồi mới gửi — `FileReceiver` phát một accept, một ack hay một cancel qua
+  `hooks.send` — đều khép kín vòng lặp, và TSan bắt được nó dưới dạng lock-order inversion
+  giữa vòng lặp nhận và một luồng UI gạt `SetAccepting(false)` khi đang có transfer chạy.
+  Vì vậy các bản ghi mà receiver phát ra được xếp vào `outbox_` dưới `mutex_` rồi chỉ gửi
+  sau khi đã nhả khoá, với `outboxMutex_` giữ suốt cả hai nửa để phía bên kia vẫn nhận
+  đúng thứ tự chúng được sinh ra. Riêng `OnPeerGone` thì không thể gửi gì: nó vốn đã chạy
+  dưới `sendMutex_`, nên nó bỏ đi những gì đã xếp hàng.
+
+- **Bộ đo hiệu năng chặn theo số lần cấp phát và hình dạng chi phí, không theo mili-giây**:
+  cả ba bộ test đều dựng bản debug, và CI còn chạy lại chúng dưới ASan, TSan và coverage —
+  nơi một hạn mức thời gian đo chính sanitizer chứ không đo mã. Vì vậy `core_perf` (preset
+  release, `make test-perf`) fail theo hai thứ độc lập với máy — số lần cấp phát trên mỗi
+  gói, mỗi khung hình hay mỗi KB, đếm bằng cách thay `operator new` toàn cục, và một dòng
+  `-scaling` có thời gian tăng nhanh hơn hẳn đầu vào — còn phần đo thời gian chỉ so với
+  `out/perf/baseline.txt`, ghi riêng cho từng máy bằng `make perf-baseline` và không bao
+  giờ commit. Chính cách chia đó cho phép bộ đo bắt được hồi quy kiểu "khâu ghép gói giờ
+  chép mỗi mảnh hai lần" trên laptop, trên máy CI hay trên điện thoại như nhau, mà vẫn in
+  ra ns mỗi đơn vị và MB/s cho những đường mà bản thân con số mới là thứ ta cần. CI chạy
+  đúng hai cổng chặn độc-lập-với-máy đó trên các job release Linux và macOS; Windows chỉ
+  build binary, vì `deque` của MSVC cấp phát một khối cho mỗi phần tử lớn hơn 16 byte,
+  nên cùng đoạn mã lại ra số lần cấp phát khác. Pull request còn được so thời gian theo
+  cách mà nhiễu của runner dùng chung không phá được — commit gốc và pull request đo trên
+  cùng một runner, dung sai 50%, chỉ cảnh báo. `platform_perf` kéo dài đúng các cổng chặn
+  đó xuống QUIC thật qua loopback, nơi thời gian đo chính là nhịp của vòng service —
+  budget drain stream 64 KiB nhân với tick poll 1 ms — nên budget bị thu nhỏ, vòng drain
+  mất tuyến tính, hay một cấp phát mới trong vòng poll đều hiện thành cú nhảy, dù chi phí
+  CPU của cùng khối việc gần như không đổi.
+
 - **Client dòng lệnh là mặt tiền thứ tư, không phải bản cài đặt thứ hai**: nó phân tích cờ
-  trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `AgentLoop`
-  để làm host, `ClientEngine` để xem, `TerminalViewer` để mở shell. Thứ duy nhất của riêng
+  trong `core/cli`, rồi điều khiển đúng những mảnh mà app để bàn điều khiển — `SharingHost`
+  để làm host, `ScreenViewer` để xem, `TerminalViewer` để mở shell. Thứ duy nhất của riêng
   nó là cửa sổ: X11 + EGL trên Linux, còn trên Windows là chính `RunViewer` của app để bàn.
   Đó là lý do phần `cpp/` của mỗi client được tách thành thư viện tĩnh
   (`deskhub_linux_core`, `deskhub_win_core`, `deskhub_win_view`, `deskhub_mac_core`) và
@@ -220,7 +291,7 @@ iOS Simulator.
 
 - **Host chỉ chia sẻ shell mà không có màn hình vẫn phải sống**: vòng lặp mạng kết thúc
   phiên khi không còn nguồn nào sống, mà phiên chỉ có shell thì theo định nghĩa là không có
-  nguồn nào. `keepAlive` nay trả lời theo ý định của người gọi (`AgentOptions::terminal`),
+  nguồn nào. `keepAlive` nay trả lời theo ý định của người gọi (`ShareOptions::terminal`),
   chứ không theo con trỏ `TerminalHost` vốn chỉ được gắn vào sau khi vòng lặp đã chạy.
 
 - **Cổng khung hình đếm tới một mốc hạn, không đếm từ khung nó vừa giữ**: một compositor
@@ -288,12 +359,21 @@ iOS Simulator.
   mà jitter buffer báo. Gửi lại còn tệ hơn vô ích, vì một khung đến muộn 200 ms thì
   không phát được nữa nhưng vẫn kịp làm chậm mười khung sau nó. `make opus-smoke` đo
   đúng những con số đó trên bất kỳ máy nào dựng được thư viện.
-- **Đồng hồ audio điều khiển jitter buffer, không phải đồng hồ tường**:
-  `AudioJitterBuffer` không có timer nào bên trong. Bộ phát kéo một khung mỗi lần gọi,
-  còn độ trễ mục tiêu chỉ là số khung nó nạp trước khi bắt đầu — 60 ms là ba khung. Nhờ
-  vậy toàn bộ phần này test được offline mà không phải ngủ, và các kiểu hỏng đều hiện
-  rõ: bùng gói thì bị chặn thay vì xếp hàng, hết gói thì nạp lại thay vì giật, số thứ
-  tự nhảy xa thì coi là luồng mới thay vì hàng nghìn khung mất.
+- **Jitter buffer không có timer nào bên trong**: `AudioJitterBuffer` là trạng thái
+  thuần, còn độ trễ mục tiêu chỉ là số khung nó nạp trước khi bắt đầu — 60 ms là ba
+  khung. Nhờ vậy toàn bộ phần này test được offline mà không phải ngủ, và các kiểu
+  hỏng đều hiện rõ: bùng gói thì bị chặn thay vì xếp hàng, hết gói thì nạp lại thay
+  vì giật, số thứ tự nhảy xa thì coi là luồng mới thay vì hàng nghìn khung mất. Phần
+  giữ nhịp nằm ở `AudioPlayer`: nó bơm một khung mỗi 20 ms đồng hồ tường vào một
+  vòng PCM mà callback phát của sink rút ra.
+- **Callback thu âm không bao giờ mã hoá**: PipeWire và ScreenCaptureKit giao audio
+  trên thread real-time với deadline vài mili giây, và trễ deadline ở đó làm xrun cả
+  phần phát của chính máy host, không riêng gì Deskhub. Mã hoá Opus mất 0.3–1.5 ms
+  kèm lúc trồi sụt, và trước đây còn kéo theo một `sendto` cho mỗi viewer trên đúng
+  thread đó. `AudioBroadcaster::Offer` giờ chỉ chép khung 20 ms vào một vòng slot
+  lock-free cấp phát sẵn và đóng dấu thời điểm thu; một thread worker lo mã hoá,
+  chẩn đoán và gửi cho từng viewer. Worker chậm chân thì tốn một lần rơi có đếm
+  (`framesRefused`), không bao giờ thành tiếng rè trên máy host.
 - **Tiếng cần cả hai đầu đồng ý, và client cũ không bao giờ nghe thấy**: viewer đặt bit
   0 của `Hello.features`, host quảng bá `kHostSharesAudio` trong phần năng lực của nó,
   và host chỉ gửi gói cho viewer nào có bit đó. Chính điều này giữ `kProtocolVersion` ở
@@ -414,6 +494,22 @@ iOS Simulator.
   `com.deskhub.macos` — System Settings hiện đã cấp quyền trong khi bản vừa chạy bị
   từ chối, âm thầm với Accessibility. `make reset-macos-permissions` xoá mọi quyền
   để lần chạy sau hỏi lại.
+- **macOS là một bản desktop trong CI và một bản đã ký khi phát hành, không bao giờ
+  cả hai cùng lúc**: `build-desktop` biên dịch app với chữ ký ad-hoc ở mọi lần push,
+  nên một thay đổi Cocoa không build được sẽ fail ngay tại pull request của nó;
+  `deploy` đi tới cùng app đó qua `release-macos`, đường fastlane — Developer ID,
+  notarize, dmg — thứ tạo ra bản người dùng mở được thật. Vì vậy workflow dùng lại
+  bỏ qua job macOS của nó khi `for_release` được bật, nếu không một tag sẽ trả tiền
+  cho một macOS runner thứ hai chỉ để dựng một bundle chẳng ai ship. `build-mobile`
+  chỉ còn iOS và Android, cùng lý do và cùng cách tách.
+- **Mọi workflow lấy quiche và opus từ một action duy nhất, và cache key chính là toàn
+  bộ giao kèo**: `.github/actions/third-party` dựng cả hai thư viện cho bất kỳ tập
+  target nào job khai báo, nhờ vậy mười chín bản sao của cùng một khối cache-rồi-build
+  rút xuống còn một dòng mỗi job. Input `cache-key` của nó không phải để trang trí — đó
+  là thứ duy nhất ngăn hai job khôi phục nhầm thư viện của nhau. Hai tập target thì khác
+  nhau, mà hai runner image dựng cùng một triple cũng khác: một `libquiche.a` biên dịch
+  trên ubuntu-latest rồi khôi phục trên ubuntu-22.04 sẽ link vào đúng cái glibc mà bản
+  phát hành sinh ra để tránh. Thứ gì làm đổi kết quả build thì thuộc về key đó.
 - **Một CRT release tĩnh trên Windows, cho mọi cấu hình**: cargo build quiche với
   CRT release tĩnh (mặc định của msvc — đừng bao giờ ép qua `RUSTFLAGS`, flag đó
   ngấm vào proc-macro và giết cargo), và cả cây CMake pin `MultiThreaded` cho khớp
@@ -436,6 +532,25 @@ iOS Simulator.
 - **Một cổng**: beacon, màn hình và terminal dùng chung một listener; QUIC ghép kênh
   kết nối và stream. Cổng thứ hai ngày trước tồn tại chỉ vì đường màn hình tiền-QUIC
   chiếm trọn socket.
+- **Một `HostLink`, bốn bắt tay ngày trước**: quay số + kiểm tra tin cậy + auth +
+  khôi phục từng được viết bốn lần ở phía client — truy vấn nguồn, viewer, bên gửi
+  file, và terminal trên một `QuicEndpoint` thô của riêng nó — và đó là lý do cửa sổ
+  gửi file biết đến chuyện key host đổi muộn hơn viewer tận ba lần sửa. Giờ
+  `HostLink` là mảnh code phía client duy nhất quay số hay auth; mỗi dịch vụ mở
+  `Chan` của nó, nhận hàng đợi inbox riêng và tự rút trên luồng của mình. Quay-số-lại
+  theo backoff của terminal chuyển vào link để mọi bề mặt bật khôi phục đều hưởng, và
+  luật tin cậy nằm ở đúng một chỗ: key đổi thì link đỗ ở `Deciding` chờ người trả lời
+  (chỉ truy vấn nguồn cho đi qua, `trustGate=false`, không ghi nhớ gì — nơi gọi nó
+  không có prompt để hiện), và chỉ passcode được host chứng minh bằng mật mã mới tự
+  ghim key.
+- **`HostLink` gửi qua `Send`, không phải `SendMessage`**: trên Windows, các header
+  hệ điều hành phía sau tầng platform định nghĩa `SendMessage` là macro thay cho
+  `SendMessageA`, và trong `HostLink.cpp` chúng vào sau phần khai báo class nhưng
+  trước phần định nghĩa method — MSVC khi đó đòi định nghĩa cho một thành viên
+  `SendMessageA` mà không header nào khai báo. Các tên API Win32 (`SendMessage`,
+  `PostMessage`, `CreateWindow`, `GetObject`, …) không bao giờ an toàn làm tên method
+  trong bất kỳ translation unit nào một header hệ điều hành với tới được; cách sửa là
+  đổi tên, không phải `#undef`.
 - **Phiên ScreenCast của portal sống chết theo một kết nối D-Bus**: GLib cache session
   bus dùng chung bằng tham chiếu yếu, nên `g_object_unref` trên handle cuối cùng sẽ huỷ
   luôn kết nối. `xdg-desktop-portal` khi đó bỏ phiên, compositor xoá node PipeWire, và

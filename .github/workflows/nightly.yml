@@ -19,6 +19,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -26,6 +27,7 @@ jobs:
         run: scripts/apt-install.sh clang ninja-build
 
       - name: Fuzz every target for 15 minutes (make fuzz)
+        id: fuzz
         run: make fuzz
         env:
           FUZZ_SECONDS: 900
@@ -33,7 +35,13 @@ jobs:
 
       - name: Fold new coverage back into the committed seed corpus
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if git fetch origin nightly-fuzz-corpus; then
+            git checkout FETCH_HEAD -- core/fuzz/seeds
+          fi
           for t in fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext fuzz_term; do
             [ -x "out/build/fuzz/core/$t" ] || continue
             [ -d "out/fuzz/corpus/$t" ] || continue
@@ -47,11 +55,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore: fold new fuzz coverage into the seed corpus"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git push --force origin HEAD:nightly-fuzz-corpus
+          open_pr=$(gh pr list --head nightly-fuzz-corpus --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -z "$open_pr" ]; then
+            gh pr create --head nightly-fuzz-corpus \
+              --title "chore: fold new fuzz coverage into the seed corpus" \
+              --body "Tonight's fuzz run grew coverage: $RUN_URL. Close and reopen this pull request to start the CI checks - the workflow token cannot trigger them."
+          fi
 
       - name: Upload crash reproducers
-        if: failure()
+        if: failure() && steps.fuzz.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-fuzz-crashes
@@ -63,7 +77,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: File (or bump) the crash issue
-        if: failure()
+        if: failure() && steps.fuzz.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

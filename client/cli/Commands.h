@@ -22,5 +22,6 @@ ExitCode RunSettings(const Command& command);
 ExitCode RunShare(const Command& command);
 ExitCode RunShell(const Command& command);
 ExitCode RunConnect(const Command& command);
+ExitCode RunSend(const Command& command);
 
 }

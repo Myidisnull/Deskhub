@@ -192,6 +192,60 @@ void TestScrollingAndScrollback() {
     Check(ri.Cursor().col == 0, "NEL goes to the start of the next line");
 }
 
+void TestBulkScrollEqualsRepeatedSingleScroll() {
+    std::printf("[screen] scrolling n lines at once equals scrolling one line n times...\n");
+    const auto seed = [](Screen& s) {
+        s.Write("r0\r\nr1\r\nr2\r\nr3\r\nr4\r\nr5");
+        s.Write("\x1B[2;5r");
+    };
+    const auto sameGrid = [](const Screen& a, const Screen& b, const char* what) {
+        bool same = a.ScrollbackRows() == b.ScrollbackRows();
+        for (uint16_t row = 0; same && row < 6; ++row) same = a.RowText(row) == b.RowText(row);
+        for (size_t row = 0; same && row < a.ScrollbackRows(); ++row)
+            same = a.ScrollbackText(row) == b.ScrollbackText(row);
+        Check(same, what);
+    };
+
+    Screen bulkUp(TermSize{10, 6}, 8);
+    Screen slowUp(TermSize{10, 6}, 8);
+    seed(bulkUp);
+    seed(slowUp);
+    bulkUp.Write("\x1B[3S");
+    slowUp.Write("\x1B[S\x1B[S\x1B[S");
+    sameGrid(bulkUp, slowUp, "SU 3 inside a region matches three SU 1");
+    Check(bulkUp.RowText(0) == "r0" && bulkUp.RowText(5) == "r5",
+        "rows outside the region never move");
+    Check(bulkUp.RowText(1) == "r4" && bulkUp.RowText(2).empty(),
+        "the survivor lands at the region top and blanks fill the rest");
+
+    Screen bulkDown(TermSize{10, 6}, 8);
+    Screen slowDown(TermSize{10, 6}, 8);
+    seed(bulkDown);
+    seed(slowDown);
+    bulkDown.Write("\x1B[3T");
+    slowDown.Write("\x1B[T\x1B[T\x1B[T");
+    sameGrid(bulkDown, slowDown, "SD 3 inside a region matches three SD 1");
+    Check(bulkDown.RowText(4) == "r1" && bulkDown.RowText(1).empty(),
+        "the survivor lands at the region bottom and blanks fill the top");
+
+    Screen big(TermSize{10, 6}, 8);
+    Screen small(TermSize{10, 6}, 8);
+    seed(big);
+    seed(small);
+    big.Write("\x1B[9S");
+    small.Write("\x1B[S\x1B[S\x1B[S\x1B[S\x1B[S\x1B[S\x1B[S\x1B[S\x1B[S");
+    sameGrid(big, small, "SU past the region height matches the repeated form");
+    Check(big.RowText(1).empty() && big.RowText(4).empty(), "and empties the whole region");
+
+    Screen cap(TermSize{10, 3}, 3);
+    cap.Write("a0\r\na1\r\na2");
+    cap.Write("\x1B[1;1H\x1B[5S");
+    Check(cap.ScrollbackRows() == 3, "a bulk full-window scroll still respects the limit");
+    Check(cap.ScrollbackText(0) == "a0" && cap.ScrollbackText(1) == "a1" &&
+              cap.ScrollbackText(2) == "a2",
+        "and the scrollback keeps the departed lines oldest-first");
+}
+
 void TestOriginMode() {
     std::printf("[screen] origin mode makes the scroll region the whole world...\n");
     Screen s = MakeScreen(10, 6);
@@ -538,6 +592,7 @@ void RunScreenTests() {
     TestCursorMovement();
     TestEraseAndInsert();
     TestScrollingAndScrollback();
+    TestBulkScrollEqualsRepeatedSingleScroll();
     TestOriginMode();
     TestSgr();
     TestAlternateScreen();

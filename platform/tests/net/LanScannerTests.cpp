@@ -2,7 +2,7 @@
 #include "support/TestSupport.h"
 
 #include "deskhub/net/LanScan.h"
-#include "deskhubp/net/LanScanner.h"
+#include "deskhubp/client/LanScanner.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 

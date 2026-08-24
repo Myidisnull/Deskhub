@@ -26,22 +26,22 @@ int main() {
     RunPacerTests();
 
     std::printf("--- session ---\n");
-    RunSessionTests();
+    RunScreenSessionTests();
 
     std::printf("--- session: client pump (ingest + keyframes + reporting) ---\n");
-    RunClientPumpTests();
+    RunScreenClientTests();
 
     std::printf("--- session: clipboard sync (chunking, dedupe, echo suppression) ---\n");
     RunClipboardSyncTests();
 
     std::printf("--- session: host feedback policy (bitrate, FEC, quality, NACK) ---\n");
-    RunHostFeedbackTests();
+    RunViewerFeedbackTests();
 
     std::printf("--- session: host router (demux, re-offer, keepalive timing) ---\n");
-    RunHostRouterTests();
+    RunSourcePipelineTests();
 
     std::printf("--- session: many viewers per source (fan-out, input priority) ---\n");
-    RunHostViewersTests();
+    RunViewerTableTests();
 
     std::printf("--- session: viewer connect flow ---\n");
     RunConnectFlowTests();
@@ -57,6 +57,15 @@ int main() {
 
     std::printf("--- session: remote terminal (host sessions, client, stream framing) ---\n");
     RunTerminalSessionTests();
+
+    std::printf("--- transfer: file names the filesystem can be trusted with ---\n");
+    RunSafeNameTests();
+
+    std::printf("--- transfer: CRC-32 over chunked files ---\n");
+    RunCrc32Tests();
+
+    std::printf("--- transfer: client-to-host file batches (offer, chunks, checksums) ---\n");
+    RunFileTransferTests();
 
     std::printf("--- session: keeping a link alive and getting it back ---\n");
     RunLinkRecoveryTests();
@@ -148,6 +157,9 @@ int main() {
     std::printf("--- media: area-average RGB downscale ---\n");
     RunRgbDownscaleTests();
 
+    std::printf("--- media: PCM ring (drop-oldest, silence padding) ---\n");
+    RunPcmRingTests();
+
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();
 
@@ -184,12 +196,18 @@ int main() {
     std::printf("--- terminal: the colours every client paints with ---\n");
     RunPaletteTests();
 
+    std::printf("--- terminal: keeping the view still while output arrives ---\n");
+    RunScrollAnchorTests();
+
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();
 
     std::printf("--- ui: host table rows (displays, viewers, cells) ---\n");
     RunHostRowsTests();
     RunDeviceRowsTests();
+
+    std::printf("--- ui: what a file transfer looks like while it runs ---\n");
+    RunTransferViewTests();
 
     std::printf("--- ui: recent devices list (parse, touch, cap) ---\n");
     RunRecentDevicesTests();

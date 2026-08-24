@@ -7,7 +7,7 @@
 #include <cstdio>
 
 #include "deskhubp/diag/Log.h"
-#include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/ffi/ScreenFfi.h"
 
 namespace {
 
@@ -28,7 +28,7 @@ deskhub::MouseButton XButtonOf(WPARAM wp) {
 
 }
 
-bool ViewerInput::Attach(HWND hwnd, DHSession* session) {
+bool ViewerInput::Attach(HWND hwnd, DHScreen* session) {
     if (!hwnd) return false;
     hwnd_ = hwnd;
     session_ = session;
@@ -69,7 +69,7 @@ void ViewerInput::ToggleRelativeMode() {
 }
 
 void ViewerInput::ApplyLockEffect(const deskhub::PointerLockEffect& effect) {
-    if (effect.releaseHeldInput && session_) dh_session_release_all_input(session_);
+    if (effect.releaseHeldInput && session_) dh_screen_release_all_input(session_);
     if (effect.lockChanged) GrabPointer(pointer_.locked());
 }
 
@@ -97,7 +97,7 @@ void ViewerInput::EmitButton(deskhub::MouseButton button, bool down) {
     } else if (buttonsDown_ > 0) {
         if (--buttonsDown_ == 0 && !pointer_.locked() && GetCapture() == hwnd_) ReleaseCapture();
     }
-    if (session_) dh_session_mouse_button(session_, int32_t(button), down);
+    if (session_) dh_screen_mouse_button(session_, int32_t(button), down);
 }
 
 void ViewerInput::OnRawInput(LPARAM lp) {
@@ -127,7 +127,7 @@ void ViewerInput::OnRawInput(LPARAM lp) {
 
         int scan = kb.MakeCode;
         if (kb.Flags & RI_KEY_E0) scan |= kScanExtended;
-        if (session_) dh_session_key(session_, int32_t(kb.VKey), scan, down);
+        if (session_) dh_screen_key(session_, int32_t(kb.VKey), scan, down);
         return;
     }
 
@@ -135,7 +135,7 @@ void ViewerInput::OnRawInput(LPARAM lp) {
         const RAWMOUSE& m = ri->data.mouse;
         if (m.usFlags & MOUSE_MOVE_ABSOLUTE) return;
         if ((m.lLastX || m.lLastY) && session_)
-            dh_session_mouse_move_rel(session_, m.lLastX, m.lLastY);
+            dh_screen_mouse_move_rel(session_, m.lLastX, m.lLastY);
     }
 }
 
@@ -152,7 +152,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             RECT r{};
             GetClientRect(hwnd_, &r);
             if (session_)
-                dh_session_mouse_move(session_,
+                dh_screen_mouse_move(session_,
                     Normalize(GET_X_LPARAM(lp), uint32_t(r.right - r.left)),
                     Normalize(GET_Y_LPARAM(lp), uint32_t(r.bottom - r.top)));
             return true;
@@ -172,7 +172,7 @@ bool ViewerInput::OnMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return true;
 
         case WM_MOUSEWHEEL:
-            if (session_) dh_session_mouse_wheel(session_, GET_WHEEL_DELTA_WPARAM(wp));
+            if (session_) dh_screen_mouse_wheel(session_, GET_WHEEL_DELTA_WPARAM(wp));
             return true;
 
         case WM_KEYDOWN:

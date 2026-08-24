@@ -53,27 +53,9 @@ jobs:
           pipx install clang-tidy==22.1.8
           scripts/apt-install.sh ninja-build
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche
-            !third_party/quiche/src
-          key: quiche-host-ubuntu-latest-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: scripts/build-quiche.sh host
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus
-            !third_party/opus/src
-          key: opus-host-ubuntu-latest-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: scripts/build-opus.sh host
+          cache-key: host-ubuntu-latest
 
       - name: Generate the compile database
         run: cmake --preset x64-debug -DDESKHUB_LINUX_APP=OFF
@@ -109,21 +91,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-
-      - name: Setup JDK 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: ./.github/actions/android-sdk
         with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-
-      - name: Install NDK + CMake
-        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+          gradle: 'true'
 
       - name: Android Lint
         run: ./gradlew lint --stacktrace

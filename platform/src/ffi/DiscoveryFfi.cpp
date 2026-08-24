@@ -20,8 +20,8 @@
 #include "deskhub/ui/Strings.h"
 #include "deskhub/ui/UiSettings.h"
 #include "deskhubp/ffi/FfiText.h"
-#include "deskhubp/net/DeviceStatusPoller.h"
-#include "deskhubp/net/LanScanner.h"
+#include "deskhubp/client/DeviceStatusPoller.h"
+#include "deskhubp/client/LanScanner.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/AppDataFile.h"
@@ -406,26 +406,6 @@ void dh_set_client_control(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
-bool dh_client_desktop(void) {
-    return deskhubp::LoadUiSettings().clientDesktop;
-}
-
-void dh_set_client_desktop(bool on) {
-    ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.clientDesktop = on;
-    deskhubp::SaveUiSettings(out);
-}
-
-bool dh_client_shell(void) {
-    return deskhubp::LoadUiSettings().clientShell;
-}
-
-void dh_set_client_shell(bool on) {
-    ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.clientShell = on;
-    deskhubp::SaveUiSettings(out);
-}
-
 int dh_device_name(char* out, int capacity) {
     return FillText(out, capacity, deskhubp::LoadUiSettings().deviceName);
 }
@@ -474,6 +454,22 @@ bool dh_clipboard_sync(void) {
 void dh_set_clipboard_sync(bool on) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
     out.clipboardSync = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+bool dh_take_files(void) {
+    return deskhubp::LoadUiSettings().takeFiles;
+}
+
+void dh_set_take_files(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.takeFiles = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+void dh_set_transfer_dir(const char* dir) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.transferDir = ui::TruncateSettingsPath(dir ? dir : "");
     deskhubp::SaveUiSettings(out);
 }
 
@@ -537,8 +533,8 @@ int dh_idle_host_status(uint16_t port, char* out, int capacity) {
 }
 
 int dh_sharing_status(uint16_t port, const char* passcode, bool allow_input, bool screen,
-    bool terminal, char* out, int capacity) {
-    std::string text = ui::ShareSummaryLine(screen, terminal, port);
+    bool terminal, bool files, char* out, int capacity) {
+    std::string text = ui::ShareSummaryLine(screen, terminal, files, port);
     text += "\n" + ui::PasscodeNote(passcode ? passcode : "");
     if (screen && !allow_input) text += std::string("\n") + ui::kViewOnlyNote;
     return FillText(out, capacity, text);

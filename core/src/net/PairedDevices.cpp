@@ -1,37 +1,18 @@
 #include "deskhub/net/PairedDevices.h"
 
+#include "RecordText.h"
+
 #include <algorithm>
 
 namespace deskhub {
 
 namespace {
 
-std::string Trim(std::string_view s) {
-    const size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string_view::npos) return {};
-    const size_t e = s.find_last_not_of(" \t\r\n");
-    return std::string(s.substr(b, e - b + 1));
-}
-
-bool ParseUnixTime(std::string_view s, int64_t& out) {
-    if (s.empty() || s.size() > 19) return false;
-    int64_t v = 0;
-    for (char c : s) {
-        if (c < '0' || c > '9') return false;
-        v = v * 10 + (c - '0');
-    }
-    out = v;
-    return true;
-}
+using detail::ParseUnixTime;
+using detail::Trim;
 
 std::string SanitizeName(std::string_view name) {
-    std::string out;
-    for (char c : name) {
-        const uint8_t u = uint8_t(c);
-        if (u >= 0x20 && u != 0x7F) out.push_back(c);
-        if (out.size() == kMaxPairedNameBytes) break;
-    }
-    return Trim(out);
+    return detail::SanitizeText(name, kMaxPairedNameBytes);
 }
 
 }

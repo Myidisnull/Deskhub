@@ -4,7 +4,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/ffi/TerminalFfi.h"
 #include "deskhubp/net/SessionTransport.h"
-#include "deskhubp/session/TerminalHost.h"
+#include "deskhubp/host/TerminalHost.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/HostIdentity.h"

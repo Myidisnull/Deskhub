@@ -1,4 +1,6 @@
+#import "deskhubp/ffi/ShareFfi.h"
 #import "deskhubp/ffi/ClientFfi.h"
-#import "deskhubp/ffi/ClientSession.h"
+#import "deskhubp/ffi/ScreenFfi.h"
 #import "deskhubp/ffi/DiscoveryFfi.h"
 #import "deskhubp/ffi/TerminalFfi.h"
+#import "deskhubp/ffi/SendFfi.h"

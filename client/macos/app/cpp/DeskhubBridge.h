@@ -3,9 +3,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "deskhubp/ffi/AgentSession.h"
+#include "deskhubp/ffi/ShareFfi.h"
 #include "deskhubp/ffi/ClientFfi.h"
-#include "deskhubp/ffi/ClientSession.h"
+#include "deskhubp/ffi/ScreenFfi.h"
+#include "deskhubp/ffi/SendFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/TerminalFfi.h"
 

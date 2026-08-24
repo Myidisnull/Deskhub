@@ -57,15 +57,20 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 if(WIN32)
     set(deskhub_platform_sink src/audio/AudioSinkWasapi.cpp)
+    set(deskhub_platform_capture src/audio/AudioCaptureWasapi.cpp)
 elseif(APPLE)
     set(deskhub_platform_sink src/audio/AudioSinkCoreAudio.mm)
+    set(deskhub_platform_capture src/audio/AudioCaptureNone.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android" AND ANDROID_PLATFORM_LEVEL GREATER_EQUAL 26)
     set(deskhub_platform_sink src/audio/AudioSinkAAudio.cpp)
     set(deskhub_platform_sink_libs aaudio)
+    set(deskhub_platform_capture src/audio/AudioCaptureNone.cpp)
 elseif(DESKHUB_PIPEWIRE_FOUND)
     set(deskhub_platform_sink src/audio/AudioSinkPipewire.cpp)
+    set(deskhub_platform_capture src/audio/AudioCapturePipewire.cpp)
 else()
     set(deskhub_platform_sink src/audio/AudioSinkNone.cpp)
+    set(deskhub_platform_capture src/audio/AudioCaptureNone.cpp)
 endif()
 
 if(WIN32)
@@ -136,7 +141,7 @@ else()
         list(APPEND deskhub_platform_os
             src/media/VtDecoderApple.mm
             src/media/VtEncoderApple.mm
-            src/ffi/ClientSessionApple.mm
+            src/ffi/ScreenFfiApple.mm
         )
     endif()
 
@@ -179,25 +184,32 @@ add_library(platform STATIC
     ${deskhub_platform_pty}
     ${deskhub_platform_audio}
     ${deskhub_platform_sink}
+    ${deskhub_platform_capture}
     src/audio/AudioPlayer.cpp
     src/audio/AudioBroadcaster.cpp
     src/system/TrustStoreFile.cpp
     src/system/PairedDevicesFile.cpp
-    src/session/AuthNegotiation.cpp
-    src/session/TerminalHost.cpp
-    src/session/TerminalViewer.cpp
+    src/auth/AuthNegotiation.cpp
+    src/client/HostLink.cpp
+    src/host/TerminalHost.cpp
+    src/client/TerminalViewer.cpp
+    src/host/FileHost.cpp
+    src/client/FileTransferClient.cpp
+    src/client/FileUpload.cpp
+    src/system/FileStore.cpp
     src/net/SessionTransport.cpp
-    src/net/SourceQuery.cpp
-    src/net/HostProbe.cpp
-    src/net/DeviceStatusPoller.cpp
-    src/net/LanScanner.cpp
-    src/net/ClientNetLoop.cpp
-    src/session/HostNetLoop.cpp
-    src/session/HostAgent.cpp
-    src/session/HostEngine.cpp
+    src/client/SourceQuery.cpp
+    src/client/HostProbe.cpp
+    src/client/DeviceStatusPoller.cpp
+    src/client/LanScanner.cpp
+    src/client/ScreenViewerLoop.cpp
+    src/host/HostNetLoop.cpp
+    src/host/ViewerBroadcast.cpp
+    src/host/HostEngine.cpp
     src/ffi/ClientFfi.cpp
-    src/ffi/AgentSession.cpp
+    src/ffi/ShareFfi.cpp
     src/ffi/DiscoveryFfi.cpp
+    src/ffi/SendFfi.cpp
     src/ffi/TerminalFfi.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -296,6 +308,7 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/ffi/FfiTextTests.cpp
         tests/ffi/TerminalFfiTests.cpp
         tests/input/LocalInputGateTests.cpp
+        tests/media/AudioBroadcasterTests.cpp
         tests/media/OpusCodecTests.cpp
         tests/net/NetAddrTests.cpp
         tests/net/SourceQueryTests.cpp
@@ -308,10 +321,12 @@ if(DESKHUB_PLATFORM_TESTS)
         tests/system/PtyTests.cpp
         tests/net/QuicEndpointTests.cpp
         tests/net/SessionTransportTests.cpp
-        tests/session/AgentLoopTests.cpp
-        tests/session/HostCallbackTests.cpp
+        tests/session/SharingHostTests.cpp
+        tests/session/ScreenHostCallbackTests.cpp
         tests/session/AuthNegotiationTests.cpp
+        tests/session/HostLinkTests.cpp
         tests/session/TerminalHostTests.cpp
+        tests/session/FileTransferTests.cpp
         tests/system/ClockTests.cpp
         tests/system/DeviceNameTests.cpp
         tests/system/MemoryFootprintTests.cpp
@@ -323,4 +338,20 @@ if(DESKHUB_PLATFORM_TESTS)
 
     include(CTest)
     add_test(NAME platform_tests COMMAND platform_tests)
+endif()
+
+option(DESKHUB_PLATFORM_PERF "Build platform_perf" ${deskhub_platform_tests_default})
+
+if(DESKHUB_PLATFORM_PERF)
+    add_executable(platform_perf
+        perf/PerfMain.cpp
+        perf/QuicPerf.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../core/perf/PerfHarness.cpp
+    )
+    target_link_libraries(platform_perf PRIVATE platform)
+    target_include_directories(platform_perf PRIVATE perf ${CMAKE_CURRENT_SOURCE_DIR}/../core/perf)
+    deskhub_target_warnings(platform_perf)
+    if(MSVC)
+        target_compile_definitions(platform_perf PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
 endif()

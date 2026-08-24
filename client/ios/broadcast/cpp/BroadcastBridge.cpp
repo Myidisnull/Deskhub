@@ -4,6 +4,7 @@
 #include <CoreVideo/CVPixelBuffer.h>
 #include <CoreVideo/CVPixelBufferPool.h>
 
+#include <chrono>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -15,7 +16,7 @@
 
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
-#include "deskhubp/ffi/AgentSession.h"
+#include "deskhubp/ffi/ShareFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/media/DisplayEnum.h"
@@ -48,18 +49,26 @@ std::string StartSharing(uint32_t width, uint32_t height) {
     deskhubp::SetLocalDisplay(width, height, ScreenName());
 
     DHShareSource source{};
-    if (dha_list_share_sources(&source, 1) != 1)
+    if (dh_share_list_sources(&source, 1) != 1)
         return "The broadcast reported no screen size.";
 
     const DHUiSettings settings = dh_settings_load();
-    const DHShareDefaults defaults = dha_default_options();
-    const bool ok = dha_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
-        settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps,
-        settings.maxDim ? settings.maxDim : defaults.maxDim, uint16_t(settings.port), false,
-        settings.passcode, false);
+    const DHShareDefaults defaults = dh_share_default_options();
+
+    constexpr int kPortHandoffTries = 8;
+    constexpr auto kPortHandoffPause = std::chrono::milliseconds(500);
+    bool ok = false;
+    for (int attempt = 0; attempt < kPortHandoffTries; ++attempt) {
+        ok = dh_share_start(&source, 1, settings.fps ? settings.fps : defaults.fps,
+            settings.bitrateMbps ? settings.bitrateMbps : defaults.bitrateMbps,
+            settings.maxDim ? settings.maxDim : defaults.maxDim, uint16_t(settings.port), false,
+            settings.passcode, false, false);
+        if (ok || !dh_take_files()) break;
+        std::this_thread::sleep_for(kPortHandoffPause);
+    }
     if (ok) return std::string();
 
-    const char* reason = dha_last_error();
+    const char* reason = dh_share_last_error();
     return reason && *reason ? std::string(reason) : std::string("Sharing could not start.");
 }
 
@@ -226,7 +235,7 @@ void dhb_start_broadcast(const char* containerPath, const char* screenName) {
 }
 
 void dhb_push_audio(const int16_t* pcm, int samples) {
-    dha_offer_audio(pcm, samples);
+    dh_share_offer_audio(pcm, samples);
 }
 
 void dhb_push_frame(void* pixelBuffer, uint32_t cgOrientation) {
@@ -262,17 +271,17 @@ void dhb_finish_broadcast(void) {
     std::thread pendingStart = TakeStartThread();
     if (pendingStart.joinable()) pendingStart.join();
 
-    dha_stop();
+    dh_share_stop();
     ReleaseRotatePool();
 }
 
 bool dhb_sharing(void) {
-    return dha_running();
+    return dh_share_running();
 }
 
 int dhb_viewer_count(void) {
     std::vector<DHHostRow> rows(kMaxViewerRows);
-    const int count = dha_host_rows(rows.data(), kMaxViewerRows);
+    const int count = dh_share_rows(rows.data(), kMaxViewerRows);
     int viewers = 0;
     for (int i = 0; i < count; ++i)
         if (rows[size_t(i)].viewer) ++viewers;
@@ -282,7 +291,7 @@ int dhb_viewer_count(void) {
 int dhb_viewer_list(char* out, int capacity) {
     if (!out || capacity <= 0) return 0;
     std::vector<DHHostRow> rows(kMaxViewerRows);
-    const int count = dha_host_rows(rows.data(), kMaxViewerRows);
+    const int count = dh_share_rows(rows.data(), kMaxViewerRows);
     std::string names;
     for (int i = 0; i < count; ++i) {
         const DHHostRow& row = rows[size_t(i)];

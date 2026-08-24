@@ -20,15 +20,21 @@ add_library(core STATIC
     src/transport/AudioJitterBuffer.cpp
     src/transport/RetransmitCache.cpp
 
-    src/session/HostSession.cpp
-    src/session/HostViewers.cpp
-    src/session/ClientSession.cpp
-    src/session/ClientPump.cpp
-    src/session/HostFeedback.cpp
-    src/session/HostRouter.cpp
+    src/session/host/ScreenHostSession.cpp
+    src/session/host/ViewerTable.cpp
+    src/session/client/ScreenClientSession.cpp
+    src/session/client/ScreenClient.cpp
+    src/session/host/ViewerFeedback.cpp
+    src/session/host/SourcePipeline.cpp
     src/session/ClipboardSync.cpp
     src/session/TerminalSession.cpp
-    src/session/TerminalClient.cpp
+    src/session/client/TerminalClient.cpp
+    src/session/FileTransfer.cpp
+    src/session/client/FileSender.cpp
+    src/session/host/FileReceiver.cpp
+
+    src/transfer/Crc32.cpp
+    src/transfer/SafeName.cpp
     src/session/LinkRecovery.cpp
 
     src/input/InputSender.cpp
@@ -51,10 +57,10 @@ add_library(core STATIC
     src/media/RatePlan.cpp
     src/media/H264Encode.cpp
 
-    src/diag/ClientDiag.cpp
-    src/diag/AgentDiag.cpp
+    src/diag/ScreenClientDiag.cpp
+    src/diag/ShareDiag.cpp
 
-    src/session/Beacon.cpp
+    src/session/host/Beacon.cpp
 
     src/net/LanScan.cpp
     src/net/Ipv4.cpp
@@ -70,6 +76,7 @@ add_library(core STATIC
     src/terminal/Palette.cpp
 
     src/ui/HostRows.cpp
+    src/ui/TransferView.cpp
     src/ui/DeviceRows.cpp
     src/ui/RecentDevices.cpp
     src/ui/SecretText.cpp
@@ -110,19 +117,23 @@ if(DESKHUB_CORE_TESTS)
         tests/transport/RetransmitCacheTests.cpp
         tests/transport/PacerTests.cpp
 
-        tests/session/SessionTests.cpp
-        tests/session/ClientPumpTests.cpp
+        tests/session/ScreenSessionTests.cpp
+        tests/session/ScreenClientTests.cpp
         tests/session/ClipboardSyncTests.cpp
-        tests/session/HostFeedbackTests.cpp
-        tests/session/HostRouterTests.cpp
-        tests/session/HostViewersTests.cpp
+        tests/session/ViewerFeedbackTests.cpp
+        tests/session/SourcePipelineTests.cpp
+        tests/session/ViewerTableTests.cpp
         tests/session/ConnectFlowTests.cpp
         tests/session/ShareFlowTests.cpp
         tests/session/OpenViewersTests.cpp
         tests/session/SourcePipelineStateTests.cpp
         tests/session/TerminalSessionTests.cpp
+        tests/session/FileTransferTests.cpp
         tests/session/LinkRecoveryTests.cpp
         tests/session/AuthThrottleTests.cpp
+
+        tests/transfer/Crc32Tests.cpp
+        tests/transfer/SafeNameTests.cpp
 
         tests/input/InputTests.cpp
         tests/input/PressedInputTests.cpp
@@ -155,6 +166,7 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ViewerTitleTests.cpp
         tests/media/FrameMailboxTests.cpp
         tests/media/RgbDownscaleTests.cpp
+        tests/media/PcmRingTests.cpp
 
         tests/session/BeaconTests.cpp
 
@@ -170,9 +182,11 @@ if(DESKHUB_CORE_TESTS)
         tests/terminal/RepaintTests.cpp
         tests/terminal/KeyEncoderTests.cpp
         tests/terminal/PaletteTests.cpp
+        tests/terminal/ScrollAnchorTests.cpp
 
         tests/ui/StringsTests.cpp
         tests/ui/HostRowsTests.cpp
+        tests/ui/TransferViewTests.cpp
         tests/ui/DeviceRowsTests.cpp
         tests/ui/RecentDevicesTests.cpp
         tests/ui/SecretTextTests.cpp
@@ -191,6 +205,29 @@ if(DESKHUB_CORE_TESTS)
 
     include(CTest)
     add_test(NAME core_tests COMMAND core_tests)
+endif()
+
+option(DESKHUB_CORE_PERF "Build core_perf" ${deskhub_tests_default})
+
+if(DESKHUB_CORE_PERF)
+    add_executable(core_perf
+        perf/PerfMain.cpp
+        perf/PerfHarness.cpp
+
+        perf/VideoPerf.cpp
+        perf/TransferPerf.cpp
+        perf/TerminalPerf.cpp
+        perf/ControlPerf.cpp
+        perf/AudioPerf.cpp
+        perf/InputPerf.cpp
+        perf/StreamPerf.cpp
+    )
+    target_link_libraries(core_perf PRIVATE core)
+    target_include_directories(core_perf PRIVATE perf)
+    deskhub_target_warnings(core_perf)
+    if(MSVC)
+        target_compile_definitions(core_perf PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
 endif()
 
 option(DESKHUB_FUZZ "Build libFuzzer fuzz targets (clang only)" OFF)

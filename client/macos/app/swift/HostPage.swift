@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HostPage: View {
-    @Bindable var agent: AgentModel
+    @Bindable var sharing: SharingModel
     let onShare: () -> Void
     @Environment(\.openWindow) private var openWindow
 
@@ -12,49 +12,55 @@ struct HostPage: View {
 
             HStack(spacing: 14) {
                 Text(DeskhubClient.string(DHStrBindInterfaceLabel))
-                Picker("", selection: $agent.bindIp) {
+                Picker("", selection: $sharing.bindIp) {
                     Text(DeskhubClient.string(DHStrBindAllInterfaces)).tag("")
-                    ForEach(agent.addresses) { address in
+                    ForEach(sharing.addresses) { address in
                         Text("\(address.ip)  (\(address.name))").tag(address.ip)
                     }
                     if staleBindIp {
-                        Text(staleBindLabel).tag(agent.bindIp)
+                        Text(staleBindLabel).tag(sharing.bindIp)
                     }
                 }
                 .labelsHidden()
                 .frame(width: 260)
-                .disabled(agent.isSharing || agent.isStarting)
+                .disabled(sharing.isSharing || sharing.isStarting)
             }
 
             HostAddressList(
                 addresses: shownAddresses,
-                staleIp: staleBindIp ? agent.bindIp : nil
+                staleIp: staleBindIp ? sharing.bindIp : nil
             )
 
-            HostStatusBanner(state: shareState, detail: agent.statusLine)
+            HostStatusBanner(state: shareState, detail: sharing.statusLine)
 
-            if agent.isSharing {
+            if sharing.isSharing {
                 HostSourceTable(
-                    rows: agent.rows,
-                    onAction: { agent.runRowAction($0) },
+                    rows: sharing.rows,
+                    onAction: { sharing.runRowAction($0) },
                     onAttach: { attachShell($0) }
                 )
                 .frame(minHeight: 170)
             } else {
                 SharePickerTable(
-                    sources: agent.shareSources,
-                    ticked: $agent.tickedSources,
-                    terminal: $agent.shareTerminal
+                    sources: sharing.shareSources,
+                    filesFolder: sharing.filesFolder,
+                    ticked: $sharing.tickedSources,
+                    terminal: $sharing.shareTerminal,
+                    files: $sharing.shareFiles
                 )
                 .frame(minHeight: 170)
                 deskhubHint(DeskhubClient.string(DHStrPickSourcesHint))
+                if sharing.shareFiles, !sharing.filesFolder.isEmpty {
+                    deskhubHint(DeskhubClient.string(DHStrTransferFolderLabel)
+                        + " " + sharing.filesFolder)
+                }
             }
 
             Button {
                 onShare()
             } label: {
                 HStack(spacing: 8) {
-                    if agent.isStarting {
+                    if sharing.isStarting {
                         ProgressView().controlSize(.small)
                     }
                     Text(shareState.action)
@@ -63,34 +69,34 @@ struct HostPage: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(agent.isSharing ? DeskhubPalette.offline : DeskhubPalette.accent)
-            .disabled(agent.isStarting)
+            .tint(sharing.isSharing ? DeskhubPalette.offline : DeskhubPalette.accent)
+            .disabled(sharing.isStarting)
         }
-        .task { await agent.refreshShareSources() }
-        .onAppear { agent.loadAddresses() }
-        .onChange(of: agent.bindIp) { _, _ in agent.save() }
+        .task { await sharing.refreshShareSources() }
+        .onAppear { sharing.loadAddresses() }
+        .onChange(of: sharing.bindIp) { _, _ in sharing.save() }
     }
 
     private func attachShell(_ row: HostRow) {
-        guard agent.stopAndAttachShell(row) else { return }
+        guard sharing.stopAndAttachShell(row) else { return }
         openWindow(id: "localShell", value: row.termId)
     }
 
     private var shareState: HostShareState {
-        if agent.isStarting { return .starting }
-        return agent.isSharing ? .sharing : .idle
+        if sharing.isStarting { return .starting }
+        return sharing.isSharing ? .sharing : .idle
     }
 
     private var shownAddresses: [LocalAddress] {
-        agent.addresses.filter { agent.bindIp.isEmpty || $0.ip == agent.bindIp }
+        sharing.addresses.filter { sharing.bindIp.isEmpty || $0.ip == sharing.bindIp }
     }
 
     private var staleBindIp: Bool {
-        !agent.bindIp.isEmpty && !agent.addresses.contains { $0.ip == agent.bindIp }
+        !sharing.bindIp.isEmpty && !sharing.addresses.contains { $0.ip == sharing.bindIp }
     }
 
     private var staleBindLabel: String {
-        "\(agent.bindIp)  (\(DeskhubClient.string(DHStrBindNotConnectedNote)))"
+        "\(sharing.bindIp)  (\(DeskhubClient.string(DHStrBindNotConnectedNote)))"
     }
 }
 
@@ -206,24 +212,35 @@ struct HostSourceTable: View {
 
 struct SharePickerTable: View {
     let sources: [ShareSource]
+    let filesFolder: String
     @Binding var ticked: Set<UInt32>
     @Binding var terminal: Bool
+    @Binding var files: Bool
+
+    private enum Kind {
+        case display(UInt32)
+        case terminal
+        case files
+    }
 
     private struct Row: Identifiable {
         let id: String
         let name: String
         let size: String
-        let sourceId: UInt32?
+        let kind: Kind
     }
 
     private var rows: [Row] {
         var all = sources.map { source in
             Row(id: "source-\(source.id)", name: source.name,
-                size: "\(source.width)x\(source.height)", sourceId: source.id)
+                size: "\(source.width)x\(source.height)", kind: .display(source.id))
         }
         all.append(Row(id: "terminal",
                        name: DeskhubClient.string(DHStrTerminalPickerLabel),
-                       size: "", sourceId: nil))
+                       size: "", kind: .terminal))
+        all.append(Row(id: "files",
+                       name: DeskhubClient.string(DHStrFilesPickerLabel),
+                       size: "", kind: .files))
         return all
     }
 
@@ -239,16 +256,22 @@ struct SharePickerTable: View {
     }
 
     private func tick(_ row: Row) -> Binding<Bool> {
-        guard let sourceId = row.sourceId else { return $terminal }
-        return Binding(
-            get: { ticked.contains(sourceId) },
-            set: { on in
-                if on {
-                    ticked.insert(sourceId)
-                } else {
-                    ticked.remove(sourceId)
+        switch row.kind {
+        case .terminal:
+            $terminal
+        case .files:
+            $files
+        case let .display(sourceId):
+            Binding(
+                get: { ticked.contains(sourceId) },
+                set: { on in
+                    if on {
+                        ticked.insert(sourceId)
+                    } else {
+                        ticked.remove(sourceId)
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }

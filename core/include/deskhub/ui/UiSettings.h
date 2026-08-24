@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/protocol/Wire.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -16,6 +17,7 @@ struct UiSettings {
     bool clientControl = true;
     bool clientDesktop = true;
     bool clientShell = false;
+    bool clientFiles = false;
     std::string passcode{};
     std::string deviceName{};
     std::string bindIp{};
@@ -27,6 +29,8 @@ struct UiSettings {
     bool startHidden = false;
     bool keepAwake = true;
     bool allowNewPairings = true;
+    bool takeFiles = false;
+    std::string transferDir{};
 
     bool operator==(const UiSettings&) const = default;
 };
@@ -35,8 +39,10 @@ inline constexpr uint32_t kMaxSettingsFps = 240;
 inline constexpr uint32_t kMaxSettingsBitrateMbps = 1000;
 inline constexpr uint32_t kMaxSettingsDim = 16384;
 inline constexpr uint32_t kMaxSettingsPort = 65535;
+inline constexpr size_t kMaxSettingsPathBytes = 1024;
 
 std::string TruncateDeviceName(std::string_view name);
+std::string TruncateSettingsPath(std::string_view path);
 
 UiSettings ParseUiSettings(std::string_view text);
 std::string SerializeUiSettings(const UiSettings& settings);

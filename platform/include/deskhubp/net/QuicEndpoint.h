@@ -17,9 +17,24 @@ inline constexpr size_t kQuicMaxUdpPayload = 1350;
 inline constexpr uint64_t kQuicIdleTimeoutMs = 30'000;
 inline constexpr uint64_t kQuicControlStream = 0;
 inline constexpr uint64_t kQuicFirstTerminalStream = 4;
+inline constexpr uint64_t kQuicFileStream = 8;
 inline constexpr uint64_t kQuicStreamStride = 4;
 
+inline constexpr uint8_t kQuicUrgencyInteractive = 64;
+inline constexpr uint8_t kQuicUrgencyBulk = 192;
+
+inline constexpr size_t kMaxFlushBurst = 16;
+
 using QuicConnId = uint64_t;
+
+struct QuicSendStats {
+    uint64_t packets = 0;
+    uint64_t bursts = 0;
+    uint64_t maxBurst = 0;
+    uint64_t capped = 0;
+    uint64_t datagrams = 0;
+    uint64_t streamBytes = 0;
+};
 
 struct QuicSettings {
     std::string alpn = "deskhub";
@@ -37,6 +52,8 @@ struct QuicCallbacks {
         onStream;
     std::function<void(QuicConnId, std::span<const uint8_t> bytes)> onDatagram;
     std::function<void(const NetAddr& from, std::span<const uint8_t> bytes)> onForeignDatagram;
+    std::function<bool(uint64_t streamId)> pauseStream;
+    std::function<void(QuicConnId, uint64_t streamId)> onStreamBroken;
 };
 
 class QuicEndpoint {
@@ -61,6 +78,7 @@ public:
     bool SendRaw(const NetAddr& to, std::span<const uint8_t> bytes);
 
     size_t MaxDatagramSize(QuicConnId conn) const;
+    QuicSendStats SendStats() const;
     std::optional<deskhub::Fingerprint> PeerFingerprint(QuicConnId conn) const;
     bool Established(QuicConnId conn) const;
     void CloseConnection(QuicConnId conn, uint64_t errorCode = 0, std::string_view reason = {});

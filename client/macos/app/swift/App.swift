@@ -3,16 +3,16 @@ import SwiftUI
 @main
 struct DeskhubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var agent = AgentModel()
+    @State private var sharing = SharingModel()
 
     var body: some Scene {
         Window("Deskhub", id: "main") {
-            ContentView(agent: agent)
+            ContentView(sharing: sharing)
                 .onAppear {
                     NSApp.setActivationPolicy(.regular)
                 }
                 .onDisappear {
-                    if agent.startHidden { NSApp.setActivationPolicy(.accessory) }
+                    if sharing.startHidden { NSApp.setActivationPolicy(.accessory) }
                 }
         }
         .windowResizability(.contentMinSize)
@@ -34,6 +34,14 @@ struct DeskhubApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 900, height: 560)
 
+        WindowGroup(id: "transfer", for: TransferRequest.self) { $request in
+            if let request {
+                FileSendWindow(request: request)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 520, height: 460)
+
         WindowGroup(id: "localShell", for: UInt32.self) { $termId in
             if let termId {
                 LocalShellWindow(termId: termId)
@@ -45,9 +53,9 @@ struct DeskhubApp: App {
         MenuBarExtra(
             "Deskhub",
             systemImage: "rectangle.on.rectangle",
-            isInserted: Bindable(agent).startHidden
+            isInserted: Bindable(sharing).startHidden
         ) {
-            TrayMenu(agent: agent)
+            TrayMenu(sharing: sharing)
         }
     }
 }
@@ -87,18 +95,18 @@ private struct LocalShellWindow: View {
             .frame(minWidth: 640, idealWidth: 900, maxWidth: .infinity,
                    minHeight: 400, idealHeight: 560, maxHeight: .infinity)
             .task {
-                guard dha_local_shell_alive(termId) else {
+                guard dh_share_local_shell_alive(termId) else {
                     dismiss()
                     return
                 }
-                model.attach(LocalShellFeed(termId: termId))
+                model.attach(LocalTerminalFeed(termId: termId))
             }
             .onDisappear { model.stop() }
     }
 }
 
 private struct TrayMenu: View {
-    var agent: AgentModel
+    var sharing: SharingModel
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -111,7 +119,7 @@ private struct TrayMenu: View {
                 showMainWindow()
             }
         }
-        Button(DeskhubClient.string(agent.isSharing ? DHStrStopSharing : DHStrStartSharing)) {
+        Button(DeskhubClient.string(sharing.isSharing ? DHStrStopSharing : DHStrStartSharing)) {
             toggleSharing()
         }
         Divider()
@@ -137,12 +145,12 @@ private struct TrayMenu: View {
     }
 
     private func toggleSharing() {
-        if agent.isSharing {
-            agent.stopSharing()
+        if sharing.isSharing {
+            sharing.stopSharing()
             return
         }
         Task {
-            if await !agent.startSharing() { showMainWindow() }
+            if await !sharing.startSharing() { showMainWindow() }
         }
     }
 }

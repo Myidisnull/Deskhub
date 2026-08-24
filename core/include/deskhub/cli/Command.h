@@ -24,6 +24,7 @@ enum class Verb {
     Share,
     Shell,
     Connect,
+    Send,
 };
 
 enum class PairingPolicy { Deny,
@@ -75,10 +76,16 @@ struct ConnectOptions {
     std::optional<bool> audio{};
 };
 
+struct SendOptions {
+    std::vector<std::string> files{};
+};
+
 struct ShareOptions {
     std::vector<std::string> displays{};
     bool screen = true;
     bool terminal = false;
+    bool files = false;
+    std::optional<std::string> filesDir{};
     PairingPolicy pairing = PairingPolicy::Deny;
     uint32_t statusIntervalMs = kDefaultStatusIntervalMs;
     bool status = true;
@@ -120,6 +127,7 @@ struct Command {
 
     ShareOptions share{};
     ConnectOptions connect{};
+    SendOptions send{};
 };
 
 ui::UiSettings ApplyShareOptions(const Command& command, ui::UiSettings settings);

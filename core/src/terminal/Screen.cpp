@@ -149,10 +149,15 @@ void Screen::Respond(std::string_view text) {
     response_ += text;
 }
 
-void Screen::PushScrollback(Row&& row) {
-    if (scrollbackLimit_ == 0) return;
+Screen::Row Screen::PushScrollback(Row&& row) {
+    if (scrollbackLimit_ == 0) return std::move(row);
     scrollback_.push_back(std::move(row));
-    while (scrollback_.size() > scrollbackLimit_) scrollback_.pop_front();
+    Row recycled;
+    while (scrollback_.size() > scrollbackLimit_) {
+        recycled = std::move(scrollback_.front());
+        scrollback_.pop_front();
+    }
+    return recycled;
 }
 
 void Screen::Write(std::string_view text) {
@@ -271,27 +276,23 @@ void Screen::ReverseIndex() {
 void Screen::ScrollUp(uint16_t count) {
     const uint16_t span = uint16_t(scrollBottom_ - scrollTop_ + 1);
     const uint16_t n = std::min(count, span);
+    if (n == 0) return;
     for (uint16_t i = 0; i < n; ++i) {
-        Row leaving = std::move(grid_[scrollTop_]);
-        if (scrollTop_ == 0 && !alternate_) {
-            Row copy = leaving;
-            PushScrollback(std::move(copy));
-        }
-        for (uint16_t r = scrollTop_; r < scrollBottom_; ++r)
-            grid_[r] = std::move(grid_[r + 1]);
+        Row& leaving = grid_[scrollTop_ + i];
+        if (scrollTop_ == 0 && !alternate_) leaving = PushScrollback(std::move(leaving));
         leaving.assign(Cols(), BlankCell());
-        grid_[scrollBottom_] = std::move(leaving);
     }
+    std::rotate(grid_.begin() + scrollTop_, grid_.begin() + scrollTop_ + n,
+        grid_.begin() + scrollBottom_ + 1);
 }
 
 void Screen::ScrollDown(uint16_t count) {
     const uint16_t span = uint16_t(scrollBottom_ - scrollTop_ + 1);
     const uint16_t n = std::min(count, span);
-    for (uint16_t i = 0; i < n; ++i) {
-        for (uint16_t r = scrollBottom_; r > scrollTop_; --r)
-            grid_[r] = std::move(grid_[r - 1]);
-        grid_[scrollTop_].assign(Cols(), BlankCell());
-    }
+    if (n == 0) return;
+    std::rotate(grid_.begin() + scrollTop_, grid_.begin() + scrollBottom_ + 1 - n,
+        grid_.begin() + scrollBottom_ + 1);
+    for (uint16_t i = 0; i < n; ++i) grid_[scrollTop_ + i].assign(Cols(), BlankCell());
 }
 
 void Screen::MoveTo(int32_t row, int32_t col) {
@@ -646,8 +647,7 @@ void Screen::Resize(TermSize size) {
         const uint16_t drop =
             std::min<uint16_t>(uint16_t(size_.rows - target.rows), cursor_.row);
         for (uint16_t i = 0; i < drop; ++i) {
-            Row row = grid_.front();
-            PushScrollback(std::move(row));
+            PushScrollback(std::move(grid_.front()));
             grid_.erase(grid_.begin());
         }
         cursor_.row = uint16_t(cursor_.row - drop);

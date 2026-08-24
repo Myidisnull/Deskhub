@@ -336,6 +336,73 @@ void TestPickDisplays() {
     Check(!cli::PickDisplays({"any"}, {}).error.empty(), "with no displays there is nothing to pick");
 }
 
+void TestSend() {
+    std::printf("[cli] send names a host and the files to put on it...\n");
+    const cli::Command one = Parse({"send", "10.0.0.4", "report.pdf"});
+    Check(Ok(one, cli::Verb::Send), "a host and one file parse");
+    Check(one.address == "10.0.0.4:" + std::to_string(kDeskhubPort) && one.port == kDeskhubPort,
+        "the address is the first word, with the default port filled in");
+    Check(one.send.files.size() == 1 && one.send.files[0] == "report.pdf",
+        "and the rest are files");
+
+    const cli::Command many = Parse({"send", "host:47800", "a.txt", "b/c.txt", "../d.bin"});
+    Check(Ok(many, cli::Verb::Send), "several files parse");
+    Check(many.port == 47800, "the address carries its own port");
+    Check(many.send.files.size() == 3 && many.send.files[2] == "../d.bin",
+        "paths are taken as written, and reduced later");
+
+    Check(!Parse({"send"}).error.empty(), "send without a host is refused");
+    Check(!Parse({"send", "10.0.0.4"}).error.empty(), "send without a file is refused");
+    Check(!Parse({"send", "10.0.0.4", "a.txt", "--nope"}).error.empty(),
+        "an unknown flag is refused");
+
+    const cli::Command named = Parse({"send", "10.0.0.4", "a.txt", "--passcode", "0417",
+        "--name", "laptop"});
+    Check(Ok(named, cli::Verb::Send), "a passcode and a name are accepted");
+    Check(named.passcode == "0417" && named.deviceName && *named.deviceName == "laptop",
+        "and are carried through");
+
+    std::vector<const char*> flood{"send", "10.0.0.4"};
+    for (size_t i = 0; i <= kMaxTransferFiles; ++i) flood.push_back("f.bin");
+    Check(!Parse(flood).error.empty(), "more files than one batch carries is refused");
+
+    const cli::Command scoped = Parse({"send", "--help"});
+    Check(Ok(scoped, cli::Verb::Help) && scoped.helpFor == cli::Verb::Send,
+        "send explains itself");
+}
+
+void TestShareFileFlags() {
+    std::printf("[cli] taking files is asked for on the command line, like a shell...\n");
+    const cli::Command off = Parse({"share"});
+    Check(Ok(off, cli::Verb::Share), "a bare share parses");
+    Check(!off.share.files, "and takes no files unless it is asked to");
+    Check(!off.share.terminal, "exactly as it shares no shell unless it is asked to");
+
+    const cli::Command on = Parse({"share", "--files"});
+    Check(Ok(on, cli::Verb::Share) && on.share.files, "--files turns it on");
+
+    const cli::Command only = Parse({"share", "--no-screen", "--files"});
+    Check(Ok(only, cli::Verb::Share) && only.share.files && !only.share.screen,
+        "a machine can share nothing but a place to put files");
+    Check(!Parse({"share", "--no-screen"}).error.empty(),
+        "while --no-screen on its own still leaves nothing to share");
+
+    const cli::Command where = Parse({"share", "--files", "--files-dir", "/srv/incoming"});
+    Check(Ok(where, cli::Verb::Share), "a folder can be named");
+    Check(where.share.filesDir && *where.share.filesDir == "/srv/incoming",
+        "and is carried through");
+    Check(!Parse({"share", "--files-dir"}).error.empty(), "an empty --files-dir is refused");
+
+    ui::UiSettings settings;
+    Check(settings.transferDir.empty(), "a fresh machine has no folder of its own");
+    const ui::UiSettings applied = cli::ApplyShareOptions(where, settings);
+    Check(applied.transferDir == "/srv/incoming", "the folder is a saved preference");
+    Check(ui::ParseUiSettings(ui::SerializeUiSettings(applied)).transferDir == "/srv/incoming",
+        "and survives a round trip");
+    Check(ui::SerializeUiSettings(applied).find("accept_files") == std::string::npos,
+        "while the tick itself is not saved: it is a source, like the terminal");
+}
+
 void TestUsageText() {
     std::printf("[cli] every command can explain itself...\n");
     Check(cli::UsageText().find("deskhub-cli") != std::string::npos, "the summary names the program");
@@ -343,7 +410,8 @@ void TestUsageText() {
 
     const cli::Verb verbs[] = {cli::Verb::Displays, cli::Verb::Scan, cli::Verb::Sources,
         cli::Verb::Probe, cli::Verb::Devices, cli::Verb::Trust, cli::Verb::Settings,
-        cli::Verb::Version, cli::Verb::Share, cli::Verb::Shell, cli::Verb::Connect};
+        cli::Verb::Version, cli::Verb::Share, cli::Verb::Shell, cli::Verb::Connect,
+        cli::Verb::Send};
     for (cli::Verb verb : verbs) {
         const std::string name = cli::VerbName(verb);
         Check(!name.empty(), "the command has a name");
@@ -369,6 +437,8 @@ void RunCliCommandTests() {
     TestDevicesAndTrust();
     TestSettings();
     TestShareFlags();
+    TestShareFileFlags();
+    TestSend();
     TestShell();
     TestConnect();
     TestDisplaysForget();

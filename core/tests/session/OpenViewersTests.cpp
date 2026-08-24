@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhub/session/OpenViewers.h"
+#include "deskhub/session/client/OpenViewers.h"
 
 #include <cstdio>
 

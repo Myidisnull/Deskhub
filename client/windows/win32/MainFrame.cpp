@@ -1,6 +1,7 @@
 #include <wx/wx.h>
 
 #include <wx/dcbuffer.h>
+#include <wx/dirdlg.h>
 #include <wx/hyperlink.h>
 #include <wx/init.h>
 #include <wx/listctrl.h>
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -27,6 +29,7 @@
 
 #include "PasscodePrompt.h"
 #include "SourcePickerDialog.h"
+#include "FileSendWindow.h"
 #include "TerminalWindow.h"
 #include "Viewer.h"
 #include "WxUi.h"
@@ -34,7 +37,8 @@
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/net/BindAddress.h"
 #include "deskhub/net/TrustStore.h"
-#include "deskhub/session/ShareFlow.h"
+#include "deskhub/session/client/ConnectFlow.h"
+#include "deskhub/session/host/ShareFlow.h"
 #include "deskhub/net/PairedDevices.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/DeviceRows.h"
@@ -44,15 +48,17 @@
 #include "deskhub/ui/UiSettings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/media/DisplayEnum.h"
-#include "deskhubp/net/DeviceStatusPoller.h"
-#include "deskhubp/net/LanScanner.h"
+#include "deskhubp/client/DeviceStatusPoller.h"
+#include "deskhubp/client/LanScanner.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/AgentDriver.h"
-#include "deskhubp/session/AgentLoop.h"
-#include "deskhubp/session/ConnectDriver.h"
-#include "deskhubp/session/TerminalHost.h"
+#include "deskhubp/host/ShareDriver.h"
+#include "deskhubp/host/SharingHost.h"
+#include "deskhubp/client/SourceQueryAsync.h"
+#include "deskhubp/host/ShareController.h"
+#include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/AppDataFile.h"
+#include "deskhubp/system/Clock.h"
 #include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/HostIdentity.h"
@@ -163,43 +169,10 @@ HostStateStyle StyleFor(HostShareState state) {
     return {ui::kShareStateOff, ui::kStartSharing, kMutedText, kBannerIdleBg};
 }
 
-int64_t NowUnix() {
-    return int64_t(std::time(nullptr));
-}
-
-std::string FormatLastConnected(int64_t unixTime) {
-    if (unixTime <= 0) return {};
-    const std::time_t t = std::time_t(unixTime);
-    std::tm tm{};
-    if (localtime_s(&tm, &t) != 0) return {};
-    char buf[32];
-    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm) == 0) return {};
-    return std::string(buf);
-}
-
 struct ProbeResult {
     bool online = false;
     uint32_t rttMs = 0;
 };
-
-bool HostKeyOf(const std::string& addr, uint64_t& key) {
-    NetAddr parsed{};
-    if (!ParseNetAddr(addr, parsed)) return false;
-    key = parsed.Pack();
-    return true;
-}
-
-bool SameHost(const std::string& addr, uint64_t key) {
-    uint64_t other = 0;
-    return HostKeyOf(addr, other) && other == key;
-}
-
-std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& devices) {
-    std::vector<std::string> out;
-    out.reserve(devices.size());
-    for (const auto& d : devices) out.push_back(d.addr);
-    return out;
-}
 
 void SetHintLabel(wxStaticText* hint, const wxString& text) {
     hint->SetLabel(text);
@@ -325,7 +298,6 @@ private:
     wxWindow* BuildDevicesPage(wxWindow* parent);
     wxWindow* BuildSettingsPage(wxWindow* parent);
     void RefreshPairedDevices();
-    void DrainPairingRequests();
     bool AskPairing(const PairingRequest& request);
     void ForgetSelectedDevice();
     void ForgetEveryDevice();
@@ -346,22 +318,21 @@ private:
     void ReportShareProblem(const wxString& text, const wxString& title);
     bool Sharing() const;
     bool TerminalTicked() const;
-    void StartHosting(const std::vector<AgentSource>& sources, const AgentOptions& options);
+    bool FilesTicked() const;
+    std::filesystem::path TransferFolder() const;
+    void StartHosting(const std::vector<ShareSource>& sources, const ShareOptions& options);
     void OnHostStarted(bool started, const std::string& error, uint16_t port,
         bool allowInput, const std::string& passcode);
     void StopHosting();
-    void StartTerminalShare();
-    void StopTerminalShare();
-    void StopTerminalRow();
-    void RefreshShells();
-    void KickShell(uint32_t termId);
-    void StopAndAttachShell(uint32_t termId);
+    void StartFileShare();
+    void ChooseTransferFolder();
+    void OpenFileSend(const NetAddr& server, const std::string& passcode);
     void ApplySharingBanner();
     void OnHostTimer(wxTimerEvent& event);
     void OnClipboardTimer(wxTimerEvent& event);
     void RefreshDisplayChoices();
     void OnDisplayChanged(wxDisplayChangedEvent& event);
-    void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
+    void UpdateHostRows(const std::vector<ShareSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
     wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
     wxButton* MakeRowAttach(wxWindow* parent, const ui::HostRow& ref);
@@ -388,13 +359,8 @@ private:
     void OnScanFinished(const deskhubp::ScanProgress& progress);
     void OnListClick(wxMouseEvent& event);
     void ConnectRow(long row);
-    struct OpenChoice {
-        bool desktop = false;
-        bool shell = false;
-    };
-
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
-        const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
+        const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome);
     void OpenViewerSession(const std::string& addr, const std::string& passcode,
         std::vector<deskhub::SourceInfo> picked);
     void DeselectAllRows();
@@ -411,6 +377,7 @@ private:
     wxTextCtrl* connectPortCtrl_ = nullptr;
     wxCheckBox* desktopCtrl_ = nullptr;
     wxCheckBox* shellCtrl_ = nullptr;
+    wxCheckBox* filesCtrl_ = nullptr;
     wxButton* connectBtn_ = nullptr;
     wxStaticText* clientStatus_ = nullptr;
     wxCheckBox* controlCtrl_ = nullptr;
@@ -448,17 +415,19 @@ private:
     wxCheckBox* playAudioCtrl_ = nullptr;
     wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* clipboardCtrl_ = nullptr;
+    wxStaticText* transferDirLabel_ = nullptr;
+    wxStaticText* hostFilesHint_ = nullptr;
     DeskhubTrayIcon* trayIcon_ = nullptr;
     bool quitting_ = false;
     std::vector<std::string> bindChoices_;
 
     deskhub::ui::UiSettings settings_;
-    std::vector<AgentSource> availableDisplays_;
-    std::vector<AgentSourceStatus> hostStatus_;
-    std::vector<deskhub::TerminalRecord> shells_;
+    std::vector<ShareSource> availableDisplays_;
+    std::vector<ShareSourceStatus> hostStatus_;
     std::optional<std::string> pendingClipboard_;
     bool screenSharing_ = false;
     bool terminalRequested_ = false;
+    bool filesRequested_ = false;
     uint16_t sharePort_ = 0;
     std::string sharePasscodeNote_;
     std::string shareBindWarning_;
@@ -469,13 +438,11 @@ private:
     std::vector<ui::DeviceRow> deviceRows_;
     std::vector<std::string> scannedThisRound_;
     std::map<uint64_t, ProbeResult> probes_;
-    deskhubp::ConnectDriver connectDriver_;
+    deskhubp::SourceQueryAsync connectDriver_;
     deskhubp::DeviceStatusPoller poller_;
     deskhubp::LanScanner scanner_;
-    AgentLoop agentLoop_;
-    deskhubp::AgentDriver agentDriver_;
-    deskhubp::TerminalHost terminalHost_;
-    bool askingPairing_ = false;
+    deskhubp::ShareController share_;
+    deskhubp::ShareDriver shareDriver_;
     wxTimer hostTimer_;
     wxTimer scanTimer_;
     wxTimer clipTimer_;
@@ -520,7 +487,23 @@ MainFrame::MainFrame() : wxFrame(nullptr, wxID_ANY, ToWx(ui::kAppTitle)) {
     Bind(wxEVT_DISPLAY_CHANGED, &MainFrame::OnDisplayChanged, this);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
 
-    agentLoop_.SetTerminal(&terminalHost_);
+    share_.sharingHost().SetTerminal(&share_.terminalHost());
+    share_.sharingHost().SetFiles(&share_.fileHost());
+
+    deskhubp::ShareController::Hooks hooks;
+    hooks.onError = [this](const std::string& message) {
+        wxMessageBox(ToWx(message), "Deskhub", wxOK | wxICON_ERROR, this);
+    };
+    hooks.postToUi = [this](std::function<void()> fn) { CallAfter(std::move(fn)); };
+    hooks.openLocalTerminal = [this](uint32_t termId) {
+        return OpenHostTerminalWindow(this, share_.terminalHost(), termId);
+    };
+    hooks.onRowsChanged = [this] { UpdateHostRows(hostStatus_); };
+    hooks.askPairing = [this](const PairingRequest& request) { return AskPairing(request); };
+    hooks.onBannerChanged = [this] { ApplySharingBanner(); };
+    hooks.onNothingLeftShared = [this] { StopHosting(); };
+    share_.SetHooks(std::move(hooks));
+
     RefreshDeviceList();
     StartPoller();
     StartScan();
@@ -663,6 +646,12 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
         wxLC_REPORT | wxLC_NO_HEADER | wxLC_SINGLE_SEL);
     hostPicker_->InsertColumn(0, "Source", wxLIST_FORMAT_LEFT, FromDIP(560));
     hostPicker_->SetMinSize(FromDIP(wxSize(-1, kHostListMinH)));
+    const auto onTick = [this](wxListEvent& event) {
+        event.Skip();
+        if (!Sharing()) ShowHostTable(false);
+    };
+    hostPicker_->Bind(wxEVT_LIST_ITEM_CHECKED, onTick);
+    hostPicker_->Bind(wxEVT_LIST_ITEM_UNCHECKED, onTick);
     sizer->Add(hostPicker_,
         wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
 
@@ -673,6 +662,9 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
 
     hostHint_ = MakeHint(panel, ToWx(ui::kPickSourcesHint));
     sizer->Add(hostHint_, pad);
+
+    hostFilesHint_ = MakeHint(panel, wxString());
+    sizer->Add(hostFilesHint_, pad);
 
     shareBtn_ = new wxButton(panel, wxID_ANY, wxString());
     shareBtn_->SetMinSize(FromDIP(wxSize(-1, kPrimaryButtonH)));
@@ -830,6 +822,12 @@ wxWindow* MainFrame::BuildClientPage(wxWindow* parent) {
     shellCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
     openSizer->Add(shellCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
 
+    filesCtrl_ = new wxCheckBox(openBox, wxID_ANY, ToWx(ui::kOpenFilesLabel));
+    filesCtrl_->SetName("open-files");
+    filesCtrl_->SetValue(settings_.clientFiles);
+    filesCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveOpenChoices(); });
+    openSizer->Add(filesCtrl_, wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
+
     openSizer->Add(MakeHint(openBox, ToWx(ui::kMobileHostNote)),
         wxSizerFlags().Border(wxLEFT | wxTOP | wxRIGHT, FromDIP(8)));
     openSizer->Add(MakeHint(openBox, ToWx(ui::kOpenChoiceHint)),
@@ -951,35 +949,12 @@ void MainFrame::RefreshPairedDevices() {
         const long row = pairedList_->InsertItem(long(i),
             ToWx(device.name.empty() ? std::string("(unnamed)") : device.name));
         pairedList_->SetItem(row, 1, ToWx(deskhub::ShortFingerprint(device.fingerprint)));
-        pairedList_->SetItem(row, 2, ToWx(FormatLastConnected(device.pairedUnix)));
-        pairedList_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastSeenUnix)));
+        pairedList_->SetItem(row, 2, ToWx(FormatUnixMinute(device.pairedUnix)));
+        pairedList_->SetItem(row, 3, ToWx(FormatUnixMinute(device.lastSeenUnix)));
     }
     SetHintLabel(pairedHint_, ToWx(ui::kPairedEmpty));
     pairedHint_->Show(pairedDevices_.empty());
     forgetDeviceBtn_->Enable(!pairedDevices_.empty());
-}
-
-void MainFrame::DrainPairingRequests() {
-    if (askingPairing_) return;
-    const std::vector<PairingRequest> requests = agentLoop_.TakePairingRequests();
-    if (requests.empty()) return;
-
-    askingPairing_ = true;
-    std::map<std::string, bool> answers;
-    const deskhub::PairedDevices paired = deskhubp::LoadPairedDevices();
-    for (const deskhub::PairedDevice& device : paired.Devices())
-        answers[deskhub::ShortFingerprint(device.fingerprint)] = true;
-
-    const auto answerFor = [this, &answers](const PairingRequest& request) {
-        const auto found = answers.find(request.shortKey);
-        if (found != answers.end()) return found->second;
-        const bool allowed = AskPairing(request);
-        answers[request.shortKey] = allowed;
-        return allowed;
-    };
-    for (const PairingRequest& request : requests)
-        agentLoop_.AnswerPairing(request.addrPacked, answerFor(request));
-    askingPairing_ = false;
 }
 
 bool MainFrame::AskPairing(const PairingRequest& request) {
@@ -1086,6 +1061,19 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     keepAwakeCtrl_->SetValue(settings_.keepAwake);
     sizer->Add(keepAwakeCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
 
+    auto* folderRow = new wxBoxSizer(wxHORIZONTAL);
+    folderRow->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kTransferFolderLabel)),
+        wxSizerFlags().CentreVertical());
+    transferDirLabel_ = new wxStaticText(panel, wxID_ANY, ToWx(deskhubp::PathText(TransferFolder())),
+        wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_MIDDLE);
+    transferDirLabel_->SetForegroundColour(kMutedText);
+    folderRow->Add(transferDirLabel_, wxSizerFlags(1).CentreVertical().Border(wxLEFT,
+                                          FromDIP(8)));
+    auto* folderBtn = new wxButton(panel, wxID_ANY, ToWx(ui::kTransferChooseButton));
+    folderBtn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ChooseTransferFolder(); });
+    folderRow->Add(folderBtn, wxSizerFlags().CentreVertical().Border(wxLEFT, FromDIP(8)));
+    sizer->Add(folderRow, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+
     sizer->AddSpacer(FromDIP(12));
     sizer->Add(MakeSection(panel, ui::kSettingsSectionLaunch), pad);
     autostartCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAutostartLabel));
@@ -1131,6 +1119,7 @@ void MainFrame::RefreshDisplayChoices() {
         previousTicks[availableDisplays_[i].name] = hostPicker_->IsItemChecked(long(i));
     }
     const bool terminalWasTicked = hostPicker_->GetItemCount() == 0 || TerminalTicked();
+    const bool filesWasTicked = hostPicker_->GetItemCount() == 0 || FilesTicked();
 
     availableDisplays_ = deskhubp::ListDisplays();
     hostRows_.clear();
@@ -1138,7 +1127,7 @@ void MainFrame::RefreshDisplayChoices() {
     hostPicker_->DeleteAllItems();
     hostPicker_->EnableCheckBoxes(true);
     for (size_t i = 0; i < availableDisplays_.size(); ++i) {
-        const AgentSource& source = availableDisplays_[i];
+        const ShareSource& source = availableDisplays_[i];
         const long row = hostPicker_->InsertItem(long(i),
             ToWx(deskhub::media::SourcePickerLabel(source.name, uint8_t(i), source.width,
                 source.height)));
@@ -1148,6 +1137,9 @@ void MainFrame::RefreshDisplayChoices() {
     const long terminalRow = hostPicker_->InsertItem(long(availableDisplays_.size()),
         ToWx(ui::kTerminalPickerLabel));
     hostPicker_->CheckItem(terminalRow, terminalWasTicked);
+    const long filesRow = hostPicker_->InsertItem(long(availableDisplays_.size()) + 1,
+        ToWx(ui::kFilesPickerLabel));
+    hostPicker_->CheckItem(filesRow, filesWasTicked);
     ShowHostTable(false);
 }
 
@@ -1157,8 +1149,31 @@ bool MainFrame::TerminalTicked() const {
     return hostPicker_->IsItemChecked(row);
 }
 
+bool MainFrame::FilesTicked() const {
+    const long row = long(availableDisplays_.size()) + 1;
+    if (row >= hostPicker_->GetItemCount()) return false;
+    return hostPicker_->IsItemChecked(row);
+}
+
+std::filesystem::path MainFrame::TransferFolder() const {
+    if (settings_.transferDir.empty()) return deskhubp::DefaultTransferDir();
+    const std::u8string wide(settings_.transferDir.begin(), settings_.transferDir.end());
+    return std::filesystem::path(wide);
+}
+
+void MainFrame::ChooseTransferFolder() {
+    wxDirDialog picker(this, ToWx(ui::kTransferFolderLabel), ToWx(deskhubp::PathText(TransferFolder())),
+        wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+    if (picker.ShowModal() != wxID_OK) return;
+
+    settings_.transferDir = ui::TruncateSettingsPath(std::string(picker.GetPath().utf8_str()));
+    deskhubp::SaveUiSettings(settings_);
+    transferDirLabel_->SetLabel(ToWx(deskhubp::PathText(TransferFolder())));
+    if (!Sharing()) ShowIdleHostState();
+}
+
 bool MainFrame::Sharing() const {
-    return hosting_ || hostStarting_ || terminalHost_.Running();
+    return hosting_ || hostStarting_ || share_.terminalHost().Running() || share_.fileHost().Running();
 }
 
 wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
@@ -1213,6 +1228,15 @@ bool CanAttachLocally(const ui::HostRow& ref) {
 
 wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
     const bool viewer = ref.viewer;
+    if (ref.files) {
+        auto* stop = new wxButton(parent, wxID_ANY, ToWx(ui::kStopDisplayAction));
+        stop->SetMinSize(FromDIP(wxSize(kHostActionWidth, 26)));
+        PaintButton(stop, kOffline);
+        stop->Bind(wxEVT_BUTTON,
+            [this](wxCommandEvent&) { share_.StopFilesRow(screenSharing_); });
+        stop->Show(!viewer);
+        return stop;
+    }
     const bool remoteRow = viewer && !IsAttachedLocally(ref);
     auto* button = new wxButton(parent, wxID_ANY,
         ToWx(remoteRow ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
@@ -1223,9 +1247,9 @@ wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
         const uint32_t termId = ref.termId;
         button->Bind(wxEVT_BUTTON, [this, viewer, termId](wxCommandEvent&) {
             if (viewer) {
-                KickShell(termId);
+                share_.KickShell(termId);
             } else {
-                StopTerminalRow();
+                share_.StopTerminalRow(screenSharing_);
             }
         });
         return button;
@@ -1248,7 +1272,8 @@ wxButton* MainFrame::MakeRowAttach(wxWindow* parent, const ui::HostRow& ref) {
     button->SetMinSize(FromDIP(wxSize(kHostAttachWidth, 26)));
     PaintButton(button, kOffline);
     const uint32_t termId = ref.termId;
-    button->Bind(wxEVT_BUTTON, [this, termId](wxCommandEvent&) { StopAndAttachShell(termId); });
+    button->Bind(wxEVT_BUTTON,
+        [this, termId](wxCommandEvent&) { share_.StopAndAttachShell(termId); });
     return button;
 }
 
@@ -1308,6 +1333,11 @@ void MainFrame::ShowHostTable(bool sharing) {
     hostPicker_->Show(!sharing);
     hostTableHolder_->Show(sharing);
     hostHint_->Show(!sharing);
+
+    const bool showFolder = !sharing && FilesTicked();
+    hostFilesHint_->SetLabel(
+        ToWx(std::string(ui::kTransferFolderLabel) + " " + deskhubp::PathText(TransferFolder())));
+    hostFilesHint_->Show(showFolder);
     RelayoutHostPage();
 }
 
@@ -1323,7 +1353,7 @@ void MainFrame::RefreshDeviceList() {
         const long row = deviceList_->InsertItem(long(i), ToWx(device.addr));
         deviceList_->SetItem(row, 1, ToWx(ui::DeviceOriginLabel(device.origin)));
         deviceList_->SetItem(row, 4,
-            device.lastConnectedUnix != 0 ? ToWx(FormatLastConnected(device.lastConnectedUnix))
+            device.lastConnectedUnix != 0 ? ToWx(FormatUnixMinute(device.lastConnectedUnix))
                                           : wxString("-"));
         ApplyRowStatus(row, device.addr);
     }
@@ -1363,7 +1393,7 @@ void MainFrame::ApplyProbeToRows(const std::string& addr) {
 }
 
 void MainFrame::StartPoller() {
-    poller_.SetAddresses(AddressesOf(recent_));
+    poller_.SetAddresses(ui::AddressesOf(recent_));
     poller_.Start([this](const deskhubp::DeviceStatus& status) {
         CallAfter([this, status] { OnDeviceStatus(status); });
     });
@@ -1451,19 +1481,20 @@ void MainFrame::OnShare(ShareTrigger trigger) {
     shareTrigger_ = trigger;
 
     const bool terminal = TerminalTicked();
-    if (availableDisplays_.empty() && !terminal) {
+    const bool files = FilesTicked();
+    if (availableDisplays_.empty() && !terminal && !files) {
         const std::string err = deskhubp::ListDisplaysError();
         ReportShareProblem(err.empty() ? ToWx(ui::kNoDisplayFound) : ToWx(err),
             ToWx(ui::kCaptureUnavailableTitle));
         return;
     }
 
-    std::vector<AgentSource> chosen;
+    std::vector<ShareSource> chosen;
     for (size_t i = 0; i < availableDisplays_.size(); ++i) {
         if (long(i) >= hostPicker_->GetItemCount()) break;
         if (hostPicker_->IsItemChecked(long(i))) chosen.push_back(availableDisplays_[i]);
     }
-    if (chosen.empty() && !terminal) {
+    if (chosen.empty() && !terminal && !files) {
         ReportShareProblem(ToWx(ui::kNoDisplayTicked), "Deskhub");
         return;
     }
@@ -1471,76 +1502,32 @@ void MainFrame::OnShare(ShareTrigger trigger) {
     const deskhub::ShareClampResult clamp = deskhub::ClampShareSources(chosen);
     if (clamp.clamped) ReportShareProblem(ToWx(ui::ShareClampWarning()), "Deskhub");
 
-    const std::vector<AgentSource>& sources = clamp.sources;
+    const std::vector<ShareSource>& sources = clamp.sources;
 
-    const AgentOptions options = deskhub::ShareOptionsOf(settings_, terminal);
+    const ShareOptions options = deskhub::ShareOptionsOf(settings_, terminal, files);
 
     terminalRequested_ = terminal;
+    filesRequested_ = files;
     StartHosting(sources, options);
 }
 
-void MainFrame::StartTerminalShare() {
-    if (terminalHost_.Running()) return;
-
-    deskhubp::TerminalHostCallbacks hooks;
-    hooks.onSessionsChanged = [this] {
-        CallAfter([this] {
-            RefreshShells();
-            UpdateHostRows(hostStatus_);
-        });
-    };
-
-    if (!terminalHost_.Start(agentLoop_.Socket(), std::string(), std::move(hooks))) {
-        wxMessageBox(ToWx(ui::kShareStartFailed), "Deskhub", wxOK | wxICON_ERROR, this);
-        return;
-    }
-    RefreshShells();
-}
-
-void MainFrame::StopTerminalShare() {
-    if (!terminalHost_.Running()) return;
-    terminalHost_.Stop();
-    shells_.clear();
-}
-
-void MainFrame::StopTerminalRow() {
-    StopTerminalShare();
-    if (!Sharing()) {
-        StopHosting();
-        return;
-    }
-    ApplySharingBanner();
-    UpdateHostRows(hostStatus_);
-}
-
-void MainFrame::RefreshShells() {
-    shells_ = terminalHost_.Running() ? terminalHost_.Sessions()
-                                      : std::vector<deskhub::TerminalRecord>{};
-}
-
-void MainFrame::KickShell(uint32_t termId) {
-    if (!terminalHost_.Running()) return;
-    terminalHost_.KickSession(termId);
-}
-
-void MainFrame::StopAndAttachShell(uint32_t termId) {
-    if (!terminalHost_.AttachLocal(termId)) return;
-    RefreshShells();
-    UpdateHostRows(hostStatus_);
-    if (!OpenHostTerminalWindow(this, terminalHost_, termId)) KickShell(termId);
+void MainFrame::StartFileShare() {
+    if (!share_.StartFileShare(TransferFolder())) filesRequested_ = false;
 }
 
 void MainFrame::ApplySharingBanner() {
-    std::string status =
-        ui::ShareSummaryLine(screenSharing_, terminalHost_.Running(), sharePort_);
-    if (!sharePasscodeNote_.empty()) status += "\n" + sharePasscodeNote_;
-    if (screenSharing_ && shareViewOnly_) status += std::string("\n") + ui::kViewOnlyNote;
-    if (hosting_ && !shareBindWarning_.empty()) status += "\n" + shareBindWarning_;
-    ApplyHostState(HostShareState::kSharing, ToWx(status));
+    deskhubp::ShareBanner banner;
+    banner.screenSharing = screenSharing_;
+    banner.hosting = hosting_;
+    banner.port = sharePort_;
+    banner.viewOnly = shareViewOnly_;
+    banner.passcodeNote = sharePasscodeNote_;
+    banner.bindWarning = shareBindWarning_;
+    ApplyHostState(HostShareState::kSharing, ToWx(share_.BannerText(banner)));
 }
 
-void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
-    const AgentOptions& options) {
+void MainFrame::StartHosting(const std::vector<ShareSource>& sources,
+    const ShareOptions& options) {
     hostStarting_ = true;
     shareBtn_->Disable();
     ApplyHostState(HostShareState::kStarting, wxString());
@@ -1548,9 +1535,9 @@ void MainFrame::StartHosting(const std::vector<AgentSource>& sources,
     RebuildHostTable();
     ShowHostTable(true);
 
-    agentDriver_.Join();
-    agentDriver_.StartAsync(
-        agentLoop_, sources, options,
+    shareDriver_.Join();
+    shareDriver_.StartAsync(
+        share_.sharingHost(), sources, options,
         [alive = alive_](std::function<void()> fn) {
             if (!wxTheApp) return;
             wxTheApp->CallAfter([alive, fn = std::move(fn)] {
@@ -1570,6 +1557,7 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
 
     if (!started) {
         terminalRequested_ = false;
+        filesRequested_ = false;
         ShowIdleHostState();
         RefreshDisplayChoices();
         ReportShareProblem(ToWx(std::string(ui::kShareStartFailed) + ".\n\n" + error), "Deskhub");
@@ -1577,22 +1565,23 @@ void MainFrame::OnHostStarted(bool started, const std::string& error, uint16_t p
     }
 
     hosting_ = true;
-    screenSharing_ = !agentLoop_.Status().empty();
+    screenSharing_ = !share_.sharingHost().Status().empty();
     sharePort_ = port;
     sharePasscodeNote_ = ui::PasscodeNote(passcode);
     shareViewOnly_ = !allowInput;
-    shareBindWarning_ = agentLoop_.BindWarning();
-    if (terminalRequested_) StartTerminalShare();
+    shareBindWarning_ = share_.sharingHost().BindWarning();
+    if (terminalRequested_) share_.StartTerminalShare();
+    if (filesRequested_) StartFileShare();
     ApplySharingBanner();
     ShowHostTable(true);
-    hostTimer_.Start(int(deskhubp::kAgentStatusPollMs));
+    hostTimer_.Start(int(deskhubp::kShareStatusPollMs));
     if (settings_.clipboardSync) clipTimer_.Start(1000);
 }
 
 void MainFrame::OnClipboardTimer(wxTimerEvent&) {
     if (!hosting_) return;
     const wxLogNull quietWhileClipboardIsBusy;
-    if (!pendingClipboard_) pendingClipboard_ = agentLoop_.TakeRemoteClipboard();
+    if (!pendingClipboard_) pendingClipboard_ = share_.sharingHost().TakeRemoteClipboard();
     if (pendingClipboard_) {
         if (!wxTheClipboard->Open()) return;
         const bool put =
@@ -1606,7 +1595,7 @@ void MainFrame::OnClipboardTimer(wxTimerEvent&) {
         wxTextDataObject data;
         wxTheClipboard->GetData(data);
         const std::string text(data.GetText().utf8_str());
-        if (!text.empty()) agentLoop_.OfferLocalClipboard(text);
+        if (!text.empty()) share_.sharingHost().OfferLocalClipboard(text);
     }
     wxTheClipboard->Close();
 }
@@ -1614,12 +1603,14 @@ void MainFrame::OnClipboardTimer(wxTimerEvent&) {
 void MainFrame::StopHosting() {
     hostTimer_.Stop();
     clipTimer_.Stop();
-    StopTerminalShare();
-    agentLoop_.Stop();
-    agentDriver_.Join();
+    share_.StopTerminalShare();
+    share_.StopFileShare();
+    share_.sharingHost().Stop();
+    shareDriver_.Join();
     hosting_ = false;
     screenSharing_ = false;
     terminalRequested_ = false;
+    filesRequested_ = false;
     pendingClipboard_.reset();
     sharePasscodeNote_.clear();
     shareBindWarning_.clear();
@@ -1630,20 +1621,20 @@ void MainFrame::StopHosting() {
 }
 
 void MainFrame::OnHostTimer(wxTimerEvent&) {
-    DrainPairingRequests();
+    share_.DrainPairingRequests();
     if (!Sharing()) {
         hostTimer_.Stop();
         return;
     }
 
     if (hosting_) {
-        std::vector<AgentSourceStatus> rows;
-        const deskhubp::AgentDriveState state = agentDriver_.Poll(agentLoop_, rows);
-        if (state == deskhubp::AgentDriveState::Stopped) {
+        std::vector<ShareSourceStatus> rows;
+        const deskhubp::ShareDriveState state = shareDriver_.Poll(share_.sharingHost(), rows);
+        if (state == deskhubp::ShareDriveState::Stopped) {
             StopHosting();
             return;
         }
-        if (state == deskhubp::AgentDriveState::Running) {
+        if (state == deskhubp::ShareDriveState::Running) {
             hostStatus_ = std::move(rows);
             if (screenSharing_ && hostStatus_.empty()) {
                 screenSharing_ = false;
@@ -1652,12 +1643,14 @@ void MainFrame::OnHostTimer(wxTimerEvent&) {
         }
     }
 
-    RefreshShells();
+    share_.RefreshShells();
+    share_.RefreshTransfers();
     UpdateHostRows(hostStatus_);
 }
 
-void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, terminalHost_.Running(), shells_);
+void MainFrame::UpdateHostRows(const std::vector<ShareSourceStatus>& rows) {
+    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows, share_.terminalHost().Running(), share_.shells(),
+        share_.fileHost().Running(), share_.transfers());
 
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
@@ -1668,10 +1661,12 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
     for (size_t i = 0; i < hostRows_.size() && i < hostRowViews_.size(); ++i) {
         const ui::HostRow& ref = hostRows_[i];
         ui::HostRowCells cells;
-        if (ref.terminal) {
-            cells = ui::TerminalRowText(ref, uint16_t(settings_.port), shells_);
+        if (ref.files) {
+            cells = ui::FilesRowText(ref, deskhubp::PathText(share_.fileHost().Directory()), share_.transfers());
+        } else if (ref.terminal) {
+            cells = ui::TerminalRowText(ref, uint16_t(settings_.port), share_.shells());
         } else {
-            const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
+            const ShareSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
             if (!s) continue;
             cells = ui::HostRowText(ref, *s);
         }
@@ -1700,14 +1695,14 @@ void MainFrame::RelayoutHostPage() {
 
 void MainFrame::StopDisplay(uint8_t sourceId) {
     if (!hosting_) return;
-    agentLoop_.StopSource(sourceId);
+    share_.sharingHost().StopSource(sourceId);
 }
 
 void MainFrame::KickViewer(uint8_t sourceId, const std::string& viewerAddr) {
     if (!hosting_) return;
     NetAddr addr{};
     if (!ParseNetAddr(viewerAddr, addr)) return;
-    agentLoop_.KickViewer(sourceId, addr.Pack());
+    share_.sharingHost().KickViewer(sourceId, addr.Pack());
 }
 
 void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
@@ -1720,8 +1715,20 @@ void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
 void MainFrame::SaveOpenChoices() {
     settings_.clientDesktop = desktopCtrl_->GetValue();
     settings_.clientShell = shellCtrl_->GetValue();
+    settings_.clientFiles = filesCtrl_->GetValue();
     controlCtrl_->Enable(settings_.clientDesktop);
     deskhubp::SaveUiSettings(settings_);
+}
+
+void MainFrame::OpenFileSend(const NetAddr& server, const std::string& passcode) {
+    FileSendLaunch launch;
+    launch.address = server.ToString();
+    launch.passcode = passcode;
+    launch.clientName =
+        ui::TruncateDeviceName(std::string(deviceNameCtrl_->GetValue().utf8_str()));
+    if (launch.clientName.empty()) launch.clientName = deskhubp::LocalDeviceName();
+
+    std::thread([launch] { RunStandaloneFileSend(launch); }).detach();
 }
 
 void MainFrame::OpenShell(const NetAddr& server, const std::string& passcode) {
@@ -1747,7 +1754,7 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         settings_.deviceName = deviceName;
         deskhubp::SaveUiSettings(settings_);
     }
-    if (!desktopCtrl_->GetValue() && !shellCtrl_->GetValue()) {
+    if (!desktopCtrl_->GetValue() && !shellCtrl_->GetValue() && !filesCtrl_->GetValue()) {
         wxMessageBox(ToWx(ui::kOpenNothingTicked), "Deskhub", wxOK | wxICON_WARNING, this);
         return;
     }
@@ -1774,7 +1781,8 @@ void MainFrame::StartConnect(const std::string& rawAddr) {
         return;
     }
 
-    const OpenChoice choice{desktopCtrl_->GetValue(), shellCtrl_->GetValue()};
+    const deskhub::OpenChoice choice{desktopCtrl_->GetValue(), shellCtrl_->GetValue(),
+        filesCtrl_->GetValue()};
     const bool started = connectDriver_.QueryAsync(
         server, passcode,
         [alive = alive_](std::function<void()> fn) {
@@ -1900,7 +1908,7 @@ void MainFrame::ConnectWithPrompt(const std::string& addr, std::string passcode)
 }
 
 void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passcode,
-    const OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
+    const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
     connectBtn_->Enable();
 
     if (!outcome.ok) {
@@ -1910,25 +1918,21 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     }
 
     SetClientStatus(wxString(), kMutedText);
-    ui::TouchRecentDevice(recent_, addr, NowUnix(), passcode);
+    ui::TouchRecentDevice(recent_, addr, NowUnixSeconds(), passcode);
     SaveRecentDevices();
-    poller_.SetAddresses(AddressesOf(recent_));
+    poller_.SetAddresses(ui::AddressesOf(recent_));
     RefreshDeviceList();
 
-    if (choice.shell) {
-        NetAddr server{};
-        if (!outcome.caps.terminal)
-            SetClientStatus(ToWx(ui::kHostHasNoTerminal), kOffline);
-        else if (ParseNetAddr(addr, server))
-            OpenShell(server, passcode);
+    const deskhub::ConnectPlan plan =
+        deskhub::PlanAfterConnect(outcome.caps, outcome.sources, choice);
+    NetAddr server{};
+    if ((plan.openShell || plan.openFiles) && ParseNetAddr(addr, server)) {
+        if (plan.openShell) OpenShell(server, passcode);
+        if (plan.openFiles) OpenFileSend(server, passcode);
     }
-
-    if (!choice.desktop) {
-        DeselectAllRows();
-        return;
-    }
-    if (outcome.sources.empty()) {
-        SetClientStatus(ToWx(ui::SourceQueryEmpty(addr)), kOffline);
+    if (plan.problem != deskhub::ConnectProblem::None)
+        SetClientStatus(ToWx(deskhub::ConnectProblemText(plan.problem, addr)), kOffline);
+    if (!plan.openDesktop) {
         DeselectAllRows();
         return;
     }
@@ -2005,14 +2009,14 @@ void MainFrame::OnClose(wxCloseEvent& event) {
         trayIcon_ = nullptr;
     }
     *alive_ = false;
-    terminalHost_.Stop();
+    share_.terminalHost().Stop();
     hostTimer_.Stop();
     clipTimer_.Stop();
     scanTimer_.Stop();
     autoShareTimer_.Stop();
     scanner_.Cancel();
-    agentLoop_.Stop();
-    agentDriver_.Join();
+    share_.sharingHost().Stop();
+    shareDriver_.Join();
     poller_.Stop();
     event.Skip();
 }

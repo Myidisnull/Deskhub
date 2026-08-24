@@ -1,7 +1,7 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
-#include "deskhubp/net/ClientNetLoop.h"
+#include "deskhubp/client/ScreenViewerLoop.h"
 #include "deskhubp/net/UdpSocket.h"
 
 #include <cstdio>

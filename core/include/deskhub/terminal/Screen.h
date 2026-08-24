@@ -189,7 +189,7 @@ private:
     void SetScrollRegion(int32_t top, int32_t bottom);
     void SwitchScreen(bool alternate, bool clear);
     void Respond(std::string_view text);
-    void PushScrollback(Row&& row);
+    Row PushScrollback(Row&& row);
     void FullReset();
     uint16_t Cols() const {
         return size_.cols;

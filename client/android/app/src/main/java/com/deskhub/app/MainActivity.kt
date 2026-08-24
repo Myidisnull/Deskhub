@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         NativeClient.useAppDataDir(this)
         NativeHost.publishScreenSize(this)
+        FilesHost.bind(application)
         askForNotifications()
         val prefs = getSharedPreferences("deskhub", Context.MODE_PRIVATE)
         prefs.edit().remove("passcode").apply()
@@ -119,6 +120,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+                    PairingPrompt()
                     Column(modifier = Modifier.safeDrawingPadding()) {
                         MainScreen(
                             initialSection = startSection,
@@ -289,6 +291,7 @@ private fun MainScreen(
     var deviceRows by remember { mutableStateOf(emptyList<NativeClient.DeviceRow>()) }
     var scanStatus by remember { mutableStateOf("") }
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
+    var sendingTo by remember { mutableStateOf<FileSendDriver?>(null) }
     var section by remember { mutableStateOf(initialSection) }
     var port by remember { mutableStateOf(NativeClient.settingsPort()) }
     val scope = rememberCoroutineScope()
@@ -395,9 +398,47 @@ private fun MainScreen(
         }
     }
 
+    val openFileSend: (String) -> Unit = sendLambda@{ addr ->
+        if (!NativeClient.parseAddress(addr)) {
+            connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
+            return@sendLambda
+        }
+        val code = passcode.trim()
+        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
+            connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
+            return@sendLambda
+        }
+        connectError = ""
+        deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
+        NativeClient.setDeviceName(deviceName)
+        val mine = Step.Querying(++querySeq)
+        step = mine
+        scope.launch {
+            val takes = NativeClient.hostTakesFiles(addr, code)
+            if (step == mine) step = Step.Address
+            if (!takes) {
+                connectError = NativeClient.string(NativeClient.STR_TRANSFER_HOST_NOT_TAKING)
+                return@launch
+            }
+            onRemember(addr, code)
+            NativeClient.recentTouch(addr, code)
+            NativeClient.watchRecent()
+            deviceRows = NativeClient.deviceRows()
+            sendingTo = StandaloneFileSendDriver(addr, code, deviceName)
+        }
+    }
+
     val pickDevice: (String, String) -> Unit = { addr, code ->
         connectError = ""
         pendingPick = PendingPick(addr, code)
+    }
+
+    sendingTo?.let { driver ->
+        FileSendDialog(
+            driver = driver,
+            subtitle = address,
+            onDismiss = { sendingTo = null },
+        )
     }
 
     when (val s = step) {
@@ -417,6 +458,7 @@ private fun MainScreen(
                 error = connectError,
                 onConnect = connect,
                 onOpenShell = openShell,
+                onOpenFileSend = openFileSend,
                 deviceRows = deviceRows,
                 scanStatus = scanStatus,
                 onPickDevice = pickDevice,
@@ -552,6 +594,7 @@ private fun HomeScreen(
     error: String,
     onConnect: (String) -> Unit,
     onOpenShell: (String) -> Unit,
+    onOpenFileSend: (String) -> Unit,
     deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
     onPickDevice: (String, String) -> Unit,
@@ -602,6 +645,7 @@ private fun HomeScreen(
                         error = error,
                         onConnect = onConnect,
                         onOpenShell = onOpenShell,
+                        onOpenFileSend = onOpenFileSend,
                         deviceRows = deviceRows,
                         scanStatus = scanStatus,
                         onPickDevice = onPickDevice,
@@ -635,7 +679,6 @@ private fun HostScreen(
     var error by remember { mutableStateOf(NativeHost.shareError) }
     var rows by remember { mutableStateOf(emptyList<NativeHost.HostRow>()) }
     var addresses by remember { mutableStateOf(NativeHost.localAddresses()) }
-    var pairingQueue by remember { mutableStateOf(emptyList<NativeHost.PairingRequest>()) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -643,42 +686,9 @@ private fun HostScreen(
             error = NativeHost.shareError
             rows = if (state == NativeHost.ShareState.SHARING) NativeHost.hostRows() else emptyList()
             addresses = NativeHost.localAddresses()
-            if (state == NativeHost.ShareState.SHARING) {
-                val fresh = NativeHost.takePairingRequests()
-                if (fresh.isNotEmpty()) {
-                    val queued = pairingQueue.map { it.addrPacked }.toSet()
-                    pairingQueue = pairingQueue + fresh.filter { it.addrPacked !in queued }
-                }
-            } else if (pairingQueue.isNotEmpty()) {
-                pairingQueue = emptyList()
-            }
             if (state == NativeHost.ShareState.SHARING && !NativeHost.isRunning()) onStopSharing()
             delay(POLL_INTERVAL_MS)
         }
-    }
-
-    pairingQueue.firstOrNull()?.let { request ->
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(NativeClient.string(NativeClient.STR_PAIRING_REQUEST_TITLE)) },
-            text = { Text(request.body) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        NativeHost.answerPairing(request.addrPacked, true)
-                        pairingQueue = pairingQueue.drop(1)
-                    },
-                ) { Text(NativeClient.string(NativeClient.STR_PAIRING_ALLOW)) }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        NativeHost.answerPairing(request.addrPacked, false)
-                        pairingQueue = pairingQueue.drop(1)
-                    },
-                ) { Text(NativeClient.string(NativeClient.STR_PAIRING_DENY)) }
-            },
-        )
     }
 
     val sharing = state == NativeHost.ShareState.SHARING
@@ -776,6 +786,33 @@ private fun HostScreen(
             }
         }
 
+        var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
+        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                receiving = NativeHost.filesActive()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+        Button(
+            onClick = {
+                takeFiles = !takeFiles
+                NativeClient.setTakeFiles(takeFiles)
+            },
+            enabled = !sharing && !starting,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                NativeClient.string(
+                    if (takeFiles) {
+                        NativeClient.STR_TRANSFER_STOP_TAKING_BUTTON
+                    } else {
+                        NativeClient.STR_TRANSFER_ACCEPT_LABEL
+                    },
+                ),
+            )
+        }
+
         Button(
             onClick = {
                 if (sharing) {
@@ -795,7 +832,7 @@ private fun HostScreen(
                     ),
                 )
             },
-            enabled = sharing || (ready && !starting),
+            enabled = sharing || (ready && !starting && !receiving),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -809,9 +846,17 @@ private fun HostScreen(
             )
         }
 
+        if (receiving) {
+            Text(
+                NativeClient.string(NativeClient.STR_TRANSFER_BLOCKS_SCREEN_NOTE),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedColor,
+            )
+        }
+
         Text(
-            if (sharing) {
-                NativeHost.sharingStatus(port, passcode.trim())
+            if (sharing || receiving) {
+                NativeHost.sharingStatus(port, passcode.trim(), sharing)
             } else {
                 NativeHost.idleStatus(port)
             },
@@ -1150,6 +1195,7 @@ private fun AddressScreen(
     error: String,
     onConnect: (String) -> Unit,
     onOpenShell: (String) -> Unit,
+    onOpenFileSend: (String) -> Unit,
     deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
     onPickDevice: (String, String) -> Unit,
@@ -1245,6 +1291,12 @@ private fun AddressScreen(
             enabled = ready,
             modifier = Modifier.fillMaxWidth(),
         ) { Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL)) }
+
+        OutlinedButton(
+            onClick = { onOpenFileSend(NativeClient.composeAddress(trimmed, connectPort)) },
+            enabled = ready,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(NativeClient.string(NativeClient.STR_OPEN_FILES_LABEL)) }
 
         if (busy) {
             Row(

@@ -1,12 +1,22 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "deskhubp/net/QuicEndpoint.h"
+
+#include "deskhub/protocol/RecordStream.h"
 
 #include <quiche.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstddef>
 #include <cstring>
+#include <map>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/diag/Log.h"
@@ -28,7 +38,8 @@ namespace deskhubp {
 namespace {
 
 constexpr size_t kConnIdLen = 16;
-constexpr size_t kStreamChunk = 8192;
+constexpr size_t kStreamChunk = deskhub::kMaxRecordBacklog;
+constexpr size_t kStreamReadBudgetPerService = 64u << 10;
 constexpr uint64_t kInitialMaxData = 4u << 20;
 constexpr uint64_t kInitialMaxStreamData = 1u << 20;
 constexpr uint64_t kMaxStreams = 64;
@@ -36,6 +47,21 @@ constexpr uint64_t kDropLogIntervalUs = 1'000'000;
 constexpr uint64_t kQuietWarnStepUs = 5'000'000;
 constexpr uint64_t kPollGapWarnUs = 250'000;
 constexpr size_t kDatagramQueue = 512;
+constexpr size_t kMaxStreamOutbox = 4u << 20;
+constexpr size_t kMaxBulkStreamOutbox = 256u << 10;
+constexpr size_t kOutboxCompactAt = 64u << 10;
+
+bool IsBulkStream(uint64_t streamId) {
+    return streamId == kQuicFileStream;
+}
+
+size_t OutboxCapFor(uint64_t streamId) {
+    return IsBulkStream(streamId) ? kMaxBulkStreamOutbox : kMaxStreamOutbox;
+}
+
+uint8_t UrgencyFor(uint64_t streamId) {
+    return IsBulkStream(streamId) ? kQuicUrgencyBulk : kQuicUrgencyInteractive;
+}
 
 sockaddr_in ToSockAddr(const NetAddr& addr) {
     sockaddr_in out{};
@@ -85,16 +111,51 @@ void FillRandomConnId(uint8_t* out, size_t len) {
 }
 
 struct QuicEndpoint::Impl {
+    struct Counters {
+        std::atomic<uint64_t> packets{0};
+        std::atomic<uint64_t> bursts{0};
+        std::atomic<uint64_t> maxBurst{0};
+        std::atomic<uint64_t> capped{0};
+        std::atomic<uint64_t> datagrams{0};
+        std::atomic<uint64_t> streamBytes{0};
+
+        static void Bump(std::atomic<uint64_t>& counter, uint64_t by) {
+            counter.store(counter.load(std::memory_order_relaxed) + by, std::memory_order_relaxed);
+        }
+
+        static void Raise(std::atomic<uint64_t>& counter, uint64_t to) {
+            if (to > counter.load(std::memory_order_relaxed))
+                counter.store(to, std::memory_order_relaxed);
+        }
+    };
+
+    struct StreamOutbox {
+        std::vector<uint8_t> bytes{};
+        size_t at = 0;
+        bool fin = false;
+        bool primed = false;
+        bool broken = false;
+
+        size_t Pending() const {
+            return bytes.size() - at;
+        }
+    };
+
     struct Connection {
         quiche_conn* conn = nullptr;
         NetAddr peer{};
         bool announced = false;
         uint64_t lastRecvUs = 0;
         uint64_t quietSteps = 0;
+        std::map<uint64_t, StreamOutbox> outbox{};
     };
 
     ~Impl() {
-        Shutdown();
+        try {
+            Shutdown();
+        } catch (...) {
+            connections_.clear();
+        }
     }
 
     void Shutdown() {
@@ -174,18 +235,86 @@ struct QuicEndpoint::Impl {
         return at == connections_.end() ? nullptr : &at->second;
     }
 
-    void Flush(Connection& entry) {
-        uint8_t out[kQuicMaxUdpPayload];
-        for (;;) {
-            quiche_send_info info{};
-            const ssize_t written = quiche_conn_send(entry.conn, out, sizeof(out), &info);
-            if (written == QUICHE_ERR_DONE) return;
+    bool QueueStream(Connection& entry, uint64_t streamId, std::span<const uint8_t> bytes,
+        bool fin) {
+        StreamOutbox& box = entry.outbox[streamId];
+        if (box.broken) return false;
+        if (box.Pending() + bytes.size() > OutboxCapFor(streamId)) return false;
+        if (!box.primed) {
+            quiche_conn_stream_priority(entry.conn, streamId, UrgencyFor(streamId), true);
+            box.primed = true;
+        }
+        box.bytes.insert(box.bytes.end(), bytes.begin(), bytes.end());
+        if (fin) box.fin = true;
+        Counters::Bump(stats_.streamBytes, bytes.size());
+        DrainOutbox(entry, streamId, box);
+        return true;
+    }
+
+    void BreakStream(Connection& entry, uint64_t streamId, StreamOutbox& box, ssize_t code) {
+        LOGE(
+            "quic: stream %llu stopped taking bytes (%zd) with %zu still queued; resetting it "
+            "rather than truncating a half-written record into the peer's framer",
+            (unsigned long long)(streamId), code, box.Pending());
+        quiche_conn_stream_shutdown(entry.conn, streamId, QUICHE_SHUTDOWN_WRITE, 0);
+        box.broken = true;
+        box.bytes.clear();
+        box.at = 0;
+        box.fin = false;
+        if (cb_.onStreamBroken) cb_.onStreamBroken(entry.peer.Pack(), streamId);
+    }
+
+    void DrainOutbox(Connection& entry, uint64_t streamId, StreamOutbox& box) {
+        while (box.at < box.bytes.size()) {
+            uint64_t err = 0;
+            const size_t left = box.bytes.size() - box.at;
+            const ssize_t written = quiche_conn_stream_send(entry.conn, streamId,
+                box.bytes.data() + box.at, left, box.fin, &err);
+            if (written == 0 || written == QUICHE_ERR_DONE) break;
             if (written < 0) {
-                LOGW("quic: send failed (%zd)", written);
+                BreakStream(entry, streamId, box, written);
                 return;
             }
-            if (!socket_.SendTo(entry.peer, out, size_t(written))) ReportSendFail(entry.peer);
+            box.at += size_t(written);
         }
+        if (box.at >= box.bytes.size()) {
+            box.bytes.clear();
+            box.at = 0;
+            box.fin = false;
+        } else if (box.at >= kOutboxCompactAt) {
+            box.bytes.erase(box.bytes.begin(), box.bytes.begin() + std::ptrdiff_t(box.at));
+            box.at = 0;
+        }
+    }
+
+    void DrainOutboxes(Connection& entry) {
+        for (auto& [streamId, box] : entry.outbox)
+            if (box.Pending() > 0 && !box.broken) DrainOutbox(entry, streamId, box);
+    }
+
+    void Flush(Connection& entry) {
+        uint8_t out[kQuicMaxUdpPayload];
+        size_t burst = 0;
+        for (;;) {
+            if (burst >= kMaxFlushBurst) {
+                moreToSend_.store(true, std::memory_order_relaxed);
+                Counters::Bump(stats_.capped, 1);
+                break;
+            }
+            quiche_send_info info{};
+            const ssize_t written = quiche_conn_send(entry.conn, out, sizeof(out), &info);
+            if (written == QUICHE_ERR_DONE) break;
+            if (written < 0) {
+                LOGW("quic: send failed (%zd)", written);
+                break;
+            }
+            if (!socket_.SendTo(entry.peer, out, size_t(written))) ReportSendFail(entry.peer);
+            ++burst;
+        }
+        if (burst == 0) return;
+        Counters::Bump(stats_.bursts, 1);
+        Counters::Bump(stats_.packets, burst);
+        Counters::Raise(stats_.maxBurst, burst);
     }
 
     void SayGoodbye(Connection& entry) {
@@ -315,17 +444,25 @@ struct QuicEndpoint::Impl {
         quiche_stream_iter_free(it);
 
         std::vector<uint8_t> chunk(kStreamChunk);
+        size_t budget = kStreamReadBudgetPerService;
         for (uint64_t stream : ready) {
             for (;;) {
+                if (budget == 0) {
+                    moreToRead_.store(true, std::memory_order_relaxed);
+                    return;
+                }
+                if (cb_.pauseStream && cb_.pauseStream(stream)) break;
                 bool fin = false;
                 uint64_t err = 0;
+                const size_t want = std::min(chunk.size(), budget);
                 const ssize_t got = quiche_conn_stream_recv(entry.conn, stream, chunk.data(),
-                    chunk.size(), &fin, &err);
+                    want, &fin, &err);
                 if (got < 0) break;
+                budget -= size_t(got);
                 if (cb_.onStream)
                     cb_.onStream(id, stream, std::span<const uint8_t>(chunk.data(), size_t(got)),
                         fin);
-                if (fin || size_t(got) < chunk.size()) break;
+                if (fin || size_t(got) < want) break;
             }
         }
     }
@@ -378,6 +515,8 @@ struct QuicEndpoint::Impl {
 
     void Service() {
         std::vector<QuicConnId> dead;
+        moreToSend_.store(false, std::memory_order_relaxed);
+        moreToRead_.store(false, std::memory_order_relaxed);
         const uint64_t nowUs = NowUs();
         for (auto& [id, entry] : connections_) {
             if (quiche_conn_is_established(entry.conn) && !entry.announced) {
@@ -390,15 +529,20 @@ struct QuicEndpoint::Impl {
                 DrainStreams(id, entry);
                 DrainDatagrams(id, entry);
             }
+            DrainOutboxes(entry);
             Flush(entry);
             if (quiche_conn_is_closed(entry.conn)) dead.push_back(id);
         }
         for (QuicConnId id : dead) {
-            Connection& entry = connections_[id];
-            if (entry.announced) ReportClose(entry);
-            if (entry.announced && cb_.onClosed) cb_.onClosed(id, entry.peer);
-            quiche_conn_free(entry.conn);
-            connections_.erase(id);
+            const auto at = connections_.find(id);
+            if (at == connections_.end()) continue;
+            const NetAddr peer = at->second.peer;
+            const bool announced = at->second.announced;
+            if (announced) ReportClose(at->second);
+            quiche_conn* conn = at->second.conn;
+            connections_.erase(at);
+            if (announced && cb_.onClosed) cb_.onClosed(id, peer);
+            quiche_conn_free(conn);
         }
     }
 
@@ -413,14 +557,20 @@ struct QuicEndpoint::Impl {
             static_cast<unsigned long long>(sinceUs / 1000));
     }
 
+    bool Backlogged() const {
+        return moreToSend_.load(std::memory_order_relaxed) ||
+               moreToRead_.load(std::memory_order_relaxed);
+    }
+
     bool WaitReadable(uint32_t waitMs) {
-        return open_ && socket_.WaitReadable(waitMs);
+        if (!open_) return false;
+        return socket_.WaitReadable(Backlogged() ? 0 : waitMs);
     }
 
     void Poll(uint32_t waitMs) {
         if (!open_) return;
         ReportPollGap();
-        socket_.SetRecvTimeout(waitMs == 0 ? 1 : waitMs);
+        socket_.SetRecvTimeout(Backlogged() || waitMs == 0 ? 1 : waitMs);
         uint8_t buf[kQuicMaxUdpPayload];
         for (int i = 0; i < kPacketsPerPoll; ++i) {
             NetAddr from{};
@@ -453,6 +603,9 @@ struct QuicEndpoint::Impl {
     uint64_t lastSendFailLogUs_ = 0;
     uint64_t lastStrangerLogUs_ = 0;
     uint64_t lastPollUs_ = 0;
+    std::atomic<bool> moreToSend_{false};
+    std::atomic<bool> moreToRead_{false};
+    Counters stats_{};
 };
 
 QuicEndpoint::QuicEndpoint() : impl_(std::make_unique<Impl>()) {
@@ -484,30 +637,19 @@ bool QuicEndpoint::SendStream(QuicConnId conn, uint64_t streamId, std::span<cons
     Impl::Connection* entry = impl_->Lookup(conn);
     if (entry == nullptr || !quiche_conn_is_established(entry->conn)) return false;
     if (bytes.empty()) return true;
-    const ssize_t room = quiche_conn_stream_capacity(entry->conn, streamId);
-    if (room >= 0 && size_t(room) < bytes.size()) return false;
-    size_t at = 0;
-    while (at < bytes.size()) {
-        uint64_t err = 0;
-        const ssize_t written = quiche_conn_stream_send(entry->conn, streamId,
-            bytes.data() + at, bytes.size() - at, fin && at + 1 >= bytes.size(), &err);
-        if (written <= 0) break;
-        at += size_t(written);
-    }
+    const bool queued = impl_->QueueStream(*entry, streamId, bytes, fin);
+    entry = impl_->Lookup(conn);
+    if (entry == nullptr) return false;
+    if (!queued) return false;
     impl_->Flush(*entry);
-    if (at == bytes.size()) return true;
-    LOGW(
-        "quic: stream %llu took only %zu of %zu bytes; half a record on the wire desyncs the "
-        "framing on the far side, so the connection goes instead",
-        (unsigned long long)(streamId), at, bytes.size());
-    CloseConnection(conn, 1, "record truncated");
-    return false;
+    return true;
 }
 
 bool QuicEndpoint::SendDatagram(QuicConnId conn, std::span<const uint8_t> bytes) {
     Impl::Connection* entry = impl_->Lookup(conn);
     if (entry == nullptr || !quiche_conn_is_established(entry->conn)) return false;
     const ssize_t sent = quiche_conn_dgram_send(entry->conn, bytes.data(), bytes.size());
+    if (sent > 0) Impl::Counters::Bump(impl_->stats_.datagrams, 1);
     impl_->Flush(*entry);
     return sent > 0;
 }
@@ -522,6 +664,18 @@ bool QuicEndpoint::SendKeepalive(QuicConnId conn) {
 
 bool QuicEndpoint::SendRaw(const NetAddr& to, std::span<const uint8_t> bytes) {
     return impl_->socket_.SendTo(to, bytes.data(), bytes.size());
+}
+
+QuicSendStats QuicEndpoint::SendStats() const {
+    const Impl::Counters& c = impl_->stats_;
+    QuicSendStats out;
+    out.packets = c.packets.load(std::memory_order_relaxed);
+    out.bursts = c.bursts.load(std::memory_order_relaxed);
+    out.maxBurst = c.maxBurst.load(std::memory_order_relaxed);
+    out.capped = c.capped.load(std::memory_order_relaxed);
+    out.datagrams = c.datagrams.load(std::memory_order_relaxed);
+    out.streamBytes = c.streamBytes.load(std::memory_order_relaxed);
+    return out;
 }
 
 size_t QuicEndpoint::MaxDatagramSize(QuicConnId conn) const {

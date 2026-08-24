@@ -1,5 +1,5 @@
 #pragma once
-#include "deskhub/media/AgentTypes.h"
+#include "deskhub/media/ShareTypes.h"
 #include "deskhub/media/SourceLabel.h"
 #include "deskhub/protocol/Wire.h"
 
@@ -8,7 +8,7 @@
 
 namespace deskhub::media {
 
-inline std::string ShareStatusTooltip(const AgentSourceStatus& s) {
+inline std::string ShareStatusTooltip(const ShareSourceStatus& s) {
     char tip[512];
     if (s.viewerConnected)
         std::snprintf(tip, sizeof(tip),

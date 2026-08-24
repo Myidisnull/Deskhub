@@ -5,7 +5,7 @@ namespace deskhub {
 void RecordStream::Append(std::span<const uint8_t> bytes) {
     if (failed_ || bytes.empty()) return;
     Compact();
-    if (buffer_.size() + bytes.size() > kMaxRecordBacklog) {
+    if (buffer_.size() > kMaxRecordBacklog) {
         failed_ = true;
         buffer_.clear();
         consumed_ = 0;

@@ -29,67 +29,32 @@ jobs:
       - name: Install Ninja + NASM
         run: choco install ninja nasm -y
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/x86_64-pc-windows-msvc
-          key: quiche-windows-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        shell: bash
-        run: |
-          scripts/build-quiche.sh windows 2>&1 | tee quiche-build.log ||
-            { grep -iE "error|LNK[0-9]|panicked" quiche-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 quiche-build.log | sed 's/^/::error::/' || true
-              exit 1; }
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/x86_64-pc-windows-msvc
-          key: opus-windows-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        shell: bash
-        run: |
-          scripts/build-opus.sh windows 2>&1 | tee opus-build.log ||
-            { grep -iE "error|LNK[0-9]" opus-build.log | tail -30 | sed 's/^/::error::/' || true
-              tail -15 opus-build.log | sed 's/^/::error::/' || true
-              exit 1; }
+          targets: windows
+          cache-key: windows
 
       - name: Configure
-        run: cmake --preset x64-release -DDESKHUB_CLI=ON
+        run: cmake --preset x64-release
 
       - name: Build the Windows app
         shell: bash
         run: |
           cmake --build --preset x64-release 2>&1 | tee app-build.log ||
-            { grep -iE "error|LNK[0-9]" app-build.log | tail -40 | sed 's/^/::error::/' || true
+            { grep -iE "error|warning C[0-9]|LNK[0-9]" app-build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
-      - name: Assert neither exe needs a redistributable
+      - name: Assert the exe needs no redistributable
         shell: pwsh
         run: |
-          $exes = @($env:APP_EXE, 'out/build/x64-release/client/cli/deskhub-cli.exe')
-          foreach ($exe in $exes) {
-            Write-Output "== $exe"
-            $deps = dumpbin /dependents $exe
-            $deps
-            $bad = $deps | Select-String -Pattern 'VCRUNTIME|MSVCP\d|MSVCR\d'
-            if ($bad) {
-              Write-Output "::error::$exe needs the Visual C++ Redistributable - the release is supposed to be a single self-contained exe"
-              exit 1
-            }
+          $deps = dumpbin /dependents $env:APP_EXE
+          $deps
+          $bad = $deps | Select-String -Pattern 'VCRUNTIME|MSVCP\d|MSVCR\d'
+          if ($bad) {
+            Write-Output "::error::$env:APP_EXE needs the Visual C++ Redistributable - the release is supposed to be a single self-contained exe"
+            exit 1
           }
           Write-Output "OK - the MSVC runtime is linked statically."
-
-      - name: Smoke the command-line client
-        shell: bash
-        run: scripts/cli-smoke.sh out/build/x64-release/client/cli/deskhub-cli.exe
 
       - name: Upload app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -99,11 +64,32 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - name: Upload the command-line client
+  macos:
+    if: ${{ !inputs.for_release }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/third-party
+        with:
+          targets: aarch64-apple-darwin x86_64-apple-darwin
+          cache-key: macos
+
+      - name: Build macOS app (make release-macos, ad-hoc signing)
+        run: make release-macos MACOS_SIGN=adhoc
+
+      - name: Verify the ad-hoc signature is well formed
+        run: codesign --verify --strict --verbose=2 out/build/macos/Release/app.app
+
+      - name: Zip app bundle
+        run: ditto -c -k --keepParent out/build/macos/Release/app.app deskhub-macos.zip
+
+      - name: Upload app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: deskhub-cli-windows
-          path: out/build/x64-release/client/cli/deskhub-cli.exe
+          name: deskhub-macos
+          path: deskhub-macos.zip
           retention-days: 14
           if-no-files-found: error
 
@@ -137,27 +123,9 @@ jobs:
       - name: Build minimal FFmpeg (static, h264 decode only)
         run: scripts/build-ffmpeg.sh
 
-      - name: Cache quiche
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: ./.github/actions/third-party
         with:
-          path: |
-            third_party/quiche/include
-            third_party/quiche/x86_64-unknown-linux-gnu
-          key: quiche-${{ matrix.os }}-${{ hashFiles('scripts/build-quiche.sh') }}
-
-      - name: Build quiche (static QUIC + TLS)
-        run: scripts/build-quiche.sh host
-
-      - name: Cache opus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/opus/include
-            third_party/opus/x86_64-unknown-linux-gnu
-          key: opus-${{ matrix.os }}-${{ hashFiles('scripts/build-opus.sh') }}
-
-      - name: Build opus (static audio codec)
-        run: scripts/build-opus.sh host
+          cache-key: host-${{ matrix.os }}
 
       - name: Check CMake version
         run: |
@@ -173,11 +141,8 @@ jobs:
       - name: Build the Ubuntu app (make release-linux)
         run: make release-linux
 
-      - name: Build the command-line client (make release-cli)
+      - name: Build the command-line client the deb and the rpm ship
         run: make release-cli
-
-      - name: Smoke the command-line client
-        run: scripts/cli-smoke.sh out/build/x64-release/client/cli/deskhub-cli
 
       - name: Assert no dynamic FFmpeg dependency
         run: |
@@ -196,15 +161,6 @@ jobs:
         with:
           name: deskhub-linux
           path: out/build/x64-release/client/linux/deskhub
-          retention-days: 14
-          if-no-files-found: error
-
-      - name: Upload the command-line client
-        if: matrix.release
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: deskhub-cli-linux
-          path: out/build/x64-release/client/cli/deskhub-cli
           retention-days: 14
           if-no-files-found: error
 

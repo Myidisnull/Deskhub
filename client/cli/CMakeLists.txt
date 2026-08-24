@@ -11,6 +11,7 @@ add_executable(deskhub_cli
     DiscoverCommands.cpp
     StoreCommands.cpp
     ShareCommand.cpp
+    SendCommand.cpp
     ShellCommand.cpp
     ConnectCommand.cpp
     ${deskhub_cli_signals}

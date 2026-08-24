@@ -149,6 +149,7 @@ void VideoRenderer::ClearSlotLocked() {
 void VideoRenderer::DropFrames() {
     std::lock_guard<std::mutex> lk(mutex_);
     ClearSlotLocked();
+    frameSerial_.fetch_add(1, std::memory_order_release);
 }
 
 void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
@@ -196,6 +197,7 @@ void VideoRenderer::SubmitFrame(void* avFrame, uint64_t ptsUs) {
     desc_ = desc;
     ptsUs_ = ptsUs;
     hasFrame_.store(true, std::memory_order_release);
+    frameSerial_.fetch_add(1, std::memory_order_release);
 }
 
 bool VideoRenderer::Realize() {
@@ -257,6 +259,7 @@ bool VideoRenderer::Realize() {
     glBindTexture(GL_TEXTURE_2D, 0);
 
     glReady_ = true;
+    uploadedSerial_ = 0;
     LOGI("[Render] OpenGL ready (%s).", epoxy_is_desktop_gl() ? "desktop GL" : "GLES");
     return true;
 }
@@ -378,7 +381,12 @@ bool VideoRenderer::Render(int viewW, int viewH) {
     if (fw <= 0 || fh <= 0) return false;
 
     glUseProgram(program_);
-    if (!UploadLocked()) return false;
+    const uint64_t serial = frameSerial_.load(std::memory_order_acquire);
+    const bool fresh = serial != uploadedSerial_;
+    if (fresh) {
+        if (!UploadLocked()) return false;
+        uploadedSerial_ = serial;
+    }
 
     glClearColor(0.f, 0.f, 0.f, 1.f);
     glViewport(0, 0, viewW, viewH);
@@ -392,6 +400,6 @@ bool VideoRenderer::Render(int viewW, int viewH) {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
 
-    counters_.FramePresented(ptsUs_, NowUs());
+    if (fresh) counters_.FramePresented(ptsUs_, NowUs());
     return true;
 }

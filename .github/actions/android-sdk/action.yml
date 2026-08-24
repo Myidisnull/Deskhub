@@ -1,0 +1,39 @@
+name: android-sdk
+description: Install the Android SDK with the pinned NDK and its CMake, and export ANDROID_NDK_HOME for the rest of the job.
+
+inputs:
+  gradle:
+    description: Set to true when the job runs Gradle — validates the wrapper and adds JDK 17 with a Gradle cache.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Validate the Gradle wrapper
+      if: inputs.gradle == 'true'
+      uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+    - name: Setup JDK 17
+      if: inputs.gradle == 'true'
+      uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+    - name: Install the NDK make/android.mk expects, and the CMake that targets it
+      shell: bash
+      env:
+        SDK_CMAKE_VERSION: 3.22.1
+      run: |
+        ndk=$(sed -n 's/^ANDROID_NDK_VERSION ?= //p' "$GITHUB_WORKSPACE/make/android.mk")
+        [ -n "$ndk" ] || {
+          echo "::error::no ANDROID_NDK_VERSION in make/android.mk — CI installs the NDK that make build-android then points ANDROID_NDK_HOME at, so the two cannot be allowed to drift"
+          exit 1
+        }
+        sdkmanager "ndk;$ndk" "cmake;$SDK_CMAKE_VERSION"
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk" >>"$GITHUB_ENV"

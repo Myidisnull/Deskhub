@@ -81,6 +81,9 @@ int main() {
     std::printf("--- net: the session transport the host and viewer loops speak through ---\n");
     RunSessionTransportTests();
 
+    std::printf("--- session: the one link every client surface shares ---\n");
+    RunHostLinkTests();
+
     std::printf("--- system: pseudo terminal running a real shell ---\n");
     RunPtyTests();
 
@@ -88,7 +91,10 @@ int main() {
     RunTerminalHostTests();
     RunTerminalFfiTests();
 
-    RunAgentLoopTests();
+    std::printf("--- session: files from a viewer to the host, over QUIC ---\n");
+    RunFileTransferPlatformTests();
+
+    RunSharingHostTests();
     RunDiscoveryFfiTests();
 
     std::printf("--- ffi: string handover to the managed clients ---\n");
@@ -97,9 +103,10 @@ int main() {
     std::printf("--- input: local-input gate shared by every injector ---\n");
     RunLocalInputGateTests();
     RunOpusCodecTests();
+    RunAudioBroadcasterTests();
 
     std::printf("--- session: host callbacks wired to a source pipeline ---\n");
-    RunHostCallbackTests();
+    RunScreenHostCallbackTests();
 
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");

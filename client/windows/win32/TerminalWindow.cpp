@@ -11,11 +11,13 @@
 #include "WxUi.h"
 #include "deskhub/terminal/KeyEncoder.h"
 #include "deskhub/terminal/Palette.h"
+#include "deskhub/terminal/ScrollAnchor.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/TerminalHost.h"
-#include "deskhubp/session/TerminalViewer.h"
+#include "deskhubp/client/TerminalFeed.h"
+#include "deskhubp/host/TerminalHost.h"
+#include "deskhubp/client/TerminalViewer.h"
 
 namespace {
 
@@ -75,63 +77,6 @@ bool NamedKeyOf(int code, term::TermKey& out) {
     }
 }
 
-class TerminalFeed {
-public:
-    virtual ~TerminalFeed() = default;
-    virtual bool Alive() const = 0;
-    virtual deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const = 0;
-    virtual void SendKey(const term::TermKeyEvent& key) = 0;
-    virtual void Resize(deskhub::TermSize size) = 0;
-    virtual void Shutdown() = 0;
-};
-
-class RemoteFeed final : public TerminalFeed {
-public:
-    deskhubp::TerminalViewer viewer{};
-
-    bool Alive() const override {
-        return viewer.Running();
-    }
-    deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const override {
-        return viewer.Snapshot(scrollOffset);
-    }
-    void SendKey(const term::TermKeyEvent& key) override {
-        viewer.SendKey(key);
-    }
-    void Resize(deskhub::TermSize size) override {
-        viewer.Resize(size);
-    }
-    void Shutdown() override {
-        viewer.Stop();
-    }
-};
-
-class LocalShellFeed final : public TerminalFeed {
-public:
-    LocalShellFeed(deskhubp::TerminalHost& host, uint32_t termId)
-        : host_(&host), termId_(termId) {}
-
-    bool Alive() const override {
-        return host_->LocalAlive(termId_);
-    }
-    deskhubp::TerminalSnapshot Snapshot(size_t scrollOffset) const override {
-        return host_->LocalSnapshot(termId_, scrollOffset);
-    }
-    void SendKey(const term::TermKeyEvent& key) override {
-        host_->SendLocalKey(termId_, key);
-    }
-    void Resize(deskhub::TermSize size) override {
-        host_->ResizeLocal(termId_, size);
-    }
-    void Shutdown() override {
-        host_->CloseLocal(termId_);
-    }
-
-private:
-    deskhubp::TerminalHost* host_;
-    uint32_t termId_;
-};
-
 class TerminalGrid final : public wxWindow {
 public:
     explicit TerminalGrid(wxWindow* parent)
@@ -159,7 +104,7 @@ public:
         return true;
     }
 
-    void Attach(TerminalFeed* feed) {
+    void Attach(deskhubp::TerminalFeed* feed) {
         feed_ = feed;
         PullSnapshot();
     }
@@ -168,8 +113,10 @@ public:
         if (feed_ != nullptr && feed_->Alive()) {
             const size_t was = snapshot_.scrollbackRows;
             snapshot_ = feed_->Snapshot(scrollOffset_);
-            if (scrollOffset_ > 0 && snapshot_.scrollbackRows > was) {
-                scrollOffset_ += snapshot_.scrollbackRows - was;
+            const size_t anchored =
+                term::AnchorScroll(scrollOffset_, was, snapshot_.scrollbackRows);
+            if (anchored != scrollOffset_) {
+                scrollOffset_ = anchored;
                 snapshot_ = feed_->Snapshot(scrollOffset_);
             }
             scrollOffset_ = snapshot_.scrollOffset;
@@ -183,11 +130,7 @@ public:
 
     void ScrollBy(int rows) {
         const size_t before = scrollOffset_;
-        if (rows > 0)
-            scrollOffset_ += size_t(rows);
-        else
-            scrollOffset_ -= std::min(scrollOffset_, size_t(-rows));
-        if (scrollOffset_ > snapshot_.scrollbackRows) scrollOffset_ = snapshot_.scrollbackRows;
+        scrollOffset_ = term::ScrollByRows(scrollOffset_, rows, snapshot_.scrollbackRows);
         if (scrollOffset_ != before) PullSnapshot();
     }
 
@@ -313,7 +256,7 @@ public:
     std::function<void()> onResize_{};
 
 private:
-    TerminalFeed* feed_ = nullptr;
+    deskhubp::TerminalFeed* feed_ = nullptr;
     deskhubp::TerminalSnapshot snapshot_{};
     size_t scrollOffset_ = 0;
     int cellWidth_ = 8;
@@ -344,7 +287,7 @@ public:
         NetAddr host{};
         if (!ParseNetAddr(launch.address, host)) return false;
 
-        auto feed = std::make_unique<RemoteFeed>();
+        auto feed = std::make_unique<deskhubp::RemoteTerminalFeed>();
         remote_ = feed.get();
 
         deskhubp::TerminalViewerConfig config;
@@ -375,7 +318,7 @@ public:
 
     bool StartLocal(deskhubp::TerminalHost& host, uint32_t termId) {
         if (!host.LocalAlive(termId)) return false;
-        feed_ = std::make_unique<LocalShellFeed>(host, termId);
+        feed_ = std::make_unique<deskhubp::LocalTerminalFeed>(host, termId);
         StartFeeding(ui::kTerminalAttachedHere);
         return true;
     }
@@ -441,8 +384,8 @@ private:
             remote_->viewer.RejectFingerprint();
     }
 
-    std::unique_ptr<TerminalFeed> feed_{};
-    RemoteFeed* remote_ = nullptr;
+    std::unique_ptr<deskhubp::TerminalFeed> feed_{};
+    deskhubp::RemoteTerminalFeed* remote_ = nullptr;
     bool localEndShown_ = false;
     TerminalGrid* grid_ = nullptr;
     wxTimer redrawTimer_{};

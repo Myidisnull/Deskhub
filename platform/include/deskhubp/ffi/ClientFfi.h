@@ -36,7 +36,18 @@ typedef struct {
 typedef struct {
     bool acceptsInput;
     bool terminal;
+    bool audio;
+    bool files;
 } DHHostCaps;
+
+typedef struct {
+    bool openShell;
+    bool openFiles;
+    bool openDesktop;
+    bool showPicker;
+    uint8_t sourceId;
+    int32_t problem;
+} DHConnectPlan;
 
 typedef struct {
     double x;
@@ -215,6 +226,27 @@ typedef enum {
     DHStrNoDisplayFound = 129,
     DHStrShareAudioLabel = 130,
     DHStrPlayAudioLabel = 131,
+    DHStrFilesSourceName = 132,
+    DHStrFilesPickerLabel = 133,
+    DHStrTransferHeading = 134,
+    DHStrTransferChooseButton = 135,
+    DHStrTransferCancelButton = 136,
+    DHStrTransferFolderLabel = 137,
+    DHStrTransferSending = 138,
+    DHStrTransferDone = 139,
+    DHStrTransferHostNotTaking = 140,
+    DHStrTransferSendHeading = 141,
+    DHStrTransferNoneChosen = 142,
+    DHStrTransferBusyNote = 143,
+    DHStrTransferTooManyFiles = 144,
+    DHStrOpenFilesLabel = 145,
+    DHStrTransferSentHeading = 146,
+    DHStrTransferAcceptLabel = 147,
+    DHStrTransferBlocksScreenNote = 148,
+    DHStrTransferArrivedTitle = 149,
+    DHStrTransferStopTakingButton = 150,
+    DHStrConnectedPickSession = 151,
+    DHStrConnectFirstHint = 152,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -239,17 +271,26 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
 
 bool dh_host_has_terminal(const char* address, const char* passcode);
 
+bool dh_host_takes_files(const char* address, const char* passcode);
+
 bool dh_is_valid_passcode(const char* passcode);
 
 int dh_passcode_digits(void);
 
 int dh_max_sources(void);
 
+int dh_max_transfer_files(void);
+
 uint32_t dh_auto_share_probe_ms(void);
 
 DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms);
 
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id);
+
+DHConnectPlan dh_connect_plan(DHHostCaps caps, const DHSourceInfo* sources, int count,
+    bool want_desktop, bool want_shell, bool want_files);
+
+int dh_connect_problem_text(int32_t problem, const char* address, char* out, int capacity);
 
 int dh_connecting_to(const char* address, char* out, int capacity);
 

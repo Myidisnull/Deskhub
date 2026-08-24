@@ -6,6 +6,7 @@ struct DeskhubApp: App {
         if let container = BroadcastStatus.containerURL?.path {
             dh_set_data_dir(container)
         }
+        NotificationBanners.shared.install()
     }
 
     var body: some Scene {

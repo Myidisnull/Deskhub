@@ -8,7 +8,7 @@
 #include "decode/AvDecoder.h"
 #include "deskhub/input/PointerLockState.h"
 #include "deskhubp/net/UdpSocket.h"
-#include "deskhubp/session/ClientEngine.h"
+#include "deskhubp/client/ScreenViewer.h"
 #include "render/VideoRenderer.h"
 
 class ViewerWindow {
@@ -54,6 +54,7 @@ private:
     GtkWidget* window_ = nullptr;
     GtkWidget* glArea_ = nullptr;
     guint tickId_ = 0;
+    uint64_t queuedFrameSerial_ = 0;
     guint clipTimerId_ = 0;
     bool clipboardSync_ = false;
 
@@ -71,7 +72,7 @@ private:
     std::function<void()> onClosed_;
 
     VideoRenderer renderer_;
-    deskhubp::ClientEngine<AvDecoder, VideoSink*> loop_;
+    deskhubp::ScreenViewer<AvDecoder, VideoSink*> loop_;
 
     deskhub::PointerLockState pointer_;
     double lastPx_ = 0, lastPy_ = 0;

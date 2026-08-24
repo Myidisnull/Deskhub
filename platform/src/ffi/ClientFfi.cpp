@@ -9,15 +9,15 @@
 #include "deskhub/media/ViewerTitle.h"
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
-#include "deskhub/session/ConnectFlow.h"
-#include "deskhub/session/OpenViewers.h"
+#include "deskhub/session/client/ConnectFlow.h"
+#include "deskhub/session/client/OpenViewers.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/ffi/FfiText.h"
 #include "deskhubp/input/NativeKeyMap.h"
-#include "deskhubp/net/SourceQuery.h"
+#include "deskhubp/client/SourceQuery.h"
 
 #include <cstdio>
 #include <cstring>
@@ -150,6 +150,27 @@ const char* dh_string(DHStringId id) {
         case DHStrTrustReject: return deskhub::ui::kTrustReject;
         case DHStrTerminalSourceName: return deskhub::ui::kTerminalSourceName;
         case DHStrTerminalPickerLabel: return deskhub::ui::kTerminalPickerLabel;
+        case DHStrFilesSourceName: return deskhub::ui::kFilesSourceName;
+        case DHStrFilesPickerLabel: return deskhub::ui::kFilesPickerLabel;
+        case DHStrTransferHeading: return deskhub::ui::kTransferHeading;
+        case DHStrTransferChooseButton: return deskhub::ui::kTransferChooseButton;
+        case DHStrTransferCancelButton: return deskhub::ui::kTransferCancelButton;
+        case DHStrTransferFolderLabel: return deskhub::ui::kTransferFolderLabel;
+        case DHStrTransferSending: return deskhub::ui::kTransferSending;
+        case DHStrTransferDone: return deskhub::ui::kTransferDone;
+        case DHStrTransferHostNotTaking: return deskhub::ui::kTransferHostNotTaking;
+        case DHStrTransferSendHeading: return deskhub::ui::kTransferSendHeading;
+        case DHStrTransferNoneChosen: return deskhub::ui::kTransferNoneChosen;
+        case DHStrTransferBusyNote: return deskhub::ui::kTransferBusyNote;
+        case DHStrTransferTooManyFiles: return deskhub::ui::kTransferTooManyFiles;
+        case DHStrOpenFilesLabel: return deskhub::ui::kOpenFilesLabel;
+        case DHStrTransferSentHeading: return deskhub::ui::kTransferSentHeading;
+        case DHStrTransferAcceptLabel: return deskhub::ui::kTransferAcceptLabel;
+        case DHStrTransferBlocksScreenNote: return deskhub::ui::kTransferBlocksScreenNote;
+        case DHStrTransferArrivedTitle: return deskhub::ui::kTransferArrivedTitle;
+        case DHStrTransferStopTakingButton: return deskhub::ui::kTransferStopTakingButton;
+        case DHStrConnectedPickSession: return deskhub::ui::kConnectedPickSession;
+        case DHStrConnectFirstHint: return deskhub::ui::kConnectFirstHint;
         case DHStrOpenChoiceGroup: return deskhub::ui::kOpenChoiceGroup;
         case DHStrOpenDesktopLabel: return deskhub::ui::kOpenDesktopLabel;
         case DHStrOpenShellLabel: return deskhub::ui::kOpenShellLabel;
@@ -312,6 +333,10 @@ int dh_max_sources(void) {
     return int(deskhub::kMaxSources);
 }
 
+int dh_max_transfer_files(void) {
+    return int(deskhub::kMaxTransferFiles);
+}
+
 uint32_t dh_auto_share_probe_ms(void) {
     return deskhub::ui::kAutoShareProbeMs;
 }
@@ -328,7 +353,7 @@ DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms) {
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,
     DHHostCaps* out_caps) {
-    if (out_caps) *out_caps = DHHostCaps{false, false};
+    if (out_caps) *out_caps = DHHostCaps{false, false, false, false};
     if (!address || !out || capacity <= 0) return DH_SOURCE_QUERY_FAILED;
 
     NetAddr server;
@@ -341,7 +366,8 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
     deskhub::HostCaps caps{};
     if (!QuerySources(server, sources, passcode ? passcode : "", nullptr, &caps))
         return DH_SOURCE_QUERY_FAILED;
-    if (out_caps) *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal};
+    if (out_caps)
+        *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal, caps.audio, caps.files};
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {
@@ -370,6 +396,16 @@ bool dh_host_has_terminal(const char* address, const char* passcode) {
     return caps.terminal;
 }
 
+bool dh_host_takes_files(const char* address, const char* passcode) {
+    NetAddr server;
+    if (!address || !ParseNetAddr(address, server)) return false;
+
+    std::vector<deskhub::SourceInfo> sources;
+    deskhub::HostCaps caps{};
+    if (!QuerySources(server, sources, passcode ? passcode : "", nullptr, &caps)) return false;
+    return caps.files;
+}
+
 bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_source_id) {
     std::vector<deskhub::SourceInfo> list;
     if (sources && count > 0) {
@@ -379,6 +415,40 @@ bool dh_connect_decision(const DHSourceInfo* sources, int count, uint8_t* out_so
     const deskhub::ConnectDecision d = deskhub::DecideAfterSourceQuery(list);
     if (out_source_id) *out_source_id = d.sourceId;
     return d.showPicker;
+}
+
+DHConnectPlan dh_connect_plan(DHHostCaps caps, const DHSourceInfo* sources, int count,
+    bool want_desktop, bool want_shell, bool want_files) {
+    std::vector<deskhub::SourceInfo> list;
+    if (sources && count > 0) {
+        list.resize(size_t(count));
+        for (int i = 0; i < count; ++i) list[size_t(i)].sourceId = sources[i].sourceId;
+    }
+
+    deskhub::HostCaps hostCaps;
+    hostCaps.acceptsInput = caps.acceptsInput;
+    hostCaps.terminal = caps.terminal;
+    hostCaps.audio = caps.audio;
+    hostCaps.files = caps.files;
+
+    const deskhub::ConnectPlan planned = deskhub::PlanAfterConnect(hostCaps, list,
+        deskhub::OpenChoice{want_desktop, want_shell, want_files});
+
+    DHConnectPlan out{};
+    out.openShell = planned.openShell;
+    out.openFiles = planned.openFiles;
+    out.openDesktop = planned.openDesktop;
+    out.showPicker = planned.showPicker;
+    out.sourceId = planned.sourceId;
+    out.problem = int32_t(planned.problem);
+    return out;
+}
+
+int dh_connect_problem_text(int32_t problem, const char* address, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        deskhub::ConnectProblemText(deskhub::ConnectProblem(problem), address ? address : ""));
+    return int(std::strlen(out));
 }
 
 int dh_hotkeys(DHHotkey* out, int capacity) {
