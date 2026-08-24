@@ -87,6 +87,8 @@ const char* const kStyleSheet =
     ".deskhub-section { font-weight: bold; font-size: 1.1em; color: #111827; }"
     ".deskhub-hint { color: #6b7280; }"
     ".deskhub-status-error { color: #c82828; }"
+    ".deskhub-status-online { color: #00913c; font-weight: bold; }"
+    ".deskhub-status-offline { color: #c82828; font-weight: bold; }"
     ".deskhub-picker { padding: 8px; }"
     ".deskhub-footnote { color: #94a3b8; }"
     ".deskhub-link { color: #d1d5db; background-color: transparent; border: none; }"
@@ -421,6 +423,7 @@ void MainWindow::Build(GtkApplication* app) {
 
     ApplyTrayMode();
     gtk_widget_show_all(window_);
+    ApplyConnectedState();
     SelectPage(kPageClient);
 
     g_signal_connect(gtk_widget_get_screen(window_), "monitors-changed",
@@ -431,6 +434,13 @@ void MainWindow::Build(GtkApplication* app) {
         g_idle_add(
             [](gpointer user) -> gboolean {
                 static_cast<MainWindow*>(user)->BeginAutoShare();
+                return G_SOURCE_REMOVE;
+            },
+            this);
+    } else {
+        g_idle_add(
+            [](gpointer user) -> gboolean {
+                static_cast<MainWindow*>(user)->StartTenants();
                 return G_SOURCE_REMOVE;
             },
             this);
@@ -766,45 +776,60 @@ GtkWidget* MainWindow::BuildClientPage() {
     gtk_entry_set_width_chars(GTK_ENTRY(deviceNameEntry_), 26);
     g_signal_connect(deviceNameEntry_, "activate", G_CALLBACK(OnAddressActivate), this);
     gtk_grid_attach(GTK_GRID(grid), deviceNameEntry_, 1, 3, 1, 1);
-    gtk_box_pack_start(GTK_BOX(box), grid, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box), Section(ui::kOpenChoiceGroup), FALSE, FALSE, 0);
-
-    desktopCheck_ = gtk_check_button_new_with_label(ui::kOpenDesktopLabel);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(desktopCheck_), settings_.clientDesktop);
-    g_signal_connect(desktopCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
-    gtk_box_pack_start(GTK_BOX(box), desktopCheck_, FALSE, FALSE, 0);
-
-    controlCheck_ = gtk_check_button_new_with_label(ui::kRequestControlLabel);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(controlCheck_), settings_.clientControl);
-    gtk_widget_set_sensitive(controlCheck_, settings_.clientDesktop);
-    gtk_widget_set_margin_start(controlCheck_, 24);
-    g_signal_connect(controlCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
-    gtk_box_pack_start(GTK_BOX(box), controlCheck_, FALSE, FALSE, 0);
-
-    shellCheck_ = gtk_check_button_new_with_label(ui::kOpenShellLabel);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shellCheck_), settings_.clientShell);
-    g_signal_connect(shellCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
-    gtk_box_pack_start(GTK_BOX(box), shellCheck_, FALSE, FALSE, 0);
-
-    filesCheck_ = gtk_check_button_new_with_label(ui::kOpenFilesLabel);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(filesCheck_), settings_.clientFiles);
-    g_signal_connect(filesCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
-    gtk_box_pack_start(GTK_BOX(box), filesCheck_, FALSE, FALSE, 0);
-
-    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kMobileHostNote), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kOpenChoiceHint), FALSE, FALSE, 0);
+    addressFormBox_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_box_pack_start(GTK_BOX(addressFormBox_), grid, FALSE, FALSE, 0);
 
     connectButton_ = gtk_button_new_with_label(ui::kConnectButton);
     AddClass(connectButton_, "deskhub-primary");
     gtk_widget_set_size_request(connectButton_, -1, kPrimaryButtonH);
     g_signal_connect(connectButton_, "clicked", G_CALLBACK(OnConnectClicked), this);
-    gtk_box_pack_start(GTK_BOX(box), connectButton_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(addressFormBox_), connectButton_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), addressFormBox_, FALSE, FALSE, 0);
+
+    connectedBox_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+
+    GtkWidget* addressRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    connectedAddressLabel_ = StyledLabel(std::string(), "deskhub-section");
+    gtk_box_pack_start(GTK_BOX(addressRow), connectedAddressLabel_, TRUE, TRUE, 0);
+    GtkWidget* disconnectButton = gtk_button_new_with_label(ui::kDisconnectButton);
+    g_signal_connect(disconnectButton, "clicked", G_CALLBACK(OnDisconnectClicked), this);
+    gtk_box_pack_end(GTK_BOX(addressRow), disconnectButton, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(connectedBox_), addressRow, FALSE, FALSE, 0);
+
+    GtkWidget* stateRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    connectedStateLabel_ = StyledLabel(ui::kConnectedPickSession, "deskhub-status-online");
+    gtk_box_pack_start(GTK_BOX(stateRow), connectedStateLabel_, TRUE, TRUE, 0);
+    connectedPingLabel_ = StyledLabel(std::string(), "deskhub-status-online");
+    gtk_box_pack_end(GTK_BOX(stateRow), connectedPingLabel_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(connectedBox_), stateRow, FALSE, FALSE, 0);
+
+    openDesktopButton_ = gtk_button_new_with_label(ui::kOpenDesktopLabel);
+    g_signal_connect(openDesktopButton_, "clicked", G_CALLBACK(OnOpenDesktopClicked), this);
+    gtk_box_pack_start(GTK_BOX(connectedBox_), openDesktopButton_, FALSE, FALSE, 0);
+
+    controlCheck_ = gtk_check_button_new_with_label(ui::kRequestControlLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(controlCheck_), settings_.clientControl);
+    gtk_widget_set_margin_start(controlCheck_, 24);
+    g_signal_connect(controlCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    gtk_box_pack_start(GTK_BOX(connectedBox_), controlCheck_, FALSE, FALSE, 0);
+
+    openShellButton_ = gtk_button_new_with_label(ui::kOpenShellLabel);
+    g_signal_connect(openShellButton_, "clicked", G_CALLBACK(OnOpenShellClicked), this);
+    gtk_box_pack_start(GTK_BOX(connectedBox_), openShellButton_, FALSE, FALSE, 0);
+
+    openFilesButton_ = gtk_button_new_with_label(ui::kOpenFilesLabel);
+    g_signal_connect(openFilesButton_, "clicked", G_CALLBACK(OnOpenFilesClicked), this);
+    gtk_box_pack_start(GTK_BOX(connectedBox_), openFilesButton_, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(connectedBox_), Hint(ui::kMobileHostNote), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), connectedBox_, FALSE, FALSE, 0);
 
     clientStatusLabel_ = Hint(std::string());
     gtk_box_pack_start(GTK_BOX(box), clientStatusLabel_, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(box),
+    devicesBox_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_box_pack_start(GTK_BOX(devicesBox_),
         HeadingRow(ui::kDevicesHeading, G_CALLBACK(OnRefreshDevicesClicked), this), FALSE, FALSE,
         0);
 
@@ -818,10 +843,11 @@ GtkWidget* MainWindow::BuildClientPage() {
     AddColumn(deviceView, "Ping", 3, 5, 70, 1.f);
     AddColumn(deviceView, "Last connected", 4, 5, 150, 0.f);
     g_signal_connect(deviceView, "row-activated", G_CALLBACK(OnDeviceRowActivated), this);
-    gtk_box_pack_start(GTK_BOX(box), ListFrame(deviceView, kListH), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(devicesBox_), ListFrame(deviceView, kListH), TRUE, TRUE, 0);
 
     deviceHintLabel_ = Hint(ui::kLanDevicesEmpty);
-    gtk_box_pack_start(GTK_BOX(box), deviceHintLabel_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(devicesBox_), deviceHintLabel_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), devicesBox_, TRUE, TRUE, 0);
 
     return WrapPage(box);
 }
@@ -1119,16 +1145,17 @@ void MainWindow::ApplyHostState(HostShareState state, const std::string& detail)
         AddClass(hostStateLabel_, "deskhub-banner-state-busy");
     }
 
+    const bool screen = screenSharing_ || starting;
     gtk_button_set_label(GTK_BUTTON(shareButton_),
-        sharing ? ui::kStopSharing : ui::kStartSharing);
-    if (sharing) {
+        screen ? ui::kStopSharing : ui::kStartSharing);
+    if (screen) {
         AddClass(shareButton_, "deskhub-primary-stop");
     } else {
         RemoveClass(shareButton_, "deskhub-primary-stop");
     }
 
-    gtk_widget_set_sensitive(bindCombo_, state == HostShareState::kIdle);
-    ShowHostTable(state != HostShareState::kIdle);
+    gtk_widget_set_sensitive(bindCombo_, !screen);
+    ShowHostTable(screen);
 }
 
 void MainWindow::ShowIdleHostState() {
@@ -1145,10 +1172,6 @@ void MainWindow::SaveSettings() {
         settings_.maxDim = deskhub::media::QualityPresetMaxDim(size_t(quality), settings_.maxDim);
     settings_.allowInput = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowInputCheck_));
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
-    settings_.clientDesktop = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(desktopCheck_));
-    settings_.clientShell = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shellCheck_));
-    settings_.clientFiles = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(filesCheck_));
-    gtk_widget_set_sensitive(controlCheck_, settings_.clientDesktop);
     settings_.allowNewPairings =
         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowPairingCheck_));
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
@@ -1322,6 +1345,7 @@ const deskhubp::DeviceStatus* MainWindow::ProbeFor(const std::string& addr) cons
 }
 
 void MainWindow::RefreshDeviceList() {
+    if (connected_) ApplyConnectedState();
     std::vector<std::string> scannedAddrs;
     scannedAddrs.reserve(scanned_.size());
     for (const deskhubp::ScanHit& hit : scanned_) scannedAddrs.push_back(hit.addr);
@@ -1444,14 +1468,6 @@ void MainWindow::StartConnect(const std::string& addr, const std::string& passco
         settings_.deviceName = deviceName;
         deskhubp::SaveUiSettings(settings_);
     }
-    const bool desktop = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(desktopCheck_));
-    const bool shell = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shellCheck_));
-    const bool files = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(filesCheck_));
-    if (!desktop && !shell && !files) {
-        ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::kOpenNothingTicked);
-        return;
-    }
-
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) {
         ShowError(GTK_WINDOW(window_), "Deskhub",
@@ -1459,11 +1475,11 @@ void MainWindow::StartConnect(const std::string& addr, const std::string& passco
         return;
     }
 
-    const deskhub::OpenChoice choice{desktop, shell, files};
+    ForgetHost();
     const bool started = connectDriver_.QueryAsync(
         server, passcode, [this](const std::function<void()>& fn) { PostToUi(fn); },
-        [this, addr, passcode, choice](const deskhubp::ConnectOutcome& outcome) {
-            OnSourcesReady(addr, passcode, choice, outcome);
+        [this, addr, passcode](const deskhubp::ConnectOutcome& outcome) {
+            OnSourcesReady(addr, passcode, outcome);
         });
     if (started) SetBusy(true, ui::kQueryingSources);
 }
@@ -1491,11 +1507,11 @@ void MainWindow::OpenFileSend(const NetAddr& server, const std::string& passcode
 }
 
 void MainWindow::OnSourcesReady(const std::string& addr, const std::string& passcode,
-    const deskhub::OpenChoice& choice, const deskhubp::ConnectOutcome& outcome) {
+    const deskhubp::ConnectOutcome& outcome) {
     SetBusy(false, nullptr);
 
     if (!outcome.ok) {
-        SetClientStatus(ui::SourceQueryFailed(addr), true);
+        ShowError(GTK_WINDOW(window_), "Deskhub", ui::SourceQueryFailed(addr));
         return;
     }
 
@@ -1507,21 +1523,60 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) return;
 
-    const deskhub::ConnectPlan plan =
-        deskhub::PlanAfterConnect(outcome.caps, outcome.sources, choice);
-    if (plan.openShell) OpenShell(server, passcode);
-    if (plan.openFiles) OpenFileSend(server, passcode);
-    if (plan.problem != deskhub::ConnectProblem::None)
-        SetClientStatus(deskhub::ConnectProblemText(plan.problem, addr), true);
-    if (!plan.openDesktop) return;
+    connected_ = true;
+    connectedCaps_ = outcome.caps;
+    connectedSources_ = outcome.sources;
+    connectedServer_ = server;
+    connectedAddress_ = addr;
+    connectedPasscode_ = passcode;
+    ApplyConnectedState();
+}
+
+void MainWindow::ForgetHost() {
+    connected_ = false;
+    connectedCaps_ = deskhub::HostCaps{};
+    connectedSources_.clear();
+    connectedAddress_.clear();
+    connectedPasscode_.clear();
+    SetClientStatus(std::string(), false);
+    ApplyConnectedState();
+}
+
+void MainWindow::ApplyConnectedState() {
+    if (!connectedBox_) return;
+    gtk_widget_set_visible(connectedBox_, connected_);
+    gtk_widget_set_visible(addressFormBox_, !connected_);
+    gtk_widget_set_visible(devicesBox_, !connected_);
+    if (!connected_) return;
+
+    gtk_label_set_text(GTK_LABEL(connectedAddressLabel_), connectedAddress_.c_str());
+    gtk_widget_set_sensitive(openDesktopButton_, !connectedSources_.empty());
+    gtk_widget_set_sensitive(controlCheck_, !connectedSources_.empty());
+    gtk_widget_set_sensitive(openShellButton_, connectedCaps_.terminal);
+    gtk_widget_set_sensitive(openFilesButton_, connectedCaps_.files);
+
+    const deskhubp::DeviceStatus* probe = ProbeFor(connectedAddress_);
+    const bool offline = probe && !probe->online;
+    const char* stateClass = offline ? "deskhub-status-offline" : "deskhub-status-online";
+    for (GtkWidget* w : {connectedStateLabel_, connectedPingLabel_}) {
+        RemoveClass(w, "deskhub-status-online");
+        RemoveClass(w, "deskhub-status-offline");
+        AddClass(w, stateClass);
+    }
+    gtk_label_set_text(GTK_LABEL(connectedPingLabel_),
+        probe && probe->online ? ui::PingMs(probe->rttMs).c_str() : "");
+}
+
+void MainWindow::OpenDesktopSession() {
+    if (!connected_ || connectedSources_.empty()) return;
 
     std::vector<deskhub::SourceInfo> picked;
-    if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) return;
+    if (!PickSources(GTK_WINDOW(window_), connectedSources_, picked)) return;
 
     int opened = 0;
     for (const auto& s : picked) {
-        if (ViewerWindow::Open(server, s.sourceId, s.name, passcode, settings_.clientControl,
-                [this, alive = alive_] {
+        if (ViewerWindow::Open(connectedServer_, s.sourceId, s.name, connectedPasscode_,
+                settings_.clientControl, [this, alive = alive_] {
                     if (!alive->load()) return;
                     if (openViewers_.Closed()) ShowAfterSession();
                 })) {
@@ -1533,6 +1588,24 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
         ShowAfterSession();
         ShowWarning(GTK_WINDOW(window_), "Deskhub", ui::kViewerOpenFailed);
     }
+}
+
+void MainWindow::OnDisconnectClicked(GtkButton*, gpointer user) {
+    static_cast<MainWindow*>(user)->ForgetHost();
+}
+
+void MainWindow::OnOpenDesktopClicked(GtkButton*, gpointer user) {
+    static_cast<MainWindow*>(user)->OpenDesktopSession();
+}
+
+void MainWindow::OnOpenShellClicked(GtkButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->connected_) self->OpenShell(self->connectedServer_, self->connectedPasscode_);
+}
+
+void MainWindow::OnOpenFilesClicked(GtkButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->connected_) self->OpenFileSend(self->connectedServer_, self->connectedPasscode_);
 }
 
 void MainWindow::OnCopyClicked(GtkButton* b, gpointer) {
@@ -1589,12 +1662,25 @@ void MainWindow::OnMonitorsChanged(GdkScreen*, gpointer user) {
     self->RefreshDisplayChoices();
 }
 
+void MainWindow::StartTenants() {
+    if (hostStarting_ || Sharing()) return;
+    ShareOptions options = deskhub::ShareOptionsOf(settings_, TerminalTicked(), FilesTicked());
+    options.port = Port();
+    if (options.deviceName.empty()) options.deviceName = deskhubp::LocalDeviceName();
+    if (!options.terminal && !options.files) return;
+    terminalRequested_ = options.terminal;
+    filesRequested_ = options.files;
+    StartHosting({}, options);
+}
+
 void MainWindow::OnShare(ShareTrigger trigger) {
     if (hostStarting_) return;
-    if (Sharing()) {
+    if (screenSharing_) {
         StopHosting();
+        StartTenants();
         return;
     }
+    if (Sharing()) StopHosting();
     shareTrigger_ = trigger;
 
     ShareOptions options = deskhub::ShareOptionsOf(settings_, TerminalTicked(), FilesTicked());

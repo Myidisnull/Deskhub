@@ -101,7 +101,7 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     GtkWidget* disconnectButton = gtk_button_new_with_label(deskhub::ui::kDisconnectButton);
     g_signal_connect(disconnectButton, "clicked", G_CALLBACK(OnDisconnectClicked), this);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), disconnectButton);
-    linkLabel_ = gtk_label_new(deskhub::ui::kLinkNoReading);
+    linkLabel_ = gtk_label_new("");
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), linkLabel_);
     gtk_window_set_titlebar(GTK_WINDOW(window_), header);
 
@@ -297,16 +297,9 @@ void ViewerWindow::UpdateTitle() {
 
 void ViewerWindow::UpdateLinkLabel() {
     if (!linkLabel_) return;
-    std::string text;
-    if (loop_.phase() == deskhubp::ClientPhase::Reattaching) {
-        text = deskhub::ui::kTerminalReattaching;
-    } else {
-        const deskhub::LinkPulseView health = loop_.LinkHealth();
-        text = deskhub::ui::LinkQualityText(health.quality);
-        text += kStatusSeparator;
-        text += deskhub::ui::LinkPingText(health.haveRtt, health.rttUs);
-    }
-    gtk_label_set_text(GTK_LABEL(linkLabel_), text.c_str());
+    const bool reattaching = loop_.phase() == deskhubp::ClientPhase::Reattaching;
+    gtk_label_set_text(
+        GTK_LABEL(linkLabel_), reattaching ? deskhub::ui::kTerminalReattaching : "");
 }
 
 gboolean ViewerWindow::OnLinkTimer(gpointer user) {
