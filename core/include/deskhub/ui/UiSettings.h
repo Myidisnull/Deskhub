@@ -15,9 +15,6 @@ struct UiSettings {
     uint32_t port = kDeskhubPort;
     bool allowInput = true;
     bool clientControl = true;
-    bool clientDesktop = true;
-    bool clientShell = false;
-    bool clientFiles = false;
     std::string passcode{};
     std::string deviceName{};
     std::string bindIp{};
@@ -29,7 +26,6 @@ struct UiSettings {
     bool startHidden = false;
     bool keepAwake = true;
     bool allowNewPairings = true;
-    bool takeFiles = false;
     std::string transferDir{};
 
     bool operator==(const UiSettings&) const = default;

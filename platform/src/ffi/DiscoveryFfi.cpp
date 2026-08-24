@@ -457,16 +457,6 @@ void dh_set_clipboard_sync(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
-bool dh_take_files(void) {
-    return deskhubp::LoadUiSettings().takeFiles;
-}
-
-void dh_set_take_files(bool on) {
-    ui::UiSettings out = deskhubp::LoadUiSettings();
-    out.takeFiles = on;
-    deskhubp::SaveUiSettings(out);
-}
-
 void dh_set_transfer_dir(const char* dir) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
     out.transferDir = ui::TruncateSettingsPath(dir ? dir : "");

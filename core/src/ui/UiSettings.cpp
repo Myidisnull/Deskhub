@@ -48,9 +48,6 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "port" && *v >= 1 && *v <= kMaxSettingsPort) out.port = *v;
     if (key == "allow_input") out.allowInput = *v != 0;
     if (key == "client_control") out.clientControl = *v != 0;
-    if (key == "client_desktop") out.clientDesktop = *v != 0;
-    if (key == "client_shell") out.clientShell = *v != 0;
-    if (key == "client_files") out.clientFiles = *v != 0;
     if (key == "autostart") out.autostart = *v != 0;
     if (key == "auto_share") out.autoShare = *v != 0;
     if (key == "clipboard_sync") out.clipboardSync = *v != 0;
@@ -59,7 +56,6 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "start_hidden") out.startHidden = *v != 0;
     if (key == "keep_awake") out.keepAwake = *v != 0;
     if (key == "allow_new_pairings") out.allowNewPairings = *v != 0;
-    if (key == "take_files") out.takeFiles = *v != 0;
 }
 
 }
@@ -114,9 +110,6 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += "port=" + std::to_string(settings.port) + '\n';
     out += std::string("allow_input=") + (settings.allowInput ? "1" : "0") + '\n';
     out += std::string("client_control=") + (settings.clientControl ? "1" : "0") + '\n';
-    out += std::string("client_desktop=") + (settings.clientDesktop ? "1" : "0") + '\n';
-    out += std::string("client_shell=") + (settings.clientShell ? "1" : "0") + '\n';
-    out += std::string("client_files=") + (settings.clientFiles ? "1" : "0") + '\n';
     out += "passcode=";
     if (IsValidPasscode(settings.passcode)) out += EncodeSecret(settings.passcode);
     out += '\n';
@@ -132,7 +125,6 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("start_hidden=") + (settings.startHidden ? "1" : "0") + '\n';
     out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
     out += std::string("allow_new_pairings=") + (settings.allowNewPairings ? "1" : "0") + '\n';
-    out += std::string("take_files=") + (settings.takeFiles ? "1" : "0") + '\n';
     out += "transfer_dir=" + TruncateSettingsPath(settings.transferDir) + '\n';
     return out;
 }
