@@ -189,7 +189,8 @@ Once admitted, the link takes its own pulse (`core/session/LinkPulse`): a
 it over the same connection with no session required, and the echoed timestamp
 becomes a smoothed RTT while the ids of pongs that never came back become a loss
 percentage. `ClassifyLinkQuality` folds the two into Good / Fair / Poor for the
-status bars, `HostLink` hands the reading out through `onPulse` and `Pulse()`, and
+device list and the connect page — the session windows no longer carry it —
+`HostLink` hands the reading out through `onPulse` and `Pulse()`, and
 because a ping is ack-eliciting it doubles as the keepalive; the plain keepalive
 timer only still matters while the link is parked in `Deciding`. A host too old to
 answer session-0 pings simply leaves the reading at Unknown — nothing regresses.

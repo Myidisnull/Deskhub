@@ -187,8 +187,9 @@ Khi đã được nhận vào, link tự bắt mạch cho chính nó (`core/sess
 mỗi giây một datagram `Ping` mang session id 0 đi ra, beacon của host trả lời nó
 trên chính kết nối đó mà không cần phiên nào, timestamp được vọng lại trở thành
 RTT đã làm mượt, còn những id không có pong quay về trở thành phần trăm mất gói.
-`ClassifyLinkQuality` gộp hai con số thành Tốt / Khá / Kém cho thanh trạng thái,
-`HostLink` đưa số đo ra qua `onPulse` và `Pulse()`, và vì ping là gói đòi ACK nên
+`ClassifyLinkQuality` gộp hai con số thành Tốt / Khá / Kém cho danh sách thiết bị
+và trang kết nối — các cửa sổ phiên không còn chở nó nữa — `HostLink` đưa số đo ra
+qua `onPulse` và `Pulse()`, và vì ping là gói đòi ACK nên
 nó kiêm luôn vai keepalive; bộ đếm keepalive thường chỉ còn có việc khi link đang
 đỗ ở `Deciding`. Host quá cũ không trả lời ping session-0 thì số đo chỉ đứng ở
 Unknown — không gì thoái lui. Trên link có bật khôi phục, mạch đập cũng là phép
