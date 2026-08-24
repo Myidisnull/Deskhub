@@ -37,7 +37,7 @@ struct ScreenClientCallbacks {
     std::function<void(const AudioPacketView&)> onAudioPacket;
     std::function<void(std::string_view text)> onClipboardText;
     std::function<void(const NegotiatedParams&, bool reconfigured)> onParams;
-    std::function<void(const char* reason)> onEnded;
+    std::function<void(const char* reason, ScreenSessionEnd cause)> onEnded;
     std::function<uint32_t()> takeRenderedCount;
     std::function<int64_t()> latencyUs;
     std::function<void(const char* compactStatus)> onStatus;

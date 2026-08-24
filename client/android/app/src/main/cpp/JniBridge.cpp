@@ -18,9 +18,14 @@
 #include "deskhubp/ffi/SendFfi.h"
 
 static_assert(DHPhaseIdle == 0 && DHPhaseConnecting == 1 && DHPhaseStreaming == 2 &&
-              DHPhaseEnded == 3);
+              DHPhaseEnded == 3 && DHPhaseReattaching == 5);
 static_assert(DHStrClientIpPrompt == 3 && DHStrQueryingSources == 12 &&
               DHStrInvalidAddressHint == 17 && DHStrSessionEnded == 18);
+static_assert(DHStrDisconnectButton == 153 && DHStrLinkQualityGood == 154 &&
+              DHStrLinkQualityFair == 155 && DHStrLinkQualityPoor == 156 &&
+              DHStrLinkNoReading == 157 && DHStrLinkReattaching == 158);
+static_assert(DHLinkQualityUnknown == 0 && DHLinkQualityGood == 1 && DHLinkQualityFair == 2 &&
+              DHLinkQualityPoor == 3);
 static_assert(int32_t(deskhub::MouseButton::Left) == 1 &&
               int32_t(deskhub::MouseButton::Right) == 2);
 
@@ -771,6 +776,25 @@ Java_com_deskhub_app_NativeClient_nativeSnapshot(JNIEnv* env, jobject) {
     env->DeleteLocalRef(endReason);
     env->DeleteLocalRef(statusLine);
     return out;
+}
+
+JNIEXPORT jintArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeLinkHealth(JNIEnv* env, jobject) {
+    DHLinkHealth health{};
+    dh_screen_link_health(g_session, &health);
+    const jint out[4] = {health.haveRtt ? 1 : 0, jint(health.rttMs), jint(health.lossPct),
+        jint(health.quality)};
+    jintArray arr = env->NewIntArray(4);
+    if (arr) env->SetIntArrayRegion(arr, 0, 4, out);
+    return arr;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeLinkPingText(JNIEnv* env, jobject, jboolean haveRtt,
+    jint rttMs) {
+    char buf[32];
+    dh_link_ping_text(haveRtt == JNI_TRUE, uint32_t(rttMs), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
 }
 
 JNIEXPORT jint JNICALL

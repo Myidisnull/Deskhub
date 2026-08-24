@@ -21,6 +21,7 @@ void RunFileTransferTests();
 void RunCrc32Tests();
 void RunSafeNameTests();
 void RunLinkRecoveryTests();
+void RunLinkPulseTests();
 void RunAuthThrottleTests();
 void RunInputTests();
 void RunPressedInputTests();

@@ -21,7 +21,22 @@ typedef enum {
     DHPhaseStreaming = 2,
     DHPhaseEnded = 3,
     DHPhaseDeciding = 4,
+    DHPhaseReattaching = 5,
 } DHPhase;
+
+typedef enum {
+    DHLinkQualityUnknown = 0,
+    DHLinkQualityGood = 1,
+    DHLinkQualityFair = 2,
+    DHLinkQualityPoor = 3,
+} DHLinkQuality;
+
+typedef struct {
+    bool haveRtt;
+    uint32_t rttMs;
+    uint8_t lossPct;
+    DHLinkQuality quality;
+} DHLinkHealth;
 
 typedef struct {
     uint8_t sourceId;
@@ -247,7 +262,17 @@ typedef enum {
     DHStrTransferStopTakingButton = 150,
     DHStrConnectedPickSession = 151,
     DHStrConnectFirstHint = 152,
+    DHStrDisconnectButton = 153,
+    DHStrLinkQualityGood = 154,
+    DHStrLinkQualityFair = 155,
+    DHStrLinkQualityPoor = 156,
+    DHStrLinkNoReading = 157,
+    DHStrLinkReattaching = 158,
 } DHStringId;
+
+int dh_link_quality_text(DHLinkQuality quality, char* out, int capacity);
+
+int dh_link_ping_text(bool haveRtt, uint32_t rttMs, char* out, int capacity);
 
 const char* dh_string(DHStringId id);
 

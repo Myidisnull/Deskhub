@@ -48,7 +48,7 @@ struct Rig {
             ++paramsCalls;
             if (reconfigured) ++reconfigCalls;
         };
-        cb.onEnded = [this](const char* reason) { ended = reason ? reason : ""; };
+        cb.onEnded = [this](const char* reason, ScreenSessionEnd) { ended = reason ? reason : ""; };
         cb.takeRenderedCount = [this] {
             const uint32_t n = renderedToReport;
             renderedToReport = 0;

@@ -36,6 +36,8 @@ constexpr UINT WM_APP_TRUST = WM_APP + 4;
 constexpr UINT kTimerHint = 1;
 constexpr UINT kTimerClipboard = 2;
 
+constexpr const char* kStatusSeparator = " \xC2\xB7 ";
+
 std::string ReadClipboardText(HWND owner) {
     if (!OpenClipboard(owner)) return {};
     std::string out;
@@ -103,12 +105,28 @@ struct ViewerFrame {
             std::max(1, int(r.height)), TRUE);
     }
 
+    void AppendLinkHealth(std::string& line) {
+        if (!session) return;
+        if (dh_screen_phase(session) != DHPhaseStreaming) return;
+        DHLinkHealth health{};
+        dh_screen_link_health(session, &health);
+        char qualityText[32];
+        dh_link_quality_text(health.quality, qualityText, sizeof(qualityText));
+        char pingText[32];
+        dh_link_ping_text(health.haveRtt, health.rttMs, pingText, sizeof(pingText));
+        if (!line.empty()) line += kStatusSeparator;
+        line += qualityText;
+        line += kStatusSeparator;
+        line += pingText;
+    }
+
     void UpdateTitle() {
         std::string line;
         {
             std::lock_guard<std::mutex> lk(mu);
             line = statsLine;
         }
+        AppendLinkHealth(line);
         const std::string title =
             viewOnly
                 ? deskhub::ComposeViewerTitle(baseTitle, line, deskhub::kViewerViewOnlyHint)

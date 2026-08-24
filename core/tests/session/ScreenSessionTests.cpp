@@ -40,7 +40,7 @@ void TestSessions() {
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
     ccb.onReady = [&](const NegotiatedParams& p) { cliReady = true; np = p; };
     ccb.onRtt = [&](uint32_t r) { cliRtt = r; };
-    ccb.onDisconnect = [&](const char* r) { cliDead = r; };
+    ccb.onDisconnect = [&](const char* r, ScreenSessionEnd) { cliDead = r; };
     ScreenClientSession cli(ccb);
 
     auto pump = [&] {
@@ -95,7 +95,7 @@ void TestSessions() {
         ScreenClientSessionCallbacks c2 = ccb;
         c2.send = [&](std::span<const uint8_t> d) { w2.toHost.emplace_back(d.begin(), d.end()); };
         c2.onReady = [&](const NegotiatedParams& p) { otherParams = p; };
-        c2.onDisconnect = [&](const char* r) { otherDead = r; };
+        c2.onDisconnect = [&](const char* r, ScreenSessionEnd) { otherDead = r; };
         ScreenClientSession other(c2);
         other.Start(Hello{0x55667788, kCodecMaskH264, 1280, 720, 30, 0, 0, kTestPasscode}, now);
         while (!w2.toHost.empty()) {
@@ -162,7 +162,7 @@ void TestHostKicksOneViewer() {
     std::string cliDead;
     ScreenClientSessionCallbacks ccb;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
-    ccb.onDisconnect = [&](const char* r) { cliDead = r; };
+    ccb.onDisconnect = [&](const char* r, ScreenSessionEnd) { cliDead = r; };
     ScreenClientSession cli(ccb);
 
     auto pump = [&] {
@@ -380,7 +380,7 @@ struct Rig {
         cb.send = [this](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
         cb.onReady = [this](const NegotiatedParams&) { ++readyCalls; };
         cb.onRtt = [this](uint32_t r) { lastRtt = r; };
-        cb.onDisconnect = [this](const char* r) { cliDead = r; };
+        cb.onDisconnect = [this](const char* r, ScreenSessionEnd) { cliDead = r; };
         cb.onClipboardText = [this](std::string_view t) { cliClipboard.emplace_back(t); };
         return cb;
     }
@@ -550,7 +550,7 @@ void RunHandshakeAgainstBrokenRng(ScreenHostCallbacks hcb, const char* what) {
     std::string cliDead;
     ScreenClientSessionCallbacks ccb;
     ccb.send = [&](std::span<const uint8_t> d) { w.toHost.emplace_back(d.begin(), d.end()); };
-    ccb.onDisconnect = [&](const char* r) { cliDead = r; };
+    ccb.onDisconnect = [&](const char* r, ScreenSessionEnd) { cliDead = r; };
     ScreenClientSession cli(ccb);
 
     cli.Start(Hello{0x3, kCodecMaskH264, 1920, 1080, 60, 0, 0, kTestPasscode}, now);

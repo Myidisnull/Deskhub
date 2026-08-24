@@ -1,6 +1,7 @@
 #pragma once
 #include "deskhub/net/TrustStore.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/LinkPulse.h"
 #include "deskhubp/net/SessionTransport.h"
 
 #include <array>
@@ -51,6 +52,7 @@ struct HostLinkCallbacks {
     std::function<void(bool resumed)> onReady;
     std::function<void()> onLinkLost;
     std::function<void(uint64_t streamId)> onStreamBroken;
+    std::function<void(const deskhub::LinkPulseView&)> onPulse;
 };
 
 class HostLinkChannel {
@@ -82,6 +84,9 @@ public:
 
     void AcceptFingerprint();
     void RejectFingerprint();
+
+    void RequestRedial();
+    deskhub::LinkPulseView Pulse() const;
 
     bool Send(std::span<const uint8_t> message);
     bool SendRecordOn(uint64_t streamId, std::span<const uint8_t> message);
@@ -118,6 +123,8 @@ private:
     void SetState(HostLinkState state, std::string_view message);
     void Fail(HostLinkState state, std::string_view message);
     void NoteSent();
+    void SendLinkPing(uint64_t nowUs);
+    void PublishPulse(uint64_t nowUs);
 
     HostLinkConfig config_{};
     HostLinkCallbacks cb_{};
@@ -138,10 +145,13 @@ private:
     std::atomic<bool> stop_{false};
     std::atomic<bool> peerGone_{false};
     std::atomic<bool> autoTrustPending_{false};
+    std::atomic<bool> redial_{false};
     std::atomic<uint64_t> lastSendUs_{0};
     uint64_t keepaliveIntervalUs_ = 0;
     uint64_t linkLostAtUs_ = 0;
     uint32_t redialAttempts_ = 0;
+    deskhub::LinkPulse pulse_{};
+    deskhub::LinkPulseView pulseView_{};
 };
 
 }

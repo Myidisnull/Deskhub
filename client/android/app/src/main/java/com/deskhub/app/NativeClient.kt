@@ -16,6 +16,7 @@ object NativeClient {
     const val PHASE_IDLE = 0
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
+    const val PHASE_REATTACHING = 5
 
     init {
         System.loadLibrary("deskhub")
@@ -124,6 +125,12 @@ object NativeClient {
     const val STR_TRANSFER_BLOCKS_SCREEN_NOTE = 148
     const val STR_TRANSFER_ARRIVED_TITLE = 149
     const val STR_TRANSFER_STOP_TAKING_BUTTON = 150
+    const val STR_DISCONNECT_BUTTON = 153
+    const val STR_LINK_QUALITY_GOOD = 154
+    const val STR_LINK_QUALITY_FAIR = 155
+    const val STR_LINK_QUALITY_POOR = 156
+    const val STR_LINK_NO_READING = 157
+    const val STR_LINK_REATTACHING = 158
 
     private external fun nativeString(id: Int): String
 
@@ -832,6 +839,33 @@ object NativeClient {
     )
 
     external fun nativeSnapshot(): Snapshot?
+
+    const val LINK_QUALITY_UNKNOWN = 0
+    const val LINK_QUALITY_GOOD = 1
+    const val LINK_QUALITY_FAIR = 2
+    const val LINK_QUALITY_POOR = 3
+
+    data class LinkHealth(
+        val haveRtt: Boolean = false,
+        val rttMs: Int = 0,
+        val lossPct: Int = 0,
+        val quality: Int = LINK_QUALITY_UNKNOWN,
+    )
+
+    private external fun nativeLinkHealth(): IntArray
+
+    fun linkHealth(): LinkHealth {
+        val raw = nativeLinkHealth()
+        if (raw.size < 4) return LinkHealth()
+        return LinkHealth(raw[0] != 0, raw[1], raw[2], raw[3])
+    }
+
+    private external fun nativeLinkPingText(
+        haveRtt: Boolean,
+        rttMs: Int,
+    ): String
+
+    fun linkPingText(health: LinkHealth): String = nativeLinkPingText(health.haveRtt, health.rttMs)
 
     suspend fun listSources(
         addr: String,

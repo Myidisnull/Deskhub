@@ -19,6 +19,7 @@ struct ScreenViewerLoopHooks {
     std::function<void(deskhub::ScreenClient&, uint64_t nowUs)> beforeTick;
     std::function<void(bool streaming)> onPhase;
     std::function<void()> onSocketError;
+    std::function<bool()> onSessionDead;
 };
 
 void RunScreenViewerLoop(const ScreenViewerRecv& recv, deskhub::ScreenClient& screen,

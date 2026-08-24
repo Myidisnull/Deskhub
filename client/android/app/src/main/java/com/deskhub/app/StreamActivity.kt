@@ -82,6 +82,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
+private const val LINK_POLL_MS = 1000L
+
 class StreamActivity : ComponentActivity() {
     private var session by mutableStateOf(0L)
 
@@ -256,6 +258,22 @@ private fun StreamScreen(
     }
 
     val streaming = sessionPhase == NativeClient.PHASE_STREAMING
+    val reattaching = sessionPhase == NativeClient.PHASE_REATTACHING
+
+    var linkHealth by remember { mutableStateOf(NativeClient.LinkHealth()) }
+    LaunchedEffect(sessionKey) {
+        if (!started) return@LaunchedEffect
+        while (sessionPhase != NativeClient.PHASE_ENDED) {
+            linkHealth = NativeClient.linkHealth()
+            NativeClient.nativeSnapshot()?.let { snap ->
+                sessionPhase = snap.phase
+                if (snap.phase == NativeClient.PHASE_ENDED && endReason.isEmpty()) {
+                    endReason = snap.endReason
+                }
+            }
+            delay(LINK_POLL_MS)
+        }
+    }
 
     trustAsk?.let { (verdict, fingerprint) ->
         val changed = verdict == NativeClient.TRUST_CHANGED
@@ -483,6 +501,8 @@ private fun StreamScreen(
                     reason = if (!started) NativeClient.couldNotConnect(address) else endReason,
                     onBack = onDismiss,
                 )
+            } else if (reattaching) {
+                ReattachingBanner()
             } else if (!streaming) {
                 ConnectingOverlay(address = address)
             }
@@ -514,6 +534,7 @@ private fun StreamScreen(
                     videoW = videoW,
                     videoH = videoH,
                     statusLine = statusLine,
+                    linkHealth = linkHealth,
                     streaming = streaming,
                     keyboardOn = keyboardOn,
                     sources = sources,
@@ -641,12 +662,23 @@ private fun ExpandButton(onClick: () -> Unit) {
     }
 }
 
+private fun linkQualityLabel(quality: Int): String =
+    NativeClient.string(
+        when (quality) {
+            NativeClient.LINK_QUALITY_GOOD -> NativeClient.STR_LINK_QUALITY_GOOD
+            NativeClient.LINK_QUALITY_FAIR -> NativeClient.STR_LINK_QUALITY_FAIR
+            NativeClient.LINK_QUALITY_POOR -> NativeClient.STR_LINK_QUALITY_POOR
+            else -> NativeClient.STR_LINK_NO_READING
+        },
+    )
+
 @Composable
 private fun ControlPanel(
     address: String,
     videoW: Int,
     videoH: Int,
     statusLine: String,
+    linkHealth: NativeClient.LinkHealth,
     streaming: Boolean,
     keyboardOn: Boolean,
     sources: List<NativeClient.Source>,
@@ -694,6 +726,16 @@ private fun ControlPanel(
                         maxLines = 1,
                     )
                 }
+                if (streaming) {
+                    Text(
+                        text =
+                            linkQualityLabel(linkHealth.quality) + " · " +
+                                NativeClient.linkPingText(linkHealth),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                    )
+                }
             }
             Box(
                 modifier =
@@ -735,8 +777,28 @@ private fun ControlPanel(
                 OutlinedButton(onClick = { pickerOpen = true }) { Text("Display") }
             }
             Box(modifier = Modifier.weight(1f))
-            Button(onClick = onEnd) { Text("End") }
+            Button(onClick = onEnd) {
+                Text(NativeClient.string(NativeClient.STR_DISCONNECT_BUTTON))
+            }
         }
+    }
+}
+
+@Composable
+private fun ReattachingBanner() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Text(
+            NativeClient.string(NativeClient.STR_LINK_REATTACHING),
+            color = Color.White,
+            modifier =
+                Modifier
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }
 

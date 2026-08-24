@@ -163,16 +163,16 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 
 Mọi bề mặt client đi tới host qua cùng một mảnh, `HostLink`
 (`platform/client/HostLink`): nó quay số kết nối QUIC, kiểm tra kho tin cậy, chạy
-bắt tay auth, giữ kết nối sống bằng keepalive, và — với bề mặt nào yêu cầu — tự quay
-số lại theo backoff khi kết nối rơi. Không dịch vụ nào còn tự quay số hay tự auth;
-mỗi dịch vụ mở một kênh theo `Chan` trên dây, nhận hàng đợi inbox riêng, và tự rút
-trên luồng của chính nó:
+bắt tay auth, giữ kết nối sống, và — với bề mặt nào yêu cầu — tự quay số lại theo
+backoff khi kết nối rơi. Không dịch vụ nào còn tự quay số hay tự auth; mỗi dịch vụ
+mở một kênh theo `Chan` trên dây, nhận hàng đợi inbox riêng, và tự rút trên luồng
+của chính nó:
 
 ```
 HostLink (một cho mỗi bề mặt đang mở)
  ├─ luồng link: quay số → kiểm tra tin cậy → auth → bơm
  │   (chia record và datagram vào hàng đợi theo Chan của từng kênh;
- │    keepalive; quay số lại theo backoff nơi bật khôi phục)
+ │    mạch đập của link; quay số lại theo backoff nơi bật khôi phục)
  ├─ Chan::Control/Video/Audio ─> ScreenViewer
  │    ├─ luồng net: HELLO/thương lượng, nhận video (Reassembler+FEC),
  │    │   NACK, feedback, clipboard
@@ -182,6 +182,27 @@ HostLink (một cho mỗi bề mặt đang mở)
  │    └─ UI poll Snapshot(), post phím vào hàng đợi lệnh
  └─ Chan::File ─> luồng dịch vụ của FileTransferClient (vòng FileUpload)
 ```
+
+Khi đã được nhận vào, link tự bắt mạch cho chính nó (`core/session/LinkPulse`):
+mỗi giây một datagram `Ping` mang session id 0 đi ra, beacon của host trả lời nó
+trên chính kết nối đó mà không cần phiên nào, timestamp được vọng lại trở thành
+RTT đã làm mượt, còn những id không có pong quay về trở thành phần trăm mất gói.
+`ClassifyLinkQuality` gộp hai con số thành Tốt / Khá / Kém cho thanh trạng thái,
+`HostLink` đưa số đo ra qua `onPulse` và `Pulse()`, và vì ping là gói đòi ACK nên
+nó kiêm luôn vai keepalive; bộ đếm keepalive thường chỉ còn có việc khi link đang
+đỗ ở `Deciding`. Host quá cũ không trả lời ping session-0 thì số đo chỉ đứng ở
+Unknown — không gì thoái lui. Trên link có bật khôi phục, mạch đập cũng là phép
+thử sống: năm giây không có pong (và chỉ sau khi pong đầu tiên đã chứng minh host
+có trả lời) là kết nối bị thả xuống đường quay số lại sẵn có.
+
+Viewer màn hình giờ tham gia cơ chế khôi phục đó như terminal xưa nay: link rơi
+hay câm lặng, hoặc phiên năm giây không nhận được gì, sẽ đỗ cửa sổ ở `Reattaching`
+(khung hình cuối vẫn treo, dòng trạng thái chuyển sang chữ đang nối lại) thay vì
+kết thúc nó. `HostLink::RequestRedial` ép quay số lại khi phía phiên nhận ra
+trước, và khi link được nhận vào lại viewer chạy lại `HELLO` với đúng client id
+cũ — host gắn lại slot viewer — rồi hình tiếp tục từ keyframe mới. Sau sáu mươi
+giây (`kViewerReattachGraceUs`) không vào lại được, cửa sổ kết thúc với lý do như
+thường lệ.
 
 Truy vấn nguồn (`QuerySources`) đi cùng loại link đó ở dạng một-lần, chờ-kết-quả.
 UI vẫn đăng ý định (phím, đổi cỡ, chấp nhận dấu vân tay) vào hàng đợi lệnh; key của

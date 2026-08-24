@@ -66,6 +66,8 @@ typedef struct {
 
 void dh_screen_snapshot(DHScreen* s, DHScreenState* out);
 
+void dh_screen_link_health(DHScreen* s, DHLinkHealth* out);
+
 DHPhase dh_screen_phase(DHScreen* s);
 const char* dh_screen_status_line(DHScreen* s);
 const char* dh_screen_end_reason(DHScreen* s);
