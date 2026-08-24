@@ -23,7 +23,7 @@ struct HostPage: View {
                 }
                 .labelsHidden()
                 .frame(width: 260)
-                .disabled(sharing.isSharing || sharing.isStarting)
+                .disabled(sharing.isScreenSharing || sharing.isStarting)
             }
 
             HostAddressList(
@@ -33,7 +33,7 @@ struct HostPage: View {
 
             HostStatusBanner(state: shareState, detail: sharing.statusLine)
 
-            if sharing.isSharing {
+            if sharing.isScreenSharing {
                 HostSourceTable(
                     rows: sharing.rows,
                     onAction: { sharing.runRowAction($0) },
@@ -69,7 +69,7 @@ struct HostPage: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(sharing.isSharing ? DeskhubPalette.offline : DeskhubPalette.accent)
+            .tint(sharing.isScreenSharing ? DeskhubPalette.offline : DeskhubPalette.accent)
             .disabled(sharing.isStarting)
         }
         .task { await sharing.refreshShareSources() }
@@ -84,7 +84,7 @@ struct HostPage: View {
 
     private var shareState: HostShareState {
         if sharing.isStarting { return .starting }
-        return sharing.isSharing ? .sharing : .idle
+        return sharing.isScreenSharing ? .sharing : .idle
     }
 
     private var shownAddresses: [LocalAddress] {
