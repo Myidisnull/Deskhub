@@ -362,6 +362,14 @@ private fun TerminalScreen(
                 }
             }
 
+            SessionCloseButton(
+                onClick = onDismiss,
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+            )
+
             if (termState >= NativeTerminal.STATE_REFUSED) {
                 Box(
                     modifier =

@@ -56,36 +56,39 @@ struct FileSendView<Driver: TransferDriver>: View {
     @State private var staging = false
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(DeskhubPalette.muted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                pickers
-                chosenList
-
-                if !model.transferError.isEmpty {
-                    Text(model.transferError)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if !model.transfer.idle {
-                    progress
-                }
-
-                sent
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                deskhubHeading(DeskhubClient.string(DHStrTransferSendHeading))
                 Spacer(minLength: 0)
-                actions
+                SessionCloseButton(action: close, enabled: !model.transfer.active)
             }
-            .padding()
-            .navigationTitle(DeskhubClient.string(DHStrTransferSendHeading))
-            .navigationBarTitleDisplayMode(.inline)
+
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(DeskhubPalette.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            pickers
+            chosenList
+
+            if !model.transferError.isEmpty {
+                Text(model.transferError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            sendButton
+
+            if !model.transfer.idle {
+                progress
+            }
+
+            sent
+            Spacer(minLength: 0)
         }
+        .padding()
         .trustPrompt(
             isPresented: Binding(
                 get: { !model.changedKeyFingerprint.isEmpty },
@@ -154,7 +157,7 @@ struct FileSendView<Driver: TransferDriver>: View {
     }
 
     private var progress: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             ProgressView(value: model.transfer.fraction)
             HStack {
                 Text(statusText).lineLimit(1).truncationMode(.middle)
@@ -163,6 +166,14 @@ struct FileSendView<Driver: TransferDriver>: View {
                     .foregroundStyle(DeskhubPalette.muted)
             }
             .font(.callout)
+
+            if model.transfer.active {
+                Button(DeskhubClient.string(DHStrTransferCancelButton)) {
+                    model.cancelTransfer()
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 
@@ -196,23 +207,13 @@ struct FileSendView<Driver: TransferDriver>: View {
         }
     }
 
-    private var actions: some View {
-        HStack(spacing: 10) {
-            if model.transfer.active {
-                Button(DeskhubClient.string(DHStrTransferCancelButton)) {
-                    model.cancelTransfer()
-                }
-                .buttonStyle(.bordered)
-            } else {
-                Button("Close") { close() }
-                    .buttonStyle(.bordered)
-            }
-            Spacer()
-            Button("Send") { model.sendChosenFiles() }
-                .buttonStyle(.borderedProminent)
-                .tint(DeskhubPalette.accent)
-                .disabled(!model.canSend || staging)
-        }
+    private var sendButton: some View {
+        Button("Send") { model.sendChosenFiles() }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(DeskhubPalette.accent)
+            .frame(maxWidth: .infinity)
+            .disabled(!model.canSend || staging)
     }
 
     private func stagePhotos(_ picked: [PhotosPickerItem]) async {

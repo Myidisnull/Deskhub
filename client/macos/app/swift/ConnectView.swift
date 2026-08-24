@@ -63,11 +63,22 @@ struct MainMenuView: View {
                 }
                 await autoShare()
             }
+            await sharing.startTenantsIfIdle()
         }
         .task(id: sharing.port) {
             try? await Task.sleep(for: MainMenuView.portSettle)
             guard !Task.isCancelled, sharing.port >= 1, sharing.port <= 65535 else { return }
             discovery.usePort(UInt16(sharing.port))
+        }
+        .overlay {
+            if connect.isConnecting {
+                queryingOverlay
+            }
+        }
+        .alert("Deskhub", isPresented: showingConnectError) {
+            Button("OK", role: .cancel) { connect.connectError = "" }
+        } message: {
+            Text(connect.connectError)
         }
         .alert("Deskhub", isPresented: showingShareAlert) {
             if !sharing.hasScreenRecording {
@@ -109,10 +120,105 @@ struct MainMenuView: View {
         }
     }
 
+    private var connectedRow: DeviceListRow? {
+        discovery.devices.first { $0.addr == connect.acceptedAddress }
+    }
+
+    private var liveColor: Color {
+        connectedRow?.online == false ? DeskhubPalette.offline : DeskhubPalette.online
+    }
+
     private var clientPage: some View {
         VStack(alignment: .leading, spacing: 10) {
             deskhubHeading(DeskhubClient.string(DHStrClientHeading))
 
+            if connect.authed != nil {
+                connectedHeader
+                sessionChoices
+            } else {
+                addressForm
+
+                Button(action: beginConnect) {
+                    Text(DeskhubClient.string(DHStrConnectButton)).deskhubPrimaryLabel()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(DeskhubPalette.accent)
+                .disabled(connect.address.isEmpty || connect.isConnecting)
+
+                deskhubHeadingRow(DeskhubClient.string(DHStrDevicesHeading)) {
+                    discovery.refreshStatus()
+                    discovery.rescanNow()
+                }
+                DeviceTable(
+                    rows: discovery.devices,
+                    note: discovery.scanStatus,
+                    enabled: !connect.isConnecting,
+                    onPick: pick
+                )
+            }
+        }
+    }
+
+    private var connectedHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Text(connect.acceptedAddress)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DeskhubPalette.heading)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Button(DeskhubClient.string(DHStrDisconnectButton)) { connect.forgetHost() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(DeskhubPalette.accent)
+            }
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(liveColor)
+                    .frame(width: 10, height: 10)
+                Text(DeskhubClient.string(DHStrConnectedPickSession))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(liveColor)
+                Spacer(minLength: 0)
+                if let ping = connectedRow?.ping, !ping.isEmpty {
+                    Text(ping)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(liveColor)
+                        .monospacedDigit()
+                }
+            }
+        }
+    }
+
+    private var sessionChoices: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: openDesktopSession) {
+                Text(DeskhubClient.string(DHStrOpenDesktopLabel))
+            }
+            .disabled(!connect.canOpenDesktop)
+            Toggle(
+                DeskhubClient.string(DHStrRequestControlLabel),
+                isOn: $sharing.clientControl
+            )
+            .toggleStyle(.checkbox)
+            .padding(.leading, 24)
+            .onChange(of: sharing.clientControl) { _, _ in sharing.save() }
+            Button(action: openTerminalSession) {
+                Text(DeskhubClient.string(DHStrOpenShellLabel))
+            }
+            .disabled(!connect.canOpenShell)
+            Button(action: openFilesSession) {
+                Text(DeskhubClient.string(DHStrOpenFilesLabel))
+            }
+            .disabled(!connect.canOpenFiles)
+            deskhubHint(DeskhubClient.string(DHStrMobileHostNote))
+        }
+    }
+
+    private var addressForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     Text(DeskhubClient.string(DHStrClientIpPrompt))
@@ -151,87 +257,40 @@ struct MainMenuView: View {
                         .disabled(connect.isConnecting)
                 }
             }
-
-            Button(action: beginConnect) {
-                Text(DeskhubClient.string(DHStrConnectButton)).deskhubPrimaryLabel()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(DeskhubPalette.accent)
-            .disabled(connect.address.isEmpty || connect.isConnecting)
-
-            VStack(spacing: 4) {
-                if connect.isConnecting {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text(DeskhubClient.string(DHStrQueryingSources))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if connect.authed != nil {
-                    Text(DeskhubClient.string(DHStrConnectedPickSession))
-                        .foregroundStyle(.secondary)
-                }
-
-                if !connect.connectError.isEmpty {
-                    Text(connect.connectError)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            GroupBox(DeskhubClient.string(DHStrOpenChoiceGroup)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Button(action: openDesktopSession) {
-                        Text(DeskhubClient.string(DHStrOpenDesktopLabel))
-                    }
-                    .disabled(!connect.canOpenDesktop || connect.isConnecting)
-                    Toggle(
-                        DeskhubClient.string(DHStrRequestControlLabel),
-                        isOn: $sharing.clientControl
-                    )
-                    .toggleStyle(.checkbox)
-                    .padding(.leading, 24)
-                    .onChange(of: sharing.clientControl) { _, _ in sharing.save() }
-                    Button(action: openTerminalSession) {
-                        Text(DeskhubClient.string(DHStrOpenShellLabel))
-                    }
-                    .disabled(!connect.canOpenShell || connect.isConnecting)
-                    Button(action: openFilesSession) {
-                        Text(DeskhubClient.string(DHStrOpenFilesLabel))
-                    }
-                    .disabled(!connect.canOpenFiles || connect.isConnecting)
-                    deskhubHint(DeskhubClient.string(DHStrConnectFirstHint))
-                    deskhubHint(DeskhubClient.string(DHStrMobileHostNote))
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            deskhubHeadingRow(DeskhubClient.string(DHStrDevicesHeading)) {
-                discovery.refreshStatus()
-                discovery.rescanNow()
-            }
-            DeviceTable(
-                rows: discovery.devices,
-                note: discovery.scanStatus,
-                enabled: !connect.isConnecting,
-                onPick: pick
-            )
         }
     }
 
     private var showingShareAlert: Binding<Bool> {
         Binding(get: { !shareAlert.isEmpty }, set: { if !$0 { shareAlert = "" } })
     }
+
+    private var showingConnectError: Binding<Bool> {
+        Binding(
+            get: { !connect.connectError.isEmpty && !connect.isConnecting },
+            set: { if !$0 { connect.connectError = "" } }
+        )
+    }
+
+    private var queryingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35).ignoresSafeArea()
+            VStack(spacing: 16) {
+                HStack(spacing: 12) {
+                    ProgressView().controlSize(.small)
+                    Text(DeskhubClient.string(DHStrQueryingSources))
+                }
+                Button("Cancel") { connect.forgetHost() }
+            }
+            .padding(24)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
 }
 
 extension MainMenuView {
     private func share() async {
-        if sharing.isSharing {
-            sharing.stopSharing()
+        if sharing.isScreenSharing {
+            await sharing.stopScreenSharing()
             return
         }
         sharing.refreshPermissions()
@@ -245,6 +304,7 @@ extension MainMenuView {
             accessibilityWarning = true
             return
         }
+        if sharing.isSharing { sharing.stopSharing() }
         await doShare()
     }
 

@@ -2,7 +2,7 @@
 
 # Deskhub Privacy Policy
 
-_Effective date: August 21, 2026 — Version 2.2_
+_Effective date: August 24, 2026 — Version 2.3_
 
 > A Vietnamese translation is available at [`PRIVACY.vi.md`](PRIVACY.vi.md). This English
 > version is the authoritative one.
@@ -40,6 +40,7 @@ party.
 
 | Data | Purpose | Where it goes | Retention |
 |---|---|---|---|
+| 2.3 | 2026-08-24 | Every device now **takes files as soon as the app is open**, instead of waiting for a switch: the *Take files viewers send* control is gone, and a machine accepts an offered file whenever it is running — on phones, whenever the app is on screen. What happens to a file that arrives is unchanged: it still needs a paired, admitted sender, still lands in the folder that machine chose, still never overwrites a file already there, and is still logged locally with the sending device's name, address and key fingerprint. Sharing the screen stays a deliberate act behind its own button, and a computer sharing its screen keeps taking files at the same time rather than shutting that off for the duration. |
 | Screen content of the shared computer (video frames) | Displaying that screen on your other device | Sent directly between your two devices, encrypted in transit (QUIC/TLS) | Never stored; exists only in memory during the session |
 | Sound the shared computer is playing (only while it shares sound and a viewer asks for it) | Letting the person watching hear that computer | Sent directly between your two devices, encrypted in transit (QUIC/TLS), as compressed audio | Never stored; exists only in memory during the session |
 | Mouse, keyboard, and touch input | Controlling the shared computer from your other device | Sent directly from the viewing device to the shared computer, encrypted in transit (QUIC/TLS) | Never stored; discarded after injection |

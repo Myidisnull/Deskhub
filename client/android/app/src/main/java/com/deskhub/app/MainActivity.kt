@@ -16,6 +16,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,25 +29,28 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +62,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -118,8 +125,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+            MaterialTheme(colorScheme = DeskhubDarkColors) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     PairingPrompt()
                     Column(modifier = Modifier.safeDrawingPadding()) {
                         MainScreen(
@@ -198,10 +205,64 @@ class MainActivity : ComponentActivity() {
 private const val POLL_INTERVAL_MS = 1000L
 private const val PORT_SETTLE_MS = 600L
 
-private val HeadingColor = Color(0xFF111827)
-private val MutedColor = Color(0xFF6B7280)
-private val OnlineColor = Color(0xFF00913C)
-private val OfflineColor = Color(0xFFC82828)
+private val AccentColor = Color(0xFF2563EB)
+private val HeadingColor = Color(0xFFE5E7EB)
+private val MutedColor = Color(0xFF9CA3AF)
+private val OnlineColor = Color(0xFF4ADE80)
+private val OfflineColor = Color(0xFFF87171)
+
+private val DeskhubDarkColors =
+    darkColorScheme(
+        primary = AccentColor,
+        onPrimary = Color.White,
+        background = Color.Black,
+        surface = Color.Black,
+    )
+
+private fun tabIcon(pathData: String): ImageVector =
+    ImageVector
+        .Builder(
+            name = "tab",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).addPath(pathData = addPathNodes(pathData), fill = SolidColor(Color.White))
+        .build()
+
+private val ClientTabIcon =
+    tabIcon(
+        "M21,2L3,2c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h7v2L8,20v2h8v-2l-2,-2v-2h7c1.1,0 2,-0.9 " +
+            "2,-2L23,4c0,-1.1 -0.9,-2 -2,-2zM21,16L3,16L3,4h18v12z",
+    )
+
+private val HostTabIcon =
+    tabIcon(
+        "M16,1L4,1c-1.1,0 -2,0.9 -2,2v14h2L4,3h12L16,1zM19,5L8,5c-1.1,0 -2,0.9 -2,2v14c0,1.1 " +
+            "0.9,2 2,2h11c1.1,0 2,-0.9 2,-2L21,7c0,-1.1 -0.9,-2 -2,-2zM19,21L8,21L8,7h11v14z",
+    )
+
+private val DevicesTabIcon =
+    tabIcon(
+        "M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12L21,5l-9,-4zM10,17l-4,-4 " +
+            "1.41,-1.41L10,14.17l6.59,-6.59L18,9l-8,8z",
+    )
+
+private val SettingsTabIcon =
+    tabIcon(
+        "M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94c0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03," +
+            "-1.58c0.18,-0.14 0.23,-0.41 0.12,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59," +
+            "-0.22l-2.39,0.96c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94L14.4,2.81c-0.04,-0.24 -0.24," +
+            "-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41L9.25,5.35C8.66,5.59 8.12," +
+            "5.92 7.63,6.29L5.24,5.33c-0.22,-0.08 -0.47,0 -0.59,0.22L2.74,8.87C2.62,9.08 2.66," +
+            "9.34 2.86,9.48l2.03,1.58C4.84,11.36 4.8,11.69 4.8,12s0.02,0.64 0.07,0.94l-2.03," +
+            "1.58c-0.18,0.14 -0.23,0.41 -0.12,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39," +
+            "-0.96c0.5,0.38 1.03,0.7 1.62,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24," +
+            "0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.59,-0.24 1.13,-0.56 1.62,-0.94l2.39,0.96c0.22," +
+            "0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.12,-0.61L19.14,12.94zM12," +
+            "15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6s3.6,1.62 3.6,3.6S13.98,15.6 " +
+            "12,15.6z",
+    )
 
 @Composable
 private fun Heading(
@@ -244,11 +305,14 @@ private fun HeadingRow(
     }
 }
 
-private enum class Section {
-    CLIENT,
-    HOST,
-    DEVICES,
-    SETTINGS,
+private enum class Section(
+    val labelId: Int,
+    val icon: ImageVector,
+) {
+    CLIENT(NativeClient.STR_SIDEBAR_CLIENT, ClientTabIcon),
+    HOST(NativeClient.STR_SIDEBAR_HOST, HostTabIcon),
+    DEVICES(NativeClient.STR_SIDEBAR_DEVICES, DevicesTabIcon),
+    SETTINGS(NativeClient.STR_SIDEBAR_SETTINGS, SettingsTabIcon),
 }
 
 private fun sectionExtra(intent: Intent?): Section {
@@ -287,6 +351,9 @@ private fun MainScreen(
         mutableStateOf(NativeClient.deviceName().ifBlank { Build.MODEL.orEmpty() })
     }
     var connectError by remember { mutableStateOf("") }
+    var authed by remember { mutableStateOf<NativeClient.HostQuery?>(null) }
+    var authedAddr by remember { mutableStateOf("") }
+    var authedCode by remember { mutableStateOf("") }
     var querySeq by remember { mutableStateOf(0L) }
     var deviceRows by remember { mutableStateOf(emptyList<NativeClient.DeviceRow>()) }
     var scanStatus by remember { mutableStateOf("") }
@@ -334,98 +401,53 @@ private fun MainScreen(
             return@connectLambda
         }
         connectError = ""
+        authed = null
         deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
         NativeClient.setDeviceName(deviceName)
         val mine = Step.Querying(++querySeq)
         step = mine
         scope.launch {
-            val queried = NativeClient.listSources(addr, code)
-            if (queried.isNullOrEmpty()) {
-                if (step == mine) {
-                    step = Step.Address
-                    connectError =
-                        if (queried == null) {
-                            NativeClient.sourceQueryFailed(addr)
-                        } else {
-                            NativeClient.sourceQueryEmpty(addr)
-                        }
-                }
+            val queried = NativeClient.queryHost(addr, code)
+            if (step != mine) return@launch
+            step = Step.Address
+            if (queried == null) {
+                connectError = NativeClient.sourceQueryFailed(addr)
                 return@launch
             }
             onRemember(addr, code)
             NativeClient.recentTouch(addr, code)
             NativeClient.watchRecent()
             deviceRows = NativeClient.deviceRows()
-            if (step == mine) {
-                val decision = NativeClient.connectDecision(queried)
-                if (decision >= 0) {
-                    step = Step.Address
-                    onOpenStream(addr, code, decision, queried)
-                } else {
-                    step = Step.Picking(queried)
-                }
+            authed = queried
+            authedAddr = addr
+            authedCode = code
+        }
+    }
+
+    val openDesktop: () -> Unit = {
+        authed?.takeIf { it.sources.isNotEmpty() }?.let { query ->
+            val decision = NativeClient.connectDecision(query.sources)
+            if (decision >= 0) {
+                onOpenStream(authedAddr, authedCode, decision, query.sources)
+            } else {
+                step = Step.Picking(query.sources)
             }
         }
     }
 
-    val openShell: (String) -> Unit = shellLambda@{ addr ->
-        if (!NativeClient.parseAddress(addr)) {
-            connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
-            return@shellLambda
-        }
-        val code = passcode.trim()
-        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
-            connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
-            return@shellLambda
-        }
-        connectError = ""
-        deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
-        NativeClient.setDeviceName(deviceName)
-        val mine = Step.Querying(++querySeq)
-        step = mine
-        scope.launch {
-            val shared = NativeClient.hostHasTerminal(addr, code)
-            if (step == mine) step = Step.Address
-            if (!shared) {
-                connectError = NativeClient.string(NativeClient.STR_HOST_HAS_NO_TERMINAL)
-                return@launch
-            }
-            onRemember(addr, code)
-            NativeClient.recentTouch(addr, code)
-            NativeClient.watchRecent()
-            deviceRows = NativeClient.deviceRows()
-            onOpenShell(addr, code)
+    val openShell: () -> Unit = {
+        if (authed?.terminal == true) onOpenShell(authedAddr, authedCode)
+    }
+
+    val openFileSend: () -> Unit = {
+        if (authed?.files == true) {
+            sendingTo = StandaloneFileSendDriver(authedAddr, authedCode, deviceName)
         }
     }
 
-    val openFileSend: (String) -> Unit = sendLambda@{ addr ->
-        if (!NativeClient.parseAddress(addr)) {
-            connectError = NativeClient.string(NativeClient.STR_INVALID_ADDRESS_HINT)
-            return@sendLambda
-        }
-        val code = passcode.trim()
-        if (code.isNotEmpty() && !NativeClient.isValidPasscode(code)) {
-            connectError = NativeClient.string(NativeClient.STR_PASSCODE_INVALID)
-            return@sendLambda
-        }
+    val disconnect: () -> Unit = {
+        authed = null
         connectError = ""
-        deviceName = deviceName.trim().ifBlank { Build.MODEL.orEmpty() }
-        NativeClient.setDeviceName(deviceName)
-        val mine = Step.Querying(++querySeq)
-        step = mine
-        scope.launch {
-            val takes = NativeClient.hostTakesFiles(addr, code)
-            if (step == mine) step = Step.Address
-            if (!takes) {
-                connectError = NativeClient.string(NativeClient.STR_TRANSFER_HOST_NOT_TAKING)
-                return@launch
-            }
-            onRemember(addr, code)
-            NativeClient.recentTouch(addr, code)
-            NativeClient.watchRecent()
-            deviceRows = NativeClient.deviceRows()
-            sendingTo = StandaloneFileSendDriver(addr, code, deviceName)
-        }
     }
 
     val pickDevice: (String, String) -> Unit = { addr, code ->
@@ -433,12 +455,42 @@ private fun MainScreen(
         pendingPick = PendingPick(addr, code)
     }
 
-    sendingTo?.let { driver ->
-        FileSendDialog(
-            driver = driver,
-            subtitle = address,
-            onDismiss = { sendingTo = null },
+    if (step is Step.Querying) {
+        AlertDialog(
+            onDismissRequest = { step = Step.Address },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    Text(NativeClient.string(NativeClient.STR_QUERYING_SOURCES))
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { step = Step.Address }) { Text("Cancel") }
+            },
         )
+    } else if (connectError.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { connectError = "" },
+            title = { Text("Deskhub") },
+            text = { Text(connectError) },
+            confirmButton = {
+                TextButton(onClick = { connectError = "" }) { Text("OK") }
+            },
+        )
+    }
+
+    val sending = sendingTo
+    if (sending != null) {
+        FileSendScreen(
+            driver = sending,
+            subtitle = authedAddr,
+            onClose = { sendingTo = null },
+        )
+        return
     }
 
     when (val s = step) {
@@ -447,16 +499,28 @@ private fun MainScreen(
                 section = section,
                 onSectionChange = { section = it },
                 address = address,
-                onAddressChange = { address = it },
+                onAddressChange = {
+                    address = it
+                    authed = null
+                },
                 connectPort = connectPort,
-                onConnectPortChange = { connectPort = it },
+                onConnectPortChange = {
+                    connectPort = it
+                    authed = null
+                },
                 passcode = passcode,
-                onPasscodeChange = { passcode = it },
+                onPasscodeChange = {
+                    passcode = it
+                    authed = null
+                },
                 deviceName = deviceName,
                 onDeviceNameChange = { deviceName = it },
                 busy = step is Step.Querying,
-                error = connectError,
+                authed = authed,
+                authedAddr = authedAddr,
                 onConnect = connect,
+                onDisconnect = disconnect,
+                onOpenDesktop = openDesktop,
                 onOpenShell = openShell,
                 onOpenFileSend = openFileSend,
                 deviceRows = deviceRows,
@@ -475,11 +539,11 @@ private fun MainScreen(
 
         is Step.Picking ->
             SourcePickerScreen(
-                address = address,
+                address = authedAddr,
                 sources = s.sources,
                 onPick = { source ->
                     step = Step.Address
-                    onOpenStream(address, passcode.trim(), source.id, s.sources)
+                    onOpenStream(authedAddr, authedCode, source.id, s.sources)
                 },
             )
     }
@@ -573,7 +637,11 @@ private fun PasscodeDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = confirm, enabled = ready) { Text("Connect") } },
+        confirmButton = {
+            TextButton(onClick = confirm, enabled = ready) {
+                Text(NativeClient.string(NativeClient.STR_CONNECT_BUTTON))
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -591,10 +659,13 @@ private fun HomeScreen(
     deviceName: String,
     onDeviceNameChange: (String) -> Unit,
     busy: Boolean,
-    error: String,
+    authed: NativeClient.HostQuery?,
+    authedAddr: String,
     onConnect: (String) -> Unit,
-    onOpenShell: (String) -> Unit,
-    onOpenFileSend: (String) -> Unit,
+    onDisconnect: () -> Unit,
+    onOpenDesktop: () -> Unit,
+    onOpenShell: () -> Unit,
+    onOpenFileSend: () -> Unit,
     deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
     onPickDevice: (String, String) -> Unit,
@@ -606,29 +677,6 @@ private fun HomeScreen(
     onStopSharing: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = section.ordinal) {
-            Tab(
-                selected = section == Section.CLIENT,
-                onClick = { onSectionChange(Section.CLIENT) },
-                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_CLIENT)) },
-            )
-            Tab(
-                selected = section == Section.HOST,
-                onClick = { onSectionChange(Section.HOST) },
-                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_HOST)) },
-            )
-            Tab(
-                selected = section == Section.DEVICES,
-                onClick = { onSectionChange(Section.DEVICES) },
-                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_DEVICES)) },
-            )
-            Tab(
-                selected = section == Section.SETTINGS,
-                onClick = { onSectionChange(Section.SETTINGS) },
-                text = { Text(NativeClient.string(NativeClient.STR_SIDEBAR_SETTINGS)) },
-            )
-        }
-
         Column(modifier = Modifier.weight(1f)) {
             when (section) {
                 Section.CLIENT ->
@@ -642,8 +690,11 @@ private fun HomeScreen(
                         deviceName = deviceName,
                         onDeviceNameChange = onDeviceNameChange,
                         busy = busy,
-                        error = error,
+                        authed = authed,
+                        authedAddr = authedAddr,
                         onConnect = onConnect,
+                        onDisconnect = onDisconnect,
+                        onOpenDesktop = onOpenDesktop,
                         onOpenShell = onOpenShell,
                         onOpenFileSend = onOpenFileSend,
                         deviceRows = deviceRows,
@@ -663,6 +714,25 @@ private fun HomeScreen(
                 Section.DEVICES -> DevicesScreen()
 
                 Section.SETTINGS -> SettingsScreen(port = port, onPortChange = onPortChange)
+            }
+        }
+
+        NavigationBar {
+            Section.entries.forEach { tab ->
+                NavigationBarItem(
+                    selected = section == tab,
+                    onClick = { onSectionChange(tab) },
+                    icon = { Icon(tab.icon, contentDescription = null) },
+                    label = { Text(NativeClient.string(tab.labelId)) },
+                    colors =
+                        NavigationBarItemDefaults.colors(
+                            selectedIconColor = AccentColor,
+                            selectedTextColor = AccentColor,
+                            unselectedIconColor = MutedColor,
+                            unselectedTextColor = MutedColor,
+                            indicatorColor = Color.Transparent,
+                        ),
+                )
             }
         }
     }
@@ -714,12 +784,21 @@ private fun HostScreen(
             return@Column
         }
 
+        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                receiving = NativeHost.filesActive()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+        val live = sharing || receiving
+
         Text(
             NativeClient.string(
-                if (sharing) NativeClient.STR_SHARE_STATE_ON else NativeClient.STR_SHARE_STATE_OFF,
+                if (live) NativeClient.STR_SHARE_STATE_ON else NativeClient.STR_SHARE_STATE_OFF,
             ),
             style = MaterialTheme.typography.titleMedium,
-            color = if (sharing) OnlineColor else MutedColor,
+            color = if (live) OnlineColor else MutedColor,
         )
 
         OutlinedTextField(
@@ -786,33 +865,6 @@ private fun HostScreen(
             }
         }
 
-        var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
-        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
-        LaunchedEffect(Unit) {
-            while (true) {
-                receiving = NativeHost.filesActive()
-                delay(POLL_INTERVAL_MS)
-            }
-        }
-        Button(
-            onClick = {
-                takeFiles = !takeFiles
-                NativeClient.setTakeFiles(takeFiles)
-            },
-            enabled = !sharing && !starting,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                NativeClient.string(
-                    if (takeFiles) {
-                        NativeClient.STR_TRANSFER_STOP_TAKING_BUTTON
-                    } else {
-                        NativeClient.STR_TRANSFER_ACCEPT_LABEL
-                    },
-                ),
-            )
-        }
-
         Button(
             onClick = {
                 if (sharing) {
@@ -832,7 +884,7 @@ private fun HostScreen(
                     ),
                 )
             },
-            enabled = sharing || (ready && !starting && !receiving),
+            enabled = sharing || (ready && !starting),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -843,14 +895,6 @@ private fun HostScreen(
                         else -> NativeClient.STR_START_SHARING
                     },
                 ),
-            )
-        }
-
-        if (receiving) {
-            Text(
-                NativeClient.string(NativeClient.STR_TRANSFER_BLOCKS_SCREEN_NOTE),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MutedColor,
             )
         }
 
@@ -1041,19 +1085,12 @@ private fun DevicesScreen() {
             enabled = devices.isNotEmpty(),
         ) { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL)) }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        SwitchRow(
+            label = NativeClient.string(NativeClient.STR_ALLOW_PAIRING_LABEL),
+            checked = allowPairing,
         ) {
-            Checkbox(
-                checked = allowPairing,
-                onCheckedChange = {
-                    allowPairing = it
-                    NativeClient.setAllowPairing(it)
-                },
-            )
-            Text(NativeClient.string(NativeClient.STR_ALLOW_PAIRING_LABEL))
+            allowPairing = it
+            NativeClient.setAllowPairing(it)
         }
         Text(
             NativeClient.string(NativeClient.STR_ALLOW_PAIRING_HINT),
@@ -1117,64 +1154,36 @@ private fun SettingsScreen(
 
         SectionLabel(NativeClient.string(NativeClient.STR_SECTION_SESSION))
         var clipboardSync by remember { mutableStateOf(NativeClient.clipboardSync()) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        SwitchRow(
+            label = NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL),
+            checked = clipboardSync,
         ) {
-            Checkbox(
-                checked = clipboardSync,
-                onCheckedChange = {
-                    clipboardSync = it
-                    NativeClient.setClipboardSync(it)
-                },
-            )
-            Text(NativeClient.string(NativeClient.STR_CLIPBOARD_SYNC_LABEL))
+            clipboardSync = it
+            NativeClient.setClipboardSync(it)
         }
         var shareAudio by remember { mutableStateOf(NativeClient.shareAudio()) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        SwitchRow(
+            label = NativeClient.string(NativeClient.STR_SHARE_AUDIO_LABEL),
+            checked = shareAudio,
         ) {
-            Checkbox(
-                checked = shareAudio,
-                onCheckedChange = {
-                    shareAudio = it
-                    NativeClient.setShareAudio(it)
-                },
-            )
-            Text(NativeClient.string(NativeClient.STR_SHARE_AUDIO_LABEL))
+            shareAudio = it
+            NativeClient.setShareAudio(it)
         }
         var playAudio by remember { mutableStateOf(NativeClient.playAudio()) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        SwitchRow(
+            label = NativeClient.string(NativeClient.STR_PLAY_AUDIO_LABEL),
+            checked = playAudio,
         ) {
-            Checkbox(
-                checked = playAudio,
-                onCheckedChange = {
-                    playAudio = it
-                    NativeClient.setPlayAudio(it)
-                },
-            )
-            Text(NativeClient.string(NativeClient.STR_PLAY_AUDIO_LABEL))
+            playAudio = it
+            NativeClient.setPlayAudio(it)
         }
         var keepAwake by remember { mutableStateOf(NativeClient.keepAwake()) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        SwitchRow(
+            label = NativeClient.string(NativeClient.STR_KEEP_AWAKE_LABEL),
+            checked = keepAwake,
         ) {
-            Checkbox(
-                checked = keepAwake,
-                onCheckedChange = {
-                    keepAwake = it
-                    NativeClient.setKeepAwake(it)
-                },
-            )
-            Text(NativeClient.string(NativeClient.STR_KEEP_AWAKE_LABEL))
+            keepAwake = it
+            NativeClient.setKeepAwake(it)
         }
 
         ProjectFooter()
@@ -1192,10 +1201,13 @@ private fun AddressScreen(
     deviceName: String,
     onDeviceNameChange: (String) -> Unit,
     busy: Boolean,
-    error: String,
+    authed: NativeClient.HostQuery?,
+    authedAddr: String,
     onConnect: (String) -> Unit,
-    onOpenShell: (String) -> Unit,
-    onOpenFileSend: (String) -> Unit,
+    onDisconnect: () -> Unit,
+    onOpenDesktop: () -> Unit,
+    onOpenShell: () -> Unit,
+    onOpenFileSend: () -> Unit,
     deviceRows: List<NativeClient.DeviceRow>,
     scanStatus: String,
     onPickDevice: (String, String) -> Unit,
@@ -1203,9 +1215,7 @@ private fun AddressScreen(
     onRefreshStatus: () -> Unit,
 ) {
     val trimmed = address.trim()
-    val code = passcode.trim()
-    val codeOk = code.isEmpty() || NativeClient.isValidPasscode(code)
-    val ready = trimmed.isNotEmpty() && codeOk && !busy
+    val ready = trimmed.isNotEmpty() && !busy
     val go = { if (ready) onConnect(NativeClient.composeAddress(trimmed, connectPort)) }
 
     Column(
@@ -1218,142 +1228,190 @@ private fun AddressScreen(
     ) {
         Heading(NativeClient.string(NativeClient.STR_CLIENT_HEADING))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            OutlinedTextField(
-                value = address,
-                onValueChange = onAddressChange,
-                label = { Text(NativeClient.string(NativeClient.STR_CLIENT_IP_PROMPT)) },
-                singleLine = true,
-                enabled = !busy,
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { go() }),
-            )
+        if (authed == null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = onAddressChange,
+                    label = { Text(NativeClient.string(NativeClient.STR_CLIENT_IP_PROMPT)) },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = { go() }),
+                )
+
+                OutlinedTextField(
+                    value = connectPort,
+                    onValueChange = { typed ->
+                        onConnectPortChange(typed.filter { it.isDigit() }.take(5))
+                    },
+                    label = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LABEL)) },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.width(110.dp),
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Go,
+                        ),
+                    keyboardActions = KeyboardActions(onGo = { go() }),
+                )
+            }
 
             OutlinedTextField(
-                value = connectPort,
+                value = passcode,
                 onValueChange = { typed ->
-                    onConnectPortChange(typed.filter { it.isDigit() }.take(5))
+                    onPasscodeChange(
+                        typed.filter { it.isDigit() }.take(NativeClient.passcodeDigits()),
+                    )
                 },
-                label = { Text(NativeClient.string(NativeClient.STR_UDP_PORT_LABEL)) },
+                label = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_PROMPT)) },
+                supportingText = {
+                    Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_HINT))
+                },
                 singleLine = true,
                 enabled = !busy,
-                modifier = Modifier.width(110.dp),
+                modifier = Modifier.fillMaxWidth(),
                 keyboardOptions =
                     KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
+                        keyboardType = KeyboardType.NumberPassword,
                         imeAction = ImeAction.Go,
                     ),
                 keyboardActions = KeyboardActions(onGo = { go() }),
             )
-        }
 
-        OutlinedTextField(
-            value = passcode,
-            onValueChange = { typed ->
-                onPasscodeChange(typed.filter { it.isDigit() }.take(NativeClient.passcodeDigits()))
-            },
-            label = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_PROMPT)) },
-            supportingText = { Text(NativeClient.string(NativeClient.STR_CLIENT_PASSCODE_HINT)) },
-            singleLine = true,
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions =
-                KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
-                    imeAction = ImeAction.Go,
-                ),
-            keyboardActions = KeyboardActions(onGo = { go() }),
-        )
+            OutlinedTextField(
+                value = deviceName,
+                onValueChange = onDeviceNameChange,
+                label = { Text("Your name") },
+                singleLine = true,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { go() }),
+            )
 
-        OutlinedTextField(
-            value = deviceName,
-            onValueChange = onDeviceNameChange,
-            label = { Text("Your name") },
-            singleLine = true,
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { go() }),
-        )
-
-        Button(
-            onClick = go,
-            enabled = ready,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Connect") }
-
-        OutlinedButton(
-            onClick = { onOpenShell(NativeClient.composeAddress(trimmed, connectPort)) },
-            enabled = ready,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL)) }
-
-        OutlinedButton(
-            onClick = { onOpenFileSend(NativeClient.composeAddress(trimmed, connectPort)) },
-            enabled = ready,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(NativeClient.string(NativeClient.STR_OPEN_FILES_LABEL)) }
-
-        if (busy) {
+            Button(
+                onClick = go,
+                enabled = ready,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(NativeClient.string(NativeClient.STR_CONNECT_BUTTON)) }
+        } else {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                Text(NativeClient.string(NativeClient.STR_QUERYING_SOURCES))
+                Text(
+                    authedAddr,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = HeadingColor,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = onDisconnect) {
+                    Text(NativeClient.string(NativeClient.STR_DISCONNECT_BUTTON))
+                }
+            }
+
+            val connectedRow = deviceRows.firstOrNull { it.addr == authedAddr }
+            val liveColor = if (connectedRow?.online == false) OfflineColor else OnlineColor
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(10.dp)
+                            .background(liveColor, CircleShape),
+                )
+                Text(
+                    NativeClient.string(NativeClient.STR_CONNECTED_PICK_SESSION),
+                    color = liveColor,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (connectedRow != null && connectedRow.ping.isNotEmpty()) {
+                    Text(connectedRow.ping, color = liveColor, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            OutlinedButton(
+                onClick = onOpenDesktop,
+                enabled = authed.sources.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(NativeClient.string(NativeClient.STR_OPEN_DESKTOP_LABEL)) }
+
+            OutlinedButton(
+                onClick = onOpenShell,
+                enabled = authed.terminal,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL)) }
+
+            OutlinedButton(
+                onClick = onOpenFileSend,
+                enabled = authed.files,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(NativeClient.string(NativeClient.STR_OPEN_FILES_LABEL)) }
+
+            var control by remember { mutableStateOf(NativeClient.clientControl()) }
+            SwitchRow(
+                label = NativeClient.string(NativeClient.STR_REQUEST_CONTROL_LABEL),
+                checked = control,
+            ) {
+                control = it
+                NativeClient.setClientControl(it)
             }
         }
 
-        var control by remember { mutableStateOf(NativeClient.clientControl()) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Checkbox(
-                checked = control,
-                onCheckedChange = {
-                    control = it
-                    NativeClient.setClientControl(it)
-                },
+        if (authed == null) {
+            DeviceSection(
+                heading = NativeClient.string(NativeClient.STR_DEVICES_HEADING),
+                note = scanStatus,
+                rows =
+                    deviceRows.map { row ->
+                        DeviceRow(
+                            row.addr,
+                            row.ping,
+                            listOf(row.origin, row.status, row.lastConnected)
+                                .filter { it.isNotEmpty() }
+                                .joinToString("  "),
+                            if (row.known) row.online else null,
+                        )
+                    },
                 enabled = !busy,
-            )
-            Text(NativeClient.string(NativeClient.STR_REQUEST_CONTROL_LABEL))
-        }
-
-        DeviceSection(
-            heading = NativeClient.string(NativeClient.STR_DEVICES_HEADING),
-            note = scanStatus,
-            rows =
-                deviceRows.map { row ->
-                    DeviceRow(
-                        row.addr,
-                        row.ping,
-                        listOf(row.origin, row.status, row.lastConnected)
-                            .filter { it.isNotEmpty() }
-                            .joinToString("  "),
-                        if (row.known) row.online else null,
-                    )
+                onRefresh = {
+                    onRefreshStatus()
+                    onRescan()
                 },
-            enabled = !busy,
-            onRefresh = {
-                onRefreshStatus()
-                onRescan()
-            },
-            onPick = { addr ->
-                val known = deviceRows.firstOrNull { it.addr == addr }?.passcode.orEmpty()
-                onPickDevice(addr, known.ifEmpty { NativeClient.recentPasscode(addr) })
-            },
-        )
-
-        if (error.isNotEmpty()) {
-            Text(error, color = MaterialTheme.colorScheme.error)
+                onPick = { addr ->
+                    val known = deviceRows.firstOrNull { it.addr == addr }?.passcode.orEmpty()
+                    onPickDevice(addr, known.ifEmpty { NativeClient.recentPasscode(addr) })
+                },
+            )
         }
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

@@ -32,6 +32,11 @@ final class AppModel {
         }
     }
 
+    func dropHost() {
+        connect.forgetHost()
+        sources = []
+    }
+
     func openDesktop() {
         guard let found = connect.authed, !found.sources.isEmpty else { return }
         sources = found.sources

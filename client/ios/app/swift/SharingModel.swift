@@ -11,7 +11,6 @@ final class SharingModel {
     var status = BroadcastStatus()
     var addresses: [LocalAddress] = []
     var bindIp = DeskhubClient.buffered(64) { dh_bind_ip($0, $1) }
-    var takeFiles = dh_take_files()
 
     private var lastValidPasscode: String
 
@@ -43,11 +42,6 @@ final class SharingModel {
 
     func saveBindIp() {
         dh_set_bind_ip(bindIp)
-    }
-
-    func saveTakeFiles() {
-        dh_set_take_files(takeFiles)
-        if takeFiles { FilesHost.askNotificationConsent() }
     }
 
     func savePasscode() {

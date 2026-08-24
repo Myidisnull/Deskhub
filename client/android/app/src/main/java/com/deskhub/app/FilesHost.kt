@@ -87,6 +87,10 @@ object FilesHost {
     private fun leaveForeground() {
         loop?.cancel()
         loop = null
+        val screenBusy =
+            NativeHost.shareState != NativeHost.ShareState.IDLE &&
+                NativeHost.shareState != NativeHost.ShareState.FAILED
+        if (screenBusy) return
         scope.launch { if (NativeHost.filesActive()) NativeHost.stopFiles() }
     }
 
@@ -94,10 +98,8 @@ object FilesHost {
         val screenBusy =
             NativeHost.shareState != NativeHost.ShareState.IDLE &&
                 NativeHost.shareState != NativeHost.ShareState.FAILED
-        val wanted = NativeClient.takeFiles() && !screenBusy
-        val active = NativeHost.filesActive()
-        if (wanted && !active) NativeHost.startFiles(ReceivedFiles.transferDir(context))
-        if (!wanted && active && !screenBusy) NativeHost.stopFiles()
+        if (screenBusy || NativeHost.filesActive()) return
+        NativeHost.startFiles(ReceivedFiles.transferDir(context))
     }
 
     private fun notifyArrived(

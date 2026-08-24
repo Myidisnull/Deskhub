@@ -42,7 +42,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -260,11 +259,9 @@ private fun StreamScreen(
     val streaming = sessionPhase == NativeClient.PHASE_STREAMING
     val reattaching = sessionPhase == NativeClient.PHASE_REATTACHING
 
-    var linkHealth by remember { mutableStateOf(NativeClient.LinkHealth()) }
     LaunchedEffect(sessionKey) {
         if (!started) return@LaunchedEffect
         while (sessionPhase != NativeClient.PHASE_ENDED) {
-            linkHealth = NativeClient.linkHealth()
             NativeClient.nativeSnapshot()?.let { snap ->
                 sessionPhase = snap.phase
                 if (snap.phase == NativeClient.PHASE_ENDED && endReason.isEmpty()) {
@@ -508,6 +505,16 @@ private fun StreamScreen(
             }
         }
 
+        SessionCloseButton(
+            onClick = onDismiss,
+            modifier =
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .safeDrawingPadding()
+                    .consumeTouches()
+                    .padding(12.dp),
+        )
+
         Column(
             modifier =
                 Modifier
@@ -534,14 +541,12 @@ private fun StreamScreen(
                     videoW = videoW,
                     videoH = videoH,
                     statusLine = statusLine,
-                    linkHealth = linkHealth,
                     streaming = streaming,
                     keyboardOn = keyboardOn,
                     sources = sources,
                     currentSourceId = currentSourceId,
                     onToggleKeyboard = { keyboardOn = !keyboardOn },
                     onSwitchSource = onSwitchSource,
-                    onEnd = onDismiss,
                     onCollapse = { controlsOpen = false },
                 )
             } else {
@@ -662,30 +667,18 @@ private fun ExpandButton(onClick: () -> Unit) {
     }
 }
 
-private fun linkQualityLabel(quality: Int): String =
-    NativeClient.string(
-        when (quality) {
-            NativeClient.LINK_QUALITY_GOOD -> NativeClient.STR_LINK_QUALITY_GOOD
-            NativeClient.LINK_QUALITY_FAIR -> NativeClient.STR_LINK_QUALITY_FAIR
-            NativeClient.LINK_QUALITY_POOR -> NativeClient.STR_LINK_QUALITY_POOR
-            else -> NativeClient.STR_LINK_NO_READING
-        },
-    )
-
 @Composable
 private fun ControlPanel(
     address: String,
     videoW: Int,
     videoH: Int,
     statusLine: String,
-    linkHealth: NativeClient.LinkHealth,
     streaming: Boolean,
     keyboardOn: Boolean,
     sources: List<NativeClient.Source>,
     currentSourceId: Int,
     onToggleKeyboard: () -> Unit,
     onSwitchSource: (Int) -> Unit,
-    onEnd: () -> Unit,
     onCollapse: () -> Unit,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
@@ -726,16 +719,6 @@ private fun ControlPanel(
                         maxLines = 1,
                     )
                 }
-                if (streaming) {
-                    Text(
-                        text =
-                            linkQualityLabel(linkHealth.quality) + " · " +
-                                NativeClient.linkPingText(linkHealth),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.8f),
-                        maxLines = 1,
-                    )
-                }
             }
             Box(
                 modifier =
@@ -745,7 +728,7 @@ private fun ControlPanel(
                         .clickable(onClick = onCollapse),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = "✕", color = Color.White)
+                Text(text = "⌄", color = Color.White)
             }
         }
 
@@ -775,10 +758,6 @@ private fun ControlPanel(
             }
             if (sources.size > 1) {
                 OutlinedButton(onClick = { pickerOpen = true }) { Text("Display") }
-            }
-            Box(modifier = Modifier.weight(1f))
-            Button(onClick = onEnd) {
-                Text(NativeClient.string(NativeClient.STR_DISCONNECT_BUTTON))
             }
         }
     }

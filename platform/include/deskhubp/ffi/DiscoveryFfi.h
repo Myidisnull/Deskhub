@@ -95,8 +95,6 @@ void dh_set_auto_share(bool on);
 
 bool dh_clipboard_sync(void);
 void dh_set_clipboard_sync(bool on);
-bool dh_take_files(void);
-void dh_set_take_files(bool on);
 void dh_set_transfer_dir(const char* dir);
 
 bool dh_share_audio(void);

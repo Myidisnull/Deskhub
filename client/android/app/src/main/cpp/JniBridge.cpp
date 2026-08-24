@@ -164,14 +164,6 @@ Java_com_deskhub_app_NativeClient_nativeSourceQueryFailed(JNIEnv* env, jobject, 
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_deskhub_app_NativeClient_nativeSourceQueryEmpty(JNIEnv* env, jobject, jstring addrStr) {
-    const std::string addr = FromJString(env, addrStr);
-    char buf[320];
-    dh_source_query_empty(addr.c_str(), buf, int(sizeof(buf)));
-    return env->NewStringUTF(buf);
-}
-
-JNIEXPORT jstring JNICALL
 Java_com_deskhub_app_NativeClient_nativeHostTitle(JNIEnv* env, jobject, jstring addrStr,
     jint width, jint height) {
     const std::string addr = FromJString(env, addrStr);
@@ -195,7 +187,7 @@ Java_com_deskhub_app_NativeClient_nativeIsZoomed(JNIEnv*, jobject, jfloat zoom) 
 
 JNIEXPORT jobjectArray JNICALL
 Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstring addrStr,
-    jstring passcodeStr) {
+    jstring passcodeStr, jbooleanArray capsOut) {
     jclass cls = env->FindClass(kSourceClass);
     if (!cls) return nullptr;
     jmethodID ctor =
@@ -205,9 +197,16 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
     const std::string addr = FromJString(env, addrStr);
     const std::string passcode = FromJString(env, passcodeStr);
     DHSourceInfo sources[deskhub::kMaxSources];
+    DHHostCaps caps{};
     const int count = dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources),
-        passcode.c_str(), nullptr);
+        passcode.c_str(), &caps);
     if (count == DH_SOURCE_QUERY_FAILED) return nullptr;
+
+    if (capsOut && env->GetArrayLength(capsOut) >= 2) {
+        const jboolean flags[2] = {static_cast<jboolean>(caps.terminal ? JNI_TRUE : JNI_FALSE),
+            static_cast<jboolean>(caps.files ? JNI_TRUE : JNI_FALSE)};
+        env->SetBooleanArrayRegion(capsOut, 0, 2, flags);
+    }
 
     jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
     for (int i = 0; i < count && arr; ++i) {
@@ -221,14 +220,6 @@ Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstrin
         env->DeleteLocalRef(displayName);
     }
     return arr;
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_deskhub_app_NativeClient_nativeHostHasTerminal(JNIEnv* env, jobject, jstring addrStr,
-    jstring passcodeStr) {
-    const std::string addr = FromJString(env, addrStr);
-    const std::string passcode = FromJString(env, passcodeStr);
-    return dh_host_has_terminal(addr.c_str(), passcode.c_str()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jint JNICALL
@@ -274,16 +265,6 @@ Java_com_deskhub_app_NativeClient_nativeClipboardSync(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeSetClipboardSync(JNIEnv*, jobject, jboolean on) {
     dh_set_clipboard_sync(on == JNI_TRUE);
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_deskhub_app_NativeClient_nativeTakeFiles(JNIEnv*, jobject) {
-    return dh_take_files() ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT void JNICALL
-Java_com_deskhub_app_NativeClient_nativeSetTakeFiles(JNIEnv*, jobject, jboolean on) {
-    dh_set_take_files(on == JNI_TRUE);
 }
 
 JNIEXPORT jboolean JNICALL
@@ -356,14 +337,6 @@ extern "C" {
 JNIEXPORT jint JNICALL
 Java_com_deskhub_app_NativeClient_nativeMaxTransferFiles(JNIEnv*, jobject) {
     return jint(dh_max_transfer_files());
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_deskhub_app_NativeClient_nativeHostTakesFiles(JNIEnv* env, jobject, jstring addrStr,
-    jstring passcodeStr) {
-    const std::string addr = FromJString(env, addrStr);
-    const std::string passcode = FromJString(env, passcodeStr);
-    return dh_host_takes_files(addr.c_str(), passcode.c_str()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
@@ -776,25 +749,6 @@ Java_com_deskhub_app_NativeClient_nativeSnapshot(JNIEnv* env, jobject) {
     env->DeleteLocalRef(endReason);
     env->DeleteLocalRef(statusLine);
     return out;
-}
-
-JNIEXPORT jintArray JNICALL
-Java_com_deskhub_app_NativeClient_nativeLinkHealth(JNIEnv* env, jobject) {
-    DHLinkHealth health{};
-    dh_screen_link_health(g_session, &health);
-    const jint out[4] = {health.haveRtt ? 1 : 0, jint(health.rttMs), jint(health.lossPct),
-        jint(health.quality)};
-    jintArray arr = env->NewIntArray(4);
-    if (arr) env->SetIntArrayRegion(arr, 0, 4, out);
-    return arr;
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_deskhub_app_NativeClient_nativeLinkPingText(JNIEnv* env, jobject, jboolean haveRtt,
-    jint rttMs) {
-    char buf[32];
-    dh_link_ping_text(haveRtt == JNI_TRUE, uint32_t(rttMs), buf, int(sizeof(buf)));
-    return env->NewStringUTF(buf);
 }
 
 JNIEXPORT jint JNICALL

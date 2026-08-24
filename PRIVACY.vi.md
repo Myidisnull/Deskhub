@@ -2,7 +2,7 @@
 
 # Chính sách quyền riêng tư của Deskhub
 
-_Ngày hiệu lực: 21 tháng 8, 2026 — Phiên bản 2.2_
+_Ngày hiệu lực: 24 tháng 8, 2026 — Phiên bản 2.3_
 
 > Đây là bản dịch của [`PRIVACY.md`](PRIVACY.md). Nếu hai bản có khác biệt, **bản tiếng
 > Anh là bản có giá trị pháp lý**.
@@ -39,6 +39,7 @@ ba.
 
 | Dữ liệu | Mục đích | Nó đi đâu | Thời gian lưu |
 |---|---|---|---|
+| 2.3 | 2026-08-24 | Mọi thiết bị nay **nhận tệp ngay khi app đang mở**, thay vì chờ bật công tắc: nút *Nhận tệp người xem gửi* đã bỏ, và máy chấp nhận tệp được chào bất cứ lúc nào nó đang chạy — với điện thoại là bất cứ khi nào app đang hiện trên màn hình. Điều xảy ra với tệp đến thì không đổi: vẫn cần người gửi đã ghép đôi và được cho vào, vẫn rơi vào thư mục máy đó đã chọn, vẫn không bao giờ ghi đè tệp đã có ở đó, và vẫn được ghi vào nhật ký cục bộ kèm tên, địa chỉ và vân tay khoá của thiết bị gửi. Chia sẻ màn hình vẫn là hành động có chủ đích sau nút riêng của nó, và một máy đang chia sẻ màn hình vẫn tiếp tục nhận tệp thay vì tắt việc đó trong suốt thời gian chia sẻ. |
 | Nội dung màn hình của máy đang chia sẻ (các khung hình) | Hiển thị màn hình đó trên thiết bị còn lại của bạn | Gửi trực tiếp giữa hai thiết bị của bạn, mã hoá trên đường truyền (QUIC/TLS) | Không bao giờ lưu; chỉ tồn tại trong bộ nhớ trong lúc phiên đang chạy |
 | Tiếng mà máy đang chia sẻ phát ra (chỉ khi máy đó bật chia sẻ tiếng và có viewer xin nghe) | Để người đang xem nghe được máy đó | Gửi trực tiếp giữa hai thiết bị của bạn, mã hoá trên đường truyền (QUIC/TLS), dưới dạng âm thanh đã nén | Không bao giờ lưu; chỉ tồn tại trong bộ nhớ trong lúc phiên đang chạy |
 | Thao tác chuột, bàn phím và chạm | Điều khiển máy đang chia sẻ từ thiết bị còn lại | Gửi trực tiếp từ thiết bị đang xem tới máy đang chia sẻ, mã hoá trên đường truyền (QUIC/TLS) | Không bao giờ lưu; bỏ đi ngay sau khi được đưa vào máy |

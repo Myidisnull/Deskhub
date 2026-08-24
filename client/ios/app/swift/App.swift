@@ -7,6 +7,7 @@ struct DeskhubApp: App {
             dh_set_data_dir(container)
         }
         NotificationBanners.shared.install()
+        FilesHost.askNotificationConsent()
     }
 
     var body: some Scene {
