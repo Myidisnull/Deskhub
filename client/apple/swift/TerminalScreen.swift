@@ -37,10 +37,15 @@ struct TerminalScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalGridView(model: model)
-
             #if os(iOS)
+                TerminalGridView(model: model)
+                    .overlay(alignment: .topTrailing) {
+                        SessionCloseButton(action: onClose).padding(12)
+                    }
+
                 TerminalExtraKeys(model: model)
+            #else
+                TerminalGridView(model: model)
             #endif
 
             HStack(spacing: 12) {
@@ -55,7 +60,9 @@ struct TerminalScreen: View {
                             .font(.caption.monospacedDigit())
                     }
                 }
-                Button(DeskhubClient.string(DHStrTerminalCloseButton)) { onClose() }
+                #if os(macOS)
+                    Button(DeskhubClient.string(DHStrTerminalCloseButton)) { onClose() }
+                #endif
             }
             .padding(8)
         }

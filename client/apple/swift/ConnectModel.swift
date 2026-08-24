@@ -43,10 +43,11 @@ final class ConnectModel {
     }
 
     var deviceName: String = ConnectModel.initialDeviceName
-    var isConnecting = false
+    private(set) var isConnecting = false
     var connectError = ""
     private(set) var acceptedAddress = ""
     private(set) var authed: HostQuery?
+    @ObservationIgnored private var attempt = 0
 
     var canOpenDesktop: Bool { !(authed?.sources.isEmpty ?? true) }
     var canOpenShell: Bool { authed?.caps.terminal ?? false }
@@ -83,25 +84,30 @@ final class ConnectModel {
         return accepted
     }
 
-    func queryHost() async -> HostQuery? {
+    func connectAuth() async -> HostQuery? {
+        attempt += 1
+        let mine = attempt
+        authed = nil
         guard let accepted = acceptAddress() else { return nil }
         let code = acceptedPasscode
         isConnecting = true
-        defer { isConnecting = false }
         let found = await Task.detached {
             DeskhubClient.listSources(address: accepted, passcode: code)
         }.value
+        guard mine == attempt else { return nil }
+        isConnecting = false
         guard let found else {
             connectError = DeskhubClient.sourceQueryFailed(accepted)
             return nil
         }
+        authed = found
         return found
     }
 
-    func connectAuth() async -> HostQuery? {
+    func forgetHost() {
+        attempt += 1
+        isConnecting = false
         authed = nil
-        guard let found = await queryHost() else { return nil }
-        authed = found
-        return found
+        connectError = ""
     }
 }

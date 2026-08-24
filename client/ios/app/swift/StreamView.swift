@@ -14,6 +14,8 @@ struct StreamView: View {
 
     @State private var controlsRect: CGRect = .zero
 
+    @State private var closeRect: CGRect = .zero
+
     @State private var transform = ViewTransform()
 
     @State private var panMode = false
@@ -30,6 +32,18 @@ struct StreamView: View {
                 StatusOverlay(model: model, streaming: streaming, onBack: session.disconnect)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(safeArea)
+                SessionCloseButton(action: session.disconnect)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onChange(of: proxy.frame(in: .global), initial: true) { _, rect in
+                                    closeRect = rect
+                                }
+                        }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(safeArea)
+                    .padding(12)
                 controlsLayer
                     .padding(safeArea)
             }
@@ -117,7 +131,7 @@ struct StreamView: View {
                     TouchInputView(
                         model: model,
                         videoRect: frame,
-                        blockedRect: controlsRect,
+                        blockedRects: [controlsRect, closeRect],
                         panMode: panMode,
                         zoomed: transform.isZoomed,
                         onTransform: { factor, centroid, panDelta in
@@ -197,9 +211,6 @@ struct StreamView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    LinkHealthRow(health: model.linkHealth)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.8))
                     if streaming, !model.statusLine.isEmpty {
                         Text(model.statusLine)
                             .font(.caption)
@@ -213,7 +224,7 @@ struct StreamView: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.18)) { controlsOpen = false }
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
@@ -246,9 +257,6 @@ struct StreamView: View {
                 }
 
                 Spacer()
-
-                Button("End") { session.disconnect() }
-                    .buttonStyle(.borderedProminent)
             }
         }
         .padding(12)
