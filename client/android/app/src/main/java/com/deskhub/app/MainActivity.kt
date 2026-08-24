@@ -784,12 +784,21 @@ private fun HostScreen(
             return@Column
         }
 
+        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                receiving = NativeHost.filesActive()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+        val live = sharing || receiving
+
         Text(
             NativeClient.string(
-                if (sharing) NativeClient.STR_SHARE_STATE_ON else NativeClient.STR_SHARE_STATE_OFF,
+                if (live) NativeClient.STR_SHARE_STATE_ON else NativeClient.STR_SHARE_STATE_OFF,
             ),
             style = MaterialTheme.typography.titleMedium,
-            color = if (sharing) OnlineColor else MutedColor,
+            color = if (live) OnlineColor else MutedColor,
         )
 
         OutlinedTextField(
@@ -856,33 +865,6 @@ private fun HostScreen(
             }
         }
 
-        var takeFiles by remember { mutableStateOf(NativeClient.takeFiles()) }
-        var receiving by remember { mutableStateOf(NativeHost.filesActive()) }
-        LaunchedEffect(Unit) {
-            while (true) {
-                receiving = NativeHost.filesActive()
-                delay(POLL_INTERVAL_MS)
-            }
-        }
-        Button(
-            onClick = {
-                takeFiles = !takeFiles
-                NativeClient.setTakeFiles(takeFiles)
-            },
-            enabled = !sharing && !starting,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                NativeClient.string(
-                    if (takeFiles) {
-                        NativeClient.STR_TRANSFER_STOP_TAKING_BUTTON
-                    } else {
-                        NativeClient.STR_TRANSFER_ACCEPT_LABEL
-                    },
-                ),
-            )
-        }
-
         Button(
             onClick = {
                 if (sharing) {
@@ -902,7 +884,7 @@ private fun HostScreen(
                     ),
                 )
             },
-            enabled = sharing || (ready && !starting && !receiving),
+            enabled = sharing || (ready && !starting),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -913,14 +895,6 @@ private fun HostScreen(
                         else -> NativeClient.STR_START_SHARING
                     },
                 ),
-            )
-        }
-
-        if (receiving) {
-            Text(
-                NativeClient.string(NativeClient.STR_TRANSFER_BLOCKS_SCREEN_NOTE),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MutedColor,
             )
         }
 

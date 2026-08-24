@@ -47,6 +47,7 @@ object NativeHost {
         maxDim: Int,
         port: Int,
         passcode: String,
+        transferDir: String,
     ): Boolean
 
     private external fun nativeOfferAudio(
@@ -191,7 +192,10 @@ object NativeHost {
 
     fun filesActive(): Boolean = nativeFilesActive()
 
-    suspend fun start(request: HostService.ShareRequest): Boolean =
+    suspend fun start(
+        request: HostService.ShareRequest,
+        transferDir: String,
+    ): Boolean =
         withContext(Dispatchers.IO) {
             val ok =
                 nativeStart(
@@ -200,6 +204,7 @@ object NativeHost {
                     request.maxDim,
                     request.port,
                     request.passcode,
+                    transferDir,
                 )
             if (ok) shareState = ShareState.SHARING
             ok

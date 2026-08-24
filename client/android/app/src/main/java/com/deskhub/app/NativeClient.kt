@@ -117,21 +117,13 @@ object NativeClient {
     const val STR_TRANSFER_CHOOSE_BUTTON = 135
     const val STR_TRANSFER_CANCEL_BUTTON = 136
     const val STR_TRANSFER_SENDING = 138
-    const val STR_TRANSFER_HOST_NOT_TAKING = 140
     const val STR_TRANSFER_SEND_HEADING = 141
     const val STR_TRANSFER_NONE_CHOSEN = 142
     const val STR_TRANSFER_TOO_MANY_FILES = 144
     const val STR_OPEN_FILES_LABEL = 145
     const val STR_TRANSFER_SENT_HEADING = 146
-    const val STR_TRANSFER_ACCEPT_LABEL = 147
-    const val STR_TRANSFER_BLOCKS_SCREEN_NOTE = 148
     const val STR_TRANSFER_ARRIVED_TITLE = 149
-    const val STR_TRANSFER_STOP_TAKING_BUTTON = 150
     const val STR_DISCONNECT_BUTTON = 153
-    const val STR_LINK_QUALITY_GOOD = 154
-    const val STR_LINK_QUALITY_FAIR = 155
-    const val STR_LINK_QUALITY_POOR = 156
-    const val STR_LINK_NO_READING = 157
     const val STR_LINK_REATTACHING = 158
 
     private external fun nativeString(id: Int): String
@@ -298,14 +290,6 @@ object NativeClient {
     fun clipboardSync(): Boolean = nativeClipboardSync()
 
     fun setClipboardSync(on: Boolean) = nativeSetClipboardSync(on)
-
-    private external fun nativeTakeFiles(): Boolean
-
-    private external fun nativeSetTakeFiles(on: Boolean)
-
-    fun takeFiles(): Boolean = nativeTakeFiles()
-
-    fun setTakeFiles(on: Boolean) = nativeSetTakeFiles(on)
 
     private external fun nativeKeepAwake(): Boolean
 

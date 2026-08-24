@@ -76,8 +76,9 @@ class HostService : Service() {
         NativeHost.publishScreenSize(this)
 
         val options = ShareRequest.from(intent)
+        val transferDir = ReceivedFiles.transferDir(applicationContext)
         scope.launch {
-            val ok = NativeHost.start(options)
+            val ok = NativeHost.start(options, transferDir)
             if (!ok) {
                 mainHandler.post { failWith(NativeHost.lastError()) }
             } else if (NativeHost.audioRunning()) {
