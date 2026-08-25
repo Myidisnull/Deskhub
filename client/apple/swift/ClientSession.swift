@@ -56,6 +56,14 @@ nonisolated enum DeskhubClient {
         dh_is_zoomed(zoom)
     }
 
+    static func linkQualityText(_ quality: DHLinkQuality) -> String {
+        String(cString: dh_link_quality_text(quality))
+    }
+
+    static func linkPingText(haveRtt: Bool, rttMs: UInt32) -> String {
+        buffered(32) { dh_link_ping_text(haveRtt, rttMs, $0, $1) }
+    }
+
     static func buffered(
         _ capacity: Int, _ fill: (UnsafeMutablePointer<CChar>, Int32) -> Int32
     ) -> String {
@@ -265,6 +273,13 @@ final class ClientSession: @unchecked Sendable {
         let rttMs: UInt32
         let lossPct: UInt8
         let quality: Int32
+
+        init(haveRtt: Bool = false, rttMs: UInt32 = 0, lossPct: UInt8 = 0, quality: Int32 = 0) {
+            self.haveRtt = haveRtt
+            self.rttMs = rttMs
+            self.lossPct = lossPct
+            self.quality = quality
+        }
     }
 
     func linkHealth() -> LinkHealth {

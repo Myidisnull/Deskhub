@@ -13,6 +13,7 @@ final class StreamModel {
     var phase: Phase = .connecting
     var statusLine = ""
     var endReason = ""
+    var linkHealth = ClientSession.LinkHealth()
     var videoWidth: UInt32 = 0
     var videoHeight: UInt32 = 0
     var failedToStart = false
@@ -21,6 +22,11 @@ final class StreamModel {
 
     private var session: ClientSession?
     private var layer: AVSampleBufferDisplayLayer?
+    private var healthTimer: Timer?
+    private var rawStatusLine = ""
+    private var wasStreaming = false
+
+    var reattaching: Bool { wasStreaming && phase == .connecting }
 
     init(address: String, passcode: String, sourceId: UInt8, sourceName: String,
          sessionKey: String = "")
@@ -52,28 +58,37 @@ final class StreamModel {
         session = opened
         opened.setLayer(layer)
         refresh()
+        startHealthPolling()
     }
 
     func switchSource(to newSourceId: UInt8, name: String) async {
         guard newSourceId != sourceId else { return }
+        stopHealthPolling()
         session?.stop()
         session = nil
         sourceId = newSourceId
         sourceName = name
         endReason = ""
+        rawStatusLine = ""
         statusLine = ""
         videoWidth = 0
         videoHeight = 0
+        linkHealth = ClientSession.LinkHealth()
+        wasStreaming = false
         phase = .connecting
         await start()
     }
 
     func disconnect() {
+        stopHealthPolling()
         mouseLocked = false
         session?.stop()
         session = nil
         phase = .idle
+        rawStatusLine = ""
         statusLine = ""
+        linkHealth = ClientSession.LinkHealth()
+        wasStreaming = false
     }
 
     func setLayer(_ newLayer: AVSampleBufferDisplayLayer?) {
@@ -140,20 +155,53 @@ final class StreamModel {
         guard let session else { return }
         let state = session.snapshot()
         phase = state.phase
-        let prefix = session.linkStatusPrefix()
-        if prefix.isEmpty {
-            statusLine = state.statusLine
-        } else if state.statusLine.isEmpty {
-            statusLine = prefix
-        } else {
-            statusLine = prefix + " · " + state.statusLine
-        }
+        if phase == .streaming { wasStreaming = true }
+        composeStatusLine()
         videoWidth = state.videoWidth
         videoHeight = state.videoHeight
+        linkHealth = session.linkHealth()
         if phase == .ended {
             endReason = state.endReason
             mouseLocked = false
+            wasStreaming = false
         }
+    }
+
+    private func composeStatusLine() {
+        let prefix = session?.linkStatusPrefix() ?? ""
+        if prefix.isEmpty {
+            statusLine = rawStatusLine
+        } else if rawStatusLine.isEmpty {
+            statusLine = prefix
+        } else {
+            statusLine = prefix + " · " + rawStatusLine
+        }
+    }
+
+    private func startHealthPolling() {
+        healthTimer?.invalidate()
+        healthTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollHealth() }
+        }
+    }
+
+    private func stopHealthPolling() {
+        healthTimer?.invalidate()
+        healthTimer = nil
+    }
+
+    private func pollHealth() {
+        guard let session, phase != .ended else {
+            stopHealthPolling()
+            return
+        }
+        let livePhase = session.phase()
+        if livePhase != .ended, livePhase != phase {
+            phase = livePhase
+            if phase == .streaming { wasStreaming = true }
+        }
+        linkHealth = session.linkHealth()
+        composeStatusLine()
     }
 
     private func makeHandlers() -> SessionHandlers {
@@ -161,15 +209,10 @@ final class StreamModel {
             onStatus: { [weak self] line in
                 Task { @MainActor in
                     guard let self else { return }
-                    let prefix = self.session?.linkStatusPrefix() ?? ""
-                    if prefix.isEmpty {
-                        self.statusLine = line
-                    } else if line.isEmpty {
-                        self.statusLine = prefix
-                    } else {
-                        self.statusLine = prefix + " · " + line
-                    }
+                    self.rawStatusLine = line
+                    self.composeStatusLine()
                     self.phase = self.session?.phase() ?? self.phase
+                    if self.phase == .streaming { self.wasStreaming = true }
                 }
             },
             onSize: { [weak self] width, height in
@@ -178,14 +221,17 @@ final class StreamModel {
                     self.videoWidth = width
                     self.videoHeight = height
                     self.phase = self.session?.phase() ?? self.phase
+                    if self.phase == .streaming { self.wasStreaming = true }
                 }
             },
             onClosed: { [weak self] reason in
                 Task { @MainActor in
                     guard let self else { return }
+                    self.stopHealthPolling()
                     self.phase = .ended
                     self.endReason = reason
                     self.mouseLocked = false
+                    self.wasStreaming = false
                 }
             }
         )

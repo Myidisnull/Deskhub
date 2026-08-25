@@ -94,7 +94,7 @@ struct StreamView: View {
             allowsMultipleSelection: true
         ) { result in
             switch result {
-            case .success(let urls):
+            case let .success(urls):
                 let scoped = urls.map { ($0, $0.startAccessingSecurityScopedResource()) }
                 defer {
                     for (url, ok) in scoped where ok {
@@ -106,7 +106,7 @@ struct StreamView: View {
                 if !model.sendFiles(paths) {
                     fileSendError = model.fileSendError()
                 }
-            case .failure(let error):
+            case let .failure(error):
                 fileSendError = error.localizedDescription
             }
         }
@@ -222,6 +222,11 @@ struct StreamView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if streaming {
+                        LinkHealthRow(health: model.linkHealth)
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                    }
                     if streaming, !model.statusLine.isEmpty {
                         Text(model.statusLine)
                             .font(.caption)
@@ -273,7 +278,7 @@ struct StreamView: View {
 
                 Spacer()
 
-                Button("End") { session.disconnect() }
+                Button(DeskhubClient.string(DHStrDisconnectButton)) { session.disconnect() }
                     .buttonStyle(.borderedProminent)
             }
         }

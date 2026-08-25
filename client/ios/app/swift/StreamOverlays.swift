@@ -8,6 +8,8 @@ struct StatusOverlay: View {
     var body: some View {
         if model.phase == .ended {
             ended
+        } else if model.reattaching {
+            reattaching
         } else if !streaming {
             connecting
         }
@@ -19,6 +21,15 @@ struct StatusOverlay: View {
             Text(DeskhubClient.connectingTo(model.address))
                 .foregroundStyle(.white)
         }
+    }
+
+    private var reattaching: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text(DeskhubClient.string(DHStrLinkReattaching))
+                .foregroundStyle(.white)
+        }
+        .allowsHitTesting(false)
     }
 
     private var ended: some View {

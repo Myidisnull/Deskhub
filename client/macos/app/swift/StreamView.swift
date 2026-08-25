@@ -46,7 +46,7 @@ struct ViewerWindow: View {
                 allowsMultipleSelection: true
             ) { result in
                 switch result {
-                case .success(let urls):
+                case let .success(urls):
                     let scoped = urls.map { ($0, $0.startAccessingSecurityScopedResource()) }
                     defer {
                         for (url, ok) in scoped where ok {
@@ -58,7 +58,7 @@ struct ViewerWindow: View {
                     if !model.sendFiles(paths) {
                         fileSendError = model.fileSendError()
                     }
-                case .failure(let error):
+                case let .failure(error):
                     fileSendError = error.localizedDescription
                 }
             }
@@ -143,16 +143,19 @@ struct StreamView: View {
     let onEnd: () -> Void
 
     var body: some View {
-        RemoteView(
-            model: model,
-            videoSize: videoSize,
-            mouseLocked: model.mouseLocked,
-            onLayerReady: { layer in model.setLayer(layer) },
-            onLockChanged: { model.mouseLocked = $0 }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
-        .environment(\.colorScheme, .dark)
+        VStack(spacing: 0) {
+            ConnectionStatusBar(model: model, onDisconnect: onEnd)
+            RemoteView(
+                model: model,
+                videoSize: videoSize,
+                mouseLocked: model.mouseLocked,
+                onLayerReady: { layer in model.setLayer(layer) },
+                onLockChanged: { model.mouseLocked = $0 }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+        }
         .alert(DeskhubClient.string(DHStrAppTitle), isPresented: endedAlertShown) {
             Button("OK") { onEnd() }
         } message: {

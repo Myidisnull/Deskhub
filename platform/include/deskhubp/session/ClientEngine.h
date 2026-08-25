@@ -551,6 +551,8 @@ private:
     void NetThread() {
         bool everStreamed = false;
         int failStreak = 0;
+        uint64_t lossStartUs = 0;
+        const uint32_t clientId = MakeClientId(cfg_.sourceId);
 
         for (;;) {
             if (userStop_.load(std::memory_order_acquire)) {
@@ -567,7 +569,7 @@ private:
             deskhub::ClientPump pump(MakePumpCallbacks(), diag_);
 
             deskhub::ClientPumpConfig pcfg;
-            pcfg.clientId = MakeClientId(cfg_.sourceId);
+            pcfg.clientId = clientId;
             pcfg.maxWidth = uint16_t(cfg_.screenW);
             pcfg.maxHeight = uint16_t(cfg_.screenH);
             pcfg.sourceId = cfg_.sourceId;
@@ -634,12 +636,13 @@ private:
                 if (clip) p.QueueClipboard(*clip);
                 upload.Pump();
             };
-            hooks.onPhase = [this, &everStreamed, &failStreak](bool streaming) {
+            hooks.onPhase = [this, &everStreamed, &failStreak, &lossStartUs](bool streaming) {
                 phase_.store(streaming ? ClientPhase::Streaming : ClientPhase::Connecting,
                     std::memory_order_release);
                 if (streaming) {
                     everStreamed = true;
                     failStreak = 0;
+                    lossStartUs = 0;
                 }
             };
             hooks.onSocketError = [this] {
@@ -666,9 +669,11 @@ private:
                 reason = endReason_;
             }
 
+            const uint64_t nowUs = NowUs();
+            if (lossStartUs == 0) lossStartUs = nowUs;
             const bool tryAgain = everStreamed &&
                                   deskhub::IsTransientClientDisconnect(reason) &&
-                                  failStreak < deskhub::kClientReconnectMaxAttempts;
+                                  deskhub::ClientReconnectStillWorthTrying(nowUs - lossStartUs);
             if (!tryAgain) {
                 FinishNetSession(reason, true);
                 return;
@@ -676,8 +681,10 @@ private:
 
             const uint64_t delayUs = deskhub::ClientReconnectBackoffUs(failStreak);
             ++failStreak;
-            LOGW("[Client] Transient disconnect (%s); reconnect %d/%d in %" PRIu64 " ms",
-                reason.c_str(), failStreak, deskhub::kClientReconnectMaxAttempts, delayUs / 1000);
+            LOGW("[Client] Transient disconnect (%s); reconnect attempt %d in %" PRIu64
+                 " ms (grace left %" PRIu64 " ms)",
+                reason.c_str(), failStreak, delayUs / 1000,
+                (deskhub::kClientReconnectGraceUs - (nowUs - lossStartUs)) / 1000);
 
             ClearDecodeQueue();
             rebuildDecoder_.store(true, std::memory_order_release);

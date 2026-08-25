@@ -50,18 +50,25 @@ bool FileHost::Start(UdpSocket& sock, const std::filesystem::path& dir,
 void FileHost::Stop() {
     const std::lock_guard<std::mutex> flushOrder(outboxMutex_);
     std::vector<std::string> lines;
+    std::vector<Outbound> outbound;
+    UdpSocket* sock = nullptr;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         if (!running_.exchange(false, std::memory_order_acq_rel)) return;
         accepting_.store(false, std::memory_order_release);
         for (auto& [packed, peer] : peers_)
             if (peer->receiver) peer->receiver->SetAccepting(false);
+        sock = sock_;
+        outbound = TakeOutbox();
         for (auto& [packed, peer] : peers_)
             if (peer->receiver) peer->receiver->LinkLost();
         peers_.clear();
         sock_ = nullptr;
         outbox_.clear();
         lines = TakeAudit();
+    }
+    if (sock) {
+        for (const Outbound& record : outbound) SendFileMessage(*sock, record.addr, record.bytes);
     }
     for (const std::string& line : lines)
         if (cb_.onAudit) cb_.onAudit(line);

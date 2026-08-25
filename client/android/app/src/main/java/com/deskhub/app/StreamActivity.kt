@@ -88,6 +88,8 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
+private const val LINK_POLL_MS = 1000L
+
 class StreamActivity : ComponentActivity() {
     private var session by mutableStateOf(0L)
 
@@ -207,6 +209,8 @@ private fun StreamScreen(
 ) {
     val started = sessionKey != 0L
     var sessionPhase by remember { mutableIntStateOf(NativeClient.PHASE_IDLE) }
+    var hadStream by remember { mutableStateOf(false) }
+    var linkHealth by remember { mutableStateOf(NativeClient.LinkHealth()) }
     var rawStatusLine by remember { mutableStateOf("") }
     var statusLine by remember { mutableStateOf("") }
     var endReason by remember { mutableStateOf("") }
@@ -239,6 +243,8 @@ private fun StreamScreen(
         endReason = ""
         videoW = 0
         videoH = 0
+        hadStream = false
+        linkHealth = NativeClient.LinkHealth()
         if (!started) return@DisposableEffect onDispose {}
         val listener =
             object : NativeClient.SessionListener {
@@ -249,6 +255,7 @@ private fun StreamScreen(
                     rawStatusLine = line
                     refreshStatusLine()
                     sessionPhase = phase
+                    if (phase == NativeClient.PHASE_STREAMING) hadStream = true
                 }
 
                 override fun onSize(
@@ -279,6 +286,22 @@ private fun StreamScreen(
     }
 
     val streaming = sessionPhase == NativeClient.PHASE_STREAMING
+    val reattaching = hadStream && sessionPhase == NativeClient.PHASE_CONNECTING
+
+    LaunchedEffect(sessionKey) {
+        if (!started) return@LaunchedEffect
+        while (sessionPhase != NativeClient.PHASE_ENDED) {
+            linkHealth = NativeClient.linkHealth()
+            NativeClient.nativeSnapshot()?.let { snap ->
+                sessionPhase = snap.phase
+                if (snap.phase == NativeClient.PHASE_STREAMING) hadStream = true
+                if (snap.phase == NativeClient.PHASE_ENDED && endReason.isEmpty()) {
+                    endReason = snap.endReason
+                }
+            }
+            delay(LINK_POLL_MS)
+        }
+    }
 
     LaunchedEffect(sessionKey, streaming) {
         if (!streaming) return@LaunchedEffect
@@ -458,6 +481,8 @@ private fun StreamScreen(
                     reason = if (!started) NativeClient.couldNotConnect(address) else endReason,
                     onBack = onDismiss,
                 )
+            } else if (reattaching) {
+                ReattachingBanner()
             } else if (!streaming) {
                 ConnectingOverlay(address = address)
             }
@@ -489,6 +514,7 @@ private fun StreamScreen(
                     videoW = videoW,
                     videoH = videoH,
                     statusLine = statusLine,
+                    linkHealth = linkHealth,
                     streaming = streaming,
                     keyboardOn = keyboardOn,
                     sources = sources,
@@ -522,7 +548,8 @@ private fun copyUriToCache(
     uri: Uri,
 ): String? {
     val name =
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        context.contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
                 val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -659,6 +686,7 @@ private fun ControlPanel(
     videoW: Int,
     videoH: Int,
     statusLine: String,
+    linkHealth: NativeClient.LinkHealth,
     streaming: Boolean,
     keyboardOn: Boolean,
     sources: List<NativeClient.Source>,
@@ -699,6 +727,16 @@ private fun ControlPanel(
                     color = Color.White,
                     maxLines = 1,
                 )
+                if (streaming) {
+                    Text(
+                        text =
+                            NativeClient.linkQualityText(linkHealth.quality) + " · " +
+                                NativeClient.linkPingText(linkHealth),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 1,
+                    )
+                }
                 if (streaming && statusLine.isNotEmpty()) {
                     Text(
                         text = statusLine,
@@ -751,8 +789,28 @@ private fun ControlPanel(
                 OutlinedButton(onClick = { pickerOpen = true }) { Text("Display") }
             }
             Box(modifier = Modifier.weight(1f))
-            Button(onClick = onEnd) { Text("End") }
+            Button(onClick = onEnd) {
+                Text(NativeClient.string(NativeClient.STR_DISCONNECT_BUTTON))
+            }
         }
+    }
+}
+
+@Composable
+private fun ReattachingBanner() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Text(
+            NativeClient.string(NativeClient.STR_LINK_REATTACHING),
+            color = Color.White,
+            modifier =
+                Modifier
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }
 

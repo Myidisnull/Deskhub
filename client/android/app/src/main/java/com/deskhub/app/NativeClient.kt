@@ -109,6 +109,39 @@ object NativeClient {
     const val STR_LOG_MAX_FILE_MB = 91
     const val STR_LOG_COMPRESS_AFTER_DAYS = 92
     const val STR_LOG_DELETE_AFTER_DAYS = 93
+    const val STR_DISCONNECT_BUTTON = 131
+    const val STR_LINK_REATTACHING = 132
+
+    const val LINK_QUALITY_UNKNOWN = 0
+    const val LINK_QUALITY_GOOD = 1
+    const val LINK_QUALITY_FAIR = 2
+    const val LINK_QUALITY_POOR = 3
+
+    data class LinkHealth(
+        val haveRtt: Boolean = false,
+        val rttMs: Int = 0,
+        val lossPct: Int = 0,
+        val quality: Int = LINK_QUALITY_UNKNOWN,
+    )
+
+    private external fun nativeLinkHealth(): IntArray
+
+    fun linkHealth(): LinkHealth {
+        val raw = nativeLinkHealth()
+        if (raw.size < 4) return LinkHealth()
+        return LinkHealth(raw[0] != 0, raw[1], raw[2], raw[3])
+    }
+
+    private external fun nativeLinkQualityText(quality: Int): String
+
+    fun linkQualityText(quality: Int): String = nativeLinkQualityText(quality)
+
+    private external fun nativeLinkPingText(
+        haveRtt: Boolean,
+        rttMs: Int,
+    ): String
+
+    fun linkPingText(health: LinkHealth): String = nativeLinkPingText(health.haveRtt, health.rttMs)
 
     private external fun nativeString(id: Int): String
 

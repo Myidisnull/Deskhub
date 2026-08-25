@@ -1,12 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <string_view>
 
 namespace deskhub {
 
-inline constexpr int kClientReconnectMaxAttempts = 5;
 inline constexpr uint64_t kClientReconnectBackoffUs = 500'000;
 inline constexpr uint64_t kClientReconnectBackoffCapUs = 5'000'000;
+inline constexpr uint64_t kClientReconnectGraceUs = 60'000'000;
 
 inline bool IsTransientClientDisconnect(std::string_view reason) noexcept {
     return reason == "lost contact with host (timeout)" || reason == "socket error" ||
@@ -20,6 +21,11 @@ inline uint64_t ClientReconnectBackoffUs(int attemptIndex) noexcept {
         delay *= 2;
     }
     return delay > kClientReconnectBackoffCapUs ? kClientReconnectBackoffCapUs : delay;
+}
+
+inline bool ClientReconnectStillWorthTrying(uint64_t sinceLossUs,
+    uint64_t graceUs = kClientReconnectGraceUs) noexcept {
+    return sinceLossUs < graceUs;
 }
 
 }

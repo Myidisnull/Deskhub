@@ -126,7 +126,12 @@ void HostEngine::AttachSession(HostSource& st) {
         return sp->applyQualityStep(*p, prev, next);
     };
 
-    const deskhub::HostCallbacks cb = MakeHostCallbacks(st, std::move(hooks));
+    const deskhub::HostCallbacks base = MakeHostCallbacks(st, std::move(hooks));
+    deskhub::HostCallbacks cb = base;
+    cb.onViewerLeave = [this, leave = base.onViewerLeave](uint64_t addrPacked, size_t viewerCount) {
+        if (leave) leave(addrPacked, viewerCount);
+        if (files_) files_->OnPeerGone(NetAddr::Unpack(addrPacked));
+    };
 
     st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
     st.session->SetPasscode(opt_.passcode);

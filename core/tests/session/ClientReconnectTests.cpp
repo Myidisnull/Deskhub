@@ -30,9 +30,23 @@ void TestBackoffGrowsAndCaps() {
     Check(ClientReconnectBackoffUs(100) == kClientReconnectBackoffCapUs, "cap stays");
 }
 
+void TestGraceWindow() {
+    std::printf("[reconnect] the grace window keeps trying until it runs out...\n");
+    Check(ClientReconnectStillWorthTrying(0), "a fresh loss is still worth trying");
+    Check(ClientReconnectStillWorthTrying(kClientReconnectGraceUs - 1),
+        "just inside the grace still tries");
+    Check(!ClientReconnectStillWorthTrying(kClientReconnectGraceUs),
+        "at the grace limit we stop");
+    Check(!ClientReconnectStillWorthTrying(kClientReconnectGraceUs + 1),
+        "past the grace we stop");
+    Check(ClientReconnectStillWorthTrying(100, 200), "a custom grace still applies");
+    Check(!ClientReconnectStillWorthTrying(200, 200), "and ends at its own limit");
+}
+
 }
 
 void RunClientReconnectTests() {
     TestTransientReasons();
     TestBackoffGrowsAndCaps();
+    TestGraceWindow();
 }

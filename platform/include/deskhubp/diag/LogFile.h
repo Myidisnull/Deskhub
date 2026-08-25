@@ -41,8 +41,7 @@ deskhub::diag::LogPolicy GetLogPolicy();
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-void
-LogEmit(const char* fmt, ...);
+void LogEmit(const char* fmt, ...);
 
 struct LogFileInfo {
     std::string name;

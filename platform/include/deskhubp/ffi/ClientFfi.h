@@ -228,6 +228,8 @@ typedef enum {
     DHStrPlayAudioLabel = 128,
     DHStrAcceptFilesLabel = 129,
     DHStrSendFilesLabel = 130,
+    DHStrDisconnectButton = 131,
+    DHStrLinkReattaching = 132,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -328,6 +330,8 @@ bool dh_viewer_closed(void);
 bool dh_viewers_open(void);
 
 const char* dh_link_quality_text(DHLinkQuality quality);
+
+int dh_link_ping_text(bool haveRtt, uint32_t rttMs, char* out, int capacity);
 
 #ifdef __cplusplus
 }

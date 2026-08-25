@@ -10,11 +10,55 @@ English governs this file. Update it every time `develop` successfully absorbs `
 | Short | `085f7ef` |
 | Date | 2026-08-16 23:35:55 +0700 |
 | Subject | feat: Add TODO for implementing Stop & Attach shell functionality across clients |
-| Last reviewed `origin/main` tip | `55ba8a2fd81e35932ee64e1b3f96a7ff57004e13` |
-| Reviewed tip short | `55ba8a2` |
-| Reviewed tip date | 2026-08-24 14:53:37 +0800 |
+| Last reviewed `origin/main` tip | `e7f12085b8449300344c20516667826af2bdaeed` |
+| Reviewed tip short | `e7f12085` |
+| Reviewed tip date | 2026-08-25 09:34:42 +0800 |
 | Reviewed tip subject | Merge branch 'manhpham90vn:main' into main |
 | Pin updated | 2026-08-25 |
+
+## Review only (2026-08-25) — full feature eval through `e7f12085`
+
+`git fetch` OK. Range since prior reviewed tip `55ba8a2`: **2** non-merge commits.
+
+| Commit | Subject | Class | Why |
+| --- | --- | --- | --- |
+| `d328874c` | chore(ios): split stream control panel out of StreamView | **Adapt** (optional) | Lint/refactor only; develop `StreamOverlays.swift` still smaller / different panel — take only if iOS SwiftLint fails |
+| `ff9d0202` | chore: fold new fuzz coverage into the seed corpus | **Skip** / low **Port** | Corpus noise unless develop actively fuzzes |
+
+Full gap `085f7ef..e7f12085` (~159 non-merge): shared infra themes already partially Adapted (audio, FrameGate/NVENC/mailbox, AutoShareGate, CI apt/workflows, PcmRing, LinkPulse, file xfer UDP, reattach grace). Remaining value is thin; hard skips (terminal, HostLink/QUIC connect-once, CLI, pairing/Devices, VERSION 5.x) still dominate.
+
+`Last fully absorbed` stays `085f7ef`.
+
+## Partial port (2026-08-25) — viewer link health UI + disconnect (0db0a9a7)
+
+Adapted from main `0db0a9a7` (develop UDP / ClientSession shape; no ScreenFfi / Reattaching phase):
+
+- FFI: `dh_link_ping_text`, `DHStrDisconnectButton`, `DHStrLinkReattaching` (maps to `kReconnecting`)
+- macOS: `ConnectionStatusBar` + health polling in `StreamModel`
+- iOS / Android: control panel link row, disconnect label, reattaching banner (`wasStreaming && connecting`)
+- Linux: header bar link label + disconnect button (link moved out of window title)
+
+Windows: link health already in title; close window disconnects (unchanged).
+
+## Partial port (2026-08-25) — viewer reattach grace (stable clientId)
+
+Adapted from main `5b53ab43` (develop `ClientEngine` shape; no HostLink / Reattaching phase / ScreenViewer):
+
+- `ClientReconnect`: 60s grace (`kClientReconnectGraceUs`) + `ClientReconnectStillWorthTrying`
+- `ClientEngine` NetThread: one `clientId` for the whole reconnect loop so the host rebinds via `FindByClient`; time-based grace instead of 5-attempt cap
+- Status still uses existing `kReconnecting` / Connecting phase (no new FFI phase)
+
+Skipped from that commit: `ScreenSessionEnd`, `ClientPhase::Reattaching`, HostLink recover/redial.
+
+## Partial port (2026-08-25) — file transfer polish (Stop notifies sender + viewer leave)
+
+Adapted from main `dad4c5f3` / peer-gone wiring (develop UDP shape):
+
+- `FileHost::Stop`: flush `NotAccepting` cancel outbox to senders before `LinkLost` / clear
+- `HostEngine::AttachSession`: `onViewerLeave` → `FileHost::OnPeerGone` (was DrainGone-only)
+- Core test: host stops taking mid-batch → sender reason `NotAccepting`
+
+`cfe609f6` (DrainGone / DiskKeepingUp half backlog) already present on develop.
 
 ## Partial port (2026-08-25) — client file send UI + acceptFiles setting
 
@@ -30,8 +74,6 @@ Adapted from main client upload path (develop shape; no HostLink / QUIC / Transf
 - `ClientNetLoop`: route `Chan::File` before video pump; `onFile` hook
 - `ClientEngine`: `FileUpload` + `RecordStream` on the existing viewer UDP socket; `BeginFileSend` / `CancelFileSend` / progress API
 - FFI: `dh_session_file_send` / `dh_session_file_cancel` / `dh_session_file_busy` / `dh_session_file_progress` / `dh_session_file_error`
-
-UI entry points on each platform still pending.
 
 ## Partial port (2026-08-25) — file transfer platform (host receive + upload)
 

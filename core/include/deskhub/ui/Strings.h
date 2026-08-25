@@ -112,6 +112,7 @@ inline constexpr LStr kStopSelectedDisplay{"Stop selected display"};
 inline constexpr LStr kDisconnectSelectedViewer{"Disconnect selected viewer"};
 inline constexpr LStr kStopDisplayAction{"Stop"};
 inline constexpr LStr kDisconnectViewerAction{"Disconnect"};
+inline constexpr LStr kDisconnectButton{"Disconnect"};
 inline constexpr LStr kPasscodeLabel{"Passcode (4 digits, required)"};
 inline constexpr LStr kClientPasscodePrompt{"Passcode (4 digits):"};
 inline constexpr LStr kClientPasscodeHint{"Read the 4-digit code off the host."};

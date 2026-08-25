@@ -46,7 +46,7 @@
     }                                                                                      \
                                                                                            \
     void dh_session_mouse_wheel_notches(DHSession* s, int32_t notches) {                   \
-        if (s) engineOf(s).QueueMouseWheel(notches* deskhub::kWheelDeltaPerNotch);         \
+        if (s) engineOf(s).QueueMouseWheel(notches * deskhub::kWheelDeltaPerNotch);        \
     }                                                                                      \
                                                                                            \
     void dh_session_snapshot(DHSession* s, DHSessionState* out) {                          \
@@ -76,12 +76,12 @@
     int dh_session_file_send(DHSession* s, const char* const* paths, int count) {          \
         if (!s || !paths || count <= 0) return 0;                                          \
         std::vector<std::filesystem::path> list;                                           \
-        list.reserve(size_t(count));                                                         \
+        list.reserve(size_t(count));                                                       \
         for (int i = 0; i < count; ++i) {                                                  \
             if (!paths[i] || !*paths[i]) return 0;                                         \
             list.emplace_back(paths[i]);                                                   \
         }                                                                                  \
-        return engineOf(s).BeginFileSend(list) ? 1 : 0;                                      \
+        return engineOf(s).BeginFileSend(list) ? 1 : 0;                                    \
     }                                                                                      \
                                                                                            \
     void dh_session_file_cancel(DHSession* s) {                                            \
@@ -89,31 +89,31 @@
     }                                                                                      \
                                                                                            \
     int dh_session_file_busy(DHSession* s) {                                               \
-        return s && engineOf(s).FileSendBusy() ? 1 : 0;                                      \
+        return s && engineOf(s).FileSendBusy() ? 1 : 0;                                    \
     }                                                                                      \
                                                                                            \
     void dh_session_file_progress(DHSession* s, DHFileSendProgress* out) {                 \
-        if (!out) return;                                                                    \
+        if (!out) return;                                                                  \
         *out = DHFileSendProgress{};                                                       \
         if (!s) return;                                                                    \
         const deskhub::TransferProgress p = engineOf(s).FileSendProgress();                \
-        const deskhub::FileSenderState st = engineOf(s).FileSendState();                     \
-        out->phase = DHFileSendPhase(int(st));                                               \
-        out->batchId = p.batchId;                                                            \
-        out->fileIndex = p.fileIndex;                                                        \
-        out->fileCount = p.fileCount;                                                        \
-        out->fileBytes = p.fileBytes;                                                        \
-        out->fileSize = p.fileSize;                                                          \
-        out->batchBytes = p.batchBytes;                                                      \
-        out->batchSize = p.batchSize;                                                        \
+        const deskhub::FileSenderState st = engineOf(s).FileSendState();                   \
+        out->phase = DHFileSendPhase(int(st));                                             \
+        out->batchId = p.batchId;                                                          \
+        out->fileIndex = p.fileIndex;                                                      \
+        out->fileCount = p.fileCount;                                                      \
+        out->fileBytes = p.fileBytes;                                                      \
+        out->fileSize = p.fileSize;                                                        \
+        out->batchBytes = p.batchBytes;                                                    \
+        out->batchSize = p.batchSize;                                                      \
         deskhubp::CopyToBuf(out->name, sizeof(out->name), p.name);                         \
     }                                                                                      \
                                                                                            \
     const char* dh_session_file_error(DHSession* s) {                                      \
-        if (!s) return "";                                                                   \
+        if (!s) return "";                                                                 \
         deskhubp::CopyToBuf(s->statusBuf, sizeof(s->statusBuf),                            \
             engineOf(s).FileSendError());                                                  \
-        return s->statusBuf;                                                                 \
+        return s->statusBuf;                                                               \
     }                                                                                      \
                                                                                            \
     DHPhase dh_session_phase(DHSession* s) {                                               \

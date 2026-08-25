@@ -383,6 +383,36 @@ void TestCancelMidFlight() {
     Check(rig.disk.pending.empty(), "and the temporary copy is gone");
 }
 
+void TestHostStopsTakingMidBatch() {
+    std::printf("[xfer] a host that stops taking mid-batch tells the sender why...\n");
+    Rig rig;
+    const auto files = rig.Stage({{"big.bin", kMaxFileChunkBytes * 8}});
+    Check(rig.sender.Offer(7, files), "the batch is offered");
+    for (int i = 0; i < 6; ++i) {
+        while (!rig.link.toReceiver.empty()) {
+            const Message m = rig.link.toReceiver.front();
+            rig.link.toReceiver.erase(rig.link.toReceiver.begin());
+            rig.receiver.HandleMessage(m);
+        }
+        while (!rig.link.toSender.empty()) {
+            const Message m = rig.link.toSender.front();
+            rig.link.toSender.erase(rig.link.toSender.begin());
+            rig.sender.HandleMessage(m);
+        }
+        rig.sender.Pump(1);
+    }
+    Check(rig.receiver.Busy(), "the batch is under way");
+
+    rig.receiver.SetAccepting(false);
+    rig.Settle();
+
+    Check(rig.sender.State() == FileSenderState::Failed, "the sender settles");
+    Check(rig.sender.Reason() == TransferReason::NotAccepting,
+        "and is told the host stopped taking files, not that the link died");
+    Check(rig.receiver.Reason() == TransferReason::NotAccepting, "the receiver matches");
+    Check(rig.disk.stored.empty() && rig.disk.pending.empty(), "and keeps nothing partial");
+}
+
 void TestLinkLossEndsBothSides() {
     std::printf("[xfer] a dropped link ends the batch on both sides...\n");
     Rig rig;
@@ -534,6 +564,7 @@ void RunFileTransferTests() {
     TestAWriteFailureStopsTheBatch();
     TestAnUnreadableSourceStopsTheBatch();
     TestCancelMidFlight();
+    TestHostStopsTakingMidBatch();
     TestLinkLossEndsBothSides();
     TestAFullStreamIsRetriedNotSkipped();
     TestLimitsRefuseOversizedBatches();

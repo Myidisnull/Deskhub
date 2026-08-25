@@ -146,6 +146,8 @@ const char* dh_string(DHStringId id) {
         case DHStrPlayAudioLabel: return deskhub::ui::kPlayAudioLabel;
         case DHStrAcceptFilesLabel: return deskhub::ui::kAcceptFilesLabel;
         case DHStrSendFilesLabel: return deskhub::ui::kSendFilesLabel;
+        case DHStrDisconnectButton: return deskhub::ui::kDisconnectButton;
+        case DHStrLinkReattaching: return deskhub::ui::kReconnecting;
         case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;
         case DHStrEncryptSessionLabel: return deskhub::ui::kEncryptSessionLabel;
         case DHStrEncryptSessionHint: return deskhub::ui::kEncryptSessionHint;
@@ -485,6 +487,13 @@ int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, 
 
 const char* dh_link_quality_text(DHLinkQuality quality) {
     return deskhub::ui::LinkQualityText(static_cast<deskhub::LinkQuality>(quality));
+}
+
+int dh_link_ping_text(bool haveRtt, uint32_t rttMs, char* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    deskhubp::CopyToBuf(out, size_t(capacity),
+        haveRtt ? deskhub::ui::PingMs(rttMs) : std::string(deskhub::ui::kLinkNoReading));
+    return int(std::strlen(out));
 }
 
 void dh_set_data_dir(const char* dir) {

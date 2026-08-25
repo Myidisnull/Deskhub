@@ -11,7 +11,6 @@
 
 | 项 | develop（客制） | main（上游） |
 | --- | --- | --- |
-| 形态 | 白标远程桌面 / 投屏主机+观看端 | Deskhub 完整能力面 |
 | 显示名 | **System Runtime** | Deskhub |
 | 版本号 | 4.0.2 | 5.x |
 | 数据目录 | `.system-runtime` | Deskhub 默认路径 |
@@ -34,7 +33,7 @@
 - Apple 共享：`client/apple/swift/AppLanguage.swift`
 - 字符串以 `LStr` + 翻译目录为主，而非 main 硬编码英文为主的终端/配对文案集
 
-### 2.3 会话加密
+### 2.3 会话加密（不局限实现方式，设置）
 
 - 设置项：`encryptSession`、`escrowSessionKey`、`sessionKeyLifetime`、`sessionKeyHex`、`hostStaticSkHex`
 - 出现在：Windows 设置、macOS Settings、Linux 设置、iOS Sharing、Android 连接相关字段
@@ -56,11 +55,6 @@
 
 - `client/windows/win32/AppTheme.h`（明暗主题，替代已删除的 `WxUi.h`）
 - 观看到 GPU/打开失败等客制提示文案
-
-### 2.7 文件传输（develop 形，相对 main 无独立 HostLink/QUIC）
-
-- 主机设置：`acceptFiles`（默认关）；落盘目录 `files/` under app data / `.system-runtime`
-- 观看端会话内发文件：各端选文件入口 + `ClientEngine`/`dh_session_file_send`（UDP `Chan::File`）
 
 ## 3. 维护约定
 

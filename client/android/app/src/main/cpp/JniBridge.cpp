@@ -743,6 +743,30 @@ Java_com_deskhub_app_NativeClient_nativeLinkStatusPrefix(JNIEnv* env, jobject) {
     return env->NewStringUTF(out.c_str());
 }
 
+JNIEXPORT jintArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeLinkHealth(JNIEnv* env, jobject) {
+    DHLinkHealth link{};
+    dh_session_link_health(g_session, &link);
+    jint vals[4] = {link.haveRtt ? 1 : 0, jint(link.rttMs), jint(link.lossPct),
+        jint(link.quality)};
+    jintArray arr = env->NewIntArray(4);
+    if (arr) env->SetIntArrayRegion(arr, 0, 4, vals);
+    return arr;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeLinkQualityText(JNIEnv* env, jobject, jint quality) {
+    return env->NewStringUTF(dh_link_quality_text(static_cast<DHLinkQuality>(quality)));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeLinkPingText(JNIEnv* env, jobject, jboolean haveRtt,
+    jint rttMs) {
+    char buf[32];
+    dh_link_ping_text(haveRtt == JNI_TRUE, uint32_t(rttMs), buf, sizeof(buf));
+    return env->NewStringUTF(buf);
+}
+
 JNIEXPORT jobject JNICALL
 Java_com_deskhub_app_NativeClient_nativeSnapshot(JNIEnv* env, jobject) {
     jclass cls = env->FindClass("com/deskhub/app/NativeClient$Snapshot");
