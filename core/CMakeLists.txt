@@ -36,8 +36,17 @@ add_library(core STATIC
     src/session/HostRouter.cpp
     src/session/ClipboardSync.cpp
     src/session/FileTransfer.cpp
+    src/session/TerminalSession.cpp
     src/session/client/FileSender.cpp
+    src/session/client/TerminalClient.cpp
     src/session/host/FileReceiver.cpp
+
+    src/terminal/VtParser.cpp
+    src/terminal/Screen.cpp
+    src/terminal/Snapshot.cpp
+    src/terminal/Repaint.cpp
+    src/terminal/KeyEncoder.cpp
+    src/terminal/Palette.cpp
 
     src/transfer/Crc32.cpp
     src/transfer/SafeName.cpp
@@ -70,6 +79,8 @@ add_library(core STATIC
     src/net/LanScan.cpp
     src/net/Ipv4.cpp
     src/net/BindAddress.cpp
+    src/net/TrustStore.cpp
+    src/net/PairedDevices.cpp
 
     src/ui/HostRows.cpp
     src/ui/RecentDevices.cpp
@@ -127,6 +138,14 @@ if(DESKHUB_CORE_TESTS)
         tests/session/LinkPulseTests.cpp
         tests/session/ClipboardSyncTests.cpp
         tests/session/FileTransferTests.cpp
+        tests/session/TerminalSessionTests.cpp
+        tests/terminal/VtParserTests.cpp
+        tests/terminal/ScreenTests.cpp
+        tests/terminal/SnapshotTests.cpp
+        tests/terminal/RepaintTests.cpp
+        tests/terminal/KeyEncoderTests.cpp
+        tests/terminal/PaletteTests.cpp
+        tests/terminal/ScrollAnchorTests.cpp
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
         tests/session/HostViewersTests.cpp
@@ -175,6 +194,8 @@ if(DESKHUB_CORE_TESTS)
         tests/net/LanScanTests.cpp
         tests/net/Ipv4Tests.cpp
         tests/net/BindAddressTests.cpp
+        tests/net/TrustStoreTests.cpp
+        tests/net/PairedDevicesTests.cpp
 
         tests/ui/StringsTests.cpp
         tests/ui/LocaleTests.cpp
@@ -232,4 +253,5 @@ if(DESKHUB_FUZZ)
     deskhub_fuzz_target(fuzz_reassembler fuzz/FuzzReassembler.cpp)
     deskhub_fuzz_target(fuzz_session fuzz/FuzzSession.cpp)
     deskhub_fuzz_target(fuzz_uitext fuzz/FuzzUiText.cpp)
+    deskhub_fuzz_target(fuzz_term fuzz/FuzzTerm.cpp)
 endif()

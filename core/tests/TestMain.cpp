@@ -63,6 +63,30 @@ int main() {
     std::printf("--- session: file transfer (offer, chunk, ack, receiver) ---\n");
     RunFileTransferTests();
 
+    std::printf("--- session: terminal sessions (open, resume, detach) ---\n");
+    RunTerminalSessionTests();
+
+    std::printf("--- terminal: the VT escape-sequence parser ---\n");
+    RunVtParserTests();
+
+    std::printf("--- terminal: the character grid every client draws ---\n");
+    RunScreenTests();
+
+    std::printf("--- terminal: the cell snapshot every window renders from ---\n");
+    RunSnapshotTests();
+
+    std::printf("--- terminal: repainting a client that fell behind ---\n");
+    RunRepaintTests();
+
+    std::printf("--- terminal: keys and modifiers to bytes ---\n");
+    RunKeyEncoderTests();
+
+    std::printf("--- terminal: the colours every client paints with ---\n");
+    RunPaletteTests();
+
+    std::printf("--- terminal: keeping the view still while output arrives ---\n");
+    RunScrollAnchorTests();
+
     std::printf("--- session: host feedback policy (bitrate, FEC, quality, NACK) ---\n");
     RunHostFeedbackTests();
 
@@ -189,6 +213,12 @@ int main() {
 
     std::printf("--- net: which address the host binds ---\n");
     RunBindAddressTests();
+
+    std::printf("--- net: trust store fingerprints and host keys ---\n");
+    RunTrustStoreTests();
+
+    std::printf("--- net: paired devices list ---\n");
+    RunPairedDevicesTests();
 
     std::printf("--- ui: shared strings every client shows ---\n");
     RunStringsTests();

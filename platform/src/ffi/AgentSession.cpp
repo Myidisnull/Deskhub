@@ -20,6 +20,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/AgentLoop.h"
+#include "deskhubp/session/PairingAskQueue.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/Random.h"
 #include "deskhubp/system/SessionCrypto.h"
@@ -101,6 +102,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
         opt.clipboardSync = stored.clipboardSync;
         opt.audio = stored.shareAudio;
         opt.acceptFiles = stored.acceptFiles;
+        opt.shareTerminal = stored.shareTerminal;
         if (!deskhubp::ApplyEncryptToAgentOptions(stored, opt)) return false;
     }
 
@@ -136,6 +138,7 @@ bool dha_start_files(uint16_t port, const char* passcode) {
         deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
         opt.bindIp = stored.bindIp;
         opt.clipboardSync = stored.clipboardSync;
+        opt.shareTerminal = stored.shareTerminal;
         if (!deskhubp::ApplyEncryptToAgentOptions(stored, opt)) return false;
     }
 
@@ -270,4 +273,21 @@ void dha_offer_audio(const int16_t* pcm, int samples) {
 bool dha_audio_running(void) {
     std::lock_guard<std::mutex> lk(g_audioMutex);
     return g_audioTarget != nullptr && g_audioTarget->audioRunning();
+}
+
+int dh_share_take_pairing_requests(DHPairingRequest* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    const std::vector<deskhubp::PairingAsk> asks =
+        deskhubp::SharedPairingAskQueue().Take(size_t(capacity));
+    const int count = int(asks.size()) < capacity ? int(asks.size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        out[i].addrPacked = asks[size_t(i)].addrPacked;
+        deskhubp::CopyToBuf(out[i].shortKey, sizeof(out[i].shortKey), asks[size_t(i)].shortKey);
+        deskhubp::CopyToBuf(out[i].name, sizeof(out[i].name), asks[size_t(i)].name);
+    }
+    return count;
+}
+
+void dh_share_answer_pairing(uint64_t addr_packed, bool allowed) {
+    deskhubp::SharedPairingAskQueue().Answer(addr_packed, allowed);
 }

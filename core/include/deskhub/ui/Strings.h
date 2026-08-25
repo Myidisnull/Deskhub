@@ -135,6 +135,71 @@ inline constexpr LStr kAcceptFilesLabel{"Accept files sent by connected viewers"
 inline constexpr LStr kSendFilesLabel{"Send files to this device"};
 inline constexpr LStr kOpenDesktopLabel{"Open desktop"};
 inline constexpr LStr kOpenFilesLabel{"Send files"};
+inline constexpr LStr kOpenShellLabel{"Open shell"};
+inline constexpr LStr kShareTerminalLabel{"Share a shell with connected viewers"};
+inline constexpr LStr kTerminalCloseButton{"Close"};
+inline constexpr LStr kTerminalConnecting{"Opening shell\xE2\x80\xA6"};
+inline constexpr LStr kTerminalConnected{"Shell connected"};
+inline constexpr LStr kTerminalReattached{"Shell reattached"};
+inline constexpr LStr kTerminalReattaching{"Reattaching shell\xE2\x80\xA6"};
+inline constexpr LStr kTerminalClosed{"Shell closed"};
+inline constexpr LStr kTerminalUnreachable{"Could not reach the shell host."};
+inline constexpr LStr kTerminalRefusedPasscode{"Wrong passcode for shell."};
+inline constexpr LStr kTerminalRefusedBusy{"Too many shells are open on the host."};
+inline constexpr LStr kTerminalRefusedOff{"The host is not sharing a shell."};
+inline constexpr LStr kTerminalRefusedGone{"That shell session is gone."};
+inline constexpr LStr kTerminalRefused{"Shell refused."};
+
+inline constexpr LStr kPairedHeading{"Machines allowed to connect to this one"};
+inline constexpr LStr kPairedHint{
+    "A machine gets on this list once, and after that it is recognised by its key \xE2\x80\x94 "
+    "no passcode is asked for again."};
+inline constexpr LStr kPairedEmpty{"(no machine has paired with this one yet)"};
+inline constexpr LStr kPairedForget{"Forget"};
+inline constexpr LStr kPairedForgetAll{"Forget every machine"};
+inline constexpr LStr kPairedForgetAllPrompt{
+    "Every machine will have to pair again before it can connect. Continue?"};
+inline constexpr LStr kPairedForgetNote{
+    "Changing the passcode does NOT turn these machines away \xE2\x80\x94 they no longer use it. "
+    "Forgetting them is what does."};
+inline constexpr LStr kAllowPairingLabel{"Let new machines pair with this one"};
+inline constexpr LStr kAllowPairingHint{
+    "Turn this off once your own machines are paired: a passcode that leaks is then worth "
+    "nothing, and the machines already on the list keep working."};
+inline constexpr LStr kThisMachineHeading{"This machine's key"};
+inline constexpr LStr kThisMachineHint{
+    "Read this out over the phone to whoever is connecting. It is the one thing a machine in "
+    "the middle cannot fake."};
+inline constexpr LStr kPairedColumnName{"Machine"};
+inline constexpr LStr kPairedColumnKey{"Key"};
+inline constexpr LStr kPairedColumnPaired{"Paired"};
+inline constexpr LStr kPairedColumnLastSeen{"Last seen"};
+inline constexpr LStr kPairingRequestTitle{"Let this machine in?"};
+inline constexpr LStr kPairingAllow{"Allow"};
+inline constexpr LStr kPairingDeny{"Deny"};
+
+inline std::string PairingRequestBody(std::string_view name, std::string_view address,
+    std::string_view shortKey) {
+    std::string out(name.empty() ? std::string("A machine") : std::string(name));
+    out += " at ";
+    out += address;
+    out += " wants to pair (key ";
+    out += shortKey;
+    out += ").";
+    return out;
+}
+
+inline std::string TerminalRefusalText(TermReason reason) {
+    switch (reason) {
+        case TermReason::WrongPasscode: return std::string(kTerminalRefusedPasscode);
+        case TermReason::TooManySessions: return std::string(kTerminalRefusedBusy);
+        case TermReason::NotShared: return std::string(kTerminalRefusedOff);
+        case TermReason::NoSuchSession: return std::string(kTerminalRefusedGone);
+        case TermReason::Accepted: break;
+    }
+    return std::string(kTerminalRefused);
+}
+
 inline constexpr LStr kConnectedPickSession{"Connected \xE2\x80\x94 choose what to open."};
 inline constexpr LStr kPlayAudioLabel{"Play the sound of the device you are watching"};
 inline constexpr LStr kKeepAwakeLabel{"Keep this device awake while a session is active"};

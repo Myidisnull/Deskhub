@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 namespace deskhubp {
 
@@ -33,6 +34,13 @@ inline bool WriteAppDataFile(const std::string& fileName, const std::string& con
     if (!out) return false;
     out << content;
     return bool(out);
+}
+
+inline bool RemoveAppDataFile(const std::string& fileName) {
+    const std::filesystem::path path = AppDataFilePath(fileName);
+    if (path.empty()) return false;
+    std::error_code ec;
+    return std::filesystem::remove(path, ec) || !ec;
 }
 
 }

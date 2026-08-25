@@ -705,6 +705,34 @@ void TestFileWire() {
         "a host from before file transfer decodes as taking none");
 }
 
+void TestPairingWire() {
+    Fingerprint fp{};
+    fp.bytes[0] = 0xAB;
+    fp.bytes[31] = 0xCD;
+    const PairingHello hello{fp, "laptop"};
+    uint8_t buf[kMaxDatagram];
+    const size_t n = BuildPairingHello(buf, hello);
+    Check(n > 0, "pairing hello builds");
+    const auto header = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(header && header->type == MsgType::PairingHello && header->chan == Chan::Control,
+        "pairing hello header");
+    const auto back = ParsePairingHello(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(back && back->fingerprint == fp && back->clientName == "laptop",
+        "pairing hello round-trips");
+
+    const PairingResult accepted{PairingResultCode::Accepted};
+    const size_t rn = BuildPairingResult(buf, accepted);
+    Check(rn > 0, "pairing result builds");
+    const auto rback = ParsePairingResult(PayloadOf(std::span<const uint8_t>(buf, rn)));
+    Check(rback && rback->code == PairingResultCode::Accepted, "pairing result round-trips");
+
+    uint8_t truncated[kFingerprintBytes + 1]{};
+    std::memcpy(truncated, fp.bytes.data(), kFingerprintBytes);
+    truncated[kFingerprintBytes] = 4;
+    Check(!ParsePairingHello(std::span<const uint8_t>(truncated, sizeof(truncated))).has_value(),
+        "pairing hello rejects truncated name");
+}
+
 }
 
 void RunWireTests() {
@@ -723,4 +751,5 @@ void RunWireTests() {
     TestParseGarbage();
     TestRecordFraming();
     TestFileWire();
+    TestPairingWire();
 }

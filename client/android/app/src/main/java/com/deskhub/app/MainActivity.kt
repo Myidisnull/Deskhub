@@ -135,6 +135,7 @@ class MainActivity : ComponentActivity() {
                                 prefs.edit { putString("addr", addr) }
                             },
                             onOpenStream = ::openStream,
+                            onOpenShell = ::openShell,
                             onStartSharing = ::requestSharing,
                             onStopSharing = { HostService.stop(this@MainActivity) },
                         )
@@ -189,6 +190,17 @@ class MainActivity : ComponentActivity() {
                 .putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
                 .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
+        )
+    }
+
+    private fun openShell(
+        addr: String,
+        passcode: String,
+    ) {
+        startActivity(
+            Intent(this, TerminalActivity::class.java)
+                .putExtra("addr", addr)
+                .putExtra("passcode", passcode),
         )
     }
 }
@@ -276,6 +288,7 @@ private fun MainScreen(
     initialSessionKey: String = "",
     onRemember: (String, String) -> Unit,
     onOpenStream: (String, String, Int, List<NativeClient.Source>, String, Boolean) -> Unit,
+    onOpenShell: (String, String) -> Unit,
     onStartSharing: (HostService.ShareRequest) -> Unit,
     onStopSharing: () -> Unit,
 ) {
@@ -384,7 +397,7 @@ private fun MainScreen(
                 }
                 return@launch
             }
-            if (queried.sources.isEmpty() && !queried.caps.files) {
+            if (queried.sources.isEmpty() && !queried.caps.files && !queried.caps.terminal) {
                 if (step == mine) {
                     step = Step.Address
                     connectError = NativeClient.sourceQueryEmpty(addr)
@@ -481,6 +494,10 @@ private fun MainScreen(
                             true,
                         )
                     }
+                },
+                onOpenShell = {
+                    if (!s.caps.terminal) return@ConnectedScreen
+                    onOpenShell(s.address, s.passcode)
                 },
                 onDisconnect = { step = Step.Address },
             )
@@ -1097,6 +1114,21 @@ private fun SettingsScreen(
             )
             Text(NativeClient.string(NativeClient.STR_ACCEPT_FILES_LABEL))
         }
+        var shareTerminal by remember { mutableStateOf(NativeClient.shareTerminal()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = shareTerminal,
+                onCheckedChange = {
+                    shareTerminal = it
+                    NativeClient.setShareTerminal(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_SHARE_TERMINAL_LABEL))
+        }
         var playAudio by remember { mutableStateOf(NativeClient.playAudio()) }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1566,6 +1598,7 @@ private fun ConnectedScreen(
     caps: NativeClient.HostCaps,
     onOpenDesktop: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenShell: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
     Column(
@@ -1591,11 +1624,20 @@ private fun ConnectedScreen(
                     Text(NativeClient.string(NativeClient.STR_OPEN_FILES_LABEL))
                 }
             }
+            if (caps.terminal) {
+                OutlinedButton(onClick = onOpenShell, modifier = Modifier.fillMaxWidth()) {
+                    Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL))
+                }
+            }
         } else if (caps.files) {
             Text(
                 text = NativeClient.string(NativeClient.STR_ACCEPT_FILES_LABEL),
                 color = MutedColor,
             )
+        } else if (caps.terminal) {
+            Button(onClick = onOpenShell, modifier = Modifier.fillMaxWidth()) {
+                Text(NativeClient.string(NativeClient.STR_OPEN_SHELL_LABEL))
+            }
         }
         OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
             Text(NativeClient.string(NativeClient.STR_DISCONNECT_BUTTON))

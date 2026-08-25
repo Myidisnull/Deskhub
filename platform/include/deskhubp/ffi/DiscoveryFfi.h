@@ -125,6 +125,27 @@ void dh_set_play_audio(bool on);
 bool dh_accept_files(void);
 void dh_set_accept_files(bool on);
 
+bool dh_share_terminal(void);
+void dh_set_share_terminal(bool on);
+
+typedef struct {
+    char name[80];
+    char shortKey[16];
+    char fingerprint[64];
+    int64_t pairedUnix;
+    int64_t lastSeenUnix;
+} DHPairedDevice;
+
+int dh_paired_devices(DHPairedDevice* out, int capacity);
+bool dh_paired_forget(const char* fingerprint);
+void dh_paired_forget_all(void);
+bool dh_allow_pairing(void);
+void dh_set_allow_pairing(bool allow);
+int dh_own_fingerprint(char* out, int capacity);
+int dh_format_address(uint64_t addr_packed, char* out, int capacity);
+int dh_pairing_request_body(const char* name, const char* address, const char* short_key,
+    char* out, int capacity);
+
 bool dh_keep_awake(void);
 void dh_set_keep_awake(bool on);
 

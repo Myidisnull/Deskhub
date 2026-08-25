@@ -93,7 +93,7 @@ final class ConnectModel {
             connectError = DeskhubClient.sourceQueryFailed(accepted)
             return ([], HostCaps())
         }
-        guard !found.sources.isEmpty || found.caps.files else {
+        guard !found.sources.isEmpty || found.caps.files || found.caps.terminal else {
             connectError = DeskhubClient.sourceQueryEmpty(accepted)
             return ([], HostCaps())
         }

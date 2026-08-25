@@ -30,6 +30,8 @@
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Autostart.h"
 #include "deskhubp/system/Language.h"
+#include "deskhubp/system/MachineId.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
@@ -534,6 +536,70 @@ void dh_set_accept_files(bool on) {
     ui::UiSettings out = deskhubp::LoadUiSettings();
     out.acceptFiles = on;
     deskhubp::SaveUiSettings(out);
+}
+
+bool dh_share_terminal(void) {
+    return deskhubp::LoadUiSettings().shareTerminal;
+}
+
+void dh_set_share_terminal(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.shareTerminal = on;
+    deskhubp::SaveUiSettings(out);
+}
+
+int dh_paired_devices(DHPairedDevice* out, int capacity) {
+    if (!out || capacity <= 0) return 0;
+    const deskhub::PairedDevices devices = deskhubp::LoadPairedDevices();
+    const int count =
+        int(devices.Size()) < capacity ? int(devices.Size()) : capacity;
+    for (int i = 0; i < count; ++i) {
+        const deskhub::PairedDevice& device = devices.Devices()[size_t(i)];
+        FillText(out[i].name, int(sizeof(out[i].name)), device.name);
+        FillText(out[i].shortKey, int(sizeof(out[i].shortKey)),
+            deskhub::ShortFingerprint(device.fingerprint));
+        FillText(out[i].fingerprint, int(sizeof(out[i].fingerprint)),
+            deskhub::FormatFingerprint(device.fingerprint));
+        out[i].pairedUnix = device.pairedUnix;
+        out[i].lastSeenUnix = device.lastSeenUnix;
+    }
+    return count;
+}
+
+bool dh_paired_forget(const char* fingerprint) {
+    if (!fingerprint) return false;
+    const std::optional<deskhub::Fingerprint> fp = deskhub::ParseFingerprint(fingerprint);
+    return fp && deskhubp::ForgetPairedDevice(*fp);
+}
+
+void dh_paired_forget_all(void) {
+    deskhubp::ForgetAllPairedDevices();
+}
+
+bool dh_allow_pairing(void) {
+    return deskhubp::LoadUiSettings().allowNewPairings;
+}
+
+void dh_set_allow_pairing(bool allow) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.allowNewPairings = allow;
+    deskhubp::SaveUiSettings(out);
+}
+
+int dh_own_fingerprint(char* out, int capacity) {
+    return FillText(out, capacity,
+        deskhub::FormatFingerprint(deskhubp::LoadOrCreateMachineFingerprint()));
+}
+
+int dh_format_address(uint64_t addr_packed, char* out, int capacity) {
+    return FillText(out, capacity, NetAddr::Unpack(addr_packed).ToString());
+}
+
+int dh_pairing_request_body(const char* name, const char* address, const char* short_key,
+    char* out, int capacity) {
+    return FillText(out, capacity,
+        ui::PairingRequestBody(name ? name : "", address ? address : "",
+            short_key ? short_key : ""));
 }
 
 bool dh_keep_awake(void) {

@@ -4,7 +4,9 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhubp/net/UdpSocket.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <vector>
 
@@ -16,7 +18,7 @@ inline bool SendFileMessage(UdpSocket& sock, const NetAddr& to,
     std::span<const uint8_t> message) {
     if (message.empty()) return false;
     if (message.size() + deskhub::kCommonHeaderSize <= deskhub::kMaxDatagram)
-        return sock.SendTo(to, message.data(), message.size()) > 0;
+        return sock.SendTo(to, message.data(), message.size());
 
     std::vector<uint8_t> record(deskhub::kMaxRecordBacklog);
     const size_t total = deskhub::BuildRecord(record, message);
@@ -34,7 +36,7 @@ inline bool SendFileMessage(UdpSocket& sock, const NetAddr& to,
         deskhub::PutU32(buf + 4, 0);
         std::memcpy(buf + deskhub::kCommonHeaderSize, record.data() + off, slice);
         const size_t n = deskhub::kCommonHeaderSize + slice;
-        if (sock.SendTo(to, buf, n) <= 0) return false;
+        if (!sock.SendTo(to, buf, n)) return false;
         off += slice;
     }
     return true;

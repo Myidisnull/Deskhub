@@ -22,6 +22,7 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -32,6 +33,7 @@
 #include "PasscodePrompt.h"
 #include "QuitBusyPrompt.h"
 #include "SourcePickerDialog.h"
+#include "Terminal.h"
 #include "Viewer.h"
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/media/SourceLabel.h"
@@ -62,9 +64,12 @@
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/Language.h"
+#include "deskhubp/system/MachineId.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
 #include "deskhubp/system/Random.h"
+#include "deskhubp/session/PairingAskQueue.h"
 
 namespace {
 
@@ -94,6 +99,43 @@ constexpr int kTrayExitId = wxID_HIGHEST + 2;
 UINT SystemMonitorActivateMsg() {
     static const UINT msg = RegisterWindowMessageW(L"SystemMonitor.ActivateInstance");
     return msg;
+}
+
+enum class ConnectSurface { Cancel,
+    Desktop,
+    Shell };
+
+ConnectSurface AskConnectSurface(wxWindow* parent, bool desktop, bool shell) {
+    if (desktop && !shell) return ConnectSurface::Desktop;
+    if (!desktop && shell) return ConnectSurface::Shell;
+    if (!desktop && !shell) return ConnectSurface::Cancel;
+
+    wxDialog dlg(parent, wxID_ANY, ToWx(ui::kAppTitle));
+    auto* root = new wxBoxSizer(wxVERTICAL);
+    auto* hint = new wxStaticText(&dlg, wxID_ANY, ToWx(ui::kConnectedPickSession));
+    root->Add(hint, wxSizerFlags().Border(wxALL, dlg.FromDIP(16)));
+
+    auto* buttons = new wxBoxSizer(wxHORIZONTAL);
+    auto* desktopBtn = new wxButton(&dlg, wxID_YES, ToWx(ui::kOpenDesktopLabel));
+    auto* shellBtn = new wxButton(&dlg, wxID_NO, ToWx(ui::kOpenShellLabel));
+    auto* cancelBtn = new wxButton(&dlg, wxID_CANCEL, ToWx(ui::kQuitWhileBusyCancel));
+    buttons->Add(desktopBtn);
+    buttons->AddSpacer(dlg.FromDIP(8));
+    buttons->Add(shellBtn);
+    buttons->AddSpacer(dlg.FromDIP(8));
+    buttons->Add(cancelBtn);
+    root->Add(buttons, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxBOTTOM, dlg.FromDIP(16)));
+    dlg.SetSizerAndFit(root);
+    dlg.CentreOnParent();
+
+    desktopBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_YES); });
+    shellBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_NO); });
+    cancelBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_CANCEL); });
+
+    const int result = dlg.ShowModal();
+    if (result == wxID_YES) return ConnectSurface::Desktop;
+    if (result == wxID_NO) return ConnectSurface::Shell;
+    return ConnectSurface::Cancel;
 }
 
 enum Page { kPageHost = 0,
@@ -442,6 +484,10 @@ private:
         bool allowInput, const std::string& passcode);
     void StopHosting();
     void OnHostTimer(wxTimerEvent& event);
+    void DrainPairingAsks();
+    void RefreshPairedDevices();
+    void ForgetSelectedDevice();
+    void ForgetEveryDevice();
     void OnClipboardTimer(wxTimerEvent& event);
     void OnCopyKeyFeedbackTimer(wxTimerEvent& event);
     void FlashCopyFeedback(wxButton* button, const char* restoreLabel);
@@ -554,6 +600,12 @@ private:
     wxCheckBox* clipboardCtrl_ = nullptr;
     wxCheckBox* shareAudioCtrl_ = nullptr;
     wxCheckBox* acceptFilesCtrl_ = nullptr;
+    wxCheckBox* shareTerminalCtrl_ = nullptr;
+    wxCheckBox* allowPairingCtrl_ = nullptr;
+    wxListCtrl* pairedList_ = nullptr;
+    wxStaticText* pairedHint_ = nullptr;
+    wxButton* forgetDeviceBtn_ = nullptr;
+    std::vector<deskhub::PairedDevice> pairedDevices_;
     wxCheckBox* playAudioCtrl_ = nullptr;
     wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* encryptSessionCtrl_ = nullptr;
@@ -1090,6 +1142,9 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     acceptFilesCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAcceptFilesLabel));
     acceptFilesCtrl_->SetValue(settings_.acceptFiles);
     sizer->Add(acceptFilesCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    shareTerminalCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kShareTerminalLabel));
+    shareTerminalCtrl_->SetValue(settings_.shareTerminal);
+    sizer->Add(shareTerminalCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     playAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kPlayAudioLabel));
     playAudioCtrl_->SetValue(settings_.playAudio);
     sizer->Add(playAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1139,6 +1194,50 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sessionKeyRow_->SetSizer(keyBtns);
     sizer->Add(sessionKeyRow_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     SyncSessionCryptoControls();
+
+    sizer->AddSpacer(FromDIP(12));
+    sizer->Add(MakeHeading(panel, ui::kPairedHeading), pad);
+    sizer->Add(MakeHint(panel, ToWx(ui::kPairedHint)), pad);
+
+    pairedList_ = new wxListCtrl(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+        wxLC_REPORT | wxLC_SINGLE_SEL);
+    pairedList_->InsertColumn(0, ToWx(ui::kPairedColumnName), wxLIST_FORMAT_LEFT, FromDIP(200));
+    pairedList_->InsertColumn(1, ToWx(ui::kPairedColumnKey), wxLIST_FORMAT_LEFT, FromDIP(130));
+    pairedList_->InsertColumn(2, ToWx(ui::kPairedColumnPaired), wxLIST_FORMAT_LEFT, FromDIP(150));
+    pairedList_->InsertColumn(3, ToWx(ui::kPairedColumnLastSeen), wxLIST_FORMAT_LEFT, FromDIP(150));
+    pairedList_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
+    sizer->Add(pairedList_,
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+
+    pairedHint_ = MakeHint(panel, ToWx(ui::kPairedEmpty));
+    sizer->Add(pairedHint_, pad);
+
+    auto* pairedButtons = new wxBoxSizer(wxHORIZONTAL);
+    forgetDeviceBtn_ = new wxButton(panel, wxID_ANY, ToWx(ui::kPairedForget));
+    forgetDeviceBtn_->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ForgetSelectedDevice(); });
+    pairedButtons->Add(forgetDeviceBtn_);
+    auto* forgetAll = new wxButton(panel, wxID_ANY, ToWx(ui::kPairedForgetAll));
+    forgetAll->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ForgetEveryDevice(); });
+    pairedButtons->AddSpacer(FromDIP(8));
+    pairedButtons->Add(forgetAll);
+    sizer->Add(pairedButtons, pad);
+    sizer->Add(MakeHint(panel, ToWx(ui::kPairedForgetNote)), pad);
+
+    allowPairingCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAllowPairingLabel));
+    allowPairingCtrl_->SetValue(settings_.allowNewPairings);
+    allowPairingCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    sizer->Add(allowPairingCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    sizer->Add(MakeHint(panel, ToWx(ui::kAllowPairingHint)), pad);
+
+    sizer->AddSpacer(FromDIP(8));
+    sizer->Add(MakeSection(panel, ui::kThisMachineHeading), pad);
+    auto* fingerprint = new wxTextCtrl(panel, wxID_ANY,
+        ToWx(deskhub::FormatFingerprint(deskhubp::LoadOrCreateMachineFingerprint())),
+        wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
+    fingerprint->SetFont(wxFontInfo(10).Family(wxFONTFAMILY_TELETYPE));
+    sizer->Add(fingerprint, wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    sizer->Add(MakeHint(panel, ToWx(ui::kThisMachineHint)), pad);
+    RefreshPairedDevices();
 
     sizer->AddSpacer(FromDIP(12));
     sizer->Add(MakeSection(panel, ui::kSettingsSectionLaunch), pad);
@@ -1239,6 +1338,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     shareAudioCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     acceptFilesCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    shareTerminalCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     playAudioCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     keepAwakeCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     encryptSessionCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
@@ -1620,6 +1720,7 @@ void MainFrame::OnShare(ShareTrigger trigger) {
     options.clipboardSync = settings_.clipboardSync;
     options.audio = settings_.shareAudio;
     options.acceptFiles = settings_.acceptFiles;
+    options.shareTerminal = settings_.shareTerminal;
     if (!deskhubp::ApplyEncryptToAgentOptions(settings_, options)) {
         ReportShareProblem(ToWx(ui::kShareStartFailed), ToWx(ui::kAppTitle));
         return;
@@ -1748,6 +1849,8 @@ void MainFrame::StopHosting() {
 void MainFrame::OnHostTimer(wxTimerEvent&) {
     if (!hosting_ || hostStopping_) return;
 
+    DrainPairingAsks();
+
     std::vector<AgentSourceStatus> rows;
     const deskhubp::AgentDriveState state = agentDriver_.Poll(agentLoop_, rows);
     if (state == deskhubp::AgentDriveState::Stopped) {
@@ -1755,6 +1858,63 @@ void MainFrame::OnHostTimer(wxTimerEvent&) {
         return;
     }
     if (state == deskhubp::AgentDriveState::Running) UpdateHostRows(rows);
+}
+
+void MainFrame::DrainPairingAsks() {
+    const std::vector<deskhubp::PairingAsk> asks = deskhubp::SharedPairingAskQueue().Take(8);
+    if (asks.empty()) return;
+
+    std::unordered_set<std::string> pairedKeys;
+    for (const deskhub::PairedDevice& device : deskhubp::LoadPairedDevices().Devices())
+        pairedKeys.insert(deskhub::ShortFingerprint(device.fingerprint));
+
+    for (const deskhubp::PairingAsk& ask : asks) {
+        if (pairedKeys.contains(ask.shortKey)) {
+            deskhubp::SharedPairingAskQueue().Answer(ask.addrPacked, true);
+            continue;
+        }
+        const wxString body = ToWx(ui::PairingRequestBody(ask.name,
+            NetAddr::Unpack(ask.addrPacked).ToString(), ask.shortKey));
+        wxMessageDialog dialog(this, body, ToWx(ui::kPairingRequestTitle),
+            wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+        dialog.SetYesNoLabels(ToWx(ui::kPairingAllow), ToWx(ui::kPairingDeny));
+        const bool allowed = dialog.ShowModal() == wxID_YES;
+        deskhubp::SharedPairingAskQueue().Answer(ask.addrPacked, allowed);
+        if (allowed) RefreshPairedDevices();
+    }
+}
+
+void MainFrame::RefreshPairedDevices() {
+    if (pairedList_ == nullptr) return;
+    pairedDevices_ = deskhubp::LoadPairedDevices().Devices();
+    pairedList_->DeleteAllItems();
+    for (size_t i = 0; i < pairedDevices_.size(); ++i) {
+        const deskhub::PairedDevice& device = pairedDevices_[i];
+        const long row = pairedList_->InsertItem(long(i),
+            ToWx(device.name.empty() ? std::string("(unnamed)") : device.name));
+        pairedList_->SetItem(row, 1, ToWx(deskhub::ShortFingerprint(device.fingerprint)));
+        pairedList_->SetItem(row, 2, ToWx(deskhubp::FormatUnixMinute(device.pairedUnix)));
+        pairedList_->SetItem(row, 3, ToWx(deskhubp::FormatUnixMinute(device.lastSeenUnix)));
+    }
+    pairedHint_->Show(pairedDevices_.empty());
+    forgetDeviceBtn_->Enable(!pairedDevices_.empty());
+    if (settingsPage_) settingsPage_->Layout();
+}
+
+void MainFrame::ForgetSelectedDevice() {
+    const long row = pairedList_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+    if (row < 0 || size_t(row) >= pairedDevices_.size()) return;
+    deskhubp::ForgetPairedDevice(pairedDevices_[size_t(row)].fingerprint);
+    RefreshPairedDevices();
+}
+
+void MainFrame::ForgetEveryDevice() {
+    if (pairedDevices_.empty()) return;
+    wxMessageDialog dialog(this, ToWx(ui::kPairedForgetAllPrompt), ToWx(ui::kAppTitle),
+        wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
+    if (dialog.ShowModal() != wxID_YES) return;
+    deskhubp::ForgetAllPairedDevices();
+    RefreshPairedDevices();
 }
 
 void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
@@ -2035,7 +2195,7 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
         wxMessageBox(ToWx(msg), ToWx(ui::kAppTitle), wxOK | wxICON_WARNING, this);
         return;
     }
-    if (outcome.sources.empty()) {
+    if (outcome.sources.empty() && !outcome.caps.files && !outcome.caps.terminal) {
         const std::string msg = ui::SourceQueryEmpty(addr);
         LOGW("[Connect] %s", msg.c_str());
         SetClientStatus(ToWx(msg), kOffline);
@@ -2051,6 +2211,24 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     SaveRecentDevices();
     poller_.SetAddresses(AddressesOf(recent_));
     RefreshRecentList();
+
+    if (outcome.sources.empty() && outcome.caps.terminal) {
+        std::thread([addr, passcode] { RunTerminal(addr, passcode); }).detach();
+        DeselectAllRows();
+        return;
+    }
+
+    const ConnectSurface surface =
+        AskConnectSurface(this, !outcome.sources.empty(), outcome.caps.terminal);
+    if (surface == ConnectSurface::Cancel) {
+        DeselectAllRows();
+        return;
+    }
+    if (surface == ConnectSurface::Shell) {
+        std::thread([addr, passcode] { RunTerminal(addr, passcode); }).detach();
+        DeselectAllRows();
+        return;
+    }
 
     std::vector<deskhub::SourceInfo> picked;
     if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
@@ -2132,6 +2310,8 @@ void MainFrame::SaveSettings() {
     settings_.clipboardSync = clipboardCtrl_->GetValue();
     settings_.shareAudio = shareAudioCtrl_->GetValue();
     settings_.acceptFiles = acceptFilesCtrl_->GetValue();
+    settings_.shareTerminal = shareTerminalCtrl_->GetValue();
+    if (allowPairingCtrl_) settings_.allowNewPairings = allowPairingCtrl_->GetValue();
     settings_.playAudio = playAudioCtrl_->GetValue();
     settings_.keepAwake = keepAwakeCtrl_->GetValue();
     settings_.encryptSession = encryptSessionCtrl_->GetValue();

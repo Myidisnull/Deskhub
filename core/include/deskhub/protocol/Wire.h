@@ -1,4 +1,6 @@
 #pragma once
+#include "deskhub/net/TrustStore.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -48,6 +50,7 @@ enum class Chan : uint8_t { Control = 0,
     Video = 1,
     Input = 2,
     Audio = 3,
+    Terminal = 4,
     File = 5 };
 
 enum class MsgType : uint8_t {
@@ -74,12 +77,20 @@ enum class MsgType : uint8_t {
     Noise2 = 0x51,
     Noise3 = 0x52,
     NoiseDecline = 0x53,
+    TermOpen = 0x54,
+    TermOpenAck = 0x55,
+    TermData = 0x56,
+    TermResize = 0x57,
+    TermClose = 0x58,
+    TermExit = 0x59,
     FileOffer = 0x70,
     FileAccept = 0x71,
     FileChunk = 0x72,
     FileDone = 0x73,
     FileAck = 0x74,
     FileCancel = 0x75,
+    PairingHello = 0x66,
+    PairingResult = 0x67,
 };
 
 inline constexpr uint16_t kFeatureEncryptCapable = 1u << 0;
@@ -425,6 +436,57 @@ struct FileCancel {
     TransferReason reason = TransferReason::Cancelled;
 };
 
+inline constexpr size_t kMaxTermDataBytes = 4096;
+inline constexpr uint16_t kMinTermCols = 1;
+inline constexpr uint16_t kMinTermRows = 1;
+inline constexpr uint16_t kMaxTermCols = 1000;
+inline constexpr uint16_t kMaxTermRows = 1000;
+inline constexpr uint16_t kDefaultTermCols = 80;
+inline constexpr uint16_t kDefaultTermRows = 24;
+
+struct TermSize {
+    uint16_t cols = kDefaultTermCols;
+    uint16_t rows = kDefaultTermRows;
+
+    bool operator==(const TermSize&) const = default;
+};
+
+bool IsValidTermSize(TermSize size);
+TermSize ClampTermSize(TermSize size);
+
+enum class TermReason : uint8_t {
+    Accepted = 0,
+    WrongPasscode = 1,
+    TooManySessions = 2,
+    NotShared = 3,
+    NoSuchSession = 4,
+};
+
+struct TermOpen {
+    TermSize size{};
+    uint32_t resumeId = 0;
+    std::string passcode{};
+    std::string clientName{};
+};
+
+struct TermOpenAck {
+    uint32_t termId = 0;
+    TermReason reason = TermReason::Accepted;
+    bool resumed = false;
+};
+
+size_t BuildTermOpen(std::span<uint8_t> out, const TermOpen& m);
+size_t BuildTermOpenAck(std::span<uint8_t> out, const TermOpenAck& m);
+size_t BuildTermData(std::span<uint8_t> out, uint32_t termId, std::span<const uint8_t> data);
+size_t BuildTermResize(std::span<uint8_t> out, uint32_t termId, TermSize size);
+size_t BuildTermClose(std::span<uint8_t> out, uint32_t termId);
+size_t BuildTermExit(std::span<uint8_t> out, uint32_t termId, int32_t exitCode);
+
+std::optional<TermOpen> ParseTermOpen(std::span<const uint8_t> payload);
+std::optional<TermOpenAck> ParseTermOpenAck(std::span<const uint8_t> payload);
+std::optional<TermSize> ParseTermResize(std::span<const uint8_t> payload);
+std::optional<int32_t> ParseTermExit(std::span<const uint8_t> payload);
+
 size_t BuildFileOffer(std::span<uint8_t> out, const FileOffer& m);
 size_t BuildFileAccept(std::span<uint8_t> out, const FileAccept& m);
 size_t BuildFileChunk(std::span<uint8_t> out, uint32_t batchId, uint16_t fileIndex,
@@ -439,5 +501,26 @@ std::optional<FileChunkView> ParseFileChunk(std::span<const uint8_t> payload);
 std::optional<FileDone> ParseFileDone(std::span<const uint8_t> payload);
 std::optional<FileAck> ParseFileAck(std::span<const uint8_t> payload);
 std::optional<FileCancel> ParseFileCancel(std::span<const uint8_t> payload);
+
+enum class PairingResultCode : uint8_t {
+    Accepted = 0,
+    Refused = 1,
+    Disabled = 2,
+};
+
+struct PairingHello {
+    Fingerprint fingerprint{};
+    std::string clientName{};
+};
+
+struct PairingResult {
+    PairingResultCode code = PairingResultCode::Refused;
+};
+
+size_t BuildPairingHello(std::span<uint8_t> out, const PairingHello& m);
+size_t BuildPairingResult(std::span<uint8_t> out, const PairingResult& m);
+
+std::optional<PairingHello> ParsePairingHello(std::span<const uint8_t> payload);
+std::optional<PairingResult> ParsePairingResult(std::span<const uint8_t> payload);
 
 }

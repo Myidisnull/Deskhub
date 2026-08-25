@@ -13,6 +13,8 @@
 #include "deskhubp/session/HostAgent.h"
 #include "deskhubp/session/HostNetLoop.h"
 #include "deskhubp/host/FileHost.h"
+#include "deskhubp/host/HostPairingBroker.h"
+#include "deskhubp/host/TerminalHost.h"
 #include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/Clock.h"
 
@@ -143,6 +145,14 @@ public:
         return files_.get();
     }
 
+    TerminalHost* terminal() {
+        return terminal_.get();
+    }
+
+    const TerminalHost* terminal() const {
+        return terminal_.get();
+    }
+
 private:
     bool Fail(std::string message);
     void AttachSession(HostSource& st);
@@ -189,6 +199,8 @@ private:
     AudioBroadcaster audio_;
     deskhub::Beacon beacon_;
     std::unique_ptr<FileHost> files_;
+    std::unique_ptr<TerminalHost> terminal_;
+    HostPairingBroker pairing_;
 
     uint32_t startBitrateBps_ = 0;
     bool keepAwakeHeld_ = false;

@@ -62,6 +62,7 @@ add_executable(deskhub_app
     gtk/PasscodeDialog.cpp
     gtk/TrayIcon.cpp
     gtk/ViewerWindow.cpp
+    gtk/Terminal.cpp
 
     cpp/AgentLoop.cpp
 

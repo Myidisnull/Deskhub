@@ -13,6 +13,7 @@ final class SessionModel {
     var hostCaps = HostCaps()
     var openFilePickerOnStream = false
     private(set) var stream: StreamModel?
+    private(set) var terminal: TerminalModel?
 
     func beginConnect(to address: String, passcode: String) {
         connect.address = address
@@ -57,6 +58,19 @@ final class SessionModel {
         }
     }
 
+    func openShell() {
+        guard hostCaps.terminal else { return }
+        connect.connectError = ""
+        let model = TerminalModel()
+        guard model.open(address: connect.acceptedAddress, passcode: connect.acceptedPasscode) else {
+            connect.connectError = DeskhubClient.couldNotConnect(connect.acceptedAddress) + " "
+                + DeskhubClient.string(DHStrInvalidAddressHint)
+            return
+        }
+        terminal = model
+        screen = .terminal
+    }
+
     func startStream(sourceId: UInt8) {
         connect.connectError = ""
         let address = connect.acceptedAddress
@@ -86,6 +100,8 @@ final class SessionModel {
     func disconnect() {
         stream?.disconnect()
         stream = nil
+        terminal?.stop()
+        terminal = nil
         openFilePickerOnStream = false
         sources = []
         hostCaps = HostCaps()
@@ -96,6 +112,12 @@ final class SessionModel {
         stream?.disconnect()
         stream = nil
         openFilePickerOnStream = false
+        screen = .connected
+    }
+
+    func leaveTerminal() {
+        terminal?.stop()
+        terminal = nil
         screen = .connected
     }
 

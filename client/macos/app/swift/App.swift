@@ -30,5 +30,13 @@ struct SystemMonitorApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1024, height: 634)
+
+        WindowGroup(id: "terminal", for: TerminalRequest.self) { $request in
+            if let request {
+                TerminalWindow(request: request)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 900, height: 560)
     }
 }

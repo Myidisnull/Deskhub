@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var connectedSources: [Source] = []
     @State private var connectedCaps = HostCaps()
     @State private var openFilesIntent = false
+    @State private var pairingAsks = PairingAskModel()
 
     var body: some View {
         Group {
@@ -34,6 +35,13 @@ struct ContentView: View {
             }
         }
         .navigationTitle(windowTitle)
+        .pairingPrompt(pairingAsks)
+        .task {
+            while !Task.isCancelled {
+                pairingAsks.drain()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
         .onAppear {
             lifecycle.attach(agent: agent)
         }

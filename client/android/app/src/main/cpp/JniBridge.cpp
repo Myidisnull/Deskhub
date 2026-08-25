@@ -268,6 +268,16 @@ Java_com_deskhub_app_NativeClient_nativeSetAcceptFiles(JNIEnv*, jobject, jboolea
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeShareTerminal(JNIEnv*, jobject) {
+    return dh_share_terminal() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetShareTerminal(JNIEnv*, jobject, jboolean on) {
+    dh_set_share_terminal(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativePlayAudio(JNIEnv*, jobject) {
     return dh_play_audio() ? JNI_TRUE : JNI_FALSE;
 }

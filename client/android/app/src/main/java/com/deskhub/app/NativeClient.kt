@@ -114,6 +114,8 @@ object NativeClient {
     const val STR_OPEN_DESKTOP_LABEL = 133
     const val STR_OPEN_FILES_LABEL = 134
     const val STR_CONNECTED_PICK_SESSION = 135
+    const val STR_OPEN_SHELL_LABEL = 136
+    const val STR_SHARE_TERMINAL_LABEL = 137
 
     const val LINK_QUALITY_UNKNOWN = 0
     const val LINK_QUALITY_GOOD = 1
@@ -283,6 +285,14 @@ object NativeClient {
     fun acceptFiles(): Boolean = nativeAcceptFiles()
 
     fun setAcceptFiles(on: Boolean) = nativeSetAcceptFiles(on)
+
+    private external fun nativeShareTerminal(): Boolean
+
+    private external fun nativeSetShareTerminal(on: Boolean)
+
+    fun shareTerminal(): Boolean = nativeShareTerminal()
+
+    fun setShareTerminal(on: Boolean) = nativeSetShareTerminal(on)
 
     fun playAudio(): Boolean = nativePlayAudio()
 

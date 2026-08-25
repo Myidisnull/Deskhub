@@ -94,6 +94,8 @@ struct SharingView: View {
                     }
                 }
 
+                DevicesPage()
+
                 BroadcastPickerButton(
                     extensionBundleId: SharingModel.extensionBundleId,
                     title: DeskhubClient.string(

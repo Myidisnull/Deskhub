@@ -39,6 +39,15 @@ else()
 endif()
 
 if(WIN32)
+    set(deskhub_platform_pty src/system/PtyWin.cpp)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+       (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"))
+    set(deskhub_platform_pty src/system/PtyPosix.cpp)
+else()
+    set(deskhub_platform_pty src/system/PtyNone.cpp)
+endif()
+
+if(WIN32)
     set(deskhub_platform_os
         src/net/UdpSocketWin.cpp
         src/net/NetInfoWin.cpp
@@ -129,6 +138,7 @@ endif()
 
 add_library(platform STATIC
     ${deskhub_platform_os}
+    ${deskhub_platform_pty}
     ${deskhub_platform_audio}
     ${deskhub_platform_sink}
     src/audio/AudioPlayer.cpp
@@ -143,11 +153,20 @@ add_library(platform STATIC
     src/session/HostAgent.cpp
     src/session/HostEngine.cpp
     src/host/FileHost.cpp
+    src/host/TerminalHost.cpp
+    src/host/HostPairingBroker.cpp
     src/client/FileUpload.cpp
+    src/client/TerminalViewer.cpp
     src/system/FileStore.cpp
+    src/system/AuthProof.cpp
+    src/system/MachineId.cpp
+    src/system/PairedDevicesFile.cpp
+    src/system/TrustStoreFile.cpp
+    src/session/PairingAskQueue.cpp
     src/ffi/ClientFfi.cpp
     src/ffi/AgentSession.cpp
     src/ffi/DiscoveryFfi.cpp
+    src/ffi/TerminalFfi.cpp
 )
 target_include_directories(platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(platform PUBLIC cxx_std_20)
@@ -190,6 +209,9 @@ endif()
 deskhub_target_warnings(platform)
 if(WIN32)
     target_link_libraries(platform PUBLIC ws2_32 psapi shell32)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(platform PUBLIC util)
 endif()
 if(MSVC)
     target_compile_options(platform PRIVATE /sdl)

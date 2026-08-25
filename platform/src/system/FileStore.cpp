@@ -15,13 +15,21 @@ namespace {
 
 std::filesystem::path HomePath() {
 #ifdef _WIN32
-    const char* home = std::getenv("USERPROFILE");
+    char* home = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&home, &len, "USERPROFILE") != 0 || home == nullptr || home[0] == '\0') {
+        free(home);
+        return {};
+    }
+    const std::u8string wide(reinterpret_cast<const char8_t*>(home));
+    free(home);
+    return std::filesystem::path(wide);
 #else
     const char* home = std::getenv("HOME");
-#endif
     if (home == nullptr || home[0] == '\0') return {};
     const std::u8string wide(reinterpret_cast<const char8_t*>(home));
     return std::filesystem::path(wide);
+#endif
 }
 
 std::filesystem::path Utf8Path(const std::string& text) {

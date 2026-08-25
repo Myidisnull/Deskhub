@@ -2,3 +2,4 @@
 #import "deskhubp/ffi/ClientSession.h"
 #import "deskhubp/ffi/DiscoveryFfi.h"
 #import "deskhubp/ffi/AgentSession.h"
+#import "deskhubp/ffi/TerminalFfi.h"

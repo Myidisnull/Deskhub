@@ -31,9 +31,23 @@ struct ConnectedView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                 }
+
+                if caps.terminal {
+                    Button(DeskhubClient.string(DHStrOpenShellLabel)) {
+                        openShell()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
             } else if caps.files {
                 Text(DeskhubClient.string(DHStrAcceptFilesLabel))
                     .foregroundStyle(.secondary)
+            } else if caps.terminal {
+                Button(DeskhubClient.string(DHStrOpenShellLabel)) {
+                    openShell()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
 
             Button(DeskhubClient.string(DHStrDisconnectButton)) {
@@ -73,5 +87,13 @@ struct ConnectedView: View {
                         openFiles: true, openWindow: openWindow)
             route = .connect
         }
+    }
+
+    private func openShell() {
+        guard caps.terminal else { return }
+        openWindow(value: TerminalRequest(
+            address: connect.acceptedAddress, passcode: connect.acceptedPasscode
+        ))
+        route = .connect
     }
 }

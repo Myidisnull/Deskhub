@@ -10,6 +10,7 @@
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/KeepAwake.h"
+#include "deskhubp/system/Pty.h"
 #include "deskhubp/system/UiSettingsStore.h"
 
 #include <cstdio>
@@ -130,7 +131,10 @@ void HostEngine::AttachSession(HostSource& st) {
     deskhub::HostCallbacks cb = base;
     cb.onViewerLeave = [this, leave = base.onViewerLeave](uint64_t addrPacked, size_t viewerCount) {
         if (leave) leave(addrPacked, viewerCount);
-        if (files_) files_->OnPeerGone(NetAddr::Unpack(addrPacked));
+        const NetAddr peer = NetAddr::Unpack(addrPacked);
+        if (files_) files_->OnPeerGone(peer);
+        if (terminal_) terminal_->OnPeerGone(peer);
+        pairing_.ForgetPeer(addrPacked);
     };
 
     st.session = std::make_unique<deskhub::HostSession>(cb, st.offer, &viewerBudget_);
@@ -188,8 +192,9 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         statusRows_.clear();
     }
 
-    const bool filesOnly = sources.empty() && opt_.acceptFiles;
-    if (sources.empty() && !opt_.acceptFiles) return Fail(policy_.noSourceError);
+    const bool filesOnly = sources.empty() && opt_.acceptFiles && !opt_.shareTerminal;
+    if (sources.empty() && !opt_.acceptFiles && !opt_.shareTerminal)
+        return Fail(policy_.noSourceError);
     if (sources.size() > deskhub::kMaxSources)
         return Fail("At most " + std::to_string(deskhub::kMaxSources) +
                     " sources can be shared at once.");
@@ -253,6 +258,21 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         LOGI("[Agent] File receive only.");
     }
 
+    if (opt_.shareTerminal) {
+        terminal_ = std::make_unique<TerminalHost>();
+        auto peerAuth = [this](uint64_t addrPacked) { return pairing_.IsAuthenticated(addrPacked); };
+        if (!terminal_->Start(sock_, DefaultShell(), opt_.passcode, TerminalHostCallbacks{},
+                std::move(peerAuth))) {
+            terminal_.reset();
+            if (filesOnly && !opt_.acceptFiles) {
+                running_.store(false, std::memory_order_release);
+                sock_.Close();
+                return Fail("Shell sharing is not available on this device.");
+            }
+            LOGW("[Agent] Shell sharing is off on this device.");
+        }
+    }
+
     PublishStatus();
     {
         std::lock_guard<std::mutex> lk(errMutex_);
@@ -295,6 +315,9 @@ void HostEngine::StopLocked() {
 
     if (files_) files_->Stop();
     files_.reset();
+    if (terminal_) terminal_->Stop();
+    terminal_.reset();
+    pairing_.Reset();
 
     quit_.store(true);
     {
@@ -432,25 +455,35 @@ void HostEngine::StartAudio() {
 
 void HostEngine::RecvLoop() {
     const bool takingFiles = files_ != nullptr && files_->Running();
+    const bool takingTerminal = terminal_ != nullptr && terminal_->Running();
     beacon_.SetPasscode(opt_.passcode);
     beacon_.SetCaps(
-        deskhub::HostCaps{opt_.allowInput, false, audio_.running(), takingFiles});
+        deskhub::HostCaps{opt_.allowInput, takingTerminal, audio_.running(), takingFiles});
 
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
         const bool filesOn = files_ != nullptr && files_->Running();
+        const bool terminalOn = terminal_ != nullptr && terminal_->Running();
         beacon_.SetCaps(
-            deskhub::HostCaps{opt_.allowInput, false, audio_.running(), filesOn});
+            deskhub::HostCaps{opt_.allowInput, terminalOn, audio_.running(), filesOn});
+        pairing_.DrainAnswers(sock_);
         DrainControlRequests();
         DrainLocalClipboard();
         if (files_) files_->DrainGone();
+        if (terminal_) terminal_->DrainGone();
         SyncKeepAwakeHeld(true);
     };
     loop.publishStatus = [this] { PublishStatus(); };
     loop.onFile = [this](const NetAddr& from, std::span<const uint8_t> datagram) {
         if (files_) files_->HandleDatagram(from, datagram);
+    };
+    loop.onTerminal = [this](const NetAddr& from, std::span<const uint8_t> datagram) {
+        if (terminal_) terminal_->HandleDatagram(from, datagram);
+    };
+    loop.onPairing = [this](const NetAddr& from, std::span<const uint8_t> datagram) {
+        pairing_.HandleDatagram(sock_, from, datagram);
     };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;

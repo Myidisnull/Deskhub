@@ -2,6 +2,7 @@
 #include "support/TestSupport.h"
 
 #include <cstdio>
+#include <string_view>
 
 #ifndef _WIN32
 #include <sys/stat.h>
@@ -28,7 +29,9 @@ void ReportCrashesWithAStack() {}
 
 #include <dbghelp.h>
 
+#include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 
 namespace {
@@ -100,14 +103,11 @@ LONG WINAPI ReportFatalException(EXCEPTION_POINTERS* info) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-void ReportTerminate() {
+void PrintCrashStack(const char* headline) {
     const HANDLE process = GetCurrentProcess();
     SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     SymInitialize(process, nullptr, TRUE);
-    std::printf(
-        "=== FATAL: std::terminate on thread %lu - usually a joinable std::thread destroyed "
-        "or assigned over, or an exception nothing caught ===\n",
-        GetCurrentThreadId());
+    std::printf("=== FATAL: %s on thread %lu ===\n", headline, GetCurrentThreadId());
     void* frames[48] = {};
     const USHORT taken = CaptureStackBackTrace(0, 48, frames, nullptr);
     for (USHORT i = 0; i < taken; ++i)
@@ -116,9 +116,33 @@ void ReportTerminate() {
     TerminateProcess(process, 3);
 }
 
+void ReportTerminate() {
+    PrintCrashStack(
+        "std::terminate - usually a joinable std::thread destroyed or assigned over, or an "
+        "exception nothing caught");
+}
+
+void ReportAbort(int) {
+    PrintCrashStack(
+        "abort() - std::terminate on a thread that never installed its own handler, since "
+        "the CRT keeps that handler per thread");
+}
+
+void ReportPureCall() {
+    PrintCrashStack("a pure virtual call - an object used while its base was being destroyed");
+}
+
+void ReportInvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned,
+    uintptr_t) {
+    PrintCrashStack("a CRT call that rejected its arguments");
+}
+
 void ReportCrashesWithAStack() {
     SetUnhandledExceptionFilter(ReportFatalException);
     std::set_terminate(ReportTerminate);
+    std::signal(SIGABRT, ReportAbort);
+    _set_purecall_handler(ReportPureCall);
+    _set_invalid_parameter_handler(ReportInvalidParameter);
 }
 
 #else
@@ -130,17 +154,28 @@ void ReportCrashesWithAStack() {}
 }
 #endif
 
-int main() {
+int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     ReportCrashesWithAStack();
     KeepTestLogsOutOfTheDeveloperHome();
 
+    const bool onlyUnderLoad = argc > 1 && std::string_view(argv[1]) == "--under-load";
+
     std::printf("=== integration self-test (host + viewer over loopback, fake codecs) ===\n");
 
-    std::printf("--- wire: golden byte vectors (same on every OS) ---\n");
-    RunWireVectorTests();
+    if (!onlyUnderLoad) {
+        std::printf("--- wire: golden byte vectors (same on every OS) ---\n");
+        RunWireVectorTests();
 
-    std::printf("--- end to end: connect, stream, input, disconnect ---\n");
-    RunSessionFlowTests();
+        std::printf("--- end to end: connect, stream, input, disconnect ---\n");
+        RunSessionFlowTests();
+    }
+
+    std::printf("--- under load: a file transfer beside a live stream ---\n");
+    RunTransferUnderLoadTests();
+
+    std::printf("--- under load: a terminal beside video and bulk transfer ---\n");
+    RunLagUnderCrossLoadTests();
 
     if (g_failures == 0) {
         std::printf("=== PASS: all checks passed ===\n");

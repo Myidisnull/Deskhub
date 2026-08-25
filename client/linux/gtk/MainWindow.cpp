@@ -5,11 +5,13 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "deskhubp/media/DisplayEnum.h"
 #include "gtk/GtkUtil.h"
 #include "gtk/PasscodeDialog.h"
+#include "gtk/Terminal.h"
 #include "gtk/ViewerWindow.h"
 #include "deskhubp/net/NetInfo.h"
 #include "deskhubp/net/UdpSocket.h"
@@ -18,12 +20,16 @@
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/system/AppDataFile.h"
 #include "deskhubp/system/Autostart.h"
+#include "deskhubp/system/Clock.h"
 #include "deskhubp/system/DeviceName.h"
 #include "deskhubp/system/Language.h"
 #include "deskhub/crypto/KeyCodec.h"
+#include "deskhubp/system/MachineId.h"
+#include "deskhubp/system/PairedDevicesFile.h"
 #include "deskhubp/system/SessionCrypto.h"
 #include "deskhubp/system/UiSettingsStore.h"
 #include "deskhubp/system/Random.h"
+#include "deskhubp/session/PairingAskQueue.h"
 
 #include "deskhub/diag/LogPolicy.h"
 #include "deskhub/media/QualityPreset.h"
@@ -453,6 +459,30 @@ std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& device
     out.reserve(devices.size());
     for (const auto& device : devices) out.push_back(device.addr);
     return out;
+}
+
+enum class ConnectSurface { Cancel,
+    Desktop,
+    Shell };
+
+ConnectSurface AskConnectSurface(GtkWindow* parent, bool desktop, bool shell) {
+    if (desktop && !shell) return ConnectSurface::Desktop;
+    if (!desktop && shell) return ConnectSurface::Shell;
+    if (!desktop && !shell) return ConnectSurface::Cancel;
+
+    GtkWidget* dlg = gtk_dialog_new_with_buttons(ui::kAppTitle, parent, GTK_DIALOG_MODAL,
+        ui::kQuitWhileBusyCancel, GTK_RESPONSE_CANCEL, ui::kOpenShellLabel, GTK_RESPONSE_NO,
+        ui::kOpenDesktopLabel, GTK_RESPONSE_YES, nullptr);
+    GtkWidget* box = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    gtk_box_set_spacing(GTK_BOX(box), 8);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
+    gtk_box_pack_start(GTK_BOX(box), Label(ui::kConnectedPickSession), FALSE, FALSE, 0);
+    gtk_widget_show_all(dlg);
+    const gint response = gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    if (response == GTK_RESPONSE_YES) return ConnectSurface::Desktop;
+    if (response == GTK_RESPONSE_NO) return ConnectSurface::Shell;
+    return ConnectSurface::Cancel;
 }
 
 bool PickSources(GtkWindow* parent, const std::vector<deskhub::SourceInfo>& sources,
@@ -949,6 +979,10 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(acceptFilesCheck_), settings_.acceptFiles);
     gtk_box_pack_start(GTK_BOX(box), acceptFilesCheck_, FALSE, FALSE, 0);
 
+    shareTerminalCheck_ = gtk_check_button_new_with_label(ui::kShareTerminalLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shareTerminalCheck_), settings_.shareTerminal);
+    gtk_box_pack_start(GTK_BOX(box), shareTerminalCheck_, FALSE, FALSE, 0);
+
     playAudioCheck_ = gtk_check_button_new_with_label(ui::kPlayAudioLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(playAudioCheck_), settings_.playAudio);
     gtk_box_pack_start(GTK_BOX(box), playAudioCheck_, FALSE, FALSE, 0);
@@ -1004,6 +1038,46 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_box_pack_start(GTK_BOX(box), sessionKeyBtnRow_, FALSE, FALSE, 0);
     SyncSessionCryptoControls();
     RefreshSessionKeyDisplay();
+
+    gtk_box_pack_start(GTK_BOX(box), Heading(ui::kPairedHeading), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kPairedHint), FALSE, FALSE, 0);
+
+    pairedStore_ = gtk_list_store_new(5, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
+        G_TYPE_STRING);
+    GtkWidget* pairedTree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(pairedStore_));
+    g_object_unref(pairedStore_);
+    pairedView_ = pairedTree;
+    gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(pairedTree), TRUE);
+    AddColumn(pairedTree, ui::kPairedColumnName, 0, 4, 160, 0.f);
+    AddColumn(pairedTree, ui::kPairedColumnKey, 1, 4, 120, 0.f);
+    AddColumn(pairedTree, ui::kPairedColumnPaired, 2, 4, 140, 0.f);
+    AddColumn(pairedTree, ui::kPairedColumnLastSeen, 3, 4, 140, 0.f);
+    gtk_box_pack_start(GTK_BOX(box), ListFrame(pairedTree, 140), FALSE, FALSE, 0);
+
+    pairedHintLabel_ = Hint(ui::kPairedEmpty);
+    gtk_box_pack_start(GTK_BOX(box), pairedHintLabel_, FALSE, FALSE, 0);
+
+    GtkWidget* pairedButtons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    forgetDeviceBtn_ = gtk_button_new_with_label(ui::kPairedForget);
+    forgetAllDevicesBtn_ = gtk_button_new_with_label(ui::kPairedForgetAll);
+    gtk_box_pack_start(GTK_BOX(pairedButtons), forgetDeviceBtn_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(pairedButtons), forgetAllDevicesBtn_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), pairedButtons, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kPairedForgetNote), FALSE, FALSE, 0);
+
+    allowPairingCheck_ = gtk_check_button_new_with_label(ui::kAllowPairingLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(allowPairingCheck_), settings_.allowNewPairings);
+    gtk_box_pack_start(GTK_BOX(box), allowPairingCheck_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kAllowPairingHint), FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(box), Section(ui::kThisMachineHeading), FALSE, FALSE, 0);
+    GtkWidget* fingerprint = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(fingerprint),
+        deskhub::FormatFingerprint(deskhubp::LoadOrCreateMachineFingerprint()).c_str());
+    gtk_editable_set_editable(GTK_EDITABLE(fingerprint), FALSE);
+    gtk_box_pack_start(GTK_BOX(box), fingerprint, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), Hint(ui::kThisMachineHint), FALSE, FALSE, 0);
+    RefreshPairedDevices();
 
     gtk_box_pack_start(GTK_BOX(box), Section(ui::kSettingsSectionLaunch), FALSE, FALSE, 0);
     autostartCheck_ = gtk_check_button_new_with_label(ui::kAutostartLabel);
@@ -1092,6 +1166,10 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(shareAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(acceptFilesCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(shareTerminalCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(allowPairingCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(forgetDeviceBtn_, "clicked", G_CALLBACK(OnForgetDevice), this);
+    g_signal_connect(forgetAllDevicesBtn_, "clicked", G_CALLBACK(OnForgetAllDevices), this);
     g_signal_connect(playAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(keepAwakeCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(encryptSessionCheck_, "toggled", G_CALLBACK(OnEncryptToggled), this);
@@ -1187,6 +1265,9 @@ void MainWindow::SaveSettings() {
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
     settings_.shareAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shareAudioCheck_));
     settings_.acceptFiles = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(acceptFilesCheck_));
+    settings_.shareTerminal = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shareTerminalCheck_));
+    settings_.allowNewPairings =
+        gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowPairingCheck_));
     settings_.playAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(playAudioCheck_));
     settings_.keepAwake = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_));
     settings_.encryptSession =
@@ -1642,6 +1723,93 @@ void MainWindow::RefreshDeviceStatus() {
     poller_.RefreshNow();
 }
 
+void MainWindow::RefreshPairedDevices() {
+    if (pairedStore_ == nullptr) return;
+    pairedDevices_ = deskhubp::LoadPairedDevices().Devices();
+    gtk_list_store_clear(pairedStore_);
+    const char* colour = UnknownColour();
+    for (const deskhub::PairedDevice& device : pairedDevices_) {
+        const std::string name = device.name.empty() ? "(unnamed)" : device.name;
+        const std::string key = deskhub::ShortFingerprint(device.fingerprint);
+        const std::string paired = deskhubp::FormatUnixMinute(device.pairedUnix);
+        const std::string lastSeen = deskhubp::FormatUnixMinute(device.lastSeenUnix);
+        GtkTreeIter it;
+        gtk_list_store_append(pairedStore_, &it);
+        gtk_list_store_set(pairedStore_, &it, 0, name.c_str(), 1, key.c_str(), 2, paired.c_str(),
+            3, lastSeen.c_str(), 4, colour, -1);
+    }
+    if (pairedHintLabel_) {
+        if (pairedDevices_.empty()) {
+            gtk_widget_show(pairedHintLabel_);
+        } else {
+            gtk_widget_hide(pairedHintLabel_);
+        }
+    }
+    if (forgetDeviceBtn_)
+        gtk_widget_set_sensitive(forgetDeviceBtn_, !pairedDevices_.empty());
+    if (forgetAllDevicesBtn_)
+        gtk_widget_set_sensitive(forgetAllDevicesBtn_, !pairedDevices_.empty());
+}
+
+void MainWindow::DrainPairingAsks() {
+    const std::vector<deskhubp::PairingAsk> asks = deskhubp::SharedPairingAskQueue().Take(8);
+    if (asks.empty()) return;
+
+    std::unordered_set<std::string> pairedKeys;
+    for (const deskhub::PairedDevice& device : deskhubp::LoadPairedDevices().Devices())
+        pairedKeys.insert(deskhub::ShortFingerprint(device.fingerprint));
+
+    for (const deskhubp::PairingAsk& ask : asks) {
+        if (pairedKeys.contains(ask.shortKey)) {
+            deskhubp::SharedPairingAskQueue().Answer(ask.addrPacked, true);
+            continue;
+        }
+        const std::string body = ui::PairingRequestBody(ask.name,
+            NetAddr::Unpack(ask.addrPacked).ToString(), ask.shortKey);
+        GtkWidget* dlg = gtk_message_dialog_new(GTK_WINDOW(window_), GTK_DIALOG_MODAL,
+            GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s", ui::kPairingRequestTitle);
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s", body.c_str());
+        gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kPairingDeny, GTK_RESPONSE_NO);
+        gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kPairingAllow, GTK_RESPONSE_YES);
+        const bool allowed = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_YES;
+        gtk_widget_destroy(dlg);
+        deskhubp::SharedPairingAskQueue().Answer(ask.addrPacked, allowed);
+        if (allowed) RefreshPairedDevices();
+    }
+}
+
+void MainWindow::OnForgetDevice(GtkButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->pairedView_ == nullptr || self->pairedDevices_.empty()) return;
+    GtkTreeSelection* sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(self->pairedView_));
+    GtkTreeModel* model = nullptr;
+    GtkTreeIter it;
+    if (!gtk_tree_selection_get_selected(sel, &model, &it)) return;
+    GtkTreePath* path = gtk_tree_model_get_path(model, &it);
+    const gint* idx = path ? gtk_tree_path_get_indices(path) : nullptr;
+    const int row = idx ? idx[0] : -1;
+    if (path) gtk_tree_path_free(path);
+    if (row < 0 || size_t(row) >= self->pairedDevices_.size()) return;
+    deskhubp::ForgetPairedDevice(self->pairedDevices_[size_t(row)].fingerprint);
+    self->RefreshPairedDevices();
+}
+
+void MainWindow::OnForgetAllDevices(GtkButton*, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    if (self->pairedDevices_.empty()) return;
+    GtkWidget* dlg = gtk_message_dialog_new(GTK_WINDOW(self->window_), GTK_DIALOG_MODAL,
+        GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, "%s", ui::kAppTitle);
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s",
+        ui::kPairedForgetAllPrompt);
+    gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kQuitWhileBusyCancel, GTK_RESPONSE_CANCEL);
+    gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kPairedForgetAll, GTK_RESPONSE_ACCEPT);
+    const bool confirmed = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT;
+    gtk_widget_destroy(dlg);
+    if (!confirmed) return;
+    deskhubp::ForgetAllPairedDevices();
+    self->RefreshPairedDevices();
+}
+
 void MainWindow::OnScanRowActivated(GtkTreeView*, GtkTreePath* path, GtkTreeViewColumn*,
     gpointer user) {
     auto* self = static_cast<MainWindow*>(user);
@@ -1823,7 +1991,7 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
         ShowWarning(GTK_WINDOW(window_), ui::kAppTitle, msg.c_str());
         return;
     }
-    if (outcome.sources.empty()) {
+    if (outcome.sources.empty() && !outcome.caps.files && !outcome.caps.terminal) {
         const std::string msg = ui::SourceQueryEmpty(addr);
         LOGW("[Connect] %s", msg.c_str());
         ShowWarning(GTK_WINDOW(window_), ui::kAppTitle, msg.c_str());
@@ -1835,6 +2003,35 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
     SaveRecentDevices();
     poller_.SetAddresses(AddressesOf(recent_));
     RefreshRecentList();
+
+    if (outcome.sources.empty() && outcome.caps.terminal) {
+        auto* args = new std::pair<std::string, std::string>{addr, passcode};
+        g_idle_add(
+            +[](gpointer data) -> gboolean {
+                auto* pair = static_cast<std::pair<std::string, std::string>*>(data);
+                RunTerminal(pair->first, pair->second);
+                delete pair;
+                return G_SOURCE_REMOVE;
+            },
+            args);
+        return;
+    }
+
+    const ConnectSurface surface =
+        AskConnectSurface(GTK_WINDOW(window_), !outcome.sources.empty(), outcome.caps.terminal);
+    if (surface == ConnectSurface::Cancel) return;
+    if (surface == ConnectSurface::Shell) {
+        auto* args = new std::pair<std::string, std::string>{addr, passcode};
+        g_idle_add(
+            +[](gpointer data) -> gboolean {
+                auto* pair = static_cast<std::pair<std::string, std::string>*>(data);
+                RunTerminal(pair->first, pair->second);
+                delete pair;
+                return G_SOURCE_REMOVE;
+            },
+            args);
+        return;
+    }
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) return;
@@ -1967,6 +2164,7 @@ void MainWindow::OnShare(ShareTrigger trigger) {
     options.clipboardSync = settings_.clipboardSync;
     options.audio = settings_.shareAudio;
     options.acceptFiles = settings_.acceptFiles;
+    options.shareTerminal = settings_.shareTerminal;
     if (!deskhubp::ApplyEncryptToAgentOptions(settings_, options)) {
         ReportShareProblem(ui::kAppTitle, ui::kShareStartFailed);
         return;
@@ -2108,6 +2306,8 @@ gboolean MainWindow::OnHostTimer(gpointer user) {
         self->hostTimerId_ = 0;
         return G_SOURCE_REMOVE;
     }
+
+    self->DrainPairingAsks();
 
     std::vector<AgentSourceStatus> rows;
     const deskhubp::AgentDriveState state = self->agentDriver_.Poll(self->agentLoop_, rows);

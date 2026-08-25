@@ -207,6 +207,11 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
             const auto header = deskhub::ParseCommonHeader(pkt);
             if (header && header->chan == deskhub::Chan::File && hooks.onFile) {
                 hooks.onFile(from, pkt);
+            } else if (header && header->chan == deskhub::Chan::Terminal && hooks.onTerminal) {
+                hooks.onTerminal(from, pkt);
+            } else if (header && header->chan == deskhub::Chan::Control &&
+                       header->type == deskhub::MsgType::PairingHello && hooks.onPairing) {
+                hooks.onPairing(from, pkt);
             } else if (const size_t rn = beacon.Reply(beaconBuf, pkt, now, from.Pack()); rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else {

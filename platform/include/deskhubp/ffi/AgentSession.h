@@ -73,6 +73,15 @@ int dha_clip_take(char* out, int capacity);
 void dha_offer_audio(const int16_t* pcm, int samples);
 bool dha_audio_running(void);
 
+typedef struct {
+    uint64_t addrPacked;
+    char shortKey[16];
+    char name[80];
+} DHPairingRequest;
+
+int dh_share_take_pairing_requests(DHPairingRequest* out, int capacity);
+void dh_share_answer_pairing(uint64_t addr_packed, bool allowed);
+
 #ifdef __cplusplus
 }
 #endif

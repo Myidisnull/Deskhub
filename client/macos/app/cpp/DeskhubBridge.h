@@ -7,6 +7,7 @@
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
+#include "deskhubp/ffi/TerminalFfi.h"
 
 #ifdef __cplusplus
 extern "C" {

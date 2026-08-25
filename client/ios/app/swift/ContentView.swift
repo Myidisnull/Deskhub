@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var model = SessionModel()
+    @State private var pairingAsks = PairingAskModel()
 
     var body: some View {
         Group {
@@ -16,8 +17,23 @@ struct ContentView: View {
                 if let stream = model.stream {
                     StreamView(session: model, model: stream)
                 }
+            case .terminal:
+                if let terminal = model.terminal {
+                    TerminalScreen(
+                        model: terminal,
+                        title: model.connect.acceptedAddress,
+                        onClose: { model.leaveTerminal() }
+                    )
+                }
             }
         }
         .preferredColorScheme(.dark)
+        .pairingPrompt(pairingAsks)
+        .task {
+            while !Task.isCancelled {
+                pairingAsks.drain()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
     }
 }

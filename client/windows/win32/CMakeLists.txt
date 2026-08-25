@@ -35,6 +35,7 @@ add_executable(deskhub_app WIN32
     SourcePickerDialog.cpp
     Viewer.cpp
     ViewerInput.cpp
+    Terminal.cpp
 
     ../cpp/ClientSessionWin.cpp
 )

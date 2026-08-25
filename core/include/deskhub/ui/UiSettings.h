@@ -35,6 +35,8 @@ struct UiSettings {
     bool shareAudio = true;
     bool playAudio = true;
     bool acceptFiles = false;
+    bool shareTerminal = true;
+    bool allowNewPairings = true;
     bool encryptSession = false;
     bool escrowSessionKey = false;
     SessionKeyLifetime sessionKeyLifetime = SessionKeyLifetime::PerShare;

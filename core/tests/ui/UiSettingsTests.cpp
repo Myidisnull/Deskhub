@@ -212,6 +212,11 @@ void TestDefaultsMatchShareDefaults() {
     Check(ui::ParseUiSettings("play_audio=1").playAudio, "and on");
     Check(!ui::ParseUiSettings("accept_files=0").acceptFiles, "accept files round-trips off");
     Check(ui::ParseUiSettings("accept_files=1").acceptFiles, "and on");
+    Check(!ui::ParseUiSettings("share_terminal=0").shareTerminal, "share terminal round-trips off");
+    Check(ui::ParseUiSettings("share_terminal=1").shareTerminal, "and on");
+    Check(!ui::ParseUiSettings("allow_new_pairings=0").allowNewPairings,
+        "allow new pairings round-trips off");
+    Check(ui::ParseUiSettings("allow_new_pairings=1").allowNewPairings, "and on");
 }
 
 void TestNativeQualityIsPreserved() {

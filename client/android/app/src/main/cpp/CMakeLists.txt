@@ -11,6 +11,7 @@ add_subdirectory(${DESKHUB_ROOT}/platform ${CMAKE_CURRENT_BINARY_DIR}/platform)
 
 add_library(deskhub SHARED
     JniBridge.cpp
+    TermBridge.cpp
     JniEnv.cpp
     HostBridge.cpp
     AgentLoop.cpp

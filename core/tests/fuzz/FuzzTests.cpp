@@ -63,6 +63,8 @@ bool ExerciseWireParsers(std::span<const uint8_t> d) {
     ParseReconfig(pl);
     ParseSetFocus(pl);
     ParseInvalidateRef(pl);
+    ParsePairingHello(pl);
+    ParsePairingResult(pl);
 
     if (h) {
         if (const auto v = ParseVideoPacket(*h, pl)) {

@@ -2,6 +2,7 @@
 #include "deskhub/protocol/RecordStream.h"
 #include "deskhub/session/host/FileReceiver.h"
 #include "deskhub/session/FileTransfer.h"
+#include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/FileStore.h"
 
 #include <atomic>
@@ -17,9 +18,6 @@
 #include <vector>
 
 namespace deskhubp {
-
-class UdpSocket;
-struct NetAddr;
 
 struct FileHostCallbacks {
     std::function<void(std::string_view auditLine)> onAudit;

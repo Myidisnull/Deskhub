@@ -10,11 +10,53 @@ English governs this file. Update it every time `develop` successfully absorbs `
 | Short | `085f7ef` |
 | Date | 2026-08-16 23:35:55 +0700 |
 | Subject | feat: Add TODO for implementing Stop & Attach shell functionality across clients |
-| Last reviewed `origin/main` tip | `e7f12085b8449300344c20516667826af2bdaeed` |
-| Reviewed tip short | `e7f12085` |
-| Reviewed tip date | 2026-08-25 09:34:42 +0800 |
+| Last reviewed `origin/main` tip | `00b54f3b2d036b2fb1475199b74c8df4515a8690` |
+| Reviewed tip short | `00b54f3b` |
+| Reviewed tip date | 2026-08-25 10:48:57 +0800 |
 | Reviewed tip subject | Merge branch 'manhpham90vn:main' into main |
 | Pin updated | 2026-08-25 |
+
+## Partial Adapt (2026-08-25) — user-requested: Shell / pairing / HostLink-intent / VERSION 5.x / fuzz
+
+User explicitly asked to add the former Skip themes. Policy in `.cursor/customize-features.md` §4.
+
+| Theme | What landed this pass | Still queued |
+| --- | --- | --- |
+| **VERSION 5.x** | `VERSION` → **5.2.0**; brand remains System Runtime / `.system-runtime` | Store listings / README version strings if any lag |
+| **fuzz** | `core/fuzz/seeds` + regressions from main (~6065 seeds); `fuzz_term` target | — |
+| **Shell / 终端** | `core/terminal/*` + tests; `Chan::Terminal` + `TermSize` helpers (no TermOpen MsgType — develop Noise IDs keep 0x50+) | PTY host, TerminalSession UDP, client UI, connect-once Shell |
+| **配对 UX** | `TrustStore` + `PairedDevices` core + tests | Devices/Trust UI; wire beside SessionCrypto |
+| **HostLink** | **not** imported; multi-surface stays UDP connect-once | Shell surface completes the trio |
+| Also | Port `1c5bd26a`: integration crash handlers + pid `NextTestPort` + Windows dump upload in `test.yml` | — |
+
+`Last fully absorbed` stays `085f7ef` (selective Adapt, not contiguous).
+
+## Review only (2026-08-25) — full eval through `00b54f3b`
+
+`git fetch` OK. Range since prior reviewed tip `e7f12085`: **1** non-merge (+ 2 merges).
+
+| Commit | Subject | Class | Why |
+| --- | --- | --- | --- |
+| `1c5bd26a` | feat(tests): enhance crash reporting and add process ID handling | **Port** | Integration crash handlers (abort/purecall/invalid-param) + pid-hashed `NextTestPort` + Windows LocalDumps upload in `test.yml`; no product/customize surface |
+| `39d0a5fb` / `00b54f3b` | merge tips | **Skip** | Merge-only |
+
+Full gap `085f7ef..00b54f3b` ≈ **160** non-merge. Feature-status summary (develop UDP vs main HostLink/QUIC):
+
+| Capability | develop | Verdict |
+| --- | --- | --- |
+| Audio / Opus / Settings | Adapted | done |
+| File xfer UDP + acceptFiles + viewer send UI | Adapted | done |
+| LinkPulse + viewer health/disconnect | Adapted | done |
+| Reattach grace (60s / stable clientId) | Adapted | done |
+| Connect-once Desktop/Files (no Shell) | Partial Adapt (iOS/macOS/Android) | Win/Linux UI still direct-open |
+| Phone files-only host | Partial Adapt (iOS/Android + `dha_start_files`) | OK while app open |
+| PcmRing / UdpSocketWin / PDB / CodeQL arch / iOS panel split | Port/Adapt | done |
+| `1c5bd26a` crash dumps + pid ports | not yet | **next Port** |
+| Terminal / Shell / pairing / Devices / CLI / HostLink / VERSION 5.x | — | Skip (or huge Adapt if asked) |
+| Fuzz corpus folds | — | Skip / low Port |
+| Perf gates / platform_perf QUIC | — | Adapt only if develop wants CI perf (no quiche) |
+
+`Last fully absorbed` stays `085f7ef`. Recommended next: Port `1c5bd26a`, then Win/Linux connect-once UI if desired.
 
 ## Partial port (2026-08-25) — P1/P2 connect-once Desktop/Files + phone file receive
 

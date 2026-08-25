@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "TrayIcon.h"
+#include "deskhub/net/PairedDevices.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/HostRows.h"
@@ -67,6 +68,8 @@ private:
     void PopulateBindCombo();
     void RebuildHostAddressRows();
     void RefreshLogView();
+    void RefreshPairedDevices();
+    void DrainPairingAsks();
 
     void StartScan();
     void RescanNow();
@@ -153,6 +156,8 @@ private:
     static gboolean OnRecentButtonPress(GtkWidget* widget, GdkEventButton* event, gpointer user);
     static void OnForgetRecent(GtkMenuItem* item, gpointer user);
     void ForgetRecentAt(int row);
+    static void OnForgetDevice(GtkButton* b, gpointer user);
+    static void OnForgetAllDevices(GtkButton* b, gpointer user);
     static gboolean OnRescanTimer(gpointer user);
     static gboolean OnHostTimer(gpointer user);
     static gboolean OnDeleteEvent(GtkWidget* w, GdkEvent* e, gpointer user);
@@ -198,6 +203,14 @@ private:
     GtkWidget* clipboardCheck_ = nullptr;
     GtkWidget* shareAudioCheck_ = nullptr;
     GtkWidget* acceptFilesCheck_ = nullptr;
+    GtkWidget* shareTerminalCheck_ = nullptr;
+    GtkWidget* allowPairingCheck_ = nullptr;
+    GtkListStore* pairedStore_ = nullptr;
+    GtkWidget* pairedView_ = nullptr;
+    GtkWidget* pairedHintLabel_ = nullptr;
+    GtkWidget* forgetDeviceBtn_ = nullptr;
+    GtkWidget* forgetAllDevicesBtn_ = nullptr;
+    std::vector<deskhub::PairedDevice> pairedDevices_;
     GtkWidget* playAudioCheck_ = nullptr;
     GtkWidget* keepAwakeCheck_ = nullptr;
     GtkWidget* encryptSessionCheck_ = nullptr;

@@ -26,9 +26,23 @@ struct ConnectedView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                 }
+
+                if model.hostCaps.terminal {
+                    Button(DeskhubClient.string(DHStrOpenShellLabel)) {
+                        model.openShell()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
             } else if model.hostCaps.files {
                 Text(DeskhubClient.string(DHStrAcceptFilesLabel))
                     .foregroundStyle(.secondary)
+            } else if model.hostCaps.terminal {
+                Button(DeskhubClient.string(DHStrOpenShellLabel)) {
+                    model.openShell()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
 
             Button(DeskhubClient.string(DHStrDisconnectButton)) {
