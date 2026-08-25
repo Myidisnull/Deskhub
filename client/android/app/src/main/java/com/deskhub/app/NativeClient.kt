@@ -111,6 +111,9 @@ object NativeClient {
     const val STR_LOG_DELETE_AFTER_DAYS = 93
     const val STR_DISCONNECT_BUTTON = 131
     const val STR_LINK_REATTACHING = 132
+    const val STR_OPEN_DESKTOP_LABEL = 133
+    const val STR_OPEN_FILES_LABEL = 134
+    const val STR_CONNECTED_PICK_SESSION = 135
 
     const val LINK_QUALITY_UNKNOWN = 0
     const val LINK_QUALITY_GOOD = 1
@@ -218,11 +221,6 @@ object NativeClient {
     fun zoomLabel(zoom: Float): String = nativeZoomLabel(zoom)
 
     fun isZoomed(zoom: Float): Boolean = nativeIsZoomed(zoom)
-
-    private external fun nativeListSources(
-        addr: String,
-        passcode: String,
-    ): Array<Source>?
 
     private external fun nativeIsValidPasscode(passcode: String): Boolean
 
@@ -831,6 +829,18 @@ object NativeClient {
         val sizeLabel: String,
     )
 
+    data class HostCaps(
+        val acceptsInput: Boolean = false,
+        val terminal: Boolean = false,
+        val audio: Boolean = false,
+        val files: Boolean = false,
+    )
+
+    data class HostQuery(
+        val sources: List<Source>,
+        val caps: HostCaps,
+    )
+
     private external fun nativeLinkStatusPrefix(): String
 
     fun linkStatusPrefix(): String = nativeLinkStatusPrefix()
@@ -854,8 +864,29 @@ object NativeClient {
 
     external fun nativeSnapshot(): Snapshot?
 
+    private external fun nativeListSources(
+        addr: String,
+        passcode: String,
+    ): Array<Any>?
+
     suspend fun listSources(
         addr: String,
         passcode: String,
-    ): List<Source>? = withContext(Dispatchers.IO) { nativeListSources(addr, passcode)?.toList() }
+    ): HostQuery? =
+        withContext(Dispatchers.IO) {
+            val raw = nativeListSources(addr, passcode) ?: return@withContext null
+            if (raw.size < 2) return@withContext null
+            val capsArr = raw[0] as? BooleanArray ?: return@withContext null
+
+            @Suppress("UNCHECKED_CAST")
+            val sources = (raw[1] as? Array<Source>)?.toList() ?: emptyList()
+            val caps =
+                HostCaps(
+                    acceptsInput = capsArr.getOrElse(0) { false },
+                    terminal = capsArr.getOrElse(1) { false },
+                    audio = capsArr.getOrElse(2) { false },
+                    files = capsArr.getOrElse(3) { false },
+                )
+            HostQuery(sources, caps)
+        }
 }

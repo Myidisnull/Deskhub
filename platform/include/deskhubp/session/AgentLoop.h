@@ -20,6 +20,13 @@ public:
 
     bool Start(const std::vector<AgentSource>& sources, const AgentOptions& opt);
 
+    bool StartFilesOnly(const AgentOptions& opt) {
+        AgentOptions filesOpt = opt;
+        filesOpt.acceptFiles = true;
+        deskhubp::HostEnginePolicy policy;
+        return engine_.Start({}, filesOpt, std::move(policy));
+    }
+
     void Stop() {
         engine_.Stop();
     }

@@ -4,6 +4,7 @@ struct SourcePickerView: View {
     @Binding var route: ClientRoute
     let connect: ConnectModel
     let sources: [Source]
+    var openFiles: Bool = false
 
     @State private var picked: Set<UInt8> = []
     @Environment(\.openWindow) private var openWindow
@@ -36,7 +37,7 @@ struct SourcePickerView: View {
                 Button("View") { view() }
                     .buttonStyle(.borderedProminent)
                     .disabled(picked.isEmpty)
-                Button("Cancel") { route = .connect }
+                Button("Cancel") { route = .connected }
             }
         }
         .padding(12)
@@ -54,6 +55,7 @@ struct SourcePickerView: View {
         guard !chosen.isEmpty else { return }
         route = .connect
         openViewers(chosen, address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
-                    sessionKey: connect.acceptedSessionKey, openWindow: openWindow)
+                    sessionKey: connect.acceptedSessionKey, openFiles: openFiles,
+                    openWindow: openWindow)
     }
 }

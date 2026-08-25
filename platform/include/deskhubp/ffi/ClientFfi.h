@@ -50,6 +50,7 @@ typedef struct {
     bool acceptsInput;
     bool terminal;
     bool audio;
+    bool files;
 } DHHostCaps;
 
 typedef struct {
@@ -230,6 +231,9 @@ typedef enum {
     DHStrSendFilesLabel = 130,
     DHStrDisconnectButton = 131,
     DHStrLinkReattaching = 132,
+    DHStrOpenDesktopLabel = 133,
+    DHStrOpenFilesLabel = 134,
+    DHStrConnectedPickSession = 135,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

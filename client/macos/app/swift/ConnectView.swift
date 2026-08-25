@@ -23,6 +23,9 @@ struct MainMenuView: View {
     @Binding var route: ClientRoute
     @Bindable var connect: ConnectModel
     @Bindable var agent: AgentModel
+    @Binding var connectedSources: [Source]
+    @Binding var connectedCaps: HostCaps
+    @Binding var openFilesIntent: Bool
 
     @State private var discovery = DiscoveryModel()
     @State private var page: DeskhubPage = .client
@@ -309,36 +312,35 @@ struct MainMenuView: View {
         guard !connect.address.isEmpty, !connect.isConnecting else { return }
         connect.saveDeviceName()
         Task {
-            let sources = await connect.listSources()
+            let found = await connect.listSources()
             guard !connect.acceptedAddress.isEmpty, connect.connectError.isEmpty else { return }
             await discovery.remember(
                 address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
                 sessionKey: connect.acceptedSessionKey
             )
-            if DeskhubClient.connectDecision(sources).showPicker {
-                route = .sourcePicker(sources)
-            } else {
-                openViewers(sources, address: connect.acceptedAddress,
-                            passcode: connect.acceptedPasscode,
-                            sessionKey: connect.acceptedSessionKey, openWindow: openWindow)
-            }
+            connectedSources = found.sources
+            connectedCaps = found.caps
+            openFilesIntent = false
+            route = .connected
         }
     }
 }
 
 @MainActor
 func openViewers(_ picked: [Source], address: String, passcode: String,
-                 sessionKey: String = "", openWindow: OpenWindowAction)
+                 sessionKey: String = "", openFiles: Bool = false,
+                 openWindow: OpenWindowAction)
 {
     if picked.isEmpty {
         openWindow(value: ViewerRequest(
-            address: address, passcode: passcode, sessionKey: sessionKey, sourceId: 0, name: ""
+            address: address, passcode: passcode, sessionKey: sessionKey, sourceId: 0, name: "",
+            openFiles: openFiles
         ))
     } else {
         for source in picked {
             openWindow(value: ViewerRequest(
                 address: address, passcode: passcode, sessionKey: sessionKey,
-                sourceId: source.id, name: source.name
+                sourceId: source.id, name: source.name, openFiles: openFiles
             ))
         }
     }

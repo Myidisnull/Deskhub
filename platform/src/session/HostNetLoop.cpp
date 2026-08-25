@@ -183,12 +183,14 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
     while (!hooks.stopped || !hooks.stopped()) {
         if (hooks.onTick) hooks.onTick();
 
-        bool anyAlive = false;
-        for (deskhub::SourcePipelineState* st : live)
-            if (Alive(*st, hooks.source)) anyAlive = true;
-        if (!anyAlive) {
-            LOGI("[Agent] No source left alive — session over.");
-            break;
+        if (!live.empty()) {
+            bool anyAlive = false;
+            for (deskhub::SourcePipelineState* st : live)
+                if (Alive(*st, hooks.source)) anyAlive = true;
+            if (!anyAlive) {
+                LOGI("[Agent] No source left alive — session over.");
+                break;
+            }
         }
 
         NetAddr from;

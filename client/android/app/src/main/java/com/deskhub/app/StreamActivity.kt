@@ -149,6 +149,7 @@ class StreamActivity : ComponentActivity() {
                     sessionKey = session,
                     sources = sources,
                     currentSourceId = currentSourceId,
+                    openFilesOnStart = intent.getBooleanExtra("openFiles", false),
                     holderCallback = holderCallback,
                     onSwitchSource = ::switchSource,
                     onDismiss = { finish() },
@@ -203,6 +204,7 @@ private fun StreamScreen(
     sessionKey: Long,
     sources: List<NativeClient.Source>,
     currentSourceId: Int,
+    openFilesOnStart: Boolean = false,
     holderCallback: SurfaceHolder.Callback,
     onSwitchSource: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -217,6 +219,7 @@ private fun StreamScreen(
     var videoW by remember { mutableIntStateOf(0) }
     var videoH by remember { mutableIntStateOf(0) }
     var fileSendError by remember { mutableStateOf("") }
+    var pendingOpenFiles by remember { mutableStateOf(openFilesOnStart) }
     val appContext = LocalContext.current.applicationContext
     val pickFiles =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -305,6 +308,10 @@ private fun StreamScreen(
 
     LaunchedEffect(sessionKey, streaming) {
         if (!streaming) return@LaunchedEffect
+        if (pendingOpenFiles) {
+            pendingOpenFiles = false
+            pickFiles.launch(arrayOf("*/*"))
+        }
         while (true) {
             refreshStatusLine()
             delay(1000)

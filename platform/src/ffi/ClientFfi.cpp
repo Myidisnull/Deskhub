@@ -146,6 +146,9 @@ const char* dh_string(DHStringId id) {
         case DHStrPlayAudioLabel: return deskhub::ui::kPlayAudioLabel;
         case DHStrAcceptFilesLabel: return deskhub::ui::kAcceptFilesLabel;
         case DHStrSendFilesLabel: return deskhub::ui::kSendFilesLabel;
+        case DHStrOpenDesktopLabel: return deskhub::ui::kOpenDesktopLabel;
+        case DHStrOpenFilesLabel: return deskhub::ui::kOpenFilesLabel;
+        case DHStrConnectedPickSession: return deskhub::ui::kConnectedPickSession;
         case DHStrDisconnectButton: return deskhub::ui::kDisconnectButton;
         case DHStrLinkReattaching: return deskhub::ui::kReconnecting;
         case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;
@@ -321,7 +324,7 @@ DHAutoShareStep dh_auto_share_step(bool displays_ready, uint32_t waited_ms) {
 
 int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const char* passcode,
     DHHostCaps* out_caps) {
-    if (out_caps) *out_caps = DHHostCaps{false, false, false};
+    if (out_caps) *out_caps = DHHostCaps{false, false, false, false};
     if (!address || !out || capacity <= 0) return DH_SOURCE_QUERY_FAILED;
 
     NetAddr server;
@@ -336,7 +339,8 @@ int dh_list_sources(const char* address, DHSourceInfo* out, int capacity, const 
     deskhub::HostCaps caps{};
     if (!QuerySources(server, sources, passcode ? passcode : "", &caps))
         return DH_SOURCE_QUERY_FAILED;
-    if (out_caps) *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal, caps.audio};
+    if (out_caps)
+        *out_caps = DHHostCaps{caps.acceptsInput, caps.terminal, caps.audio, caps.files};
 
     const int count = int(sources.size()) < capacity ? int(sources.size()) : capacity;
     for (int i = 0; i < count; ++i) {

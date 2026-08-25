@@ -177,32 +177,49 @@ Java_com_deskhub_app_NativeClient_nativeIsZoomed(JNIEnv*, jobject, jfloat zoom) 
 JNIEXPORT jobjectArray JNICALL
 Java_com_deskhub_app_NativeClient_nativeListSources(JNIEnv* env, jobject, jstring addrStr,
     jstring passcodeStr) {
-    jclass cls = env->FindClass(kSourceClass);
-    if (!cls) return nullptr;
+    jclass sourceCls = env->FindClass(kSourceClass);
+    if (!sourceCls) return nullptr;
     jmethodID ctor =
-        env->GetMethodID(cls, "<init>", "(ILjava/lang/String;Ljava/lang/String;)V");
+        env->GetMethodID(sourceCls, "<init>", "(ILjava/lang/String;Ljava/lang/String;)V");
     if (!ctor) return nullptr;
 
     const std::string addr = FromJString(env, addrStr);
     const std::string passcode = FromJString(env, passcodeStr);
     DHSourceInfo sources[deskhub::kMaxSources];
+    DHHostCaps caps{};
     const int count =
         dh_list_sources(addr.c_str(), sources, int(deskhub::kMaxSources), passcode.c_str(),
-            nullptr);
+            &caps);
     if (count == DH_SOURCE_QUERY_FAILED) return nullptr;
 
-    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
-    for (int i = 0; i < count && arr; ++i) {
+    jobjectArray sourceArr = env->NewObjectArray(jsize(count), sourceCls, nullptr);
+    for (int i = 0; i < count && sourceArr; ++i) {
         const DHSourceInfo& s = sources[i];
         jstring displayName = env->NewStringUTF(s.displayName);
         jstring sizeLabel = env->NewStringUTF(s.sizeLabel);
-        jobject item = env->NewObject(cls, ctor, jint(s.sourceId), displayName, sizeLabel);
-        env->SetObjectArrayElement(arr, jsize(i), item);
+        jobject item = env->NewObject(sourceCls, ctor, jint(s.sourceId), displayName, sizeLabel);
+        env->SetObjectArrayElement(sourceArr, jsize(i), item);
         env->DeleteLocalRef(item);
         env->DeleteLocalRef(sizeLabel);
         env->DeleteLocalRef(displayName);
     }
-    return arr;
+
+    jboolean capsVals[4] = {caps.acceptsInput ? JNI_TRUE : JNI_FALSE,
+        caps.terminal ? JNI_TRUE : JNI_FALSE, caps.audio ? JNI_TRUE : JNI_FALSE,
+        caps.files ? JNI_TRUE : JNI_FALSE};
+    jbooleanArray capsArr = env->NewBooleanArray(4);
+    if (!capsArr) return nullptr;
+    env->SetBooleanArrayRegion(capsArr, 0, 4, capsVals);
+
+    jclass objectCls = env->FindClass("java/lang/Object");
+    if (!objectCls) return nullptr;
+    jobjectArray out = env->NewObjectArray(2, objectCls, nullptr);
+    if (!out) return nullptr;
+    env->SetObjectArrayElement(out, 0, capsArr);
+    env->SetObjectArrayElement(out, 1, sourceArr ? sourceArr : env->NewObjectArray(0, sourceCls, nullptr));
+    env->DeleteLocalRef(capsArr);
+    if (sourceArr) env->DeleteLocalRef(sourceArr);
+    return out;
 }
 
 JNIEXPORT jint JNICALL

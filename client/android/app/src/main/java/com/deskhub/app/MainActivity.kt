@@ -40,6 +40,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SecondaryTabRow
@@ -155,6 +156,7 @@ class MainActivity : ComponentActivity() {
 
     private fun requestSharing(request: HostService.ShareRequest) {
         pendingShare = request
+        NativeHost.stop()
         NativeHost.awaitStart()
         if (AudioShare.isSupported && !AudioShare.permissionGranted(this)) {
             audioConsent.launch(Manifest.permission.RECORD_AUDIO)
@@ -175,6 +177,7 @@ class MainActivity : ComponentActivity() {
         sourceId: Int,
         sources: List<NativeClient.Source> = emptyList(),
         sessionKey: String = "",
+        openFiles: Boolean = false,
     ) {
         startActivity(
             Intent(this, StreamActivity::class.java)
@@ -182,6 +185,7 @@ class MainActivity : ComponentActivity() {
                 .putExtra("passcode", passcode)
                 .putExtra("sessionKey", sessionKey)
                 .putExtra("source", sourceId)
+                .putExtra("openFiles", openFiles)
                 .putExtra("srcIds", sources.map { it.id }.toIntArray())
                 .putExtra("srcDisplayNames", sources.map { it.displayName }.toTypedArray())
                 .putExtra("srcSizeLabels", sources.map { it.sizeLabel }.toTypedArray()),
@@ -251,8 +255,17 @@ private sealed interface Step {
         val seq: Long,
     ) : Step
 
-    data class Picking(
+    data class Connected(
+        val address: String,
+        val passcode: String,
+        val sessionKey: String,
         val sources: List<NativeClient.Source>,
+        val caps: NativeClient.HostCaps,
+        val openFiles: Boolean = false,
+    ) : Step
+
+    data class Picking(
+        val connected: Connected,
     ) : Step
 }
 
@@ -262,7 +275,7 @@ private fun MainScreen(
     initialPasscode: String,
     initialSessionKey: String = "",
     onRemember: (String, String) -> Unit,
-    onOpenStream: (String, String, Int, List<NativeClient.Source>, String) -> Unit,
+    onOpenStream: (String, String, Int, List<NativeClient.Source>, String, Boolean) -> Unit,
     onStartSharing: (HostService.ShareRequest) -> Unit,
     onStopSharing: () -> Unit,
 ) {
@@ -289,7 +302,10 @@ private fun MainScreen(
     BackHandler(enabled = step != Step.Address) { step = Step.Address }
 
     DisposableEffect(Unit) {
-        onDispose { NativeClient.scanCancel() }
+        onDispose {
+            NativeClient.scanCancel()
+            if (NativeHost.shareState == NativeHost.ShareState.IDLE) NativeHost.stop()
+        }
     }
 
     LaunchedEffect(port) {
@@ -309,6 +325,26 @@ private fun MainScreen(
                     idleTicks = 0
                     NativeClient.scanStart(port)
                 }
+            }
+            delay(POLL_INTERVAL_MS.milliseconds)
+        }
+    }
+
+    LaunchedEffect(port) {
+        var receiving = false
+        while (true) {
+            val accept = NativeClient.acceptFiles()
+            val busy =
+                NativeHost.shareState == NativeHost.ShareState.SHARING ||
+                    NativeHost.shareState == NativeHost.ShareState.STARTING
+            val wanted = accept && !busy
+            if (wanted && !receiving) {
+                receiving = NativeHost.startFiles(port, NativeHost.passcode())
+            } else if (!wanted && receiving) {
+                if (NativeHost.shareState == NativeHost.ShareState.IDLE) NativeHost.stop()
+                receiving = false
+            } else if (receiving && !NativeHost.isRunning()) {
+                receiving = false
             }
             delay(POLL_INTERVAL_MS.milliseconds)
         }
@@ -341,15 +377,17 @@ private fun MainScreen(
         step = mine
         scope.launch {
             val queried = NativeClient.listSources(addr, code)
-            if (queried.isNullOrEmpty()) {
+            if (queried == null) {
                 if (step == mine) {
                     step = Step.Address
-                    connectError =
-                        if (queried == null) {
-                            NativeClient.sourceQueryFailed(addr)
-                        } else {
-                            NativeClient.sourceQueryEmpty(addr)
-                        }
+                    connectError = NativeClient.sourceQueryFailed(addr)
+                }
+                return@launch
+            }
+            if (queried.sources.isEmpty() && !queried.caps.files) {
+                if (step == mine) {
+                    step = Step.Address
+                    connectError = NativeClient.sourceQueryEmpty(addr)
                 }
                 return@launch
             }
@@ -358,13 +396,14 @@ private fun MainScreen(
             NativeClient.watchRecent()
             recentDevices = NativeClient.recentDevices()
             if (step == mine) {
-                val decision = NativeClient.connectDecision(queried)
-                if (decision >= 0) {
-                    step = Step.Address
-                    onOpenStream(addr, code, decision, queried, key)
-                } else {
-                    step = Step.Picking(queried)
-                }
+                step =
+                    Step.Connected(
+                        address = addr,
+                        passcode = code,
+                        sessionKey = key,
+                        sources = queried.sources,
+                        caps = queried.caps,
+                    )
             }
         }
     }
@@ -415,13 +454,59 @@ private fun MainScreen(
                 onStopSharing = onStopSharing,
             )
 
+        is Step.Connected ->
+            ConnectedScreen(
+                address = s.address,
+                sources = s.sources,
+                caps = s.caps,
+                onOpenDesktop = {
+                    val decision = NativeClient.connectDecision(s.sources)
+                    if (decision < 0) {
+                        step = Step.Picking(s.copy(openFiles = false))
+                    } else if (s.sources.isNotEmpty()) {
+                        onOpenStream(s.address, s.passcode, decision, s.sources, s.sessionKey, false)
+                    }
+                },
+                onOpenFiles = {
+                    if (!s.caps.files || s.sources.isEmpty()) return@ConnectedScreen
+                    if (s.sources.size > 1) {
+                        step = Step.Picking(s.copy(openFiles = true))
+                    } else {
+                        onOpenStream(
+                            s.address,
+                            s.passcode,
+                            s.sources.first().id,
+                            s.sources,
+                            s.sessionKey,
+                            true,
+                        )
+                    }
+                },
+                onDisconnect = { step = Step.Address },
+            )
+
         is Step.Picking ->
             SourcePickerScreen(
-                address = address,
-                sources = s.sources,
+                address = s.connected.address,
+                sources = s.connected.sources,
                 onPick = { source ->
-                    step = Step.Address
-                    onOpenStream(address, passcode.trim(), source.id, s.sources, sessionKey.trim())
+                    val c = s.connected
+                    step =
+                        Step.Connected(
+                            address = c.address,
+                            passcode = c.passcode,
+                            sessionKey = c.sessionKey,
+                            sources = c.sources,
+                            caps = c.caps,
+                        )
+                    onOpenStream(
+                        c.address,
+                        c.passcode,
+                        source.id,
+                        c.sources,
+                        c.sessionKey,
+                        c.openFiles,
+                    )
                 },
             )
     }
@@ -1470,6 +1555,50 @@ private fun DeviceSection(
 
         if (note.isNotEmpty()) {
             Text(note, style = MaterialTheme.typography.bodySmall, color = MutedColor)
+        }
+    }
+}
+
+@Composable
+private fun ConnectedScreen(
+    address: String,
+    sources: List<NativeClient.Source>,
+    caps: NativeClient.HostCaps,
+    onOpenDesktop: () -> Unit,
+    onOpenFiles: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Heading(NativeClient.string(NativeClient.STR_CLIENT_HEADING))
+        Text(
+            text = NativeClient.string(NativeClient.STR_CONNECTED_PICK_SESSION),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(text = address, color = MutedColor)
+        if (sources.isNotEmpty()) {
+            Button(onClick = onOpenDesktop, modifier = Modifier.fillMaxWidth()) {
+                Text(NativeClient.string(NativeClient.STR_OPEN_DESKTOP_LABEL))
+            }
+            if (caps.files) {
+                OutlinedButton(onClick = onOpenFiles, modifier = Modifier.fillMaxWidth()) {
+                    Text(NativeClient.string(NativeClient.STR_OPEN_FILES_LABEL))
+                }
+            }
+        } else if (caps.files) {
+            Text(
+                text = NativeClient.string(NativeClient.STR_ACCEPT_FILES_LABEL),
+                color = MutedColor,
+            )
+        }
+        OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+            Text(NativeClient.string(NativeClient.STR_DISCONNECT_BUTTON))
         }
     }
 }

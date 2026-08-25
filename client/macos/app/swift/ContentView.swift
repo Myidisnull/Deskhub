@@ -5,16 +5,32 @@ struct ContentView: View {
     @State private var route: ClientRoute = .connect
     @State private var connect = ConnectModel()
     @State private var agent = AgentModel()
+    @State private var connectedSources: [Source] = []
+    @State private var connectedCaps = HostCaps()
+    @State private var openFilesIntent = false
 
     var body: some View {
         Group {
             switch route {
             case .connect, .stream, .sharing:
-                MainMenuView(route: $route, connect: connect, agent: agent)
-                    .frame(minWidth: 720, minHeight: 480)
+                MainMenuView(
+                    route: $route, connect: connect, agent: agent,
+                    connectedSources: $connectedSources, connectedCaps: $connectedCaps,
+                    openFilesIntent: $openFilesIntent
+                )
+                .frame(minWidth: 720, minHeight: 480)
+            case .connected:
+                ConnectedView(
+                    route: $route, connect: connect, sources: connectedSources, caps: connectedCaps,
+                    openFilesIntent: $openFilesIntent
+                )
+                .frame(minWidth: 520, minHeight: 360)
             case let .sourcePicker(sources):
-                SourcePickerView(route: $route, connect: connect, sources: sources)
-                    .frame(width: 460, height: 340)
+                SourcePickerView(
+                    route: $route, connect: connect, sources: sources,
+                    openFiles: openFilesIntent
+                )
+                .frame(width: 460, height: 340)
             }
         }
         .navigationTitle(windowTitle)
@@ -32,6 +48,7 @@ struct ContentView: View {
     private var windowTitle: String {
         switch route {
         case .sourcePicker: DeskhubClient.string(DHStrPickerTitle)
+        case .connected: DeskhubClient.string(DHStrClientHeading)
         default: DeskhubClient.string(DHStrAppTitle)
         }
     }

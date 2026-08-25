@@ -188,7 +188,8 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         statusRows_.clear();
     }
 
-    if (sources.empty()) return Fail(policy_.noSourceError);
+    const bool filesOnly = sources.empty() && opt_.acceptFiles;
+    if (sources.empty() && !opt_.acceptFiles) return Fail(policy_.noSourceError);
     if (sources.size() > deskhub::kMaxSources)
         return Fail("At most " + std::to_string(deskhub::kMaxSources) +
                     " sources can be shared at once.");
@@ -225,28 +226,32 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
 
     LogListeningAddresses(opt_.port, chosen.ip);
 
-    for (const deskhub::media::ShareSource& s : sources) {
-        std::unique_ptr<HostSource> p = policy_.source.create(s, nextSourceId_++);
-        if (!p) continue;
-        pipes_.push_back(std::move(p));
-        policy_.source.startCapture(*pipes_.back());
+    if (!filesOnly) {
+        for (const deskhub::media::ShareSource& s : sources) {
+            std::unique_ptr<HostSource> p = policy_.source.create(s, nextSourceId_++);
+            if (!p) continue;
+            pipes_.push_back(std::move(p));
+            policy_.source.startCapture(*pipes_.back());
+        }
+
+        const std::vector<HostSource*> all = AllSources();
+        live_ = SelectLiveSources(all, policy_.status.closed, nullptr,
+            [this](HostSource& st) { ShutdownSource(st); });
+        if (live_.empty()) {
+            sock_.Close();
+            return Fail(policy_.noUsableSourceError);
+        }
+
+        for (HostSource* st : live_) AttachSession(*st);
+
+        localInputMon_.Start();
+        SyncKeepAwakeHeld(true);
+        StartAudio();
+        if (policy_.onSharing) policy_.onSharing();
+        LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live_.size());
+    } else {
+        LOGI("[Agent] File receive only.");
     }
-
-    const std::vector<HostSource*> all = AllSources();
-    live_ = SelectLiveSources(all, policy_.status.closed, nullptr,
-        [this](HostSource& st) { ShutdownSource(st); });
-    if (live_.empty()) {
-        sock_.Close();
-        return Fail(policy_.noUsableSourceError);
-    }
-
-    for (HostSource* st : live_) AttachSession(*st);
-
-    localInputMon_.Start();
-    SyncKeepAwakeHeld(true);
-    StartAudio();
-    if (policy_.onSharing) policy_.onSharing();
-    LOGI("[Agent] Sharing %zu source(s). Waiting for client...", live_.size());
 
     PublishStatus();
     {
@@ -258,6 +263,11 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         files_ = std::make_unique<FileHost>();
         if (!files_->Start(sock_, DefaultTransferDir(), FileHostCallbacks{})) {
             files_.reset();
+            if (filesOnly) {
+                running_.store(false, std::memory_order_release);
+                sock_.Close();
+                return Fail("File receive is off: the save folder is not writable.");
+            }
             LOGW("[Agent] File receive is off: the save folder is not writable.");
         }
     }

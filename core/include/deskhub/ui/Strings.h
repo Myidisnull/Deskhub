@@ -133,6 +133,9 @@ inline constexpr LStr kClipboardSyncLabel{"Sync clipboard text with connected de
 inline constexpr LStr kShareAudioLabel{"Share this device's sound with viewers"};
 inline constexpr LStr kAcceptFilesLabel{"Accept files sent by connected viewers"};
 inline constexpr LStr kSendFilesLabel{"Send files to this device"};
+inline constexpr LStr kOpenDesktopLabel{"Open desktop"};
+inline constexpr LStr kOpenFilesLabel{"Send files"};
+inline constexpr LStr kConnectedPickSession{"Connected \xE2\x80\x94 choose what to open."};
 inline constexpr LStr kPlayAudioLabel{"Play the sound of the device you are watching"};
 inline constexpr LStr kKeepAwakeLabel{"Keep this device awake while a session is active"};
 inline constexpr LStr kEncryptSessionLabel{"Encrypt session traffic"};

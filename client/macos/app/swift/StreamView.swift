@@ -9,12 +9,14 @@ struct ViewerRequest: Codable, Hashable {
     var sessionKey: String = ""
     var sourceId: UInt8
     var name: String
+    var openFiles: Bool = false
 }
 
 struct ViewerWindow: View {
     @State private var model: StreamModel
     @State private var pickingFiles = false
     @State private var fileSendError = ""
+    @State private var openFilesOnStream: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
 
@@ -26,6 +28,7 @@ struct ViewerWindow: View {
             sourceName: request.name,
             sessionKey: request.sessionKey
         ))
+        _openFilesOnStream = State(initialValue: request.openFiles)
     }
 
     var body: some View {
@@ -67,6 +70,11 @@ struct ViewerWindow: View {
             .task {
                 dh_viewer_opened()
                 await model.start()
+            }
+            .onChange(of: model.phase) { _, phase in
+                guard phase == .streaming, openFilesOnStream else { return }
+                openFilesOnStream = false
+                pickingFiles = true
             }
             .task {
                 guard dh_clipboard_sync() else { return }

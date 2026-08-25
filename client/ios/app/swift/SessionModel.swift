@@ -10,6 +10,8 @@ final class SessionModel {
 
     var screen: ClientRoute = .connect
     var sources: [Source] = []
+    var hostCaps = HostCaps()
+    var openFilePickerOnStream = false
     private(set) var stream: StreamModel?
 
     func beginConnect(to address: String, passcode: String) {
@@ -28,13 +30,30 @@ final class SessionModel {
                 address: connect.acceptedAddress, passcode: connect.acceptedPasscode,
                 sessionKey: connect.acceptedSessionKey
             )
-            sources = found
-            let decision = DeskhubClient.connectDecision(found)
-            if decision.showPicker {
-                screen = .sourcePicker(found)
-            } else {
-                startStream(sourceId: decision.sourceId)
-            }
+            sources = found.sources
+            hostCaps = found.caps
+            openFilePickerOnStream = false
+            screen = .connected
+        }
+    }
+
+    func openDesktop() {
+        openFilePickerOnStream = false
+        let decision = DeskhubClient.connectDecision(sources)
+        if decision.showPicker {
+            screen = .sourcePicker(sources)
+        } else if !sources.isEmpty {
+            startStream(sourceId: decision.sourceId)
+        }
+    }
+
+    func openFiles() {
+        guard hostCaps.files, let first = sources.first else { return }
+        openFilePickerOnStream = true
+        if sources.count > 1 {
+            screen = .sourcePicker(sources)
+        } else {
+            startStream(sourceId: first.id)
         }
     }
 
@@ -52,7 +71,7 @@ final class SessionModel {
             await model.start()
             guard model.failedToStart, stream === model else { return }
             stream = nil
-            screen = .connect
+            screen = .connected
             connect.connectError = DeskhubClient.couldNotConnect(address) + " "
                 + DeskhubClient.string(DHStrInvalidAddressHint)
         }
@@ -67,7 +86,17 @@ final class SessionModel {
     func disconnect() {
         stream?.disconnect()
         stream = nil
+        openFilePickerOnStream = false
+        sources = []
+        hostCaps = HostCaps()
         screen = .connect
+    }
+
+    func leaveSession() {
+        stream?.disconnect()
+        stream = nil
+        openFilePickerOnStream = false
+        screen = .connected
     }
 
     private func sourceName(of sourceId: UInt8) -> String {

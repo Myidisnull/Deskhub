@@ -81,8 +81,8 @@ final class ConnectModel {
         return accepted
     }
 
-    func listSources() async -> [Source] {
-        guard let accepted = acceptAddress() else { return [] }
+    func listSources() async -> (sources: [Source], caps: HostCaps) {
+        guard let accepted = acceptAddress() else { return ([], HostCaps()) }
         let code = acceptedPasscode
         isConnecting = true
         defer { isConnecting = false }
@@ -91,11 +91,11 @@ final class ConnectModel {
         }.value
         guard let found else {
             connectError = DeskhubClient.sourceQueryFailed(accepted)
-            return []
+            return ([], HostCaps())
         }
-        guard !found.isEmpty else {
+        guard !found.sources.isEmpty || found.caps.files else {
             connectError = DeskhubClient.sourceQueryEmpty(accepted)
-            return []
+            return ([], HostCaps())
         }
         return found
     }

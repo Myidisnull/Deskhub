@@ -124,6 +124,40 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
     return true;
 }
 
+bool dha_start_files(uint16_t port, const char* passcode) {
+    AgentOptions opt;
+    if (port) opt.port = port;
+    opt.allowInput = false;
+    opt.audio = false;
+    opt.acceptFiles = true;
+    opt.passcode = passcode && deskhub::IsValidPasscode(passcode) ? std::string(passcode)
+                                                                  : deskhubp::HostPasscode();
+    {
+        deskhub::ui::UiSettings stored = deskhubp::LoadUiSettings();
+        opt.bindIp = stored.bindIp;
+        opt.clipboardSync = stored.clipboardSync;
+        if (!deskhubp::ApplyEncryptToAgentOptions(stored, opt)) return false;
+    }
+
+    LOGI("[UI] File-receive start: port %u.", unsigned(opt.port));
+
+    std::lock_guard<std::mutex> lk(g_agentMutex);
+    if (g_agent) {
+        g_agent->Stop();
+        PublishAudioTarget(nullptr);
+        g_agent.reset();
+    }
+    g_agent = std::make_unique<AgentLoop>();
+    if (!g_agent->StartFilesOnly(opt)) {
+        deskhubp::CopyToBuf(g_errorBuf, sizeof(g_errorBuf), g_agent->LastError());
+        g_agent.reset();
+        return false;
+    }
+    PublishAudioTarget(g_agent.get());
+    g_errorBuf[0] = '\0';
+    return true;
+}
+
 void dha_stop(void) {
     LOGI("[UI] Share stop requested.");
     const uint64_t t0 = NowUs();

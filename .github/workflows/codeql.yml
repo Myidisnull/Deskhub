@@ -125,7 +125,8 @@ jobs:
         if: matrix.language == 'swift'
         run: >
           make build-macos MACOS_SIGN=adhoc
-          MACOS_XCARGS="SWIFT_WHOLE_MODULE_OPTIMIZATION=NO COMPILER_INDEX_STORE_ENABLE=NO"
+          MACOS_XCARGS="ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+          SWIFT_WHOLE_MODULE_OPTIMIZATION=NO COMPILER_INDEX_STORE_ENABLE=NO"
 
       - name: Analyze
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7

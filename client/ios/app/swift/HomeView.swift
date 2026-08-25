@@ -26,5 +26,12 @@ struct HomeView: View {
             }
         }
         .task { await model.sharing.poll() }
+        .task { await FilesHost.shared.run() }
+        .onChange(of: model.sharing.status.sharing) { _, sharing in
+            if sharing { FilesHost.shared.stop() }
+        }
+        .onChange(of: model.settings.acceptFiles) { _, _ in
+            if !model.settings.acceptFiles { FilesHost.shared.stop() }
+        }
     }
 }

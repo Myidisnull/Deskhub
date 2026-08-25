@@ -51,6 +51,11 @@ object NativeHost {
         passcode: String,
     ): Boolean
 
+    private external fun nativeStartFiles(
+        port: Int,
+        passcode: String,
+    ): Boolean
+
     private external fun nativeOfferAudio(
         pcm: ShortArray,
         samples: Int,
@@ -177,6 +182,15 @@ object NativeHost {
                 )
             if (ok) shareState = ShareState.SHARING
             ok
+        }
+
+    suspend fun startFiles(
+        port: Int,
+        passcode: String,
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+            if (shareState == ShareState.SHARING || shareState == ShareState.STARTING) return@withContext false
+            nativeStartFiles(port, passcode)
         }
 
     fun stop() {

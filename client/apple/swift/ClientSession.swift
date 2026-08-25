@@ -23,6 +23,13 @@ struct Source: Identifiable, Sendable, Hashable {
     let pickerLabel: String
 }
 
+struct HostCaps: Sendable, Hashable {
+    var acceptsInput = false
+    var terminal = false
+    var audio = false
+    var files = false
+}
+
 nonisolated enum DeskhubClient {
     static func string(_ id: DHStringId) -> String {
         String(cString: dh_string(id))
@@ -145,13 +152,14 @@ nonisolated enum DeskhubClient {
         String(typed.filter(\.isASCII).filter(\.isNumber).prefix(passcodeDigits))
     }
 
-    static func listSources(address: String, passcode: String) -> [Source]? {
+    static func listSources(address: String, passcode: String) -> (sources: [Source], caps: HostCaps)? {
         var buf = [DHSourceInfo](repeating: DHSourceInfo(), count: Int(dh_max_sources()))
+        var caps = DHHostCaps()
         let count = buf.withUnsafeMutableBufferPointer { ptr in
-            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode, nil)
+            dh_list_sources(address, ptr.baseAddress, Int32(ptr.count), passcode, &caps)
         }
         guard count >= 0 else { return nil }
-        return buf.prefix(Int(count)).map { info in
+        let sources = buf.prefix(Int(count)).map { info in
             Source(
                 id: info.sourceId,
                 name: cString(info.name),
@@ -160,6 +168,13 @@ nonisolated enum DeskhubClient {
                 pickerLabel: cString(info.pickerLabel)
             )
         }
+        return (
+            sources,
+            HostCaps(
+                acceptsInput: caps.acceptsInput, terminal: caps.terminal, audio: caps.audio,
+                files: caps.files
+            )
+        )
     }
 }
 

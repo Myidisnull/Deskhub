@@ -8,6 +8,8 @@ struct ContentView: View {
             switch model.screen {
             case .connect, .sharing:
                 HomeView(model: model)
+            case .connected:
+                ConnectedView(model: model)
             case let .sourcePicker(sources):
                 SourcePickerView(model: model, sources: sources)
             case .stream:

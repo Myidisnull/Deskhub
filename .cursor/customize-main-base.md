@@ -16,16 +16,31 @@ English governs this file. Update it every time `develop` successfully absorbs `
 | Reviewed tip subject | Merge branch 'manhpham90vn:main' into main |
 | Pin updated | 2026-08-25 |
 
+## Partial port (2026-08-25) — P1/P2 connect-once Desktop/Files + phone file receive
+
+Adapted from main connect-once / phone files / CodeQL arch (UDP shape; **no** Shell / HostLink / pairing):
+
+- **P1** `cd32b07c`: CodeQL macOS `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`
+- **P1** `d328874c`: iOS `StreamControlPanel` in `StreamOverlays.swift`
+- **P1** `390f13ba` FileHost thread safety already present on develop
+- **P2** Connect-once → Connected pick Desktop / Send files (no Shell): iOS + macOS + Android; open-files auto file picker after stream up
+- **P2** Phone UDP file receive: `dha_start_files` / `HostEngine` files-only; iOS `FilesHost` while app open + `acceptFiles` + not broadcasting; Android same while MainActivity alive; sender offer timeout 60s in `FileUpload`
+- Strings/FFI: `DHStrOpenDesktopLabel` / `OpenFilesLabel` / `ConnectedPickSession`; `DHHostCaps` on `dh_list_sources`
+
+Still deferred: Windows/Linux connect-once UI polish; standalone file-send without a desktop session; Shell branch of connect-once.
+
+`Last fully absorbed` stays `085f7ef`.
+
 ## Review only (2026-08-25) — full feature eval through `e7f12085`
 
 `git fetch` OK. Range since prior reviewed tip `55ba8a2`: **2** non-merge commits.
 
 | Commit | Subject | Class | Why |
 | --- | --- | --- | --- |
-| `d328874c` | chore(ios): split stream control panel out of StreamView | **Adapt** (optional) | Lint/refactor only; develop `StreamOverlays.swift` still smaller / different panel — take only if iOS SwiftLint fails |
+| `d328874c` | chore(ios): split stream control panel out of StreamView | **Adapt** (done) | See P1/P2 partial port above |
 | `ff9d0202` | chore: fold new fuzz coverage into the seed corpus | **Skip** / low **Port** | Corpus noise unless develop actively fuzzes |
 
-Full gap `085f7ef..e7f12085` (~159 non-merge): shared infra themes already partially Adapted (audio, FrameGate/NVENC/mailbox, AutoShareGate, CI apt/workflows, PcmRing, LinkPulse, file xfer UDP, reattach grace). Remaining value is thin; hard skips (terminal, HostLink/QUIC connect-once, CLI, pairing/Devices, VERSION 5.x) still dominate.
+Full gap `085f7ef..e7f12085` (~159 non-merge): shared infra themes already partially Adapted (audio, FrameGate/NVENC/mailbox, AutoShareGate, CI apt/workflows, PcmRing, LinkPulse, file xfer UDP, reattach grace). Remaining value is thin; hard skips (terminal, HostLink/QUIC connect-once Shell, CLI, pairing/Devices, VERSION 5.x) still dominate.
 
 `Last fully absorbed` stays `085f7ef`.
 

@@ -95,6 +95,12 @@ JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStart(JNIEnv* e
                : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL Java_com_deskhub_app_NativeHost_nativeStartFiles(JNIEnv* env, jobject,
+    jint port, jstring passcode) {
+    const std::string code = deskhubj::FromJString(env, passcode);
+    return dha_start_files(uint16_t(port), code.c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL Java_com_deskhub_app_NativeHost_nativeOfferAudio(JNIEnv* env, jobject,
     jshortArray pcm, jint samples) {
     if (!pcm || samples <= 0) return;

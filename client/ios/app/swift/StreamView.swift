@@ -64,6 +64,11 @@ struct StreamView: View {
             UIApplication.shared.isIdleTimerDisabled = dh_keep_awake()
             model.refresh()
         }
+        .onChange(of: streaming) { _, on in
+            guard on, session.openFilePickerOnStream else { return }
+            session.openFilePickerOnStream = false
+            pickingFiles = true
+        }
         .task {
             guard dh_clipboard_sync() else { return }
             var lastChange = UIPasteboard.general.changeCount
@@ -181,11 +186,16 @@ struct StreamView: View {
                     }
                 )
             }
-            if controlsOpen {
-                controlPanel
-            } else {
-                openButton
-            }
+            StreamControlPanel(
+                session: session,
+                model: model,
+                streaming: streaming,
+                hostTitle: hostTitle,
+                isOpen: $controlsOpen,
+                keyboardOn: $keyboardOn,
+                pickingFiles: $pickingFiles,
+                pickerOpen: $pickerOpen
+            )
         }
         .padding(12)
         .background(
@@ -198,101 +208,6 @@ struct StreamView: View {
         )
     }
 
-    private var openButton: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.18)) { controlsOpen = true }
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(.black.opacity(0.45), in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show controls")
-    }
-
-    private var controlPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(hostTitle)
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if streaming {
-                        LinkHealthRow(health: model.linkHealth)
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                    }
-                    if streaming, !model.statusLine.isEmpty {
-                        Text(model.statusLine)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.8))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button {
-                    withAnimation(.easeOut(duration: 0.18)) { controlsOpen = false }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Hide controls")
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(kHotkeys, id: \.label) { hotkey in
-                        Button(hotkey.label) { model.hotkey(hotkey) }
-                            .buttonStyle(.bordered)
-                    }
-                }
-                .padding(.vertical, 1)
-            }
-            .disabled(!streaming)
-            .opacity(streaming ? 1 : 0.45)
-
-            HStack(spacing: 10) {
-                Button(keyboardOn ? "Hide keyboard" : "Keyboard") { keyboardOn.toggle() }
-                    .buttonStyle(.bordered)
-                    .disabled(!streaming)
-
-                Button(DeskhubClient.string(DHStrSendFilesLabel)) { pickingFiles = true }
-                    .buttonStyle(.bordered)
-                    .disabled(!streaming)
-
-                if session.sources.count > 1 {
-                    Button("Display") { pickerOpen = true }
-                        .buttonStyle(.bordered)
-                }
-
-                Spacer()
-
-                Button(DeskhubClient.string(DHStrDisconnectButton)) { session.disconnect() }
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .confirmationDialog("Display", isPresented: $pickerOpen, titleVisibility: .visible) {
-            ForEach(session.sources) { source in
-                Button(sourceLabel(source)) { session.switchSource(to: source.id) }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-    }
-
     private var fileErrorShown: Binding<Bool> {
         Binding(
             get: { !fileSendError.isEmpty },
@@ -300,11 +215,6 @@ struct StreamView: View {
                 if !shown { fileSendError = "" }
             }
         )
-    }
-
-    private func sourceLabel(_ source: Source) -> String {
-        let mark = source.id == model.sourceId ? "✓ " : ""
-        return mark + source.pickerLabel
     }
 
     private func releaseLayer() {
