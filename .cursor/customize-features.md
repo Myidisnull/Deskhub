@@ -1,9 +1,9 @@
 # develop 客制化功能清单
 
-权威说明：本文件记录 **`develop` 相对 `main` 的产品客制**。同步上游时不得破坏下列功能、配置、布局与 UI（见 `.cursor/rules/develop-main-parallel.mdc`）。  
+权威说明：本文件记录 **`develop` 相对 `main` 的产品客制**。同步上游时不得破坏下列功能、配置、布局与 UI（见 `.cursor/rules/develop-main-parallel.mdc`）。
 版本锚点：`VERSION` = **4.0.2** · 品牌文件 `brand/Brand.json` · 对照 tip 时以本文件 + `customize-main-base.md` 为准。
 
-上次整理：2026-08-21
+上次整理：2026-08-25
 
 ---
 
@@ -57,113 +57,13 @@
 - `client/windows/win32/AppTheme.h`（明暗主题，替代已删除的 `WxUi.h`）
 - 观看到 GPU/打开失败等客制提示文案
 
-### 2.7 工程向强化（非独立产品页，但属本分支习惯）
+### 2.7 文件传输（develop 形，相对 main 无独立 HostLink/QUIC）
 
-- 多端 `AgentLoop`、Windows 采集 / NVENC·MF 编码、HostEngine / StallLog 等稳定性改动
-- 协议侧已按需吸收：`HostCaps`（`terminal` 在本分支恒为 false）、InputApplier 接管仍放键
-- 启动自动共享：`AutoShareGate`（等显示器就绪再分享；超时放弃后仍尝试 / 软失败）；Win / Linux / macOS；不含 terminal link recovery
-- 视频节流：`FrameGate` due-time 节奏（非整倍采集帧率仍贴近目标）
-- Linux Host：mapped 帧经 `FrameMailbox` 异步编码（dma-buf 仍同步）；`HwEncoder` 在 mapped 路径优先 NVENC、dma-buf 走 VA-API；采集线程 `RgbDownscale` 后再入队；诊断 `q_drop`
-- Apple 观看端：`VideoPacer` + `VtDecoder` 按 PTS 控制 timebase 平滑出帧（拥堵则回退立即显示）
+- 主机设置：`acceptFiles`（默认关）；落盘目录 `files/` under app data / `.system-runtime`
+- 观看端会话内发文件：各端选文件入口 + `ClientEngine`/`dh_session_file_send`（UDP `Chan::File`）
 
-### 2.8 会话期间防休眠（keepAwake）
+## 3. 维护约定
 
-- 设置：`UiSettings.keepAwake`（默认开），键名 `keep_awake`
-- 平台：`deskhubp/system/KeepAwake.h` + Win/Mac/Linux/None
-- 引擎：`HostEngine` / `ClientEngine` 在会话起止时 Acquire/Release；会话中改开关会在 tick 中同步
-- 各端设置开关；Android / iOS 观看页按设置控制屏幕常亮
-- Android Host：`HostService` 在分享成功后按设置持有 `PARTIAL_WAKE_LOCK`
-- iOS Host：主 App 在 Broadcast 分享中按设置禁用 idle timer（`SharingModel.poll`）
-- 与品牌/加密/托盘/三页导航无冲突；相对 main 为误砍后补回
-
-### 2.9 音频共享 / 播放（Adapt from main）
-
-- 协议：`MsgType::AudioPacket`；`HostCaps.audio` / `kHostSharesAudio`
-- **特征位**：`kClientWantsAudio = 1u << 1`（`kFeatureEncryptCapable` 仍占 bit 0，避免与 main 冲突）
-- 设置：`UiSettings.shareAudio` / `playAudio`（默认开），键名 `share_audio` / `play_audio`
-- 共享层：`AudioJitterBuffer`、Opus（`DESKHUB_AUDIO` + `scripts/build-opus.sh`）、`AudioBroadcaster` / `AudioPlayer` + 各 OS sink
-- Host：`HostEngine` StartAudio / beacon caps；Win/Linux `AudioCapture`；macOS SCStream audio；iOS ReplayKit `audioApp`；Android `AudioShare`（playback capture）
-- 观看：`ClientEngine` / `ClientSessionShell` 按 `playAudio` 置 `wantsAudio`
-- 设置 UI：Win / Linux / macOS / iOS / Android 三页设置中的 Session 区开关 + i18n
-
----
-
-## 3. 相对 main 明确不提供的能力（客制边界）
-
-同步 `main` 时默认 **不要恢复**：
-
-| 能力 | 说明 |
-| --- | --- |
-| 远程终端 / PTY / Stop & Attach | 各端 Terminal*、`TerminalFfi`、TermGrid 等已删 |
-| 配对 / 信任设备 UI | 无 TrustPrompt、配对弹窗、已配对设备管理页 |
-| Devices 导航 | 侧栏无 Devices；无独立 Devices 页（Client 内近期设备保留） |
-| main 专属设置 | 无 `clientShell`、`clientDesktop`、`startHidden`、`allowNewPairings`（`keepAwake` 已补回） |
-| QUIC 缺失产品文案 | 无 `kShareNoQuicLibrary` 一类提示；不以恢复 quiche 脚本为默认 |
-
-口令：本分支以 **4 位分享口令** 为主叙事；不要改回 main 的「可选配对口令 + 信任」主流程。
-
----
-
-## 4. 配置清单（`UiSettings`）
-
-**本分支使用：**
-
-- 共享：`fps`、`bitrateMbps`、`maxDim`、`port`、`allowInput`、`clientControl`、`passcode`、`deviceName`、`bindIp`、`autostart`、`autoShare`、`clipboardSync`、`keepAwake`
-- 客制：`language`、`encryptSession` 及密钥相关、`runInBackground*`、`hideTrayIcon`、日志四字段
-
-**不要从 main 加回（除非产品明确要求）：**  
-`clientShell`、`clientDesktop`、`startHidden`、`allowNewPairings`  
-（`keepAwake` 已是本分支能力）
-
-权威头文件：`core/include/deskhub/ui/UiSettings.h`
-
----
-
-## 5. 布局 / UI 结构（客制）
-
-### 导航（桌面）
-
-- **三页**：Host（共享）· Client（连接）· Settings  
-- **不要**恢复 Devices 第四页或 Terminal 路由
-
-### Windows（`client/windows/win32`）
-
-- 保留：`MainFrame` 三页导航、`AppTheme`、`BackgroundPrompt`、`QuitBusyPrompt`
-- 禁止默认加回：`TerminalWindow`、Devices/配对列表、`WxUi.h`
-
-### macOS（`client/macos/app/swift`）
-
-- 保留：托盘与生命周期、设置中的语言/加密/后台/日志、Connect 内联侧栏
-- Host 表：**无**终端行；无配对告警主路径
-- 禁止默认加回：`TerminalModel`/`TerminalScreen`、`DevicesPage`、`MainMenuSidebar`（已内联）、`.terminal` 路由
-
-### Linux GTK
-
-- 保留：语言、加密、后台+`hideTrayIcon`+首次关窗提示、近期设备/LAN 列表
-- 禁止默认加回：`TerminalWindow`、配对/Devices 流程
-
-### Android / iOS
-
-- 保留：System Runtime 品牌、语言、口令 + session key 连接/分享设置、keepAwake（观看页常亮；Android Host WakeLock；iOS 分享中 idle timer）、日志保留三字段
-- 禁止默认加回：Terminal Activity / NativeTerminal、iOS Devices 页、TrustPrompt、Terminal 屏
-
----
-
-## 6. 关键文件索引
-
-| 用途 | 路径 |
-| --- | --- |
-| 品牌 | `brand/Brand.json`、`core/include/deskhub/ui/Brand.h` |
-| 设置 | `core/include/deskhub/ui/UiSettings.h` |
-| 语言 | `core/include/deskhub/ui/Locale.h`、`core/src/ui/Locale*.cpp` |
-| 文案 | `core/include/deskhub/ui/Strings.h` |
-| 上游 pin | `.cursor/customize-main-base.md` |
-| 分支规则 | `.cursor/rules/develop-main-parallel.mdc`、`customize-from-main.mdc`、`main-sync-pin.mdc` |
-
----
-
-## 7. 维护约定
-
-1. 新增客制功能或砍掉能力时：**同步更新本文件**（同一变更集）。  
-2. 从 `main` 选择性移植前：对照第 2–5 节，冲突则以本清单为准。  
+1. 新增客制功能或砍掉能力时：**同步更新本文件**（同一变更集）。
+2. 从 `main` 选择性移植前：冲突则以本清单为准。
 3. 不要用 merge 把 `main` 的 UI/终端/配对面冲进 `develop`。

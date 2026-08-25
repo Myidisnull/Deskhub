@@ -1,4 +1,5 @@
 #include "deskhub/session/ClientSession.h"
+#include "deskhub/session/LinkPulse.h"
 
 #include "deskhub/session/HostSession.h"
 
@@ -14,6 +15,8 @@ void ClientSession::Start(const Hello& hello, uint64_t nowUs) {
     startedUs_ = nowUs;
     lastRecvUs_ = nowUs;
     lastSentUs_ = nowUs;
+    pulse_.Reset();
+    lastRttUs_ = 0;
     noise3Len_ = 0;
     cipher_.Reset();
     if (havePresetKey_) cipher_.SetKey(presetKey_);
@@ -149,8 +152,10 @@ bool ClientSession::HandlePacket(std::span<const uint8_t> pkt, uint64_t nowUs) {
             const auto m = ParsePingPong(payload);
             if (!m) return false;
             lastRecvUs_ = nowUs;
-            lastRttUs_ = uint32_t(nowUs - m->sendTimeUs);
-            if (cb_.onRtt) cb_.onRtt(lastRttUs_);
+            if (pulse_.OnPong(*m, nowUs)) {
+                lastRttUs_ = pulse_.View(nowUs).rttUs;
+                if (cb_.onRtt) cb_.onRtt(lastRttUs_);
+            }
             return true;
         }
         case MsgType::Reconfig: {
@@ -257,9 +262,13 @@ void ClientSession::Tick(uint64_t nowUs) {
         return;
     }
 
-    if (nowUs - lastPingUs_ >= kPingIntervalUs) {
-        lastPingUs_ = nowUs;
-        PingPong p{nextPingId_++, nowUs};
+    if ((state_ == State::Starting || state_ == State::Streaming) && pulse_.Stalled(nowUs)) {
+        Die("lost contact with host (timeout)");
+        return;
+    }
+
+    if (pulse_.PingDue(nowUs) && state_ != State::Idle && state_ != State::Dead) {
+        const PingPong p = pulse_.MakePing(nowUs);
         const size_t n = BuildPing(buf_, sessionId_, p);
         if (n) SendMaybeEncrypted(std::span<const uint8_t>(buf_, n));
     }

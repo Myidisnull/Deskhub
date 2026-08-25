@@ -91,6 +91,26 @@ void Exchange(Rig& r, ClientPump& pump, HostSession& host, uint64_t now) {
     }
 }
 
+void ExchangeSkipPulse(Rig& r, ClientPump& pump, HostSession& host, uint64_t now) {
+    for (int guard = 0; guard < 32; ++guard) {
+        if (r.toHost.empty() && r.toClient.empty()) break;
+        while (!r.toHost.empty()) {
+            auto d = std::move(r.toHost.front());
+            r.toHost.pop_front();
+            const auto h = ParseCommonHeader(d);
+            if (h && (h->type == MsgType::Ping || h->type == MsgType::Feedback)) continue;
+            host.HandlePacket(d, now, kTestViewer);
+        }
+        while (!r.toClient.empty()) {
+            auto d = std::move(r.toClient.front());
+            r.toClient.pop_front();
+            const auto h = ParseCommonHeader(d);
+            if (h && h->type == MsgType::Pong) continue;
+            pump.OnDatagram(d, now);
+        }
+    }
+}
+
 std::unique_ptr<HostSession> MakeHost(Rig& r, StreamParams offer) {
     HostCallbacks hcb;
     hcb.send = [&](std::span<const uint8_t> d) { r.toClient.emplace_back(d.begin(), d.end()); };
@@ -560,24 +580,27 @@ void TestFocusInputByeAndRtt() {
     pump.QueueInput(e);
     now += 60'000;
     pump.Tick(now);
-    Exchange(r, pump, *host, now);
+    ExchangeSkipPulse(r, pump, *host, now);
     Check(focused, "the focus change reached the host");
     Check(inputs == 1, "so did the key press");
 
     Check(pump.lastRttUs() == 0, "no RTT sample yet");
+    r.toHost.clear();
     now += 1'100'000;
     pump.Tick(now);
-    while (!r.toHost.empty()) {
-        auto d = std::move(r.toHost.front());
-        r.toHost.pop_front();
-        host->HandlePacket(d, now, kTestViewer);
+    Check(!r.toHost.empty(), "a ping was sent");
+    for (const auto& d : r.toHost) {
+        const auto h = ParseCommonHeader(d);
+        if (h && h->type == MsgType::Ping) host->HandlePacket(d, now, kTestViewer);
     }
+    r.toHost.clear();
     const uint64_t pongAt = now + 30'000;
-    while (!r.toClient.empty()) {
-        auto d = std::move(r.toClient.front());
-        r.toClient.pop_front();
-        pump.OnDatagram(d, pongAt);
+    Check(!r.toClient.empty(), "a pong came back");
+    for (const auto& d : r.toClient) {
+        const auto h = ParseCommonHeader(d);
+        if (h && h->type == MsgType::Pong) pump.OnDatagram(d, pongAt);
     }
+    r.toClient.clear();
     Check(pump.lastRttUs() == 30'000, "the pong round trip is measured");
 
     pump.SendBye();

@@ -37,6 +37,7 @@ private:
     void UpdateTitle();
     void SizeToVideo();
     void EndSession();
+    void PickAndSendFiles();
 
     void PostToMain(std::function<void(ViewerWindow&)> fn);
 

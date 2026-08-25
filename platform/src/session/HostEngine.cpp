@@ -249,6 +249,13 @@ bool HostEngine::Start(const std::vector<deskhub::media::ShareSource>& sources,
         lastError_.clear();
     }
     running_.store(true, std::memory_order_release);
+    if (opt_.acceptFiles) {
+        files_ = std::make_unique<FileHost>();
+        if (!files_->Start(sock_, DefaultTransferDir(), FileHostCallbacks{})) {
+            files_.reset();
+            LOGW("[Agent] File receive is off: the save folder is not writable.");
+        }
+    }
     recvThread_ = std::thread([this] {
         RecvLoop();
         running_.store(false, std::memory_order_release);
@@ -270,6 +277,9 @@ void HostEngine::StopLocked() {
 
     if (policy_.stopAudioCapture) policy_.stopAudioCapture();
     audio_.Stop();
+
+    if (files_) files_->Stop();
+    files_.reset();
 
     quit_.store(true);
     {
@@ -406,19 +416,27 @@ void HostEngine::StartAudio() {
 }
 
 void HostEngine::RecvLoop() {
+    const bool takingFiles = files_ != nullptr && files_->Running();
     beacon_.SetPasscode(opt_.passcode);
-    beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false, audio_.running()});
+    beacon_.SetCaps(
+        deskhub::HostCaps{opt_.allowInput, false, audio_.running(), takingFiles});
 
     HostNetLoopHooks loop;
     loop.fallbackFps = opt_.fps;
     loop.stopped = [this] { return quit_.load(); };
     loop.onTick = [this] {
-        beacon_.SetCaps(deskhub::HostCaps{opt_.allowInput, false, audio_.running()});
+        const bool filesOn = files_ != nullptr && files_->Running();
+        beacon_.SetCaps(
+            deskhub::HostCaps{opt_.allowInput, false, audio_.running(), filesOn});
         DrainControlRequests();
         DrainLocalClipboard();
+        if (files_) files_->DrainGone();
         SyncKeepAwakeHeld(true);
     };
     loop.publishStatus = [this] { PublishStatus(); };
+    loop.onFile = [this](const NetAddr& from, std::span<const uint8_t> datagram) {
+        if (files_) files_->HandleDatagram(from, datagram);
+    };
     loop.source.closed = policy_.status.closed;
     loop.source.zeroCopy = policy_.status.zeroCopy;
     loop.source.shutdown = [this](HostSource& st) { ShutdownSource(st); };

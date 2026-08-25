@@ -1,5 +1,6 @@
 #include "deskhubp/net/ClientNetLoop.h"
 
+#include "deskhub/protocol/Wire.h"
 #include "deskhubp/system/Clock.h"
 
 #ifdef _WIN32
@@ -40,7 +41,15 @@ void RunClientNetLoop(UdpSocket& sock, deskhub::ClientPump& pump,
             if (hooks.onSocketError) hooks.onSocketError();
             break;
         }
-        if (n > 0) pump.OnDatagram(std::span<const uint8_t>(buf, size_t(n)), now);
+        if (n > 0) {
+            const auto pkt = std::span<const uint8_t>(buf, size_t(n));
+            const auto header = deskhub::ParseCommonHeader(pkt);
+            if (header && header->chan == deskhub::Chan::File && hooks.onFile) {
+                hooks.onFile(pkt);
+            } else {
+                pump.OnDatagram(pkt, now);
+            }
+        }
 
         pump.PollFrames(now);
         if (hooks.afterFrames) hooks.afterFrames(pump, now);

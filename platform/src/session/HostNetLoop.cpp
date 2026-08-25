@@ -1,6 +1,7 @@
 #include "deskhubp/session/HostNetLoop.h"
 
 #include "deskhub/diag/AgentDiag.h"
+#include "deskhub/protocol/Wire.h"
 #include "deskhub/session/HostFeedback.h"
 #include "deskhub/session/HostRouter.h"
 #include "deskhub/ui/HostRows.h"
@@ -201,7 +202,10 @@ void RunHostNetLoop(UdpSocket& sock, deskhub::Beacon& beacon,
 
         if (n > 0) {
             const auto pkt = std::span<const uint8_t>(buf, size_t(n));
-            if (const size_t rn = beacon.Reply(beaconBuf, pkt, now, from.Pack()); rn) {
+            const auto header = deskhub::ParseCommonHeader(pkt);
+            if (header && header->chan == deskhub::Chan::File && hooks.onFile) {
+                hooks.onFile(from, pkt);
+            } else if (const size_t rn = beacon.Reply(beaconBuf, pkt, now, from.Pack()); rn) {
                 sock.SendTo(from, beaconBuf, rn);
             } else {
                 deskhub::AcceptDatagram(liveStates, pkt, from.Pack(), now);

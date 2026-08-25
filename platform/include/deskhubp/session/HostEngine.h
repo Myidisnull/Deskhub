@@ -12,6 +12,8 @@
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/session/HostAgent.h"
 #include "deskhubp/session/HostNetLoop.h"
+#include "deskhubp/host/FileHost.h"
+#include "deskhubp/system/FileStore.h"
 #include "deskhubp/system/Clock.h"
 
 #include <atomic>
@@ -133,6 +135,14 @@ public:
         return sock_;
     }
 
+    FileHost* files() {
+        return files_.get();
+    }
+
+    const FileHost* files() const {
+        return files_.get();
+    }
+
 private:
     bool Fail(std::string message);
     void AttachSession(HostSource& st);
@@ -178,6 +188,7 @@ private:
     LocalInputMonitor localInputMon_;
     AudioBroadcaster audio_;
     deskhub::Beacon beacon_;
+    std::unique_ptr<FileHost> files_;
 
     uint32_t startBitrateBps_ = 0;
     bool keepAwakeHeld_ = false;

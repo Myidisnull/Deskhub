@@ -7,6 +7,7 @@ final class SettingsModel {
     var clientControl: Bool
     var clipboardSync: Bool
     var shareAudio: Bool
+    var acceptFiles: Bool
     var playAudio: Bool
     var keepAwake: Bool
     var language: AppLanguage
@@ -20,6 +21,7 @@ final class SettingsModel {
         clientControl = stored.clientControl
         clipboardSync = dh_clipboard_sync()
         shareAudio = dh_share_audio()
+        acceptFiles = dh_accept_files()
         playAudio = dh_play_audio()
         keepAwake = dh_keep_awake()
         language = AppLanguage.fromStored(DeskhubClient.buffered(32) { dh_language($0, $1) })
@@ -44,6 +46,7 @@ final class SettingsModel {
         )
         dh_set_clipboard_sync(clipboardSync)
         dh_set_share_audio(shareAudio)
+        dh_set_accept_files(acceptFiles)
         dh_set_play_audio(playAudio)
         dh_set_keep_awake(keepAwake)
         dh_set_language(language.rawValue)

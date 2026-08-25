@@ -1,9 +1,11 @@
-﻿#include "gtk/ViewerWindow.h"
+#include "gtk/ViewerWindow.h"
 
 #include <gdk/gdkkeysyms.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <utility>
+#include <vector>
 
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/ffi/ClientFfi.h"
@@ -243,7 +245,20 @@ gboolean ViewerWindow::OnTick(GtkWidget* w, GdkFrameClock*, gpointer) {
 }
 
 void ViewerWindow::UpdateTitle() {
-    std::string title = pointer_.TitleFor(baseTitle_, statusLine_);
+    std::string line = statusLine_;
+    const deskhub::LinkPulseView link = loop_.LinkHealth();
+    if (link.quality != deskhub::LinkQuality::Unknown || link.haveRtt) {
+        std::string prefix = deskhub::ui::LinkQualityText(link.quality);
+        if (link.haveRtt) {
+            prefix += " · ";
+            prefix += deskhub::ui::LinkPingText(true, link.rttUs);
+        }
+        if (!line.empty())
+            line = prefix + " · " + line;
+        else
+            line = std::move(prefix);
+    }
+    std::string title = pointer_.TitleFor(baseTitle_, line);
     if (title == shownTitle_) return;
     shownTitle_ = std::move(title);
     gtk_window_set_title(GTK_WINDOW(window_), shownTitle_.c_str());
@@ -273,6 +288,34 @@ void ViewerWindow::EndSession() {
         ShowInfo(nullptr, deskhub::ui::kConnectionEndedTitle,
             why.empty() ? std::string(deskhub::ui::kDisconnected) : why);
     });
+}
+
+void ViewerWindow::PickAndSendFiles() {
+    if (ended_ || loop_.FileSendBusy()) return;
+
+    GtkWidget* dialog = gtk_file_chooser_dialog_new(deskhub::ui::kSendFilesLabel,
+        GTK_WINDOW(window_), GTK_FILE_CHOOSER_ACTION_OPEN, "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Open", GTK_RESPONSE_ACCEPT, nullptr);
+    gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), TRUE);
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) != GTK_RESPONSE_ACCEPT) {
+        gtk_widget_destroy(dialog);
+        return;
+    }
+
+    std::vector<std::filesystem::path> paths;
+    if (GSList* files = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog))) {
+        for (GSList* it = files; it; it = it->next) {
+            if (const char* name = static_cast<const char*>(it->data))
+                paths.emplace_back(name);
+            g_free(it->data);
+        }
+        g_slist_free(files);
+    }
+    gtk_widget_destroy(dialog);
+    if (paths.empty()) return;
+
+    if (loop_.BeginFileSend(paths)) return;
+    ShowWarning(GTK_WINDOW(window_), deskhub::ui::kAppTitle, loop_.FileSendError());
 }
 
 void ViewerWindow::GrabPointer(bool locked) {
@@ -312,6 +355,11 @@ gboolean ViewerWindow::OnKey(GtkWidget*, GdkEventKey* e, gpointer user) {
         (e->keyval == GDK_KEY_0 || e->keyval == GDK_KEY_KP_0)) {
         self->transform_ = {};
         gtk_gl_area_queue_render(GTK_GL_AREA(self->glArea_));
+        return TRUE;
+    }
+    if (down && (e->state & GDK_CONTROL_MASK) &&
+        (e->keyval == GDK_KEY_o || e->keyval == GDK_KEY_O)) {
+        self->PickAndSendFiles();
         return TRUE;
     }
 

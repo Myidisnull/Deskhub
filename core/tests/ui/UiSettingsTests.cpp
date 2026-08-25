@@ -210,6 +210,8 @@ void TestDefaultsMatchShareDefaults() {
     Check(ui::ParseUiSettings("share_audio=1").shareAudio, "and on");
     Check(!ui::ParseUiSettings("play_audio=0").playAudio, "play audio round-trips off");
     Check(ui::ParseUiSettings("play_audio=1").playAudio, "and on");
+    Check(!ui::ParseUiSettings("accept_files=0").acceptFiles, "accept files round-trips off");
+    Check(ui::ParseUiSettings("accept_files=1").acceptFiles, "and on");
 }
 
 void TestNativeQualityIsPreserved() {

@@ -37,6 +37,7 @@ inline media::AgentOptions ShareOptionsOf(const ui::UiSettings& settings) {
     options.encryptSession = settings.encryptSession;
     options.escrowSessionKey = settings.escrowSessionKey;
     options.audio = settings.shareAudio;
+    options.acceptFiles = settings.acceptFiles;
     return options;
 }
 

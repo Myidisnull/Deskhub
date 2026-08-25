@@ -10,11 +10,72 @@ English governs this file. Update it every time `develop` successfully absorbs `
 | Short | `085f7ef` |
 | Date | 2026-08-16 23:35:55 +0700 |
 | Subject | feat: Add TODO for implementing Stop & Attach shell functionality across clients |
-| Last reviewed `origin/main` tip | `8bdb40d3f44d4b2f66d89f22b414ada21c052a3d` |
-| Reviewed tip short | `8bdb40d` |
-| Reviewed tip date | 2026-08-21 05:29:21 +0000 |
-| Reviewed tip subject | chore: fold new fuzz coverage into the seed corpus |
-| Pin updated | 2026-08-21 |
+| Last reviewed `origin/main` tip | `55ba8a2fd81e35932ee64e1b3f96a7ff57004e13` |
+| Reviewed tip short | `55ba8a2` |
+| Reviewed tip date | 2026-08-24 14:53:37 +0800 |
+| Reviewed tip subject | Merge branch 'manhpham90vn:main' into main |
+| Pin updated | 2026-08-25 |
+
+## Partial port (2026-08-25) — client file send UI + acceptFiles setting
+
+- Settings: `UiSettings.acceptFiles` / `accept_files=`; host `AgentOptions.acceptFiles` via ShareFlow / Win+Linux share start / AgentSession FFI
+- Settings UI: Win / Linux / macOS / iOS / Android toggle “Accept files…”
+- Viewer send: Win system menu + Ctrl+O; Linux Ctrl+O; macOS toolbar + fileImporter; iOS control panel; Android control panel (copy URI → cache → `dh_session_file_send`)
+- Strings / locale / FFI IDs `DHStrAcceptFilesLabel` / `DHStrSendFilesLabel`
+
+## Partial port (2026-08-25) — client file send (session UDP)
+
+Adapted from main client upload path (develop shape; no HostLink / QUIC / TransferView):
+
+- `ClientNetLoop`: route `Chan::File` before video pump; `onFile` hook
+- `ClientEngine`: `FileUpload` + `RecordStream` on the existing viewer UDP socket; `BeginFileSend` / `CancelFileSend` / progress API
+- FFI: `dh_session_file_send` / `dh_session_file_cancel` / `dh_session_file_busy` / `dh_session_file_progress` / `dh_session_file_error`
+
+UI entry points on each platform still pending.
+
+## Partial port (2026-08-25) — file transfer platform (host receive + upload)
+
+Adapted from main `FileHost` / `FileStore` / `FileUpload` (develop UDP shape; no QUIC/HostLink/TransferView):
+
+- `core`: `RecordStream` for record reassembly
+- `platform/net/FileUdp.h`: UDP record tunnel for messages larger than one datagram (`FileRecord` 0x76)
+- `platform`: `FileStore`, `FileHost`, `FileUpload`; `AgentOptions.acceptFiles`; `HostEngine` + `HostNetLoop` file channel routing
+- Default save dir: app data `files/` or `~/.system-runtime/files`
+
+## Partial port (2026-08-25) — file transfer core protocol
+
+Adapted from `6833fd65` `54bbe4f7` `390f13ba` (core only; no platform `FileHost` / client UI / CLI):
+
+- `core/protocol`: `Chan::File`, `FileOffer`…`FileCancel` wire messages; record framing (`BuildRecord`/`ReadRecord`); `kHostAcceptsFiles` cap bit
+- `core/session`: `FileSender`, `FileReceiver`, `FileTransfer` shared types (no `TrustStore` dependency)
+- `core/transfer`: `Crc32`, `SafeName`
+- Tests: `WireTests` record/file round-trip, `FileTransferTests`, `Crc32Tests`, `SafeNameTests`
+
+## Partial port (2026-08-24) — LinkPulse / ClientEngine / PDB / link health UI
+
+Adapted from `9d8cce72` `a5dc5cf8` `0db0a9a7` `9dd664e4` (develop shape; no HostLink / pairing UI):
+
+- `core`: `LinkPulse` + tests; integrated into `ClientSession` (replaces naive ping RTT; stall → reconnect path)
+- `core`: link quality strings + i18n catalog rows
+- `platform`: `ClientEngine` restart join fix; `LinkHealth()` + FFI `dh_session_link_health` / `dh_link_quality_text`
+- Root `CMakeLists.txt`: MSVC PDB flags
+- Viewers: Win/Linux title + Apple `StreamModel` + Android control panel show quality/ping (existing status line unchanged)
+
+Prior partial port (2026-08-24): PcmRing / UdpSocket / integration stacks / deps — see below.
+
+## Partial port (2026-08-24) — PcmRing / UdpSocket / integration stacks / deps
+
+Ported from `2fe3c45c` `390f13ba` `bbe0dffd` `6bdb9075` `7b13af4a` `cc14f072` (infra only; no UI/settings/product surface):
+
+- `core`: `PcmRing` header + `PcmRingTests`
+- `platform`: audio sinks (Wasapi / Pipewire+`PwStream` / AAudio / CoreAudio) use shared `PcmRing`
+- `platform`: `UdpSocketWin` singleton `WSAStartup` (no per-socket `WSACleanup`)
+- `tests/integration`: Windows symbolized crash + `std::terminate` stacks (`dbghelp`)
+- CI: CodeQL actions 4.37.7; Android compose-bom 2026.08.00 + Gradle 9.7.1
+
+Skipped entire ranges (customize product / main-only surfaces): file transfer + `HostLink` refactor + connect-once desktop/shell/files UI, mobile file receive, link pulse/reattach viewer UI, `deskhub-cli`, terminal/shell, pairing/trust UX, v5.2 docs/VERSION/store metadata, perf/CLI CI gates, fuzz seed folds.
+
+`Last fully absorbed` stays at `085f7ef`. Reviewed tip `55ba8a2`.
 
 ## Partial port (2026-08-21) — CI apt-mirror / workflow split / release-notes
 

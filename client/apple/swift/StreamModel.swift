@@ -121,6 +121,16 @@ final class StreamModel {
         session?.takeClipboard()
     }
 
+    @discardableResult
+    func sendFiles(_ paths: [String]) -> Bool {
+        guard let session else { return false }
+        return session.sendFiles(paths)
+    }
+
+    func fileSendError() -> String {
+        session?.fileSendError() ?? ""
+    }
+
     var aspectRatio: Double {
         guard videoWidth > 0, videoHeight > 0 else { return 16.0 / 9.0 }
         return Double(videoWidth) / Double(videoHeight)
@@ -130,7 +140,14 @@ final class StreamModel {
         guard let session else { return }
         let state = session.snapshot()
         phase = state.phase
-        statusLine = state.statusLine
+        let prefix = session.linkStatusPrefix()
+        if prefix.isEmpty {
+            statusLine = state.statusLine
+        } else if state.statusLine.isEmpty {
+            statusLine = prefix
+        } else {
+            statusLine = prefix + " · " + state.statusLine
+        }
         videoWidth = state.videoWidth
         videoHeight = state.videoHeight
         if phase == .ended {
@@ -144,7 +161,14 @@ final class StreamModel {
             onStatus: { [weak self] line in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.statusLine = line
+                    let prefix = self.session?.linkStatusPrefix() ?? ""
+                    if prefix.isEmpty {
+                        self.statusLine = line
+                    } else if line.isEmpty {
+                        self.statusLine = prefix
+                    } else {
+                        self.statusLine = prefix + " · " + line
+                    }
                     self.phase = self.session?.phase() ?? self.phase
                 }
             },

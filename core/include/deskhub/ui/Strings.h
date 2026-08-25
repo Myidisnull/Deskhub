@@ -2,6 +2,7 @@
 #include "deskhub/ui/Brand.h"
 #include "deskhub/ui/Locale.h"
 #include "deskhub/protocol/Wire.h"
+#include "deskhub/session/LinkPulse.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -129,6 +130,8 @@ inline constexpr LStr kAutostartLabel{"Start {app} when you log in"};
 inline constexpr LStr kAutoShareLabel = kShareOnLaunchLabel;
 inline constexpr LStr kClipboardSyncLabel{"Sync clipboard text with connected devices"};
 inline constexpr LStr kShareAudioLabel{"Share this device's sound with viewers"};
+inline constexpr LStr kAcceptFilesLabel{"Accept files sent by connected viewers"};
+inline constexpr LStr kSendFilesLabel{"Send files to this device"};
 inline constexpr LStr kPlayAudioLabel{"Play the sound of the device you are watching"};
 inline constexpr LStr kKeepAwakeLabel{"Keep this device awake while a session is active"};
 inline constexpr LStr kEncryptSessionLabel{"Encrypt session traffic"};
@@ -254,6 +257,26 @@ inline std::string UdpPortLine() {
 
 inline std::string PingMs(uint32_t ms) {
     return std::to_string(ms) + " ms";
+}
+
+inline constexpr LStr kLinkQualityGood{"Good"};
+inline constexpr LStr kLinkQualityFair{"Fair"};
+inline constexpr LStr kLinkQualityPoor{"Poor"};
+inline constexpr LStr kLinkNoReading{"\xE2\x80\x94"};
+
+inline const char* LinkQualityText(LinkQuality quality) {
+    switch (quality) {
+        case LinkQuality::Good: return kLinkQualityGood.get();
+        case LinkQuality::Fair: return kLinkQualityFair.get();
+        case LinkQuality::Poor: return kLinkQualityPoor.get();
+        case LinkQuality::Unknown: break;
+    }
+    return kLinkNoReading.get();
+}
+
+inline std::string LinkPingText(bool haveRtt, uint32_t rttUs) {
+    if (!haveRtt) return std::string(kLinkNoReading.get());
+    return PingMs((rttUs + 500) / 1000);
 }
 
 inline std::string SharingStatusLine(uint16_t port) {

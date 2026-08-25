@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
+#include "deskhub/media/PcmRing.h"
 #include "deskhubp/audio/AudioSink.h"
 #include "deskhubp/diag/Log.h"
 
@@ -12,18 +13,13 @@
 #include <objbase.h>
 #include <wrl/client.h>
 
-#include <algorithm>
 #include <atomic>
-#include <cstring>
-#include <mutex>
 #include <thread>
-#include <vector>
 
 namespace deskhubp {
 
 namespace {
 
-constexpr size_t kRingFrames = 8;
 constexpr REFERENCE_TIME kBufferDuration = 400'000;
 constexpr DWORD kRenderWaitMs = 200;
 
@@ -54,48 +50,14 @@ WAVEFORMATEX MakeWaveFormat(const deskhub::media::AudioFormat& format) {
 struct AudioSink::Impl {
     deskhub::media::AudioFormat format{};
 
-    mutable std::mutex ringMutex;
-    std::vector<int16_t> ring;
-    size_t readAt = 0;
-    size_t filled = 0;
+    deskhub::media::PcmRing ring;
 
     std::thread thread;
     std::atomic<bool> quit{false};
-    std::atomic<uint64_t> dropped{0};
-    std::atomic<uint64_t> starved{0};
     std::atomic<bool> opened{false};
 
     HANDLE bufferReady = nullptr;
     HANDLE ready = nullptr;
-
-    size_t Take(int16_t* out, size_t wanted) {
-        std::unique_lock<std::mutex> lock(ringMutex, std::try_to_lock);
-        if (!lock.owns_lock()) return 0;
-        const size_t take = std::min(wanted, filled);
-        for (size_t i = 0; i < take; ++i) {
-            out[i] = ring[readAt];
-            readAt = (readAt + 1) % ring.size();
-        }
-        filled -= take;
-        return take;
-    }
-
-    void Put(std::span<const int16_t> pcm) {
-        std::lock_guard<std::mutex> lock(ringMutex);
-        if (pcm.size() > ring.size()) return;
-        while (ring.size() - filled < pcm.size()) {
-            const size_t drop = std::min(pcm.size(), filled);
-            readAt = (readAt + drop) % ring.size();
-            filled -= drop;
-            dropped.fetch_add(1, std::memory_order_relaxed);
-        }
-        size_t writeAt = (readAt + filled) % ring.size();
-        for (int16_t s : pcm) {
-            ring[writeAt] = s;
-            writeAt = (writeAt + 1) % ring.size();
-        }
-        filled += pcm.size();
-    }
 
     void Run();
 };
@@ -149,11 +111,7 @@ void AudioSink::Impl::Run() {
 
         auto* out = reinterpret_cast<int16_t*>(raw);
         const size_t wanted = size_t(free) * format.channels;
-        const size_t got = Take(out, wanted);
-        if (got < wanted) {
-            std::memset(out + got, 0, (wanted - got) * sizeof(int16_t));
-            starved.fetch_add(1, std::memory_order_relaxed);
-        }
+        ring.TakeOrSilence(out, wanted);
         render->ReleaseBuffer(free, 0);
     }
 
@@ -172,7 +130,7 @@ bool AudioSink::Open(const deskhub::media::AudioFormat& format) {
 
     auto impl = std::make_unique<Impl>();
     impl->format = format;
-    impl->ring.assign(kRingFrames * format.interleavedSamples(), 0);
+    impl->ring.Open(format);
     impl->bufferReady = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     impl->ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (impl->bufferReady == nullptr || impl->ready == nullptr) {
@@ -212,7 +170,7 @@ void AudioSink::Close() {
 bool AudioSink::Write(std::span<const int16_t> pcm) {
     if (!impl_ || pcm.empty()) return false;
     if (pcm.size() != impl_->format.interleavedSamples()) return false;
-    impl_->Put(pcm);
+    impl_->ring.Put(pcm);
     return true;
 }
 
@@ -221,17 +179,15 @@ bool AudioSink::IsOpen() const {
 }
 
 size_t AudioSink::framesQueued() const {
-    if (!impl_) return 0;
-    std::lock_guard<std::mutex> lock(impl_->ringMutex);
-    return impl_->filled / impl_->format.interleavedSamples();
+    return impl_ ? impl_->ring.framesQueued() : 0;
 }
 
 uint64_t AudioSink::framesDropped() const {
-    return impl_ ? impl_->dropped.load(std::memory_order_relaxed) : 0;
+    return impl_ ? impl_->ring.framesDropped() : 0;
 }
 
 uint64_t AudioSink::framesStarved() const {
-    return impl_ ? impl_->starved.load(std::memory_order_relaxed) : 0;
+    return impl_ ? impl_->ring.framesStarved() : 0;
 }
 
 const char* AudioSink::BackendName() {

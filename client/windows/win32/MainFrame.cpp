@@ -553,6 +553,7 @@ private:
     wxCheckBox* autostartCtrl_ = nullptr;
     wxCheckBox* clipboardCtrl_ = nullptr;
     wxCheckBox* shareAudioCtrl_ = nullptr;
+    wxCheckBox* acceptFilesCtrl_ = nullptr;
     wxCheckBox* playAudioCtrl_ = nullptr;
     wxCheckBox* keepAwakeCtrl_ = nullptr;
     wxCheckBox* encryptSessionCtrl_ = nullptr;
@@ -1086,6 +1087,9 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     shareAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kShareAudioLabel));
     shareAudioCtrl_->SetValue(settings_.shareAudio);
     sizer->Add(shareAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
+    acceptFilesCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kAcceptFilesLabel));
+    acceptFilesCtrl_->SetValue(settings_.acceptFiles);
+    sizer->Add(acceptFilesCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
     playAudioCtrl_ = new wxCheckBox(panel, wxID_ANY, ToWx(ui::kPlayAudioLabel));
     playAudioCtrl_->SetValue(settings_.playAudio);
     sizer->Add(playAudioCtrl_, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(16)));
@@ -1234,6 +1238,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     allowInputCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     clipboardCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     shareAudioCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
+    acceptFilesCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     playAudioCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     keepAwakeCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { SaveSettings(); });
     encryptSessionCtrl_->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
@@ -1613,6 +1618,8 @@ void MainFrame::OnShare(ShareTrigger trigger) {
     options.passcode = settings_.passcode;
     options.bindIp = settings_.bindIp;
     options.clipboardSync = settings_.clipboardSync;
+    options.audio = settings_.shareAudio;
+    options.acceptFiles = settings_.acceptFiles;
     if (!deskhubp::ApplyEncryptToAgentOptions(settings_, options)) {
         ReportShareProblem(ToWx(ui::kShareStartFailed), ToWx(ui::kAppTitle));
         return;
@@ -2124,6 +2131,7 @@ void MainFrame::SaveSettings() {
         settings_.runInBackground && hideTrayIconCtrl_->GetValue();
     settings_.clipboardSync = clipboardCtrl_->GetValue();
     settings_.shareAudio = shareAudioCtrl_->GetValue();
+    settings_.acceptFiles = acceptFilesCtrl_->GetValue();
     settings_.playAudio = playAudioCtrl_->GetValue();
     settings_.keepAwake = keepAwakeCtrl_->GetValue();
     settings_.encryptSession = encryptSessionCtrl_->GetValue();

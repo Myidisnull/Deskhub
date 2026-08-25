@@ -204,6 +204,8 @@ void ClientPump::Report(uint64_t nowUs) {
         cfg_.statusSeparator ? cfg_.statusSeparator : "  ");
     if (cb_.onStatus) cb_.onStatus(compact);
 
+    if (cb_.onLinkPulse) cb_.onLinkPulse(session_.linkView(nowUs));
+
     session_.SendFeedback(MakeFeedback(w, session_.lastRttUs()));
 
     Log(diag_.FormatSum(line_, sizeof(line_), hms.c_str(), w,

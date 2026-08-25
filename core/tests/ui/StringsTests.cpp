@@ -49,7 +49,7 @@ void TestEveryLabelSaysSomething() {
         ui::kScanNoLocalNetwork, ui::kConnectPromptTitle, ui::kProjectLinkLabel, ui::kRefreshNow,
         ui::kBindInterfaceLabel, ui::kBindAllInterfaces, ui::kBindNotConnectedNote,
         ui::kAutostartLabel, ui::kAutoShareLabel, ui::kClipboardSyncLabel, ui::kShareAudioLabel,
-        ui::kPlayAudioLabel, ui::kKeepAwakeLabel,
+        ui::kAcceptFilesLabel, ui::kSendFilesLabel, ui::kPlayAudioLabel, ui::kKeepAwakeLabel,
         ui::kEncryptSessionLabel,
         ui::kEncryptSessionHint, ui::kSessionKeyLabel, ui::kSessionKeyHint, ui::kCopySessionKey,
         ui::kCopy, ui::kCopied, ui::kRefreshSessionKey, ui::kEscrowSessionKeyLabel,

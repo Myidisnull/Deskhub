@@ -197,6 +197,7 @@ private:
     GtkWidget* hideTrayIconCheck_ = nullptr;
     GtkWidget* clipboardCheck_ = nullptr;
     GtkWidget* shareAudioCheck_ = nullptr;
+    GtkWidget* acceptFilesCheck_ = nullptr;
     GtkWidget* playAudioCheck_ = nullptr;
     GtkWidget* keepAwakeCheck_ = nullptr;
     GtkWidget* encryptSessionCheck_ = nullptr;

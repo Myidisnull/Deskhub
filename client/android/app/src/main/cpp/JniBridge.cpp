@@ -241,6 +241,16 @@ Java_com_deskhub_app_NativeClient_nativeSetShareAudio(JNIEnv*, jobject, jboolean
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeAcceptFiles(JNIEnv*, jobject) {
+    return dh_accept_files() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetAcceptFiles(JNIEnv*, jobject, jboolean on) {
+    dh_set_accept_files(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_deskhub_app_NativeClient_nativePlayAudio(JNIEnv*, jobject) {
     return dh_play_audio() ? JNI_TRUE : JNI_FALSE;
 }
@@ -329,6 +339,41 @@ Java_com_deskhub_app_NativeClient_nativeClipTake(JNIEnv* env, jobject) {
     char buf[deskhub::kMaxClipboardTextBytes + 1];
     dh_session_clip_take(g_session, buf, int(sizeof(buf)));
     return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeFileSend(JNIEnv* env, jobject, jobjectArray paths) {
+    if (!g_session || !paths) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(paths);
+    if (count <= 0) return JNI_FALSE;
+    std::vector<std::string> storage;
+    storage.reserve(size_t(count));
+    std::vector<const char*> ptrs;
+    ptrs.reserve(size_t(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto path = reinterpret_cast<jstring>(env->GetObjectArrayElement(paths, i));
+        if (!path) return JNI_FALSE;
+        storage.push_back(FromJString(env, path));
+        env->DeleteLocalRef(path);
+        if (storage.back().empty()) return JNI_FALSE;
+        ptrs.push_back(storage.back().c_str());
+    }
+    return dh_session_file_send(g_session, ptrs.data(), int(ptrs.size())) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeFileCancel(JNIEnv*, jobject) {
+    dh_session_file_cancel(g_session);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeFileBusy(JNIEnv*, jobject) {
+    return dh_session_file_busy(g_session) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeFileError(JNIEnv* env, jobject) {
+    return env->NewStringUTF(dh_session_file_error(g_session));
 }
 
 JNIEXPORT jstring JNICALL
@@ -683,6 +728,19 @@ Java_com_deskhub_app_NativeClient_nativeKey(JNIEnv*, jobject, jint vk, jint scan
 JNIEXPORT jint JNICALL
 Java_com_deskhub_app_NativeClient_nativeVkScancode(JNIEnv*, jobject, jint vk) {
     return jint(dh_vk_scancode(int32_t(vk)));
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeLinkStatusPrefix(JNIEnv* env, jobject) {
+    DHLinkHealth link{};
+    dh_session_link_health(g_session, &link);
+    if (link.quality == DHLinkUnknown && !link.haveRtt) return env->NewStringUTF("");
+    std::string out = dh_link_quality_text(link.quality);
+    if (link.haveRtt) {
+        if (!out.empty()) out += " · ";
+        out += std::to_string(link.rttMs) + " ms";
+    }
+    return env->NewStringUTF(out.c_str());
 }
 
 JNIEXPORT jobject JNICALL

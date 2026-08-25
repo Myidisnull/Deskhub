@@ -57,7 +57,6 @@ public:
 private:
 #ifdef _WIN32
     uint64_t sock_ = ~0ull;
-    bool wsaInit_ = false;
 #else
     int fd_ = -1;
 #endif

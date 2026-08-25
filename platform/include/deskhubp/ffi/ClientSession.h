@@ -60,6 +60,35 @@ typedef struct {
 
 void dh_session_snapshot(DHSession* s, DHSessionState* out);
 
+void dh_session_link_health(DHSession* s, DHLinkHealth* out);
+
+typedef enum {
+    DHFileIdle = 0,
+    DHFileOffering = 1,
+    DHFileSending = 2,
+    DHFileDone = 3,
+    DHFileRefused = 4,
+    DHFileFailed = 5,
+} DHFileSendPhase;
+
+typedef struct {
+    DHFileSendPhase phase;
+    uint32_t batchId;
+    uint16_t fileIndex;
+    uint16_t fileCount;
+    uint64_t fileBytes;
+    uint64_t fileSize;
+    uint64_t batchBytes;
+    uint64_t batchSize;
+    char name[256];
+} DHFileSendProgress;
+
+int dh_session_file_send(DHSession* s, const char* const* paths, int count);
+void dh_session_file_cancel(DHSession* s);
+int dh_session_file_busy(DHSession* s);
+void dh_session_file_progress(DHSession* s, DHFileSendProgress* out);
+const char* dh_session_file_error(DHSession* s);
+
 DHPhase dh_session_phase(DHSession* s);
 const char* dh_session_status_line(DHSession* s);
 const char* dh_session_end_reason(DHSession* s);

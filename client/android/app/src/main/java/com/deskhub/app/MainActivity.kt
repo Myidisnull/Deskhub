@@ -997,6 +997,21 @@ private fun SettingsScreen(
             )
             Text(NativeClient.string(NativeClient.STR_SHARE_AUDIO_LABEL))
         }
+        var acceptFiles by remember { mutableStateOf(NativeClient.acceptFiles()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = acceptFiles,
+                onCheckedChange = {
+                    acceptFiles = it
+                    NativeClient.setAcceptFiles(it)
+                },
+            )
+            Text(NativeClient.string(NativeClient.STR_ACCEPT_FILES_LABEL))
+        }
         var playAudio by remember { mutableStateOf(NativeClient.playAudio()) }
         Row(
             modifier = Modifier.fillMaxWidth(),

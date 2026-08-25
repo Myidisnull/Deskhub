@@ -5,6 +5,7 @@
 #include "deskhub/input/InputSender.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ClipboardSync.h"
+#include "deskhub/session/LinkPulse.h"
 
 #include <cstdint>
 #include <cstring>
@@ -17,7 +18,6 @@ namespace deskhub {
 
 inline constexpr uint64_t kHelloRetryUs = 500'000;
 inline constexpr uint64_t kHelloGiveUpUs = 10'000'000;
-inline constexpr uint64_t kPingIntervalUs = 1'000'000;
 inline constexpr uint64_t kKeyframeRetryUs = 250'000;
 inline constexpr uint64_t kFocusRetryUs = 50'000;
 inline constexpr int kFocusRepeats = 3;
@@ -104,6 +104,9 @@ public:
     uint32_t lastRttUs() const {
         return lastRttUs_;
     }
+    LinkPulseView linkView(uint64_t nowUs) const {
+        return pulse_.View(nowUs);
+    }
     const NegotiatedParams& params() const {
         return params_;
     }
@@ -132,13 +135,12 @@ private:
     uint64_t startedUs_ = 0;
     uint64_t lastSentUs_ = 0;
     uint64_t lastRecvUs_ = 0;
-    uint64_t lastPingUs_ = 0;
     uint64_t lastKeyframeReqUs_ = 0;
     uint64_t lastFocusUs_ = 0;
     int focusRepeatsLeft_ = 0;
     bool focusWanted_ = false;
     bool focusSent_ = false;
-    uint32_t nextPingId_ = 1;
+    LinkPulse pulse_{};
     uint32_t lastRttUs_ = 0;
     bool keyframeWanted_ = false;
     RejectReason rejectReason_ = RejectReason::None;

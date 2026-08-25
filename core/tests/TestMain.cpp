@@ -54,8 +54,14 @@ int main() {
     std::printf("--- session: client reconnect classification ---\n");
     RunClientReconnectTests();
 
+    std::printf("--- session: link pulse (RTT, loss, quality) ---\n");
+    RunLinkPulseTests();
+
     std::printf("--- session: clipboard sync (chunking, dedupe, echo suppression) ---\n");
     RunClipboardSyncTests();
+
+    std::printf("--- session: file transfer (offer, chunk, ack, receiver) ---\n");
+    RunFileTransferTests();
 
     std::printf("--- session: host feedback policy (bitrate, FEC, quality, NACK) ---\n");
     RunHostFeedbackTests();
@@ -164,6 +170,13 @@ int main() {
 
     std::printf("--- media: packed-RGB area downscale ---\n");
     RunRgbDownscaleTests();
+
+    std::printf("--- media: PCM ring buffer for audio sinks ---\n");
+    RunPcmRingTests();
+
+    std::printf("--- transfer: CRC32 and safe file names ---\n");
+    RunCrc32Tests();
+    RunSafeNameTests();
 
     std::printf("--- beacon (pre-session LIST_SOURCES + PING) ---\n");
     RunBeaconTests();

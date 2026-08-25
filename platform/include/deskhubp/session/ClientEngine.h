@@ -6,13 +6,16 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ClientPump.h"
 #include "deskhub/session/ClientReconnect.h"
+#include "deskhub/session/LinkPulse.h"
 #include "deskhub/transport/Reassembler.h"
 #include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/LogFile.h"
 #include "deskhubp/diag/StallLog.h"
 #include "deskhubp/audio/AudioPlayer.h"
+#include "deskhubp/client/FileUpload.h"
 #include "deskhubp/net/ClientNetLoop.h"
+#include "deskhubp/net/FileUdp.h"
 #include "deskhubp/net/UdpSocket.h"
 #include "deskhubp/system/Clock.h"
 #include "deskhubp/system/KeepAwake.h"
@@ -25,6 +28,7 @@
 #include <cinttypes>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <functional>
 #include <optional>
@@ -82,10 +86,20 @@ public:
     ClientEngine& operator=(const ClientEngine&) = delete;
 
     bool Start(const ClientEngineConfig& cfg) {
+        if (netThread_.joinable() || decodeThread_.joinable()) {
+            if (!finished_.load(std::memory_order_acquire)) return false;
+            if (netThread_.joinable()) netThread_.join();
+            if (decodeThread_.joinable()) decodeThread_.join();
+        }
         cfg_ = cfg;
         if (!OpenSocket()) {
             LOGE("[Client] Failed to open socket.");
             return false;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(linkMutex_);
+            linkView_ = {};
         }
 
         userStop_.store(false);
@@ -180,6 +194,53 @@ public:
     std::string EndReason() {
         std::lock_guard<std::mutex> lk(textMutex_);
         return endReason_;
+    }
+
+    deskhub::LinkPulseView LinkHealth() const {
+        std::lock_guard<std::mutex> lk(linkMutex_);
+        return linkView_;
+    }
+
+    bool BeginFileSend(const std::vector<std::filesystem::path>& paths) {
+        FileUpload* upload = fileUpload_.load(std::memory_order_acquire);
+        if (!upload) {
+            std::lock_guard<std::mutex> lk(fileMutex_);
+            fileError_ = "not connected";
+            return false;
+        }
+        const bool ok = upload->Begin(paths);
+        std::lock_guard<std::mutex> lk(fileMutex_);
+        if (!ok)
+            fileError_ = upload->LastError();
+        else
+            fileError_.clear();
+        return ok;
+    }
+
+    void CancelFileSend() {
+        if (FileUpload* upload = fileUpload_.load(std::memory_order_acquire)) upload->Cancel();
+    }
+
+    bool FileSendBusy() const {
+        if (const FileUpload* upload = fileUpload_.load(std::memory_order_acquire))
+            return upload->Busy();
+        return false;
+    }
+
+    deskhub::FileSenderState FileSendState() const {
+        if (const FileUpload* upload = fileUpload_.load(std::memory_order_acquire))
+            return upload->State();
+        return deskhub::FileSenderState::Idle;
+    }
+
+    deskhub::TransferProgress FileSendProgress() const {
+        std::lock_guard<std::mutex> lk(fileMutex_);
+        return fileProgress_;
+    }
+
+    std::string FileSendError() const {
+        std::lock_guard<std::mutex> lk(fileMutex_);
+        return fileError_;
     }
 
     void QueueKey(int32_t vk, int32_t scan, bool down) {
@@ -417,6 +478,10 @@ private:
             }
             if (cfg_.onStatus) cfg_.onStatus(compact);
         };
+        cb.onLinkPulse = [this](const deskhub::LinkPulseView& view) {
+            std::lock_guard<std::mutex> lk(linkMutex_);
+            linkView_ = view;
+        };
         cb.localTime = [] { return LocalTimeHms(); };
         cb.log = [](bool warn, const char* line) {
             if (warn) {
@@ -518,10 +583,35 @@ private:
 
             std::vector<deskhub::InputEvent> batch;
 
+            deskhub::RecordStream fileStream;
+            FileUploadCallbacks fileCb;
+            fileCb.send = [this](std::span<const uint8_t> message) {
+                return SendFileMessage(sock_, cfg_.server, message);
+            };
+            fileCb.onProgress = [this](const deskhub::TransferProgress& progress) {
+                std::lock_guard<std::mutex> lk(fileMutex_);
+                fileProgress_ = progress;
+            };
+            fileCb.onFinished = [this](deskhub::FileSenderState state, deskhub::TransferReason) {
+                std::lock_guard<std::mutex> lk(fileMutex_);
+                fileState_ = state;
+            };
+            FileUpload upload(fileCb);
+            fileUpload_.store(&upload, std::memory_order_release);
+            const auto clearUpload = [&] {
+                upload.LinkLost();
+                fileUpload_.store(nullptr, std::memory_order_release);
+            };
+
             ClientNetLoopHooks hooks;
             hooks.stopped = [this] {
                 return userStop_.load(std::memory_order_acquire) ||
                        sessionDone_.load(std::memory_order_acquire);
+            };
+            hooks.onFile = [&upload, &fileStream](std::span<const uint8_t> datagram) {
+                std::vector<std::vector<uint8_t>> messages;
+                FeedFileDatagram(fileStream, datagram, messages);
+                for (const std::vector<uint8_t>& message : messages) upload.HandleMessage(message);
             };
             hooks.afterFrames = [this](deskhub::ClientPump& p, uint64_t now) {
                 if (decodeFailed_.exchange(false, std::memory_order_acq_rel))
@@ -531,7 +621,7 @@ private:
                 if (queueOverflow_.exchange(false, std::memory_order_acq_rel))
                     p.RequestKeyframe("q_overflow", now);
             };
-            hooks.beforeTick = [this, &batch](deskhub::ClientPump& p, uint64_t now) {
+            hooks.beforeTick = [this, &batch, &upload](deskhub::ClientPump& p, uint64_t now) {
                 SyncKeepAwakeHeld(true);
                 input_.Drain(now, batch);
                 for (const auto& e : batch) p.QueueInput(e);
@@ -542,6 +632,7 @@ private:
                     clip.swap(pendingLocalClip_);
                 }
                 if (clip) p.QueueClipboard(*clip);
+                upload.Pump();
             };
             hooks.onPhase = [this, &everStreamed, &failStreak](bool streaming) {
                 phase_.store(streaming ? ClientPhase::Streaming : ClientPhase::Connecting,
@@ -561,6 +652,7 @@ private:
             };
 
             RunClientNetLoop(sock_, pump, hooks);
+            clearUpload();
 
             if (userStop_.load(std::memory_order_acquire)) {
                 FinishNetSession("stopped", false);
@@ -625,6 +717,9 @@ private:
     std::string statusLine_;
     std::string endReason_;
 
+    mutable std::mutex linkMutex_;
+    deskhub::LinkPulseView linkView_{};
+
     std::atomic<uint32_t> negW_{0}, negH_{0};
     std::atomic<bool> rebuildDecoder_{false};
 
@@ -668,6 +763,12 @@ private:
 
     std::atomic<int64_t> lastE2eUs_{-1};
     deskhub::ClockOffset clockOffset_;
+
+    std::atomic<FileUpload*> fileUpload_{nullptr};
+    mutable std::mutex fileMutex_;
+    deskhub::TransferProgress fileProgress_{};
+    deskhub::FileSenderState fileState_ = deskhub::FileSenderState::Idle;
+    std::string fileError_{};
 };
 
 }

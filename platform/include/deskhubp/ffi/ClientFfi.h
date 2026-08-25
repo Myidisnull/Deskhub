@@ -22,6 +22,20 @@ typedef enum {
     DHPhaseEnded = 3,
 } DHPhase;
 
+typedef enum {
+    DHLinkUnknown = 0,
+    DHLinkGood = 1,
+    DHLinkFair = 2,
+    DHLinkPoor = 3,
+} DHLinkQuality;
+
+typedef struct {
+    bool haveRtt;
+    uint32_t rttMs;
+    uint8_t lossPct;
+    DHLinkQuality quality;
+} DHLinkHealth;
+
 typedef struct {
     uint8_t sourceId;
     uint16_t width;
@@ -212,6 +226,8 @@ typedef enum {
     DHStrNoDisplayFound = 126,
     DHStrShareAudioLabel = 127,
     DHStrPlayAudioLabel = 128,
+    DHStrAcceptFilesLabel = 129,
+    DHStrSendFilesLabel = 130,
 } DHStringId;
 
 const char* dh_string(DHStringId id);
@@ -310,6 +326,8 @@ void dh_viewer_opened(void);
 
 bool dh_viewer_closed(void);
 bool dh_viewers_open(void);
+
+const char* dh_link_quality_text(DHLinkQuality quality);
 
 #ifdef __cplusplus
 }

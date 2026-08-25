@@ -1,6 +1,7 @@
 import AVFoundation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct StreamView: View {
     @Bindable var session: SessionModel
@@ -9,6 +10,8 @@ struct StreamView: View {
     @State private var layer: AVSampleBufferDisplayLayer?
     @State private var keyboardOn = false
     @State private var pickerOpen = false
+    @State private var pickingFiles = false
+    @State private var fileSendError = ""
 
     @State private var controlsOpen = false
 
@@ -84,6 +87,33 @@ struct StreamView: View {
             UIApplication.shared.isIdleTimerDisabled = false
             keyboardOn = false
             releaseLayer()
+        }
+        .fileImporter(
+            isPresented: $pickingFiles,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                let scoped = urls.map { ($0, $0.startAccessingSecurityScopedResource()) }
+                defer {
+                    for (url, ok) in scoped where ok {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                let paths = urls.map(\.path).filter { !$0.isEmpty }
+                guard !paths.isEmpty else { return }
+                if !model.sendFiles(paths) {
+                    fileSendError = model.fileSendError()
+                }
+            case .failure(let error):
+                fileSendError = error.localizedDescription
+            }
+        }
+        .alert(DeskhubClient.string(DHStrAppTitle), isPresented: fileErrorShown) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fileSendError)
         }
         .statusBarHidden()
     }
@@ -232,6 +262,10 @@ struct StreamView: View {
                     .buttonStyle(.bordered)
                     .disabled(!streaming)
 
+                Button(DeskhubClient.string(DHStrSendFilesLabel)) { pickingFiles = true }
+                    .buttonStyle(.bordered)
+                    .disabled(!streaming)
+
                 if session.sources.count > 1 {
                     Button("Display") { pickerOpen = true }
                         .buttonStyle(.bordered)
@@ -252,6 +286,15 @@ struct StreamView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var fileErrorShown: Binding<Bool> {
+        Binding(
+            get: { !fileSendError.isEmpty },
+            set: { shown in
+                if !shown { fileSendError = "" }
+            }
+        )
     }
 
     private func sourceLabel(_ source: Source) -> String {

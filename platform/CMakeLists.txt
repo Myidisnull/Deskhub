@@ -142,6 +142,9 @@ add_library(platform STATIC
     src/session/HostNetLoop.cpp
     src/session/HostAgent.cpp
     src/session/HostEngine.cpp
+    src/host/FileHost.cpp
+    src/client/FileUpload.cpp
+    src/system/FileStore.cpp
     src/ffi/ClientFfi.cpp
     src/ffi/AgentSession.cpp
     src/ffi/DiscoveryFfi.cpp

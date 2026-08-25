@@ -100,6 +100,7 @@ bool dha_start(const DHShareSource* sources, int count, uint32_t fps, uint32_t b
         opt.bindIp = stored.bindIp;
         opt.clipboardSync = stored.clipboardSync;
         opt.audio = stored.shareAudio;
+        opt.acceptFiles = stored.acceptFiles;
         if (!deskhubp::ApplyEncryptToAgentOptions(stored, opt)) return false;
     }
 

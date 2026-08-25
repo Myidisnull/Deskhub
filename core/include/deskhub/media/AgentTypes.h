@@ -24,6 +24,7 @@ struct AgentOptions {
     bool encryptSession = false;
     bool escrowSessionKey = false;
     bool audio = false;
+    bool acceptFiles = false;
     std::vector<uint8_t> sessionKey{};
     std::vector<uint8_t> hostStaticSk{};
 };

@@ -4,10 +4,13 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <commdlg.h>
 #include <algorithm>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "deskhub/input/PointerLockState.h"
 #include "deskhub/media/ViewFit.h"
@@ -32,6 +35,7 @@ constexpr UINT WM_APP_SIZE = WM_APP + 2;
 constexpr UINT WM_APP_CLOSED = WM_APP + 3;
 constexpr UINT kTimerHint = 1;
 constexpr UINT kTimerClipboard = 2;
+constexpr UINT kIdSendFiles = 4001;
 
 std::string ReadClipboardText(HWND owner) {
     if (!OpenClipboard(owner)) return {};
@@ -61,6 +65,49 @@ void WriteClipboardText(HWND owner, const std::string& utf8) {
         }
     }
     CloseClipboard();
+}
+
+std::vector<std::string> PickFilesToSend(HWND owner) {
+    std::wstring buffer(32768, L'\0');
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrFile = buffer.data();
+    ofn.nMaxFile = DWORD(buffer.size());
+    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ALLOWMULTISELECT |
+                OFN_HIDEREADONLY;
+    ofn.lpstrTitle = L"Send files";
+    if (!GetOpenFileNameW(&ofn)) return {};
+
+    std::vector<std::string> paths;
+    const wchar_t* p = buffer.c_str();
+    const std::wstring first = p;
+    p += first.size() + 1;
+    if (*p == L'\0') {
+        paths.push_back(ToUtf8(first));
+        return paths;
+    }
+    const std::wstring dir = first;
+    while (*p) {
+        const std::wstring name = p;
+        paths.push_back(ToUtf8(dir + L'\\' + name));
+        p += name.size() + 1;
+    }
+    return paths;
+}
+
+void SendPickedFiles(DHSession* session, HWND owner) {
+    if (!session) return;
+    if (dh_session_file_busy(session)) return;
+    const std::vector<std::string> paths = PickFilesToSend(owner);
+    if (paths.empty()) return;
+    std::vector<const char*> ptrs;
+    ptrs.reserve(paths.size());
+    for (const std::string& path : paths) ptrs.push_back(path.c_str());
+    if (dh_session_file_send(session, ptrs.data(), int(ptrs.size()))) return;
+    const char* err = dh_session_file_error(session);
+    MessageBoxW(owner, FromUtf8(err && *err ? err : "Could not send files.").c_str(),
+        FromUtf8(deskhub::ui::kAppTitle).c_str(), MB_OK | MB_ICONWARNING);
 }
 
 struct ViewerFrame {
@@ -143,6 +190,18 @@ struct ViewerFrame {
             std::lock_guard<std::mutex> lk(mu);
             line = statsLine;
         }
+        if (session) {
+            DHLinkHealth link{};
+            dh_session_link_health(session, &link);
+            if (link.quality != DHLinkUnknown || link.haveRtt) {
+                std::string prefix = dh_link_quality_text(link.quality);
+                if (link.haveRtt) prefix += " · " + std::to_string(link.rttMs) + " ms";
+                if (!line.empty())
+                    line = prefix + " · " + line;
+                else
+                    line = std::move(prefix);
+            }
+        }
         const std::string title =
             viewOnly
                 ? deskhub::ComposeViewerTitle(baseTitle, line, deskhub::kViewerViewOnlyHint)
@@ -207,6 +266,10 @@ LRESULT CALLBACK VideoProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         f->ResetZoom();
         return 0;
     }
+    if (f && msg == WM_KEYDOWN && (GetKeyState(VK_CONTROL) < 0) && wp == 'O') {
+        SendPickedFiles(f->session, f->hwnd);
+        return 0;
+    }
     if (f && f->input.OnMessage(h, msg, wp, lp)) return 0;
     return DefWindowProcW(h, msg, wp, lp);
 }
@@ -217,6 +280,24 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SIZE:
             if (f) f->Relayout();
             return 0;
+        case WM_COMMAND:
+            if (LOWORD(wp) == kIdSendFiles && f) {
+                SendPickedFiles(f->session, h);
+                return 0;
+            }
+            break;
+        case WM_SYSCOMMAND:
+            if (wp == kIdSendFiles && f) {
+                SendPickedFiles(f->session, h);
+                return 0;
+            }
+            break;
+        case WM_KEYDOWN:
+            if (f && (GetKeyState(VK_CONTROL) < 0) && wp == 'O') {
+                SendPickedFiles(f->session, h);
+                return 0;
+            }
+            break;
         case WM_TIMER:
             if (f && wp == kTimerHint) f->UpdateTitle();
             if (f && wp == kTimerClipboard && f->session) {
@@ -302,6 +383,10 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
     if (!f->hwnd) return nullptr;
     SetAppWindowIcon(f->hwnd);
     SetWindowLongPtrW(f->hwnd, GWLP_USERDATA, (LONG_PTR)f.get());
+    if (HMENU sys = GetSystemMenu(f->hwnd, FALSE)) {
+        AppendMenuW(sys, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(sys, MF_STRING, kIdSendFiles, FromUtf8(deskhub::ui::kSendFilesLabel).c_str());
+    }
 
     f->video = CreateWindowExW(0, kVideoClass, L"", WS_CHILD | WS_VISIBLE, 0, 0, 16, 16,
         f->hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);

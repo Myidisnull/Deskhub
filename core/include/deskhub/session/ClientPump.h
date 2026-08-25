@@ -42,6 +42,7 @@ struct ClientPumpCallbacks {
     std::function<uint32_t()> takeRenderedCount;
     std::function<int64_t()> latencyUs;
     std::function<void(const char* compactStatus)> onStatus;
+    std::function<void(const LinkPulseView&)> onLinkPulse;
     std::function<std::string()> localTime;
     std::function<void(bool warn, const char* line)> log;
     std::function<bool(std::span<uint8_t>)> randomBytes;
@@ -87,6 +88,9 @@ public:
     }
     uint32_t lastRttUs() const {
         return session_.lastRttUs();
+    }
+    LinkPulseView linkView(uint64_t nowUs) const {
+        return session_.linkView(nowUs);
     }
 
 private:

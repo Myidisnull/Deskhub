@@ -1,9 +1,13 @@
 #pragma once
 #include "deskhub/input/Hotkeys.h"
+#include "deskhub/session/LinkPulse.h"
+#include "deskhub/session/client/FileSender.h"
 #include "deskhubp/ffi/ClientSession.h"
 #include "deskhubp/ffi/FfiText.h"
 
 #include <cstring>
+#include <filesystem>
+#include <vector>
 
 #define DESKHUB_DEFINE_CLIENT_SESSION_FORWARDERS(engineOf)                                 \
     void dh_session_key(DHSession* s, int32_t vk, int32_t scan, bool down) {               \
@@ -56,6 +60,60 @@
             engineOf(s).StatusLine());                                                     \
         deskhubp::CopyToBuf(out->endReason, sizeof(out->endReason),                        \
             engineOf(s).EndReason());                                                      \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_link_health(DHSession* s, DHLinkHealth* out) {                         \
+        if (!out) return;                                                                  \
+        *out = DHLinkHealth{};                                                             \
+        if (!s) return;                                                                    \
+        const deskhub::LinkPulseView view = engineOf(s).LinkHealth();                      \
+        out->haveRtt = view.haveRtt;                                                       \
+        out->rttMs = (view.rttUs + 500) / 1000;                                            \
+        out->lossPct = view.lossPct;                                                       \
+        out->quality = DHLinkQuality(int(view.quality));                                   \
+    }                                                                                      \
+                                                                                           \
+    int dh_session_file_send(DHSession* s, const char* const* paths, int count) {          \
+        if (!s || !paths || count <= 0) return 0;                                          \
+        std::vector<std::filesystem::path> list;                                           \
+        list.reserve(size_t(count));                                                         \
+        for (int i = 0; i < count; ++i) {                                                  \
+            if (!paths[i] || !*paths[i]) return 0;                                         \
+            list.emplace_back(paths[i]);                                                   \
+        }                                                                                  \
+        return engineOf(s).BeginFileSend(list) ? 1 : 0;                                      \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_file_cancel(DHSession* s) {                                            \
+        if (s) engineOf(s).CancelFileSend();                                               \
+    }                                                                                      \
+                                                                                           \
+    int dh_session_file_busy(DHSession* s) {                                               \
+        return s && engineOf(s).FileSendBusy() ? 1 : 0;                                      \
+    }                                                                                      \
+                                                                                           \
+    void dh_session_file_progress(DHSession* s, DHFileSendProgress* out) {                 \
+        if (!out) return;                                                                    \
+        *out = DHFileSendProgress{};                                                       \
+        if (!s) return;                                                                    \
+        const deskhub::TransferProgress p = engineOf(s).FileSendProgress();                \
+        const deskhub::FileSenderState st = engineOf(s).FileSendState();                     \
+        out->phase = DHFileSendPhase(int(st));                                               \
+        out->batchId = p.batchId;                                                            \
+        out->fileIndex = p.fileIndex;                                                        \
+        out->fileCount = p.fileCount;                                                        \
+        out->fileBytes = p.fileBytes;                                                        \
+        out->fileSize = p.fileSize;                                                          \
+        out->batchBytes = p.batchBytes;                                                      \
+        out->batchSize = p.batchSize;                                                        \
+        deskhubp::CopyToBuf(out->name, sizeof(out->name), p.name);                         \
+    }                                                                                      \
+                                                                                           \
+    const char* dh_session_file_error(DHSession* s) {                                      \
+        if (!s) return "";                                                                   \
+        deskhubp::CopyToBuf(s->statusBuf, sizeof(s->statusBuf),                            \
+            engineOf(s).FileSendError());                                                  \
+        return s->statusBuf;                                                                 \
     }                                                                                      \
                                                                                            \
     DHPhase dh_session_phase(DHSession* s) {                                               \

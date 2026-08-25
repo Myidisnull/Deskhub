@@ -1,14 +1,18 @@
 package com.deskhub.app
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,6 +84,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
 class StreamActivity : ComponentActivity() {
@@ -201,13 +207,34 @@ private fun StreamScreen(
 ) {
     val started = sessionKey != 0L
     var sessionPhase by remember { mutableIntStateOf(NativeClient.PHASE_IDLE) }
+    var rawStatusLine by remember { mutableStateOf("") }
     var statusLine by remember { mutableStateOf("") }
     var endReason by remember { mutableStateOf("") }
     var videoW by remember { mutableIntStateOf(0) }
     var videoH by remember { mutableIntStateOf(0) }
+    var fileSendError by remember { mutableStateOf("") }
+    val appContext = LocalContext.current.applicationContext
+    val pickFiles =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isEmpty()) return@rememberLauncherForActivityResult
+            val paths = uris.mapNotNull { uri -> copyUriToCache(appContext, uri) }
+            if (paths.isEmpty()) {
+                fileSendError = "Could not read the chosen files."
+                return@rememberLauncherForActivityResult
+            }
+            if (!NativeClient.fileSend(paths.toTypedArray())) {
+                fileSendError =
+                    NativeClient.fileError().ifEmpty { "Could not send files." }
+            }
+        }
+
+    fun refreshStatusLine() {
+        statusLine = NativeClient.composeStatusLine(rawStatusLine)
+    }
 
     DisposableEffect(sessionKey) {
         sessionPhase = NativeClient.PHASE_IDLE
+        rawStatusLine = ""
         statusLine = ""
         endReason = ""
         videoW = 0
@@ -219,7 +246,8 @@ private fun StreamScreen(
                     line: String,
                     phase: Int,
                 ) {
-                    statusLine = line
+                    rawStatusLine = line
+                    refreshStatusLine()
                     sessionPhase = phase
                 }
 
@@ -239,7 +267,8 @@ private fun StreamScreen(
         NativeClient.sessionListener = listener
         NativeClient.nativeSnapshot()?.let { snap ->
             sessionPhase = snap.phase
-            statusLine = snap.statusLine
+            rawStatusLine = snap.statusLine
+            refreshStatusLine()
             videoW = snap.videoWidth
             videoH = snap.videoHeight
             if (sessionPhase == NativeClient.PHASE_ENDED) endReason = snap.endReason
@@ -251,7 +280,14 @@ private fun StreamScreen(
 
     val streaming = sessionPhase == NativeClient.PHASE_STREAMING
 
-    val appContext = LocalContext.current.applicationContext
+    LaunchedEffect(sessionKey, streaming) {
+        if (!streaming) return@LaunchedEffect
+        while (true) {
+            refreshStatusLine()
+            delay(1000)
+        }
+    }
+
     LaunchedEffect(sessionKey, streaming) {
         if (!streaming || !NativeClient.clipboardSync()) return@LaunchedEffect
         ClipboardPump.run(
@@ -458,6 +494,7 @@ private fun StreamScreen(
                     sources = sources,
                     currentSourceId = currentSourceId,
                     onToggleKeyboard = { keyboardOn = !keyboardOn },
+                    onSendFiles = { pickFiles.launch(arrayOf("*/*")) },
                     onSwitchSource = onSwitchSource,
                     onEnd = onDismiss,
                     onCollapse = { controlsOpen = false },
@@ -466,6 +503,42 @@ private fun StreamScreen(
                 ExpandButton(onClick = { controlsOpen = true })
             }
         }
+
+        if (fileSendError.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = { fileSendError = "" },
+                confirmButton = {
+                    TextButton(onClick = { fileSendError = "" }) { Text("OK") }
+                },
+                title = { Text(NativeClient.string(NativeClient.STR_SEND_FILES_LABEL)) },
+                text = { Text(fileSendError) },
+            )
+        }
+    }
+}
+
+private fun copyUriToCache(
+    context: Context,
+    uri: Uri,
+): String? {
+    val name =
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index < 0) null else cursor.getString(index)
+            }?.takeIf { it.isNotBlank() } ?: "file"
+    val safe = name.replace(Regex("""[\\/:*?"<>|]"""), "_")
+    val dir = File(context.cacheDir, "send").also { it.mkdirs() }
+    val out = File(dir, "${System.nanoTime()}_$safe")
+    return try {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(out).use { output -> input.copyTo(output) }
+        } ?: return null
+        out.absolutePath
+    } catch (_: Exception) {
+        out.delete()
+        null
     }
 }
 
@@ -591,6 +664,7 @@ private fun ControlPanel(
     sources: List<NativeClient.Source>,
     currentSourceId: Int,
     onToggleKeyboard: () -> Unit,
+    onSendFiles: () -> Unit,
     onSwitchSource: (Int) -> Unit,
     onEnd: () -> Unit,
     onCollapse: () -> Unit,
@@ -669,6 +743,9 @@ private fun ControlPanel(
         ) {
             OutlinedButton(onClick = onToggleKeyboard, enabled = streaming) {
                 Text(if (keyboardOn) "Hide keyboard" else "Keyboard")
+            }
+            OutlinedButton(onClick = onSendFiles, enabled = streaming) {
+                Text(NativeClient.string(NativeClient.STR_SEND_FILES_LABEL))
             }
             if (sources.size > 1) {
                 OutlinedButton(onClick = { pickerOpen = true }) { Text("Display") }

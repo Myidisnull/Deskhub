@@ -10,6 +10,7 @@
 #include "deskhub/media/ViewFit.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/session/ConnectFlow.h"
+#include "deskhub/session/LinkPulse.h"
 #include "deskhub/session/OpenViewers.h"
 #include "deskhub/ui/AutoShareGate.h"
 #include "deskhub/ui/Strings.h"
@@ -143,6 +144,8 @@ const char* dh_string(DHStringId id) {
         case DHStrClipboardSyncLabel: return deskhub::ui::kClipboardSyncLabel;
         case DHStrShareAudioLabel: return deskhub::ui::kShareAudioLabel;
         case DHStrPlayAudioLabel: return deskhub::ui::kPlayAudioLabel;
+        case DHStrAcceptFilesLabel: return deskhub::ui::kAcceptFilesLabel;
+        case DHStrSendFilesLabel: return deskhub::ui::kSendFilesLabel;
         case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;
         case DHStrEncryptSessionLabel: return deskhub::ui::kEncryptSessionLabel;
         case DHStrEncryptSessionHint: return deskhub::ui::kEncryptSessionHint;
@@ -478,6 +481,10 @@ int dh_pointer_subtitle(DHPointerLock state, const char* statusLine, char* out, 
     const deskhub::PointerLockState s(state.locked);
     deskhubp::CopyToBuf(out, size_t(capacity), s.SubtitleFor(statusLine ? statusLine : ""));
     return int(std::strlen(out));
+}
+
+const char* dh_link_quality_text(DHLinkQuality quality) {
+    return deskhub::ui::LinkQualityText(static_cast<deskhub::LinkQuality>(quality));
 }
 
 void dh_set_data_dir(const char* dir) {

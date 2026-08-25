@@ -260,6 +260,32 @@ final class ClientSession: @unchecked Sendable {
         let videoHeight: UInt32
     }
 
+    struct LinkHealth {
+        let haveRtt: Bool
+        let rttMs: UInt32
+        let lossPct: UInt8
+        let quality: Int32
+    }
+
+    func linkHealth() -> LinkHealth {
+        var raw = DHLinkHealth()
+        dh_session_link_health(handle, &raw)
+        return LinkHealth(
+            haveRtt: raw.haveRtt,
+            rttMs: raw.rttMs,
+            lossPct: raw.lossPct,
+            quality: raw.quality.rawValue
+        )
+    }
+
+    func linkStatusPrefix() -> String {
+        let link = linkHealth()
+        guard link.quality != DHLinkUnknown.rawValue || link.haveRtt else { return "" }
+        var parts = [DeskhubClient.cString(dh_link_quality_text(DHLinkQuality(rawValue: link.quality)))]
+        if link.haveRtt { parts.append("\(link.rttMs) ms") }
+        return parts.joined(separator: " · ")
+    }
+
     func snapshot() -> Snapshot {
         var raw = DHSessionState()
         dh_session_snapshot(handle, &raw)
@@ -284,5 +310,31 @@ final class ClientSession: @unchecked Sendable {
     func takeClipboard() -> String? {
         let text = DeskhubClient.buffered(33000) { dh_session_clip_take(handle, $0, $1) }
         return text.isEmpty ? nil : text
+    }
+
+    @discardableResult
+    func sendFiles(_ paths: [String]) -> Bool {
+        guard !paths.isEmpty else { return false }
+        var cStrings = paths.map { strdup($0) }
+        defer { cStrings.forEach { if let p = $0 { free(p) } } }
+        if cStrings.contains(where: { $0 == nil }) { return false }
+        return cStrings.withUnsafeMutableBufferPointer { buf in
+            guard let base = buf.baseAddress else { return false }
+            return base.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buf.count) {
+                dh_session_file_send(handle, $0, Int32(buf.count)) != 0
+            }
+        }
+    }
+
+    func cancelFileSend() {
+        dh_session_file_cancel(handle)
+    }
+
+    func fileSendBusy() -> Bool {
+        dh_session_file_busy(handle) != 0
+    }
+
+    func fileSendError() -> String {
+        String(cString: dh_session_file_error(handle))
     }
 }

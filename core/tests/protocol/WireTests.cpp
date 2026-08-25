@@ -1,6 +1,8 @@
 #include "Tests.h"
 #include "support/TestSupport.h"
 
+#include "deskhub/protocol/ByteOrder.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -566,6 +568,143 @@ void TestStateEventClassification() {
     Check(!IsStateEvent(InputType::MouseWheel), "a wheel tick is not");
 }
 
+void TestRecordFraming() {
+    std::printf("[wire] length-prefixed records cut a byte stream apart...\n");
+    uint8_t one[kMaxDatagram];
+    uint8_t two[kMaxDatagram];
+    const size_t a = BuildPing(one, 7, PingPong{1, 2});
+    const size_t b = BuildBye(two, 7);
+
+    std::vector<uint8_t> stream(kMaxRecordSize);
+    size_t used = BuildRecord(stream, std::span<const uint8_t>(one, a));
+    Check(used == kRecordPrefixSize + a, "a record is its message plus the length prefix");
+    used += BuildRecord(std::span<uint8_t>(stream).subspan(used),
+        std::span<const uint8_t>(two, b));
+    stream.resize(used);
+
+    for (size_t cut = 0; cut < used; ++cut) {
+        const RecordView partial = ReadRecord(std::span<const uint8_t>(stream).first(cut));
+        if (cut < kRecordPrefixSize + a)
+            Check(partial.status == RecordStatus::NeedMore,
+                "a half-arrived record asks for more bytes");
+        else
+            Check(partial.status == RecordStatus::Ok, "a whole record is readable");
+    }
+
+    const RecordView first = ReadRecord(stream);
+    Check(first.status == RecordStatus::Ok && first.consumed == kRecordPrefixSize + a,
+        "the first record ends where the second begins");
+    Check(first.message.size() == a &&
+              std::memcmp(first.message.data(), one, a) == 0,
+        "the framed message comes back byte for byte");
+    const RecordView second = ReadRecord(
+        std::span<const uint8_t>(stream).subspan(first.consumed));
+    Check(second.status == RecordStatus::Ok && second.message.size() == b,
+        "the second record follows immediately");
+
+    const uint8_t zero[kRecordPrefixSize] = {0, 0};
+    Check(ReadRecord(zero).status == RecordStatus::Invalid, "a zero-length record is junk");
+    const uint8_t huge[kRecordPrefixSize] = {0xFF, 0xFF};
+    Check(ReadRecord(huge).status == RecordStatus::Invalid,
+        "a record larger than the cap is junk");
+
+    uint8_t small[4];
+    Check(BuildRecord(small, std::span<const uint8_t>(one, a)) == 0,
+        "a record refuses to build into a buffer that cannot hold it");
+    Check(BuildRecord(stream, std::span<const uint8_t>()) == 0, "an empty message is refused");
+    const std::vector<uint8_t> over(kMaxRecordSize + 1, 0xAB);
+    Check(BuildRecord(stream, over) == 0, "a message past the cap is refused");
+}
+
+void TestFileWire() {
+    std::printf("[wire] file-transfer messages survive the round trip...\n");
+    uint8_t buf[kMaxRecordSize];
+
+    FileOffer offer;
+    offer.batchId = 77;
+    offer.files.push_back(TransferFile{0, "empty.bin"});
+    offer.files.push_back(TransferFile{1234567, "\xe1\xba\xa2nh.png"});
+    size_t n = BuildFileOffer(buf, offer);
+    Check(n > 0, "an offer is built");
+    auto header = ParseCommonHeader(std::span<const uint8_t>(buf, n));
+    Check(header && header->chan == Chan::File && header->type == MsgType::FileOffer,
+        "and rides the file channel");
+    const auto backOffer = ParseFileOffer(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(backOffer && backOffer->batchId == 77 && backOffer->files.size() == 2,
+        "the offer parses back");
+    Check(backOffer->files[1].size == 1234567 && backOffer->files[1].name == "\xe1\xba\xa2nh.png",
+        "with sizes and UTF-8 names intact");
+
+    Check(BuildFileOffer(buf, FileOffer{1, {}}) == 0, "an empty batch is not built");
+    Check(BuildFileOffer(buf, FileOffer{1, {TransferFile{4, "a/b"}}}) == 0,
+        "a name carrying a separator is not built");
+    Check(BuildFileOffer(buf, FileOffer{1, {TransferFile{kMaxTransferFileBytes + 1, "a"}}}) == 0,
+        "a file past the size limit is not built");
+
+    n = BuildFileAccept(buf, FileAccept{77, TransferReason::Busy});
+    const auto accept = ParseFileAccept(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(accept && accept->batchId == 77 && accept->reason == TransferReason::Busy,
+        "an accept carries its verdict");
+
+    const std::vector<uint8_t> data(kMaxFileChunkBytes, 0x5A);
+    n = BuildFileChunk(buf, 77, 3, 0xDEADBEEFull, data);
+    Check(n > 0 && n <= kMaxRecordSize, "a full chunk fits one record exactly");
+    const auto chunk = ParseFileChunk(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(chunk && chunk->batchId == 77 && chunk->fileIndex == 3 &&
+              chunk->offset == 0xDEADBEEFull && chunk->data.size() == kMaxFileChunkBytes,
+        "and parses back whole");
+    Check(BuildFileChunk(buf, 1, 0, 0, {}) == 0, "an empty chunk is not built");
+    Check(BuildFileChunk(buf, 1, uint16_t(kMaxTransferFiles), 0, data) == 0,
+        "a chunk for a file index past the batch limit is not built");
+
+    n = BuildFileDone(buf, FileDone{77, 3, 0xCBF43926u});
+    const auto done = ParseFileDone(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(done && done->fileIndex == 3 && done->crc32 == 0xCBF43926u,
+        "a done message carries the checksum");
+
+    n = BuildFileAck(buf, FileAck{77, 3, TransferReason::Corrupt});
+    const auto ack = ParseFileAck(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(ack && ack->fileIndex == 3 && ack->reason == TransferReason::Corrupt,
+        "an ack carries its verdict");
+
+    n = BuildFileCancel(buf, FileCancel{77, TransferReason::Cancelled});
+    const auto cancel = ParseFileCancel(PayloadOf(std::span<const uint8_t>(buf, n)));
+    Check(cancel && cancel->batchId == 77 && cancel->reason == TransferReason::Cancelled,
+        "a cancel carries its reason");
+
+    for (size_t len = 0; len < 24; ++len) {
+        const std::span<const uint8_t> shortPayload(data.data(), len);
+        if (len < 5) Check(!ParseFileAccept(shortPayload).has_value(),
+            "a truncated accept is rejected");
+        if (len < 10) Check(!ParseFileDone(shortPayload).has_value(),
+            "a truncated done is rejected");
+        if (len < 7) Check(!ParseFileAck(shortPayload).has_value(),
+            "a truncated ack is rejected");
+        if (len <= kFileChunkHeaderSize) Check(!ParseFileChunk(shortPayload).has_value(),
+            "a chunk with no bytes in it is rejected");
+        if (len < kFileOfferHeaderSize) Check(!ParseFileOffer(shortPayload).has_value(),
+            "a truncated offer is rejected");
+    }
+
+    uint8_t bad[16] = {};
+    PutU32(bad, 77);
+    bad[4] = kMaxTransferReason + 1;
+    Check(!ParseFileAccept(std::span<const uint8_t>(bad, 5)).has_value(),
+        "an accept with an unknown reason is rejected");
+    Check(!ParseFileCancel(std::span<const uint8_t>(bad, 5)).has_value(),
+        "a cancel with an unknown reason is rejected");
+
+    Check(HostCapFlags(HostCaps{false, false, false, true}) == kHostAcceptsFiles,
+        "taking files has a capability flag of its own");
+    Check(HostCapsOfFlags(kHostAcceptsFiles).files &&
+              !HostCapsOfFlags(kHostAcceptsFiles).acceptsInput &&
+              !HostCapsOfFlags(kHostAcceptsFiles).terminal &&
+              !HostCapsOfFlags(kHostAcceptsFiles).audio,
+        "and decodes without disturbing the others");
+    Check(!HostCapsOfFlags(uint8_t(kHostAcceptsInput | kHostSharesAudio)).files,
+        "a host from before file transfer decodes as taking none");
+}
+
 }
 
 void RunWireTests() {
@@ -582,4 +721,6 @@ void RunWireTests() {
     TestSourceListTruncation();
     TestHelloAckReserved();
     TestParseGarbage();
+    TestRecordFraming();
+    TestFileWire();
 }

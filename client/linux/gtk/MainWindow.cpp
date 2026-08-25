@@ -945,6 +945,10 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(shareAudioCheck_), settings_.shareAudio);
     gtk_box_pack_start(GTK_BOX(box), shareAudioCheck_, FALSE, FALSE, 0);
 
+    acceptFilesCheck_ = gtk_check_button_new_with_label(ui::kAcceptFilesLabel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(acceptFilesCheck_), settings_.acceptFiles);
+    gtk_box_pack_start(GTK_BOX(box), acceptFilesCheck_, FALSE, FALSE, 0);
+
     playAudioCheck_ = gtk_check_button_new_with_label(ui::kPlayAudioLabel);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(playAudioCheck_), settings_.playAudio);
     gtk_box_pack_start(GTK_BOX(box), playAudioCheck_, FALSE, FALSE, 0);
@@ -1087,6 +1091,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     g_signal_connect(allowInputCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(clipboardCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(shareAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
+    g_signal_connect(acceptFilesCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(playAudioCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(keepAwakeCheck_, "toggled", G_CALLBACK(OnSettingChanged), this);
     g_signal_connect(encryptSessionCheck_, "toggled", G_CALLBACK(OnEncryptToggled), this);
@@ -1181,6 +1186,7 @@ void MainWindow::SaveSettings() {
     settings_.clientControl = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(controlCheck_));
     settings_.clipboardSync = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(clipboardCheck_));
     settings_.shareAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(shareAudioCheck_));
+    settings_.acceptFiles = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(acceptFilesCheck_));
     settings_.playAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(playAudioCheck_));
     settings_.keepAwake = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(keepAwakeCheck_));
     settings_.encryptSession =
@@ -1959,6 +1965,8 @@ void MainWindow::OnShare(ShareTrigger trigger) {
     options.passcode = settings_.passcode;
     options.bindIp = settings_.bindIp;
     options.clipboardSync = settings_.clipboardSync;
+    options.audio = settings_.shareAudio;
+    options.acceptFiles = settings_.acceptFiles;
     if (!deskhubp::ApplyEncryptToAgentOptions(settings_, options)) {
         ReportShareProblem(ui::kAppTitle, ui::kShareStartFailed);
         return;

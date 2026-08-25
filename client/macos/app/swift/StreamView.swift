@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ViewerRequest: Codable, Hashable {
     var address: String
@@ -12,6 +13,8 @@ struct ViewerRequest: Codable, Hashable {
 
 struct ViewerWindow: View {
     @State private var model: StreamModel
+    @State private var pickingFiles = false
+    @State private var fileSendError = ""
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
 
@@ -29,6 +32,36 @@ struct ViewerWindow: View {
         StreamView(model: model) { closeWindow() }
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(DeskhubClient.string(DHStrSendFilesLabel)) {
+                        pickingFiles = true
+                    }
+                    .disabled(model.phase != .streaming)
+                }
+            }
+            .fileImporter(
+                isPresented: $pickingFiles,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    let scoped = urls.map { ($0, $0.startAccessingSecurityScopedResource()) }
+                    defer {
+                        for (url, ok) in scoped where ok {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
+                    let paths = urls.map(\.path).filter { !$0.isEmpty }
+                    guard !paths.isEmpty else { return }
+                    if !model.sendFiles(paths) {
+                        fileSendError = model.fileSendError()
+                    }
+                case .failure(let error):
+                    fileSendError = error.localizedDescription
+                }
+            }
             .frame(minWidth: 640, idealWidth: 1024, maxWidth: .infinity,
                    minHeight: 400, idealHeight: 634, maxHeight: .infinity)
             .task {
@@ -64,6 +97,11 @@ struct ViewerWindow: View {
             } message: {
                 Text(DeskhubClient.string(DHStrViewerOpenFailed))
             }
+            .alert(DeskhubClient.string(DHStrAppTitle), isPresented: fileErrorShown) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(fileSendError)
+            }
     }
 
     private func closeWindow() {
@@ -86,6 +124,15 @@ struct ViewerWindow: View {
                     model.failedToStart = false
                     model.endReason = ""
                 }
+            }
+        )
+    }
+
+    private var fileErrorShown: Binding<Bool> {
+        Binding(
+            get: { !fileSendError.isEmpty },
+            set: { shown in
+                if !shown { fileSendError = "" }
             }
         )
     }

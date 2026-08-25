@@ -13,6 +13,7 @@ endif()
 
 add_library(core STATIC
     src/protocol/Wire.cpp
+    src/protocol/RecordStream.cpp
 
     src/crypto/Keys.cpp
     src/crypto/Aead.cpp
@@ -29,10 +30,17 @@ add_library(core STATIC
     src/session/HostSession.cpp
     src/session/HostViewers.cpp
     src/session/ClientSession.cpp
+    src/session/LinkPulse.cpp
     src/session/ClientPump.cpp
     src/session/HostFeedback.cpp
     src/session/HostRouter.cpp
     src/session/ClipboardSync.cpp
+    src/session/FileTransfer.cpp
+    src/session/client/FileSender.cpp
+    src/session/host/FileReceiver.cpp
+
+    src/transfer/Crc32.cpp
+    src/transfer/SafeName.cpp
 
     src/input/InputSender.cpp
     src/input/InputReceiver.cpp
@@ -110,10 +118,15 @@ if(DESKHUB_CORE_TESTS)
         tests/transport/PacerTests.cpp
         tests/transport/AudioJitterBufferTests.cpp
 
+        tests/transfer/Crc32Tests.cpp
+        tests/transfer/SafeNameTests.cpp
+
         tests/session/SessionTests.cpp
         tests/session/ClientPumpTests.cpp
         tests/session/ClientReconnectTests.cpp
+        tests/session/LinkPulseTests.cpp
         tests/session/ClipboardSyncTests.cpp
+        tests/session/FileTransferTests.cpp
         tests/session/HostFeedbackTests.cpp
         tests/session/HostRouterTests.cpp
         tests/session/HostViewersTests.cpp
@@ -155,6 +168,7 @@ if(DESKHUB_CORE_TESTS)
         tests/media/ViewerTitleTests.cpp
         tests/media/FrameMailboxTests.cpp
         tests/media/RgbDownscaleTests.cpp
+        tests/media/PcmRingTests.cpp
 
         tests/session/BeaconTests.cpp
 

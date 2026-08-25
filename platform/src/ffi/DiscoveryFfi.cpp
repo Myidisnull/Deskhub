@@ -526,6 +526,16 @@ void dh_set_play_audio(bool on) {
     deskhubp::SaveUiSettings(out);
 }
 
+bool dh_accept_files(void) {
+    return deskhubp::LoadUiSettings().acceptFiles;
+}
+
+void dh_set_accept_files(bool on) {
+    ui::UiSettings out = deskhubp::LoadUiSettings();
+    out.acceptFiles = on;
+    deskhubp::SaveUiSettings(out);
+}
+
 bool dh_keep_awake(void) {
     return deskhubp::LoadUiSettings().keepAwake;
 }

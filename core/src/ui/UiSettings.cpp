@@ -77,6 +77,7 @@ void ApplyKeyValue(UiSettings& out, std::string_view key, std::string_view value
     if (key == "keep_awake") out.keepAwake = *v != 0;
     if (key == "share_audio") out.shareAudio = *v != 0;
     if (key == "play_audio") out.playAudio = *v != 0;
+    if (key == "accept_files") out.acceptFiles = *v != 0;
     if (key == "encrypt_session") out.encryptSession = *v != 0;
     if (key == "escrow_session_key") out.escrowSessionKey = *v != 0;
     if (key == "session_key_lifetime")
@@ -168,6 +169,7 @@ std::string SerializeUiSettings(const UiSettings& settings) {
     out += std::string("keep_awake=") + (settings.keepAwake ? "1" : "0") + '\n';
     out += std::string("share_audio=") + (settings.shareAudio ? "1" : "0") + '\n';
     out += std::string("play_audio=") + (settings.playAudio ? "1" : "0") + '\n';
+    out += std::string("accept_files=") + (settings.acceptFiles ? "1" : "0") + '\n';
     out += std::string("encrypt_session=") + (settings.encryptSession ? "1" : "0") + '\n';
     const bool escrow = settings.encryptSession && settings.escrowSessionKey;
     out += std::string("escrow_session_key=") + (escrow ? "1" : "0") + '\n';

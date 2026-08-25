@@ -555,4 +555,211 @@ std::string TruncateClipboardText(std::string_view text) {
     return out;
 }
 
+size_t BuildRecord(std::span<uint8_t> out, std::span<const uint8_t> message) {
+    if (message.empty() || message.size() > kMaxRecordSize) return 0;
+    const size_t total = kRecordPrefixSize + message.size();
+    if (out.size() < total) return 0;
+    PutU16(out.data(), uint16_t(message.size()));
+    std::memcpy(out.data() + kRecordPrefixSize, message.data(), message.size());
+    return total;
+}
+
+RecordView ReadRecord(std::span<const uint8_t> buffer) {
+    RecordView v;
+    if (buffer.size() < kRecordPrefixSize) return v;
+    const size_t len = GetU16(buffer.data());
+    if (len == 0 || len > kMaxRecordSize) {
+        v.status = RecordStatus::Invalid;
+        return v;
+    }
+    if (buffer.size() < kRecordPrefixSize + len) return v;
+    v.status = RecordStatus::Ok;
+    v.message = buffer.subspan(kRecordPrefixSize, len);
+    v.consumed = kRecordPrefixSize + len;
+    return v;
+}
+
+bool IsWireLegalFileName(std::string_view name) {
+    if (name.empty() || name.size() > kMaxTransferNameBytes) return false;
+    if (name == "." || name == "..") return false;
+    for (char c : name) {
+        const uint8_t u = uint8_t(c);
+        if (u < 0x20 || u == 0x7F) return false;
+        if (c == '/' || c == '\\') return false;
+    }
+    return true;
+}
+
+size_t BuildFileOffer(std::span<uint8_t> out, const FileOffer& m) {
+    if (m.files.empty() || m.files.size() > kMaxTransferFiles) return 0;
+    size_t payload = kFileOfferHeaderSize;
+    uint64_t totalBytes = 0;
+    for (const TransferFile& f : m.files) {
+        if (!IsWireLegalFileName(f.name)) return 0;
+        if (f.size > kMaxTransferFileBytes) return 0;
+        totalBytes += f.size;
+        if (totalBytes > kMaxTransferBatchBytes) return 0;
+        payload += kFileOfferEntryOverhead + Utf8TruncLen(f.name, kMaxTransferNameBytes);
+    }
+    const size_t total = WriteCommon(out, MsgType::FileOffer, 0, Chan::File, m.batchId, payload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.batchId);
+    p += 4;
+    *p++ = uint8_t(m.files.size());
+    for (const TransferFile& f : m.files) {
+        const size_t nameLen = Utf8TruncLen(f.name, kMaxTransferNameBytes);
+        PutU64(p, f.size);
+        p += 8;
+        *p++ = uint8_t(nameLen);
+        std::memcpy(p, f.name.data(), nameLen);
+        p += nameLen;
+    }
+    return total;
+}
+
+size_t BuildFileAccept(std::span<uint8_t> out, const FileAccept& m) {
+    constexpr size_t kPayload = 5;
+    const size_t total = WriteCommon(out, MsgType::FileAccept, 0, Chan::File, m.batchId,
+        kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.batchId);
+    p[4] = uint8_t(m.reason);
+    return total;
+}
+
+size_t BuildFileChunk(std::span<uint8_t> out, uint32_t batchId, uint16_t fileIndex,
+    uint64_t offset, std::span<const uint8_t> data) {
+    if (data.empty() || data.size() > kMaxFileChunkBytes) return 0;
+    if (fileIndex >= kMaxTransferFiles) return 0;
+    const size_t total = WriteCommon(out, MsgType::FileChunk, 0, Chan::File, batchId,
+        kFileChunkHeaderSize + data.size());
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, batchId);
+    PutU16(p + 4, fileIndex);
+    PutU64(p + 6, offset);
+    std::memcpy(p + kFileChunkHeaderSize, data.data(), data.size());
+    return total;
+}
+
+size_t BuildFileDone(std::span<uint8_t> out, const FileDone& m) {
+    constexpr size_t kPayload = 10;
+    const size_t total = WriteCommon(out, MsgType::FileDone, 0, Chan::File, m.batchId, kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.batchId);
+    PutU16(p + 4, m.fileIndex);
+    PutU32(p + 6, m.crc32);
+    return total;
+}
+
+size_t BuildFileAck(std::span<uint8_t> out, const FileAck& m) {
+    constexpr size_t kPayload = 7;
+    const size_t total = WriteCommon(out, MsgType::FileAck, 0, Chan::File, m.batchId, kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.batchId);
+    PutU16(p + 4, m.fileIndex);
+    p[6] = uint8_t(m.reason);
+    return total;
+}
+
+size_t BuildFileCancel(std::span<uint8_t> out, const FileCancel& m) {
+    constexpr size_t kPayload = 5;
+    const size_t total = WriteCommon(out, MsgType::FileCancel, 0, Chan::File, m.batchId,
+        kPayload);
+    if (!total) return 0;
+    uint8_t* p = out.data() + kCommonHeaderSize;
+    PutU32(p, m.batchId);
+    p[4] = uint8_t(m.reason);
+    return total;
+}
+
+std::optional<FileOffer> ParseFileOffer(std::span<const uint8_t> payload) {
+    if (payload.size() < kFileOfferHeaderSize) return std::nullopt;
+    const uint8_t* p = payload.data();
+    FileOffer m;
+    m.batchId = GetU32(p);
+    const size_t count = p[4];
+    if (count == 0 || count > kMaxTransferFiles) return std::nullopt;
+    size_t at = kFileOfferHeaderSize;
+    uint64_t totalBytes = 0;
+    m.files.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        if (payload.size() < at + kFileOfferEntryOverhead) return std::nullopt;
+        TransferFile f;
+        f.size = GetU64(p + at);
+        if (f.size > kMaxTransferFileBytes) return std::nullopt;
+        totalBytes += f.size;
+        if (totalBytes > kMaxTransferBatchBytes) return std::nullopt;
+        const size_t nameLen = p[at + 8];
+        at += kFileOfferEntryOverhead;
+        if (payload.size() < at + nameLen) return std::nullopt;
+        f.name.assign(reinterpret_cast<const char*>(p + at), nameLen);
+        if (!IsWireLegalFileName(f.name)) return std::nullopt;
+        at += nameLen;
+        m.files.push_back(std::move(f));
+    }
+    return m;
+}
+
+std::optional<FileAccept> ParseFileAccept(std::span<const uint8_t> payload) {
+    if (payload.size() < 5) return std::nullopt;
+    const uint8_t* p = payload.data();
+    if (p[4] > kMaxTransferReason) return std::nullopt;
+    FileAccept m;
+    m.batchId = GetU32(p);
+    m.reason = TransferReason(p[4]);
+    return m;
+}
+
+std::optional<FileChunkView> ParseFileChunk(std::span<const uint8_t> payload) {
+    if (payload.size() <= kFileChunkHeaderSize) return std::nullopt;
+    const uint8_t* p = payload.data();
+    FileChunkView m;
+    m.batchId = GetU32(p);
+    m.fileIndex = GetU16(p + 4);
+    if (m.fileIndex >= kMaxTransferFiles) return std::nullopt;
+    m.offset = GetU64(p + 6);
+    m.data = payload.subspan(kFileChunkHeaderSize);
+    if (m.data.size() > kMaxFileChunkBytes) return std::nullopt;
+    if (m.offset > kMaxTransferFileBytes - m.data.size()) return std::nullopt;
+    return m;
+}
+
+std::optional<FileDone> ParseFileDone(std::span<const uint8_t> payload) {
+    if (payload.size() < 10) return std::nullopt;
+    const uint8_t* p = payload.data();
+    FileDone m;
+    m.batchId = GetU32(p);
+    m.fileIndex = GetU16(p + 4);
+    if (m.fileIndex >= kMaxTransferFiles) return std::nullopt;
+    m.crc32 = GetU32(p + 6);
+    return m;
+}
+
+std::optional<FileAck> ParseFileAck(std::span<const uint8_t> payload) {
+    if (payload.size() < 7) return std::nullopt;
+    const uint8_t* p = payload.data();
+    if (p[6] > kMaxTransferReason) return std::nullopt;
+    FileAck m;
+    m.batchId = GetU32(p);
+    m.fileIndex = GetU16(p + 4);
+    if (m.fileIndex >= kMaxTransferFiles) return std::nullopt;
+    m.reason = TransferReason(p[6]);
+    return m;
+}
+
+std::optional<FileCancel> ParseFileCancel(std::span<const uint8_t> payload) {
+    if (payload.size() < 5) return std::nullopt;
+    const uint8_t* p = payload.data();
+    if (p[4] > kMaxTransferReason) return std::nullopt;
+    FileCancel m;
+    m.batchId = GetU32(p);
+    m.reason = TransferReason(p[4]);
+    return m;
+}
+
 }

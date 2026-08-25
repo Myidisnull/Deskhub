@@ -58,6 +58,12 @@ struct SettingsView: View {
                 .onChange(of: settings.shareAudio) { _, _ in
                     settings.save()
                 }
+                Toggle(isOn: $settings.acceptFiles) {
+                    Text(DeskhubClient.string(DHStrAcceptFilesLabel))
+                }
+                .onChange(of: settings.acceptFiles) { _, _ in
+                    settings.save()
+                }
                 Toggle(isOn: $settings.playAudio) {
                     Text(DeskhubClient.string(DHStrPlayAudioLabel))
                 }

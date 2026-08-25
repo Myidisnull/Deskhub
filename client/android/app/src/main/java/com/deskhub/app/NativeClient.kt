@@ -79,6 +79,8 @@ object NativeClient {
     const val STR_BIND_ALL_INTERFACES = 77
     const val STR_CLIPBOARD_SYNC_LABEL = 80
     const val STR_SHARE_AUDIO_LABEL = 127
+    const val STR_ACCEPT_FILES_LABEL = 129
+    const val STR_SEND_FILES_LABEL = 130
     const val STR_PLAY_AUDIO_LABEL = 128
     const val STR_KEEP_AWAKE_LABEL = 124
     const val STR_BIND_NOT_CONNECTED = 85
@@ -243,6 +245,14 @@ object NativeClient {
 
     fun setShareAudio(on: Boolean) = nativeSetShareAudio(on)
 
+    private external fun nativeAcceptFiles(): Boolean
+
+    private external fun nativeSetAcceptFiles(on: Boolean)
+
+    fun acceptFiles(): Boolean = nativeAcceptFiles()
+
+    fun setAcceptFiles(on: Boolean) = nativeSetAcceptFiles(on)
+
     fun playAudio(): Boolean = nativePlayAudio()
 
     fun setPlayAudio(on: Boolean) = nativeSetPlayAudio(on)
@@ -306,6 +316,22 @@ object NativeClient {
     fun clipOffer(text: String) = nativeClipOffer(text)
 
     fun clipTake(): String = nativeClipTake()
+
+    private external fun nativeFileSend(paths: Array<String>): Boolean
+
+    private external fun nativeFileCancel()
+
+    private external fun nativeFileBusy(): Boolean
+
+    private external fun nativeFileError(): String
+
+    fun fileSend(paths: Array<String>): Boolean = nativeFileSend(paths)
+
+    fun fileCancel() = nativeFileCancel()
+
+    fun fileBusy(): Boolean = nativeFileBusy()
+
+    fun fileError(): String = nativeFileError()
 
     private external fun nativeDeviceName(): String
 
@@ -771,6 +797,19 @@ object NativeClient {
         val displayName: String,
         val sizeLabel: String,
     )
+
+    private external fun nativeLinkStatusPrefix(): String
+
+    fun linkStatusPrefix(): String = nativeLinkStatusPrefix()
+
+    fun composeStatusLine(raw: String): String {
+        val prefix = linkStatusPrefix()
+        return when {
+            prefix.isEmpty() -> raw
+            raw.isEmpty() -> prefix
+            else -> "$prefix · $raw"
+        }
+    }
 
     data class Snapshot(
         val phase: Int,

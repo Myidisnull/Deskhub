@@ -2,8 +2,5 @@
   "cmake.preferredGenerators": [
     "Ninja"
   ],
-  "cmake.useVsDeveloperEnvironment": "always",
-  "cmake.configureSettings": {
-    "CMAKE_MAKE_PROGRAM": "D:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
-  }
+  "cmake.useVsDeveloperEnvironment": "always"
 }
