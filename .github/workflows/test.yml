@@ -58,8 +58,38 @@ jobs:
             { grep -iE "error|warning C[0-9]|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
               exit 1; }
 
+      - name: Ask Windows to keep a dump when a test dies by fail-fast, which runs no in-process handler and so prints no stack
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+          New-Item -Path $key -Force | Out-Null
+          Set-ItemProperty -Path $key -Name DumpFolder -Value "$env:RUNNER_TEMP\crash-dumps" -Type ExpandString
+          Set-ItemProperty -Path $key -Name DumpType -Value 2 -Type DWord
+          Set-ItemProperty -Path $key -Name DumpCount -Value 2 -Type DWord
+
       - name: Run them through CTest
         run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
+
+      - name: Look for a crash dump
+        id: crash-dump
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $found = Test-Path "$env:RUNNER_TEMP\crash-dumps\*.dmp"
+          "found=$($found.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the crash dump beside the symbols without which nothing can read it
+        if: failure() && runner.os == 'Windows' && steps.crash-dump.outputs.found == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crash-dumps-${{ matrix.os }}-${{ matrix.preset }}
+          path: |
+            ${{ runner.temp }}/crash-dumps
+            out/build/${{ matrix.preset }}/tests/integration/integration_tests.exe
+            out/build/${{ matrix.preset }}/tests/integration/integration_tests.pdb
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Gate the hot core and QUIC paths on allocation and scaling budgets (time baselines stay per-machine; MSVC's small deque blocks make its allocation counts incomparable)
         if: endsWith(matrix.preset, '-release') && runner.os != 'Windows'

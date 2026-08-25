@@ -29,7 +29,9 @@ void ReportCrashesWithAStack() {}
 
 #include <dbghelp.h>
 
+#include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 
 namespace {
@@ -101,14 +103,11 @@ LONG WINAPI ReportFatalException(EXCEPTION_POINTERS* info) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-void ReportTerminate() {
+void PrintCrashStack(const char* headline) {
     const HANDLE process = GetCurrentProcess();
     SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     SymInitialize(process, nullptr, TRUE);
-    std::printf(
-        "=== FATAL: std::terminate on thread %lu - usually a joinable std::thread destroyed "
-        "or assigned over, or an exception nothing caught ===\n",
-        GetCurrentThreadId());
+    std::printf("=== FATAL: %s on thread %lu ===\n", headline, GetCurrentThreadId());
     void* frames[48] = {};
     const USHORT taken = CaptureStackBackTrace(0, 48, frames, nullptr);
     for (USHORT i = 0; i < taken; ++i)
@@ -117,9 +116,33 @@ void ReportTerminate() {
     TerminateProcess(process, 3);
 }
 
+void ReportTerminate() {
+    PrintCrashStack(
+        "std::terminate - usually a joinable std::thread destroyed or assigned over, or an "
+        "exception nothing caught");
+}
+
+void ReportAbort(int) {
+    PrintCrashStack(
+        "abort() - std::terminate on a thread that never installed its own handler, since "
+        "the CRT keeps that handler per thread");
+}
+
+void ReportPureCall() {
+    PrintCrashStack("a pure virtual call - an object used while its base was being destroyed");
+}
+
+void ReportInvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned,
+    uintptr_t) {
+    PrintCrashStack("a CRT call that rejected its arguments");
+}
+
 void ReportCrashesWithAStack() {
     SetUnhandledExceptionFilter(ReportFatalException);
     std::set_terminate(ReportTerminate);
+    std::signal(SIGABRT, ReportAbort);
+    _set_purecall_handler(ReportPureCall);
+    _set_invalid_parameter_handler(ReportInvalidParameter);
 }
 
 #else
@@ -132,6 +155,7 @@ void ReportCrashesWithAStack() {}
 #endif
 
 int main(int argc, char** argv) {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     ReportCrashesWithAStack();
     KeepTestLogsOutOfTheDeveloperHome();
 
