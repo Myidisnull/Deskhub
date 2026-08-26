@@ -3,6 +3,7 @@ import SwiftUI
 struct HostPage: View {
     @Bindable var agent: AgentModel
     let onShare: () -> Void
+    @State private var listHeight: CGFloat = 280
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -34,12 +35,16 @@ struct HostPage: View {
 
             if agent.isSharing {
                 HostSourceTable(rows: agent.rows) { agent.runRowAction($0) }
-                    .frame(minHeight: 120)
+                    .frame(minHeight: 220, idealHeight: listHeight, maxHeight: 640)
+                    .frame(height: listHeight)
             } else {
                 SharePickerTable(sources: agent.shareSources, ticked: $agent.tickedSources)
-                    .frame(minHeight: 120)
+                    .frame(minHeight: 220, idealHeight: listHeight, maxHeight: 640)
+                    .frame(height: listHeight)
                 deskhubHint(DeskhubClient.string(DHStrPickDisplaysHint))
             }
+
+            HostListResizeGrip(height: $listHeight)
 
             Button {
                 onShare()
@@ -77,6 +82,37 @@ struct HostPage: View {
 
     private var staleBindLabel: String {
         "\(agent.bindIp)  (\(DeskhubClient.string(DHStrBindNotConnectedNote)))"
+    }
+}
+
+private struct HostListResizeGrip: View {
+    @Binding var height: CGFloat
+    @State private var dragOrigin: CGFloat?
+
+    var body: some View {
+        Rectangle()
+            .fill(DeskhubPalette.muted.opacity(0.35))
+            .frame(height: 6)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        if dragOrigin == nil { dragOrigin = height }
+                        guard let origin = dragOrigin else { return }
+                        height = min(640, max(220, origin + value.translation.height))
+                    }
+                    .onEnded { _ in
+                        dragOrigin = nil
+                    }
+            )
     }
 }
 

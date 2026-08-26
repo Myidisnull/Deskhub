@@ -53,6 +53,7 @@ constexpr int kWindowMinH = 480;
 constexpr int kSidebarW = 180;
 constexpr int kNavH = 42;
 constexpr int kListH = 110;
+constexpr int kHostListH = 280;
 constexpr int kPad = 16;
 constexpr int kHintWrapChars = 64;
 constexpr int kPrimaryButtonH = 46;
@@ -716,17 +717,25 @@ GtkWidget* MainWindow::BuildHostPage() {
     gtk_grid_set_column_spacing(GTK_GRID(hostGrid_), kHostCellGap);
     gtk_grid_set_row_spacing(GTK_GRID(hostGrid_), kHostRowGap);
     gtk_widget_set_valign(hostGrid_, GTK_ALIGN_START);
-    gtk_box_pack_start(GTK_BOX(box), ListFrame(hostGrid_, kListH + 40), TRUE, TRUE, 0);
+    GtkWidget* hostList = ListFrame(hostGrid_, kHostListH);
     RebuildHostRowWidgets();
 
     hostHintLabel_ = Hint(ui::kPickDisplaysPortalHint);
-    gtk_box_pack_start(GTK_BOX(box), hostHintLabel_, FALSE, FALSE, 0);
 
     shareButton_ = gtk_button_new_with_label(ui::kStartSharing);
     AddClass(shareButton_, "deskhub-primary");
     gtk_widget_set_size_request(shareButton_, -1, kPrimaryButtonH);
     g_signal_connect(shareButton_, "clicked", G_CALLBACK(OnShareClicked), this);
-    gtk_box_pack_start(GTK_BOX(box), shareButton_, FALSE, FALSE, 0);
+
+    GtkWidget* hostBottom = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_box_pack_start(GTK_BOX(hostBottom), hostHintLabel_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hostBottom), shareButton_, FALSE, FALSE, 0);
+
+    GtkWidget* hostPaned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
+    gtk_paned_pack1(GTK_PANED(hostPaned), hostList, TRUE, FALSE);
+    gtk_paned_pack2(GTK_PANED(hostPaned), hostBottom, FALSE, FALSE);
+    gtk_paned_set_position(GTK_PANED(hostPaned), kHostListH);
+    gtk_box_pack_start(GTK_BOX(box), hostPaned, TRUE, TRUE, 0);
 
     ShowIdleHostState();
     return WrapPage(box);

@@ -2,5 +2,40 @@
   "cmake.preferredGenerators": [
     "Ninja"
   ],
-  "cmake.useVsDeveloperEnvironment": "always"
+  "cmake.useVsDeveloperEnvironment": "always",
+  "java.import.gradle.enabled": false,
+  "gradle.autoDetect": "off",
+  "kotlin.languageServer.enabled": false,
+  "java.import.exclusions": [
+    "**/client/android/**",
+    "**/client/apple/**",
+    "**/client/ios/**",
+    "**/client/linux/**",
+    "**/client/macos/**",
+    "**/client/windows/**",
+    "**/node_modules/**",
+    "**/.metadata/**",
+    "**/cmake-build-*/**"
+  ],
+  "files.exclude": {
+    "client/android": true,
+    "client/apple": true,
+    "client/ios": true,
+    "client/linux": true,
+    "client/macos": true,
+    "client/windows": true
+  },
+  "files.watcherExclude": {
+    "**/client/android/.gradle/**": true,
+    "**/client/android/app/build/**": true,
+    "**/client/android/build/**": true,
+    "**/out/**": true,
+    "**/cmake-build-*/**": true
+  },
+  "search.exclude": {
+    "**/client/android/app/build": true,
+    "**/client/android/build": true,
+    "**/client/android/.gradle": true,
+    "**/out": true
+  }
 }

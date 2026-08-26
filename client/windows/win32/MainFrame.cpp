@@ -93,6 +93,10 @@ constexpr int kPageMinClientW = 720;
 constexpr int kPageMinClientH = 480;
 constexpr int kLogViewH = 180;
 constexpr int kListMinH = 110;
+constexpr int kHostListMinH = 220;
+constexpr int kHostListMaxH = 640;
+constexpr int kHostListDefaultH = 280;
+constexpr int kHostListGripH = 8;
 constexpr int kTrayRestoreId = wxID_HIGHEST + 1;
 constexpr int kTrayExitId = wxID_HIGHEST + 2;
 
@@ -518,6 +522,8 @@ private:
     void AttachShell(uint32_t termId);
     void ShowHostTable(bool sharing);
     void RelayoutHostPage();
+    void ApplyHostListHeight();
+    void BindHostListGrip(wxWindow* grip);
     void StopDisplay(uint8_t sourceId);
     void KickViewer(uint8_t sourceId, const std::string& viewerAddr);
     void ApplyHostState(HostShareState state, const wxString& detail);
@@ -594,6 +600,11 @@ private:
     wxListCtrl* hostPicker_ = nullptr;
     wxWindow* hostTableHolder_ = nullptr;
     wxScrolledWindow* hostTable_ = nullptr;
+    wxWindow* hostListGrip_ = nullptr;
+    int hostListHeightDip_ = kHostListDefaultH;
+    bool hostListResizing_ = false;
+    int hostListDragStartY_ = 0;
+    int hostListDragStartH_ = 0;
     std::vector<HostRowView> hostRowViews_;
     wxButton* shareBtn_ = nullptr;
     wxTextCtrl* clientPasscodeCtrl_ = nullptr;
@@ -846,14 +857,22 @@ wxWindow* MainFrame::BuildHostPage(wxWindow* parent) {
     hostPicker_->SetBackgroundColour(kSurfaceBg);
     hostPicker_->SetForegroundColour(kHeadingText);
     hostPicker_->InsertColumn(0, "Source", wxLIST_FORMAT_LEFT, FromDIP(560));
-    hostPicker_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
     sizer->Add(hostPicker_,
-        wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
 
     hostTableHolder_ = BuildHostTable(panel);
-    hostTableHolder_->SetMinSize(FromDIP(wxSize(-1, kListMinH)));
     sizer->Add(hostTableHolder_,
-        wxSizerFlags(1).Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT | wxTOP, FromDIP(14)));
+
+    hostListGrip_ = new wxPanel(panel, wxID_ANY, wxDefaultPosition,
+        FromDIP(wxSize(-1, kHostListGripH)));
+    hostListGrip_->SetName(kTagRowLine);
+    hostListGrip_->SetBackgroundColour(kRowLine);
+    hostListGrip_->SetCursor(wxCursor(wxCURSOR_SIZENS));
+    BindHostListGrip(hostListGrip_);
+    sizer->Add(hostListGrip_,
+        wxSizerFlags().Expand().Border(wxLEFT | wxRIGHT, FromDIP(14)));
+    ApplyHostListHeight();
 
     hostHint_ = MakeHint(panel, ToWx(ui::kPickDisplaysHint));
     sizer->Add(hostHint_, pad);
@@ -1606,6 +1625,50 @@ void MainFrame::ShowHostTable(bool sharing) {
     hostTableHolder_->Show(sharing);
     hostHint_->Show(!sharing);
     RelayoutHostPage();
+}
+
+void MainFrame::ApplyHostListHeight() {
+    if (hostListHeightDip_ < kHostListMinH) hostListHeightDip_ = kHostListMinH;
+    if (hostListHeightDip_ > kHostListMaxH) hostListHeightDip_ = kHostListMaxH;
+    const wxSize size(-1, FromDIP(hostListHeightDip_));
+    if (hostPicker_) {
+        hostPicker_->SetMinSize(size);
+        hostPicker_->InvalidateBestSize();
+    }
+    if (hostTableHolder_) {
+        hostTableHolder_->SetMinSize(size);
+        hostTableHolder_->InvalidateBestSize();
+    }
+}
+
+void MainFrame::BindHostListGrip(wxWindow* grip) {
+    grip->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent& event) {
+        auto* capture = dynamic_cast<wxWindow*>(event.GetEventObject());
+        if (!capture) return;
+        hostListResizing_ = true;
+        hostListDragStartY_ = capture->ClientToScreen(event.GetPosition()).y;
+        hostListDragStartH_ = hostListHeightDip_;
+        capture->CaptureMouse();
+    });
+    grip->Bind(wxEVT_MOTION, [this](wxMouseEvent& event) {
+        if (!hostListResizing_ || !event.LeftIsDown()) return;
+        auto* capture = dynamic_cast<wxWindow*>(event.GetEventObject());
+        if (!capture) return;
+        const int deltaPx = capture->ClientToScreen(event.GetPosition()).y - hostListDragStartY_;
+        const int dip = FromDIP(100);
+        const int deltaDip = dip > 0 ? (deltaPx * 100) / dip : deltaPx;
+        hostListHeightDip_ = hostListDragStartH_ + deltaDip;
+        ApplyHostListHeight();
+        RelayoutHostPage();
+    });
+    grip->Bind(wxEVT_LEFT_UP, [this](wxMouseEvent& event) {
+        if (hostListResizing_ && wxWindow::GetCapture()) wxWindow::GetCapture()->ReleaseMouse();
+        hostListResizing_ = false;
+        event.Skip();
+    });
+    grip->Bind(wxEVT_MOUSE_CAPTURE_LOST, [this](wxMouseCaptureLostEvent&) {
+        hostListResizing_ = false;
+    });
 }
 
 void MainFrame::RefreshRecentList() {
@@ -2550,6 +2613,7 @@ void MainFrame::ApplyTheme() {
     TintTagged(clientPage_);
     TintTagged(settingsPage_);
     if (hostTableHolder_) TintTagged(hostTableHolder_);
+    if (hostListGrip_) TintTagged(hostListGrip_);
     if (hostTable_) hostTable_->SetBackgroundColour(kSurfaceBg);
     if (hosting_) RebuildHostTable();
 
