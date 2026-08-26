@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import kotlin.math.max
+import kotlin.time.Duration.Companion.milliseconds
 
 private val TermBackground = Color(0xFF101218)
 private val TermCursor = Color(0xE0E0E0E0)
@@ -111,7 +112,7 @@ private fun TerminalScreen(
                 }
             }
             if (state >= NativeTerm.STATE_REFUSED) break
-            delay(33)
+            delay(33.milliseconds)
         }
     }
 
@@ -207,10 +208,13 @@ private fun TerminalScreen(
                                         alt = latchAlt,
                                         ctrl = latchCtrl,
                                     )
+
                                 code == '\n'.code || code == '\r'.code ->
                                     NativeTerm.sendKey(handle, NativeTerm.KEY_ENTER)
+
                                 code == '\b'.code ->
                                     NativeTerm.sendKey(handle, NativeTerm.KEY_BACKSPACE)
+
                                 else -> NativeTerm.sendKey(handle, NativeTerm.KEY_CHAR, codepoint = code)
                             }
                             latchCtrl = false

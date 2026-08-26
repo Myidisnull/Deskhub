@@ -246,15 +246,15 @@ private fun drainPairingAsks(pending: List<PairingAsk>): List<PairingAsk> {
     if (requests.isEmpty()) return pending
     val pairedKeys = NativeClient.pairedDevices().map { it.shortKey }.toSet()
     val next = pending.toMutableList()
-    for (request in requests) {
-        if (pairedKeys.contains(request.shortKey)) {
-            NativeClient.answerPairing(request.addrPacked, true)
+    for ((addrPacked, shortKey, name) in requests) {
+        if (pairedKeys.contains(shortKey)) {
+            NativeClient.answerPairing(addrPacked, true)
             continue
         }
-        if (next.any { it.addrPacked == request.addrPacked }) continue
-        val address = NativeClient.formatAddress(request.addrPacked)
-        val body = NativeClient.pairingRequestBody(request.name, address, request.shortKey)
-        next.add(PairingAsk(request.addrPacked, request.shortKey, body))
+        if (next.any { it.addrPacked == addrPacked }) continue
+        val address = NativeClient.formatAddress(addrPacked)
+        val body = NativeClient.pairingRequestBody(name, address, shortKey)
+        next.add(PairingAsk(addrPacked, shortKey, body))
     }
     return next
 }
@@ -838,7 +838,7 @@ private fun HostScreen(
             rows = if (state == NativeHost.ShareState.SHARING) NativeHost.hostRows() else emptyList()
             addresses = NativeHost.localAddresses()
             if (state == NativeHost.ShareState.SHARING && !NativeHost.isRunning()) onStopSharing()
-            delay(POLL_INTERVAL_MS)
+            delay(POLL_INTERVAL_MS.milliseconds)
         }
     }
 
@@ -892,7 +892,8 @@ private fun HostScreen(
                 bindIp.isEmpty() -> NativeClient.string(NativeClient.STR_BIND_ALL_INTERFACES)
                 bindStale ->
                     "$bindIp (${NativeClient.string(NativeClient.STR_BIND_NOT_CONNECTED)})"
-                else -> bindIp
+
+                                    else -> bindIp
             }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -999,15 +1000,15 @@ private fun HostScreen(
             )
         } else {
             val context = LocalContext.current
-            for (address in addresses.filter { bindIp.isEmpty() || it.ip == bindIp }) {
+            for ((ip, name) in addresses.filter { bindIp.isEmpty() || it.ip == bindIp }) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(address.name, modifier = Modifier.weight(1f), color = MutedColor)
-                    Text(address.ip, fontWeight = FontWeight.Bold, color = HeadingColor)
-                    TextButton(onClick = { copyToClipboard(context, address.ip) }) {
+                    Text(name, modifier = Modifier.weight(1f), color = MutedColor)
+                    Text(ip, fontWeight = FontWeight.Bold, color = HeadingColor)
+                    TextButton(onClick = { copyToClipboard(context, ip) }) {
                         Text(NativeClient.string(NativeClient.STR_COPY))
                     }
                 }

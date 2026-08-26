@@ -87,6 +87,7 @@ import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val LINK_POLL_MS = 1000L
 
@@ -112,7 +113,8 @@ class StreamActivity : ComponentActivity() {
                 f: Int,
                 w: Int,
                 ht: Int,
-            ) {}
+            ) {
+            }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 NativeClient.nativeReleaseSurface(holder.surface)
@@ -302,7 +304,7 @@ private fun StreamScreen(
                     endReason = snap.endReason
                 }
             }
-            delay(LINK_POLL_MS)
+            delay(LINK_POLL_MS.milliseconds)
         }
     }
 
@@ -314,7 +316,7 @@ private fun StreamScreen(
         }
         while (true) {
             refreshStatusLine()
-            delay(1000)
+            delay(1000.milliseconds)
         }
     }
 
@@ -353,7 +355,7 @@ private fun StreamScreen(
                 keyboardOn = false
                 return@LaunchedEffect
             }
-            delay(200)
+            delay(200.milliseconds)
         }
     }
 
