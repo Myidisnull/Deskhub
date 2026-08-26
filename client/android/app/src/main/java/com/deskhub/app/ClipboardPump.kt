@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 object ClipboardPump {
     private const val PUMP_INTERVAL_MS = 1000L
@@ -29,7 +30,7 @@ object ClipboardPump {
                     val local = localText(clipboard)
                     if (local.isNotEmpty()) offer(local)
                 }
-                delay(PUMP_INTERVAL_MS)
+                delay(PUMP_INTERVAL_MS.milliseconds)
             }
         } finally {
             clipboard.removePrimaryClipChangedListener(listener)
