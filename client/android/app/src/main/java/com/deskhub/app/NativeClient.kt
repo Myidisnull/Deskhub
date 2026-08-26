@@ -116,6 +116,22 @@ object NativeClient {
     const val STR_CONNECTED_PICK_SESSION = 135
     const val STR_OPEN_SHELL_LABEL = 136
     const val STR_SHARE_TERMINAL_LABEL = 137
+    const val STR_PAIRED_HEADING = 139
+    const val STR_PAIRED_HINT = 140
+    const val STR_PAIRED_EMPTY = 141
+    const val STR_PAIRED_FORGET = 142
+    const val STR_PAIRED_FORGET_ALL = 143
+    const val STR_PAIRED_FORGET_ALL_PROMPT = 144
+    const val STR_PAIRED_FORGET_NOTE = 145
+    const val STR_ALLOW_PAIRING_LABEL = 146
+    const val STR_ALLOW_PAIRING_HINT = 147
+    const val STR_THIS_MACHINE_HEADING = 148
+    const val STR_THIS_MACHINE_HINT = 149
+    const val STR_PAIRED_COLUMN_PAIRED = 152
+    const val STR_PAIRED_COLUMN_LAST_SEEN = 153
+    const val STR_PAIRING_REQUEST_TITLE = 154
+    const val STR_PAIRING_ALLOW = 155
+    const val STR_PAIRING_DENY = 156
 
     const val LINK_QUALITY_UNKNOWN = 0
     const val LINK_QUALITY_GOOD = 1
@@ -293,6 +309,74 @@ object NativeClient {
     fun shareTerminal(): Boolean = nativeShareTerminal()
 
     fun setShareTerminal(on: Boolean) = nativeSetShareTerminal(on)
+
+    data class PairedDevice(
+        val name: String,
+        val shortKey: String,
+        val fingerprint: String,
+        val pairedUnix: Long,
+        val lastSeenUnix: Long,
+    )
+
+    data class PairingRequest(
+        val addrPacked: Long,
+        val shortKey: String,
+        val name: String,
+    )
+
+    private external fun nativePairedDevices(): Array<PairedDevice>
+
+    private external fun nativePairedForget(fingerprint: String): Boolean
+
+    private external fun nativePairedForgetAll()
+
+    private external fun nativeAllowPairing(): Boolean
+
+    private external fun nativeSetAllowPairing(allow: Boolean)
+
+    private external fun nativeOwnFingerprint(): String
+
+    private external fun nativeTakePairingRequests(): Array<PairingRequest>
+
+    private external fun nativeAnswerPairing(
+        addrPacked: Long,
+        allowed: Boolean,
+    )
+
+    private external fun nativeFormatAddress(addrPacked: Long): String
+
+    private external fun nativePairingRequestBody(
+        name: String,
+        address: String,
+        shortKey: String,
+    ): String
+
+    fun pairedDevices(): List<PairedDevice> = nativePairedDevices().toList()
+
+    fun pairedForget(fingerprint: String): Boolean = nativePairedForget(fingerprint)
+
+    fun pairedForgetAll() = nativePairedForgetAll()
+
+    fun allowPairing(): Boolean = nativeAllowPairing()
+
+    fun setAllowPairing(allow: Boolean) = nativeSetAllowPairing(allow)
+
+    fun ownFingerprint(): String = nativeOwnFingerprint()
+
+    fun takePairingRequests(): List<PairingRequest> = nativeTakePairingRequests().toList()
+
+    fun answerPairing(
+        addrPacked: Long,
+        allowed: Boolean,
+    ) = nativeAnswerPairing(addrPacked, allowed)
+
+    fun formatAddress(addrPacked: Long): String = nativeFormatAddress(addrPacked)
+
+    fun pairingRequestBody(
+        name: String,
+        address: String,
+        shortKey: String,
+    ): String = nativePairingRequestBody(name, address, shortKey)
 
     fun playAudio(): Boolean = nativePlayAudio()
 

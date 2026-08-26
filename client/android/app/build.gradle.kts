@@ -13,7 +13,9 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = (project.findProperty("versionName") as String?) ?: "0.1-dev"
+        versionName = (project.findProperty("versionName") as String?)
+            ?: rootProject.file("../../VERSION").takeIf { it.exists() }?.readText()?.trim()
+            ?: "5.2.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

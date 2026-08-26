@@ -72,6 +72,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : ComponentActivity() {
@@ -206,12 +208,57 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val POLL_INTERVAL_MS = 1000L
+private const val PAIRING_POLL_MS = 500L
 private const val PORT_SETTLE_MS = 600L
 
 private val HeadingColor = Color(0xFF111827)
 private val MutedColor = Color(0xFF6B7280)
 private val OnlineColor = Color(0xFF00913C)
 private val OfflineColor = Color(0xFFC82828)
+
+private data class PairingAsk(
+    val addrPacked: Long,
+    val shortKey: String,
+    val body: String,
+)
+
+private fun unixDateText(unix: Long): String {
+    if (unix <= 0L) return "-"
+    return DateFormat
+        .getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+        .format(Date(unix * 1000L))
+}
+
+private fun pairedDeviceSubtitle(device: NativeClient.PairedDevice): String =
+    buildString {
+        append(device.shortKey)
+        append("  ·  ")
+        append(NativeClient.string(NativeClient.STR_PAIRED_COLUMN_PAIRED))
+        append(' ')
+        append(unixDateText(device.pairedUnix))
+        append("  ·  ")
+        append(NativeClient.string(NativeClient.STR_PAIRED_COLUMN_LAST_SEEN))
+        append(' ')
+        append(unixDateText(device.lastSeenUnix))
+    }
+
+private fun drainPairingAsks(pending: List<PairingAsk>): List<PairingAsk> {
+    val requests = NativeClient.takePairingRequests()
+    if (requests.isEmpty()) return pending
+    val pairedKeys = NativeClient.pairedDevices().map { it.shortKey }.toSet()
+    val next = pending.toMutableList()
+    for (request in requests) {
+        if (pairedKeys.contains(request.shortKey)) {
+            NativeClient.answerPairing(request.addrPacked, true)
+            continue
+        }
+        if (next.any { it.addrPacked == request.addrPacked }) continue
+        val address = NativeClient.formatAddress(request.addrPacked)
+        val body = NativeClient.pairingRequestBody(request.name, address, request.shortKey)
+        next.add(PairingAsk(request.addrPacked, request.shortKey, body))
+    }
+    return next
+}
 
 @Composable
 private fun Heading(
@@ -309,6 +356,7 @@ private fun MainScreen(
     var pendingPick by remember { mutableStateOf<PendingPick?>(null) }
     var section by remember { mutableStateOf(Section.CLIENT) }
     var port by remember { mutableIntStateOf(NativeClient.settingsPort()) }
+    var pairingAsks by remember { mutableStateOf(emptyList<PairingAsk>()) }
     val scope = rememberCoroutineScope()
     val rescanTicks = remember { NativeClient.rescanSeconds() }
 
@@ -318,6 +366,13 @@ private fun MainScreen(
         onDispose {
             NativeClient.scanCancel()
             if (NativeHost.shareState == NativeHost.ShareState.IDLE) NativeHost.stop()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            pairingAsks = drainPairingAsks(pairingAsks)
+            delay(PAIRING_POLL_MS.milliseconds)
         }
     }
 
@@ -540,6 +595,34 @@ private fun MainScreen(
                 passcode = code
                 sessionKey = NativeClient.recentSessionKey(chosenAddr)
                 connect(chosenAddr)
+            },
+        )
+    }
+
+    pairingAsks.firstOrNull()?.let { ask ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(NativeClient.string(NativeClient.STR_PAIRING_REQUEST_TITLE)) },
+            text = { Text(ask.body) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        NativeClient.answerPairing(ask.addrPacked, true)
+                        pairingAsks = pairingAsks.filterNot { it.addrPacked == ask.addrPacked }
+                    },
+                ) {
+                    Text(NativeClient.string(NativeClient.STR_PAIRING_ALLOW))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        NativeClient.answerPairing(ask.addrPacked, false)
+                        pairingAsks = pairingAsks.filterNot { it.addrPacked == ask.addrPacked }
+                    },
+                ) {
+                    Text(NativeClient.string(NativeClient.STR_PAIRING_DENY))
+                }
             },
         )
     }
@@ -1264,6 +1347,123 @@ private fun SettingsScreen(
                     Text(NativeClient.string(NativeClient.STR_REFRESH_SESSION_KEY))
                 }
             }
+        }
+
+        SectionLabel(NativeClient.string(NativeClient.STR_PAIRED_HEADING))
+        Text(
+            NativeClient.string(NativeClient.STR_PAIRED_HINT),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MutedColor,
+        )
+        var pairedDevices by remember { mutableStateOf(NativeClient.pairedDevices()) }
+        var allowPairing by remember { mutableStateOf(NativeClient.allowPairing()) }
+        var ownFingerprint by remember { mutableStateOf(NativeClient.ownFingerprint()) }
+        var confirmForgetAll by remember { mutableStateOf(false) }
+        val refreshPaired = {
+            pairedDevices = NativeClient.pairedDevices()
+            allowPairing = NativeClient.allowPairing()
+            ownFingerprint = NativeClient.ownFingerprint()
+        }
+        LaunchedEffect(Unit) { refreshPaired() }
+        if (pairedDevices.isEmpty()) {
+            Text(
+                NativeClient.string(NativeClient.STR_PAIRED_EMPTY),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MutedColor,
+            )
+        } else {
+            for (device in pairedDevices) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            device.name.ifEmpty { "(unnamed)" },
+                            color = HeadingColor,
+                        )
+                        Text(
+                            pairedDeviceSubtitle(device),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MutedColor,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            NativeClient.pairedForget(device.fingerprint)
+                            refreshPaired()
+                        },
+                    ) {
+                        Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET))
+                    }
+                }
+            }
+        }
+        TextButton(
+            onClick = { confirmForgetAll = true },
+            enabled = pairedDevices.isNotEmpty(),
+        ) {
+            Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL))
+        }
+        Text(
+            NativeClient.string(NativeClient.STR_PAIRED_FORGET_NOTE),
+            style = MaterialTheme.typography.bodySmall,
+            color = MutedColor,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = allowPairing,
+                onCheckedChange = {
+                    allowPairing = it
+                    NativeClient.setAllowPairing(it)
+                },
+            )
+            Column {
+                Text(NativeClient.string(NativeClient.STR_ALLOW_PAIRING_LABEL))
+                Text(
+                    NativeClient.string(NativeClient.STR_ALLOW_PAIRING_HINT),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MutedColor,
+                )
+            }
+        }
+        SectionLabel(NativeClient.string(NativeClient.STR_THIS_MACHINE_HEADING))
+        Text(
+            ownFingerprint,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            color = HeadingColor,
+        )
+        Text(
+            NativeClient.string(NativeClient.STR_THIS_MACHINE_HINT),
+            style = MaterialTheme.typography.bodySmall,
+            color = MutedColor,
+        )
+        if (confirmForgetAll) {
+            AlertDialog(
+                onDismissRequest = { confirmForgetAll = false },
+                title = { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL)) },
+                text = { Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL_PROMPT)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            NativeClient.pairedForgetAll()
+                            confirmForgetAll = false
+                            refreshPaired()
+                        },
+                    ) {
+                        Text(NativeClient.string(NativeClient.STR_PAIRED_FORGET_ALL))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmForgetAll = false }) { Text("Cancel") }
+                },
+            )
         }
 
         SectionLabel("Logs")

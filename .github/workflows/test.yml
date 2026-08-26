@@ -62,9 +62,13 @@ jobs:
       - name: Configure (app off — this job only tests core/platform/integration)
         run: cmake --preset ${{ matrix.preset }} -DDESKHUB_LINUX_APP=OFF
 
-      - name: Build the three test binaries
-        run: cmake --build --preset ${{ matrix.preset }}
-             --target core_tests platform_tests integration_tests
+      - name: Build the three test binaries and the core perf harness
+        shell: bash
+        run: |
+          cmake --build --preset ${{ matrix.preset }} \
+              --target core_tests platform_tests integration_tests core_perf 2>&1 | tee build.log ||
+            { grep -iE "error|warning C[0-9]|LNK[0-9]" build.log | tail -40 | sed 's/^/::error::/' || true
+              exit 1; }
 
       - name: Ask Windows to keep a dump when a test dies by fail-fast, which runs no in-process handler and so prints no stack
         if: runner.os == 'Windows'
@@ -98,6 +102,10 @@ jobs:
             out/build/${{ matrix.preset }}/tests/integration/integration_tests.pdb
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Gate hot core paths on allocation and scaling budgets (no quiche / platform_perf)
+        if: endsWith(matrix.preset, '-release') && runner.os != 'Windows'
+        run: out/build/${{ matrix.preset }}/core/core_perf
 
   sanitizers:
     name: ${{ matrix.os }} · ${{ matrix.preset }}

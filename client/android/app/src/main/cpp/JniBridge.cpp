@@ -14,6 +14,7 @@
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/diag/LogPolicy.h"
 #include "deskhubp/diag/LogFile.h"
+#include "deskhubp/ffi/AgentSession.h"
 #include "deskhubp/ffi/ClientFfi.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
 
@@ -73,6 +74,8 @@ using deskhubj::FromJString;
 constexpr const char* kSourceClass = "com/deskhub/app/NativeClient$Source";
 constexpr const char* kScanHitClass = "com/deskhub/app/NativeClient$ScanHit";
 constexpr const char* kRecentDeviceClass = "com/deskhub/app/NativeClient$RecentDevice";
+constexpr const char* kPairedDeviceClass = "com/deskhub/app/NativeClient$PairedDevice";
+constexpr const char* kPairingRequestClass = "com/deskhub/app/NativeClient$PairingRequest";
 constexpr const char* kHotkeyClass = "com/deskhub/app/NativeClient$Hotkey";
 
 jfloatArray NewFloatArray2(JNIEnv* env, jfloat a, jfloat b) {
@@ -275,6 +278,111 @@ Java_com_deskhub_app_NativeClient_nativeShareTerminal(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL
 Java_com_deskhub_app_NativeClient_nativeSetShareTerminal(JNIEnv*, jobject, jboolean on) {
     dh_set_share_terminal(on == JNI_TRUE);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_deskhub_app_NativeClient_nativePairedDevices(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass(kPairedDeviceClass);
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(cls, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ)V");
+    if (!ctor) return nullptr;
+
+    DHPairedDevice devices[128];
+    const int count = dh_paired_devices(devices, int(sizeof(devices) / sizeof(devices[0])));
+
+    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
+    for (int i = 0; i < count && arr; ++i) {
+        jstring name = env->NewStringUTF(devices[i].name);
+        jstring shortKey = env->NewStringUTF(devices[i].shortKey);
+        jstring fingerprint = env->NewStringUTF(devices[i].fingerprint);
+        jobject item = env->NewObject(cls, ctor, name, shortKey, fingerprint,
+            jlong(devices[i].pairedUnix), jlong(devices[i].lastSeenUnix));
+        env->SetObjectArrayElement(arr, jsize(i), item);
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(fingerprint);
+        env->DeleteLocalRef(shortKey);
+        env->DeleteLocalRef(name);
+    }
+    return arr;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativePairedForget(JNIEnv* env, jobject, jstring fingerprintStr) {
+    return dh_paired_forget(FromJString(env, fingerprintStr).c_str()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativePairedForgetAll(JNIEnv*, jobject) {
+    dh_paired_forget_all();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeAllowPairing(JNIEnv*, jobject) {
+    return dh_allow_pairing() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeSetAllowPairing(JNIEnv*, jobject, jboolean allow) {
+    dh_set_allow_pairing(allow == JNI_TRUE);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeOwnFingerprint(JNIEnv* env, jobject) {
+    char buf[128];
+    dh_own_fingerprint(buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_deskhub_app_NativeClient_nativeTakePairingRequests(JNIEnv* env, jobject) {
+    jclass cls = env->FindClass(kPairingRequestClass);
+    if (!cls) return nullptr;
+    jmethodID ctor =
+        env->GetMethodID(cls, "<init>", "(JLjava/lang/String;Ljava/lang/String;)V");
+    if (!ctor) return nullptr;
+
+    DHPairingRequest requests[16];
+    const int count =
+        dh_share_take_pairing_requests(requests, int(sizeof(requests) / sizeof(requests[0])));
+
+    jobjectArray arr = env->NewObjectArray(jsize(count), cls, nullptr);
+    for (int i = 0; i < count && arr; ++i) {
+        jstring shortKey = env->NewStringUTF(requests[i].shortKey);
+        jstring name = env->NewStringUTF(requests[i].name);
+        jobject item =
+            env->NewObject(cls, ctor, jlong(requests[i].addrPacked), shortKey, name);
+        env->SetObjectArrayElement(arr, jsize(i), item);
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(name);
+        env->DeleteLocalRef(shortKey);
+    }
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_deskhub_app_NativeClient_nativeAnswerPairing(JNIEnv*, jobject, jlong addrPacked,
+    jboolean allowed) {
+    dh_share_answer_pairing(uint64_t(addrPacked), allowed == JNI_TRUE);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativeFormatAddress(JNIEnv* env, jobject, jlong addrPacked) {
+    char buf[64];
+    dh_format_address(uint64_t(addrPacked), buf, int(sizeof(buf)));
+    return env->NewStringUTF(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_deskhub_app_NativeClient_nativePairingRequestBody(JNIEnv* env, jobject, jstring nameStr,
+    jstring addressStr, jstring shortKeyStr) {
+    const std::string name = FromJString(env, nameStr);
+    const std::string address = FromJString(env, addressStr);
+    const std::string shortKey = FromJString(env, shortKeyStr);
+    char buf[512];
+    dh_pairing_request_body(name.c_str(), address.c_str(), shortKey.c_str(), buf,
+        int(sizeof(buf)));
+    return env->NewStringUTF(buf);
 }
 
 JNIEXPORT jboolean JNICALL

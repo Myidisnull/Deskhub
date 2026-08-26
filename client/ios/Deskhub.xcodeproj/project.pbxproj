@@ -489,7 +489,7 @@
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 5.2.0;
 				OTHER_LDFLAGS = (
 					"-lplatform",
 					"-lcore",
@@ -539,7 +539,7 @@
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 5.2.0;
 				OTHER_LDFLAGS = (
 					"-lplatform",
 					"-lcore",
@@ -587,7 +587,7 @@
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 5.2.0;
 				OTHER_LDFLAGS = (
 					"-lplatform",
 					"-lcore",
@@ -632,7 +632,7 @@
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/core",
 					"$(SRCROOT)/../../out/build/ios-core/$(PLATFORM_NAME)-$(CONFIGURATION)/platform",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 5.2.0;
 				OTHER_LDFLAGS = (
 					"-lplatform",
 					"-lcore",

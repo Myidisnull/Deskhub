@@ -7,6 +7,8 @@ COV_RAW    := out\build\coverage\core_tests.profraw
 COV_DATA   := out\build\coverage\core_tests.profdata
 COV_OUT    := out\coverage
 COV_SRC    := core\src core\include
+PERF_BIN   := out\build\x64-release\core\core_perf.exe
+PERF_BASE  := out\perf\baseline.txt
 else
 CORE_TESTS := out/build/x64-debug/core/core_tests
 PLAT_TESTS := out/build/x64-debug/platform/platform_tests
@@ -16,6 +18,8 @@ COV_RAW    := out/build/coverage/core_tests.profraw
 COV_DATA   := out/build/coverage/core_tests.profdata
 COV_OUT    := out/coverage
 COV_SRC    := core/src core/include
+PERF_BIN   := out/build/x64-release/core/core_perf
+PERF_BASE  := out/perf/baseline.txt
 endif
 
 debug:
@@ -44,7 +48,28 @@ test-integration:
 
 test-all: test test-platform test-integration
 
-FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext
+perf-build:
+	@$(DEVCMD) cmake --preset x64-release >$(NULDEV) && cmake --build --preset x64-release --target core_perf
+
+ifeq ($(OS),Windows_NT)
+test-perf: perf-build
+	@echo ===== Running core_perf against $(PERF_BASE) =====
+	$(PERF_BIN)
+
+perf-baseline: perf-build
+	@$(DEVCMD) cmake -E make_directory out\perf
+	@$(DEVCMD) set "DESKHUB_PERF_BASELINE=$(NULDEV)" && set "DESKHUB_PERF_WRITE=$(PERF_BASE)" && $(PERF_BIN)
+else
+test-perf: perf-build
+	@echo "===== Running core_perf against $(PERF_BASE) ====="
+	$(PERF_BIN)
+
+perf-baseline: perf-build
+	@cmake -E make_directory out/perf
+	DESKHUB_PERF_BASELINE=$(NULDEV) DESKHUB_PERF_WRITE=$(PERF_BASE) $(PERF_BIN)
+endif
+
+FUZZ_TARGETS := fuzz_wire fuzz_annexb fuzz_h264sps fuzz_reassembler fuzz_session fuzz_uitext fuzz_term
 FUZZ_SECONDS ?= 30
 FUZZ_COV_BIN := out/build/fuzz-coverage/core/$(firstword $(FUZZ_TARGETS))
 FUZZ_COV_OBJS := $(FUZZ_COV_BIN) $(foreach t,$(wordlist 2,$(words $(FUZZ_TARGETS)),$(FUZZ_TARGETS)),-object out/build/fuzz-coverage/core/$(t))
@@ -110,4 +135,4 @@ coverage:
 	@echo "Report: $(COV_OUT)/index.html"
 endif
 
-.PHONY: debug release brand test test-platform test-integration test-all test-asan test-tsan test-ctest coverage fuzz fuzz-coverage
+.PHONY: debug release brand test test-platform test-integration test-all perf-build test-perf perf-baseline test-asan test-tsan test-ctest coverage fuzz fuzz-coverage

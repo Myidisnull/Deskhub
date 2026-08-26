@@ -59,6 +59,8 @@ if(WIN32)
         src/system/AutostartWin.cpp
         src/system/LanguageWin.cpp
         src/system/KeepAwakeWin.cpp
+        src/system/ConsoleWin.cpp
+        src/system/EnvironmentWin.cpp
     )
 else()
     set(deskhub_platform_os
@@ -66,6 +68,8 @@ else()
         src/net/NetInfoPosix.cpp
         src/system/DeviceNamePosix.cpp
         src/system/LanguagePosix.cpp
+        src/system/ConsolePosix.cpp
+        src/system/EnvironmentPosix.cpp
     )
     if(APPLE)
         list(APPEND deskhub_platform_os src/system/MemoryFootprintApple.cpp)
@@ -156,6 +160,7 @@ add_library(platform STATIC
     src/host/TerminalHost.cpp
     src/host/HostPairingBroker.cpp
     src/client/FileUpload.cpp
+    src/client/FileTransferClient.cpp
     src/client/TerminalViewer.cpp
     src/system/FileStore.cpp
     src/system/AuthProof.cpp

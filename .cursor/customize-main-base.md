@@ -14,7 +14,22 @@ English governs this file. Update it every time `develop` successfully absorbs `
 | Reviewed tip short | `00b54f3b` |
 | Reviewed tip date | 2026-08-25 10:48:57 +0800 |
 | Reviewed tip subject | Merge branch 'manhpham90vn:main' into main |
-| Pin updated | 2026-08-25 |
+| Pin updated | 2026-08-26 |
+
+## Partial Adapt (2026-08-26) — P0–P3 + deskhub-cli mandatory
+
+User asked to finish remaining P0–P3 and make `client/cli` mandatory (UDP Adapt, no HostLink/QUIC).
+
+| Theme | What landed | Notes |
+| --- | --- | --- |
+| **deskhub-cli** | `client/cli` + `core/cli` + `make build-cli` / `cli-smoke`; Win links `deskhub_win_view` + `AgentLoop`; Linux splits `deskhub_linux_core`; `FileTransferClient` UDP headless send; X11 viewer uses `ClientEngine` | Connect/share/shell/send on develop UDP |
+| **P1 Files connect-once** | Win/Linux AskConnectSurface includes Files; standalone send via CLI/`FileTransferClient` | Desktop app + CLI |
+| **P2 Stop & Attach / Android pairing** | Host rows attach + Android Settings pairing (prior pass) | develop-shaped |
+| **P3 VERSION** | Android `versionName` ← `VERSION`; Apple `MARKETING_VERSION` = 5.2.0; brand stays System Runtime | |
+| **P3 fuzz** | `core/fuzz/seeds` refreshed from `origin/main` | |
+| **P3 perf** | Port `core/perf` + `DESKHUB_CORE_PERF`; `test.yml` gates release builds with `core_perf` only | **Skipped** quiche/`platform_perf` |
+
+`Last fully absorbed` stays `085f7ef` (selective Adapt). `Last reviewed` stays `00b54f3b` (fetch failed this pass; local tip unchanged).
 
 ## Partial Adapt (2026-08-25) — user-requested: Shell / pairing / HostLink-intent / VERSION 5.x / fuzz
 

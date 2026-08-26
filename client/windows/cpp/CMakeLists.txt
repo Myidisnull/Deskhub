@@ -45,3 +45,20 @@ if(MSVC)
     target_compile_options(deskhub_win_core PUBLIC /utf-8)
     target_compile_options(deskhub_win_core PRIVATE /sdl)
 endif()
+
+add_library(deskhub_win_view STATIC
+    ../win32/Viewer.cpp
+    ../win32/ViewerInput.cpp
+    ClientSessionWin.cpp
+)
+target_include_directories(deskhub_win_view PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../win32"
+)
+target_link_libraries(deskhub_win_view PUBLIC deskhub_win_core comctl32 comdlg32)
+deskhub_target_warnings(deskhub_win_view)
+if(MSVC)
+    target_compile_options(deskhub_win_view PRIVATE /sdl)
+    target_link_options(deskhub_win_view INTERFACE
+        "/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'")
+endif()

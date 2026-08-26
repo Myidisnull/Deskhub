@@ -90,6 +90,9 @@ add_library(core STATIC
     src/ui/AutoShareGate.cpp
     src/ui/Locale.cpp
     src/ui/LocaleCatalog.cpp
+
+    src/cli/Command.cpp
+    src/cli/Json.cpp
 )
 target_compile_features(core PUBLIC cxx_std_20)
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -114,6 +117,27 @@ else()
     set(deskhub_tests_default ON)
 endif()
 option(DESKHUB_CORE_TESTS "Build core_tests" ${deskhub_tests_default})
+option(DESKHUB_CORE_PERF "Build core_perf" ${deskhub_tests_default})
+
+if(DESKHUB_CORE_PERF)
+    add_executable(core_perf
+        perf/PerfMain.cpp
+        perf/PerfHarness.cpp
+        perf/VideoPerf.cpp
+        perf/TransferPerf.cpp
+        perf/TerminalPerf.cpp
+        perf/ControlPerf.cpp
+        perf/AudioPerf.cpp
+        perf/InputPerf.cpp
+        perf/StreamPerf.cpp
+    )
+    target_link_libraries(core_perf PRIVATE core)
+    target_include_directories(core_perf PRIVATE perf)
+    deskhub_target_warnings(core_perf)
+    if(MSVC)
+        target_compile_definitions(core_perf PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endif()
 
 if(DESKHUB_CORE_TESTS)
     add_executable(core_tests
@@ -205,6 +229,9 @@ if(DESKHUB_CORE_TESTS)
         tests/ui/UiSettingsTests.cpp
         tests/ui/AutostartConfigTests.cpp
         tests/ui/AutoShareGateTests.cpp
+
+        tests/cli/CommandTests.cpp
+        tests/cli/JsonTests.cpp
 
         tests/fuzz/FuzzTests.cpp
     )

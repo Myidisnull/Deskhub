@@ -82,6 +82,9 @@
 #   make fuzz-coverage     measure which core lines the fuzz corpus + seeds actually reach
 #                          (clang + llvm-cov, Linux/macOS) — finds the fuzzers' blind spots
 #   make coverage          measure core coverage (clang + llvm-cov — Windows/macOS/Ubuntu)
+#   make test-perf         build core_perf with the release preset and measure hot paths
+#                          (allocation + scaling gates; no quiche / platform_perf on develop)
+#   make perf-baseline     record out/perf/baseline.txt from the current tree on an idle machine
 #
 # Format/lint — all three languages, or one at a time:
 #   make format         apply formatting in place for C++ + Kotlin + Swift
@@ -102,6 +105,7 @@ include make/macos.mk
 include make/linux.mk
 include make/ios.mk
 include make/android.mk
+include make/cli.mk
 include make/codestyle.mk
 
 help:

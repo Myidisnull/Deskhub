@@ -46,6 +46,7 @@ private:
     struct HostRowWidgets {
         GtkWidget* cells[kHostColumnCount] = {};
         GtkWidget* action = nullptr;
+        GtkWidget* attach = nullptr;
     };
 
     MainWindow() = default;
@@ -107,8 +108,10 @@ private:
     void RebuildHostRowWidgets();
     HostRowWidgets MakeHostRowWidgets(const deskhub::ui::HostRow& ref, size_t index);
     void FillHostRow(const HostRowWidgets& widgets, const deskhub::ui::HostRow& ref,
-        const AgentSourceStatus& status);
+        const AgentSourceStatus* status, const std::vector<deskhub::TerminalRecord>& shells);
     void RunRowAction(const deskhub::ui::HostRow& row);
+    void AttachShell(uint32_t termId);
+    static void OnHostRowAttachClicked(GtkButton* b, gpointer user);
     std::string HostPortDetail() const;
     void ApplyHostState(HostShareState state, const std::string& detail);
     void ShowIdleHostState();

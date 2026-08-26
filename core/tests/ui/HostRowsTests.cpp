@@ -3,6 +3,7 @@
 
 #include "deskhub/ui/HostRows.h"
 #include "deskhub/ui/Strings.h"
+#include "deskhub/session/TerminalSession.h"
 
 #include <cstdio>
 #include <string>
@@ -141,6 +142,32 @@ void TestSourceLookupByIdIgnoresOrder() {
     Check(ui::FindHostSource(sources, 9) == nullptr, "an unknown id finds nothing");
 }
 
+void TestTerminalRowsFollowDisplays() {
+    std::printf("[hostrows] a shared shell lists under a Terminal parent row...\n");
+    const std::vector<media::AgentSourceStatus> sources{MakeSource(1, {})};
+    TerminalRecord shell;
+    shell.termId = 7;
+    shell.state = TerminalState::Live;
+    shell.size = TermSize{120, 40};
+    shell.clientEndpoint = "192.168.1.8:47777";
+    shell.clientName = "laptop";
+
+    const std::vector<ui::HostRow> rows = ui::BuildHostRows(sources, true, {shell});
+    Check(rows.size() == 3, "display, Terminal parent, and one shell");
+    Check(rows[1].terminal && !rows[1].viewer && rows[1].sourceId == ui::kTerminalSourceId,
+        "Terminal is the parent row");
+    Check(rows[2].terminal && rows[2].viewer && rows[2].termId == 7,
+        "the shell follows with its term id");
+
+    const ui::HostRowCells parent = ui::TerminalRowText(rows[1], 47777, {shell});
+    Check(parent.source == ui::kTerminalSourceName.get(), "parent names the Terminal");
+    Check(parent.viewers == "1", "parent counts shells");
+
+    const ui::HostRowCells child = ui::TerminalRowText(rows[2], 47777, {shell});
+    Check(child.source == ui::kShellRowLabel, "shell rows are indented");
+    Check(child.client == "laptop (192.168.1.8:47777)", "shell rows name the remote client");
+}
+
 }
 
 void RunHostRowsTests() {
@@ -151,4 +178,5 @@ void RunHostRowsTests() {
     TestViewerRowOnlyNamesTheClient();
     TestViewerRowShowsTheClientName();
     TestSourceLookupByIdIgnoresOrder();
+    TestTerminalRowsFollowDisplays();
 }

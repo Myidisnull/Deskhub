@@ -71,6 +71,39 @@ public:
         return engine_.TakeRemoteClipboard();
     }
 
+    deskhubp::TerminalHost* Terminal() {
+        return engine_.terminal();
+    }
+
+    const deskhubp::TerminalHost* Terminal() const {
+        return engine_.terminal();
+    }
+
+    bool TerminalSharing() const {
+        const deskhubp::TerminalHost* term = engine_.terminal();
+        return term != nullptr && term->Running();
+    }
+
+    std::vector<deskhub::TerminalRecord> TerminalSessions() const {
+        const deskhubp::TerminalHost* term = engine_.terminal();
+        if (!term) return {};
+        return term->Sessions();
+    }
+
+    void KickShell(uint32_t termId) {
+        if (deskhubp::TerminalHost* term = engine_.terminal()) term->KickSession(termId);
+    }
+
+    void StopTerminalShare() {
+        if (deskhubp::TerminalHost* term = engine_.terminal()) term->Stop();
+    }
+
+    bool StopAndAttachShell(uint32_t termId) {
+        deskhubp::TerminalHost* term = engine_.terminal();
+        if (!term) return false;
+        return term->AttachLocal(termId);
+    }
+
 private:
     deskhubp::HostEngine engine_;
 };

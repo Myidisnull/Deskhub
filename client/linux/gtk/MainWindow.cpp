@@ -60,6 +60,7 @@ constexpr int kPrimaryButtonH = 46;
 constexpr guint kRescanDelayMs = deskhubp::kLanRescanSecs * 1000;
 
 constexpr int kHostActionWidth = 104;
+constexpr int kHostAttachWidth = 104;
 constexpr int kHostActionHeight = 26;
 constexpr int kHostCellGap = 8;
 constexpr int kHostRowGap = 6;
@@ -463,16 +464,26 @@ std::vector<std::string> AddressesOf(const std::vector<ui::RecentDevice>& device
 
 enum class ConnectSurface { Cancel,
     Desktop,
+    Files,
     Shell };
 
-ConnectSurface AskConnectSurface(GtkWindow* parent, bool desktop, bool shell) {
-    if (desktop && !shell) return ConnectSurface::Desktop;
-    if (!desktop && shell) return ConnectSurface::Shell;
-    if (!desktop && !shell) return ConnectSurface::Cancel;
+ConnectSurface AskConnectSurface(GtkWindow* parent, bool desktop, bool files, bool shell) {
+    const int available = int(desktop) + int(files) + int(shell);
+    if (available == 0) return ConnectSurface::Cancel;
+    if (available == 1) {
+        if (desktop) return ConnectSurface::Desktop;
+        if (files) return ConnectSurface::Files;
+        return ConnectSurface::Shell;
+    }
 
     GtkWidget* dlg = gtk_dialog_new_with_buttons(ui::kAppTitle, parent, GTK_DIALOG_MODAL,
-        ui::kQuitWhileBusyCancel, GTK_RESPONSE_CANCEL, ui::kOpenShellLabel, GTK_RESPONSE_NO,
-        ui::kOpenDesktopLabel, GTK_RESPONSE_YES, nullptr);
+        ui::kQuitWhileBusyCancel, GTK_RESPONSE_CANCEL, nullptr);
+    if (shell)
+        gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kOpenShellLabel, GTK_RESPONSE_NO);
+    if (files)
+        gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kOpenFilesLabel, GTK_RESPONSE_APPLY);
+    if (desktop)
+        gtk_dialog_add_button(GTK_DIALOG(dlg), ui::kOpenDesktopLabel, GTK_RESPONSE_YES);
     GtkWidget* box = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
     gtk_box_set_spacing(GTK_BOX(box), 8);
     gtk_container_set_border_width(GTK_CONTAINER(box), 12);
@@ -481,6 +492,7 @@ ConnectSurface AskConnectSurface(GtkWindow* parent, bool desktop, bool shell) {
     const gint response = gtk_dialog_run(GTK_DIALOG(dlg));
     gtk_widget_destroy(dlg);
     if (response == GTK_RESPONSE_YES) return ConnectSurface::Desktop;
+    if (response == GTK_RESPONSE_APPLY) return ConnectSurface::Files;
     if (response == GTK_RESPONSE_NO) return ConnectSurface::Shell;
     return ConnectSurface::Cancel;
 }
@@ -2004,7 +2016,7 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
     poller_.SetAddresses(AddressesOf(recent_));
     RefreshRecentList();
 
-    if (outcome.sources.empty() && outcome.caps.terminal) {
+    if (outcome.sources.empty() && outcome.caps.terminal && !outcome.caps.files) {
         auto* args = new std::pair<std::string, std::string>{addr, passcode};
         g_idle_add(
             +[](gpointer data) -> gboolean {
@@ -2017,8 +2029,8 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
         return;
     }
 
-    const ConnectSurface surface =
-        AskConnectSurface(GTK_WINDOW(window_), !outcome.sources.empty(), outcome.caps.terminal);
+    const ConnectSurface surface = AskConnectSurface(GTK_WINDOW(window_),
+        !outcome.sources.empty(), outcome.caps.files, outcome.caps.terminal);
     if (surface == ConnectSurface::Cancel) return;
     if (surface == ConnectSurface::Shell) {
         auto* args = new std::pair<std::string, std::string>{addr, passcode};
@@ -2035,17 +2047,28 @@ void MainWindow::OnSourcesReady(const std::string& addr, const std::string& pass
 
     NetAddr server{};
     if (!ParseNetAddr(addr, server)) return;
+    if (outcome.sources.empty()) return;
 
+    const bool openFiles = surface == ConnectSurface::Files;
     std::vector<deskhub::SourceInfo> picked;
-    if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) return;
+    if (openFiles) {
+        if (outcome.sources.size() == 1) {
+            picked = outcome.sources;
+        } else if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) {
+            return;
+        }
+    } else if (!PickSources(GTK_WINDOW(window_), outcome.sources, picked)) {
+        return;
+    }
 
     int opened = 0;
+    bool first = true;
     for (const auto& s : picked) {
-        if (ViewerWindow::Open(server, s.sourceId, s.name, passcode, sessionKey,
-                [this, alive = alive_] {
+        const bool askFiles = openFiles && first;
+        first = false;
+        if (ViewerWindow::Open(server, s.sourceId, s.name, passcode, sessionKey, [this, alive = alive_] {
                     if (!alive->load()) return;
-                    if (openViewers_.Closed()) ShowAfterSession();
-                })) {
+                    if (openViewers_.Closed()) ShowAfterSession(); }, askFiles)) {
             openViewers_.Opened();
             ++opened;
         }
@@ -2327,6 +2350,8 @@ MainWindow::HostRowWidgets MainWindow::MakeHostRowWidgets(const ui::HostRow& ref
             kHostColumns[i].align);
     }
 
+    const bool remoteShell = ref.terminal && ref.viewer &&
+                             ref.shellState != deskhub::TerminalState::Local;
     widgets.action = gtk_button_new_with_label(
         ref.viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction);
     AddClass(widgets.action, "deskhub-row-action");
@@ -2337,6 +2362,16 @@ MainWindow::HostRowWidgets MainWindow::MakeHostRowWidgets(const ui::HostRow& ref
     g_object_set_data(G_OBJECT(widgets.action), "deskhub-host-row",
         GINT_TO_POINTER(gint(index)));
     g_signal_connect(widgets.action, "clicked", G_CALLBACK(OnHostRowActionClicked), this);
+
+    if (remoteShell) {
+        widgets.attach = gtk_button_new_with_label(ui::kAttachShellAction);
+        AddClass(widgets.attach, "deskhub-row-action");
+        gtk_widget_set_size_request(widgets.attach, kHostActionWidth, kHostActionHeight);
+        gtk_widget_set_valign(widgets.attach, GTK_ALIGN_CENTER);
+        g_object_set_data(G_OBJECT(widgets.attach), "deskhub-host-row",
+            GINT_TO_POINTER(gint(index)));
+        g_signal_connect(widgets.attach, "clicked", G_CALLBACK(OnHostRowAttachClicked), this);
+    }
     return widgets;
 }
 
@@ -2364,6 +2399,8 @@ void MainWindow::RebuildHostRowWidgets() {
             gtk_grid_attach(GTK_GRID(hostGrid_), widgets.cells[c], c, row, 1, 1);
         }
         gtk_grid_attach(GTK_GRID(hostGrid_), widgets.action, kHostColumnCount, row, 1, 1);
+        if (widgets.attach)
+            gtk_grid_attach(GTK_GRID(hostGrid_), widgets.attach, kHostColumnCount + 1, row, 1, 1);
     }
     gtk_widget_show_all(hostGrid_);
 }
@@ -2373,9 +2410,16 @@ void MainWindow::ClearHostRows() {
     RebuildHostRowWidgets();
 }
 
-void MainWindow::FillHostRow(
-    const HostRowWidgets& widgets, const ui::HostRow& ref, const AgentSourceStatus& status) {
-    const ui::HostRowCells cells = ui::HostRowText(ref, status);
+void MainWindow::FillHostRow(const HostRowWidgets& widgets, const ui::HostRow& ref,
+    const AgentSourceStatus* status, const std::vector<deskhub::TerminalRecord>& shells) {
+    ui::HostRowCells cells;
+    if (ref.terminal) {
+        cells = ui::TerminalRowText(ref, Port(), shells);
+    } else if (status) {
+        cells = ui::HostRowText(ref, *status);
+    } else {
+        return;
+    }
     const std::string* text[kHostColumnCount] = {&cells.source, &cells.size, &cells.viewers,
         &cells.client, &cells.capture, &cells.send, &cells.mbps, &cells.rtt};
     for (int i = 0; i < kHostColumnCount; ++i) {
@@ -2389,20 +2433,38 @@ void MainWindow::FillHostRow(
 }
 
 void MainWindow::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows);
+    const std::vector<deskhub::TerminalRecord> shells = agentLoop_.TerminalSessions();
+    std::vector<ui::HostRow> refs =
+        ui::BuildHostRows(rows, agentLoop_.TerminalSharing(), shells);
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
         RebuildHostRowWidgets();
     }
 
     for (size_t i = 0; i < hostRows_.size() && i < hostRowWidgets_.size(); ++i) {
-        const AgentSourceStatus* source = ui::FindHostSource(rows, hostRows_[i].sourceId);
-        if (source) FillHostRow(hostRowWidgets_[i], hostRows_[i], *source);
+        const AgentSourceStatus* source =
+            hostRows_[i].terminal ? nullptr : ui::FindHostSource(rows, hostRows_[i].sourceId);
+        FillHostRow(hostRowWidgets_[i], hostRows_[i], source, shells);
     }
+}
+
+void MainWindow::AttachShell(uint32_t termId) {
+    if (!hosting_) return;
+    if (!agentLoop_.StopAndAttachShell(termId)) return;
+    deskhubp::TerminalHost* term = agentLoop_.Terminal();
+    if (!term || !RunLocalTerminal(*term, termId)) agentLoop_.KickShell(termId);
 }
 
 void MainWindow::RunRowAction(const ui::HostRow& row) {
     if (!hosting_) return;
+    if (row.terminal) {
+        if (row.viewer) {
+            agentLoop_.KickShell(row.termId);
+        } else {
+            agentLoop_.StopTerminalShare();
+        }
+        return;
+    }
     if (!row.viewer) {
         agentLoop_.StopSource(row.sourceId);
         return;
@@ -2422,6 +2484,14 @@ void MainWindow::OnHostRowActionClicked(GtkButton* b, gpointer user) {
     const gint index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "deskhub-host-row"));
     if (index < 0 || size_t(index) >= self->hostRows_.size()) return;
     self->RunRowAction(self->hostRows_[size_t(index)]);
+}
+
+void MainWindow::OnHostRowAttachClicked(GtkButton* b, gpointer user) {
+    auto* self = static_cast<MainWindow*>(user);
+    const gint index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "deskhub-host-row"));
+    if (index < 0 || size_t(index) >= self->hostRows_.size()) return;
+    const ui::HostRow& row = self->hostRows_[size_t(index)];
+    if (row.terminal && row.viewer) self->AttachShell(row.termId);
 }
 
 gboolean MainWindow::OnDeleteEvent(GtkWidget*, GdkEvent*, gpointer user) {

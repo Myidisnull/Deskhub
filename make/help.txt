@@ -25,6 +25,8 @@ Deskhub - no platform is built by default, name the one you want:
     make fuzz              libFuzzer + ASan over the parsers + sessions (clang, Linux/macOS, FUZZ_SECONDS=N)
     make fuzz-coverage     which core lines the fuzz corpus reaches (clang + llvm-cov, Linux/macOS)
     make coverage          core coverage report via clang + llvm-cov
+    make test-perf         release core_perf — allocation and scaling gates (no QUIC)
+    make perf-baseline     record out/perf/baseline.txt for drift checks
 
   Style - C++ + Kotlin + Swift, or one at a time:
     make format          apply formatting in place
@@ -35,6 +37,12 @@ Deskhub - no platform is built by default, name the one you want:
     make dist-macos      dmg signed with Developer ID + notarized + stapled
     make verify-macos    check that Gatekeeper accepts the build just produced
     make dist-linux      Linux .deb + .rpm - both ship the uinput udev rule, no manual permission step
+
+  CLI:
+    make build-cli       deskhub-cli (needs -DDESKHUB_CLI=ON / make build-cli)
+    make release-cli     release build of deskhub-cli
+    make run-cli         ARGS="help"
+    make cli-smoke       share --no-screen --terminal smoke when scripted
 
   Setup:
     make bootstrap                  install every dev dependency for this OS

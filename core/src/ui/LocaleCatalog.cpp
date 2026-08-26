@@ -74,6 +74,7 @@ static const CatalogEntry k_zh[] = {
     {"Offline", "离线"},
     {"Online", "在线"},
     {"Open desktop", "打开桌面"},
+    {"Open shell", "打开 Shell"},
     {"Open log folder", "打开日志文件夹"},
     {"Others connect by entering this machine's IP address.", "其他人输入本机 IP 地址即可连接。"},
     {"Others connect to you using one of these IP addresses:", "其他人可通过以下任一 IP 地址连接："},

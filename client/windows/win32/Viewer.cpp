@@ -116,6 +116,7 @@ struct ViewerFrame {
     DHSession* session = nullptr;
     deskhub::OpenViewerCount* openCount = nullptr;
     bool viewOnly = false;
+    bool openFiles = false;
     ViewerInput input;
     std::string baseTitle;
     std::wstring shownTitle;
@@ -317,6 +318,10 @@ LRESULT CALLBACK FrameProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             if (f) {
                 f->SizeToVideo();
                 f->Relayout();
+                if (f->openFiles) {
+                    f->openFiles = false;
+                    SendPickedFiles(f->session, h);
+                }
             }
             return 0;
         case WM_APP_CLOSED: {
@@ -369,11 +374,12 @@ void RegisterClasses() {
 
 std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId,
     const std::string& nameUtf8, deskhub::OpenViewerCount& openCount, bool control,
-    const std::string& passcode, const std::string& sessionKey) {
+    const std::string& passcode, const std::string& sessionKey, bool openFiles) {
     auto f = std::make_unique<ViewerFrame>();
 
     f->openCount = &openCount;
     f->viewOnly = !control;
+    f->openFiles = openFiles;
     f->baseTitle = deskhub::ViewerBaseTitle(nameUtf8);
 
     const std::wstring initialTitle = FromUtf8(f->baseTitle);
@@ -444,15 +450,19 @@ std::unique_ptr<ViewerFrame> OpenFrame(const std::string& addr, uint8_t sourceId
 }
 
 bool RunViewer(const std::string& addrUtf8, const std::vector<deskhub::SourceInfo>& sources,
-    bool control, const std::string& passcode, const std::string& sessionKey) {
+    bool control, const std::string& passcode, const std::string& sessionKey, bool openFiles) {
     RegisterClasses();
     deskhub::OpenViewerCount openFrames;
 
     std::vector<std::unique_ptr<ViewerFrame>> frames;
-    for (const auto& s : sources)
+    bool first = true;
+    for (const auto& s : sources) {
+        const bool askFiles = openFiles && first;
+        first = false;
         if (auto f = OpenFrame(addrUtf8, s.sourceId, s.name, openFrames, control, passcode,
-                sessionKey))
+                sessionKey, askFiles))
             frames.push_back(std::move(f));
+    }
     if (frames.empty()) return false;
 
     PumpMessagesUntil(nullptr, [] { return true; });

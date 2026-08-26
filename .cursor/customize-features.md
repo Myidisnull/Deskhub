@@ -3,7 +3,7 @@
 权威说明：本文件记录 **`develop` 相对 `main` 的产品客制**。同步上游时不得破坏下列功能、配置、布局与 UI（见 `.cursor/rules/develop-main-parallel.mdc`）。
 版本锚点：`VERSION` = **5.2.0**（与 main 对齐版本号；**品牌仍为 System Runtime**）· 品牌文件 `brand/Brand.json` · 对照 tip 时以本文件 + `customize-main-base.md` 为准。
 
-上次整理：2026-08-25（用户点名：Shell / 配对 UX / HostLink 意图 / VERSION 5.x / fuzz → **Adapt 队列**）
+上次整理：2026-08-26（P0–P3 + `deskhub-cli` 全量 Adapt 收尾）
 
 ---
 
@@ -71,9 +71,11 @@
 | 主题 | Adapt 方式（develop 形） | 状态 |
 | --- | --- | --- |
 | Shell / 终端 | 自建 **UDP** 终端通道 + `core/terminal` + 各端 UI；connect-once 可加 Shell 钮；**不**依赖 HostLink/QUIC | **已做**：全平台主机 `shareTerminal` + Apple/Android/Win/Linux 客户端；有桌面源时 Desktop/Shell 选择（Win/Linux/Apple） |
-| 配对 UX | 移植 TrustStore / Devices / PairingAsks 为**可选面**；与 §2.3 会话加密**并存**；默认连接仍可用口令+密钥 | **已做（develop 形）**：`PairingHello`/`PairingResult` UDP + `HostPairingBroker`；Settings 内配对列表 + `allowNewPairings`（Win/Linux/macOS/iOS）；口令路径仍可用 |
+| 配对 UX | 移植 TrustStore / Devices / PairingAsks 为**可选面**；与 §2.3 会话加密**并存**；默认连接仍可用口令+密钥 | **已做（develop 形）**：`PairingHello`/`PairingResult` UDP + `HostPairingBroker`；Settings 内配对列表 + `allowNewPairings`（Win/Linux/macOS/iOS/Android）；口令路径仍可用 |
 | HostLink | **不**迁入 `HostLink` 树；把「一次 dial、多 surface」意图继续落在 UDP connect-once（Desktop/Files/Shell） | **已做（develop 形）**：Desktop/Files/Shell 均走 UDP connect-once；Android Connected 面也有 Open shell |
-| VERSION 5.x | `VERSION` → **5.2.0**；保留 System Runtime / `.system-runtime` / 商店标题 | **已做**（本轮） |
-| fuzz 噪声 | Port `core/fuzz/seeds`（及已有目标的 regressions）；`FuzzTerm` 随终端 core 已挂 | **已做**（本轮） |
+| VERSION 5.x | `VERSION` → **5.2.0**；保留 System Runtime / `.system-runtime` / 商店标题 | **已做**：Android `versionName` 读 `VERSION`；Apple `MARKETING_VERSION` = 5.2.0 |
+| fuzz 噪声 | Port `core/fuzz/seeds`（及已有目标的 regressions）；`FuzzTerm` 随终端 core 已挂 | **已做**（与 `origin/main` tip 对齐） |
+| deskhub-cli | `client/cli` 接 UDP（`AgentLoop`/`TerminalViewer`/`FileTransferClient`）；`make build-cli`；无 HostLink/QUIC | **已做（develop 形）**：Win `deskhub_win_view`；Linux `deskhub_linux_core` + X11/`ClientEngine`；`cli-smoke` |
+| core_perf CI | Port `core/perf`；CI release 跑 `core_perf`；**不**引入 quiche / `platform_perf` | **已做（develop 形）** |
 
-仍默认 Skip（未点名）：`deskhub-cli` 整包、main 专属 `clientShell`/`allowNewPairings` 设置名原样替换客制设置键、Deskhub 商店文案/图标整包。
+仍默认 Skip（未点名）：main 专属 `clientShell`/`allowNewPairings` 设置名原样替换客制设置键、Deskhub 商店文案/图标整包、`platform_perf`/QUIC。

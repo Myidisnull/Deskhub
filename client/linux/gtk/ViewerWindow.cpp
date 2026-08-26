@@ -67,9 +67,10 @@ void LargestScreenPixels(GtkWidget* w, uint32_t& outW, uint32_t& outH) {
 
 ViewerWindow* ViewerWindow::Open(const NetAddr& server, uint8_t sourceId,
     const std::string& sourceName, const std::string& passcode, const std::string& sessionKey,
-    std::function<void()> onClosed) {
+    std::function<void()> onClosed, bool openFiles) {
     auto* v = new ViewerWindow();
     v->onClosed_ = std::move(onClosed);
+    v->openFiles_ = openFiles;
     if (!v->Build(server, sourceId, sourceName, passcode, sessionKey)) {
         delete v;
         return nullptr;
@@ -150,9 +151,12 @@ bool ViewerWindow::Build(const NetAddr& server, uint8_t sourceId, const std::str
     };
     cfg.onParams = [this](uint32_t, uint32_t, uint8_t) {
         PostToMain([this](ViewerWindow& v) {
+            const bool askFiles = v.openFiles_;
+            v.openFiles_ = false;
             v.hadStream_ = true;
             v.SizeToVideo();
             v.UpdateTitle();
+            if (askFiles) v.PickAndSendFiles();
         });
     };
     cfg.onEnded = [this](const char*) {

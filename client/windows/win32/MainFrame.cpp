@@ -103,12 +103,17 @@ UINT SystemMonitorActivateMsg() {
 
 enum class ConnectSurface { Cancel,
     Desktop,
+    Files,
     Shell };
 
-ConnectSurface AskConnectSurface(wxWindow* parent, bool desktop, bool shell) {
-    if (desktop && !shell) return ConnectSurface::Desktop;
-    if (!desktop && shell) return ConnectSurface::Shell;
-    if (!desktop && !shell) return ConnectSurface::Cancel;
+ConnectSurface AskConnectSurface(wxWindow* parent, bool desktop, bool files, bool shell) {
+    const int available = int(desktop) + int(files) + int(shell);
+    if (available == 0) return ConnectSurface::Cancel;
+    if (available == 1) {
+        if (desktop) return ConnectSurface::Desktop;
+        if (files) return ConnectSurface::Files;
+        return ConnectSurface::Shell;
+    }
 
     wxDialog dlg(parent, wxID_ANY, ToWx(ui::kAppTitle));
     auto* root = new wxBoxSizer(wxVERTICAL);
@@ -116,24 +121,34 @@ ConnectSurface AskConnectSurface(wxWindow* parent, bool desktop, bool shell) {
     root->Add(hint, wxSizerFlags().Border(wxALL, dlg.FromDIP(16)));
 
     auto* buttons = new wxBoxSizer(wxHORIZONTAL);
-    auto* desktopBtn = new wxButton(&dlg, wxID_YES, ToWx(ui::kOpenDesktopLabel));
-    auto* shellBtn = new wxButton(&dlg, wxID_NO, ToWx(ui::kOpenShellLabel));
+    if (desktop) {
+        auto* desktopBtn = new wxButton(&dlg, wxID_YES, ToWx(ui::kOpenDesktopLabel));
+        buttons->Add(desktopBtn);
+        buttons->AddSpacer(dlg.FromDIP(8));
+        desktopBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_YES); });
+    }
+    if (files) {
+        auto* filesBtn = new wxButton(&dlg, wxID_APPLY, ToWx(ui::kOpenFilesLabel));
+        buttons->Add(filesBtn);
+        buttons->AddSpacer(dlg.FromDIP(8));
+        filesBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_APPLY); });
+    }
+    if (shell) {
+        auto* shellBtn = new wxButton(&dlg, wxID_NO, ToWx(ui::kOpenShellLabel));
+        buttons->Add(shellBtn);
+        buttons->AddSpacer(dlg.FromDIP(8));
+        shellBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_NO); });
+    }
     auto* cancelBtn = new wxButton(&dlg, wxID_CANCEL, ToWx(ui::kQuitWhileBusyCancel));
-    buttons->Add(desktopBtn);
-    buttons->AddSpacer(dlg.FromDIP(8));
-    buttons->Add(shellBtn);
-    buttons->AddSpacer(dlg.FromDIP(8));
     buttons->Add(cancelBtn);
+    cancelBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_CANCEL); });
     root->Add(buttons, wxSizerFlags().Border(wxLEFT | wxRIGHT | wxBOTTOM, dlg.FromDIP(16)));
     dlg.SetSizerAndFit(root);
     dlg.CentreOnParent();
 
-    desktopBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_YES); });
-    shellBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_NO); });
-    cancelBtn->Bind(wxEVT_BUTTON, [&dlg](wxCommandEvent&) { dlg.EndModal(wxID_CANCEL); });
-
     const int result = dlg.ShowModal();
     if (result == wxID_YES) return ConnectSurface::Desktop;
+    if (result == wxID_APPLY) return ConnectSurface::Files;
     if (result == wxID_NO) return ConnectSurface::Shell;
     return ConnectSurface::Cancel;
 }
@@ -220,9 +235,11 @@ struct HostColumn {
 
 constexpr int kHostColumnCount = 8;
 constexpr int kHostActionWidth = 104;
+constexpr int kHostAttachWidth = 104;
+constexpr int kHostCellGap = 8;
+constexpr int kHostActionsWidth = kHostActionWidth + kHostCellGap + kHostAttachWidth;
 constexpr int kHostRowHeight = 32;
 constexpr int kHostRowBarWidth = 3;
-constexpr int kHostCellGap = 8;
 
 const HostColumn kHostColumns[kHostColumnCount] = {{"Source", 168, wxALIGN_LEFT, false},
     {"Size", 88, wxALIGN_LEFT, false}, {"Viewers", 58, wxALIGN_RIGHT, true},
@@ -496,7 +513,9 @@ private:
     void UpdateHostRows(const std::vector<AgentSourceStatus>& rows);
     wxWindow* BuildHostTable(wxWindow* parent);
     wxButton* MakeRowAction(wxWindow* parent, const ui::HostRow& ref);
+    wxButton* MakeRowAttach(wxWindow* parent, const ui::HostRow& ref);
     void RebuildHostTable();
+    void AttachShell(uint32_t termId);
     void ShowHostTable(bool sharing);
     void RelayoutHostPage();
     void StopDisplay(uint8_t sourceId);
@@ -523,7 +542,8 @@ private:
     void OnSourcesReady(const std::string& addr, const std::string& passcode,
         const std::string& sessionKey, const deskhubp::ConnectOutcome& outcome);
     void OpenViewerSession(const std::string& addr, const std::string& passcode,
-        const std::string& sessionKey, std::vector<deskhub::SourceInfo> picked);
+        const std::string& sessionKey, std::vector<deskhub::SourceInfo> picked,
+        bool openFiles = false);
     void SyncSessionCryptoControls();
     void RefreshSessionKeyDisplay();
     std::string ResolvedSessionKey(const std::string& addr) const;
@@ -1452,7 +1472,7 @@ wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
         headerRow->Add(title, wxSizerFlags().CentreVertical().Border(wxRIGHT,
                                   FromDIP(kHostCellGap)));
     }
-    headerRow->AddSpacer(FromDIP(kHostActionWidth));
+    headerRow->AddSpacer(FromDIP(kHostActionsWidth));
     header->SetSizer(headerRow);
     sizer->Add(header, wxSizerFlags().Expand());
 
@@ -1474,12 +1494,34 @@ wxWindow* MainFrame::BuildHostTable(wxWindow* parent) {
     return card;
 }
 
+bool IsAttachedLocally(const ui::HostRow& ref) {
+    return ref.terminal && ref.viewer && ref.shellState == deskhub::TerminalState::Local;
+}
+
+bool CanAttachLocally(const ui::HostRow& ref) {
+    return ref.terminal && ref.viewer && ref.shellState != deskhub::TerminalState::Local;
+}
+
 wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
     const bool viewer = ref.viewer;
+    const bool remoteRow = viewer && !IsAttachedLocally(ref);
     auto* button = new wxButton(parent, wxID_ANY,
-        ToWx(viewer ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
+        ToWx(remoteRow ? ui::kDisconnectViewerAction : ui::kStopDisplayAction));
     button->SetMinSize(FromDIP(wxSize(kHostActionWidth, 26)));
-    PaintButton(button, viewer ? kWarning : kOffline);
+    PaintButton(button, remoteRow ? kWarning : kOffline);
+
+    if (ref.terminal) {
+        const uint32_t termId = ref.termId;
+        button->Bind(wxEVT_BUTTON, [this, viewer, termId](wxCommandEvent&) {
+            if (!hosting_) return;
+            if (viewer) {
+                agentLoop_.KickShell(termId);
+            } else {
+                agentLoop_.StopTerminalShare();
+            }
+        });
+        return button;
+    }
 
     const uint8_t sourceId = ref.sourceId;
     const std::string addr = ref.viewerAddr;
@@ -1490,6 +1532,15 @@ wxButton* MainFrame::MakeRowAction(wxWindow* parent, const ui::HostRow& ref) {
             StopDisplay(sourceId);
         }
     });
+    return button;
+}
+
+wxButton* MainFrame::MakeRowAttach(wxWindow* parent, const ui::HostRow& ref) {
+    auto* button = new wxButton(parent, wxID_ANY, ToWx(ui::kAttachShellAction));
+    button->SetMinSize(FromDIP(wxSize(kHostAttachWidth, 26)));
+    PaintButton(button, kOffline);
+    const uint32_t termId = ref.termId;
+    button->Bind(wxEVT_BUTTON, [this, termId](wxCommandEvent&) { AttachShell(termId); });
     return button;
 }
 
@@ -1528,6 +1579,12 @@ void MainFrame::RebuildHostTable() {
                                         FromDIP(kHostCellGap)));
         }
         row->Add(MakeRowAction(view.panel, ref), wxSizerFlags().CentreVertical());
+        row->AddSpacer(FromDIP(kHostCellGap));
+        if (CanAttachLocally(ref)) {
+            row->Add(MakeRowAttach(view.panel, ref), wxSizerFlags().CentreVertical());
+        } else {
+            row->AddSpacer(FromDIP(kHostAttachWidth));
+        }
         row->AddSpacer(FromDIP(kHostCellGap));
         view.panel->SetSizer(row);
 
@@ -1918,7 +1975,9 @@ void MainFrame::ForgetEveryDevice() {
 }
 
 void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
-    std::vector<ui::HostRow> refs = ui::BuildHostRows(rows);
+    const std::vector<deskhub::TerminalRecord> shells = agentLoop_.TerminalSessions();
+    std::vector<ui::HostRow> refs =
+        ui::BuildHostRows(rows, agentLoop_.TerminalSharing(), shells);
 
     if (refs != hostRows_) {
         hostRows_ = std::move(refs);
@@ -1928,10 +1987,15 @@ void MainFrame::UpdateHostRows(const std::vector<AgentSourceStatus>& rows) {
 
     for (size_t i = 0; i < hostRows_.size() && i < hostRowViews_.size(); ++i) {
         const ui::HostRow& ref = hostRows_[i];
-        const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
-        if (!s) continue;
+        ui::HostRowCells cells;
+        if (ref.terminal) {
+            cells = ui::TerminalRowText(ref, uint16_t(settings_.port), shells);
+        } else {
+            const AgentSourceStatus* s = ui::FindHostSource(rows, ref.sourceId);
+            if (!s) continue;
+            cells = ui::HostRowText(ref, *s);
+        }
 
-        const ui::HostRowCells cells = ui::HostRowText(ref, *s);
         const wxString texts[kHostColumnCount] = {ToWx(cells.source), ToWx(cells.size),
             ToWx(cells.viewers), ToWx(cells.client), ToWx(cells.capture), ToWx(cells.send),
             ToWx(cells.mbps), ToWx(cells.rtt)};
@@ -1963,6 +2027,13 @@ void MainFrame::KickViewer(uint8_t sourceId, const std::string& viewerAddr) {
     NetAddr addr{};
     if (!ParseNetAddr(viewerAddr, addr)) return;
     agentLoop_.KickViewer(sourceId, addr.Pack());
+}
+
+void MainFrame::AttachShell(uint32_t termId) {
+    if (!hosting_) return;
+    if (!agentLoop_.StopAndAttachShell(termId)) return;
+    deskhubp::TerminalHost* term = agentLoop_.Terminal();
+    if (!term || !RunLocalTerminal(*term, termId)) agentLoop_.KickShell(termId);
 }
 
 void MainFrame::SetClientStatus(const wxString& text, const wxColour& colour) {
@@ -2212,14 +2283,14 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
     poller_.SetAddresses(AddressesOf(recent_));
     RefreshRecentList();
 
-    if (outcome.sources.empty() && outcome.caps.terminal) {
+    if (outcome.sources.empty() && outcome.caps.terminal && !outcome.caps.files) {
         std::thread([addr, passcode] { RunTerminal(addr, passcode); }).detach();
         DeselectAllRows();
         return;
     }
 
     const ConnectSurface surface =
-        AskConnectSurface(this, !outcome.sources.empty(), outcome.caps.terminal);
+        AskConnectSurface(this, !outcome.sources.empty(), outcome.caps.files, outcome.caps.terminal);
     if (surface == ConnectSurface::Cancel) {
         DeselectAllRows();
         return;
@@ -2230,22 +2301,35 @@ void MainFrame::OnSourcesReady(const std::string& addr, const std::string& passc
         return;
     }
 
-    std::vector<deskhub::SourceInfo> picked;
-    if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
+    if (outcome.sources.empty()) {
         DeselectAllRows();
         return;
     }
 
-    OpenViewerSession(addr, passcode, sessionKey, std::move(picked));
+    const bool openFiles = surface == ConnectSurface::Files;
+    std::vector<deskhub::SourceInfo> picked;
+    if (openFiles) {
+        if (outcome.sources.size() == 1) {
+            picked = outcome.sources;
+        } else if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
+            DeselectAllRows();
+            return;
+        }
+    } else if (!ShowSourcePickerDialog(HWND(GetHandle()), outcome.sources, picked)) {
+        DeselectAllRows();
+        return;
+    }
+
+    OpenViewerSession(addr, passcode, sessionKey, std::move(picked), openFiles);
     DeselectAllRows();
 }
 
 void MainFrame::OpenViewerSession(const std::string& addr, const std::string& passcode,
-    const std::string& sessionKey, std::vector<deskhub::SourceInfo> picked) {
+    const std::string& sessionKey, std::vector<deskhub::SourceInfo> picked, bool openFiles) {
     LOGI("[Connect] Opening viewer for %s (%zu source(s)).", addr.c_str(), picked.size());
     std::thread([alive = alive_, addr, passcode, sessionKey, picked = std::move(picked),
-                    control = settings_.clientControl] {
-        const bool ok = RunViewer(addr, picked, control, passcode, sessionKey);
+                    control = settings_.clientControl, openFiles] {
+        const bool ok = RunViewer(addr, picked, control, passcode, sessionKey, openFiles);
         if (ok || !wxTheApp) return;
         wxTheApp->CallAfter([alive] {
             if (!*alive) return;

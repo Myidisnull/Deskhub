@@ -11,6 +11,13 @@ LLVMPATH := set "PATH=$(VSDIR)\VC\Tools\Llvm\x64\bin;%PATH%" &&
 LLVM     :=
 
 BOOTSTRAP := powershell -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
+GIT_BASH  := $(shell powershell -NoProfile -Command "$$c=@('D:\Program Files\Git\bin\bash.exe','C:\Program Files\Git\bin\bash.exe','C:\Program Files (x86)\Git\bin\bash.exe'); foreach($$p in $$c){ if (Test-Path $$p) { Write-Output $$p; break } }")
+ifeq ($(strip $(GIT_BASH)),)
+GIT_BASH  := C:\Program Files\Git\bin\bash.exe
+endif
+RUNSH     := $(DEVCMD) "$(GIT_BASH)"
+OPUS_FOR  := $(RUNSH) scripts/build-opus.sh
+OPUS      := $(OPUS_FOR) windows
 NULDEV    := nul
 RMRF      := $(DEVCMD) cmake -E rm -rf
 HELPCAT   := type make\help.txt
@@ -22,6 +29,9 @@ LLVMPATH :=
 LLVM     := $(if $(filter Darwin,$(UNAME)),xcrun)
 
 BOOTSTRAP := scripts/bootstrap.sh
+RUNSH     :=
+OPUS_FOR  := scripts/build-opus.sh
+OPUS      := $(OPUS_FOR) host
 NULDEV    := /dev/null
 RMRF      := rm -rf
 HELPCAT   := cat make/help.txt

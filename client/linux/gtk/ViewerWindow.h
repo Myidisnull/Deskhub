@@ -16,7 +16,7 @@ class ViewerWindow {
 public:
     static ViewerWindow* Open(const NetAddr& server, uint8_t sourceId,
         const std::string& sourceName, const std::string& passcode,
-        const std::string& sessionKey, std::function<void()> onClosed);
+        const std::string& sessionKey, std::function<void()> onClosed, bool openFiles = false);
 
 private:
     ViewerWindow() = default;
@@ -62,6 +62,7 @@ private:
     guint linkTimerId_ = 0;
     bool clipboardSync_ = false;
     bool hadStream_ = false;
+    bool openFiles_ = false;
 
     static gboolean OnClipboardTimer(gpointer user);
     static gboolean OnLinkTimer(gpointer user);
