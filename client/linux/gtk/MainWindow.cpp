@@ -936,18 +936,22 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     gtk_grid_set_row_spacing(GTK_GRID(videoGrid), 10);
     gtk_grid_set_column_spacing(GTK_GRID(videoGrid), 14);
 
-    gtk_grid_attach(GTK_GRID(videoGrid), Label("FPS"), 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(videoGrid), Label(ui::kFpsLabel), 0, 0, 1, 1);
     fpsSpin_ = Spin(settings_.fps, ui::kMaxSettingsFps);
     gtk_grid_attach(GTK_GRID(videoGrid), fpsSpin_, 1, 0, 1, 1);
 
-    gtk_grid_attach(GTK_GRID(videoGrid), Label("Bitrate (Mbps)"), 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(videoGrid), Label(ui::kBitrateMbpsLabel), 0, 1, 1, 1);
     bitrateSpin_ = Spin(settings_.bitrateMbps, ui::kMaxSettingsBitrateMbps);
     gtk_grid_attach(GTK_GRID(videoGrid), bitrateSpin_, 1, 1, 1, 1);
 
-    gtk_grid_attach(GTK_GRID(videoGrid), Label("Quality"), 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(videoGrid), Label(ui::kQualityLabel), 0, 2, 1, 1);
     qualityCombo_ = gtk_combo_box_text_new();
-    for (const auto& preset : deskhub::media::kQualityPresets)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(qualityCombo_), preset.label);
+    for (const auto& preset : deskhub::media::kQualityPresets) {
+        const char* label = preset.maxDim == deskhub::media::kNativeMaxDim
+                                ? ui::kQualityNativeLabel.get()
+                                : preset.label;
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(qualityCombo_), label);
+    }
     gtk_combo_box_set_active(GTK_COMBO_BOX(qualityCombo_),
         gint(deskhub::media::QualityPresetIndex(settings_.maxDim)));
     gtk_widget_set_size_request(qualityCombo_, 120, -1);
@@ -959,7 +963,7 @@ GtkWidget* MainWindow::BuildSettingsPage() {
     GtkWidget* netGrid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(netGrid), 10);
     gtk_grid_set_column_spacing(GTK_GRID(netGrid), 14);
-    gtk_grid_attach(GTK_GRID(netGrid), Label("UDP port"), 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(netGrid), Label(ui::kUdpPortLabel), 0, 0, 1, 1);
     portSpin_ = Spin(settings_.port, ui::kMaxSettingsPort);
     gtk_grid_attach(GTK_GRID(netGrid), portSpin_, 1, 0, 1, 1);
     gtk_box_pack_start(GTK_BOX(box), netGrid, FALSE, FALSE, 0);

@@ -61,7 +61,7 @@ private struct PermissionRow: View {
                 if !granted {
                     Button("Grant", action: grant)
                 }
-                Button("Open Settings", action: openSettings)
+                Button(DeskhubClient.string(DHStrOpenSystemSettingsLabel), action: openSettings)
             }
             Text(detail)
                 .foregroundStyle(DeskhubPalette.muted)

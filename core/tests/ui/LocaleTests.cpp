@@ -55,6 +55,10 @@ void TestTranslateSwitchesCatalog() {
     Check(std::strcmp(ui::kLogDirBrowse, "浏览…") == 0, "Chinese browse");
     Check(std::strcmp(ui::kLanDevicesEmpty, "正在查找正在共享的设备…") == 0,
         "Chinese lan empty uses catalog not English fallback");
+    Check(std::strcmp(ui::kShareTerminalLabel, "与已连接的观看端共享 Shell") == 0,
+        "Chinese share terminal label");
+    Check(std::strcmp(ui::kPairedHeading, "允许连接此机的机器") == 0, "Chinese paired heading");
+    Check(std::strcmp(ui::kFpsLabel, "帧率") == 0, "Chinese fps label");
     ui::SetUiLanguage(previous);
 }
 

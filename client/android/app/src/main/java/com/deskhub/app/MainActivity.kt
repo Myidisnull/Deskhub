@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -1109,14 +1108,11 @@ private fun SettingsScreen(
                 onValueChange = {},
                 readOnly = true,
                 label = { Text(NativeClient.string(NativeClient.STR_LANGUAGE_LABEL)) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = false,
-            )
-            Box(
                 modifier =
                     Modifier
-                        .matchParentSize()
+                        .fillMaxWidth()
                         .clickable { languageMenuOpen = true },
+                enabled = false,
             )
             DropdownMenu(
                 expanded = languageMenuOpen,

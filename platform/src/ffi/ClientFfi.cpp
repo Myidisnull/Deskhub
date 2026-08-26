@@ -170,6 +170,11 @@ const char* dh_string(DHStringId id) {
         case DHStrPairingRequestTitle: return deskhub::ui::kPairingRequestTitle;
         case DHStrPairingAllow: return deskhub::ui::kPairingAllow;
         case DHStrPairingDeny: return deskhub::ui::kPairingDeny;
+        case DHStrFpsLabel: return deskhub::ui::kFpsLabel;
+        case DHStrBitrateMbpsLabel: return deskhub::ui::kBitrateMbpsLabel;
+        case DHStrQualityLabel: return deskhub::ui::kQualityLabel;
+        case DHStrQualityNativeLabel: return deskhub::ui::kQualityNativeLabel;
+        case DHStrOpenSystemSettingsLabel: return deskhub::ui::kOpenSystemSettingsLabel;
         case DHStrDisconnectButton: return deskhub::ui::kDisconnectButton;
         case DHStrLinkReattaching: return deskhub::ui::kReconnecting;
         case DHStrKeepAwakeLabel: return deskhub::ui::kKeepAwakeLabel;

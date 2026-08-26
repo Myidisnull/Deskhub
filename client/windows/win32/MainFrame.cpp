@@ -106,6 +106,14 @@ enum class ConnectSurface { Cancel,
     Files,
     Shell };
 
+wxString ToWx(const std::string& s) {
+    return wxString::FromUTF8(s.c_str(), s.size());
+}
+
+wxString ToWx(const char* s) {
+    return wxString::FromUTF8(s);
+}
+
 ConnectSurface AskConnectSurface(wxWindow* parent, bool desktop, bool files, bool shell) {
     const int available = int(desktop) + int(files) + int(shell);
     if (available == 0) return ConnectSurface::Cancel;
@@ -277,14 +285,6 @@ HostStateStyle StyleFor(HostShareState state) {
         case HostShareState::kIdle: break;
     }
     return {ui::kShareStateOff, ui::kStartSharing, kMutedText, kBannerIdleBg};
-}
-
-wxString ToWx(const std::string& s) {
-    return wxString::FromUTF8(s.c_str(), s.size());
-}
-
-wxString ToWx(const char* s) {
-    return wxString::FromUTF8(s);
 }
 
 int64_t NowUnix() {
@@ -1105,22 +1105,27 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(MakeSection(panel, ui::kSettingsSectionVideo), pad);
     auto* videoGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
 
-    videoGrid->Add(new wxStaticText(panel, wxID_ANY, "FPS"), wxSizerFlags().CentreVertical());
+    videoGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kFpsLabel)),
+        wxSizerFlags().CentreVertical());
     fpsCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition, valueSize,
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsFps), int(settings_.fps));
     videoGrid->Add(fpsCtrl_);
 
-    videoGrid->Add(new wxStaticText(panel, wxID_ANY, "Bitrate (Mbps)"),
+    videoGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kBitrateMbpsLabel)),
         wxSizerFlags().CentreVertical());
     bitrateCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition, valueSize,
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsBitrateMbps), int(settings_.bitrateMbps));
     videoGrid->Add(bitrateCtrl_);
 
-    videoGrid->Add(new wxStaticText(panel, wxID_ANY, "Quality"),
+    videoGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kQualityLabel)),
         wxSizerFlags().CentreVertical());
     qualityChoice_ = new wxChoice(panel, wxID_ANY, wxDefaultPosition, valueSize);
-    for (const auto& preset : deskhub::media::kQualityPresets)
-        qualityChoice_->Append(ToWx(preset.label));
+    for (const auto& preset : deskhub::media::kQualityPresets) {
+        const char* label = preset.maxDim == deskhub::media::kNativeMaxDim
+                                ? ui::kQualityNativeLabel.get()
+                                : preset.label;
+        qualityChoice_->Append(ToWx(label));
+    }
     qualityChoice_->SetSelection(int(deskhub::media::QualityPresetIndex(settings_.maxDim)));
     videoGrid->Add(qualityChoice_);
 
@@ -1130,7 +1135,7 @@ wxWindow* MainFrame::BuildSettingsPage(wxWindow* parent) {
     sizer->Add(MakeSection(panel, ui::kSettingsSectionConnection), pad);
     auto* netGrid = new wxFlexGridSizer(2, FromDIP(wxSize(14, 10)));
 
-    netGrid->Add(new wxStaticText(panel, wxID_ANY, "UDP port"),
+    netGrid->Add(new wxStaticText(panel, wxID_ANY, ToWx(ui::kUdpPortLabel)),
         wxSizerFlags().CentreVertical());
     portCtrl_ = new wxSpinCtrl(panel, wxID_ANY, wxString(), wxDefaultPosition, valueSize,
         wxSP_ARROW_KEYS, 1, int(ui::kMaxSettingsPort), int(settings_.port));
@@ -1950,8 +1955,8 @@ void MainFrame::RefreshPairedDevices() {
         const long row = pairedList_->InsertItem(long(i),
             ToWx(device.name.empty() ? std::string("(unnamed)") : device.name));
         pairedList_->SetItem(row, 1, ToWx(deskhub::ShortFingerprint(device.fingerprint)));
-        pairedList_->SetItem(row, 2, ToWx(deskhubp::FormatUnixMinute(device.pairedUnix)));
-        pairedList_->SetItem(row, 3, ToWx(deskhubp::FormatUnixMinute(device.lastSeenUnix)));
+        pairedList_->SetItem(row, 2, ToWx(FormatLastConnected(device.pairedUnix)));
+        pairedList_->SetItem(row, 3, ToWx(FormatLastConnected(device.lastSeenUnix)));
     }
     pairedHint_->Show(pairedDevices_.empty());
     forgetDeviceBtn_->Enable(!pairedDevices_.empty());

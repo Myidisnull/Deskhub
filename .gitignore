@@ -8,6 +8,7 @@ cmake_install.cmake
 compile_commands.json
 
 .vs/
+.vscode/
 .cache/
 *.user
 *.xcuserstate

@@ -1,0 +1,49 @@
+{
+  "folders": [
+    {
+      "name": "Deskhub",
+      "path": "."
+    },
+    {
+      "name": "Android",
+      "path": "client/android"
+    },
+    {
+      "name": "Apple (shared Swift)",
+      "path": "client/apple"
+    },
+    {
+      "name": "iOS",
+      "path": "client/ios"
+    },
+    {
+      "name": "Linux",
+      "path": "client/linux"
+    },
+    {
+      "name": "macOS",
+      "path": "client/macos"
+    },
+    {
+      "name": "Windows",
+      "path": "client/windows"
+    }
+  ],
+  "settings": {
+    "kotlin.languageServer.enabled": false
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-vscode.cmake-tools",
+      "llvm-vs-code-extensions.vscode-clangd",
+      "swiftlang.swift-vscode",
+      "redhat.java",
+      "vscjava.vscode-gradle",
+      "vscjava.vscode-java-pack"
+    ],
+    "unwantedRecommendations": [
+      "fwcd.kotlin",
+      "mathiasfrohlich.kotlin"
+    ]
+  }
+}

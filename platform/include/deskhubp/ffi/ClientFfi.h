@@ -255,6 +255,11 @@ typedef enum {
     DHStrPairingRequestTitle = 154,
     DHStrPairingAllow = 155,
     DHStrPairingDeny = 156,
+    DHStrFpsLabel = 157,
+    DHStrBitrateMbpsLabel = 158,
+    DHStrQualityLabel = 159,
+    DHStrQualityNativeLabel = 160,
+    DHStrOpenSystemSettingsLabel = 161,
 } DHStringId;
 
 const char* dh_string(DHStringId id);

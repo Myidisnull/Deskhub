@@ -59,7 +59,10 @@ void TestEveryLabelSaysSomething() {
         ui::kCloseToTrayLabel, ui::kTrayShowWindow, ui::kTrayHideWindow, ui::kTrayQuit,
         ui::kSettingsSectionVideo, ui::kSettingsSectionConnection, ui::kSettingsSectionSecurity,
         ui::kSettingsSectionSession, ui::kSettingsSectionLaunch, ui::kLanguageLabel,
-        ui::kLanguageSystem, ui::kSettingsSectionLanguage, ui::kLanguageRestartHint};
+        ui::kLanguageSystem, ui::kSettingsSectionLanguage, ui::kLanguageRestartHint,
+        ui::kFpsLabel, ui::kBitrateMbpsLabel, ui::kQualityLabel, ui::kQualityNativeLabel,
+        ui::kOpenSystemSettingsLabel, ui::kShareTerminalLabel, ui::kPairedHeading,
+        ui::kAllowPairingLabel};
     for (ui::LStr s : localized) check(s.get());
     check(ui::kAppVersion);
     check(ui::kProjectUrl);

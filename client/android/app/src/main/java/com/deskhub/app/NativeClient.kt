@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 
 object NativeClient {
     const val PHASE_IDLE = 0
+    const val PHASE_CONNECTING = 1
     const val PHASE_STREAMING = 2
     const val PHASE_ENDED = 3
 

@@ -44,17 +44,17 @@ struct SettingsPage: View {
             deskhubSection(DeskhubClient.string(DHStrSettingsSectionVideo))
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
-                    Text("FPS")
+                    Text(DeskhubClient.string(DHStrFpsLabel))
                     TextField("", value: $agent.fps, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: settingsValueWidth)
                 }
                 GridRow {
-                    Text("Bitrate (Mbps)")
+                    Text(DeskhubClient.string(DHStrBitrateMbpsLabel))
                     TextField("", value: $agent.bitrateMbps, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: settingsValueWidth)
                 }
                 GridRow {
-                    Text("Quality")
+                    Text(DeskhubClient.string(DHStrQualityLabel))
                     Picker("", selection: $agent.maxDim) {
                         ForEach(DeskhubAgent.qualityPresets) { preset in
                             Text(preset.label).tag(preset.maxDim)
@@ -68,7 +68,7 @@ struct SettingsPage: View {
             deskhubSection(DeskhubClient.string(DHStrSettingsSectionConnection))
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 GridRow {
-                    Text("UDP port")
+                    Text(DeskhubClient.string(DHStrUdpPortLabel))
                     TextField("", value: $agent.port, format: .number.grouping(.never))
                         .textFieldStyle(.roundedBorder).frame(width: settingsValueWidth)
                 }

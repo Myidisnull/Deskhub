@@ -12,6 +12,7 @@
 #include "deskhub/media/QualityPreset.h"
 #include "deskhub/protocol/Wire.h"
 #include "deskhub/ui/HostRows.h"
+#include "deskhub/ui/Strings.h"
 #include "deskhubp/diag/Log.h"
 #include "deskhubp/diag/StallLog.h"
 #include "deskhubp/ffi/DiscoveryFfi.h"
@@ -61,7 +62,10 @@ int dha_quality_presets(DHQualityPreset* out, int capacity) {
     const auto& presets = deskhub::media::kQualityPresets;
     const int count = int(presets.size()) < capacity ? int(presets.size()) : capacity;
     for (int i = 0; i < count; ++i) {
-        deskhubp::CopyToBuf(out[i].label, sizeof(out[i].label), presets[size_t(i)].label);
+        const char* label = presets[size_t(i)].maxDim == deskhub::media::kNativeMaxDim
+                                ? deskhub::ui::kQualityNativeLabel.get()
+                                : presets[size_t(i)].label;
+        deskhubp::CopyToBuf(out[i].label, sizeof(out[i].label), label);
         out[i].maxDim = presets[size_t(i)].maxDim;
     }
     return count;

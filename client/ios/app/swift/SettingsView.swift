@@ -31,7 +31,7 @@ struct SettingsView: View {
 
                 deskhubSection(DeskhubClient.string(DHStrSettingsSectionConnection))
                 HStack(spacing: 12) {
-                    Text("UDP port")
+                    Text(DeskhubClient.string(DHStrUdpPortLabel))
                     Spacer(minLength: 0)
                     TextField("", value: $settings.port, format: .number.grouping(.never))
                         .textFieldStyle(.roundedBorder)
