@@ -69,6 +69,8 @@ jobs:
           Set-ItemProperty -Path $key -Name DumpCount -Value 2 -Type DWord
 
       - name: Run them through CTest
+        env:
+          DESKHUB_CRASH_DUMP_DIR: ${{ runner.temp }}/crash-dumps
         run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
 
       - name: Look for a crash dump
@@ -135,6 +137,8 @@ jobs:
 
       - name: Run the whole suite three more times, failing only on a crash - this is the one build that reproduces the stack corruption, and one run in three is not enough to see it
         shell: pwsh
+        env:
+          DESKHUB_CRASH_DUMP_DIR: ${{ runner.temp }}/crash-dumps
         run: |
           $exe = 'out/build/x64-release/tests/integration/integration_tests.exe'
           for ($i = 1; $i -le 3; $i++) {
@@ -143,7 +147,7 @@ jobs:
             $code = $LASTEXITCODE
             Write-Host "===== repeat run $i exit $code ====="
             if ($code -ne 0 -and $code -ne 1) {
-              throw "integration_tests died with 0x$('{0:x8}' -f $code). Search the output above for 'the readable-stream list on the recv thread's stack changed' - the checkpoint it names is the call that overwrote it."
+              throw "integration_tests died with 0x$('{0:x8}' -f $code). The stack above names the frame the corruption landed in, not the write that caused it - download the crash-dumps-windows-repeat artifact and read the dump, or wait for the nightly page heap job to fault on the write itself."
             }
           }
 
@@ -198,6 +202,7 @@ jobs:
         shell: pwsh
         env:
           ASAN_OPTIONS: detect_stack_use_after_return=1:exitcode=42
+          DESKHUB_CRASH_DUMP_DIR: ${{ runner.temp }}/crash-dumps
         run: |
           $exe = 'out/build/asan-msvc/tests/integration/integration_tests.exe'
           for ($i = 1; $i -le 3; $i++) {

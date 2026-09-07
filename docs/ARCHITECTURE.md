@@ -269,8 +269,10 @@ CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
 CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 % line /
 80 % branch coverage on `core/`. The three suites are additionally cross-built and run
 on arm64 Linux, an Android emulator and the iOS Simulator, and a Windows job runs the
-integration suite three more times per round, hunting an intermittent stack corruption
-in `DrainStreams` that shows up in about one run in three. The Linux and macOS release
+integration suite three more times per round, hunting an intermittent memory corruption
+that shows up in about one run in three; the frame it crashes in is a victim of that
+corruption and never its cause, so every Windows job writes a full minidump and the
+nightly run repeats the load tests under the full page heap. The Linux and macOS release
 jobs also run `core_perf` and `platform_perf` with their allocation and scaling gates
 (no time baseline exists on a shared runner), and each pull request additionally gets
 a perf-and-lag report posted as one self-updating comment: both perf suites A/B'd

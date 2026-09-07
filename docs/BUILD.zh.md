@@ -231,8 +231,10 @@ scripts/changelog.sh v5.0.0     # 或者不带参数，用 HEAD 上的标签
 - 对工作流和 `scripts/*.sh` 跑 actionlint + shellcheck
 - 三个套件都在 ASan/UBSan 和 TSan 下跑，并交叉构建到 arm64 Linux、Android 模拟器和 iOS
   模拟器
-- 整个集成套件在 Windows 上再多跑三遍，为的是抓 `DrainStreams` 里那个大约三次运行才出现
-  一次、因而单跑一次会漏掉的间歇性栈破坏
+- 整个集成套件在 Windows 上再多跑三遍，为的是抓那个大约三次运行才出现一次、因而单跑一次
+  会漏掉的间歇性内存破坏。崩溃所在的栈帧只是破坏的受害者，从不是原因，所以每个 Windows
+  作业都会连同符号一起写出完整的 minidump，夜间任务则在 full page heap 下重跑负载测试，
+  那里越界的写会在写它的那条指令上当场出错
 - core 覆盖率行 ≥ 90 % / 分支 ≥ 80 %
 - 每个 libFuzzer 目标跑 30 秒（每晚各跑 15 分钟）
 - 对 C++/Kotlin/Swift 跑 CodeQL，对整个历史做一次 gitleaks 扫描，以及依赖审查

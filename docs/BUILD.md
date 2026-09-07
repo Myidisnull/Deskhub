@@ -246,9 +246,12 @@ A green local `make test` + `make lint` is not the whole story. On every pull re
 - actionlint + shellcheck over the workflows and `scripts/*.sh`
 - all three suites under ASan/UBSan and TSan, and cross-built for arm64 Linux, an Android
   emulator and the iOS Simulator
-- the whole integration suite three more times on Windows, hunting an intermittent stack
-  corruption in `DrainStreams` that shows up in about one run in three and so slips through
-  a single run
+- the whole integration suite three more times on Windows, hunting an intermittent memory
+  corruption that shows up in about one run in three and so slips through a single run. The
+  frame it crashes in is a victim of the corruption, never its cause, so every Windows job
+  writes a full minidump beside the symbols, and the nightly run repeats the load tests
+  under the full page heap, where the offending write faults on the instruction that makes
+  it
 - core coverage ≥ 90 % lines / 80 % branches
 - the libFuzzer targets for 30 s each (15 min each nightly)
 - CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and a dependency

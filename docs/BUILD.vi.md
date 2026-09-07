@@ -252,8 +252,11 @@ request:
 - actionlint + shellcheck trên các workflow và `scripts/*.sh`
 - cả ba bộ kiểm thử dưới ASan/UBSan và TSan, đồng thời build chéo cho Linux arm64, một máy
   ảo Android và iOS Simulator
-- toàn bộ bộ integration chạy thêm ba lần nữa trên Windows, để săn một lỗi hỏng stack không
-  đều trong `DrainStreams`, khoảng ba lần chạy mới lộ một lần nên một lần chạy là không đủ
+- toàn bộ bộ integration chạy thêm ba lần nữa trên Windows, để săn một lỗi hỏng bộ nhớ không
+  đều, khoảng ba lần chạy mới lộ một lần nên một lần chạy là không đủ. Khung chết là nạn nhân
+  của lỗi chứ không bao giờ là nguyên nhân, nên mọi job Windows đều ghi một minidump đầy đủ
+  kèm ký hiệu, còn lần chạy đêm lặp lại các bài kiểm thử tải dưới full page heap, nơi lệnh
+  ghi sai sẽ nổ ngay tại chính nó
 - coverage của core ≥ 90 % dòng / 80 % nhánh
 - các mục tiêu libFuzzer, mỗi cái 30 giây (mỗi cái 15 phút trong lần chạy đêm)
 - CodeQL trên C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và soát xét phụ thuộc

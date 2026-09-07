@@ -263,7 +263,9 @@ Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, Co
 C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` ≥ 90% dòng / 80%
 nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
 iOS Simulator, và một job Windows chạy thêm ba lần bộ integration mỗi vòng để săn lỗi
-hỏng stack chập chờn trong `DrainStreams`, thứ chỉ lộ ra khoảng một lần trong ba. Các job release trên Linux và macOS còn chạy `core_perf` và
+hỏng bộ nhớ chập chờn, thứ chỉ lộ ra khoảng một lần trong ba; khung chết là nạn nhân của
+lỗi chứ không bao giờ là nguyên nhân, nên mọi job Windows đều ghi một minidump đầy đủ và
+lần chạy đêm lặp lại các bài kiểm thử tải dưới full page heap. Các job release trên Linux và macOS còn chạy `core_perf` và
 `platform_perf` với hai cổng chặn cấp phát và độ tuyến tính (máy CI dùng chung không có
 mốc thời gian), và mỗi pull request có thêm một báo cáo perf-và-lag đăng thành một
 comment tự cập nhật: cả hai suite perf được A/B với commit gốc trên cùng một runner (độ
