@@ -121,6 +121,23 @@ prefer_static_crt() {
     export CXXFLAGS_x86_64_pc_windows_msvc="-MT"
 }
 
+rust_checks_wanted() {
+    [ "${DESKHUB_QUICHE_CHECKS:-0}" = "1" ]
+}
+
+prefer_runtime_checks() {
+    rust_checks_wanted || return 0
+    local target=$1 triple_upper var flags
+    triple_upper=$(printf '%s' "${target//-/_}" | tr '[:lower:]' '[:upper:]')
+    var="CARGO_TARGET_${triple_upper}_RUSTFLAGS"
+    flags="-C debug-assertions=on -C overflow-checks=on"
+    if [ -n "${!var:-}" ]; then
+        export "$var=${!var} $flags"
+    else
+        export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$flags"
+    fi
+}
+
 is_android_target() {
     case "$1" in
         *-linux-android | *-linux-androideabi) return 0 ;;
@@ -209,6 +226,7 @@ build_android_with_ndk_clang() {
     export "CARGO_TARGET_${triple_upper}_LINKER=$bin/clang.exe"
     export "CARGO_TARGET_${triple_upper}_RUSTFLAGS=-Clink-arg=--target=$clang_target"
     export BINDGEN_EXTRA_CLANG_ARGS="--target=$clang_target -isystem$resource"
+    prefer_runtime_checks "$target"
 
     cargo build --release --target "$target" -p quiche --features ffi >/dev/null
 }
@@ -221,6 +239,7 @@ build_target() {
     artifact=$(artifact_of "$target")
     want="$QUICHE_COMMIT"
     is_msvc_target "$target" && want="$QUICHE_COMMIT+crt-static"
+    rust_checks_wanted && want="$want+checks"
 
     if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ] && [ -f "$out/$artifact" ]; then
         echo "[ok]      quiche $QUICHE_VERSION ($target)"
@@ -234,6 +253,7 @@ build_target() {
         refuse_ninja_generator
         prefer_static_crt
     fi
+    prefer_runtime_checks "$target"
 
     echo "[build]   quiche $QUICHE_VERSION ($target)..."
     if is_android_target "$target"; then

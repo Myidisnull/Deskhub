@@ -250,8 +250,10 @@ A green local `make test` + `make lint` is not the whole story. On every pull re
   corruption that shows up in about one run in three and so slips through a single run. The
   frame it crashes in is a victim of the corruption, never its cause, so every Windows job
   writes a full minidump beside the symbols, and the nightly run repeats the load tests
-  under the full page heap, where the offending write faults on the instruction that makes
-  it
+  twice over: once under the full page heap, where a write past an allocation faults on the
+  instruction that makes it, and once against a quiche built with Rust debug assertions and
+  overflow checks on, which is the only trap that can see inside quiche at all — ASan does
+  not instrument Rust and the page heap guards only the heap
 - core coverage ≥ 90 % lines / 80 % branches
 - the libFuzzer targets for 30 s each (15 min each nightly)
 - CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and a dependency

@@ -272,7 +272,10 @@ on arm64 Linux, an Android emulator and the iOS Simulator, and a Windows job run
 integration suite three more times per round, hunting an intermittent memory corruption
 that shows up in about one run in three; the frame it crashes in is a victim of that
 corruption and never its cause, so every Windows job writes a full minidump and the
-nightly run repeats the load tests under the full page heap. The Linux and macOS release
+nightly run repeats the load tests twice over — once under the full page heap, and once
+against a quiche built with Rust debug assertions and overflow checks on, the only trap
+that can see inside quiche, since ASan does not instrument Rust and the page heap guards
+only the heap. The Linux and macOS release
 jobs also run `core_perf` and `platform_perf` with their allocation and scaling gates
 (no time baseline exists on a shared runner), and each pull request additionally gets
 a perf-and-lag report posted as one self-updating comment: both perf suites A/B'd

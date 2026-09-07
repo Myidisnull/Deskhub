@@ -233,7 +233,9 @@ CodeQL、对整个历史的 gitleaks 扫描，以及 `core/` 上行 ≥ 90 % / �
 套件另外还会交叉构建并在 arm64 Linux、Android 模拟器和 iOS 模拟器上运行，而一个 Windows
 作业每轮把集成套件再多跑三遍，为的是抓那个大约三次运行才出现一次的间歇性内存破坏；崩溃
 所在的栈帧只是这一破坏的受害者，从不是原因，所以每个 Windows 作业都会写出完整的
-minidump，夜间任务则在 full page heap 下重跑负载测试。Linux 和 macOS 的发布作业还会带着分配和规模门槛跑 `core_perf` 和
+minidump，夜间任务则把负载测试重跑两轮——一轮在 full page heap 下，另一轮针对开启了 Rust
+debug assertion 与溢出检查构建的 quiche，那是唯一能看进 quiche 内部的陷阱，因为 ASan 不
+插桩 Rust，而 page heap 只看守堆。Linux 和 macOS 的发布作业还会带着分配和规模门槛跑 `core_perf` 和
 `platform_perf`（共享 runner 上不存在时间基线），而每个 pull request 另外还会收到一份
 性能与延迟报告，作为一条自我更新的评论发出：两个性能套件在同一台 runner 上与基准提交做
 A/B（漂移只作为警告，绝不失败）、来自该 pull request 构建的负载下集成数据，以及 core 的

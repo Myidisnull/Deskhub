@@ -255,8 +255,10 @@ request:
 - toàn bộ bộ integration chạy thêm ba lần nữa trên Windows, để săn một lỗi hỏng bộ nhớ không
   đều, khoảng ba lần chạy mới lộ một lần nên một lần chạy là không đủ. Khung chết là nạn nhân
   của lỗi chứ không bao giờ là nguyên nhân, nên mọi job Windows đều ghi một minidump đầy đủ
-  kèm ký hiệu, còn lần chạy đêm lặp lại các bài kiểm thử tải dưới full page heap, nơi lệnh
-  ghi sai sẽ nổ ngay tại chính nó
+  kèm ký hiệu, còn lần chạy đêm lặp lại các bài kiểm thử tải hai lượt: một lượt dưới full
+  page heap, nơi lệnh ghi quá một vùng cấp phát sẽ nổ ngay tại chính nó, và một lượt với
+  quiche được dựng cùng debug assertion và kiểm tra tràn số của Rust — cái bẫy duy nhất
+  nhìn được vào bên trong quiche, vì ASan không đo mã Rust còn page heap chỉ canh heap
 - coverage của core ≥ 90 % dòng / 80 % nhánh
 - các mục tiêu libFuzzer, mỗi cái 30 giây (mỗi cái 15 phút trong lần chạy đêm)
 - CodeQL trên C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và soát xét phụ thuộc
