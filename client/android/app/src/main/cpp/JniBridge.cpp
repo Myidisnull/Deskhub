@@ -21,9 +21,9 @@ static_assert(DHPhaseIdle == 0 && DHPhaseConnecting == 1 && DHPhaseStreaming == 
               DHPhaseEnded == 3 && DHPhaseReattaching == 5);
 static_assert(DHStrClientIpPrompt == 3 && DHStrQueryingSources == 12 &&
               DHStrInvalidAddressHint == 17 && DHStrSessionEnded == 18);
-static_assert(DHStrDisconnectButton == 153 && DHStrLinkQualityGood == 154 &&
-              DHStrLinkQualityFair == 155 && DHStrLinkQualityPoor == 156 &&
-              DHStrLinkNoReading == 157 && DHStrLinkReattaching == 158);
+static_assert(DHStrDisconnectButton == 152 && DHStrLinkQualityGood == 153 &&
+              DHStrLinkQualityFair == 154 && DHStrLinkQualityPoor == 155 &&
+              DHStrLinkNoReading == 156 && DHStrLinkReattaching == 157);
 static_assert(DHLinkQualityUnknown == 0 && DHLinkQualityGood == 1 && DHLinkQualityFair == 2 &&
               DHLinkQualityPoor == 3);
 static_assert(int32_t(deskhub::MouseButton::Left) == 1 &&
@@ -500,6 +500,14 @@ Java_com_deskhub_app_NativeClient_nativeAddressHost(JNIEnv* env, jobject, jstrin
 JNIEXPORT jint JNICALL
 Java_com_deskhub_app_NativeClient_nativeAddressPort(JNIEnv* env, jobject, jstring addrStr) {
     return jint(dh_address_port(FromJString(env, addrStr).c_str()));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_deskhub_app_NativeClient_nativeSameDeviceAddr(JNIEnv* env, jobject, jstring leftStr,
+    jstring rightStr) {
+    const std::string left = FromJString(env, leftStr);
+    const std::string right = FromJString(env, rightStr);
+    return dh_same_device_addr(left.c_str(), right.c_str()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jobjectArray JNICALL

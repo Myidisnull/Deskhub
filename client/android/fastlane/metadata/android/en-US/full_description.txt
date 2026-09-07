@@ -2,20 +2,27 @@ Deskhub streams the screen of your Windows, macOS or Linux computer to your phon
 
 <b>Features</b>
 • Live H.264 video stream with hardware decoding
+• Hear what the remote computer is playing, in step with the picture
 • Virtual trackpad: drag anywhere to move the mouse, tap to click, double-tap to right-click, hold and drag to select
 • Pinch to zoom into the remote screen; a two-finger drag scrolls, or pans once you are zoomed in
 • Full keyboard input, plus a hotkey bar for Esc, Tab, Enter, arrows, Del, Ctrl+C/Ctrl+V
-• Finds the computers that are sharing on your network, and remembers the ones you connect to
+• Open a real shell on the remote computer in its own window, with a key row for Esc, Tab, Ctrl, Alt and the arrows
+• Send files to the computer — and take the files it sends back: photos land in Pictures/Deskhub, videos in Movies/Deskhub, everything else in Download/Deskhub, and a notification names what arrived
+• Connect once, then choose what to open: its screen, a shell, or file transfer
+• Finds the computers that are sharing on your network, and remembers the ones you connect to, with their ping
 • Choose which display to watch when the computer is sharing more than one
 • Adaptive bitrate and forward error correction keep the stream smooth on shaky Wi-Fi
+• A session that loses the network reattaches by itself instead of ending
 • Optional clipboard sync: plain text copied on one device can be pasted on the other
-• Share this phone's screen the other way round, view-only, so a computer can watch it (Android 10 and later)
+• Share this phone's screen the other way round, view-only, so a computer can watch it — with its sound on Android 10 and later
 
 <b>How it works</b>
-Install the free Deskhub app on the computer you want to reach (download from the project page) and start sharing there. Open Deskhub on your phone, tap that computer in the list or type its address, and enter the 4-digit passcode it displays — or, if it is set up without one, wait for the person at the computer to let you in. Works on your local network out of the box; for access over the Internet, pair it with Tailscale and connect via your Tailscale IP.
+Install the free Deskhub app on the computer you want to reach (download from the project page) and start sharing there. Open Deskhub on your phone, tap that computer in the list or type its address, and enter the 4-digit passcode it displays — or, if it is set up without one, wait for the person at the computer to let you in. Once it answers, pick what to open: its screen, a shell, or file transfer. Works on your local network out of the box; for access over the Internet, pair it with Tailscale and connect via your Tailscale IP.
 
 <b>Good to know</b>
-Every session is encrypted end to end over QUIC/TLS — video, keystrokes, clipboard and everything else. A computer you have never connected to before must let you in first: either you prove you know its 4-digit passcode, or the person sitting at it approves your phone. After that your phone is a paired device it recognises, and it can be revoked from the computer at any time. There are no accounts and no servers of ours: your phone talks only to your own computer.
+Every session is encrypted end to end over QUIC/TLS — video, sound, keystrokes, files, clipboard and everything else. A computer you have never connected to before must let you in first: either you prove you know its 4-digit passcode, or the person sitting at it approves your phone. After that your phone is a paired device it recognises, and it can be revoked from the computer at any time. There are no accounts and no servers of ours: your phone talks only to your own computer.
+
+Sharing this phone's sound needs the permission Android labels <i>Microphone</i>, because that is what its playback-capture API is gated behind. Deskhub never records a microphone.
 
 <b>Requirements</b>
 • A computer running Windows 10 or later (x64), macOS 14 or later, or a current Linux desktop (glibc 2.35+), with the free Deskhub app

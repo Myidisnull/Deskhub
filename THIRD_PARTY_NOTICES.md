@@ -1,4 +1,4 @@
-**English** · [Tiếng Việt](THIRD_PARTY_NOTICES.vi.md)
+**English** · [Tiếng Việt](THIRD_PARTY_NOTICES.vi.md) · [中文](THIRD_PARTY_NOTICES.zh.md) · [日本語](THIRD_PARTY_NOTICES.ja.md)
 
 # Third-party notices
 
@@ -92,7 +92,7 @@ resolved at runtime; it is not bundled.
 | Component | License | Linkage |
 | --- | --- | --- |
 | SwiftUI, AppKit, ScreenCaptureKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, CoreGraphics, ApplicationServices, ServiceManagement | Apple SDK | OS component (macOS) |
-| SwiftUI, UIKit, ReplayKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, Accelerate (vImage) | Apple SDK | OS component (iOS) |
+| SwiftUI, UIKit, ReplayKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, Accelerate (vImage), Photos, UserNotifications | Apple SDK | OS component (iOS) |
 
 ## Android app (`client/android`)
 

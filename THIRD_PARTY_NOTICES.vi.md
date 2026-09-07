@@ -1,4 +1,4 @@
-[English](THIRD_PARTY_NOTICES.md) · **Tiếng Việt**
+[English](THIRD_PARTY_NOTICES.md) · **Tiếng Việt** · [中文](THIRD_PARTY_NOTICES.zh.md) · [日本語](THIRD_PARTY_NOTICES.ja.md)
 
 # Thông báo về thành phần bên thứ ba
 
@@ -95,7 +95,7 @@ nó không được đóng gói kèm.
 | Thành phần | Giấy phép | Cách liên kết |
 | --- | --- | --- |
 | SwiftUI, AppKit, ScreenCaptureKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, CoreGraphics, ApplicationServices, ServiceManagement | Apple SDK | thành phần hệ điều hành (macOS) |
-| SwiftUI, UIKit, ReplayKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, Accelerate (vImage) | Apple SDK | thành phần hệ điều hành (iOS) |
+| SwiftUI, UIKit, ReplayKit, VideoToolbox, AVFoundation, CoreMedia, CoreVideo, Accelerate (vImage), Photos, UserNotifications | Apple SDK | thành phần hệ điều hành (iOS) |
 
 ## App Android (`client/android`)
 

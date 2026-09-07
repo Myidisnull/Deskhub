@@ -7,8 +7,12 @@ inputs:
     required: false
     default: host
   cache-key:
-    description: What tells two caches of these libraries apart — the target set, plus the runner image when the same triple is built on more than one.
+    description: What tells two caches of these libraries apart — the target set, plus the runner image when the same triple is built on more than one, plus a marker of its own whenever rust-checks is on, because a checked quiche must never be restored into an ordinary build.
     required: true
+  rust-checks:
+    description: Build quiche with Rust debug assertions and overflow checks on. Off everywhere but the Windows corruption hunt, where it is the only trap that can see inside quiche — ASan does not instrument Rust, and the page heap only guards the heap.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -35,6 +39,7 @@ runs:
       shell: bash
       env:
         TARGETS: ${{ inputs.targets }}
+        DESKHUB_QUICHE_CHECKS: ${{ inputs.rust-checks == 'true' && '1' || '0' }}
       run: |
         read -ra resolved <<<"$TARGETS"
         "$GITHUB_WORKSPACE/scripts/build-third-party.sh" quiche "${resolved[@]}"

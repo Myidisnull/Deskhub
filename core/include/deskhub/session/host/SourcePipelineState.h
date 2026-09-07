@@ -49,7 +49,7 @@ struct SourcePipelineState {
 
     std::atomic<bool> sizeChanged{false};
     std::atomic<bool> qualityChanged{false};
-    std::atomic<bool> wantFec{false};
+    std::atomic<bool> wantFec{true};
     std::atomic<bool> netReady{false};
     std::atomic<bool> failed{false};
     std::atomic<bool> paused{false};
@@ -68,6 +68,7 @@ struct SourcePipelineState {
     std::atomic<uint64_t> lastFrameUs{0};
     uint64_t lastKeepaliveUs = 0;
 
+    diag::WindowMax frameAgeMs;
     std::unique_ptr<QualityLadder> ladder;
     QualityStep step;
     BitrateController rate;

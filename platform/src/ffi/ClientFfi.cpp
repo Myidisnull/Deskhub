@@ -166,7 +166,6 @@ const char* dh_string(DHStringId id) {
         case DHStrOpenFilesLabel: return deskhub::ui::kOpenFilesLabel;
         case DHStrTransferSentHeading: return deskhub::ui::kTransferSentHeading;
         case DHStrTransferAcceptLabel: return deskhub::ui::kTransferAcceptLabel;
-        case DHStrTransferBlocksScreenNote: return deskhub::ui::kTransferBlocksScreenNote;
         case DHStrTransferArrivedTitle: return deskhub::ui::kTransferArrivedTitle;
         case DHStrTransferStopTakingButton: return deskhub::ui::kTransferStopTakingButton;
         case DHStrConnectedPickSession: return deskhub::ui::kConnectedPickSession;
@@ -198,7 +197,6 @@ const char* dh_string(DHStringId id) {
         case DHStrFpsLabel: return deskhub::ui::kFpsLabel;
         case DHStrBitrateLabel: return deskhub::ui::kBitrateLabel;
         case DHStrQualityLabel: return deskhub::ui::kQualityLabel;
-        case DHStrTerminalCloseButton: return deskhub::ui::kTerminalCloseButton;
         case DHStrAttachShellAction: return deskhub::ui::kAttachShellAction;
         case DHStrTerminalLocalWindowTitle: return deskhub::ui::kTerminalLocalWindowTitle;
         case DHStrTerminalAttachedHere: return deskhub::ui::kTerminalAttachedHere;

@@ -5,22 +5,29 @@ cd "$(dirname "$0")/.."
 IOS_BUNDLE=com.ios.deskhub
 IOS_APP=out/build/ios/Debug-iphonesimulator/app.app
 IOS_SHOTS=client/ios/fastlane/screenshots/en-US
-IPHONE_SIM="iPhone 13 Pro Max"
-IPHONE_SIZE=1284x2778
+IOS_SHOTS_VI=client/ios/fastlane/screenshots/vi
+IPHONE_SIM="iPhone 17 Pro Max"
+IPHONE_SIZE=1320x2868
+IPHONE_PREFIX=APP_IPHONE_69
 IPAD_SIM="iPad Pro 13-inch (M5)"
 IPAD_SIZE=2064x2752
+IPAD_PREFIX=APP_IPAD_PRO_3GEN_129
 
 ANDROID_PKG=com.manhpham.deskhub
 ANDROID_ACTIVITY=com.manhpham.deskhub/com.deskhub.app.MainActivity
 ANDROID_APK=client/android/app/build/outputs/apk/debug/app-debug.apk
 PLAY_IMAGES=client/android/fastlane/metadata/android/en-US/images
-PHONE_AVD=Resizable_Experimental
+PLAY_IMAGES_VI=client/android/fastlane/metadata/android/vi/images
+PHONE_AVD=Deskhub_Phone
+PHONE_DEVICE=medium_phone
+PHONE_IMAGE="system-images;android-34;default;arm64-v8a"
 PHONE_SIZE=1080x2400
 TABLET_AVD=Small_Tablet
 TABLET_SIZE=1920x1200
 ANDROID_SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 EMULATOR="$ANDROID_SDK/emulator/emulator"
 ADB="$ANDROID_SDK/platform-tools/adb"
+AVDMANAGER="$ANDROID_SDK/cmdline-tools/latest/bin/avdmanager"
 SERIAL=""
 
 MACOS_BUNDLE=com.deskhub.macos
@@ -29,7 +36,7 @@ MACOS_OUT=out/screenshots/macos
 
 README_IMGS=docs/imgs
 README_IOS_HEIGHT=1200
-README_IOS_WIDTH=555
+README_IOS_WIDTH=552
 
 PAGES=(client host devices settings)
 SETTLE="${SETTLE:-4}"
@@ -118,6 +125,26 @@ demo_status_bar() {
     adb_shell "$demo" notifications -e visible false >/dev/null
 }
 
+ensure_avd() {
+    local avd=$1 device=$2 image=$3
+    if "$EMULATOR" -list-avds | grep -qx "$avd"; then
+        return 0
+    fi
+    [ -x "$AVDMANAGER" ] ||
+        die "no AVD named \"$avd\" and no avdmanager at $AVDMANAGER - install the SDK command-line tools, or create the AVD by hand in Android Studio"
+    echo "== creating $avd ($device)"
+    echo no | "$AVDMANAGER" create avd -n "$avd" -k "$image" -d "$device" >/dev/null ||
+        die "could not create \"$avd\" - install its system image first with: sdkmanager \"$image\""
+}
+
+grant_notifications() {
+    local sdk
+    sdk=$(adb_shell getprop ro.build.version.sdk | tr -d '\r')
+    if [ "$sdk" -ge 33 ]; then
+        adb_shell pm grant "$ANDROID_PKG" android.permission.POST_NOTIFICATIONS
+    fi
+}
+
 serial_for_avd() {
     local serial name
     for serial in $("$ADB" devices | awk '/^emulator-/ {print $1}'); do
@@ -146,6 +173,8 @@ shoot_emulator() {
     if SERIAL=$(serial_for_avd "$avd"); then
         echo "== $avd (reusing $SERIAL)"
     else
+        "$EMULATOR" -list-avds | grep -qx "$avd" ||
+            die "no AVD named \"$avd\" - create it in Android Studio's Device Manager with a $size display"
         SERIAL=$(free_serial) ||
             die "no free emulator port between 5554 and 5560 - close an emulator"
         echo "== $avd (booting as $SERIAL)"
@@ -160,6 +189,7 @@ shoot_emulator() {
     adb_shell settings put system user_rotation 0
     display_id=$(emulator_display_id)
     "$ADB" -s "$SERIAL" install -r "$ANDROID_APK" >/dev/null
+    grant_notifications
     rm -f "$outdir"/0*.png
     for index in 0 1 2 3; do
         section=${PAGES[$index]}
@@ -245,10 +275,29 @@ shoot_macos() {
     quit_macos_app
 }
 
+drop_retired_ios_shots() {
+    local keep file prefix
+    for file in "$IOS_SHOTS"/APP_*.png; do
+        [ -e "$file" ] || continue
+        keep=0
+        for prefix in "$IPHONE_PREFIX" "$IPAD_PREFIX"; do
+            case "${file##*/}" in "${prefix}_"*) keep=1 ;; esac
+        done
+        [ "$keep" = 1 ] || rm -f "$file"
+    done
+}
+
+mirror_ios_shots() {
+    rm -f "$IOS_SHOTS_VI"/APP_*.png
+    cp "$IOS_SHOTS"/APP_*.png "$IOS_SHOTS_VI/"
+}
+
 run_ios() {
     make build-ios
-    shoot_simulator "$IPHONE_SIM" APP_IPHONE_65 "$IPHONE_SIZE"
-    shoot_simulator "$IPAD_SIM" APP_IPAD_PRO_3GEN_129 "$IPAD_SIZE"
+    drop_retired_ios_shots
+    shoot_simulator "$IPHONE_SIM" "$IPHONE_PREFIX" "$IPHONE_SIZE"
+    shoot_simulator "$IPAD_SIM" "$IPAD_PREFIX" "$IPAD_SIZE"
+    mirror_ios_shots
 }
 
 run_android() {
@@ -256,10 +305,21 @@ run_android() {
         die "Android SDK not found at $ANDROID_SDK - run make bootstrap or set ANDROID_HOME"
     fi
     make build-android
+    ensure_avd "$PHONE_AVD" "$PHONE_DEVICE" "$PHONE_IMAGE"
     shoot_emulator "$PHONE_AVD" "$PLAY_IMAGES/phoneScreenshots" "$PHONE_SIZE"
     shoot_emulator "$TABLET_AVD" "$PLAY_IMAGES/sevenInchScreenshots" "$TABLET_SIZE"
     rm -f "$PLAY_IMAGES"/tenInchScreenshots/0*.png
     cp "$PLAY_IMAGES"/sevenInchScreenshots/0*.png "$PLAY_IMAGES/tenInchScreenshots/"
+    mirror_play_shots
+}
+
+mirror_play_shots() {
+    local kind
+    for kind in phoneScreenshots sevenInchScreenshots tenInchScreenshots; do
+        mkdir -p "$PLAY_IMAGES_VI/$kind"
+        rm -f "$PLAY_IMAGES_VI/$kind"/0*.png
+        cp "$PLAY_IMAGES/$kind"/0*.png "$PLAY_IMAGES_VI/$kind/"
+    done
 }
 
 run_macos() {
@@ -278,11 +338,11 @@ run_readme() {
     local pages=(host client devices settings) index n
     for index in 0 1 2 3; do
         n=$((index + 1))
-        readme_source "$IOS_SHOTS/APP_IPHONE_65_0$n.png"
+        readme_source "$IOS_SHOTS/${IPHONE_PREFIX}_0$n.png"
         readme_source "$PLAY_IMAGES/phoneScreenshots/0$n.png"
         readme_source "$MACOS_OUT/macos_${pages[$index]}.png"
         sips -z "$README_IOS_HEIGHT" "$README_IOS_WIDTH" \
-            "$IOS_SHOTS/APP_IPHONE_65_0$n.png" \
+            "$IOS_SHOTS/${IPHONE_PREFIX}_0$n.png" \
             --out "$README_IMGS/ios_$n.png" >/dev/null
         cp "$PLAY_IMAGES/phoneScreenshots/0$n.png" "$README_IMGS/android_$n.png"
         cp "$MACOS_OUT/macos_${pages[$index]}.png" "$README_IMGS/macos_$n.png"

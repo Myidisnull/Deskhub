@@ -1,4 +1,4 @@
-[English](ARCHITECTURE.md) · **Tiếng Việt**
+[English](ARCHITECTURE.md) · **Tiếng Việt** · [中文](ARCHITECTURE.zh.md) · [日本語](ARCHITECTURE.ja.md)
 
 # Deskhub — Kiến trúc
 
@@ -145,9 +145,13 @@ HostEngine (một cho cả app, sở hữu SessionTransport)
 - Mỗi nguồn màn hình là một `SourcePipelineState`: `ScreenHostSession` riêng (bảng viewer,
   thương lượng, phân xử input), encoder, thang chất lượng và chẩn đoán riêng. Một
   lần mã hoá nuôi mọi viewer của nguồn đó.
-- Vòng phản hồi: viewer gửi `Feedback` (loss/RTT) mỗi giây; `BitrateController`
-  (AIMD) và `QualityLadder` của host chỉnh bitrate, độ phân giải, fps của encoder;
-  FEC bật theo loss. CUBIC của quiche nằm dưới đường datagram; hai bộ hoạt động nối
+- Vòng phản hồi: viewer gửi `Feedback` (loss/RTT) mỗi giây, và host góp thêm một tín
+  hiệu của chính nó — tuổi của frame lúc nó tới bộ gửi, đúng đại lượng mà `enc_lat_ms`
+  báo cáo. `BitrateController` (AIMD) và `QualityLadder` chỉnh bitrate, độ phân giải,
+  fps của encoder theo cả ba; FEC bật sẵn từ frame đầu và chỉ hạ xuống sau một chuỗi dài
+  không mất gói, vì loss mà nó chống lại xuất hiện trước cả báo cáo đầu tiên — backlog
+  không bao giờ bật FEC, vì gói parity chỉ làm hàng đợi dày thêm. CUBIC của quiche nằm
+  dưới đường datagram; hai bộ hoạt động nối
   tiếp — quiche giới hạn thứ rời khỏi máy, app điều tốc encoder theo loss sinh ra.
 - Input: "host thắng" — `LocalInputMonitor` tạm dừng input từ xa khi người ngồi tại
   máy động vào chuột thật; mỗi lúc một viewer điều khiển.
@@ -188,7 +192,8 @@ mỗi giây một datagram `Ping` mang session id 0 đi ra, beacon của host tr
 trên chính kết nối đó mà không cần phiên nào, timestamp được vọng lại trở thành
 RTT đã làm mượt, còn những id không có pong quay về trở thành phần trăm mất gói.
 `ClassifyLinkQuality` gộp hai con số thành Tốt / Khá / Kém cho danh sách thiết bị
-và trang kết nối — các cửa sổ phiên không còn chở nó nữa — `HostLink` đưa số đo ra
+và cho panel đã trả lời host — cửa sổ riêng trên desktop, trang kết nối trên Android
+và iOS — các cửa sổ phiên không còn chở nó nữa — `HostLink` đưa số đo ra
 qua `onPulse` và `Pulse()`, và vì ping là gói đòi ACK nên
 nó kiêm luôn vai keepalive; bộ đếm keepalive thường chỉ còn có việc khi link đang
 đỗ ở `Deciding`. Host quá cũ không trả lời ping session-0 thì số đo chỉ đứng ở
@@ -222,7 +227,8 @@ thật chỉ lộ qua kết nối đã được cho vào. Câu trả lời đó 
 làm được — có nhận thao tác không, có chia sẻ terminal không — trong các cờ ở header
 `SOURCE_LIST`, nên client biết trước khi mở bất kỳ cửa sổ nào rằng một chiếc điện
 thoại chỉ có thể xem. Host bản cũ, có từ trước khi có các cờ này, không bật cờ nào. Thiết bị gần đây, trạng thái online
-(ping/pong) và kết quả quét LAN đổ vào một danh sách thiết bị gộp trên Windows.
+(ping/pong) và kết quả quét LAN đổ vào một danh sách thiết bị gộp, do
+`core/ui/DeviceRows` dựng và cả năm client đều hiển thị.
 
 ## 7. Dữ liệu trên đĩa
 
@@ -230,7 +236,8 @@ Tất cả nằm trong thư mục Deskhub của người dùng (`~/.deskhub`,
 `%USERPROFILE%\.deskhub`): `host_key.pem` + `host_cert.pem` (danh tính),
 `known_hosts` (host mà máy này tin), `paired_devices` (máy mà host này cho vào),
 `auth_salt` (salt không bí mật), `ui-settings.txt`, `recent-devices.txt` (địa chỉ +
-passcode che đi), và log theo từng lần chạy. I/O file nằm ở `platform/`; phần phân
+passcode che đi), `portal-restore-token.txt` trên Linux (token của chính desktop cho
+những màn hình đã chọn trong hộp thoại chia sẻ của nó), và log theo từng lần chạy. I/O file nằm ở `platform/`; phần phân
 tích và cấu trúc dữ liệu nằm ở `core/` và có unit test.
 
 Tệp viewer gửi tới thì nằm ở chỗ khác hẳn: một thư mục do host chọn (`transfer_dir`
@@ -255,7 +262,13 @@ CI còn ép clang-format và clang-tidy (đều ghim phiên bản), SwiftLint `-
 Android Lint, actionlint + shellcheck, chạy cả ba bộ dưới ASan/TSan, CodeQL cho
 C++/Kotlin/Swift, quét gitleaks toàn bộ lịch sử, và coverage `core/` ≥ 90% dòng / 80%
 nhánh. Ba bộ test còn được biên dịch chéo và chạy trên Linux arm64, emulator Android và
-iOS Simulator. Các job release trên Linux và macOS còn chạy `core_perf` và
+iOS Simulator, và một job Windows chạy thêm ba lần bộ integration mỗi vòng để săn lỗi
+hỏng bộ nhớ chập chờn, thứ chỉ lộ ra khoảng một lần trong ba; khung chết là nạn nhân của
+lỗi chứ không bao giờ là nguyên nhân, nên mọi job Windows đều ghi một minidump đầy đủ và
+lần chạy đêm lặp lại các bài kiểm thử tải hai lượt — một lượt dưới full page heap, một
+lượt với quiche được dựng cùng debug assertion và kiểm tra tràn số của Rust, cái bẫy duy
+nhất nhìn được vào bên trong quiche, vì ASan không đo mã Rust còn page heap chỉ canh
+heap. Các job release trên Linux và macOS còn chạy `core_perf` và
 `platform_perf` với hai cổng chặn cấp phát và độ tuyến tính (máy CI dùng chung không có
 mốc thời gian), và mỗi pull request có thêm một báo cáo perf-và-lag đăng thành một
 comment tự cập nhật: cả hai suite perf được A/B với commit gốc trên cùng một runner (độ
@@ -263,6 +276,87 @@ lệch chỉ là cảnh báo, không bao giờ đánh trượt), số đo tích 
 pull request, và dòng coverage của `core/`.
 
 ## 9. Các quyết định đáng nhớ
+
+- **Một phép dò năng lực trả về false có thể tắt hẳn cả một vòng điều khiển**: encoder
+  Media Foundation trả `false` cho `SetBitrate` mỗi khi MFT không có
+  `CODECAPI_AVEncCommonMeanBitRate`, và `ApplyFeedback` hoàn toàn đúng khi coi một lần từ
+  chối là "không commit gì". Trên MFT Intel Quick Sync báo `MeanBitRate: NOT SUPPORTED`,
+  hệ quả là host không bao giờ đổi bitrate: đo trên chính phần cứng này, 30 giây loss
+  29-40 % liên tục không sinh ra một quyết định `Bitrate` nào, nên thang chất lượng cũng
+  đứng im. Log khởi động ghi `NOT SUPPORTED` suốt thời gian đó mà không ai đọc nó thành
+  "khả năng thích ứng đã chết". `SetFps` và `RequestKeyFrame` trong cùng file vốn đã lùi
+  về `ReinitTransform()`; chỉ `SetBitrate` là bỏ cuộc, và giờ nó lùi về y như vậy —
+  `ConfigureTransform` ghi `MF_MT_AVG_BITRATE` từ `cfg` nên việc dựng lại sẽ áp bitrate
+  mới. Dựng lại tốn một IDR, nên đường `codecapi` trực tiếp vẫn được thử trước. Khi một
+  năng lực tuỳ thiết bị chặn mất một đầu vào điều khiển, hãy bắt buộc phải có đường lùi:
+  xuống cấp thành "chậm hơn" là một lựa chọn, âm thầm xuống cấp thành "không bao giờ"
+  thì không.
+
+- **Máy gửi không theo kịp trông y hệt một đường truyền sạch**: mọi đầu vào mà
+  `BitrateController` có — loss, RTT, tốc độ nhận — đều đến từ viewer, nên không gì
+  trong vòng lặp nói được "chính tôi đang tụt lại". Đo trên Pixel 4 làm host cho hai
+  viewer: frame rời encoder khi đã cũ 15 s trong lúc viewer báo 0 % loss và RTT 15 ms,
+  còn bộ điều khiển đọc đó là dư địa và bơm bitrate ngược lên trần 20 Mbps — bufferbloat
+  nằm ngay trong máy gửi, càng thấy đường truyền sạch thì càng bơm mạnh. Host giờ đo tuổi
+  frame ngay tại bước gửi và đưa vào cạnh các số của viewer: quá `kBacklogMs` thì lùi như
+  gặp 2 % loss, quá `kSevereBacklogMs` thì lùi như gặp 5 % loss, và cả hai đều chặn nhánh
+  tăng trong hai giây như thường lệ. Bitrate vẫn là biến điều khiển duy nhất, nên
+  `QualityLadder` tụt bậc theo sau và mức trần fps đi theo. Vòng điều khiển nào chỉ được
+  nuôi bằng số liệu từ đầu kia thì mù với đúng nửa đường ống mà nó sở hữu.
+
+- **Chặn fps chỉ có tác dụng ở nơi thật sự có thứ gì đó bỏ frame**: bậc fps của thang
+  chất lượng là một yêu cầu, và mỗi nền tảng phải thực thi nó ở chỗ frame có thể bị vứt
+  đi. Windows và Linux chặn ngay tại capture bằng `FrameGate`; Android chặn đầu vào
+  MediaCodec bằng `max-fps-to-encoder`; macOS cấu hình lại khoảng cách frame của
+  ScreenCaptureKit. iOS thì không có chỗ nào: ReplayKit giao frame theo nhịp màn hình,
+  còn `VtEncoder::SetFps` chỉ đặt `kVTCompressionPropertyKey_ExpectedFrameRate` — một
+  gợi ý cho rate control, không bỏ frame nào cả. Đổi bậc ở đó chỉ chỉnh lại encoder chứ
+  không thay đổi số frame nó phải nuốt. `OfferVtFrame` giờ chạy cùng một `FrameGate` cho
+  cả hai app Apple, đặt sau khi cache dùng cho flush lúc màn hình tĩnh đã được làm mới,
+  để màn hình đứng yên vẫn còn frame để gửi lại. Khi một núm vặn tồn tại trên mọi nền
+  tảng, hãy kiểm tra từng nơi làm gì với nó trước khi tin vào thang chất lượng.
+
+- **Bộ điều tốc gửi phải luôn cao hơn hẳn tốc độ ra của chính encoder**: `Pacer::Gate`
+  ngủ ngay trên thread mà `SendEncodedFrame` đang chạy, và trên Android đó là vòng drain
+  của MediaCodec — đúng vòng phải gọi `releaseOutputBuffer` trước khi encoder giao được
+  frame kế tiếp. Vì vậy điều tốc quyết định tốc độ drain, không chỉ tốc độ trên dây, trong
+  khi VirtualDisplay vẫn bơm frame mới vào theo nhịp màn hình. Việc siết
+  `kPacingRateMultiple` từ 2 xuống 1.2 để làm mượt burst đã được đo trên Pixel 4: thời
+  gian gửi mỗi frame tăng từ 20 ms lên 63 ms trung vị, và hàng đợi encoder phình vô hạn —
+  `enc_lat_ms` vượt 46 s chỉ sau 100 s, viewer tụt lại 4.6 s. Với giá trị 2, cùng kịch
+  bản giữ `enc_lat_ms` ở 0. Khoảng dư đó không phải phần thừa để thu hồi; nó là thứ giữ
+  cho đường mã hoá rút nhanh hơn tốc độ nạp vào. Muốn giảm burst thì dùng bộ đệm socket
+  hoặc tách điều tốc khỏi thread drain, tuyệt đối không siết con số này.
+
+- **Bộ perf gate trên chi phí, nên cần một gate thứ hai canh kết quả**: `core_perf` đo
+  số lần cấp phát trên mỗi packet và cách thời gian giãn theo input, và mọi workload
+  reassembler của nó đều pass trong khi một packet mất làm mất 22 % số frame nguyên vẹn
+  trên đường truyền thật. Nó không thể bắt được: vứt video tốt còn *rẻ hơn* giải mã nó,
+  nên chính sách hỏng lại ghi điểm cao hơn ở mọi con số bộ suite theo dõi.
+  `LossGoodputTests` là bộ đi kèm, fail khi code làm ít việc hơn mức đáng phải làm — một
+  đường truyền mất gói đuôi mô phỏng với vòng truyền thật, gate trên tỉ lệ frame nhận đủ
+  packet mà thực sự tới được decoder, và trên khoảng cách dài nhất giữa hai frame được
+  giao. Cả hai đều độc lập với máy, nên đúng như nhau trên laptop, CI runner hay điện
+  thoại. Hãy nghĩ tới goodput gate mỗi khi một chính sách có thể "thành công" bằng cách
+  vứt bớt việc.
+
+- **Mất một packet chỉ tốn một frame, không phải cả khung hình tới keyframe kế tiếp**:
+  trước đây bộ ghép lại bật `waitingForIdr_` với mọi lần mất, nên chỉ một packet thiếu
+  là vứt sạch mọi frame *nguyên vẹn* phía sau cho tới khi có IDR mới. Đo trên host điện
+  thoại qua Wi-Fi, 64 frame thực sự thiếu đã kéo theo 381 frame bị vứt — 6.4 MB video
+  giải mã được bị bỏ, hình đứng trung vị 146 ms và có lúc tới 1.4 s. Giờ chỉ frame thiếu
+  bị bỏ; các frame sau đi thẳng tới decoder, nơi che khuyết tham chiếu đã mất, trong khi
+  `InvalidateRef` báo cho host frame nào hỏng và yêu cầu keyframe sửa lại. Vài vệt
+  macroblock ngắn là cái giá cố ý trả để không đứng hình. `waitingForIdr_` giữ lại đúng
+  trường hợp nó đúng: viewer vào giữa luồng chưa có tham chiếu nào nên phải đợi IDR đầu.
+
+- **Cửa sổ chờ phải dài hơn một vòng truyền lại, nếu không NACK chỉ là trang trí**:
+  trước đây một frame chỉ được cho hai chu kỳ khung hình (33 ms ở 60 fps) trước khi bị
+  coi là mất, trong khi RTT đo được trên cùng đường là 24-49 ms. NACK gửi đi và câu trả
+  lời về sau khi frame đã bị vứt — thấy rõ qua `late_ms_avg=24` với 87 packet mỗi giây
+  rơi vào những frame không còn tồn tại. `StallTimeoutUs` giờ lấy giá trị lớn hơn giữa
+  cửa sổ theo nhịp khung hình và một vòng rưỡi RTT, vẫn bị chặn bởi hard timeout, nên
+  việc yêu cầu truyền lại chỉ đáng giá trên đúng những đường cần nó.
 
 - **`FileHost` không bao giờ gửi khi đang giữ khoá của chính nó**: vòng lặp phục vụ QUIC
   chạy `QuicEndpoint::Poll` dưới `SessionTransport::sendMutex_`, và một kết nối đóng lại ở
@@ -589,3 +683,23 @@ pull request, và dòng coverage của `core/`.
   sẵn góc bo và phần trong suốt nướng vào ảnh — nếu không, app hiện ra như một ô vuông
   xanh cứng cạnh mọi icon bo góc khác. `scripts/make-icons.py` cố ý chỉ dùng thư viện
   chuẩn: bootstrap không cài công cụ xử lý ảnh nào.
+- **Client desktop giữ nhiều host cùng lúc; điện thoại giữ một**: trang kết nối trên
+  Windows, Linux và macOS không giữ trạng thái đã-kết-nối nào của riêng nó. Host nào trả
+  lời thì được một cửa sổ kết nối — `ConnectionFrame` trong
+  `client/windows/win32/MainFrame.cpp`, `ConnectionWindow` trong
+  `client/linux/gtk/MainWindow.cpp`, `WindowGroup` tên `connection` trong
+  `client/macos/app/swift/App.swift` — nắm địa chỉ, passcode, khả năng, danh sách nguồn và
+  ô control của riêng host đó, nhờ vậy trang kết nối luôn rảnh để gọi host tiếp theo. Cửa
+  sổ chính chỉ giữ danh sách các cửa sổ đang mở, để đưa cửa sổ cũ lên trước khi cùng một
+  host được gọi lần hai, để đẩy mỗi nhịp dò trạng thái tới đúng cửa sổ có địa chỉ khớp, và
+  để đóng hết khi thoát app. Android và iOS cố ý giữ một kết nối: màn hình điện thoại
+  không đủ chỗ cho một panel thứ hai, và phiên nó mở ra vốn đã chiếm toàn màn hình.
+  `ui::SameDeviceAddr` là định nghĩa của "cùng một host" ở mọi nơi — xem mục dưới.
+- **Một host, hai cách viết, một phép so sánh**: `ScanAddressText` bỏ cổng khi cổng là mặc
+  định, nên một dòng quét được đọc là `192.168.1.60` trong khi địa chỉ người dùng gõ và
+  kết nối lại là `192.168.1.60:47777`. So sánh hai chuỗi đó thất bại trong im lặng, và mọi
+  chỗ từng làm vậy đều mất một thứ có thật: panel đã kết nối không tìm ra dòng thiết bị
+  khớp nên không hiện ping, còn `PasscodeForDevice` không tìm ra mã đã lưu cho host được
+  chọn từ danh sách quét. Vì vậy phép so sánh địa chỉ đi qua `ui::NormalizedDeviceAddr` /
+  `ui::SameDeviceAddr` (`core/ui/Strings.h`), mở ra cho client Swift và Kotlin dưới tên
+  `dh_same_device_addr`. Đừng bao giờ so sánh hai địa chỉ thiết bị bằng `==`.

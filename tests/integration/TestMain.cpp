@@ -33,6 +33,7 @@ void ReportCrashesWithAStack() {}
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <string>
 
 namespace {
 
@@ -69,7 +70,52 @@ void PrintCrashFrame(HANDLE process, int index, uint64_t address) {
         static_cast<unsigned long long>(address - reinterpret_cast<uint64_t>(module)));
 }
 
+std::wstring CrashDumpFolder() {
+    wchar_t folder[MAX_PATH] = {};
+    const DWORD length = GetEnvironmentVariableW(L"DESKHUB_CRASH_DUMP_DIR", folder, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return L".";
+    CreateDirectoryW(folder, nullptr);
+    return folder;
+}
+
+void WriteCrashDump(EXCEPTION_POINTERS* info) {
+    const std::wstring path = CrashDumpFolder() + L"\\integration_tests-" +
+                              std::to_wstring(GetCurrentProcessId()) + L".dmp";
+
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        std::printf(
+            "=== no crash dump: %ls could not be created (%lu). The stack below names the "
+            "frame the corruption landed in, never the write that caused it, so without a "
+            "dump this crash cannot be taken any further ===\n",
+            path.c_str(), GetLastError());
+        return;
+    }
+
+    MINIDUMP_EXCEPTION_INFORMATION described{};
+    described.ThreadId = GetCurrentThreadId();
+    described.ExceptionPointers = info;
+    described.ClientPointers = FALSE;
+
+    const BOOL written = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file,
+        MINIDUMP_TYPE(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo |
+                      MiniDumpWithHandleData | MiniDumpWithThreadInfo),
+        info == nullptr ? nullptr : &described, nullptr, nullptr);
+    const DWORD failure = written == 0 ? GetLastError() : 0;
+    CloseHandle(file);
+
+    if (written == 0) {
+        std::printf("=== no crash dump: MiniDumpWriteDump failed (%lu) ===\n", failure);
+        return;
+    }
+    std::printf("=== crash dump written to %ls ===\n", path.c_str());
+    std::fflush(stdout);
+}
+
 LONG WINAPI ReportFatalException(EXCEPTION_POINTERS* info) {
+    WriteCrashDump(info);
+
     const HANDLE process = GetCurrentProcess();
     SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     SymInitialize(process, nullptr, TRUE);
@@ -104,6 +150,8 @@ LONG WINAPI ReportFatalException(EXCEPTION_POINTERS* info) {
 }
 
 void PrintCrashStack(const char* headline) {
+    WriteCrashDump(nullptr);
+
     const HANDLE process = GetCurrentProcess();
     SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
     SymInitialize(process, nullptr, TRUE);

@@ -2,24 +2,25 @@
 
 namespace deskhub {
 
-BitrateDecision BitrateController::Update(const Feedback& fb, uint64_t nowUs) {
+BitrateDecision BitrateController::Update(const Feedback& fb, uint32_t frameAgeMs,
+    uint64_t nowUs) {
     BitrateDecision d;
 
     const bool fecBefore = fec_;
     if (fb.lossPct >= 1) {
         cleanSeconds_ = 0;
         fec_ = true;
-    } else if (++cleanSeconds_ >= 5) {
+    } else if (++cleanSeconds_ >= kCleanSecondsBeforeDroppingFec) {
         fec_ = false;
     }
     d.fecEnabled = fec_;
     d.fecToggled = (fec_ != fecBefore);
 
     uint32_t next = cur_;
-    if (fb.lossPct >= 5) {
+    if (fb.lossPct >= 5 || frameAgeMs >= kSevereBacklogMs) {
         next = cur_ - cur_ / 4;
         lastDecreaseUs_ = nowUs;
-    } else if (fb.lossPct >= 2) {
+    } else if (fb.lossPct >= 2 || frameAgeMs >= kBacklogMs) {
         next = cur_ - cur_ / 10;
         lastDecreaseUs_ = nowUs;
     } else if (fb.lossPct <= 1 && nowUs - lastDecreaseUs_ > 2'000'000) {

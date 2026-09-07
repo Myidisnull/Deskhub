@@ -69,6 +69,8 @@ jobs:
           Set-ItemProperty -Path $key -Name DumpCount -Value 2 -Type DWord
 
       - name: Run them through CTest
+        env:
+          DESKHUB_CRASH_DUMP_DIR: ${{ runner.temp }}/crash-dumps
         run: ctest --test-dir out/build/${{ matrix.preset }} --output-on-failure
 
       - name: Look for a crash dump
@@ -96,6 +98,126 @@ jobs:
         run: |
           out/build/${{ matrix.preset }}/core/core_perf
           out/build/${{ matrix.preset }}/platform/platform_perf
+
+  repeat-windows:
+    name: windows-latest · release, three more runs
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Install Ninja
+        run: choco install ninja nasm -y
+
+      - uses: ./.github/actions/third-party
+        with:
+          cache-key: host-windows-latest
+
+      - name: Configure (app off - this job only runs the integration suite)
+        run: cmake --preset x64-release -DDESKHUB_LINUX_APP=OFF
+
+      - name: Build the integration suite
+        run: cmake --build --preset x64-release --target integration_tests
+
+      - name: Keep a dump, since the fastfail this hunts runs no in-process handler and so prints no stack
+        shell: pwsh
+        run: |
+          $dumps = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+          New-Item -Path $dumps -Force | Out-Null
+          Set-ItemProperty -Path $dumps -Name DumpFolder -Value "$env:RUNNER_TEMP\crash-dumps" -Type ExpandString
+          Set-ItemProperty -Path $dumps -Name DumpType -Value 2 -Type DWord
+          Set-ItemProperty -Path $dumps -Name DumpCount -Value 4 -Type DWord
+
+      - name: Run the whole suite three more times, failing only on a crash - this is the one build that reproduces the stack corruption, and one run in three is not enough to see it
+        shell: pwsh
+        env:
+          DESKHUB_CRASH_DUMP_DIR: ${{ runner.temp }}/crash-dumps
+        run: |
+          $exe = 'out/build/x64-release/tests/integration/integration_tests.exe'
+          for ($i = 1; $i -le 3; $i++) {
+            Write-Host "===== repeat run $i ====="
+            & $exe
+            $code = $LASTEXITCODE
+            Write-Host "===== repeat run $i exit $code ====="
+            if ($code -ne 0 -and $code -ne 1) {
+              $null = & "$env:GITHUB_WORKSPACE/scripts/wait-for-crash-dump.ps1" -Folder "$env:RUNNER_TEMP\crash-dumps"
+              throw "integration_tests died with 0x$('{0:x8}' -f $code). The stack above names the frame the corruption landed in, not the write that caused it - download the crash-dumps-windows-repeat artifact and read the dump, or wait for the nightly page heap job to fault on the write itself."
+            }
+          }
+
+      - name: Look for a crash dump
+        id: crash-dump
+        if: failure()
+        shell: pwsh
+        run: |
+          $found = Test-Path "$env:RUNNER_TEMP\crash-dumps\*.dmp"
+          "found=$($found.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the crash dump beside the symbols without which nothing can read it
+        if: failure() && steps.crash-dump.outputs.found == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crash-dumps-windows-repeat
+          path: |
+            ${{ runner.temp }}/crash-dumps
+            out/build/x64-release/tests/integration/integration_tests.exe
+            out/build/x64-release/tests/integration/integration_tests.pdb
+          if-no-files-found: ignore
+          retention-days: 7
+
+  asan-windows:
+    name: windows-latest · asan
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Install Ninja
+        run: choco install ninja nasm -y
+
+      - uses: ./.github/actions/third-party
+        with:
+          cache-key: host-windows-latest
+
+      - name: Configure (app off - this job only runs the integration suite)
+        run: cmake --preset asan-msvc -DDESKHUB_LINUX_APP=OFF
+
+      - name: Build the integration suite
+        run: cmake --build --preset asan-msvc --target integration_tests
+
+      - name: Run the suite under AddressSanitizer, the only Windows build that can name the write itself rather than the frame it landed in
+        shell: pwsh
+        env:
+          ASAN_OPTIONS: detect_stack_use_after_return=1:exitcode=42
+          DESKHUB_CRASH_DUMP_DIR: ${{ runner.temp }}/crash-dumps
+        run: |
+          $exe = 'out/build/asan-msvc/tests/integration/integration_tests.exe'
+          for ($i = 1; $i -le 3; $i++) {
+            Write-Host "===== asan run $i ====="
+            & $exe
+            $code = $LASTEXITCODE
+            Write-Host "===== asan run $i exit $code ====="
+            if ($code -eq 42) {
+              throw "AddressSanitizer reported a bad access. The report above names the file and line of the write - that is what the x64-release crash dump cannot give, so start there."
+            }
+            if ($code -ne 0 -and $code -ne 1) {
+              throw "integration_tests died with 0x$('{0:x8}' -f $code) under ASan without an ASan report, so the corruption is one ASan does not instrument."
+            }
+          }
 
   perf-compare:
     name: perf · pull request vs base

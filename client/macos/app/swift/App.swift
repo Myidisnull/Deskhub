@@ -18,6 +18,14 @@ struct DeskhubApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1040, height: 700)
 
+        WindowGroup(id: "connection", for: ConnectionRequest.self) { $request in
+            if let request {
+                ConnectionWindow(request: request)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 460, height: 300)
+
         WindowGroup(id: "viewer", for: ViewerRequest.self) { $request in
             if let request {
                 ViewerWindow(request: request)
@@ -69,16 +77,16 @@ private struct TerminalWindow: View {
         TerminalScreen(
             model: model,
             title: DeskhubClient.addressHost(request.address)
-        ) { dismiss() }
-            .navigationTitle(DeskhubClient.addressHost(request.address))
-            .frame(minWidth: 640, idealWidth: 900, maxWidth: .infinity,
-                   minHeight: 400, idealHeight: 560, maxHeight: .infinity)
-            .task {
-                if !model.open(address: request.address, passcode: request.passcode) {
-                    dismiss()
-                }
+        )
+        .navigationTitle(DeskhubClient.addressHost(request.address))
+        .frame(minWidth: 640, idealWidth: 900, maxWidth: .infinity,
+               minHeight: 400, idealHeight: 560, maxHeight: .infinity)
+        .task {
+            if !model.open(address: request.address, passcode: request.passcode) {
+                dismiss()
             }
-            .onDisappear { model.stop() }
+        }
+        .onDisappear { model.stop() }
     }
 }
 
@@ -90,7 +98,7 @@ private struct LocalShellWindow: View {
     private var title: String { DeskhubClient.string(DHStrTerminalLocalWindowTitle) }
 
     var body: some View {
-        TerminalScreen(model: model, title: title) { dismiss() }
+        TerminalScreen(model: model, title: title)
             .navigationTitle(title)
             .frame(minWidth: 640, idealWidth: 900, maxWidth: .infinity,
                    minHeight: 400, idealHeight: 560, maxHeight: .infinity)

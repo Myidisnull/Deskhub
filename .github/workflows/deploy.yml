@@ -87,7 +87,7 @@ jobs:
           EOF
 
       - name: Create release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             out/deskhub-${{ github.ref_name }}-windows.exe
@@ -133,6 +133,15 @@ jobs:
           path: client/ios/build/*.ipa
           retention-days: 30
           if-no-files-found: error
+
+      - name: Fastlane metadata (App Store listing)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: client/ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        run: fastlane ios metadata
 
   release-macos:
     needs: verify-tag
@@ -180,7 +189,7 @@ jobs:
 
       - name: Attach dmg to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: out/dist/macos/deskhub-${{ github.ref_name }}-macos.dmg
 
@@ -238,12 +247,19 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Fastlane metadata (Play listing)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: client/android
+        env:
+          PLAY_JSON_KEY: ${{ secrets.PLAY_JSON_KEY }}
+        run: fastlane android metadata
+
       - name: Rename apk with tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: mv client/android/app/build/outputs/apk/release/app-release.apk "deskhub-${GITHUB_REF_NAME}-android.apk"
 
       - name: Attach apk to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: deskhub-${{ github.ref_name }}-android.apk

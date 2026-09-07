@@ -1,4 +1,4 @@
-**English** · [Tiếng Việt](ARCHITECTURE.vi.md)
+**English** · [Tiếng Việt](ARCHITECTURE.vi.md) · [中文](ARCHITECTURE.zh.md) · [日本語](ARCHITECTURE.ja.md)
 
 # Deskhub — Architecture
 
@@ -144,9 +144,13 @@ HostEngine (one per app, owns SessionTransport)
 - Each screen source is a `SourcePipelineState`: its own `ScreenHostSession` (viewer table,
   negotiation, input arbitration), encoder, quality ladder and diagnostics. One
   encode feeds every viewer of that source.
-- The feedback loop: viewers send `Feedback` (loss/RTT) once a second; the host's
-  `BitrateController` (AIMD) and `QualityLadder` adjust encoder bitrate, resolution
-  and fps; FEC toggles on loss. quiche's CUBIC congestion control sits underneath the
+- The feedback loop: viewers send `Feedback` (loss/RTT) once a second, and the host adds
+  one signal of its own — the age of a frame when it reaches the sender, the same
+  quantity `enc_lat_ms` reports. `BitrateController` (AIMD) and `QualityLadder` adjust
+  encoder bitrate, resolution and fps from all three; FEC is armed from the first frame
+  and only stood down after a long clean run, because the loss it protects against shows
+  up before the first report does — a backlog never arms it, since parity would only
+  deepen the queue. quiche's CUBIC congestion control sits underneath the
   datagram path; the two act in series — quiche bounds what leaves the machine, the
   app adapts the encoder to the loss that results.
 - Input: "host wins" — `LocalInputMonitor` pauses remote input while the person at
@@ -189,7 +193,8 @@ Once admitted, the link takes its own pulse (`core/session/LinkPulse`): a
 it over the same connection with no session required, and the echoed timestamp
 becomes a smoothed RTT while the ids of pongs that never came back become a loss
 percentage. `ClassifyLinkQuality` folds the two into Good / Fair / Poor for the
-device list and the connect page — the session windows no longer carry it —
+device list and the panel that answered the host — a window of its own on desktop, the
+connect page on Android and iOS — the session windows no longer carry it —
 `HostLink` hands the reading out through `onPulse` and `Pulse()`, and
 because a ping is ack-eliciting it doubles as the keepalive; the plain keepalive
 timer only still matters while the link is parked in `Deciding`. A host too old to
@@ -225,8 +230,8 @@ source list is revealed only over an admitted connection. That answer also carri
 what the host can do — whether it takes input, whether it shares a terminal — in the
 `SOURCE_LIST` header flags, so a client knows before it opens any window that a phone
 can only be watched. A host from before the flags existed sets none of them. Recent devices, their
-online state (ping/pong probes) and the LAN scan feed one merged device list on
-Windows.
+online state (ping/pong probes) and the LAN scan feed one merged device list, built
+by `core/ui/DeviceRows` and shown by all five clients.
 
 ## 7. Data on disk
 
@@ -234,7 +239,9 @@ Everything lives in the user's Deskhub folder (`~/.deskhub`,
 `%USERPROFILE%\.deskhub`): `host_key.pem` + `host_cert.pem` (identity),
 `known_hosts` (hosts this machine trusts), `paired_devices` (machines this host
 admits), `auth_salt` (non-secret verifier salt), `ui-settings.txt`,
-`recent-devices.txt` (addresses + obscured passcodes), and per-run logs. File I/O
+`recent-devices.txt` (addresses + obscured passcodes), `portal-restore-token.txt` on
+Linux (the desktop's own token for the screens picked in its screen-sharing dialog),
+and per-run logs. File I/O
 stays in `platform/`; the parsing and the data structures live in `core/` and are
 unit-tested.
 
@@ -261,7 +268,14 @@ CI additionally enforces clang-format and clang-tidy (both pinned), SwiftLint
 `--strict`, Android Lint, actionlint + shellcheck, ASan/TSan runs of all three suites,
 CodeQL over C++/Kotlin/Swift, a gitleaks sweep of the whole history, and ≥ 90 % line /
 80 % branch coverage on `core/`. The three suites are additionally cross-built and run
-on arm64 Linux, an Android emulator and the iOS Simulator. The Linux and macOS release
+on arm64 Linux, an Android emulator and the iOS Simulator, and a Windows job runs the
+integration suite three more times per round, hunting an intermittent memory corruption
+that shows up in about one run in three; the frame it crashes in is a victim of that
+corruption and never its cause, so every Windows job writes a full minidump and the
+nightly run repeats the load tests twice over — once under the full page heap, and once
+against a quiche built with Rust debug assertions and overflow checks on, the only trap
+that can see inside quiche, since ASan does not instrument Rust and the page heap guards
+only the heap. The Linux and macOS release
 jobs also run `core_perf` and `platform_perf` with their allocation and scaling gates
 (no time baseline exists on a shared runner), and each pull request additionally gets
 a perf-and-lag report posted as one self-updating comment: both perf suites A/B'd
@@ -270,6 +284,91 @@ under-load integration numbers from the pull-request build, and the core coverag
 line.
 
 ## 9. Decisions worth remembering
+
+- **A capability probe that returns false can switch off a whole control loop**: the
+  Media Foundation encoder answered `SetBitrate` with `false` whenever the MFT did not
+  expose `CODECAPI_AVEncCommonMeanBitRate`, and `ApplyFeedback` correctly treats a refusal
+  as "nothing committed". On an Intel Quick Sync MFT that reports `MeanBitRate: NOT
+  SUPPORTED`, the result was a host that never changed bitrate at all: measured on this
+  hardware, 30 s of sustained 29-40 % loss produced zero `Bitrate` decisions, so the
+  quality ladder never moved either. The startup log said `NOT SUPPORTED` the whole time
+  and nobody read it as "adaptation is dead". `SetFps` and `RequestKeyFrame` in the same
+  file already fell back to `ReinitTransform()`; `SetBitrate` was the one that gave up,
+  and it now falls back the same way — `ConfigureTransform` writes `MF_MT_AVG_BITRATE`
+  from `cfg`, so a rebuild applies the new rate. The rebuild costs an IDR, which is why
+  the live `codecapi` path is still tried first. When a per-device capability gates a
+  control input, make the fallback mandatory: degrading to "slower" is a choice, silently
+  degrading to "never" is not.
+
+- **A sender that cannot keep up looks exactly like a clean link**: every input
+  `BitrateController` had — loss, RTT, receive rate — comes from the viewer, so nothing
+  in the loop could say "I am the one falling behind". Measured on a Pixel 4 hosting for
+  two viewers: frames left the encoder 15 s stale while the viewers reported 0 % loss and
+  15 ms RTT, and the controller read that as headroom and walked the bitrate back up to
+  its 20 Mbps ceiling — bufferbloat inside the sender, where the cleaner the link looks
+  the harder it pumps. The host now measures frame age at the send step and feeds it in
+  beside the viewer's numbers: past `kBacklogMs` it backs off like 2 % loss, past
+  `kSevereBacklogMs` like 5 % loss, and either one blocks the ramp-up for the usual two
+  seconds. Bitrate is still the only control variable, so the `QualityLadder` steps down
+  behind it and the fps cap follows. Any control loop fed only by the far end is blind to
+  the half of the pipeline it actually owns.
+
+- **Capping fps only helps where something drops the frame**: the ladder's fps rung is a
+  request, and each platform has to honour it somewhere frames can be thrown away.
+  Windows and Linux gate at capture with `FrameGate`; Android caps MediaCodec's input
+  with `max-fps-to-encoder`; macOS reconfigures ScreenCaptureKit's frame interval. iOS
+  had nowhere: ReplayKit delivers at screen rate and `VtEncoder::SetFps` only sets
+  `kVTCompressionPropertyKey_ExpectedFrameRate`, a rate-control hint that does not drop
+  anything. A rung change there re-tuned the encoder and changed nothing about how many
+  frames it had to swallow. `OfferVtFrame` now runs the same `FrameGate` for both Apple
+  apps, after the idle-flush cache is refreshed so a still screen still has a frame to
+  re-send. When a knob exists on every platform, check what each one does with it before
+  trusting the ladder.
+
+- **The send pacer must stay well above the encoder's own output rate**: `Pacer::Gate`
+  sleeps on whichever thread `SendEncodedFrame` runs on, and on Android that is
+  MediaCodec's drain loop — the same loop that must call `releaseOutputBuffer` before the
+  encoder can hand over the next frame. Pacing therefore sets the drain rate, not just
+  the wire rate, while the VirtualDisplay keeps pushing new frames in at screen rate.
+  Narrowing `kPacingRateMultiple` from 2 to 1.2 to smooth send bursts was measured on a
+  Pixel 4: burst per frame went from 20 ms to 63 ms median, and the encoder backlog grew
+  without bound — `enc_lat_ms` climbed past 46 s in 100 s, and the viewer sat 4.6 s
+  behind. At 2 the same run held `enc_lat_ms` at 0. The headroom is not slack to reclaim;
+  it is what keeps the encode pipeline draining faster than it fills. Attack send bursts
+  with socket buffers or by moving pacing off the drain thread, never by tightening this
+  number.
+
+- **The perf suite gates on cost, so a second gate has to watch outcome**: `core_perf`
+  measures allocations per packet and how time scales with input, and every one of its
+  reassembler workloads passed while a single lost packet was costing 22 % of the intact
+  frames on a real link. It could not have caught it: discarding good video is *cheaper*
+  than decoding it, so the broken policy scored better on every number the suite watches.
+  `LossGoodputTests` is the companion that fails when the code does less work than it
+  should — a simulated tail-loss link with a real round trip, gating on the fraction of
+  frames whose packets all arrived that actually reach the decoder, and on the longest
+  gap between two delivered frames. Both are machine-independent, so they hold on a
+  laptop, a CI runner and a phone alike. Reach for a goodput gate whenever a policy can
+  "succeed" by throwing work away.
+
+- **A lost packet costs one frame, not the whole picture until the next keyframe**: the
+  reassembler used to arm `waitingForIdr_` on every loss, so a single missing packet
+  threw away every *complete* frame that followed until a fresh IDR arrived. Measured on
+  a phone host over Wi-Fi, that turned 64 genuinely incomplete frames into 381 discarded
+  ones — 6.4 MB of decodable video binned, and a picture frozen for a median of 146 ms
+  and up to 1.4 s at a time. Now only the incomplete frame is dropped; the frames behind
+  it go straight to the decoder, which conceals the missing reference while
+  `InvalidateRef` names the bad frame to the host and the keyframe request repairs it.
+  Brief macroblock artifacts are the deliberate price of not freezing. `waitingForIdr_`
+  survives for the one case it was right about: a viewer joining mid-stream has no
+  reference at all and must wait for the first IDR.
+
+- **The stall window has to outlast a retransmit, or NACK is decoration**: a frame used
+  to be given two frame intervals (33 ms at 60 fps) before it was declared lost, while
+  the measured RTT on the same link was 24-49 ms. The NACK went out and its answer
+  arrived after the frame had already been binned — visible as `late_ms_avg=24` with 87
+  packets per second landing on frames that no longer existed. `StallTimeoutUs` now takes
+  the larger of the paced window and one-and-a-half round trips, still capped by the hard
+  timeout, so retransmission is worth asking for on exactly the links that need it.
 
 - **The performance suite gates on allocations and shape, not on milliseconds**: the
   three test suites build debug, and CI runs them again under ASan, TSan and coverage,
@@ -603,3 +702,23 @@ line.
   corners and the transparency baked in — otherwise the app shows up as a hard blue
   square next to every other rounded icon. `scripts/make-icons.py` is pure standard
   library on purpose: bootstrap installs no image tooling.
+- **A desktop client holds many hosts at once; a phone holds one**: the connect page on
+  Windows, Linux and macOS keeps no connected state of its own. A host that answers gets
+  a connection window — `ConnectionFrame` in `client/windows/win32/MainFrame.cpp`,
+  `ConnectionWindow` in `client/linux/gtk/MainWindow.cpp`, the `connection` `WindowGroup`
+  in `client/macos/app/swift/App.swift` — owning that host's address, passcode, caps,
+  sources and control tick, so the page stays free to dial the next one. The main window
+  keeps only a list of the open ones, to raise a window when the same host is dialled
+  twice, to push each status probe at the window whose address matches, and to close them
+  all on quit. Android and iOS deliberately stay single-connection: a phone screen has no
+  room for a second panel, and the session it opens is full-screen anyway.
+  `ui::SameDeviceAddr` is what "the same host" means everywhere — see the entry below.
+- **One host, two spellings, one comparison**: `ScanAddressText` drops the port when it is
+  the default, so a scanned row reads `192.168.1.60` while the address the user typed and
+  connected with reads `192.168.1.60:47777`. Comparing those as strings silently fails,
+  and every place that did lost something real: the connected panel found no matching
+  device row and so showed no ping, and `PasscodeForDevice` did not find the code saved
+  for a host that was picked out of the scan list. Address equality therefore goes through
+  `ui::NormalizedDeviceAddr` / `ui::SameDeviceAddr` (`core/ui/Strings.h`), exposed to the
+  Swift and Kotlin clients as `dh_same_device_addr`. Never compare two device addresses
+  with `==`.

@@ -271,7 +271,6 @@ inline constexpr const char* kHostHasNoTerminal =
 inline constexpr const char* kTerminalClientHeading = "Open a terminal on another machine";
 inline constexpr const char* kTerminalClientHint =
     "This is separate from viewing a screen \xE2\x80\x94 you can do either, or both.";
-inline constexpr const char* kTerminalCloseButton = "Close shell";
 inline constexpr const char* kTerminalConnecting = "Connecting\xE2\x80\xA6";
 inline constexpr const char* kTerminalConnected = "Connected.";
 inline constexpr const char* kTerminalClosed = "The shell has ended.";
@@ -323,8 +322,6 @@ inline constexpr const char* kTransferBusyNote =
 inline constexpr const char* kTransferChooseButton = "Choose files\xE2\x80\xA6";
 inline constexpr const char* kTransferCancelButton = "Stop sending";
 inline constexpr const char* kTransferAcceptLabel = "Take files viewers send";
-inline constexpr const char* kTransferBlocksScreenNote =
-    "Stop taking files to share the screen \xE2\x80\x94 this phone hosts one or the other.";
 inline constexpr const char* kTransferArrivedTitle = "Files received";
 inline constexpr const char* kTransferStopTakingButton = "Stop taking files";
 inline constexpr const char* kTransferFolderLabel = "Store them in";
@@ -590,6 +587,18 @@ inline uint16_t AddressPort(std::string_view address) {
     uint16_t port = 0;
     SplitHostPort(TrimAscii(address), host, port);
     return port;
+}
+
+inline std::string NormalizedDeviceAddr(std::string_view address) {
+    const std::string trimmed = TrimAscii(address);
+    if (trimmed.empty()) return {};
+    const uint16_t port = AddressPort(trimmed);
+    return AddressHost(trimmed) + ":" + std::to_string(port != 0 ? port : kDeskhubPort);
+}
+
+inline bool SameDeviceAddr(std::string_view left, std::string_view right) {
+    const std::string wanted = NormalizedDeviceAddr(left);
+    return !wanted.empty() && wanted == NormalizedDeviceAddr(right);
 }
 
 inline std::string InvalidAddressLine(std::string_view address) {
