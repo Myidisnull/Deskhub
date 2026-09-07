@@ -1,5 +1,8 @@
-• Mọi phiên giờ đều được mã hoá đầu-cuối trên QUIC/TLS
-• Cách ghép đôi mới: chứng minh bạn biết passcode của máy tính mà không hề gửi mã đi, hoặc được người ngồi tại máy duyệt
-• Máy tính đã ghép đôi được nhớ theo khoá và có thể thu hồi từ cả hai phía
-• Mở một shell trên máy tính từ xa trong cửa sổ riêng, kèm hàng phím Esc, Tab, Ctrl và các phím mũi tên
+• Âm thanh — nghe được máy tính bạn đang xem phát gì, khớp với hình
+• Truyền file hai chiều: gửi sang máy tính, và nhận lại thứ máy tính gửi. Ảnh và video vào thư viện ảnh, mọi thứ khác vào app Files, kèm thông báo cho biết vừa nhận được gì
+• iPhone hay iPad nhận file ngay từ lúc mở app, kể cả khi đang chia sẻ màn hình
+• Kết nối một lần, rồi chọn thứ muốn mở: màn hình, shell, hay truyền file
+• Dòng trạng thái kết nối có ping của máy chủ và nút Ngắt kết nối
+• Phiên bị rớt mạng giờ tự nối lại thay vì kết thúc
+• Chia sẻ màn hình thiết bị này giờ kèm cả âm thanh các app đang phát
 • Sửa lỗi và cải thiện độ ổn định khi stream

@@ -134,6 +134,15 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Fastlane metadata (App Store listing)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: client/ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        run: fastlane ios metadata
+
   release-macos:
     needs: verify-tag
     runs-on: macos-latest
@@ -237,6 +246,13 @@ jobs:
           path: client/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Fastlane metadata (Play listing)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: client/android
+        env:
+          PLAY_JSON_KEY: ${{ secrets.PLAY_JSON_KEY }}
+        run: fastlane android metadata
 
       - name: Rename apk with tag
         if: startsWith(github.ref, 'refs/tags/v')

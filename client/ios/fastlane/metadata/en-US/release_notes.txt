@@ -1,5 +1,8 @@
-• Every session is now encrypted end to end over QUIC/TLS
-• New pairing: prove the computer's passcode without ever sending it, or get approved by the person at the computer
-• Paired computers are remembered by key and can be revoked from either end
-• Open a shell on the remote computer in its own window, with a key row for Esc, Tab, Ctrl and the arrows
+• Sound — hear what the computer you are watching is playing, in step with the picture
+• Files both ways: send them to the computer, and take what it sends back. Photos and videos go to your photo library, everything else to the Files app, and a banner names what arrived
+• Your iPhone or iPad takes files from the moment the app is open, even while it is sharing its screen
+• Connect once, then choose what to open: its screen, a shell, or file transfer
+• A live connection line with the host's ping and a Disconnect button
+• A session that loses the network now reattaches by itself instead of ending
+• Sharing this device's screen now carries the sound your apps play
 • Stability and streaming fixes
