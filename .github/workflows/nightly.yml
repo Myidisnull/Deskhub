@@ -156,6 +156,7 @@ jobs:
             $code = $LASTEXITCODE
             Write-Host "===== quiche checks run $i exit $code ====="
             if ($code -ne 0 -and $code -ne 1) {
+              $null = & "$env:GITHUB_WORKSPACE/scripts/wait-for-crash-dump.ps1" -Folder "$env:RUNNER_TEMP\crash-dumps"
               throw "integration_tests died with 0x$('{0:x8}' -f $code) against a quiche built with debug assertions and overflow checks on. This job is the only one that can see inside quiche - ASan does not instrument Rust and the page heap only guards the heap - so if a panic message names a quiche file and line above, that line is the bug, not a later victim of it."
             }
           }
@@ -227,6 +228,7 @@ jobs:
             $code = $LASTEXITCODE
             Write-Host "===== page heap run $i exit $code ====="
             if ($code -ne 0 -and $code -ne 1) {
+              $null = & "$env:GITHUB_WORKSPACE/scripts/wait-for-crash-dump.ps1" -Folder "$env:RUNNER_TEMP\crash-dumps"
               throw "integration_tests died with 0x$('{0:x8}' -f $code) under the full page heap. Unlike every other Windows job, the stack printed above is the write itself and not a later victim of it - that frame is the bug."
             }
           }
